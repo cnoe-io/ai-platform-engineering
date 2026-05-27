@@ -6,7 +6,14 @@ on:
     branches:
       - main
       - 'release/**'
-    types: [opened, synchronize, reopened, labeled, unlabeled]
+    paths:
+      - 'charts/**'
+      - 'ai_platform_engineering/**'
+      - 'build/**'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - 'ui/**'
+    types: [opened, synchronize, reopened, edited]
 
 permissions:
   contents: write
@@ -15,123 +22,35 @@ permissions:
   packages: write
   actions: read
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
-
 jobs:
-  eligibility:
-    name: Check PR eligibility
-    runs-on: ubuntu-latest
-    outputs:
-      should_run: ${{ steps.check.outputs.should_run }}
-      reason: ${{ steps.check.outputs.reason }}
-    steps:
-      - name: 🔍 Check changed paths or release merge
-        id: check
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
-        with:
-          script: |
-            const pr = context.payload.pull_request;
-            const supportedBase = pr.base.ref === 'main' || pr.base.ref.startsWith('release/');
-            if (!supportedBase) {
-              core.setOutput('should_run', 'false');
-              core.setOutput('reason', `unsupported base branch ${pr.base.ref}`);
-              core.info(`should_run=false: unsupported base branch ${pr.base.ref}`);
-              return;
-            }
-
-            // For label events, the label name is in the payload — no API call needed.
-            // Only helm labels require a version-bump run; all others are irrelevant.
-            const action = context.payload.action || '';
-            if (action === 'labeled' || action === 'unlabeled') {
-              const helmLabels = new Set(['helm-chart-bump', 'helm-prerelease']);
-              const labelName = context.payload.label?.name;
-              if (!helmLabels.has(labelName)) {
-                core.setOutput('should_run', 'false');
-                core.setOutput('reason', `label event for non-helm label: ${labelName}`);
-                core.info(`should_run=false: label event for non-helm label: ${labelName}`);
-                return;
-              }
-              core.setOutput('should_run', 'true');
-              core.setOutput('reason', `helm label event: ${labelName}`);
-              core.info(`should_run=true: helm label event: ${labelName}`);
-              return;
-            }
-
-            const releaseMergeRe = /^release\/\d+\.\d+\.\d+(?:-hotfix)?$/;
-            const isReleaseMerge = pr.base.ref === 'main' && releaseMergeRe.test(pr.head.ref);
-
-            const watchedPrefixes = [
-              'charts/',
-              'ai_platform_engineering/',
-              'build/',
-              'ui/'
-            ];
-            const watchedFiles = new Set([
-              'pyproject.toml',
-              'uv.lock'
-            ]);
-
-            const files = await github.paginate(github.rest.pulls.listFiles, {
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: pr.number,
-              per_page: 100
-            });
-
-            const matchedFile = files.find(({ filename }) =>
-              watchedPrefixes.some(prefix => filename.startsWith(prefix)) ||
-              watchedFiles.has(filename)
-            );
-
-            const shouldRun = isReleaseMerge || Boolean(matchedFile);
-            const reason = isReleaseMerge
-              ? `release merge ${pr.head.ref} -> ${pr.base.ref}`
-              : matchedFile
-                ? `matched path ${matchedFile.filename}`
-                : 'no watched path changes';
-
-            core.setOutput('should_run', String(shouldRun));
-            core.setOutput('reason', reason);
-            core.info(`should_run=${shouldRun}: ${reason}`);
-
   version-bump:
     name: Bump version files on PR
     runs-on: ubuntu-latest
-    needs: eligibility
     # Don't run on commits made by the bot (avoid infinite loop)
-    if: needs.eligibility.outputs.should_run == 'true' && github.actor != 'github-actions[bot]' && github.actor != 'caipe-ci-release[bot]'
+    if: github.actor != 'github-actions[bot]' && github.actor != 'caipe-release-bot[bot]'
     outputs:
-      new_commit: ${{ steps.chart-cleanup-commit.outputs.committed == 'true' || steps.update.outputs.skip_commit == 'false' || (steps.release-check.outputs.is_release_merge == 'true' && steps.release-check.outputs.needs_prepare == 'true' && steps.branch-status.outputs.needs_update != 'true' && steps.mergeability.outputs.has_conflicts != 'true') }}
+      new_commit: ${{ steps.update.outputs.skip_commit == 'false' || (steps.release-check.outputs.is_release_merge == 'true' && steps.release-check.outputs.needs_prepare == 'true' && steps.branch-status.outputs.needs_update != 'true' && steps.mergeability.outputs.has_conflicts != 'true') }}
       should_prebuild: ${{ steps.helm-labels.outputs.should_run }}
     steps:
       - name: 🔒 Harden runner
-        uses: step-security/harden-runner@ab7a9404c0f3da075243ca237b5fac12c98deaa5 # v2.19.3
+        uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450 # v2.19.1
         with:
           egress-policy: audit
-
-      - name: 🔑 Generate GitHub App token
-        id: app-token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
-        with:
-          app-id: ${{ secrets.CI_BUILD_APP_ID }}
-          private-key: ${{ secrets.CI_BUILD_APP_PRIVATE_KEY }}
 
       - name: 📥 Checkout PR branch
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
-          ref: ${{ github.event.pull_request.head.ref }}
+          ref: ${{ github.head_ref }}
           fetch-depth: 0
           token: ${{ secrets.GH_PAT }}
 
       - name: 🔍 Check if PR branch is up to date
         id: branch-status
         shell: bash
-        env:
-          BASE_REF: ${{ github.event.pull_request.base.ref }}
-          HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
+          BASE_REF="${{ github.event.pull_request.base.ref }}"
+          HEAD_REF="${{ github.event.pull_request.head.ref }}"
+
           git fetch origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
 
           BASE_SHA=$(git rev-parse "origin/${BASE_REF}")
@@ -158,7 +77,7 @@ jobs:
             const prNumber = context.payload.pull_request.number;
 
             let pr;
-            for (let attempt = 0; attempt < 3; attempt++) {
+            for (let attempt = 0; attempt < 6; attempt++) {
               const response = await github.rest.pulls.get({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
@@ -263,26 +182,22 @@ jobs:
             core.info(`Applied PR flow label: ${label.name}`);
 
       - name: 💬 Comment if branch needs update
-        id: branch-update-comment
         if: steps.branch-status.outputs.needs_update == 'true' || steps.mergeability.outputs.has_conflicts == 'true'
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           NEEDS_UPDATE: ${{ steps.branch-status.outputs.needs_update }}
           HAS_CONFLICTS: ${{ steps.mergeability.outputs.has_conflicts }}
         with:
           script: |
+            const marker = '<!-- pr-version-bump:update-branch -->';
             const prNumber = context.payload.pull_request.number;
             const baseRef = process.env.BASE_REF;
             const headRef = process.env.HEAD_REF;
-            const headSha = process.env.HEAD_SHA;
             const headRepo = process.env.HEAD_REPO;
             const repo = `${context.repo.owner}/${context.repo.repo}`;
-            const markerPrefix = '<!-- pr-version-bump:update-branch';
-            const marker = `<!-- pr-version-bump:update-branch sha=${headSha} -->`;
             const isFork = headRepo !== repo;
             const isPrebuild = headRef.startsWith('prebuild/');
             const needsUpdate = process.env.NEEDS_UPDATE === 'true';
@@ -312,7 +227,6 @@ jobs:
 
             let body = `${marker}\n`;
             body += `## ❗ Branch update needed\n\n`;
-            body += `**Commit:** \`${headSha.slice(0, 8)}\`\n\n`;
             body += `CI failed to bump chart and app versions because ${reasons.join(' and ')}. Please update the branch by following the steps below:\n\n`;
             body += `Run:\n\n`;
             body += '```bash\n';
@@ -323,41 +237,31 @@ jobs:
               body += `This is a \`prebuild/*\` branch, so Helm prebuild publishing will still run so you can test the chart changes while the branch is being updated.\n`;
             }
 
-            try {
-              const comments = await github.paginate(github.rest.issues.listComments, {
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              per_page: 100
+            });
+
+            const existing = comments.find(comment =>
+              comment.user.type === 'Bot' && comment.body.includes(marker)
+            );
+
+            if (existing) {
+              await github.rest.issues.updateComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                issue_number: prNumber,
-                per_page: 100
+                comment_id: existing.id,
+                body
               });
-
-              const existing = comments.filter(comment =>
-                comment.user?.type === 'Bot' && (comment.body || '').includes(markerPrefix)
-              );
-
-              for (const comment of existing) {
-                await github.rest.issues.deleteComment({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  comment_id: comment.id
-                });
-              }
-
-              const response = await github.rest.issues.createComment({
+            } else {
+              await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: prNumber,
                 body
               });
-              const commentUrl = response.data.html_url || '';
-              const result = existing.length > 0 ? 'recreated' : 'created';
-              core.setOutput('result', result);
-              core.setOutput('comment_url', commentUrl);
-              core.notice(`Branch update PR comment ${result}: ${commentUrl}`);
-            } catch (error) {
-              core.setOutput('result', 'failed');
-              core.setOutput('error', error.message);
-              core.warning(`Failed to replace branch update PR comment: ${error.message}`);
             }
 
       - name: 🐍 Set up Python
@@ -372,15 +276,14 @@ jobs:
       - name: 🔍 Check if release merge PR
         id: release-check
         shell: bash
-        env:
-          BASE_REF: ${{ github.event.pull_request.base.ref }}
-          HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
-          if [[ "$BASE_REF" == "main" && "$HEAD_REF" =~ ^release/([0-9]+\.[0-9]+\.[0-9]+)(-hotfix)?$ ]]; then
+          BASE="${{ github.base_ref }}"
+          HEAD="${{ github.head_ref }}"
+          if [[ "$BASE" == "main" && "$HEAD" =~ ^release/([0-9]+\.[0-9]+\.[0-9]+)(-hotfix)?$ ]]; then
             VERSION="${BASH_REMATCH[1]}"
             echo "is_release_merge=true" >> $GITHUB_OUTPUT
             echo "version=$VERSION" >> $GITHUB_OUTPUT
-            echo "🚀 Release merge PR detected: $HEAD_REF → main"
+            echo "🚀 Release merge PR detected: $HEAD → main"
 
             RAW_VERSION=$(grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
             if [[ "$RAW_VERSION" == "$VERSION" ]]; then
@@ -402,47 +305,50 @@ jobs:
         with:
           version: ${{ steps.release-check.outputs.version }}
 
-      # ── Determine chart-bump state from label before version bumping ──────
+      # ── Check labels before version bumping ───────────────────────────
       - name: 🏷️ Check helm labels
         id: helm-labels
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
-        with:
-          script: |
-            const pr = context.payload.pull_request;
-            const prNumber = pr.number;
-            const chartBumpLabel = 'helm-chart-bump';
-            const helmPrereleaseLabel = 'helm-prerelease';
-            const eventName = context.eventName;
-            const action = context.payload.action || '';
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          HEAD_REF="${{ github.head_ref }}"
+          PR_NUMBER="${{ github.event.pull_request.number }}"
 
-            const labelNames = new Set((pr.labels || []).map(label => label.name));
-            const chartBumpPresent = labelNames.has(chartBumpLabel);
+          BUMP_CHARTS=false
+          SHOULD_PREBUILD=false
 
-            const chartBumpLabelRemoved = eventName === 'pull_request' && action === 'unlabeled' && context.payload.label?.name === chartBumpLabel;
+          # prebuild/* branches always bump charts and publish
+          if [[ "$HEAD_REF" == prebuild/* ]]; then
+            BUMP_CHARTS=true
+            SHOULD_PREBUILD=true
+            echo "✅ prebuild/ branch — chart bump + prebuild publishing enabled"
+          fi
 
-            const undoCharts = chartBumpLabelRemoved;
-            const bumpCharts = chartBumpPresent && !undoCharts;
-            const shouldPrebuild = pr.head.ref.startsWith('prebuild/') || labelNames.has(helmPrereleaseLabel);
+          LABELS=$(gh pr view "$PR_NUMBER" --json labels --jq '.labels[].name' 2>/dev/null | tr '\n' ',' || echo "")
 
-            core.setOutput('bump_charts', String(bumpCharts));
-            core.setOutput('should_run', String(shouldPrebuild));
-            core.setOutput('undo_charts', String(undoCharts));
-            core.setOutput('helm_chart_bump_label', String(chartBumpPresent));
+          if [[ "$LABELS" == *"helm-chart-bump"* ]]; then
+            BUMP_CHARTS=true
+            echo "✅ helm-chart-bump label — chart versions will be bumped"
+          fi
 
-            core.info(`bump_charts=${bumpCharts}`);
-            core.info(`undo_charts=${undoCharts}`);
-            core.info(`should_prebuild=${shouldPrebuild}`);
+          if [[ "$LABELS" == *"helm-prerelease"* ]]; then
+            SHOULD_PREBUILD=true
+            echo "✅ helm-prerelease label — prebuild chart publishing enabled"
+          fi
+
+          echo "bump_charts=$BUMP_CHARTS" >> $GITHUB_OUTPUT
+          echo "should_run=$SHOULD_PREBUILD" >> $GITHUB_OUTPUT
 
       # ── Normal path: determine-version + update-version-files ──────────
       - name: 🏷️ Determine version
-        if: ${{ steps.helm-labels.outputs.undo_charts != 'true' && steps.release-check.outputs.is_release_merge != 'true' && steps.branch-status.outputs.needs_update != 'true' && steps.mergeability.outputs.has_conflicts != 'true' }}
+        if: ${{ steps.release-check.outputs.is_release_merge != 'true' && steps.branch-status.outputs.needs_update != 'true' && steps.mergeability.outputs.has_conflicts != 'true' }}
         id: version
         uses: ./.github/actions/determine-version
         with:
-          token: ${{ steps.app-token.outputs.token }}
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 📝 Update version files
-        if: ${{ steps.helm-labels.outputs.undo_charts != 'true' && steps.release-check.outputs.is_release_merge != 'true' && steps.branch-status.outputs.needs_update != 'true' && steps.mergeability.outputs.has_conflicts != 'true' }}
+        if: ${{ steps.release-check.outputs.is_release_merge != 'true' && steps.branch-status.outputs.needs_update != 'true' && steps.mergeability.outputs.has_conflicts != 'true' }}
         id: update
         uses: ./.github/actions/update-version-files
         with:
@@ -450,151 +356,30 @@ jobs:
           diff_target: ${{ steps.version.outputs.diff_target }}
           bump_charts: ${{ steps.helm-labels.outputs.bump_charts }}
 
-      - name: ⚙️ Install yq for chart cleanup
-        if: steps.helm-labels.outputs.undo_charts == 'true'
-        shell: bash
-        run: |
-          if ! command -v yq &>/dev/null; then
-            sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
-            sudo chmod +x /usr/local/bin/yq
-          fi
-          yq --version
-
-      - name: ↩️ Restore chart bump fields
-        if: steps.helm-labels.outputs.undo_charts == 'true'
-        id: chart-cleanup
-        shell: bash
-        env:
-          BASE_REF: ${{ github.event.pull_request.base.ref }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: |
-          set -euo pipefail
-
-          git fetch origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
-          if [[ -n "$BASE_SHA" ]] && git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
-            BASE_COMMIT="$BASE_SHA"
-          else
-            BASE_COMMIT="origin/${BASE_REF}"
-          fi
-
-          mapfile -t CHART_FILES < <(find charts -name "Chart.yaml" -type f | sort)
-          if [[ "${#CHART_FILES[@]}" -eq 0 ]]; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          LOCAL_CHART_NAMES=$(for file in "${CHART_FILES[@]}"; do yq -r '.name // ""' "$file"; done | grep -v '^$' | sort -u)
-
-          restore_scalar() {
-            local chart_file="$1"
-            local base_file="$2"
-            local field="$3"
-            local base_value
-            local current_value
-
-            base_value=$(yq -r ".$field // \"\"" "$base_file")
-            current_value=$(yq -r ".$field // \"\"" "$chart_file")
-            if [[ -n "$base_value" && "$base_value" != "$current_value" ]]; then
-              yq -i ".$field = \"$base_value\"" "$chart_file"
-              echo "  ↩️ $chart_file .$field: $current_value -> $base_value"
-            fi
-          }
-
-          for chart_file in "${CHART_FILES[@]}"; do
-            if ! git cat-file -e "$BASE_COMMIT:$chart_file" 2>/dev/null; then
-              continue
-            fi
-
-            base_file=$(mktemp)
-            git show "$BASE_COMMIT:$chart_file" > "$base_file"
-
-            restore_scalar "$chart_file" "$base_file" "version"
-            restore_scalar "$chart_file" "$base_file" "appVersion"
-
-            for chart_name in $LOCAL_CHART_NAMES; do
-              base_dep_version=$(yq -r ".dependencies[]? | select(.name == \"$chart_name\" and (.repository == null or (.repository | test(\"^file://\")))) | .version" "$base_file" | head -n 1)
-              current_dep_version=$(yq -r ".dependencies[]? | select(.name == \"$chart_name\" and (.repository == null or (.repository | test(\"^file://\")))) | .version" "$chart_file" | head -n 1)
-              if [[ -n "$base_dep_version" && "$base_dep_version" != "$current_dep_version" ]]; then
-                yq -i "(.dependencies[] | select(.name == \"$chart_name\" and (.repository == null or (.repository | test(\"^file://\")))).version) = \"$base_dep_version\"" "$chart_file" 2>/dev/null || true
-                echo "  ↩️ $chart_file dependency $chart_name: $current_dep_version -> $base_dep_version"
-              fi
-            done
-
-            rm -f "$base_file"
-          done
-
-          if git diff --quiet -- charts; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "ℹ️ No chart bump fields needed cleanup"
-          else
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          fi
-
       # ── Commit changes to PR branch ────────────────────────────────────
       - name: 📤 Commit version bump
-        if: steps.helm-labels.outputs.undo_charts != 'true' && (steps.update.outputs.skip_commit == 'false' || (steps.release-check.outputs.is_release_merge == 'true' && steps.release-check.outputs.needs_prepare == 'true')) && steps.branch-status.outputs.needs_update != 'true' && steps.mergeability.outputs.has_conflicts != 'true'
+        if: (steps.update.outputs.skip_commit == 'false' || (steps.release-check.outputs.is_release_merge == 'true' && steps.release-check.outputs.needs_prepare == 'true')) && steps.branch-status.outputs.needs_update != 'true' && steps.mergeability.outputs.has_conflicts != 'true'
         id: commit
-        env:
-          BUMP_CHARTS: ${{ steps.helm-labels.outputs.bump_charts }}
-          FINAL_VERSION: ${{ steps.update.outputs.final_version }}
-          RELEASE_VERSION: ${{ steps.release-check.outputs.version }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          git add pyproject.toml uv.lock CHANGELOG.md docs/docusaurus.config.ts docs/src/pages/index.tsx || true
+          git add pyproject.toml uv.lock CHANGELOG.md || true
 
-          if [[ "$BUMP_CHARTS" == "true" ]]; then
+          if [[ "${{ steps.helm-labels.outputs.bump_charts }}" == "true" ]]; then
             find charts -name "Chart.yaml" -type f -exec git add {} +
           fi
 
-          TAG="${FINAL_VERSION:-$RELEASE_VERSION}"
+          TAG="${{ steps.update.outputs.final_version || steps.release-check.outputs.version }}"
           git commit -m "chore: bump version to $TAG"
           git push
 
           echo "✅ Committed version bump to $TAG"
 
-      - name: 📤 Commit chart bump cleanup
-        if: steps.chart-cleanup.outputs.changed == 'true'
-        id: chart-cleanup-commit
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          find charts -name "Chart.yaml" -type f -exec git add {} +
-          git commit -m "chore: remove Helm chart bump"
-          git push
-
-          echo "committed=true" >> "$GITHUB_OUTPUT"
-          echo "✅ Removed Helm chart bump changes"
-
       - name: ❌ Require branch update before merge
         if: steps.branch-status.outputs.needs_update == 'true' || steps.mergeability.outputs.has_conflicts == 'true'
-        env:
-          COMMENT_RESULT: ${{ steps.branch-update-comment.outputs.result }}
-          COMMENT_URL: ${{ steps.branch-update-comment.outputs.comment_url }}
-          COMMENT_ERROR: ${{ steps.branch-update-comment.outputs.error }}
-          BASE_REF: ${{ github.event.pull_request.base.ref }}
-          HEAD_REF: ${{ github.event.pull_request.head.ref }}
-          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
-          BASE_REPO: ${{ github.repository }}
         run: |
-          if [[ "$COMMENT_RESULT" == "created" ]]; then
-            echo "::error::This PR branch must be updated with $BASE_REF before it can merge. A PR comment with the exact commands was created: $COMMENT_URL"
-          elif [[ "$COMMENT_RESULT" == "recreated" ]]; then
-            echo "::error::This PR branch must be updated with $BASE_REF before it can merge. The previous PR comment was deleted and a new one was created: $COMMENT_URL"
-          else
-            echo "::error::This PR branch must be updated with $BASE_REF before it can merge, but CI could not create a fresh PR comment: ${COMMENT_ERROR:-unknown error}"
-            echo "Run:"
-            if [[ "$HEAD_REPO" != "$BASE_REPO" ]]; then
-              echo "git fetch https://github.com/${BASE_REPO}.git ${BASE_REF}"
-            else
-              echo "git fetch origin ${BASE_REF}"
-            fi
-            echo "git checkout ${HEAD_REF}"
-            echo "git merge FETCH_HEAD"
-            echo "git push"
-          fi
+          echo "::error::This PR branch must be updated with ${{ github.event.pull_request.base.ref }} before it can merge. A comment with the exact commands was posted on the PR."
           exit 1
 
   # Call prebuild workflow for eligible PRs
@@ -605,7 +390,7 @@ jobs:
       always() &&
       needs.version-bump.outputs.should_prebuild == 'true' &&
       needs.version-bump.outputs.new_commit != 'true' &&
-      (needs.version-bump.result == 'success' || startsWith(github.event.pull_request.head.ref, 'prebuild/'))
+      (needs.version-bump.result == 'success' || startsWith(github.head_ref, 'prebuild/'))
     uses: ./.github/workflows/prebuild-helm.yml
     with:
       pr_number: ${{ github.event.pull_request.number }}

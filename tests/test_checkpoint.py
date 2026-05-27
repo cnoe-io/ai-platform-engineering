@@ -755,13 +755,13 @@ class TestBaseAgentCheckpointerWiring:
             assert "checkpointer" in src
 
     def test_deep_agent_has_checkpointer_in_source(self):
-        """deep_agent.py wires LangGraph checkpointer via create_checkpointer."""
+        """deep_agent.py should reference InMemorySaver."""
         import pathlib
         src = pathlib.Path(
             "ai_platform_engineering/multi_agents/platform_engineer/deep_agent.py"
         ).read_text()
-        assert "create_checkpointer" in src
-        assert "deep_agent.checkpointer" in src
+        assert "InMemorySaver" in src
+        assert "checkpointer" in src
 
 
 # ============================================================================

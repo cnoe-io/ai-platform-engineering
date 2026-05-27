@@ -3,12 +3,12 @@ description: "Test Helm charts"
 
 on:
   push:
-    branches: [ main, develop, 'release/**' ]
+    branches: [ main, develop ]
     paths:
       - 'charts/**'
       - '.github/workflows/helm-chart-test.yml'
   pull_request:
-    branches: [ main, develop, 'release/**' ]
+    branches: [ main, develop ]
     paths:
       - 'charts/**'
       - '.github/workflows/helm-chart-test.yml'
@@ -20,13 +20,8 @@ permissions:
   contents: read
   packages: read
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
 jobs:
   helm-chart-test:
-    if: github.actor != 'github-actions[bot]' && github.actor != 'caipe-ci-release[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -107,20 +102,6 @@ jobs:
           --set tags.basic=true \
           --set tags.rag-stack=false
 
-    - name: Test ai-platform-engineering installation (dry-run) - RBAC runtime
-      run: |
-        cd charts/ai-platform-engineering
-        helm template test-rbac-runtime . \
-          --debug \
-          --set tags.keycloak=true \
-          --set keycloak.admin.secretRef=caipe-keycloak-admin \
-          --set openfga.enabled=true \
-          --set openfgaAuthzBridge.enabled=true \
-          --set agentgateway.enabled=true \
-          --set openfga-authz-bridge.tokenValidation.issuer=https://idp.example.com/realms/caipe \
-          --set openfga-authz-bridge.tokenValidation.audiences[0]=agentgateway \
-          --set openfga-authz-bridge.tokenValidation.audiences[1]=caipe-platform
-
     - name: Test ai-platform-engineering installation (dry-run) - Minimal configuration
       run: |
         cd charts/ai-platform-engineering
@@ -130,10 +111,6 @@ jobs:
           --set agent-argocd.enabled=false \
           --set agent-github.enabled=false \
           --set tags.rag-stack=false
-
-    - name: Validate ai-platform-engineering image channels
-      run: |
-        python3 scripts/validate-helm-image-channel.py
 
     - name: Test rag-stack with different configurations
       run: |

@@ -9,8 +9,6 @@ import os
 import logging
 from dotenv import load_dotenv
 from fastmcp import FastMCP
-from starlette.middleware import Middleware
-from mcp_agent_auth.middleware import MCPAuthMiddleware
 
 from mcp_pagerduty.tools import (
   incidents,
@@ -74,8 +72,8 @@ def main():
 
     # Run the MCP server
     logging.info("="*40)
-    if MCP_MODE.lower() == "http":
-        mcp.run(transport=MCP_MODE.lower(), host=MCP_HOST, port=MCP_PORT, middleware=[Middleware(MCPAuthMiddleware)])
+    if MCP_MODE.lower() in ["sse", "http"]:
+        mcp.run(transport=MCP_MODE.lower(), host=MCP_HOST, port=MCP_PORT)
     else:
         mcp.run(transport=MCP_MODE.lower())
     logging.info("="*40)

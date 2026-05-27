@@ -15,7 +15,7 @@ dependencies = [
     "fastapi==0.135.3",
     "uvicorn==0.34.3",
     "config==0.5.1",
-    "langchain-core==1.4.0",
+    "langchain-core==1.2.31",
     "langgraph==1.1.6",
     "langfuse==3.14.5",
 
@@ -23,10 +23,10 @@ dependencies = [
     "a2a-sdk (==0.3.0)",
     "ag-ui-protocol==0.1.15",
     "agntcy-app-sdk==0.4.0",
-    "cnoe-agent-utils==0.4.0",
+    "cnoe-agent-utils==0.3.14",
 
     # Basic utilities
-    "python-dotenv==1.2.2",
+    "python-dotenv==1.1.1",
     "pydantic==2.11.7",
 ]
 

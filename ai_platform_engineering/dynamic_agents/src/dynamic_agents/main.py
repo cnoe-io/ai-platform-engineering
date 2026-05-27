@@ -38,7 +38,6 @@ from dynamic_agents.routes import (
     builtin_tools,
     chat,
     conversations,
-    files,
     health,
     mcp_servers,
     middleware,
@@ -138,18 +137,8 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    # Prometheus HTTP metrics middleware (from main). Mounted BEFORE the
-    # JWT auth middleware so failed-auth and CORS-preflight requests are
-    # still observable.
+    # Add Prometheus metrics middleware (serves /metrics, tracks request duration)
     app.add_middleware(PrometheusHTTPMiddleware)
-
-    # Spec 102 Phase 8 / T103: validate incoming Bearer JWTs against
-    # Keycloak and bind current_user_token so the MCP httpx factory can
-    # forward the user identity to agentgateway. Mounted AFTER CORS so
-    # CORS preflights are not auth-gated.
-    from dynamic_agents.auth.jwt_middleware import JwtAuthMiddleware
-
-    app.add_middleware(JwtAuthMiddleware)
 
     # Mount routes
     app.include_router(health.router)
@@ -157,7 +146,6 @@ def create_app() -> FastAPI:
     app.include_router(mcp_servers.router, prefix="/api/v1")
     app.include_router(chat.router, prefix="/api/v1")
     app.include_router(conversations.router, prefix="/api/v1")
-    app.include_router(files.router, prefix="/api/v1")
     app.include_router(assistant.router, prefix="/api/v1")
     app.include_router(middleware.router, prefix="/api/v1")
     # Agent reachability probe used by the autonomous-agents service
@@ -197,26 +185,6 @@ def create_app() -> FastAPI:
             "version": "0.1.0",
             "docs": "/docs",
         }
-
-    # Spec 102 Phase 11.2 — expose Prometheus metrics so the RBAC PDP
-    # cache hit/miss + decision counters set in
-    # ai_platform_engineering.utils.auth.metrics are scrapeable. The
-    # endpoint is intentionally NOT auth-gated (matches supervisor's
-    # /metrics convention; restrict via NetworkPolicy in production).
-    try:
-        from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
-        from starlette.responses import Response
-
-        @app.get("/metrics", include_in_schema=False)
-        async def metrics() -> Response:
-            return Response(
-                content=generate_latest(),
-                media_type=CONTENT_TYPE_LATEST,
-            )
-    except ImportError:
-        logger.warning(
-            "prometheus_client not installed; /metrics endpoint disabled"
-        )
 
     return app
 

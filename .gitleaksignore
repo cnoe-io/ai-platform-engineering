@@ -3,6 +3,3 @@
 /github/workspace/ai_platform_engineering/knowledge_bases/rag/common/src/common/graph_db/neo4j/graph_db.py:generic-api-key:131
 /github/workspace/ai_platform_engineering/knowledge_bases/rag/common/src/common/graph_db/neo4j/graph_db.py:generic-api-key:132
 /github/workspace/ai_platform_engineering/knowledge_bases/rag/ingestors/src/ingestors/webex/README.md:curl-auth-header:86
-60cd0b008ef043f22943a9e0f3b303611fc6ce1c:ui/src/lib/__tests__/api-middleware.test.ts:jwt:280
-60cd0b008ef043f22943a9e0f3b303611fc6ce1c:ui/src/lib/__tests__/api-middleware.test.ts:generic-api-key:610
-60cd0b008ef043f22943a9e0f3b303611fc6ce1c:ui/src/lib/__tests__/api-middleware.test.ts:generic-api-key:611

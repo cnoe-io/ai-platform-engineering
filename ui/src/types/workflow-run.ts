@@ -28,6 +28,7 @@ export interface WorkflowRun {
   id: string;
   workflow_id: string;
   workflow_name: string;
+  workflow_category?: string;
   status: WorkflowRunStatus;
   started_at: Date | string;
   completed_at?: Date | string;
@@ -69,6 +70,7 @@ export interface WorkflowRun {
 export interface CreateWorkflowRunInput {
   workflow_id: string;
   workflow_name: string;
+  workflow_category?: string;
   input_parameters?: Record<string, string>;
   input_prompt?: string;
   metadata?: {

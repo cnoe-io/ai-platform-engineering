@@ -9,19 +9,19 @@
 
 import { NextRequest } from "next/server";
 import {
+  withAuth,
   withErrorHandler,
+  requireAdmin,
   getPaginationParams,
   paginatedResponse,
-  getAuthFromBearerOrSession,
 } from "@/lib/api-middleware";
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import { getServerConfig } from "@/lib/config";
-import { requireResourcePermission } from "@/lib/rbac/resource-authz";
 import type { Conversation } from "@/types/mongodb";
 
 /**
  * GET /api/dynamic-agents/conversations
- * List all Dynamic Agent conversations for operators with OpenFGA audit access.
+ * List all Dynamic Agent conversations (admin only).
  */
 export const GET = withErrorHandler(async (request: NextRequest) => {
   if (!isMongoDBConfigured) {
@@ -33,11 +33,11 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     return paginatedResponse([], 0, 1, 20);
   }
 
-  const { session } = await getAuthFromBearerOrSession(request);
-  await requireResourcePermission(session, { type: "audit_log", id: "dynamic_agent_conversations", action: "read" });
+  return await withAuth(request, async (req, _user, session) => {
+    requireAdmin(session);
 
-    const { page, pageSize, skip } = getPaginationParams(request);
-    const url = new URL(request.url);
+    const { page, pageSize, skip } = getPaginationParams(req);
+    const url = new URL(req.url);
 
     // Query parameters
     const search = url.searchParams.get("search")?.trim();
@@ -180,4 +180,5 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     }
 
     return paginatedResponse(items, total, page, pageSize);
+  });
 });

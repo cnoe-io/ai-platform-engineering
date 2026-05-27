@@ -333,6 +333,7 @@ def build_middleware(
     Returns:
         Ordered list of middleware instances.
     """
+    conv = session_id or "-"
     if features is None or not features.middleware:
         # No explicit config — apply all default-enabled middleware
         entries: list[MiddlewareEntry] = []
@@ -352,14 +353,15 @@ def build_middleware(
 
         spec = MIDDLEWARE_REGISTRY.get(entry.type)
         if spec is None:
-            logger.warning("Unknown middleware type '%s', skipping", entry.type)
+            logger.warning("conv=%s Unknown middleware type '%s', skipping", conv, entry.type)
             continue
 
         # Enforce singleton constraint
         if not spec.allow_multiple:
             if entry.type in seen_singletons:
                 logger.warning(
-                    "Middleware '%s' does not allow multiple instances, skipping duplicate",
+                    "conv=%s Middleware '%s' does not allow multiple instances, skipping duplicate",
+                    conv,
                     entry.type,
                 )
                 continue
@@ -378,13 +380,14 @@ def build_middleware(
             instance = spec.cls(**params)
 
         result.append(instance)
-        logger.debug("Middleware '%s' added with params: %s", entry.type, params)
+        logger.debug("conv=%s Middleware '%s' added with params: %s", conv, entry.type, params)
 
     # Append MetricsAgentMiddleware at the end to capture total LLM/tool duration
     result.append(MetricsAgentMiddleware(agent_name=agent_name, model_id=model_id))
 
     logger.info(
-        "Built middleware stack: %s",
+        "conv=%s Built middleware stack: %s",
+        conv,
         [type(m).__name__ for m in result],
     )
     return result

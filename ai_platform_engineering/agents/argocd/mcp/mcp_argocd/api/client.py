@@ -9,22 +9,19 @@ import logging
 from typing import Optional, Dict, Tuple, Any
 import httpx
 import ssl
-from mcp_agent_auth.token import get_request_token
 
 # Load environment variables
 API_URL = os.getenv("ARGOCD_API_URL") or os.getenv("ARGOCD_URL")
+API_TOKEN = os.getenv("ARGOCD_API_TOKEN") or os.getenv("ARGOCD_TOKEN")
 
 if not API_URL:
     raise ValueError("ARGOCD_API_URL environment variable is not set.")
-
-logger = logging.getLogger("mcp_argocd")
-
-_ENV_TOKEN = os.getenv("ARGOCD_API_TOKEN") or os.getenv("ARGOCD_TOKEN")
-if not _ENV_TOKEN:
-    logger.warning("ARGOCD_API_TOKEN is not set; token must be supplied via Authorization: Bearer header")
+if not API_TOKEN:
+    raise ValueError("ARGOCD_API_TOKEN environment variable is not set.")
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger("mcp_argocd")
 
 
 
@@ -65,7 +62,8 @@ async def make_api_request(
     logger.debug(f"Making {method} request to {path}")
 
     if not token:
-        token = get_request_token("ARGOCD_API_TOKEN") or get_request_token("ARGOCD_TOKEN")
+        logger.debug("No token provided, using default token")
+        token = API_TOKEN
 
     if not token:
         logger.error("No token available - neither provided nor found in environment")

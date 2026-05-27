@@ -25,22 +25,7 @@ from ai_platform_engineering.skills_middleware.entitlement import (
 
 logger = logging.getLogger(__name__)
 
-# assisted-by Codex Codex-sonnet-4-6
 CATALOG_API_KEY_HEADER = os.getenv("CAIPE_CATALOG_API_KEY_HEADER", "X-Caipe-Catalog-Key").strip() or "X-Caipe-Catalog-Key"
-_ALLOWED_SCAN_SEVERITIES = frozenset({"critical", "high", "medium", "low", "info"})
-
-
-def _safe_scan_severity(value: Any) -> str | None:
-    if not isinstance(value, str):
-        return None
-    severity = value.strip().lower()
-    return severity if severity in _ALLOWED_SCAN_SEVERITIES else None
-
-
-def _safe_scan_exit_code(value: Any) -> int | None:
-    if isinstance(value, bool) or not isinstance(value, int):
-        return None
-    return value
 
 
 def _gitlab_api_host() -> str:
@@ -86,15 +71,6 @@ def _is_gitlab_host(host: str, configured: str) -> bool:
     if configured and host.endswith(f".{configured}"):
         return True
     return False
-
-
-def _scan_summary_for_response(exit_code: int | None, max_severity: str | None) -> str:
-    """Return scanner status without exposing raw process output."""
-    if exit_code not in (0, None):
-        if max_severity:
-            return f"skill-scanner reported findings up to {max_severity} severity"
-        return "skill-scanner reported findings"
-    return "skill-scanner completed successfully"
 
 
 def detect_hub_provider_from_url(location: str) -> str | None:
@@ -542,8 +518,8 @@ async def scan_skill_content(
     try:
         tmp_root = write_single_skill_to_temp_tree(body.name.strip(), body.content)
         result = run_scan_all_on_directory(tmp_root)
-    except Exception as exc:
-        logger.warning("scan-content failed for %s (%s)", body.name, type(exc).__name__)
+    except Exception as e:
+        logger.warning("scan-content failed for %s: %s", body.name, e)
         return {
             "passed": True,
             "blocked": False,
@@ -566,13 +542,10 @@ async def scan_skill_content(
             "summary": "skill-scanner not available",
         }
 
-    exit_code = _safe_scan_exit_code(result.get("exit_code"))
-    max_severity = _safe_scan_severity(result.get("max_severity"))
-
     blocked = False
-    if exit_code not in (0, None):
+    if result.get("exit_code") not in (0, None):
         if gate == "strict" and fail_on:
-            blocked = severity_meets_threshold(max_severity, fail_on)
+            blocked = severity_meets_threshold(result.get("max_severity"), fail_on)
         elif gate == "strict":
             blocked = True
 
@@ -590,7 +563,7 @@ async def scan_skill_content(
         "passed": not blocked,
         "blocked": blocked,
         "scan_status": scan_status,
-        "max_severity": max_severity,
-        "exit_code": exit_code,
-        "summary": _scan_summary_for_response(exit_code, max_severity),
+        "max_severity": result.get("max_severity"),
+        "exit_code": result.get("exit_code"),
+        "summary": (result.get("stdout") or "")[:4000],
     }

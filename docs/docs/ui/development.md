@@ -1006,7 +1006,7 @@ npm run dev
 - [Next.js Documentation](https://nextjs.org/docs)
 - [React Documentation](https://react.dev)
 - [Tailwind CSS Documentation](https://tailwindcss.com/docs)
-- [Radix UI Documentation](https://www.radix-ui.com/primitives/docs/overview/introduction)
+- [Radix UI Documentation](https://www.radix-ui.com/docs)
 - [Zustand Documentation](https://github.com/pmndrs/zustand)
 
 ### Community

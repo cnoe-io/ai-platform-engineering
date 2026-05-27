@@ -16,12 +16,11 @@
 import { NextRequest } from "next/server";
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import {
+  withAuth,
   withErrorHandler,
   successResponse,
-  getAuthFromBearerOrSession,
 } from "@/lib/api-middleware";
 import { getDefaultLLMModelFromEnv } from "@/lib/default-llm-model";
-import { filterResourcesByPermission } from "@/lib/rbac/resource-authz";
 
 interface ModelResponseEntry {
   model_id: string;
@@ -35,41 +34,37 @@ interface ModelResponseEntry {
  * List available LLM models for agent configuration.
  */
 export const GET = withErrorHandler(async (request: NextRequest) => {
-  const { session } = await getAuthFromBearerOrSession(request);
-  const envDefault = getDefaultLLMModelFromEnv();
+  return await withAuth(request, async () => {
+    const envDefault = getDefaultLLMModelFromEnv();
 
-  let mongoModels: ModelResponseEntry[] = [];
-  if (isMongoDBConfigured) {
-    try {
-      const collection = await getCollection("llm_models");
-      const docs = await collection.find({}).sort({ name: 1 }).toArray();
-      const visibleModels = await filterResourcesByPermission(session, docs, {
-        type: "llm_model",
-        action: "read",
-        id: (model) => String(model._id),
-      });
-      mongoModels = visibleModels.map((m) => ({
-        model_id: m.model_id,
-        name: m.name,
-        provider: m.provider,
-        description: m.description ?? "",
-      }));
-    } catch (err) {
-      // Don't fail the whole request if Mongo is configured but unreachable;
-      // we can still return the env-derived default so the UI stays usable.
-      console.error(
-        "[api/dynamic-agents/models] failed to read llm_models:",
-        err,
-      );
+    let mongoModels: ModelResponseEntry[] = [];
+    if (isMongoDBConfigured) {
+      try {
+        const collection = await getCollection("llm_models");
+        const docs = await collection.find({}).sort({ name: 1 }).toArray();
+        mongoModels = docs.map((m) => ({
+          model_id: m.model_id,
+          name: m.name,
+          provider: m.provider,
+          description: m.description ?? "",
+        }));
+      } catch (err) {
+        // Don't fail the whole request if Mongo is configured but unreachable;
+        // we can still return the env-derived default so the UI stays usable.
+        console.error(
+          "[api/dynamic-agents/models] failed to read llm_models:",
+          err,
+        );
+      }
     }
-  }
 
-  const seen = new Set(mongoModels.map((m) => m.model_id));
-  const merged: ModelResponseEntry[] = [];
-  if (envDefault && !seen.has(envDefault.model_id)) {
-    merged.push(envDefault);
-  }
-  merged.push(...mongoModels);
+    const seen = new Set(mongoModels.map((m) => m.model_id));
+    const merged: ModelResponseEntry[] = [];
+    if (envDefault && !seen.has(envDefault.model_id)) {
+      merged.push(envDefault);
+    }
+    merged.push(...mongoModels);
 
-  return successResponse(merged);
+    return successResponse(merged);
+  });
 });

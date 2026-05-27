@@ -172,7 +172,6 @@ async def sync_backstage_entities(client: Client):
   # 1. Create/Update the datasource
   datasource_info = DataSourceInfo(
     datasource_id=datasource_id,
-    name="Backstage Catalog",
     ingestor_id=client.ingestor_id or "",
     description="Backstage catalog entities",
     source_type="backstage",

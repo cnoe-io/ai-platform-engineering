@@ -17,8 +17,6 @@ import {
   Bot,
   Sparkles,
   AlertTriangle,
-  KeyRound,
-  MoreHorizontal,
 } from "lucide-react";
 import { GithubIcon as Github } from "@/components/ui/icons";
 import { UserMenu } from "@/components/user-menu";
@@ -33,16 +31,18 @@ import { useCAIPEHealth } from "@/hooks/use-caipe-health";
 import { useRAGHealth } from "@/hooks/use-rag-health";
 import { useAgentRuntimeHealth } from "@/hooks/use-agent-runtime-health";
 import { useVersion } from "@/hooks/use-version";
-import { useReleaseUpgradePrompt } from "@/hooks/use-release-upgrade-prompt";
-import { useMigrationStatus } from "@/hooks/use-migration-status";
-import { ReleaseUpgradeDialog } from "@/components/release/ReleaseUpgradeDialog";
 import { ReportProblemDialog } from "@/components/ticket/ReportProblemDialog";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { useToast } from "@/components/ui/toast";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 /** Format seconds into a human-readable interval (e.g., "3h", "30m", "45s") */
 function formatInterval(seconds: number): string {
@@ -73,7 +73,6 @@ function formatInterval(seconds: number): string {
  */
 const EDITOR_ROUTES_WITH_OWN_DISCARD_DIALOG = [
   "/task-builder",
-  "/workflows",
   "/skills/workspace",
   "/dynamic-agents",
 ];
@@ -88,7 +87,6 @@ const EDITOR_ROUTES_WITH_OWN_DISCARD_DIALOG = [
  */
 const EDITOR_ROUTES_WITH_HEADER_DIALOG = [
   "/task-builder",
-  "/workflows",
   "/dynamic-agents",
 ];
 
@@ -111,15 +109,11 @@ function GuardedLink({
   children,
   className,
   prefetch,
-  title,
-  "aria-label": ariaLabel,
 }: {
   href: string;
   children: React.ReactNode;
   className?: string;
   prefetch?: boolean;
-  title?: string;
-  "aria-label"?: string;
 }) {
   const { hasUnsavedChanges, requestNavigation } = useUnsavedChangesStore();
   const pathname = usePathname();
@@ -134,59 +128,16 @@ function GuardedLink({
   };
 
   return (
-    <Link
-      href={href}
-      prefetch={prefetch}
-      className={className}
-      onClick={handleClick}
-      title={title}
-      aria-label={ariaLabel}
-    >
+    <Link href={href} prefetch={prefetch} className={className} onClick={handleClick}>
       {children}
     </Link>
   );
 }
 
-// Baseline breakpoint: collapse the inline nav (Home/Chat/Skills/...) into
-// the "More" popover. Tuned so 8 primary nav pills + standard right-side
-// cluster (status pill + settings + user menu) still fit on a typical
-// laptop without overlap.
-const HEADER_NAV_COLLAPSE_QUERY = "(max-width: 1180px)";
-// Wider breakpoint used when an admin-only migration banner is showing on
-// the right. Each banner pill ("Migrations required: N" /
-// "Version metadata needed: N" / "Migration override active") adds a
-// chunky labelled chip plus a gap, and combined with the "Report a
-// Problem" full-text button can push the right cluster into the inline
-// nav. Collapsing earlier in that case prevents the overlap seen on
-// 1180–1320px viewports.
-const HEADER_NAV_COLLAPSE_QUERY_WITH_BANNER = "(max-width: 1320px)";
-
-function useHeaderNavCollapsed(earlyCollapse: boolean = false): boolean {
-  const query = earlyCollapse
-    ? HEADER_NAV_COLLAPSE_QUERY_WITH_BANNER
-    : HEADER_NAV_COLLAPSE_QUERY;
-
-  const [collapsed, setCollapsed] = React.useState(() => {
-    if (typeof window === "undefined" || !window.matchMedia) return false;
-    return window.matchMedia(query).matches;
-  });
-
-  React.useEffect(() => {
-    if (typeof window === "undefined" || !window.matchMedia) return;
-    const media = window.matchMedia(query);
-    const handleChange = () => setCollapsed(media.matches);
-    handleChange();
-    media.addEventListener?.("change", handleChange);
-    return () => media.removeEventListener?.("change", handleChange);
-  }, [query]);
-
-  return collapsed;
-}
-
 export function AppHeader() {
   const pathname = usePathname();
   const { data: session } = useSession();
-  const { isAdmin } = useAdminRole();
+  const { isAdmin, canViewAdmin, canAccessDynamicAgents } = useAdminRole();
   const { isStreaming, streamingConversations, unviewedConversations, inputRequiredConversations } = useChatStore();
   const {
     hasUnsavedChanges,
@@ -255,19 +206,6 @@ export function AppHeader() {
 
   // Fetch version info
   const { versionInfo } = useVersion();
-  const releasePrompt = useReleaseUpgradePrompt();
-  const migrationStatus = useMigrationStatus();
-  const { toast } = useToast();
-
-  React.useEffect(() => {
-    if (!session || !releasePrompt.toastNotification) return;
-    toast(
-      releasePrompt.toastNotification.message,
-      "info",
-      releasePrompt.toastNotification.duration,
-    );
-    releasePrompt.markToastShown();
-  }, [releasePrompt, session, toast]);
 
   // Combined status: if either is checking -> checking, if supervisor is disconnected -> disconnected,
   // if only RAG is disconnected (supervisor connected) -> rag-disconnected (amber warning), else connected
@@ -282,18 +220,11 @@ export function AppHeader() {
 
   const combinedStatus = getCombinedStatus();
   const autonomousAgentsEnabled = config.autonomousAgentsEnabled;
-  const combinedStatusLabel =
-    combinedStatus === "connected" ? "Connected" :
-    combinedStatus === "checking" ? "Checking" :
-    combinedStatus === "rag-disconnected" ? "RAG Disconnected" :
-    "Disconnected";
 
   const getActiveTab = () => {
     if (pathname === "/") return "home";
     if (pathname?.startsWith("/chat")) return "chat";
     if (pathname?.startsWith("/knowledge-bases")) return "knowledge";
-    if (pathname?.startsWith("/credentials")) return "credentials";
-    if (pathname?.startsWith("/workflows")) return "workflows";
     if (pathname?.startsWith("/task-builder")) return "task-builder";
     if (pathname?.startsWith("/autonomous")) return "autonomous";
     if (pathname?.startsWith("/skills") || pathname?.startsWith("/use-cases")) return "skills";
@@ -303,133 +234,11 @@ export function AppHeader() {
   };
 
   const activeTab = getActiveTab();
-  // When an admin-only migration banner is showing on the right of the
-  // header, the right cluster gets ~150–200px wider. Use a slightly
-  // larger breakpoint so the inline nav collapses into "More" before
-  // the cluster overlaps with the nav at viewports in the 1180–1320px
-  // band (the size where the bug originally manifested).
-  const hasMigrationBanner = Boolean(
-    isAdmin &&
-      (migrationStatus.status?.is_blocking ||
-        migrationStatus.status?.needs_version_bootstrap ||
-        migrationStatus.status?.override_active),
-  );
-  const headerNavCollapsed = useHeaderNavCollapsed(hasMigrationBanner);
-  const secondaryNavItems = [
-    config.taskBuilderEnabled && {
-      key: "task-builder",
-      href: "/task-builder",
-      label: "Task Builder",
-      Icon: Workflow,
-      activeClassName: "bg-primary text-primary-foreground shadow-sm",
-    },
-    autonomousAgentsEnabled && {
-      key: "autonomous",
-      href: "/autonomous",
-      label: "Autonomous",
-      Icon: Sparkles,
-      activeClassName: "bg-primary text-primary-foreground shadow-sm",
-    },
-    config.workflowsEnabled && {
-      key: "workflows",
-      href: "/workflows",
-      label: "Workflows",
-      Icon: Workflow,
-      activeClassName: "bg-primary text-primary-foreground shadow-sm",
-    },
-    ragEnabled && {
-      key: "knowledge",
-      href: "/knowledge-bases",
-      label: "Knowledge Bases",
-      Icon: Database,
-      activeClassName: "bg-primary text-primary-foreground shadow-sm",
-    },
-    storageMode === "mongodb" && config.dynamicAgentsEnabled && {
-      key: "dynamic-agents",
-      href: "/dynamic-agents",
-      label: "Agents",
-      Icon: Bot,
-      activeClassName: "bg-purple-500 text-white shadow-sm",
-    },
-    storageMode === "mongodb" && config.credentialsEnabled && {
-      key: "credentials",
-      href: "/credentials",
-      label: "Connections",
-      Icon: KeyRound,
-      activeClassName: "bg-primary text-primary-foreground shadow-sm",
-    },
-    session && {
-      key: "admin",
-      href: "/admin",
-      label: "Admin",
-      Icon: Shield,
-      disabled: storageMode !== "mongodb",
-      activeClassName:
-        activeTab === "admin" && isAdmin
-          ? "bg-red-500 text-white shadow-sm"
-          : "bg-primary text-primary-foreground shadow-sm",
-    },
-  ].filter(Boolean) as Array<{
-    key: string;
-    href: string;
-    label: string;
-    Icon: React.ComponentType<{ className?: string }>;
-    activeClassName: string;
-    disabled?: boolean;
-  }>;
-
-  const renderSecondaryNavItem = (
-    item: (typeof secondaryNavItems)[number],
-    variant: "inline" | "menu",
-  ) => {
-    const Icon = item.Icon;
-    const baseClassName =
-      variant === "inline"
-        ? "flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all"
-        : "flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors";
-    const inactiveClassName =
-      variant === "inline"
-        ? "text-muted-foreground hover:text-foreground"
-        : "text-muted-foreground hover:bg-muted hover:text-foreground";
-    const disabledClassName =
-      variant === "inline"
-        ? "text-muted-foreground/50 opacity-50 cursor-not-allowed"
-        : "text-muted-foreground/50 opacity-50 cursor-not-allowed";
-    const className = cn(
-      baseClassName,
-      item.disabled
-        ? disabledClassName
-        : activeTab === item.key
-          ? item.activeClassName
-          : inactiveClassName,
-    );
-
-    const content = (
-      <>
-        <Icon className="h-3.5 w-3.5 shrink-0" />
-        {item.label}
-      </>
-    );
-
-    if (item.disabled) {
-      return (
-        <div key={item.key} className={className}>
-          {content}
-        </div>
-      );
-    }
-
-    return (
-      <GuardedLink key={item.key} href={item.href} prefetch={true} className={className}>
-        {content}
-      </GuardedLink>
-    );
-  };
 
   return (
     <>
     <header className="h-14 border-b border-border/50 bg-card/50 backdrop-blur-xl flex items-center justify-between px-4 shrink-0 z-50">
-      <div className="flex min-w-0 flex-1 items-center gap-4 overflow-hidden">
+      <div className="flex items-center gap-4 min-w-0">
         {/* Logo - clickable to home */}
         <GuardedLink
           href="/"
@@ -511,45 +320,121 @@ export function AppHeader() {
             <Zap className="h-3.5 w-3.5 shrink-0" />
             Skills
           </GuardedLink>
-          {!headerNavCollapsed && secondaryNavItems.map((item) => renderSecondaryNavItem(item, "inline"))}
-          {headerNavCollapsed && secondaryNavItems.length > 0 && (
-            <Popover>
-              <PopoverTrigger asChild>
-                <button
-                  type="button"
-                  aria-label="More navigation"
-                  className={cn(
-                    "flex h-8 w-8 items-center justify-center rounded-full text-[13px] font-medium whitespace-nowrap transition-all",
-                    secondaryNavItems.some((item) => activeTab === item.key)
-                      ? "bg-primary text-primary-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground",
+          <GuardedLink
+            href="/task-builder"
+            prefetch={true}
+            className={cn(
+              "flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all",
+              activeTab === "task-builder"
+                ? "bg-primary text-primary-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <Workflow className="h-3.5 w-3.5 shrink-0" />
+            Task Builder
+          </GuardedLink>
+          {autonomousAgentsEnabled && (
+            <GuardedLink
+              href="/autonomous"
+              prefetch={true}
+              className={cn(
+                "flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all",
+                activeTab === "autonomous"
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <Sparkles className="h-3.5 w-3.5 shrink-0" />
+              Autonomous
+            </GuardedLink>
+          )}
+          {/* Knowledge Bases tab - only show if RAG is enabled */}
+          {ragEnabled && (
+            <GuardedLink
+              href="/knowledge-bases"
+              prefetch={true}
+              className={cn(
+                "flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all",
+                activeTab === "knowledge"
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <Database className="h-3.5 w-3.5 shrink-0" />
+               Knowledge Bases
+            </GuardedLink>
+          )}
+          {/* Dynamic Agents tab - gated by OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP (falls back to admin) */}
+          {canAccessDynamicAgents && storageMode === 'mongodb' && config.dynamicAgentsEnabled && (
+            <GuardedLink
+              href="/dynamic-agents"
+              prefetch={true}
+              className={cn(
+                "flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all",
+                activeTab === "dynamic-agents"
+                  ? "bg-purple-500 text-white shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <Bot className="h-3.5 w-3.5 shrink-0" />
+              Agents
+            </GuardedLink>
+          )}
+          {/* Admin tab - visible to all authenticated users (readonly), admins get full access */}
+          {canViewAdmin && (
+            <TooltipProvider delayDuration={300}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  {storageMode === 'mongodb' ? (
+                    <GuardedLink
+                      href="/admin"
+                      prefetch={true}
+                      className={cn(
+                        "flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all",
+                        activeTab === "admin" && isAdmin
+                          ? "bg-red-500 text-white shadow-sm"
+                          : activeTab === "admin"
+                          ? "bg-primary text-primary-foreground shadow-sm"
+                          : "text-muted-foreground hover:text-foreground"
+                      )}
+                    >
+                      <Shield className="h-3.5 w-3.5 shrink-0" />
+                      Admin
+                    </GuardedLink>
+                  ) : (
+                    <div
+                      className={cn(
+                        "flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all cursor-not-allowed",
+                        "text-muted-foreground/50 opacity-50"
+                      )}
+                    >
+                      <Shield className="h-3.5 w-3.5 shrink-0" />
+                      Admin
+                    </div>
                   )}
-                >
-                  <MoreHorizontal className="h-3.5 w-3.5 shrink-0" />
-                  <span className="sr-only">More</span>
-                </button>
-              </PopoverTrigger>
-              <PopoverContent side="bottom" align="start" className="w-56 p-2">
-                <div className="space-y-1">
-                  {secondaryNavItems.map((item) => renderSecondaryNavItem(item, "menu"))}
-                </div>
-              </PopoverContent>
-            </Popover>
+                </TooltipTrigger>
+                {storageMode !== 'mongodb' && (
+                  <TooltipContent side="bottom" className="max-w-xs">
+                    <p className="text-xs">
+                      Admin dashboard requires MongoDB to be configured. Please set up MongoDB to enable user and team management.
+                    </p>
+                  </TooltipContent>
+                )}
+              </Tooltip>
+            </TooltipProvider>
           )}
         </div>
       </div>
 
       {/* Status & Actions */}
-      <div className={cn("flex shrink-0 items-center", headerNavCollapsed ? "gap-1.5" : "gap-3")}>
+      <div className="flex items-center gap-3">
         {/* Combined Connection Status */}
         <div className="flex items-center gap-2">
           <Popover>
             <PopoverTrigger asChild>
               <button
-                aria-label={`System status: ${combinedStatusLabel}`}
                 className={cn(
                   "flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium cursor-pointer transition-all hover:scale-105",
-                  headerNavCollapsed && "h-8 w-8 justify-center px-0",
                   combinedStatus === "connected" && "bg-green-500/15 text-green-400 border border-green-500/30 hover:bg-green-500/20",
                   combinedStatus === "checking" && "bg-amber-500/15 text-amber-400 border border-amber-500/30 hover:bg-amber-500/20",
                   combinedStatus === "rag-disconnected" && "bg-amber-500/15 text-amber-400 border border-amber-500/30 hover:bg-amber-500/20",
@@ -567,7 +452,10 @@ export function AppHeader() {
                     isStreaming && "animate-pulse"
                   )} />
                 )}
-                <span className={headerNavCollapsed ? "sr-only" : ""}>{combinedStatusLabel}</span>
+                {combinedStatus === "connected" ? "Connected" :
+                 combinedStatus === "checking" ? "Checking" :
+                 combinedStatus === "rag-disconnected" ? "RAG Disconnected" :
+                 "Disconnected"}
               </button>
             </PopoverTrigger>
             <PopoverContent side="bottom" align="end" className="w-[600px] p-0 overflow-hidden border-2">
@@ -864,69 +752,20 @@ export function AppHeader() {
               </div>
             </PopoverContent>
           </Popover>
-          {/*
-            Admin-only migration banners. The full descriptive label is
-            only rendered at `xl:` (>=1280px) so the right-side cluster
-            stays compact on smaller laptop viewports (where the banner
-            otherwise overlapped with the inline nav / Report a Problem
-            button). On narrower screens we collapse to a tooltip-only
-            icon + count chip. The `title` attribute on each link gives
-            screen-reader and hover users the full message.
-          */}
-          {isAdmin && migrationStatus.status?.is_blocking && (
-            <GuardedLink
-              href="/admin?cat=security&tab=migrations"
-              className="flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/15 px-2.5 py-1 text-xs font-medium text-amber-500 transition-all hover:bg-amber-500/20"
-              title={`Migrations required: ${migrationStatus.status.blocking_required_count}`}
-              aria-label={`Migrations required: ${migrationStatus.status.blocking_required_count}`}
-            >
-              <AlertTriangle className="h-3 w-3" />
-              <span className="hidden xl:inline">Migrations required:</span>
-              <span>{migrationStatus.status.blocking_required_count}</span>
-            </GuardedLink>
-          )}
-          {isAdmin && !migrationStatus.status?.is_blocking && migrationStatus.status?.needs_version_bootstrap && (
-            <GuardedLink
-              href="/admin?cat=security&tab=migrations"
-              className="flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/15 px-2.5 py-1 text-xs font-medium text-amber-500 transition-all hover:bg-amber-500/20"
-              title={`Version metadata needed: ${migrationStatus.status.version_bootstrap_required_count ?? 0}`}
-              aria-label={`Version metadata needed: ${migrationStatus.status.version_bootstrap_required_count ?? 0}`}
-            >
-              <AlertTriangle className="h-3 w-3" />
-              <span className="hidden xl:inline">Version metadata needed:</span>
-              <span>{migrationStatus.status.version_bootstrap_required_count ?? 0}</span>
-            </GuardedLink>
-          )}
-          {isAdmin && migrationStatus.status?.override_active && !migrationStatus.status.is_blocking && (
-            <GuardedLink
-              href="/admin?cat=security&tab=migrations"
-              className="flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-500 transition-all hover:bg-amber-500/20"
-              title="Migration override active"
-              aria-label="Migration override active"
-            >
-              <AlertTriangle className="h-3 w-3" />
-              <span className="hidden xl:inline">Migration override active</span>
-            </GuardedLink>
-          )}
         </div>
 
         {/* Personalization, Links & User */}
-        <div className={cn("flex items-center gap-1 border-l border-border", headerNavCollapsed ? "pl-1.5" : "pl-3")}>
+        <div className="flex items-center gap-1 border-l border-border pl-3">
           {config.reportProblemEnabled && (
             <>
               <Button
                 variant="ghost"
-                size={headerNavCollapsed ? "icon" : "sm"}
-                aria-label="Report a Problem"
-                title="Report a Problem"
-                className={cn(
-                  "h-8 text-xs text-muted-foreground hover:text-foreground",
-                  headerNavCollapsed ? "w-8" : "gap-1.5",
-                )}
+                size="sm"
+                className="h-8 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
                 onClick={() => setReportDialogOpen(true)}
               >
                 <AlertTriangle className="h-3.5 w-3.5" />
-                {!headerNavCollapsed && "Report a Problem"}
+                Report a Problem
               </Button>
               <ReportProblemDialog
                 open={reportDialogOpen}
@@ -934,7 +773,7 @@ export function AppHeader() {
               />
             </>
           )}
-          <SettingsPanel compact={headerNavCollapsed} />
+          <SettingsPanel />
           {config.docsUrl && (
             <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
               <a
@@ -960,7 +799,7 @@ export function AppHeader() {
             </Button>
           )}
           {/* User Menu - Only shown when SSO is enabled */}
-          <UserMenu compact={headerNavCollapsed} />
+          <UserMenu />
         </div>
       </div>
     </header>
@@ -972,19 +811,6 @@ export function AppHeader() {
         onCancel={handleCancel}
         title="Unsaved changes"
         description="You have unsaved changes. They will be lost if you leave now."
-      />
-    )}
-    {session && releasePrompt.releaseVersion && (
-      <ReleaseUpgradeDialog
-        open={releasePrompt.open}
-        isAdmin={releasePrompt.isAdmin}
-        releaseVersion={releasePrompt.releaseVersion}
-        release={releasePrompt.release}
-        onOpenMigrationAssistant={releasePrompt.openMigrationAssistant}
-        onSkipUntilNextLogin={releasePrompt.skipUntilNextLogin}
-        onDismissPermanently={releasePrompt.dismissPermanently}
-        showMigrationCta={releasePrompt.showMigrationCta}
-        isDismissing={releasePrompt.isDismissing}
       />
     )}
     </>

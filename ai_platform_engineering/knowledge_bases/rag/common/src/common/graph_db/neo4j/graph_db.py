@@ -128,20 +128,8 @@ class Neo4jDB(GraphDB):
     self.uri = uri
     self.readonly = readonly
     self.database = database
-    self.driver = AsyncGraphDatabase.driver(
-      uri,
-      auth=auth,
-      notifications_min_severity="INFORMATION",
-      connection_timeout=300,
-      max_connection_lifetime=3600,
-    )  # nosec
-    self.non_async_driver = GraphDatabase.driver(
-      uri,
-      auth=auth,
-      notifications_min_severity="INFORMATION",
-      connection_timeout=300,
-      max_connection_lifetime=3600,
-    )  # nosec
+    self.driver = AsyncGraphDatabase.driver(uri, auth=auth, notifications_min_severity="INFORMATION", connection_timeout=300, max_connection_lifetime=3600)  # nosec
+    self.non_async_driver = GraphDatabase.driver(uri, auth=auth, notifications_min_severity="INFORMATION", connection_timeout=300, max_connection_lifetime=3600)  # nosec
     logger.info(f"Connecting to neo4j at {uri} with tenant label '{self.tenant_label}'")
     # Try to connect to the database, retry if it fails
     utils.retry_function(self.non_async_driver.verify_connectivity, 10, 10)

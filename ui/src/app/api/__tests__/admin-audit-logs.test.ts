@@ -2,7 +2,7 @@
  * @jest-environment node
  */
 /**
- * Tests for Admin Chat Audit API Routes
+ * Tests for Admin Audit Logs API Routes
  *
  * Covers:
  * - GET /api/admin/audit-logs — list all conversations with filters and pagination
@@ -12,14 +12,14 @@
  *
  * Features tested:
  * - Authentication: 401 when unauthenticated
- * - Authorization: 403 when caller lacks admin_ui#audit.view
+ * - Authorization: 403 when non-admin (full admin required, not readonly)
  * - Feature flag: 403 when AUDIT_LOGS_ENABLED is false
  * - MongoDB guard: 503 when MongoDB is not configured
  * - List endpoint: filters (owner, search, date, status), pagination, aggregation pipeline
  * - Messages endpoint: conversation lookup, paginated messages, 404 handling
  * - Export endpoint: CSV generation with headers, proper Content-Type and Content-Disposition
  * - Owners endpoint: distinct owner_id aggregation with search filter
- * - Edge cases: empty results, PDP denial
+ * - Edge cases: empty results, readonly admin rejection
  */
 
 import { NextRequest } from 'next/server';
@@ -30,21 +30,12 @@ import { ObjectId } from 'mongodb';
 // ============================================================================
 
 const mockGetServerSession = jest.fn();
-const mockCheckPermission = jest.fn();
 jest.mock('next-auth', () => ({
   getServerSession: (...args: any[]) => mockGetServerSession(...args),
 }));
 
 jest.mock('@/lib/auth-config', () => ({
   authOptions: {},
-  isBootstrapAdmin: jest.fn().mockReturnValue(false),
-  REQUIRED_ADMIN_GROUP: '',
-}));
-jest.mock('@/lib/rbac/keycloak-authz', () => ({
-  checkPermission: (...args: unknown[]) => mockCheckPermission(...args),
-}));
-jest.mock('@/lib/rbac/audit', () => ({
-  logAuthzDecision: jest.fn(),
 }));
 
 jest.mock('@/lib/config', () => ({
@@ -104,7 +95,6 @@ function adminSession() {
   return {
     user: { email: 'admin@example.com', name: 'Admin User' },
     role: 'admin',
-    accessToken: 'admin-token',
   };
 }
 
@@ -112,14 +102,19 @@ function userSession() {
   return {
     user: { email: 'user@example.com', name: 'Regular User' },
     role: 'user',
-    accessToken: 'user-token',
+  };
+}
+
+function readonlyAdminSession() {
+  return {
+    user: { email: 'viewer@example.com', name: 'Viewer User' },
+    role: 'user',
+    canViewAdmin: true,
   };
 }
 
 function resetMocks() {
   mockGetServerSession.mockReset();
-  mockCheckPermission.mockReset();
-  mockCheckPermission.mockResolvedValue({ allowed: true, reason: 'OK' });
   mockGetCollection.mockClear();
   mockIsMongoDBConfigured = true;
   mockServerConfig = { auditLogsEnabled: true };
@@ -162,16 +157,30 @@ describe('GET /api/admin/audit-logs — Auth & Feature Flag', () => {
     expect(res.status).toBe(401);
   });
 
-  it('returns 403 when user lacks admin_ui#audit.view', async () => {
+  it('returns 403 when user is not a full admin', async () => {
     mockGetServerSession.mockResolvedValue(userSession());
-    mockCheckPermission.mockResolvedValueOnce({ allowed: false, reason: 'DENY_NO_CAPABILITY' });
+
+    const usersCol = createMockCollection();
+    usersCol.findOne.mockResolvedValue(null);
+    mockCollections['users'] = usersCol;
+
+    const req = makeRequest('/api/admin/audit-logs');
+    const res = await listGET(req);
+    expect(res.status).toBe(403);
+  });
+
+  it('returns 403 for readonly admin viewers (canViewAdmin)', async () => {
+    mockGetServerSession.mockResolvedValue(readonlyAdminSession());
+
+    const usersCol = createMockCollection();
+    usersCol.findOne.mockResolvedValue(null);
+    mockCollections['users'] = usersCol;
 
     const req = makeRequest('/api/admin/audit-logs');
     const res = await listGET(req);
     expect(res.status).toBe(403);
     const body = await res.json();
-    expect(body.reason).toBe('pdp_denied');
-    expect(body.code).toBe('admin_ui#audit.view');
+    expect(body.error).toContain('Admin access required');
   });
 
   it('returns 403 when auditLogsEnabled is false', async () => {
@@ -347,15 +356,15 @@ describe('GET /api/admin/audit-logs/[id]/messages — Auth & Feature Flag', () =
     expect(res.status).toBe(401);
   });
 
-  it('returns 403 when user lacks admin_ui#audit.view', async () => {
-    mockGetServerSession.mockResolvedValue(userSession());
-    mockCheckPermission.mockResolvedValueOnce({ allowed: false, reason: 'DENY_NO_CAPABILITY' });
+  it('returns 403 for readonly admin viewers', async () => {
+    mockGetServerSession.mockResolvedValue(readonlyAdminSession());
+
+    const usersCol = createMockCollection();
+    usersCol.findOne.mockResolvedValue(null);
+    mockCollections['users'] = usersCol;
 
     const res = await callMessages('/api/admin/audit-logs/conv-123/messages');
     expect(res.status).toBe(403);
-    const body = await res.json();
-    expect(body.reason).toBe('pdp_denied');
-    expect(body.code).toBe('admin_ui#audit.view');
   });
 
   it('returns 403 when auditLogsEnabled is false', async () => {
@@ -496,16 +505,16 @@ describe('GET /api/admin/audit-logs/export — Auth & Feature Flag', () => {
     expect(res.status).toBe(401);
   });
 
-  it('returns 403 when user lacks admin_ui#audit.view', async () => {
-    mockGetServerSession.mockResolvedValue(userSession());
-    mockCheckPermission.mockResolvedValueOnce({ allowed: false, reason: 'DENY_NO_CAPABILITY' });
+  it('returns 403 for readonly admin viewers', async () => {
+    mockGetServerSession.mockResolvedValue(readonlyAdminSession());
+
+    const usersCol = createMockCollection();
+    usersCol.findOne.mockResolvedValue(null);
+    mockCollections['users'] = usersCol;
 
     const req = makeRequest('/api/admin/audit-logs/export');
     const res = await exportGET(req);
     expect(res.status).toBe(403);
-    const body = await res.json();
-    expect(body.reason).toBe('pdp_denied');
-    expect(body.code).toBe('admin_ui#audit.view');
   });
 
   it('returns 403 when auditLogsEnabled is false', async () => {
@@ -668,16 +677,16 @@ describe('GET /api/admin/audit-logs/owners — Auth & Feature Flag', () => {
     expect(res.status).toBe(401);
   });
 
-  it('returns 403 when user lacks admin_ui#audit.view', async () => {
-    mockGetServerSession.mockResolvedValue(userSession());
-    mockCheckPermission.mockResolvedValueOnce({ allowed: false, reason: 'DENY_NO_CAPABILITY' });
+  it('returns 403 for readonly admin viewers', async () => {
+    mockGetServerSession.mockResolvedValue(readonlyAdminSession());
+
+    const usersCol = createMockCollection();
+    usersCol.findOne.mockResolvedValue(null);
+    mockCollections['users'] = usersCol;
 
     const req = makeRequest('/api/admin/audit-logs/owners');
     const res = await ownersGET(req);
     expect(res.status).toBe(403);
-    const body = await res.json();
-    expect(body.reason).toBe('pdp_denied');
-    expect(body.code).toBe('admin_ui#audit.view');
   });
 
   it('returns 403 when auditLogsEnabled is false', async () => {

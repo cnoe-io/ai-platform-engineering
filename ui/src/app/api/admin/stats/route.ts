@@ -3,11 +3,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCollection, isMongoDBConfigured } from '@/lib/mongodb';
 import {
-  getAuthFromBearerOrSession,
+  withAuth,
   withErrorHandler,
   successResponse,
+  requireAdminView,
 } from '@/lib/api-middleware';
-import { requireAdminSurfaceManage } from '@/lib/rbac/require-openfga';
 
 /** Parse range params into a { rangeStart, days } pair. Supports preset strings and explicit from/to ISO dates. */
 function parseRange(searchParams: URLSearchParams): { rangeStart: Date; days: number } {
@@ -50,8 +50,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     );
   }
 
-  const { session } = await getAuthFromBearerOrSession(request);
-  await requireAdminSurfaceManage(session, 'stats');
+  return withAuth(request, async (req, user, session) => {
+    requireAdminView(session);
 
     const { searchParams } = new URL(request.url);
     const { rangeStart, days } = parseRange(searchParams);
@@ -838,4 +838,5 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       ...(slack ? { slack } : {}),
       available_channels: availableChannels.sort(),
     });
+  });
 });

@@ -11,11 +11,12 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import {
+  withAuth,
   withErrorHandler,
   successResponse,
   ApiError,
 } from "@/lib/api-middleware";
-import { authenticateRequest, buildBackendHeaders } from "@/lib/da-proxy";
+import { authenticateRequest } from "@/lib/da-proxy";
 import { gradientThemes } from "@/lib/gradient-themes";
 
 const DYNAMIC_AGENTS_URL =
@@ -169,13 +170,8 @@ function buildPrompts(body: SuggestFieldRequest): {
  * AI-assisted field suggestion for the Custom Agent Builder.
  */
 export const POST = withErrorHandler(async (request: NextRequest) => {
-  const auth = await authenticateRequest(request, {
-    resource: "dynamic_agent",
-    scope: "manage",
-  });
-  if (auth instanceof NextResponse) return auth;
-
-  const body: SuggestFieldRequest = await request.json();
+  return await withAuth(request, async (req, user, session) => {
+    const body: SuggestFieldRequest = await request.json();
 
     // Normalize legacy model_id/model_provider → model
     if (body.model_id && !body.model) {
@@ -200,10 +196,15 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     // Build prompts from templates
     const { system_prompt, user_message } = buildPrompts(body);
 
-    // Forward to backend with X-User-Context AND Authorization: Bearer
-    // (Spec 102 Phase 11.4 — DA now requires Bearer; X-User-Context kept
-    // for legacy claim hints but is no longer authoritative).
-    const headers = buildBackendHeaders("application/json", auth);
+    // Forward to backend with X-User-Context auth (same as chat routes)
+    const auth = await authenticateRequest(request);
+    if (auth instanceof NextResponse) return auth;
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (auth.userContextHeader) {
+      headers["X-User-Context"] = auth.userContextHeader;
+    }
 
     const response = await fetch(
       `${DYNAMIC_AGENTS_URL}/api/v1/assistant/suggest`,
@@ -230,4 +231,5 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       field: body.field,
       content: data.content,
     });
+  });
 });

@@ -332,7 +332,7 @@ export function MetadataInputForm({
             disabled={disabled || isSubmitting}
             className="gap-2"
           >
-            {(isSubmitting || disabled) ? (
+            {isSubmitting ? (
               <motion.div
                 animate={{ rotate: 360 }}
                 transition={{ repeat: Infinity, duration: 1, ease: "linear" }}

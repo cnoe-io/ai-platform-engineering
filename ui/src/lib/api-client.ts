@@ -1,9 +1,7 @@
 // Client-side API SDK for calling MongoDB backend APIs
 
-import type { AuthFailureAction, AuthFailureReason } from "./auth-error";
 import type {
   Conversation,
-  ClientType,
   Message,
   Turn,
   User,
@@ -24,26 +22,6 @@ import type {
   ConversationBookmark,
   UserPublicInfo,
 } from '@/types/mongodb';
-
-/**
- * Thrown by {@link APIClient.request} for any non-OK response. Carries the
- * HTTP status plus the Web UI backend's structured auth-error fields (`code`, `reason`,
- * `action`) when present, so callers (chat panel, dynamic-agent editor, etc.)
- * can distinguish auth failures from backend errors and render an
- * appropriate toast (see `lib/auth-error.ts`).
- */
-export class APIClientError extends Error {
-  constructor(
-    message: string,
-    public status: number,
-    public code?: string,
-    public reason?: AuthFailureReason,
-    public action?: AuthFailureAction,
-  ) {
-    super(message);
-    this.name = "APIClientError";
-  }
-}
 
 class APIClient {
   private baseURL: string;
@@ -92,27 +70,13 @@ class APIClient {
         });
       }
       
-      // Parse structured Web UI backend error body. Preserves {code, reason, action}
-      // for callers (auth-error.ts consumers) so they can branch on stable
-      // machine-readable codes instead of substring-matching English.
-      let parsed: {
-        error?: string;
-        code?: string;
-        reason?: AuthFailureReason;
-        action?: AuthFailureAction;
-      } = {};
+      let error;
       try {
-        parsed = JSON.parse(errorText) as typeof parsed;
+        error = JSON.parse(errorText);
       } catch {
-        parsed = { error: response.statusText || errorText };
+        error = { error: response.statusText || errorText };
       }
-      throw new APIClientError(
-        parsed.error || `HTTP ${response.status}`,
-        response.status,
-        parsed.code,
-        parsed.reason,
-        parsed.action,
-      );
+      throw new Error(error.error || `HTTP ${response.status}`);
     }
 
     const responseText = await response.text();
@@ -177,7 +141,7 @@ class APIClient {
      * "Autonomous only" filter chip to surface autonomous_agents runs.
      */
     source?: 'autonomous' | 'web';
-    client_type?: ClientType;
+    client_type?: string;
   }): Promise<PaginatedResponse<Conversation>> {
     const searchParams = new URLSearchParams();
     if (params?.page) searchParams.set('page', params.page.toString());
@@ -185,10 +149,8 @@ class APIClient {
     if (params?.archived !== undefined) searchParams.set('archived', params.archived.toString());
     if (params?.pinned !== undefined) searchParams.set('pinned', params.pinned.toString());
     if (params?.source) searchParams.set('source', params.source);
-    // Default to webui conversations only — excludes Slack/other client conversations.
-    // Use `??` so an explicit empty string from the caller is preserved (vs `||` which would
-    // overwrite it with the default).
-    searchParams.set('client_type', params?.client_type ?? 'webui');
+    // Default to webui conversations only — excludes Slack/other client conversations
+    searchParams.set('client_type', params?.client_type || 'webui');
 
     return this.request(`/api/chat/conversations?${searchParams}`);
   }

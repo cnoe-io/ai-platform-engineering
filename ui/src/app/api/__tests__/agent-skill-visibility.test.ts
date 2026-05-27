@@ -7,8 +7,8 @@
  * Covers:
  * - POST: creating configs with private/team/global visibility
  * - POST: validation (team requires shared_with_teams)
- * - GET: OpenFGA candidate loading (legacy visibility fields are metadata only)
- * - GET by ID: OpenFGA read gate
+ * - GET: visibility-based listing (owner, global, team membership)
+ * - GET by ID: access control for visibility levels
  * - PUT: visibility field updates and validation
  */
 
@@ -21,8 +21,6 @@ jest.mock("next-auth", () => ({
 
 jest.mock("@/lib/auth-config", () => ({
   authOptions: {},
-  isBootstrapAdmin: jest.fn().mockReturnValue(false),
-  REQUIRED_ADMIN_GROUP: "",
 }));
 
 const mockCollections: Record<string, ReturnType<typeof createMockCollection>> = {};
@@ -236,21 +234,10 @@ describe("POST /api/skills/configs - visibility", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GET - OpenFGA candidate loading
+// GET - Visibility-based listing
 // ─────────────────────────────────────────────────────────────────────────────
-describe("GET /api/skills/configs - OpenFGA candidate loading", () => {
-  it("loads all skill configs as candidates instead of filtering by global visibility in MongoDB", async () => {
-    mockGetServerSession.mockResolvedValue(userSession());
-
-    const { GET } = await import("../skills/configs/route");
-    const request = makeRequest("/api/skills/configs");
-    await GET(request);
-
-    const collection = await mockGetCollection("agent_skills");
-    expect(collection.find).toHaveBeenCalledWith({});
-  });
-
-  it("does not use owner/system visibility clauses as MongoDB authorization prefilters", async () => {
+describe("GET /api/skills/configs - visibility filtering", () => {
+  it("should include global visibility in query filter", async () => {
     mockGetServerSession.mockResolvedValue(userSession());
 
     const { GET } = await import("../skills/configs/route");
@@ -259,10 +246,27 @@ describe("GET /api/skills/configs - OpenFGA candidate loading", () => {
 
     const collection = await mockGetCollection("agent_skills");
     const findCall = collection.find.mock.calls[0][0];
-    expect(findCall).toEqual({});
+    const orConditions = findCall.$or;
+
+    expect(orConditions).toContainEqual({ visibility: "global" });
   });
 
-  it("does not resolve team membership for legacy team visibility filtering", async () => {
+  it("should include system configs in query filter", async () => {
+    mockGetServerSession.mockResolvedValue(userSession());
+
+    const { GET } = await import("../skills/configs/route");
+    const request = makeRequest("/api/skills/configs");
+    await GET(request);
+
+    const collection = await mockGetCollection("agent_skills");
+    const findCall = collection.find.mock.calls[0][0];
+    const orConditions = findCall.$or;
+
+    expect(orConditions).toContainEqual({ is_system: true });
+    expect(orConditions).toContainEqual({ owner_id: "user@example.com" });
+  });
+
+  it("should include team visibility when user belongs to teams", async () => {
     mockGetServerSession.mockResolvedValue(userSession());
 
     const teamsCollection = createMockCollection();
@@ -281,11 +285,17 @@ describe("GET /api/skills/configs - OpenFGA candidate loading", () => {
     await GET(request);
 
     const agentCollection = await mockGetCollection("agent_skills");
-    expect(agentCollection.find).toHaveBeenCalledWith({});
-    expect(teamsCollection.find).not.toHaveBeenCalled();
+    const findCall = agentCollection.find.mock.calls[0][0];
+    const orConditions = findCall.$or;
+
+    const teamCondition = orConditions.find(
+      (c: Record<string, unknown>) => c.visibility === "team"
+    );
+    expect(teamCondition).toBeDefined();
+    expect(teamCondition.shared_with_teams.$in).toEqual(["team-abc", "team-xyz"]);
   });
 
-  it("keeps team visibility out of the MongoDB query when no teams are present", async () => {
+  it("should NOT include team condition when user has no teams", async () => {
     mockGetServerSession.mockResolvedValue(userSession());
 
     const { GET } = await import("../skills/configs/route");
@@ -294,7 +304,12 @@ describe("GET /api/skills/configs - OpenFGA candidate loading", () => {
 
     const collection = await mockGetCollection("agent_skills");
     const findCall = collection.find.mock.calls[0][0];
-    expect(findCall).toEqual({});
+    const orConditions = findCall.$or;
+
+    const teamCondition = orConditions.find(
+      (c: Record<string, unknown>) => c.visibility === "team"
+    );
+    expect(teamCondition).toBeUndefined();
   });
 });
 

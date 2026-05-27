@@ -2,9 +2,9 @@ import { createHash } from "crypto";
 import { NextRequest } from "next/server";
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import {
-  getAuthFromBearerOrSession,
+  withAuth,
   withErrorHandler,
-  requireRbacPermission,
+  requireAdmin,
   successResponse,
   ApiError,
 } from "@/lib/api-middleware";
@@ -80,10 +80,10 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     throw new ApiError("MongoDB is not configured", 503);
   }
 
-  const { session } = await getAuthFromBearerOrSession(request);
-  await requireRbacPermission(session, "admin_ui", "admin");
+  return await withAuth(request, async (_req, _user, session) => {
+    requireAdmin(session);
 
-  const body = (await request.json()) as ImportBody;
+    const body = (await request.json()) as ImportBody;
     const all = loadSkillTemplatesInternal();
     let toImport: SkillTemplateData[];
 
@@ -141,4 +141,5 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       skipped,
       errors,
     });
+  });
 });

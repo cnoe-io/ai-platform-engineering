@@ -243,7 +243,7 @@ IMAGE_TAG=latest MCP_MODE=stdio docker compose -f workshop/docker-compose.missio
 **What happens:**
 
 - ⏬ Downloads petstore agent image with the latest tag from the registry
-- 🔗 Connects to MCP server via STDIO mode to https://petstore3.swagger.io/ which is a public sandbox API
+- 🔗 Connects to MCP server via STDIO mode to https://petstore.swagger.io/v2 which is a public sandbox API
 - 🌐 Exposes agent on `http://localhost:8000`
 - 📋 Shows logs directly in terminal
 - 🚀 **Advantage**: Lower latency, direct process communication

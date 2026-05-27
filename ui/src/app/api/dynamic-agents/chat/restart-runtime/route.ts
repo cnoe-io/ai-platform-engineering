@@ -11,11 +11,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getServerConfig } from "@/lib/config";
-import {
-  ApiError,
-  getAuthFromBearerOrSession,
-} from "@/lib/api-middleware";
-import { requireResourcePermission } from "@/lib/rbac/resource-authz";
+import { getAuthenticatedUser } from "@/lib/api-middleware";
 
 export async function POST(request: NextRequest): Promise<Response> {
   const config = getServerConfig();
@@ -37,24 +33,10 @@ export async function POST(request: NextRequest): Promise<Response> {
 
   // Authenticate the request
   let accessToken: string | undefined;
-  let sessionForAuthz: Awaited<ReturnType<typeof getAuthFromBearerOrSession>>["session"] | null = null;
   try {
-    const { session } = await getAuthFromBearerOrSession(request);
-    sessionForAuthz = session;
+    const { session } = await getAuthenticatedUser(request, { allowAnonymous: !getServerConfig().ssoEnabled });
     accessToken = "accessToken" in session ? session.accessToken : undefined;
-  } catch (err) {
-    if (err instanceof ApiError) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: err.message,
-          code: err.code,
-          reason: err.reason,
-          action: err.action,
-        },
-        { status: err.statusCode },
-      );
-    }
+  } catch {
     return NextResponse.json(
       { success: false, error: "Unauthorized" },
       { status: 401 }
@@ -76,30 +58,6 @@ export async function POST(request: NextRequest): Promise<Response> {
     return NextResponse.json(
       { success: false, error: "Missing required fields: agent_id, conversation_id" },
       { status: 400 }
-    );
-  }
-
-  try {
-    if (!sessionForAuthz) {
-      throw new ApiError("Unauthorized", 401);
-    }
-    await requireResourcePermission(sessionForAuthz, { type: "agent", id: body.agent_id, action: "manage" });
-  } catch (err) {
-    if (err instanceof ApiError) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: err.message,
-          code: err.code,
-          reason: err.reason,
-          action: err.action,
-        },
-        { status: err.statusCode },
-      );
-    }
-    return NextResponse.json(
-      { success: false, error: "Unauthorized" },
-      { status: 401 }
     );
   }
 

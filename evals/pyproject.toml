@@ -11,13 +11,13 @@ dependencies = [
     "langfuse==3.14.5",
     "httpx==0.28.1",
     "pyyaml==6.0.3",
-    "python-dotenv==1.2.2",
+    "python-dotenv==1.1.1",
     # Platform Engineer integration
     "a2a-sdk==0.2.16",
-    "cnoe-agent-utils==0.4.0",
+    "cnoe-agent-utils==0.3.14",
     # LangChain for LLM evaluation
-    "langchain-core==1.4.0",
-    "langchain-openai==1.2.1",
+    "langchain-core==1.2.31",
+    "langchain-openai==1.1.14",
     "langchain-anthropic==0.3.21",
 ]
 

@@ -112,7 +112,6 @@ class CustomStreamEncoder(StreamEncoder):
         tool_name: str | None = None,
         tool_args: dict[str, Any] | None = None,
         allowed_decisions: list[str] | None = None,
-        tool_approvals: list[dict[str, Any]] | None = None,
     ) -> list[str]:
         payload: dict[str, Any] = {
             "type": interrupt_type,
@@ -122,9 +121,6 @@ class CustomStreamEncoder(StreamEncoder):
         if interrupt_type == "tool_approval":
             payload["tool_name"] = tool_name
             payload["tool_args"] = tool_args or {}
-            payload["allowed_decisions"] = allowed_decisions or ["approve", "edit", "reject"]
-            if tool_approvals and len(tool_approvals) > 1:
-                payload["tool_approvals"] = tool_approvals
             payload["allowed_decisions"] = allowed_decisions or ["approve", "edit", "reject"]
         else:
             payload["prompt"] = prompt

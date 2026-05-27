@@ -46,8 +46,6 @@ export interface Config {
   ragEnabled: boolean;
   /** Whether MongoDB persistence is enabled */
   mongodbEnabled: boolean;
-  /** Whether Connections & Secrets credential management is enabled */
-  credentialsEnabled: boolean;
   /** Main tagline displayed throughout the UI */
   tagline: string;
   /** Description text displayed throughout the UI */
@@ -87,21 +85,11 @@ export interface Config {
   sourceUrl: string | null;
   /**
    * Whether the dedicated workflow runner is enabled.
-    * When false (default), multi-step skills display as "Skill" badges instead of
-   * showing step counts. This controls workflow-related hints in the Skills Gallery only.
+   * When false (default), the "Run Workflow" button and the Multi-Step Workflows
+   * card section are hidden; "Run in Chat" remains fully functional.
    * Set WORKFLOW_RUNNER_ENABLED=true to enable.
    */
   workflowRunnerEnabled: boolean;
-  /**
-   * Whether the Workflows tab is shown in the top navigation.
-   * Set WORKFLOWS_ENABLED=true to enable.
-   */
-  workflowsEnabled: boolean;
-  /**
-   * Whether the Task Builder tab is shown in the top navigation.
-   * Enabled by default. Set TASK_BUILDER_ENABLED=false to disable.
-   */
-  taskBuilderEnabled: boolean;
   /**
    * Whether the admin Feedback tab and feedback API are enabled.
    * Enabled by default. Set FEEDBACK_ENABLED=false to disable.
@@ -132,15 +120,10 @@ export interface Config {
   npsEnabled: boolean;
   /**
    * Whether the admin audit logs feature is enabled.
-   * When false (default), the Chat Audit tab is hidden and API routes return 403.
+   * When false (default), the Audit Logs tab is hidden and API routes return 403.
    * Set AUDIT_LOGS_ENABLED=true to enable.
    */
   auditLogsEnabled: boolean;
-  /**
-   * Whether the unified action audit log (auth + tool + delegation) is enabled.
-   * Enabled by default. Set ACTION_AUDIT_ENABLED=false to disable.
-   */
-  actionAuditEnabled: boolean;
   /** Default font size for new users: "small" | "medium" | "large" | "x-large" */
   defaultFontSize: string;
   /** Default font family for new users: "inter" | "source-sans" | "ibm-plex" | "system" */
@@ -184,8 +167,6 @@ export interface Config {
   ticketEnabled: boolean;
   /** Derived: which provider to use ('jira' takes precedence when both enabled) */
   ticketProvider: 'jira' | 'github' | null;
-  /** When true, server extracts user context from JWT — UI should NOT prefix messages with user email */
-  userInfoToolEnabled: boolean;
   /** OIDC group required for UI access (injected server-side so the unauthorized page shows the real group) */
   oidcRequiredGroup: string;
 }
@@ -213,14 +194,13 @@ const VALID_GRADIENT_THEMES = ['default', 'minimal', 'professional', 'ocean', 's
 
 /** Default config used as client fallback before the layout script executes. */
 const DEFAULT_CONFIG: Config = {
-  caipeUrl: '/api/a2a',
+  caipeUrl: 'http://localhost:8000',
   ragUrl: 'http://localhost:9446',
   isDev: false,
   isProd: false,
   ssoEnabled: false,
   ragEnabled: true,
   mongodbEnabled: false,
-  credentialsEnabled: false,
   tagline: DEFAULT_TAGLINE,
   description: DEFAULT_DESCRIPTION,
   appName: DEFAULT_APP_NAME,
@@ -239,13 +219,10 @@ const DEFAULT_CONFIG: Config = {
   docsUrl: null,
   sourceUrl: null,
   workflowRunnerEnabled: false,
-  workflowsEnabled: false,
-  taskBuilderEnabled: true,
   feedbackEnabled: true,
   allowBuiltinSkillMutation: false,
   npsEnabled: false,
   auditLogsEnabled: false,
-  actionAuditEnabled: true,
   defaultFontSize: DEFAULT_FONT_SIZE,
   defaultFontFamily: DEFAULT_FONT_FAMILY,
   defaultTheme: DEFAULT_THEME,
@@ -263,8 +240,7 @@ const DEFAULT_CONFIG: Config = {
   githubTicketLabel: 'caipe-reported',
   ticketEnabled: false,
   ticketProvider: null,
-  userInfoToolEnabled: false,
-  oidcRequiredGroup: '',
+  oidcRequiredGroup: 'backstage-access',
 };
 
 // ---------------------------------------------------------------------------
@@ -277,14 +253,6 @@ const DEFAULT_CONFIG: Config = {
  */
 function env(name: string): string | undefined {
   return process.env[name] || process.env[`NEXT_PUBLIC_${name}`] || undefined;
-}
-
-/**
- * Read a browser-facing runtime env var dynamically so Next.js does not inline
- * a build-time NEXT_PUBLIC_* value into the server bundle.
- */
-function publicEnv(name: string): string | undefined {
-  return process.env[`NEXT_PUBLIC_${name}`] || undefined;
 }
 
 /**
@@ -333,11 +301,11 @@ export function getServerConfig(): Config {
   const isProduction = process.env.NODE_ENV === 'production';
   const isDev = process.env.NODE_ENV === 'development';
 
-  // caipeUrl is the browser-facing supervisor URL embedded in __APP_CONFIG__.
-  // Read it dynamically so container runtime ConfigMaps work; direct
-  // process.env.NEXT_PUBLIC_* reads can be inlined during `next build`.
-  const caipeUrl = publicEnv('A2A_BASE_URL')
-    || (isProduction ? '/api/a2a' : 'http://localhost:8000');
+  // caipeUrl is the browser-facing supervisor URL (embedded in __APP_CONFIG__).
+  // It must be externally routable — use NEXT_PUBLIC_A2A_BASE_URL (e.g. http://localhost:8000
+  // for local dev, or https://caipe.example.com for production). A2A_BASE_URL is the
+  // internal Docker service URL for server-side proxies and must NOT be used here.
+  const caipeUrl = process.env.NEXT_PUBLIC_A2A_BASE_URL || 'http://localhost:8000';
 
   const ragUrl = env('RAG_URL')
     || process.env.RAG_SERVER_URL
@@ -351,8 +319,6 @@ export function getServerConfig(): Config {
     || (env('PREVIEW_MODE') === 'true' ? 'Preview' : '');
   const allowDevAdminWhenSsoDisabled = env('ALLOW_DEV_ADMIN_WHEN_SSO_DISABLED') === 'true';
   const workflowRunnerEnabled = env('WORKFLOW_RUNNER_ENABLED') === 'true';
-  const workflowsEnabled = env('WORKFLOWS_ENABLED') === 'true';
-  const taskBuilderEnabled = env('TASK_BUILDER_ENABLED') !== 'false';
   const feedbackEnabled = env('FEEDBACK_ENABLED') !== 'false';
   // Default `false` (locked). Must mirror the server-side check in
   // `lib/builtin-skill-policy.ts` so the UI never offers an action
@@ -360,13 +326,10 @@ export function getServerConfig(): Config {
   const allowBuiltinSkillMutation = env('ALLOW_BUILTIN_SKILL_MUTATION') === 'true';
   const npsEnabled = env('NPS_ENABLED') === 'true';
   const auditLogsEnabled = env('AUDIT_LOGS_ENABLED') === 'true';
-  const actionAuditEnabled = env('ACTION_AUDIT_ENABLED') !== 'false';
   const dynamicAgentsEnabled = env('DYNAMIC_AGENTS_ENABLED') === 'true';
   const autonomousAgentsFlag =
     env('ENABLE_AUTONOMOUS_AGENTS') ?? env('AUTONOMOUS_AGENTS_ENABLED');
   const autonomousAgentsEnabled = autonomousAgentsFlag === 'true';
-  const credentialsEnabled = env('CAIPE_CREDENTIALS_ENABLED') === 'true';
-  const userInfoToolEnabled = env('ENABLE_USER_INFO_TOOL') === 'true';
 
   const dynamicAgentsUrl = env('DYNAMIC_AGENTS_URL')
     || (isProduction ? 'http://dynamic-agents:8100' : 'http://localhost:8100');
@@ -398,7 +361,6 @@ export function getServerConfig(): Config {
     ssoEnabled,
     ragEnabled,
     mongodbEnabled,
-    credentialsEnabled,
     tagline: env('TAGLINE') || DEFAULT_TAGLINE,
     description: env('DESCRIPTION') || DEFAULT_DESCRIPTION,
     appName: env('APP_NAME') || DEFAULT_APP_NAME,
@@ -417,13 +379,10 @@ export function getServerConfig(): Config {
     docsUrl: env('DOCS_URL') || null,
     sourceUrl: env('SOURCE_URL') || null,
     workflowRunnerEnabled,
-    workflowsEnabled,
-    taskBuilderEnabled,
     feedbackEnabled,
     allowBuiltinSkillMutation,
     npsEnabled,
     auditLogsEnabled,
-    actionAuditEnabled,
     defaultFontSize: validated(env('DEFAULT_FONT_SIZE'), VALID_FONT_SIZES, DEFAULT_FONT_SIZE),
     defaultFontFamily: validated(env('DEFAULT_FONT_FAMILY'), VALID_FONT_FAMILIES, DEFAULT_FONT_FAMILY),
     defaultTheme: validated(env('DEFAULT_THEME'), VALID_THEMES, DEFAULT_THEME),
@@ -441,8 +400,7 @@ export function getServerConfig(): Config {
     githubTicketLabel,
     ticketEnabled,
     ticketProvider,
-    userInfoToolEnabled,
-    oidcRequiredGroup: process.env.OIDC_REQUIRED_GROUP ?? DEFAULT_CONFIG.oidcRequiredGroup,
+    oidcRequiredGroup: process.env.OIDC_REQUIRED_GROUP || 'backstage-access',
   };
 }
 

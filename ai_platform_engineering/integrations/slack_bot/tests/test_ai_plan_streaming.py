@@ -694,7 +694,6 @@ class TestOverthinkSkipStatus:
       agent_id="test-agent",
       conversation_id="conv-1",
       overthink_config=_OVERTHINK_ENABLED,
-      client_context={"source": "slack"},
     )
 
     assert isinstance(result, dict)
@@ -729,7 +728,6 @@ class TestOverthinkSkipStatus:
       agent_id="test-agent",
       conversation_id="conv-1",
       overthink_config=_OVERTHINK_ENABLED,
-      client_context={"source": "slack"},
     )
 
     assert isinstance(result, dict)
@@ -766,7 +764,6 @@ class TestOverthinkSkipStatus:
       agent_id="test-agent",
       conversation_id="conv-1",
       overthink_config=_OVERTHINK_ENABLED,
-      client_context={"source": "slack"},
     )
 
     status_calls = [c.kwargs.get("status", "") for c in mock_slack.assistant_threads_setStatus.call_args_list]

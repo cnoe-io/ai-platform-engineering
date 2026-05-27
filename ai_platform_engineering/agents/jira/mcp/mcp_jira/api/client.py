@@ -10,7 +10,6 @@ import asyncio
 from typing import Optional, Dict, Tuple, Any
 import httpx
 from dotenv import load_dotenv
-from mcp_agent_auth.token import get_request_token
 
 from mcp_jira.config import MCP_JIRA_MOCK_RESPONSE
 
@@ -30,89 +29,12 @@ logging.basicConfig(
 logger = logging.getLogger("jira_mcp")
 
 
-def validate_prerequisites(
-    token: Optional[str] = None,
-    email: Optional[str] = None,
-    url: Optional[str] = None,
-) -> Tuple[bool, Dict[str, Any]]:
-    """Validate required Jira credentials and reject placeholder URLs."""
-    provider_header_token = get_provider_header_token()
-    resolved_token = token or provider_header_token or get_env()
-    resolved_email = str(
-        email or os.getenv("ATLASSIAN_EMAIL") or os.getenv("JIRA_EMAIL") or os.getenv("JIRA_USER") or ""
-    )
-    resolved_url = str(url or os.getenv("ATLASSIAN_API_URL") or os.getenv("JIRA_API_URL") or "")
-    auth_scheme = "bearer" if provider_header_token and not token else "basic"
-
-    if not resolved_token:
-        logger.error("No API token available. Request cannot proceed.")
-        return (
-            False,
-            {"error": "Token is required. Please set the ATLASSIAN_TOKEN environment variable."},
-        )
-
-    if not resolved_url:
-        logger.error("No API URL available. Request cannot proceed.")
-        return (
-            False,
-            {
-                "error": (
-                    "ATLASSIAN_API_URL is required. Please set the ATLASSIAN_API_URL "
-                    "environment variable (e.g., https://your-domain.atlassian.net)."
-                )
-            },
-        )
-
-    if auth_scheme == "basic" and not resolved_email:
-        logger.error("No email available. Request cannot proceed.")
-        return (
-            False,
-            {"error": "ATLASSIAN_EMAIL is required. Please set the ATLASSIAN_EMAIL environment variable."},
-        )
-
-    from urllib.parse import urlparse as _urlparse
-
-    _parsed = _urlparse(resolved_url)
-    _hostname = (_parsed.hostname or resolved_url).lower()
-    if _hostname in ("example.com", "jira.example.com") or _hostname.endswith(".example.com"):
-        logger.error(f"Invalid API URL detected: {resolved_url}. This appears to be a placeholder value.")
-        return (
-            False,
-            {
-                "error": (
-                    f"Invalid ATLASSIAN_API_URL: '{resolved_url}'. Please set "
-                    "ATLASSIAN_API_URL to your actual Jira instance URL "
-                    "(e.g., https://your-domain.atlassian.net)."
-                )
-            },
-        )
-
-    return True, {"token": resolved_token, "email": resolved_email, "url": resolved_url, "auth_scheme": auth_scheme}
-
-
-def get_provider_header_token() -> Optional[str]:
-    """Retrieve a CAIPE exchanged provider token without consuming the MCP auth JWT."""
-
-    try:
-        from fastmcp.server.dependencies import get_http_request
-
-        req = get_http_request()
-        token = req.headers.get("x-caipe-provider-token", "").strip()
-        return token or None
-    except Exception:
-        return None
-
 
 def get_env() -> Optional[str]:
-    """Retrieve the Atlassian API token from request header or environment."""
-    token = (
-        get_request_token("ATLASSIAN_TOKEN")
-        or get_request_token("ATLASSIAN_API_TOKEN")
-        or get_request_token("JIRA_API_TOKEN")
-        or get_request_token("JIRA_TOKEN")
-    )
+    """Retrieve the environment variables."""
+    token = os.getenv("ATLASSIAN_TOKEN") or os.getenv("ATLASSIAN_API_TOKEN") or os.getenv("JIRA_API_TOKEN") or os.getenv("JIRA_TOKEN")
     if not token:
-        logger.warning("ATLASSIAN_TOKEN is not set and no Authorization header provided.")
+        logger.warning("ATLASSIAN_TOKEN is not set in environment variables.")
     return token
 
 async def make_api_request(
@@ -157,25 +79,50 @@ async def make_api_request(
 
     logger.debug(f"Preparing {method} request to {path}")
 
-    ok, prerequisites = validate_prerequisites(token=token)
-    if not ok:
-        return False, prerequisites
-    token = str(prerequisites["token"])
-    email = str(prerequisites["email"])
-    url = str(prerequisites["url"])
-    auth_scheme = str(prerequisites.get("auth_scheme") or "basic")
+    # Use the utility function to retrieve the token if not provided
+    token = token or get_env()
+    email = str(os.getenv("ATLASSIAN_EMAIL") or os.getenv("JIRA_EMAIL") or os.getenv("JIRA_USER") or "")
+    url = str(os.getenv("ATLASSIAN_API_URL") or os.getenv("JIRA_API_URL") or "")
 
-    if auth_scheme == "bearer":
-        authorization = f"Bearer {token}"
-    else:
-        import base64
+    if not token:
+        logger.error("No API token available. Request cannot proceed.")
+        return (
+            False,
+            {"error": "Token is required. Please set the ATLASSIAN_TOKEN environment variable."},
+        )
 
-        auth_str = f"{email}:{token}"
-        encoded_auth = base64.b64encode(auth_str.encode()).decode()
-        authorization = f"Basic {encoded_auth}"
+    if not url:
+        logger.error("No API URL available. Request cannot proceed.")
+        return (
+            False,
+            {"error": "ATLASSIAN_API_URL is required. Please set the ATLASSIAN_API_URL environment variable (e.g., https://your-domain.atlassian.net)."},
+        )
+
+    if not email:
+        logger.error("No email available. Request cannot proceed.")
+        return (
+            False,
+            {"error": "ATLASSIAN_EMAIL is required. Please set the ATLASSIAN_EMAIL environment variable."},
+        )
+
+    # Validate URL doesn't contain example.com placeholder
+    from urllib.parse import urlparse as _urlparse
+    _parsed = _urlparse(url)
+    _hostname = (_parsed.hostname or url).lower()
+    if _hostname in ("example.com", "jira.example.com") or _hostname.endswith(".example.com"):
+        logger.error(f"Invalid API URL detected: {url}. This appears to be a placeholder value.")
+        return (
+            False,
+            {"error": f"Invalid ATLASSIAN_API_URL: '{url}'. Please set ATLASSIAN_API_URL to your actual Jira instance URL (e.g., https://your-domain.atlassian.net)."},
+        )
+
+    import base64
+
+    auth_str = f"{email}:{token}"
+    encoded_auth = base64.b64encode(auth_str.encode()).decode()
 
     headers = {
-        "Authorization": authorization,
+        "Authorization": f"Basic {encoded_auth}",
         "Accept": "application/json",
         "Content-Type": "application/json"
     }
@@ -202,42 +149,31 @@ async def make_api_request(
                 url = f"{url}/{path}"
                 logger.debug(f"Full request URL: {url}")
 
-                if method == "GET":
-                    response = await client.get(
-                        url,
-                        headers=headers,
-                        params=params,
-                    )
-                elif method == "POST":
-                    response = await client.post(
-                        url,
-                        headers=headers,
-                        params=params,
-                        json=data,
-                    )
-                elif method == "PUT":
-                    response = await client.put(
-                        url,
-                        headers=headers,
-                        params=params,
-                        json=data,
-                    )
-                elif method == "PATCH":
-                    response = await client.patch(
-                        url,
-                        headers=headers,
-                        params=params,
-                        json=data,
-                    )
-                elif method == "DELETE":
-                    response = await client.delete(
-                        url,
-                        headers=headers,
-                        params=params,
-                    )
-                else:
+                method_map = {
+                    "GET": client.get,
+                    "POST": client.post,
+                    "PUT": client.put,
+                    "PATCH": client.patch,
+                    "DELETE": client.delete,
+                }
+
+                if method not in method_map:
                     logger.error(f"Unsupported HTTP method: {method}")
                     return (False, {"error": f"Unsupported method: {method}"})
+
+                if method in ["POST", "PUT", "PATCH"]:
+                    response = await method_map[method](
+                        url,
+                        headers=headers,
+                        params=params,
+                        json=data
+                    )
+                else:
+                    response = await method_map[method](
+                        url,
+                        headers=headers,
+                        params=params
+                    )
 
 
                 logger.debug(f"Response status code: {response.status_code}")
@@ -307,9 +243,6 @@ async def make_api_request(
             logger.error(f"Unexpected error: {str(e)}")
             return (False, {"error": f"Unexpected error: {str(e)}"})
 
-    logger.error("Jira API request exhausted retry loop without returning a response.")
-    return (False, {"error": "Jira API request failed without a response."})
-
 
 def _get_mock_response(path: str, method: str, params: Dict, data: Dict) -> Tuple[bool, Dict[str, Any]]:
     """Generate mock responses based on the API path and method.
@@ -344,65 +277,21 @@ def _get_mock_response(path: str, method: str, params: Dict, data: Dict) -> Tupl
             else:  # Getting all comments for an issue
                 return (True, {
                     "comments": [
-                        {
-                            "id": "10000",
-                            "body": {
-                                "type": "doc",
-                                "version": 1,
-                                "content": [
-                                    {
-                                        "type": "paragraph",
-                                        "content": [{"type": "text", "text": "First comment"}],
-                                    }
-                                ],
-                            },
-                            "author": {"displayName": "John Doe"},
-                        },
-                        {
-                            "id": "10001",
-                            "body": {
-                                "type": "doc",
-                                "version": 1,
-                                "content": [
-                                    {
-                                        "type": "paragraph",
-                                        "content": [{"type": "text", "text": "Second comment"}],
-                                    }
-                                ],
-                            },
-                            "author": {"displayName": "Jane Smith"},
-                        }
+                        {"id": "10000", "body": {"type": "doc", "version": 1, "content": [{"type": "paragraph", "content": [{"type": "text", "text": "First comment"}]}]}, "author": {"displayName": "John Doe"}},
+                        {"id": "10001", "body": {"type": "doc", "version": 1, "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Second comment"}]}]}, "author": {"displayName": "Jane Smith"}}
                     ],
                     "total": 2
                 })
         elif method == "POST":
             return (True, {
                 "id": "10002",
-                "body": {
-                    "type": "doc",
-                    "version": 1,
-                    "content": [
-                        {
-                            "type": "paragraph",
-                            "content": [{"type": "text", "text": "New comment"}],
-                        }
-                    ],
-                },
+                "body": {"type": "doc", "version": 1, "content": [{"type": "paragraph", "content": [{"type": "text", "text": "New comment"}]}]},
                 "author": {"displayName": "Current User"}
             })
         elif method == "PUT":
             return (True, {
                 "id": "10000",
-                "body": {
-                    "type": "doc",
-                    "version": 1,
-                    "content": [
-                        {
-                            "type": "paragraph",
-                            "content": [{"type": "text", "text": "Updated comment"}],
-                        }
-                    ],
-                }
+                "body": {"type": "doc", "version": 1, "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Updated comment"}]}]}
             })
         elif method == "DELETE":
             return (True, {})

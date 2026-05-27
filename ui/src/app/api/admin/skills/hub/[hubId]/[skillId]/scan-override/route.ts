@@ -25,7 +25,7 @@
  * Gates (identical to the agent_skills variant; copy-paste because
  * the two routes have to stay byte-equivalent on policy or someone
  * will eventually exploit the gap):
- *   - ``admin_ui#admin`` RBAC permission
+ *   - ``requireAdmin(session)``
  *   - ``ADMIN_SCAN_OVERRIDE_ENABLED !== "false"`` (POST only — DELETE
  *     remains open even when the feature is off so stuck overrides
  *     can be cleaned up; matches the agent_skills route)
@@ -36,17 +36,16 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import {
-  getAuthFromBearerOrSession,
+  withAuth,
   withErrorHandler,
   successResponse,
-  requireRbacPermission,
+  requireAdmin,
   ApiError,
 } from "@/lib/api-middleware";
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import { recordScanOverrideEvent } from "@/lib/skill-scan-override-history";
 import type { HubSkillDoc, SkillHubDoc } from "@/lib/hub-crawl";
 import type { ScanOverride } from "@/types/agent-skill";
-import { requireResourcePermission } from "@/lib/rbac/resource-authz";
 
 const SUPERVISOR_URL = process.env.NEXT_PUBLIC_A2A_BASE_URL || "";
 
@@ -135,18 +134,13 @@ export const POST = withErrorHandler(
       throw new ApiError("skillId is required in the URL.", 400);
     }
 
-    const { user, session } = await getAuthFromBearerOrSession(request);
-    await requireRbacPermission(session, "admin_ui", "admin");
-    await requireResourcePermission(session, {
-      type: "skill",
-      id: `hub-${hubId}-${skillId}`,
-      action: "admin",
-    });
+    return await withAuth(request, async (req, user, session) => {
+      requireAdmin(session);
 
       // Body validation — same shape as the agent_skills route.
       let body: unknown;
       try {
-        body = await request.json();
+        body = await req.json();
       } catch {
         throw new ApiError("Request body must be valid JSON.", 400);
       }
@@ -266,7 +260,7 @@ export const POST = withErrorHandler(
       const supervisorAuth = {
         accessToken: (session as { accessToken?: string } | null | undefined)
           ?.accessToken,
-        catalogKey: request.headers.get("x-caipe-catalog-key") ?? undefined,
+        catalogKey: req.headers.get("x-caipe-catalog-key") ?? undefined,
       };
       triggerSupervisorRefresh(supervisorAuth);
 
@@ -284,6 +278,7 @@ export const POST = withErrorHandler(
         scan_override: override,
         scan_updated_at: now.toISOString(),
       });
+    });
   },
 );
 
@@ -319,22 +314,17 @@ export const DELETE = withErrorHandler(
       throw new ApiError("skillId is required in the URL.", 400);
     }
 
-    const { user, session } = await getAuthFromBearerOrSession(request);
-    await requireRbacPermission(session, "admin_ui", "admin");
-    await requireResourcePermission(session, {
-      type: "skill",
-      id: `hub-${hubId}-${skillId}`,
-      action: "admin",
-    });
+    return await withAuth(request, async (req, user, session) => {
+      requireAdmin(session);
 
       // Optional reason on clear. Same parser as the agent_skills
       // route — tolerate "no body" and "body but no reason field"
       // cleanly.
       let reason: string | undefined;
       try {
-        const ct = request.headers.get("content-type") ?? "";
+        const ct = req.headers.get("content-type") ?? "";
         if (ct.includes("application/json")) {
-          const body = (await request.json()) as { reason?: unknown };
+          const body = (await req.json()) as { reason?: unknown };
           if (typeof body?.reason === "string") {
             const trimmed = body.reason.trim();
             if (trimmed.length > 0 && trimmed.length <= 4096) {
@@ -412,7 +402,7 @@ export const DELETE = withErrorHandler(
       const supervisorAuth = {
         accessToken: (session as { accessToken?: string } | null | undefined)
           ?.accessToken,
-        catalogKey: request.headers.get("x-caipe-catalog-key") ?? undefined,
+        catalogKey: req.headers.get("x-caipe-catalog-key") ?? undefined,
       };
       triggerSupervisorRefresh(supervisorAuth);
 
@@ -424,6 +414,7 @@ export const DELETE = withErrorHandler(
         scan_status: existing.scan_status ?? "flagged",
         scan_updated_at: now.toISOString(),
       });
+    });
   },
 );
 

@@ -262,6 +262,9 @@ export function WorkflowHistoryView({ onReRun, workflowId }: WorkflowHistoryView
                 {/* Workflow Name */}
                 <div className="pr-24 mb-2">
                   <h3 className="font-semibold text-base">{run.workflow_name}</h3>
+                  {run.workflow_category && (
+                    <p className="text-xs text-muted-foreground">{run.workflow_category}</p>
+                  )}
                 </div>
 
                 {/* Timestamps */}

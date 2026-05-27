@@ -9,9 +9,6 @@ import os
 import logging
 from dotenv import load_dotenv
 from fastmcp import FastMCP
-from starlette.middleware import Middleware
-from mcp_agent_auth.middleware import MCPAuthMiddleware
-from mcp_jira.utils.logging import setup_logging
 
 # Import tools
 from mcp_jira.tools.jira import attachments
@@ -33,11 +30,8 @@ def main():
     # Load environment variables
     load_dotenv()
 
-    # Configure logging. Default to WARNING to avoid noisy MCP protocol logs
-    # and accidental Jira payload disclosure; opt into DEBUG locally when needed.
-    log_level_name = os.getenv("MCP_JIRA_LOG_LEVEL", "WARNING").upper()
-    log_level = getattr(logging, log_level_name, logging.WARNING)
-    setup_logging(log_level)
+    # Configure logging
+    logging.basicConfig(level=logging.DEBUG)
 
     # Get MCP configuration from environment variables
     MCP_MODE = os.getenv("MCP_MODE", "STDIO")
@@ -94,7 +88,6 @@ def main():
     mcp.tool()(comments.get_comments)
     mcp.tool()(comments.get_comment)
     mcp.tool()(comments.add_comment)
-    mcp.tool()(comments.add_internal_comment)
     mcp.tool()(comments.update_comment)
     mcp.tool()(comments.delete_comment)
 
@@ -135,13 +128,10 @@ def main():
     mcp.tool()(filters.delete_filter)
 
     # Run the MCP server
-    mode = MCP_MODE.lower()
-    if mode == "http":
-        mcp.run(transport=mode, host=MCP_HOST, port=MCP_PORT, middleware=[Middleware(MCPAuthMiddleware)])
-    elif mode == "sse":
-        mcp.run(transport=mode, host=MCP_HOST, port=MCP_PORT)
+    if MCP_MODE.lower() in ["sse", "http"]:
+        mcp.run(transport=MCP_MODE.lower(), host=MCP_HOST, port=MCP_PORT)
     else:
-        mcp.run(transport=mode)
+        mcp.run(transport=MCP_MODE.lower())
     logging.info("="*40)
     logging.info(f"{SERVER_NAME} MCP server started successfully.")
     logging.info("="*40)

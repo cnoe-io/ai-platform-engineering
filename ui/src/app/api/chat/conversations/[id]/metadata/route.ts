@@ -16,7 +16,6 @@ import {
   ApiError,
   validateUUID,
 } from '@/lib/api-middleware';
-import { requireConversationResourcePermission } from '@/lib/rbac/conversation-implicit-authz';
 import type { Conversation, PatchConversationMetadataRequest } from '@/types/mongodb';
 
 export const PATCH = withErrorHandler(async (
@@ -30,7 +29,7 @@ export const PATCH = withErrorHandler(async (
     );
   }
 
-  const { user, session } = await getAuthFromBearerOrSession(request);
+  await getAuthFromBearerOrSession(request);
 
   const params = await context.params;
   const conversationId = params.id;
@@ -51,7 +50,6 @@ export const PATCH = withErrorHandler(async (
   if (!conversation) {
     throw new ApiError('Conversation not found', 404);
   }
-  await requireConversationResourcePermission(session, user.email, conversation, 'write');
 
   // Shallow-merge provided keys into existing metadata using dot notation
   // so MongoDB only updates the specified fields without replacing the entire

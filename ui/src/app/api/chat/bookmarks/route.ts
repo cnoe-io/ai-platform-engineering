@@ -13,12 +13,11 @@ import {
   ApiError,
   getPaginationParams,
 } from '@/lib/api-middleware';
-import { requireResourcePermission } from '@/lib/rbac/resource-authz';
 import type { ConversationBookmark, CreateBookmarkRequest } from '@/types/mongodb';
 
 // GET /api/chat/bookmarks
 export const GET = withErrorHandler(async (request: NextRequest) => {
-  return withAuth(request, async (req, user, session) => {
+  return withAuth(request, async (req, user) => {
     const { page, pageSize, skip } = getPaginationParams(request);
 
     const bookmarks = await getCollection<ConversationBookmark>('conversation_bookmarks');
@@ -38,7 +37,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
 
 // POST /api/chat/bookmarks
 export const POST = withErrorHandler(async (request: NextRequest) => {
-  return withAuth(request, async (req, user, session) => {
+  return withAuth(request, async (req, user) => {
     const body: CreateBookmarkRequest = await request.json();
 
     validateRequired(body, ['conversation_id']);
@@ -46,11 +45,6 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     if (!validateUUID(body.conversation_id)) {
       throw new ApiError('Invalid conversation ID format', 400);
     }
-    await requireResourcePermission(session, {
-      type: 'conversation',
-      id: body.conversation_id,
-      action: 'read',
-    });
 
     const bookmarks = await getCollection<ConversationBookmark>('conversation_bookmarks');
 

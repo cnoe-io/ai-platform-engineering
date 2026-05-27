@@ -43,10 +43,7 @@ export async function GET(
   }
 
   // Authenticate
-  const authResult = await authenticateRequest(request, {
-    resource: "dynamic_agent",
-    scope: "invoke",
-  });
+  const authResult = await authenticateRequest(request);
   if (authResult instanceof NextResponse) return authResult;
 
   // Check DA config

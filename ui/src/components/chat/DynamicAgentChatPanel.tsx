@@ -3,18 +3,14 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useSession } from "next-auth/react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Square, User, Bot, Sparkles, Copy, Check, Loader2, ChevronDown, ChevronUp, ArrowDown, ArrowLeft, RotateCcw, Activity, ShieldCheck } from "lucide-react";
+import { Send, Square, User, Bot, Sparkles, Copy, Check, Loader2, ChevronDown, ChevronUp, ArrowDown, ArrowLeft, RotateCcw, Activity, ShieldCheck, AlertCircle } from "lucide-react";
 import TextareaAutosize from "react-textarea-autosize";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useChatStore } from "@/store/chat-store";
-import { useToast } from "@/components/ui/toast";
-import { createStreamAdapter, StreamError, type StreamCallbacks } from "@/lib/streaming";
-import { authErrorToastTitle, type AuthError } from "@/lib/auth-error";
-import { APIClientError } from "@/lib/api-client";
-import { signIn } from "next-auth/react";
-import { type StreamEvent, createStreamEvent, FILE_TOOL_NAMES, TODO_TOOL_NAME } from "@/lib/streaming/types";
+import { createStreamAdapter, type StreamCallbacks } from "@/lib/streaming";
+import { type StreamEvent, createStreamEvent, FILE_TOOL_NAMES, TODO_TOOL_NAME } from "@/components/dynamic-agents/sse-types";
 import { useFeatureFlagStore } from "@/store/feature-flag-store";
 import { cn, deduplicateByKey } from "@/lib/utils";
 import { ChatMessage as ChatMessageType, TurnStatus, Conversation } from "@/types/a2a";
@@ -25,7 +21,7 @@ import { MetadataInputForm, type UserInputMetadata, type InputField } from "./Me
 import { ToolApprovalCard } from "./ToolApprovalCard";
 import { SlashCommandMenu, getFilteredCommands, type SlashCommand } from "./SlashCommandMenu";
 import { useSlashCommands } from "./useSlashCommands";
-import { AgentAvatar } from "@/components/dynamic-agents/AgentAvatar";
+import { getGradientStyle, getAccentColor } from "@/lib/gradient-themes";
 import { AgentTimeline, type SubagentLookupInfo } from "./DynamicAgentTimeline";
 import { useAgentTimeline } from "@/hooks/useDynamicAgentTimeline";
 import type { TaskItem } from "@/components/shared/timeline";
@@ -41,53 +37,17 @@ interface ChatPanelProps {
   readOnly?: boolean;
   readOnlyReason?: ReadOnlyReason;
   agentId: string; // Mandatory for Dynamic Agents
-  agent?: DynamicAgentConfig | null; // Full agent config object
+  agentGradient?: string | null; // Gradient theme for agent avatar
+  agentCustomTheme?: import("@/types/dynamic-agent").CustomThemeConfig | null; // Custom theme config
+  agentName?: string; // Agent name for display
+  agentSkills?: string[]; // Configured skill IDs for this agent
   isLoadingMessages?: boolean; // Whether messages are still loading (show skeleton)
 }
 
-export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnly, readOnlyReason, agentId, agent, isLoadingMessages }: ChatPanelProps) {
-  // Derive display values from agent object
-  const agentGradient = agent?.ui?.gradient_theme ?? null;
-  const agentCustomTheme = agent?.ui?.custom_theme_config ?? null;
-  const agentName = agent?.name;
-  const agentSkills = agent?.skills;
+export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnly, readOnlyReason, agentId, agentGradient, agentCustomTheme, agentName, agentSkills, isLoadingMessages }: ChatPanelProps) {
   const { data: session } = useSession();
-  const { toast } = useToast();
   const autoScrollEnabled = useFeatureFlagStore((s) => s.flags.autoScroll ?? true);
   const showTimestamps = useFeatureFlagStore((s) => s.flags.showTimestamps ?? false);
-
-  /**
-   * Surface a structured auth-failure (from the Web UI backend or stream adapters) to
-   * the user as a toast with a short title + the server-supplied message,
-   * and trigger NextAuth re-sign-in when the server's `action` hint is
-   * `sign_in`. Returns true so callers can short-circuit the inline error
-   * rendering.
-   *
-   * Why a toast over inline error text: auth failures are recoverable
-   * (sign in / contact admin), not part of the conversation. Burying them
-   * inside an `**Error:** ...` blob in the assistant turn taught users to
-   * blame the agent and made the recovery path invisible. See
-   * docs/docs/specs/098-enterprise-rbac-slack-ui/how-rbac-works.md.
-   */
-  const showAuthErrorToast = useCallback(
-    (err: AuthError) => {
-      const title = authErrorToastTitle(err);
-      // Toast component renders message as text; combine title + body with
-      // a newline so both are visible without exposing custom JSX.
-      toast(`${title}\n${err.message}`, "error", 8000);
-
-      // For session-expired / not-signed-in, redirect to NextAuth sign-in
-      // after a short delay so the user has time to read the toast. We use
-      // signIn() (not router.push) because NextAuth handles the OIDC flow
-      // and round-trips the user back to the current page on success.
-      if (err.action === "sign_in") {
-        setTimeout(() => {
-          void signIn(undefined, { callbackUrl: window.location.href });
-        }, 1500);
-      }
-    },
-    [toast],
-  );
 
   // Derive the user's first name for message labels (falls back to "You")
   const userDisplayName = useMemo(() => {
@@ -121,17 +81,10 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
   const [pendingToolApproval, setPendingToolApproval] = useState<{
     messageId: string;
     interruptId: string;
+    toolName: string;
+    toolArgs: Record<string, unknown>;
+    allowedDecisions: string[];
     agentId: string;
-    /** All tool calls needing approval in this interrupt batch */
-    tools: Array<{
-      toolName: string;
-      toolArgs: Record<string, unknown>;
-      allowedDecisions: string[];
-    }>;
-    /** Index of the tool currently being shown to the user */
-    currentIndex: number;
-    /** Accumulated decisions (one per tool, filled as user decides) */
-    decisions: Array<{ decision: string; toolName: string; editedArgs?: Record<string, unknown> }>;
   } | null>(null);
 
   // Track message IDs where the user explicitly dismissed the input form,
@@ -157,8 +110,6 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     createConversation,
     addMessage,
     updateMessage,
-    // appendToMessage, // Unused in filtered code? Let's check. Used in error handling.
-    appendToMessage,
     addStreamEvent,
     clearStreamEvents,
     setConversationStreaming,
@@ -386,25 +337,13 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
             
             if (lastMsg && lastMsg.role === "assistant") {
               if (idata.type === "tool_approval") {
-                // Build tools list from tool_approvals if available, else single tool
-                const tools = idata.tool_approvals && idata.tool_approvals.length > 1
-                  ? idata.tool_approvals.map((t: { tool_name: string; tool_args: Record<string, unknown>; allowed_decisions?: string[] }) => ({
-                      toolName: t.tool_name,
-                      toolArgs: t.tool_args || {},
-                      allowedDecisions: t.allowed_decisions || ["approve", "edit", "reject"],
-                    }))
-                  : [{
-                      toolName: idata.tool_name,
-                      toolArgs: idata.tool_args || {},
-                      allowedDecisions: idata.allowed_decisions || ["approve", "edit", "reject"],
-                    }];
                 setPendingToolApproval({
                   messageId: lastMsg.id,
                   interruptId: idata.interrupt_id,
+                  toolName: idata.tool_name,
+                  toolArgs: idata.tool_args || {},
+                  allowedDecisions: idata.allowed_decisions || ["approve", "edit", "reject"],
                   agentId,
-                  tools,
-                  currentIndex: 0,
-                  decisions: [],
                 });
               } else {
                 const { prompt, fields } = idata;
@@ -473,9 +412,8 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       try {
         // No Authorization header — session cookie handles auth for same-origin requests.
         // Bearer tokens resolve email from JWT `sub` which may not match conversation owner_id.
-        const fsNamespace = JSON.stringify([agentId, conversationId, "filesystem"]);
         const response = await fetch(
-          `/api/files/list?fs_namespace=${encodeURIComponent(fsNamespace)}`,
+          `/api/dynamic-agents/conversations/${conversationId}/files/list?agent_id=${encodeURIComponent(agentId)}`,
         );
         if (response.ok) {
           const data = await response.json();
@@ -498,9 +436,8 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       setDownloadingFilePath(path);
 
       try {
-        const fsNamespace = JSON.stringify([agentId, conversationId, "filesystem"]);
         const response = await fetch(
-          `/api/files/content?fs_namespace=${encodeURIComponent(fsNamespace)}&path=${encodeURIComponent(path)}`,
+          `/api/dynamic-agents/conversations/${conversationId}/files/content?agent_id=${encodeURIComponent(agentId)}&path=${encodeURIComponent(path)}`,
         );
 
         if (response.ok) {
@@ -538,9 +475,8 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       setDeletingFilePath(path);
 
       try {
-        const fsNamespace = JSON.stringify([agentId, conversationId, "filesystem"]);
         const response = await fetch(
-          `/api/files/content?fs_namespace=${encodeURIComponent(fsNamespace)}&path=${encodeURIComponent(path)}`,
+          `/api/dynamic-agents/conversations/${conversationId}/files/content?agent_id=${encodeURIComponent(agentId)}&path=${encodeURIComponent(path)}`,
           {
             method: "DELETE",
           }
@@ -721,7 +657,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
 
     onToolEnd(toolCallId, toolName, error, namespace, args, result) {
       const resolvedName = toolName ?? toolCallIdToName.get(toolCallId);
-      // Parse accumulated args string (from AG-UI TOOL_CALL_ARGS deltas) into object.
+      // Parse accumulated args string (from AG-UI TOOL_CALL_ARGS deltas) into object
       let parsedArgs: Record<string, unknown> | undefined;
       if (args) {
         try {
@@ -730,7 +666,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
             parsedArgs = parsed as Record<string, unknown>;
           }
         } catch {
-          // Args string was not valid JSON; omit it from the timeline event.
+          // Args string wasn't valid JSON — ignore
         }
       }
       const streamEvent = createStreamEvent("tool_end", {
@@ -795,7 +731,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       }
     },
 
-    onToolApprovalRequired(interruptId, toolName, toolArgs, allowedDecisions, agent, toolApprovals) {
+    onToolApprovalRequired(interruptId, toolName, toolArgs, allowedDecisions, agent) {
       loopState.hitlFormRequested = true;
 
       const streamEvent = createStreamEvent("input_required", {
@@ -809,29 +745,17 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       });
       addStreamEvent(streamEvent, convId);
 
-      // Build the list of tools needing approval
-      const tools = toolApprovals && toolApprovals.length > 1
-        ? toolApprovals.map(t => ({
-            toolName: t.tool_name,
-            toolArgs: t.tool_args,
-            allowedDecisions: t.allowed_decisions,
-          }))
-        : [{ toolName, toolArgs, allowedDecisions }];
-
       setPendingToolApproval({
         messageId: assistantMsgId,
         interruptId,
+        toolName,
+        toolArgs,
+        allowedDecisions,
         agentId,
-        tools,
-        currentIndex: 0,
-        decisions: [],
       });
 
-      const toolCount = tools.length;
       updateMessage(convId, assistantMsgId, {
-        content: toolCount > 1
-          ? `Requesting approval for ${toolCount} tool calls...`
-          : `Requesting approval to run \`${toolName}\`...`,
+        content: `Requesting approval to run \`${toolName}\`...`,
       });
     },
 
@@ -899,35 +823,10 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
   const submitMessage = useCallback(async (messageToSend: string) => {
     if (!messageToSend.trim() || isThisConversationStreaming) return;
 
-    // Create conversation if needed. This hits POST /api/chat/conversations
-    // which is gated by the Web UI backend auth middleware, so we have to handle the
-    // structured auth-error here too (not just on the stream call) — without
-    // this, an expired session looks like a generic "Failed to create
-    // conversation" with no recovery hint.
+    // Create conversation if needed
     let convId = activeConversationId;
     if (!convId) {
-      try {
-        convId = await createConversation(agentId);
-      } catch (err) {
-        if (err instanceof APIClientError && (err.reason || err.status === 401 || err.status === 403)) {
-          showAuthErrorToast({
-            status: err.status,
-            message: err.message,
-            code: err.code,
-            reason: err.reason,
-            action: err.action,
-          });
-          return;
-        }
-        // Non-auth failure — fall through to existing toast surface so the
-        // user still sees something instead of a silent no-op.
-        toast(
-          `Failed to start conversation: ${err instanceof Error ? err.message : String(err)}`,
-          "error",
-          8000,
-        );
-        return;
-      }
+      convId = await createConversation(agentId);
     }
 
     // Build client context for system prompt rendering and user_info tool
@@ -986,32 +885,21 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
 
     } catch (error) {
       console.error("[DynamicAgent] Stream error:", error);
-
-      // Auth failures (401/403/503-pdp_unavailable) come through as
-      // StreamError with structured fields populated by the Web UI backend. Surface
-      // them as a toast (with sign-in CTA when applicable) instead of
-      // burying them inside the assistant turn — see showAuthErrorToast
-      // for the rationale.
-      const isAuthError = error instanceof StreamError && error.isAuthError();
-      if (isAuthError) {
-        const se = error as StreamError;
-        showAuthErrorToast({
-          status: se.status,
-          message: se.message,
-          code: se.code,
-          reason: se.reason,
-          action: se.action,
+      const errorMsg = (error as Error).message || "Failed to connect to agent endpoint";
+      if (!(error as Error).message?.startsWith("Session expired:")) {
+        updateMessage(convId, assistantMsgId, {
+          error: errorMsg,
+          turnStatus: "interrupted" as TurnStatus,
         });
-      } else if (!(error as Error).message?.startsWith("Session expired:")) {
-        appendToMessage(convId, assistantMsgId, `\n\n**Error:** ${(error as Error).message || "Failed to connect to agent endpoint"}`);
+      } else {
+        updateMessage(convId, assistantMsgId, {
+          turnStatus: "interrupted" as TurnStatus,
+        });
       }
-      // Set interrupted status on error
-      updateMessage(convId!, assistantMsgId, {
-        turnStatus: "interrupted" as TurnStatus,
-      });
+      // Set interrupted status on error — store auto-saves on streaming=null
       setConversationStreaming(convId, null);
     }
-  }, [isThisConversationStreaming, activeConversationId, accessToken, agentId, agentProtocol, createConversation, clearStreamEvents, addMessage, appendToMessage, updateMessage, setConversationStreaming, buildStreamCallbacks, finalizeStreamLoop, session?.user, showAuthErrorToast, toast]);
+  }, [isThisConversationStreaming, activeConversationId, accessToken, agentId, agentProtocol, createConversation, clearStreamEvents, addMessage, updateMessage, setConversationStreaming, buildStreamCallbacks, finalizeStreamLoop, session?.user]);
 
   // Handle queued messages after streaming completes
   useEffect(() => {
@@ -1278,51 +1166,28 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
 
     } catch (error) {
       console.error("[DynamicAgent] HITL resume error:", error);
-      appendToMessage(activeConversationId, assistantMsgId,
-        `\n\n**Error:** ${(error as Error).message || "Failed to resume"}`);
-      updateMessage(activeConversationId, assistantMsgId, { turnStatus: "interrupted" as TurnStatus });
+      updateMessage(activeConversationId, assistantMsgId, {
+        error: (error as Error).message || "Failed to resume",
+        turnStatus: "interrupted" as TurnStatus,
+      });
       setConversationStreaming(activeConversationId, null);
     }
   }, [pendingUserInput, activeConversationId, accessToken, agentProtocol, addMessage, updateMessage,
-      appendToMessage, setConversationStreaming,
+      setConversationStreaming,
       clearStreamEvents, buildStreamCallbacks, finalizeStreamLoop]);
 
   // Handle tool approval decisions (approve/reject/edit)
-  // Shows cards sequentially; only resumes after all tools are decided.
   const handleToolApprovalDecision = useCallback(async (
     decision: "approve" | "reject" | "edit",
     editedArgs?: Record<string, unknown>,
   ) => {
     if (!pendingToolApproval || !activeConversationId) return;
 
-    const { tools, currentIndex, decisions } = pendingToolApproval;
-    const currentTool = tools[currentIndex];
-
-    // Accumulate this decision
-    const newDecisions = [
-      ...decisions,
-      { decision, toolName: currentTool.toolName, editedArgs },
-    ];
-
-    // If there are more tools to decide, advance to the next card
-    if (currentIndex + 1 < tools.length) {
-      setPendingToolApproval({
-        ...pendingToolApproval,
-        currentIndex: currentIndex + 1,
-        decisions: newDecisions,
-      });
-      return;
-    }
-
-    // All tools decided — send the resume with all decisions
     const turnId = `turn-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-    const summaryParts = newDecisions.map(d => {
-      const label = d.decision === "approve" ? "Approved" : d.decision === "reject" ? "Rejected" : "Edited & approved";
-      return `${label} \`${d.toolName}\``;
-    });
+    const decisionLabel = decision === "approve" ? "Approved" : decision === "reject" ? "Rejected" : "Edited & approved";
     addMessage(activeConversationId, {
       role: "user",
-      content: summaryParts.join("\n"),
+      content: `${decisionLabel} \`${pendingToolApproval.toolName}\``,
     }, turnId);
     const assistantMsgId = addMessage(activeConversationId, { role: "assistant", content: "" }, turnId);
 
@@ -1338,27 +1203,11 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
 
     const clientContext: Record<string, unknown> = { source: "webui" };
 
-    // Build resume payload — use batched decisions format
     let resumePayload: Record<string, unknown>;
-    if (newDecisions.length === 1) {
-      // Single tool — use legacy format for backwards compat
-      const d = newDecisions[0];
-      if (d.decision === "edit" && d.editedArgs) {
-        resumePayload = { type: "tool_approval", decision: "edit", edited_args: d.editedArgs };
-      } else {
-        resumePayload = { type: "tool_approval", decision: d.decision };
-      }
+    if (decision === "edit" && editedArgs) {
+      resumePayload = { type: "tool_approval", decision: "edit", edited_args: editedArgs };
     } else {
-      // Multi-tool — use batched format
-      resumePayload = {
-        type: "tool_approval",
-        decisions: newDecisions.map(d => {
-          if (d.decision === "edit" && d.editedArgs) {
-            return { decision: "edit", tool_name: d.toolName, edited_args: d.editedArgs };
-          }
-          return { decision: d.decision };
-        }),
-      };
+      resumePayload = { type: "tool_approval", decision };
     }
     const resumeData = JSON.stringify(resumePayload);
 
@@ -1526,24 +1375,39 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
                   </>
                 ) : (
                   <>
-                    <AgentAvatar
-                      agent={agent}
-                      rounded="rounded-2xl"
-                      size="w-16 h-16 mx-auto mb-6"
-                      iconSize="h-8 w-8"
-                      icon={Sparkles}
-                    />
+                    {(() => {
+                      const gradientStyle = agentGradient ? getGradientStyle(agentGradient, agentCustomTheme) : null;
+                      return (
+                        <div 
+                          className={cn(
+                            "w-16 h-16 mx-auto mb-6 rounded-2xl flex items-center justify-center",
+                            !gradientStyle && "bg-gradient-to-br from-primary to-primary/60"
+                          )}
+                          style={gradientStyle || undefined}
+                        >
+                          <Sparkles className="h-8 w-8" style={{ color: getAccentColor(agentGradient, agentCustomTheme) || "white" }} />
+                        </div>
+                      );
+                    })()}
                     <h2 className="text-2xl font-bold mb-4">Welcome to {getConfig('appName')}</h2>
                     <p className="text-muted-foreground mb-3">
                       Start your conversation with
                     </p>
                     <div className="flex items-center justify-center gap-3">
-                      <AgentAvatar
-                        agent={agent}
-                        rounded="rounded-lg"
-                        size="w-8 h-8"
-                        iconSize="h-4 w-4"
-                      />
+                      {(() => {
+                        const gradientStyle = agentGradient ? getGradientStyle(agentGradient, agentCustomTheme) : null;
+                        return (
+                          <div 
+                            className={cn(
+                              "w-8 h-8 rounded-lg flex items-center justify-center",
+                              !gradientStyle && "bg-gradient-to-br from-primary to-primary/60"
+                            )}
+                            style={gradientStyle || undefined}
+                          >
+                            <Bot className="h-4 w-4" style={{ color: getAccentColor(agentGradient, agentCustomTheme) || "white" }} />
+                          </div>
+                        );
+                      })()}
                       <span className="text-lg font-semibold">
                         {agentName || "your agent"}
                       </span>
@@ -1734,23 +1598,17 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
             )}
 
             {/* Tool Approval Card */}
-            {pendingToolApproval && (() => {
-              const currentTool = pendingToolApproval.tools[pendingToolApproval.currentIndex];
-              const total = pendingToolApproval.tools.length;
-              const current = pendingToolApproval.currentIndex + 1;
-              return (
-                <ToolApprovalCard
-                  toolName={total > 1 ? `${currentTool.toolName} (${current}/${total})` : currentTool.toolName}
-                  toolArgs={currentTool.toolArgs}
-                  allowedDecisions={currentTool.allowedDecisions}
-                  onApprove={() => handleToolApprovalDecision("approve")}
-                  onReject={() => handleToolApprovalDecision("reject")}
-                  onEdit={(editedArgs) => handleToolApprovalDecision("edit", editedArgs)}
-                  disabled={isThisConversationStreaming}
-                  totalCount={total}
-                />
-              );
-            })()}
+            {pendingToolApproval && (
+              <ToolApprovalCard
+                toolName={pendingToolApproval.toolName}
+                toolArgs={pendingToolApproval.toolArgs}
+                allowedDecisions={pendingToolApproval.allowedDecisions}
+                onApprove={() => handleToolApprovalDecision("approve")}
+                onReject={() => handleToolApprovalDecision("reject")}
+                onEdit={(editedArgs) => handleToolApprovalDecision("edit", editedArgs)}
+                disabled={isThisConversationStreaming}
+              />
+            )}
 
             {/* Loading indicator while checking for pending HITL interrupt */}
             {checkingInterrupt && !pendingUserInput && !pendingToolApproval && (
@@ -2133,33 +1991,38 @@ const ChatMessage = React.memo(function ChatMessage({
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
-      {isUser ? (
-        <div
-          className={cn(
-            "w-9 h-9 rounded-xl flex items-center justify-center shrink-0 shadow-sm overflow-hidden bg-primary",
-          )}
-        >
-          {message.senderImage ? (
-            <img
-              src={message.senderImage}
-              alt={message.senderName || userDisplayName}
-              className="w-9 h-9 rounded-xl object-cover"
-            />
-          ) : (
-            <User className="h-4 w-4 text-white" />
-          )}
-        </div>
-      ) : (
-        <AgentAvatar
-          gradientTheme={agentGradient}
-          customThemeConfig={agentCustomTheme}
-          rounded="rounded-xl"
-          size="w-9 h-9"
-          iconSize="h-4 w-4"
-          isStreaming={isStreaming}
-          className="overflow-hidden"
-        />
-      )}
+      {(() => {
+        const gradientStyle = !isUser && agentGradient ? getGradientStyle(agentGradient, agentCustomTheme) : null;
+        const iconColor = getAccentColor(agentGradient, agentCustomTheme) || "white";
+        return (
+          <div
+            className={cn(
+              "w-9 h-9 rounded-xl flex items-center justify-center shrink-0 shadow-sm overflow-hidden",
+              isUser
+                ? "bg-primary"
+                : !gradientStyle && "gradient-primary-br",
+              isStreaming && "animate-pulse"
+            )}
+            style={gradientStyle || undefined}
+          >
+            {isUser ? (
+              message.senderImage ? (
+                <img
+                  src={message.senderImage}
+                  alt={message.senderName || userDisplayName}
+                  className="w-9 h-9 rounded-xl object-cover"
+                />
+              ) : (
+                <User className="h-4 w-4 text-white" />
+              )
+            ) : isStreaming ? (
+              <Loader2 className="h-4 w-4 animate-spin" style={{ color: iconColor }} />
+            ) : (
+              <Bot className="h-4 w-4" style={{ color: iconColor }} />
+            )}
+          </div>
+        );
+      })()}
 
       <div className={cn(
         "flex-1 min-w-0",
@@ -2305,6 +2168,25 @@ const ChatMessage = React.memo(function ChatMessage({
                   </>
                 )}
               </motion.div>
+            )}
+
+            {/* Connection / server error banner */}
+            {message.error && (
+              <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-lg border bg-red-500/10 border-red-500/25 text-red-400 mb-3">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                <p className="text-xs leading-snug flex-1 min-w-0">{message.error}</p>
+                {onRetry && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={onRetry}
+                    className="shrink-0 gap-1.5 border-red-500/30 text-red-400 hover:bg-red-500/20 hover:text-red-300 h-7 text-xs"
+                  >
+                    <RotateCcw className="h-3 w-3" />
+                    Retry
+                  </Button>
+                )}
+              </div>
             )}
 
             {/* Main content: timeline (streaming or completed with events) or fallback */}

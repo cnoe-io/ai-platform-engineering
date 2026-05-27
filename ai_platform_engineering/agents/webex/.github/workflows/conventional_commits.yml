@@ -1,6 +1,5 @@
 ---
 name: Conventional Commits
-# assisted-by Codex Codex-sonnet-4-6
 
 on:
   push:
@@ -22,7 +21,7 @@ jobs:
       statuses: write
     steps:
       - name: 🔒 harden runner
-        uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450 # v2.19.1
+        uses: step-security/harden-runner@0634a2670c59f64b4a01f0f96f84700a4088b9f0 # v2.12.0
         with:
           egress-policy: audit
       - uses: actions/checkout@v4

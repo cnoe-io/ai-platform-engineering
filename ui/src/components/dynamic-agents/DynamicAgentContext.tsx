@@ -11,15 +11,13 @@ import {
   RefreshCw,
   Download,
   Server,
-  FolderOpen,
 } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
-import { FileTree } from "@/components/dynamic-agents/FileTree";
-import { AgentAvatar } from "@/components/dynamic-agents/AgentAvatar";
 import { useChatStore } from "@/store/chat-store";
 import { cn } from "@/lib/utils";
-import type { DynamicAgentConfig } from "@/types/dynamic-agent";
+import { getGradientStyle, getAccentColor } from "@/lib/gradient-themes";
+import type { SubAgentRef, CustomThemeConfig } from "@/types/dynamic-agent";
 import { useShallow } from "zustand/react/shallow";
 import { useSession } from "next-auth/react";
 
@@ -27,10 +25,24 @@ interface DynamicAgentContextProps {
   /** Conversation ID from route params - used for API calls */
   conversationId?: string;
   agentId?: string;
-  /** Full agent config (null while loading) */
-  agent?: DynamicAgentConfig | null;
+  agentName?: string;
+  agentDescription?: string;
+  agentModel?: string;
+  agentVisibility?: string;
+  /** Agent gradient theme (e.g., "ocean", "sunset") */
+  agentGradient?: string | null;
+  /** Custom theme config (when agentGradient === "custom") */
+  agentCustomTheme?: CustomThemeConfig | null;
+  /** Map of server_id -> tool names (empty array = all tools from server) */
+  allowedTools?: Record<string, string[]>;
+  /** Configured subagents for delegation */
+  subagents?: SubAgentRef[];
+  /** Configured skill IDs */
+  agentSkills?: string[];
   /** Whether the agent has been deleted */
   agentNotFound?: boolean;
+  /** Whether the agent is disabled */
+  agentDisabled?: boolean;
   collapsed?: boolean;
   onCollapse?: (collapsed: boolean) => void;
 }
@@ -42,8 +54,17 @@ interface DynamicAgentContextProps {
 export function DynamicAgentContext({
   conversationId,
   agentId,
-  agent,
+  agentName,
+  agentDescription,
+  agentModel,
+  agentVisibility,
+  agentGradient,
+  agentCustomTheme,
+  allowedTools,
+  subagents,
+  agentSkills,
   agentNotFound,
+  agentDisabled,
   collapsed = false,
   onCollapse,
 }: DynamicAgentContextProps) {
@@ -65,7 +86,7 @@ export function DynamicAgentContext({
   // Fetch subagent configs to display their MCP servers
   const [subagentTools, setSubagentTools] = useState<Record<string, Record<string, string[]>>>({});
   useEffect(() => {
-    if (!agent?.subagents?.length || !session?.accessToken) {
+    if (!subagents?.length || !session?.accessToken) {
       setSubagentTools({});
       return;
     }
@@ -74,7 +95,7 @@ export function DynamicAgentContext({
     const fetchSubagentConfigs = async () => {
       const results: Record<string, Record<string, string[]>> = {};
       await Promise.all(
-        agent.subagents!.map(async (sub) => {
+        subagents.map(async (sub) => {
           try {
             const res = await fetch(`/api/dynamic-agents/agents/${sub.agent_id}`, {
               headers: session.accessToken
@@ -98,57 +119,7 @@ export function DynamicAgentContext({
 
     fetchSubagentConfigs();
     return () => { cancelled = true; };
-  }, [agent?.subagents, session?.accessToken]);
-
-  // File browser state
-  const [showFiles, setShowFiles] = useState(false);
-  const [files, setFiles] = useState<string[]>([]);
-  const [isLoadingFiles, setIsLoadingFiles] = useState(false);
-
-  const handleToggleFiles = useCallback(async () => {
-    if (showFiles) {
-      setShowFiles(false);
-      return;
-    }
-    if (!agentId || !conversationId) return;
-
-    setShowFiles(true);
-    setIsLoadingFiles(true);
-    try {
-      const fsNamespace = JSON.stringify([agentId, conversationId, "filesystem"]);
-      const res = await fetch(`/api/files/list?fs_namespace=${encodeURIComponent(fsNamespace)}`);
-      if (res.ok) {
-        const data = await res.json();
-        setFiles(data.files || []);
-      }
-    } catch {
-      // ignore
-    } finally {
-      setIsLoadingFiles(false);
-    }
-  }, [showFiles, agentId, conversationId]);
-
-  const handleFileDownload = useCallback(async (path: string) => {
-    if (!agentId || !conversationId) return;
-    try {
-      const fsNamespace = JSON.stringify([agentId, conversationId, "filesystem"]);
-      const res = await fetch(`/api/files/content?fs_namespace=${encodeURIComponent(fsNamespace)}&path=${encodeURIComponent(path)}`);
-      if (res.ok) {
-        const data = await res.json();
-        const blob = new Blob([data.content || ""], { type: "text/plain;charset=utf-8" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = path.split("/").pop() || "file";
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-      }
-    } catch {
-      // ignore
-    }
-  }, [agentId, conversationId]);
+  }, [subagents, session?.accessToken]);
 
   // Download chat handler
   const handleDownloadChat = useCallback(() => {
@@ -161,9 +132,9 @@ export function DynamicAgentContext({
       title: conversation.title,
       agent: {
         id: agentId,
-        name: agent?.name,
-        model: agent?.model?.id,
-        visibility: agent?.visibility,
+        name: agentName,
+        model: agentModel,
+        visibility: agentVisibility,
       },
       messages: conversation.messages?.map((m) => ({
         id: m.id,
@@ -191,7 +162,7 @@ export function DynamicAgentContext({
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  }, [conversation, conversationId, agentId, agent]);
+  }, [conversation, conversationId, agentId, agentName, agentModel, agentVisibility]);
 
   const handleRestartRuntime = useCallback(async () => {
     if (!agentId || !conversationId || isRestarting) return;
@@ -228,8 +199,11 @@ export function DynamicAgentContext({
   }, [agentId, conversationId, session?.accessToken, isRestarting, clearStreamEvents]);
 
   return (
-    <div
-      className="relative h-full flex flex-col bg-card/30 backdrop-blur-sm border-l border-border/50 overflow-hidden"
+    <motion.div
+      initial={false}
+      animate={{ width: collapsed ? 64 : 340 }}
+      transition={{ duration: 0.2 }}
+      className="relative h-full flex flex-col bg-card/30 backdrop-blur-sm border-l border-border/50 shrink-0 overflow-hidden"
     >
       {/* Header - only show when expanded */}
       {!collapsed && (
@@ -305,20 +279,24 @@ export function DynamicAgentContext({
             )}
 
             <AgentInfoContent
-              agent={agent}
+              agentName={agentName}
+              agentDescription={agentDescription}
+              agentModel={agentModel}
+              agentVisibility={agentVisibility}
+              agentGradient={agentGradient}
+              agentCustomTheme={agentCustomTheme}
+              allowedTools={allowedTools}
+              subagents={subagents}
+              agentSkills={agentSkills}
               subagentTools={subagentTools}
               agentId={agentId}
               sessionId={conversationId}
               onRestartRuntime={handleRestartRuntime}
               isRestarting={isRestarting}
               agentNotFound={agentNotFound}
+              agentDisabled={agentDisabled}
               onDownloadChat={handleDownloadChat}
               hasMessages={!!conversation?.messages?.length}
-              showFiles={showFiles}
-              files={files}
-              isLoadingFiles={isLoadingFiles}
-              onToggleFiles={handleToggleFiles}
-              onFileDownload={handleFileDownload}
             />
           </div>
         </ScrollArea>
@@ -331,16 +309,24 @@ export function DynamicAgentContext({
           className="flex-1 flex flex-col items-center justify-center gap-3 text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors cursor-pointer"
         >
           {/* Small agent avatar */}
-          <AgentAvatar
-            agent={agent}
-            rounded="rounded-full"
-            size="w-8 h-8"
-            iconSize="h-4 w-4"
-          />
+          {(() => {
+            const gradientStyle = agentGradient ? getGradientStyle(agentGradient, agentCustomTheme) : null;
+            return (
+              <div 
+                className={cn(
+                  "w-8 h-8 rounded-full flex items-center justify-center shrink-0",
+                  !gradientStyle && "bg-gradient-to-br from-purple-500 to-pink-600"
+                )}
+                style={gradientStyle || undefined}
+              >
+                <Bot className="h-4 w-4" style={{ color: getAccentColor(agentGradient, agentCustomTheme) || "white" }} />
+              </div>
+            );
+          })()}
           <ChevronLeft className="h-4 w-4" />
         </button>
       )}
-    </div>
+    </motion.div>
   );
 }
 
@@ -349,7 +335,15 @@ export function DynamicAgentContext({
 // ═══════════════════════════════════════════════════════════════
 
 interface AgentInfoContentProps {
-  agent?: DynamicAgentConfig | null;
+  agentName?: string;
+  agentDescription?: string;
+  agentModel?: string;
+  agentVisibility?: string;
+  agentGradient?: string | null;
+  agentCustomTheme?: CustomThemeConfig | null;
+  allowedTools?: Record<string, string[]>;
+  subagents?: SubAgentRef[];
+  agentSkills?: string[];
   /** Map of subagent agent_id -> their allowed_tools config */
   subagentTools?: Record<string, Record<string, string[]>>;
   /** Agent ID for restart runtime */
@@ -362,76 +356,81 @@ interface AgentInfoContentProps {
   isRestarting?: boolean;
   /** Whether the agent has been deleted */
   agentNotFound?: boolean;
+  /** Whether the agent is disabled */
+  agentDisabled?: boolean;
   /** Callback to download chat as JSON */
   onDownloadChat?: () => void;
   /** Whether there are messages to download */
   hasMessages?: boolean;
-  /** File browser state */
-  showFiles?: boolean;
-  files?: string[];
-  isLoadingFiles?: boolean;
-  onToggleFiles?: () => void;
-  onFileDownload?: (path: string) => void;
 }
 
 function AgentInfoContent({
-  agent,
+  agentName,
+  agentDescription,
+  agentModel,
+  agentVisibility,
+  agentGradient,
+  agentCustomTheme,
+  allowedTools,
+  subagents,
+  agentSkills,
   subagentTools,
   agentId,
   sessionId,
   onRestartRuntime,
   isRestarting,
   agentNotFound,
+  agentDisabled,
   onDownloadChat,
   hasMessages,
-  showFiles,
-  files = [],
-  isLoadingFiles,
-  onToggleFiles,
-  onFileDownload,
 }: AgentInfoContentProps) {
   // Count total tools across all MCP servers
-  const toolCount = agent?.allowed_tools
-    ? Object.entries(agent.allowed_tools).reduce((sum, [, tools]) => {
-        if (tools === false) return sum;
-        if (tools === true) return sum + 1;
+  const toolCount = allowedTools
+    ? Object.entries(allowedTools).reduce((sum, [, tools]) => {
+        // Empty array means "all tools" from that server
         return sum + (tools.length > 0 ? tools.length : 1);
       }, 0)
     : 0;
 
-  const serverCount = agent?.allowed_tools
-    ? Object.entries(agent.allowed_tools).filter(([, v]) => v !== false).length
-    : 0;
+  const serverCount = allowedTools ? Object.keys(allowedTools).length : 0;
 
   // Format visibility for display
-  const visibilityDisplay = agent?.visibility
-    ? agent.visibility.charAt(0).toUpperCase() + agent.visibility.slice(1)
+  const visibilityDisplay = agentVisibility
+    ? agentVisibility.charAt(0).toUpperCase() + agentVisibility.slice(1)
     : "Private";
 
   return (
     <div className="space-y-4">
       {/* Agent header */}
       <div className="flex items-center gap-3">
-        <AgentAvatar
-          agent={agent}
-          rounded="rounded-full"
-          size="w-10 h-10"
-          iconSize="h-5 w-5"
-        />
+        {(() => {
+          const gradientStyle = agentGradient ? getGradientStyle(agentGradient, agentCustomTheme) : null;
+          return (
+            <div 
+              className={cn(
+                "w-10 h-10 rounded-full flex items-center justify-center shrink-0",
+                !gradientStyle && "bg-gradient-to-br from-purple-500 to-pink-600"
+              )}
+              style={gradientStyle || undefined}
+            >
+              <Bot className="h-5 w-5" style={{ color: getAccentColor(agentGradient, agentCustomTheme) || "white" }} />
+            </div>
+          );
+        })()}
         <div className="min-w-0">
-          <h3 className="font-semibold truncate">{agent?.name || "Custom Agent"}</h3>
+          <h3 className="font-semibold truncate">{agentName || "Custom Agent"}</h3>
           <p className="text-xs text-muted-foreground">Custom Agent</p>
         </div>
       </div>
 
       {/* Description */}
-      {agent?.description && (
+      {agentDescription && (
         <div className="space-y-1.5">
           <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
             Description
           </h4>
           <p className="text-sm text-foreground/80 leading-relaxed">
-            {agent.description}
+            {agentDescription}
           </p>
         </div>
       )}
@@ -446,8 +445,8 @@ function AgentInfoContent({
           {/* Model */}
           <div className="space-y-0.5">
             <span className="text-xs text-muted-foreground">Model</span>
-            <p className="font-medium truncate" title={agent?.model?.id || "Default"}>
-              {agent?.model?.id || "Default"}
+            <p className="font-medium truncate" title={agentModel || "Default"}>
+              {agentModel || "Default"}
             </p>
           </div>
 
@@ -478,7 +477,7 @@ function AgentInfoContent({
           {/* Skills */}
           <div className="space-y-0.5">
             <span className="text-xs text-muted-foreground">Skills</span>
-            <p className="font-medium">{agent?.skills?.length || 0}</p>
+            <p className="font-medium">{agentSkills?.length || 0}</p>
           </div>
 
           {/* Conversation ID */}
@@ -501,7 +500,7 @@ function AgentInfoContent({
             MCP Servers
           </h4>
           <div className="space-y-1">
-            {Object.keys(agent?.allowed_tools || {}).map((serverId) => (
+            {Object.keys(allowedTools || {}).map((serverId) => (
               <div
                 key={serverId}
                 className="flex items-center gap-2 text-xs px-2 py-1.5 rounded font-mono bg-muted/30 border border-border/50"
@@ -514,13 +513,13 @@ function AgentInfoContent({
       )}
 
       {/* Configured Subagents */}
-      {agent?.subagents && agent.subagents.length > 0 && (
+      {subagents && subagents.length > 0 && (
         <div className="space-y-2">
           <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
             Configured Subagents
           </h4>
           <div className="space-y-1.5">
-            {agent.subagents.map((subagent) => {
+            {subagents.map((subagent) => {
               const subTools = subagentTools?.[subagent.agent_id];
               const subServerIds = subTools ? Object.keys(subTools) : [];
               return (
@@ -576,7 +575,7 @@ function AgentInfoContent({
               variant="outline"
               size="sm"
               onClick={onRestartRuntime}
-              disabled={isRestarting || agentNotFound || agent?.enabled === false}
+              disabled={isRestarting || agentNotFound || agentDisabled}
               className="w-full justify-center gap-2 text-xs"
             >
               {isRestarting ? (
@@ -604,44 +603,6 @@ function AgentInfoContent({
               </Button>
             )}
           </div>
-        </div>
-      )}
-
-      {/* Files Section */}
-      {onToggleFiles && (
-        <div className="space-y-2 pt-2 border-t border-border/50">
-          <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-            <FolderOpen className="h-3.5 w-3.5" />
-            Files
-          </h4>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onToggleFiles}
-            className={cn("w-full justify-center gap-2 text-xs", showFiles && "bg-muted")}
-          >
-            {isLoadingFiles ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <FolderOpen className="h-3.5 w-3.5" />
-            )}
-            {showFiles ? "Hide Files" : "Show Files"}
-            {files.length > 0 && (
-              <span className="text-[10px] text-muted-foreground">({files.length})</span>
-            )}
-          </Button>
-          {showFiles && (
-            <div className="mt-2">
-              {files.length === 0 ? (
-                <p className="text-xs text-muted-foreground italic">No files created yet.</p>
-              ) : (
-                <FileTree
-                  files={files}
-                  onFileClick={onFileDownload}
-                />
-              )}
-            </div>
-          )}
         </div>
       )}
     </div>

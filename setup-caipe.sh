@@ -49,23 +49,10 @@ AWS_BEDROCK_ENABLE_PROMPT_CACHE="${AWS_BEDROCK_ENABLE_PROMPT_CACHE:-}"
 LLM_PROVIDER="${LLM_PROVIDER:-}"  # filled by cluster detection or user prompt; default applied per-use
 EMBEDDINGS_MODEL="${EMBEDDINGS_MODEL:-text-embedding-3-large}"
 EMBEDDINGS_PROVIDER="${EMBEDDINGS_PROVIDER:-openai}"
-# Provider-specific embeddings credentials (only the active provider's vars are required).
-# These mirror the env vars the RAG server's EmbeddingsFactory reads at runtime.
-# See ai_platform_engineering/knowledge_bases/rag/common/src/common/embeddings_factory.py
-COHERE_API_KEY="${COHERE_API_KEY:-}"
-VOYAGE_API_KEY="${VOYAGE_API_KEY:-}"
-HUGGINGFACEHUB_API_TOKEN="${HUGGINGFACEHUB_API_TOKEN:-}"
-EMBEDDINGS_DEVICE="${EMBEDDINGS_DEVICE:-cpu}"
-# Source hint for the embeddings menu: distinguishes "voyage" and
-# "custom-litellm" (both materialise EMBEDDINGS_PROVIDER=litellm internally
-# but route through different model menus and credential prompts).
-EMBEDDINGS_PROVIDER_SOURCE="${EMBEDDINGS_PROVIDER_SOURCE:-}"
-# AWS embeddings reuse the LLM-side AWS creds (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_REGION).
 ENABLE_GRAPH_RAG=false
 ENABLE_VLLM="${ENABLE_VLLM:-false}"
 ENABLE_OLLAMA="${ENABLE_OLLAMA:-false}"
 ENABLE_AGENTGATEWAY="${ENABLE_AGENTGATEWAY:-false}"
-ENABLE_RBAC_RUNTIME="${ENABLE_RBAC_RUNTIME:-false}"
 VLLM_MODEL="${VLLM_MODEL:-openai/gpt-oss-20b}"
 VLLM_GPU_COUNT="${VLLM_GPU_COUNT:-1}"
 OLLAMA_MODEL="${OLLAMA_MODEL:-llama2}"
@@ -73,8 +60,6 @@ OLLAMA_PORT=11434
 HF_TOKEN="${HF_TOKEN:-}"
 AGENTGATEWAY_VERSION="${AGENTGATEWAY_VERSION:-v2.2.1}"
 AGENTGATEWAY_PORT=8080
-KEYCLOAK_PORT=7080
-OPENFGA_PORT=18080
 INJECT_CORPORATE_CA=false
 CA_SSL_FIX_PROMPTED=false
 SUPERVISOR_RAG_RESTARTED=false
@@ -116,16 +101,13 @@ fi
 
 cleanup_on_exit() {
   # Kill tracked PIDs
-  for pid in "${PF_PIDS[@]}"; do
+  for pid in "${PF_PIDS[@]:-}"; do
     kill "$pid" 2>/dev/null || true
   done
   # Fallback: kill any kubectl port-forward processes started for our services
   pkill -f "kubectl port-forward.*caipe-supervisor-agent.*${SUPERVISOR_PORT:-8000}:8000" 2>/dev/null || true
   pkill -f "kubectl port-forward.*caipe-caipe-ui.*${UI_PORT:-3000}:3000" 2>/dev/null || true
   pkill -f "kubectl port-forward.*langfuse-web.*${LANGFUSE_PORT:-3100}:3000" 2>/dev/null || true
-  pkill -f "kubectl port-forward.*caipe-keycloak.*${KEYCLOAK_PORT:-7080}:8080" 2>/dev/null || true
-  pkill -f "kubectl port-forward.*caipe-openfga.*${OPENFGA_PORT:-18080}:8080" 2>/dev/null || true
-  pkill -f "kubectl port-forward.*caipe-agentgateway.*${AGENTGATEWAY_PORT:-8080}:4000" 2>/dev/null || true
   rm -f /tmp/langfuse-cookies /tmp/caipe-validation-*.log
   exec 3<&- 2>/dev/null || true
 }
@@ -1443,139 +1425,6 @@ _collect_openai_embeddings_key() {
   log "OpenAI API key received (for embeddings)"
 }
 
-_collect_cohere_embeddings_creds() {
-  if [[ -n "${COHERE_API_KEY:-}" ]]; then
-    log "Using COHERE_API_KEY for embeddings (from environment)"
-    return
-  fi
-  if [[ -f "${HOME}/.config/cohere.txt" ]]; then
-    COHERE_API_KEY=$(tr -d '[:space:]' < "${HOME}/.config/cohere.txt")
-    log "Using COHERE_API_KEY for embeddings (from ~/.config/cohere.txt)"
-    return
-  fi
-  if $NON_INTERACTIVE; then
-    err "RAG with Cohere embeddings requires COHERE_API_KEY (set env var or create ~/.config/cohere.txt)"
-    exit 1
-  fi
-  echo ""
-  echo -e "  ${DIM}Cohere embeddings credentials:${NC}"
-  prompt "Enter your Cohere API key: "
-  tty_read -rs COHERE_API_KEY
-  echo ""
-  if [[ -z "$COHERE_API_KEY" ]]; then
-    err "Cohere API key is required for embeddings"
-    exit 1
-  fi
-  log "Cohere API key received (for embeddings)"
-}
-
-_collect_voyage_embeddings_creds() {
-  # Voyage AI is Anthropic's recommended embeddings provider. The RAG server
-  # talks to Voyage through the LiteLLM-compatible code path (provider=litellm),
-  # so we materialise a litellm config that points at Voyage's public endpoint.
-  if [[ -n "${VOYAGE_API_KEY:-}" ]]; then
-    log "Using VOYAGE_API_KEY for embeddings (from environment)"
-  elif [[ -f "${HOME}/.config/voyage.txt" ]]; then
-    VOYAGE_API_KEY=$(tr -d '[:space:]' < "${HOME}/.config/voyage.txt")
-    log "Using VOYAGE_API_KEY for embeddings (from ~/.config/voyage.txt)"
-  else
-    if $NON_INTERACTIVE; then
-      err "RAG with Voyage AI embeddings requires VOYAGE_API_KEY (set env var or create ~/.config/voyage.txt)"
-      err "Get a key at https://www.voyageai.com/ (free tier available)"
-      exit 1
-    fi
-    echo ""
-    echo -e "  ${DIM}Voyage AI embeddings credentials:${NC}"
-    echo -e "  ${DIM}Get a free API key at ${BOLD}https://www.voyageai.com${NC}"
-    prompt "Enter your Voyage AI API key: "
-    tty_read -rs VOYAGE_API_KEY
-    echo ""
-    if [[ -z "$VOYAGE_API_KEY" ]]; then
-      err "Voyage AI API key is required for embeddings"
-      exit 1
-    fi
-  fi
-
-  # Materialise Voyage as a LiteLLM-compatible config (the RAG factory's
-  # litellm path is OpenAI-compatible and works against api.voyageai.com).
-  LITELLM_ENDPOINT="https://api.voyageai.com/v1"
-  LITELLM_API_KEY="$VOYAGE_API_KEY"
-  log "Voyage AI configured as LiteLLM-compatible embeddings endpoint"
-}
-
-_collect_aws_bedrock_embeddings_creds() {
-  # AWS Bedrock embeddings reuse the LLM-side AWS credentials. If the user
-  # already picked aws-bedrock as their LLM provider, those are already set.
-  # Otherwise, prompt for the same triple (access key, secret, region).
-  if [[ -n "${AWS_ACCESS_KEY_ID:-}" && -n "${AWS_SECRET_ACCESS_KEY:-}" ]]; then
-    log "Using AWS credentials for Bedrock embeddings (from LLM provider config or environment)"
-    return
-  fi
-  if [[ -f "${HOME}/.config/bedrock.txt" ]]; then
-    _parse_bedrock_txt "${HOME}/.config/bedrock.txt"
-    if [[ -n "${AWS_ACCESS_KEY_ID:-}" && -n "${AWS_SECRET_ACCESS_KEY:-}" ]]; then
-      return
-    fi
-  fi
-  if $NON_INTERACTIVE; then
-    err "RAG with AWS Bedrock embeddings requires AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY"
-    err "(or ~/.config/bedrock.txt with profile name or .env-style creds)"
-    exit 1
-  fi
-  echo ""
-  echo -e "  ${DIM}AWS Bedrock embeddings credentials:${NC}"
-  prompt "AWS_ACCESS_KEY_ID: "; tty_read -r AWS_ACCESS_KEY_ID
-  prompt "AWS_SECRET_ACCESS_KEY: "; tty_read -rs AWS_SECRET_ACCESS_KEY; echo ""
-  prompt "AWS_REGION ${CYAN}[${AWS_REGION:-us-east-1}]${NC}${BOLD}: "
-  tty_read -r _r
-  AWS_REGION="${_r:-${AWS_REGION:-us-east-1}}"
-  if [[ -z "$AWS_ACCESS_KEY_ID" || -z "$AWS_SECRET_ACCESS_KEY" ]]; then
-    err "AWS Bedrock embeddings require both AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY"
-    exit 1
-  fi
-  log "AWS Bedrock credentials collected (region: ${AWS_REGION})"
-}
-
-_collect_huggingface_embeddings_creds() {
-  # HuggingFace embeddings run locally inside the rag-server pod and only
-  # need a token for gated models. The default model (all-MiniLM-L6-v2) is
-  # public and does not require a token, so the token is optional.
-  if [[ -n "${HUGGINGFACEHUB_API_TOKEN:-}" || -n "${HF_TOKEN:-}" ]]; then
-    HUGGINGFACEHUB_API_TOKEN="${HUGGINGFACEHUB_API_TOKEN:-$HF_TOKEN}"
-    log "Using HUGGINGFACEHUB_API_TOKEN for embeddings (from environment)"
-    return
-  fi
-  if [[ -f "${HOME}/.config/huggingface.txt" ]]; then
-    HUGGINGFACEHUB_API_TOKEN=$(tr -d '[:space:]' < "${HOME}/.config/huggingface.txt")
-    log "Using HUGGINGFACEHUB_API_TOKEN for embeddings (from ~/.config/huggingface.txt)"
-    return
-  fi
-  if $NON_INTERACTIVE; then
-    warn "HuggingFace embeddings: HUGGINGFACEHUB_API_TOKEN not set"
-    warn "  Public models (all-MiniLM-L6-v2, all-mpnet-base-v2) will work without a token."
-    warn "  Gated models (e.g. BAAI/bge-*) require a token; set HUGGINGFACEHUB_API_TOKEN if needed."
-    return
-  fi
-  echo ""
-  echo -e "  ${DIM}HuggingFace embeddings token (OPTIONAL — only needed for gated models):${NC}"
-  echo -e "  ${DIM}Public models like all-MiniLM-L6-v2 work without a token. Press Enter to skip.${NC}"
-  prompt "HUGGINGFACEHUB_API_TOKEN (Enter to skip): "
-  tty_read -rs HUGGINGFACEHUB_API_TOKEN
-  echo ""
-  if [[ -z "${HUGGINGFACEHUB_API_TOKEN:-}" ]]; then
-    log "HuggingFace token skipped (only public models will work)"
-  else
-    log "HuggingFace token received"
-  fi
-
-  echo ""
-  echo -e "  ${DIM}HuggingFace device (cpu = portable, cuda/mps = GPU acceleration):${NC}"
-  prompt "Device ${CYAN}[cpu]${NC}${BOLD}: "
-  tty_read -r _dev
-  EMBEDDINGS_DEVICE="${_dev:-cpu}"
-  log "HuggingFace device: ${EMBEDDINGS_DEVICE}"
-}
-
 # ─── MetalLB / Ingress / TLS ──────────────────────────────────────────────────
 
 install_metallb() {
@@ -1954,7 +1803,6 @@ choose_features() {
     fi
     $ENABLE_TRACING && log "Tracing enabled (--tracing)" || log "Tracing skipped (pass --tracing to enable)"
     $ENABLE_AGENTGATEWAY && log "AgentGateway enabled (--agentgateway)" || log "AgentGateway skipped (pass --agentgateway to enable)"
-    $ENABLE_RBAC_RUNTIME && log "RBAC runtime enabled (--rbac-runtime)" || log "RBAC runtime skipped (pass --rbac-runtime to enable)"
     $ENABLE_PERSISTENCE && log "Redis persistence enabled (--persistence)" || log "Persistence skipped (pass --persistence to enable)"
     $ENABLE_DYNAMIC_AGENTS && log "Dynamic agents enabled (--dynamic-agents)" || log "Dynamic agents skipped (pass --dynamic-agents to enable)"
     if $ENABLE_METALLB; then
@@ -2044,65 +1892,6 @@ choose_features() {
             fi
           fi
           ;;
-        aws-bedrock)
-          # Reuses the LLM AWS creds when LLM_PROVIDER=aws-bedrock; otherwise
-          # rescue from the existing secret and re-prompt if still missing.
-          if [[ -z "${AWS_ACCESS_KEY_ID:-}" || -z "${AWS_SECRET_ACCESS_KEY:-}" ]]; then
-            local _abs
-            _abs=$(kubectl get secret llm-secret -n caipe -o json 2>/dev/null || true)
-            if [[ -n "$_abs" ]]; then
-              [[ -z "${AWS_ACCESS_KEY_ID:-}" ]]     && AWS_ACCESS_KEY_ID=$(echo "$_abs" | jq -r '.data.AWS_ACCESS_KEY_ID // empty' 2>/dev/null | base64 -d 2>/dev/null || true)
-              [[ -z "${AWS_SECRET_ACCESS_KEY:-}" ]] && AWS_SECRET_ACCESS_KEY=$(echo "$_abs" | jq -r '.data.AWS_SECRET_ACCESS_KEY // empty' 2>/dev/null | base64 -d 2>/dev/null || true)
-              [[ -z "${AWS_REGION:-}" ]]            && AWS_REGION=$(echo "$_abs" | jq -r '.data.AWS_REGION // empty' 2>/dev/null | base64 -d 2>/dev/null || true)
-            fi
-            if [[ -z "${AWS_ACCESS_KEY_ID:-}" || -z "${AWS_SECRET_ACCESS_KEY:-}" ]]; then
-              warn "AWS Bedrock embeddings credentials not found — please enter them now"
-              _collect_aws_bedrock_embeddings_creds
-            fi
-          fi
-          ;;
-        cohere)
-          if [[ -z "${COHERE_API_KEY:-}" ]]; then
-            local _cls
-            _cls=$(kubectl get secret llm-secret -n caipe -o json 2>/dev/null || true)
-            [[ -n "$_cls" ]] && COHERE_API_KEY=$(echo "$_cls" | jq -r '.data.COHERE_API_KEY // empty' 2>/dev/null | base64 -d 2>/dev/null || true)
-            if [[ -z "${COHERE_API_KEY:-}" ]]; then
-              warn "Cohere embeddings credentials not found — please enter them now"
-              _collect_cohere_embeddings_creds
-            fi
-          fi
-          ;;
-        litellm)
-          # Could be Voyage (api.voyageai.com) or a generic LiteLLM proxy.
-          # Both rescue the same way — endpoint + key from the live secret.
-          if [[ -z "${LITELLM_ENDPOINT:-}" ]]; then
-            local _vls
-            _vls=$(kubectl get secret llm-secret -n caipe -o json 2>/dev/null || true)
-            if [[ -n "$_vls" ]]; then
-              [[ -z "${LITELLM_ENDPOINT:-}" ]] && LITELLM_ENDPOINT=$(echo "$_vls" | jq -r '.data.LITELLM_API_BASE // empty' 2>/dev/null | base64 -d 2>/dev/null || true)
-              [[ -z "${LITELLM_API_KEY:-}" ]]  && LITELLM_API_KEY=$(echo "$_vls" | jq -r '.data.LITELLM_API_KEY // empty' 2>/dev/null | base64 -d 2>/dev/null || true)
-            fi
-            if [[ -z "${LITELLM_ENDPOINT:-}" ]]; then
-              warn "LiteLLM/Voyage embeddings credentials not found — please enter them now"
-              if [[ "${EMBEDDINGS_MODEL:-}" =~ ^voyage- ]]; then
-                _collect_voyage_embeddings_creds
-              else
-                prompt "LiteLLM endpoint: "; tty_read -r LITELLM_ENDPOINT
-                prompt "LiteLLM API key (Enter for 'not-needed'): "; tty_read -rs LITELLM_API_KEY; echo ""
-                LITELLM_API_KEY="${LITELLM_API_KEY:-not-needed}"
-              fi
-            fi
-          fi
-          ;;
-        huggingface)
-          # HF token is OPTIONAL — public models don't need it. Just log
-          # whether we have one; never block the re-run.
-          if [[ -z "${HUGGINGFACEHUB_API_TOKEN:-}" ]]; then
-            local _hls
-            _hls=$(kubectl get secret llm-secret -n caipe -o json 2>/dev/null || true)
-            [[ -n "$_hls" ]] && HUGGINGFACEHUB_API_TOKEN=$(echo "$_hls" | jq -r '.data.HUGGINGFACEHUB_API_TOKEN // empty' 2>/dev/null | base64 -d 2>/dev/null || true)
-          fi
-          ;;
       esac
       # Fall through — agent prompts still need to run below
     fi
@@ -2113,28 +1902,12 @@ choose_features() {
       ENABLE_RAG=true
       log "RAG enabled"
 
-      # Anthropic-aware note: Anthropic does not ship a native embeddings
-      # model. Their official recommendation is Voyage AI. We surface that
-      # here so a Claude user knows their options without forcing a choice.
-      # Source: https://platform.claude.com/docs/en/build-with-claude/embeddings
-      if [[ "${LLM_PROVIDER:-}" == "anthropic-claude" ]]; then
-        echo ""
-        echo -e "  ${YELLOW}${BOLD}Note:${NC} ${DIM}Anthropic does not ship its own embeddings model.${NC}"
-        echo -e "  ${DIM}Their official recommendation is ${BOLD}Voyage AI${NC}${DIM} (option 5 below).${NC}"
-        echo -e "  ${DIM}OpenAI, Azure OpenAI, AWS Bedrock, and Cohere all work too — pick whatever${NC}"
-        echo -e "  ${DIM}fits your existing account / latency / data-residency requirements.${NC}"
-      fi
-
       echo ""
       echo -e "  ${DIM}Embeddings provider:${NC}"
       echo -e "    ${BOLD}1)${NC} OpenAI            ${DIM}(text-embedding-3-large — default)${NC}"
       echo -e "    ${BOLD}2)${NC} Azure OpenAI       ${DIM}(uses your Azure deployment)${NC}"
-      echo -e "    ${BOLD}3)${NC} AWS Bedrock        ${DIM}(Titan / Cohere on Bedrock — reuses LLM AWS creds)${NC}"
-      echo -e "    ${BOLD}4)${NC} Cohere             ${DIM}(direct Cohere API: embed-english-v3.0, etc.)${NC}"
-      echo -e "    ${BOLD}5)${NC} Voyage AI          ${DIM}(Anthropic's official recommendation — voyage-4-large)${NC}"
-      echo -e "    ${BOLD}6)${NC} HuggingFace        ${DIM}(local — requires rag-server -hf image variant)${NC}"
-      echo -e "    ${BOLD}7)${NC} Ollama             ${DIM}(local — runs in cluster, no API key needed)${NC}"
-      echo -e "    ${BOLD}8)${NC} LiteLLM Proxy      ${DIM}(any OpenAI-compatible endpoint you operate)${NC}"
+      echo -e "    ${BOLD}3)${NC} LiteLLM Proxy      ${DIM}(any OpenAI-compatible embeddings endpoint)${NC}"
+      echo -e "    ${BOLD}4)${NC} Ollama             ${DIM}(local embeddings)${NC}"
       echo ""
       prompt "Select embeddings provider ${CYAN}[1]${NC}${BOLD}: "
       tty_read -r emb_provider_choice
@@ -2142,226 +1915,58 @@ choose_features() {
       case "$emb_provider_choice" in
         1) EMBEDDINGS_PROVIDER="openai" ;;
         2) EMBEDDINGS_PROVIDER="azure-openai" ;;
-        3) EMBEDDINGS_PROVIDER="aws-bedrock" ;;
-        4) EMBEDDINGS_PROVIDER="cohere" ;;
-        5) EMBEDDINGS_PROVIDER="litellm"; EMBEDDINGS_PROVIDER_SOURCE="voyage" ;;
-        6) EMBEDDINGS_PROVIDER="huggingface" ;;
-        7) EMBEDDINGS_PROVIDER="ollama" ;;
-        8) EMBEDDINGS_PROVIDER="litellm"; EMBEDDINGS_PROVIDER_SOURCE="custom-litellm" ;;
+        3) EMBEDDINGS_PROVIDER="litellm" ;;
+        4) EMBEDDINGS_PROVIDER="ollama" ;;
         *) err "Invalid choice"; exit 1 ;;
       esac
 
-      # Model menu varies per provider. We keep the OpenAI / Azure / generic
-      # path identical to before; new providers get their canonical defaults.
       echo ""
       echo -e "  ${DIM}Embeddings model:${NC}"
-      case "${EMBEDDINGS_PROVIDER_SOURCE:-$EMBEDDINGS_PROVIDER}" in
-        openai|azure-openai)
-          echo -e "    ${BOLD}1)${NC} text-embedding-3-large  ${DIM}(default, higher quality, 3072 dims)${NC}"
-          echo -e "    ${BOLD}2)${NC} text-embedding-3-small  ${DIM}(faster, lower cost, 1536 dims)${NC}"
-          echo -e "    ${BOLD}3)${NC} Custom"
-          echo ""
-          prompt "Select embeddings model ${CYAN}[1]${NC}${BOLD}: "
-          tty_read -r emb_choice
-          emb_choice="${emb_choice:-1}"
-          case "$emb_choice" in
-            1) EMBEDDINGS_MODEL="text-embedding-3-large" ;;
-            2) EMBEDDINGS_MODEL="text-embedding-3-small" ;;
-            3)
-              prompt "Enter custom embeddings model name: "
-              tty_read -r EMBEDDINGS_MODEL
-              [[ -z "$EMBEDDINGS_MODEL" ]] && { err "Model name is required"; exit 1; }
-              ;;
-            *) err "Invalid choice"; exit 1 ;;
-          esac
-          ;;
-        aws-bedrock)
-          echo -e "    ${BOLD}1)${NC} amazon.titan-embed-text-v2:0   ${DIM}(default, 1024 dims, lowest cost)${NC}"
-          echo -e "    ${BOLD}2)${NC} amazon.titan-embed-text-v1     ${DIM}(legacy, 1536 dims)${NC}"
-          echo -e "    ${BOLD}3)${NC} cohere.embed-english-v3        ${DIM}(English, 1024 dims)${NC}"
-          echo -e "    ${BOLD}4)${NC} cohere.embed-multilingual-v3   ${DIM}(100+ languages, 1024 dims)${NC}"
-          echo -e "    ${BOLD}5)${NC} Custom Bedrock model ID"
-          echo ""
-          prompt "Select embeddings model ${CYAN}[1]${NC}${BOLD}: "
-          tty_read -r emb_choice
-          emb_choice="${emb_choice:-1}"
-          case "$emb_choice" in
-            1) EMBEDDINGS_MODEL="amazon.titan-embed-text-v2:0" ;;
-            2) EMBEDDINGS_MODEL="amazon.titan-embed-text-v1" ;;
-            3) EMBEDDINGS_MODEL="cohere.embed-english-v3" ;;
-            4) EMBEDDINGS_MODEL="cohere.embed-multilingual-v3" ;;
-            5)
-              prompt "Enter Bedrock embeddings model ID: "
-              tty_read -r EMBEDDINGS_MODEL
-              [[ -z "$EMBEDDINGS_MODEL" ]] && { err "Model ID is required"; exit 1; }
-              ;;
-            *) err "Invalid choice"; exit 1 ;;
-          esac
-          ;;
-        cohere)
-          echo -e "    ${BOLD}1)${NC} embed-english-v3.0             ${DIM}(default, 1024 dims)${NC}"
-          echo -e "    ${BOLD}2)${NC} embed-multilingual-v3.0        ${DIM}(100+ languages, 1024 dims)${NC}"
-          echo -e "    ${BOLD}3)${NC} embed-english-light-v3.0       ${DIM}(faster, 384 dims)${NC}"
-          echo -e "    ${BOLD}4)${NC} Custom"
-          echo ""
-          prompt "Select embeddings model ${CYAN}[1]${NC}${BOLD}: "
-          tty_read -r emb_choice
-          emb_choice="${emb_choice:-1}"
-          case "$emb_choice" in
-            1) EMBEDDINGS_MODEL="embed-english-v3.0" ;;
-            2) EMBEDDINGS_MODEL="embed-multilingual-v3.0" ;;
-            3) EMBEDDINGS_MODEL="embed-english-light-v3.0" ;;
-            4)
-              prompt "Enter custom Cohere model name: "
-              tty_read -r EMBEDDINGS_MODEL
-              [[ -z "$EMBEDDINGS_MODEL" ]] && { err "Model name is required"; exit 1; }
-              ;;
-            *) err "Invalid choice"; exit 1 ;;
-          esac
-          ;;
-        voyage)
-          echo -e "    ${BOLD}1)${NC} voyage-4-large    ${DIM}(default, best quality, 1024 dims, 32K ctx)${NC}"
-          echo -e "    ${BOLD}2)${NC} voyage-4          ${DIM}(balanced cost/quality, 1024 dims)${NC}"
-          echo -e "    ${BOLD}3)${NC} voyage-4-lite     ${DIM}(lowest latency/cost, 1024 dims)${NC}"
-          echo -e "    ${BOLD}4)${NC} voyage-code-3     ${DIM}(code-optimised, 1024 dims)${NC}"
-          echo -e "    ${BOLD}5)${NC} Custom Voyage model"
-          echo ""
-          prompt "Select embeddings model ${CYAN}[1]${NC}${BOLD}: "
-          tty_read -r emb_choice
-          emb_choice="${emb_choice:-1}"
-          case "$emb_choice" in
-            1) EMBEDDINGS_MODEL="voyage-4-large" ;;
-            2) EMBEDDINGS_MODEL="voyage-4" ;;
-            3) EMBEDDINGS_MODEL="voyage-4-lite" ;;
-            4) EMBEDDINGS_MODEL="voyage-code-3" ;;
-            5)
-              prompt "Enter Voyage model name: "
-              tty_read -r EMBEDDINGS_MODEL
-              [[ -z "$EMBEDDINGS_MODEL" ]] && { err "Model name is required"; exit 1; }
-              ;;
-            *) err "Invalid choice"; exit 1 ;;
-          esac
-          ;;
-        huggingface)
-          echo -e "    ${BOLD}1)${NC} sentence-transformers/all-MiniLM-L6-v2   ${DIM}(default, 384 dims, lightweight)${NC}"
-          echo -e "    ${BOLD}2)${NC} sentence-transformers/all-mpnet-base-v2  ${DIM}(higher quality, 768 dims)${NC}"
-          echo -e "    ${BOLD}3)${NC} sentence-transformers/all-MiniLM-L12-v2  ${DIM}(384 dims)${NC}"
-          echo -e "    ${BOLD}4)${NC} Custom HF model ID"
-          echo ""
-          prompt "Select embeddings model ${CYAN}[1]${NC}${BOLD}: "
-          tty_read -r emb_choice
-          emb_choice="${emb_choice:-1}"
-          case "$emb_choice" in
-            1) EMBEDDINGS_MODEL="sentence-transformers/all-MiniLM-L6-v2" ;;
-            2) EMBEDDINGS_MODEL="sentence-transformers/all-mpnet-base-v2" ;;
-            3) EMBEDDINGS_MODEL="sentence-transformers/all-MiniLM-L12-v2" ;;
-            4)
-              prompt "Enter HuggingFace model ID (org/model): "
-              tty_read -r EMBEDDINGS_MODEL
-              [[ -z "$EMBEDDINGS_MODEL" ]] && { err "Model ID is required"; exit 1; }
-              ;;
-            *) err "Invalid choice"; exit 1 ;;
-          esac
-          warn "HuggingFace embeddings require the rag-server -hf image variant (~900MB larger)."
-          warn "  Ensure your chart sets rag-stack.rag-server.image.tag to a tag with the -hf suffix."
-          ;;
-        ollama)
-          echo -e "    ${BOLD}1)${NC} nomic-embed-text       ${DIM}(default, 768 dims)${NC}"
-          echo -e "    ${BOLD}2)${NC} mxbai-embed-large      ${DIM}(higher quality, 1024 dims)${NC}"
-          echo -e "    ${BOLD}3)${NC} Custom"
-          echo ""
-          prompt "Select embeddings model ${CYAN}[1]${NC}${BOLD}: "
-          tty_read -r emb_choice
-          emb_choice="${emb_choice:-1}"
-          case "$emb_choice" in
-            1) EMBEDDINGS_MODEL="nomic-embed-text" ;;
-            2) EMBEDDINGS_MODEL="mxbai-embed-large" ;;
-            3)
-              prompt "Enter Ollama model name: "
-              tty_read -r EMBEDDINGS_MODEL
-              [[ -z "$EMBEDDINGS_MODEL" ]] && { err "Model name is required"; exit 1; }
-              ;;
-            *) err "Invalid choice"; exit 1 ;;
-          esac
-          ;;
-        custom-litellm|*)
-          echo -e "    ${DIM}Enter the model identifier your LiteLLM proxy expects.${NC}"
-          echo -e "    ${DIM}Examples: voyage/voyage-3, mistral/mistral-embed, gemini/text-embedding-004${NC}"
-          echo ""
-          prompt "Enter embeddings model name: "
+      echo -e "    ${BOLD}1)${NC} text-embedding-3-large  ${DIM}(default, higher quality)${NC}"
+      echo -e "    ${BOLD}2)${NC} text-embedding-3-small  ${DIM}(faster, lower cost)${NC}"
+      echo -e "    ${BOLD}3)${NC} Custom"
+      echo ""
+      prompt "Select embeddings model ${CYAN}[1]${NC}${BOLD}: "
+      tty_read -r emb_choice
+      emb_choice="${emb_choice:-1}"
+      case "$emb_choice" in
+        1) EMBEDDINGS_MODEL="text-embedding-3-large" ;;
+        2) EMBEDDINGS_MODEL="text-embedding-3-small" ;;
+        3)
+          prompt "Enter custom embeddings model name: "
           tty_read -r EMBEDDINGS_MODEL
-          [[ -z "$EMBEDDINGS_MODEL" ]] && { err "Model name is required"; exit 1; }
+          if [[ -z "$EMBEDDINGS_MODEL" ]]; then
+            err "Model name is required"
+            exit 1
+          fi
           ;;
+        *) err "Invalid choice"; exit 1 ;;
       esac
       log "Embeddings: ${EMBEDDINGS_PROVIDER} / ${EMBEDDINGS_MODEL}"
 
-      # Collect any extra credentials the chosen embeddings provider needs.
-      case "${EMBEDDINGS_PROVIDER_SOURCE:-$EMBEDDINGS_PROVIDER}" in
-        openai)
-          if [[ "$LLM_PROVIDER" != "openai" ]]; then
-            _collect_openai_embeddings_key
-          fi
-          ;;
-        azure-openai)
-          echo ""
-          echo -e "  ${DIM}Azure OpenAI embeddings credentials:${NC}"
-          if [[ -z "${AZURE_OPENAI_API_KEY:-}" ]]; then
-            prompt "Azure OpenAI API key: "
-            tty_read -rs AZURE_OPENAI_API_KEY; echo ""
-            [[ -z "$AZURE_OPENAI_API_KEY" ]] && { err "AZURE_OPENAI_API_KEY is required"; exit 1; }
-          fi
-          if [[ -z "${AZURE_OPENAI_ENDPOINT:-}" ]]; then
-            prompt "Azure OpenAI endpoint (e.g. https://my-resource.openai.azure.com): "
-            tty_read -r AZURE_OPENAI_ENDPOINT
-            [[ -z "$AZURE_OPENAI_ENDPOINT" ]] && { err "AZURE_OPENAI_ENDPOINT is required"; exit 1; }
-          fi
-          if [[ -z "${AZURE_OPENAI_API_VERSION:-}" ]]; then
-            prompt "API version ${CYAN}[2025-04-01-preview]${NC}${BOLD}: "
-            tty_read -r input
-            AZURE_OPENAI_API_VERSION="${input:-2025-04-01-preview}"
-          fi
-          log "Azure OpenAI embeddings credentials collected"
-          ;;
-        aws-bedrock)
-          _collect_aws_bedrock_embeddings_creds
-          ;;
-        cohere)
-          _collect_cohere_embeddings_creds
-          ;;
-        voyage)
-          _collect_voyage_embeddings_creds
-          ;;
-        huggingface)
-          _collect_huggingface_embeddings_creds
-          ;;
-        ollama)
-          # Ollama embeddings reach the same cluster-local ollama service the
-          # LLM path uses (option 5 on the LLM menu sets ENABLE_OLLAMA=true).
-          # Warn if the user picked Ollama embeddings without an Ollama LLM,
-          # because the chart doesn't yet stand up a standalone ollama pod
-          # purely for embeddings.
-          if ! $ENABLE_OLLAMA; then
-            warn "Ollama embeddings selected, but no Ollama LLM was configured."
-            warn "  The RAG server will reach OLLAMA_BASE_URL=http://localhost:${OLLAMA_PORT}."
-            warn "  You must run an Ollama server reachable from inside the cluster."
-          fi
-          ;;
-        custom-litellm)
-          if [[ -z "${LITELLM_ENDPOINT:-}" ]]; then
-            echo ""
-            echo -e "  ${DIM}LiteLLM proxy credentials:${NC}"
-            prompt "LiteLLM endpoint (e.g. http://litellm:4000): "
-            tty_read -r LITELLM_ENDPOINT
-            [[ -z "$LITELLM_ENDPOINT" ]] && { err "LITELLM endpoint is required"; exit 1; }
-            prompt "LiteLLM API key (Enter for 'not-needed'): "
-            tty_read -rs LITELLM_API_KEY; echo ""
-            LITELLM_API_KEY="${LITELLM_API_KEY:-not-needed}"
-            log "LiteLLM proxy credentials collected"
-          fi
-          ;;
-      esac
-      # Clear the source hint so re-runs don't leak it.
-      unset EMBEDDINGS_PROVIDER_SOURCE
+      # Collect any extra credentials the chosen embeddings provider needs
+      if [[ "$EMBEDDINGS_PROVIDER" == "openai" && "$LLM_PROVIDER" != "openai" ]]; then
+        _collect_openai_embeddings_key
+      elif [[ "$EMBEDDINGS_PROVIDER" == "azure-openai" ]]; then
+        echo ""
+        echo -e "  ${DIM}Azure OpenAI embeddings credentials:${NC}"
+        if [[ -z "${AZURE_OPENAI_API_KEY:-}" ]]; then
+          prompt "Azure OpenAI API key: "
+          tty_read -rs AZURE_OPENAI_API_KEY; echo ""
+          [[ -z "$AZURE_OPENAI_API_KEY" ]] && { err "AZURE_OPENAI_API_KEY is required"; exit 1; }
+        fi
+        if [[ -z "${AZURE_OPENAI_ENDPOINT:-}" ]]; then
+          prompt "Azure OpenAI endpoint (e.g. https://my-resource.openai.azure.com): "
+          tty_read -r AZURE_OPENAI_ENDPOINT
+          [[ -z "$AZURE_OPENAI_ENDPOINT" ]] && { err "AZURE_OPENAI_ENDPOINT is required"; exit 1; }
+        fi
+        if [[ -z "${AZURE_OPENAI_API_VERSION:-}" ]]; then
+          prompt "API version ${CYAN}[2025-04-01-preview]${NC}${BOLD}: "
+          tty_read -r input
+          AZURE_OPENAI_API_VERSION="${input:-2025-04-01-preview}"
+        fi
+        log "Azure OpenAI embeddings credentials collected"
+      fi
 
       warn "Graph RAG is NOT needed for the basic setup. It requires Neo4j + ontology agent and uses significantly more resources. Most users should skip this."
       if ask_yn "Enable Graph RAG? (requires Neo4j + ontology agent, uses more resources)" "n"; then
@@ -2479,7 +2084,7 @@ choose_features() {
         fi ;;
       webex)
         prompt "Webex Bot Token (blank to skip): "
-        tty_read -rs _v; echo ""; [[ -z "$_v" ]] && { warn "Skipping webex"; _skip=true; } || _secret_args+=(--from-literal=WEBEX_INTEGRATION_BOT_ACCESS_TOKEN="$_v")
+        tty_read -rs _v; echo ""; [[ -z "$_v" ]] && { warn "Skipping webex"; _skip=true; } || _secret_args+=(--from-literal=WEBEX_BOT_TOKEN="$_v" --from-literal=WEBEX_TOKEN="$_v")
         if ! $_skip; then
           prompt "Webex Webhook Secret (optional): "; tty_read -rs _v; echo ""; [[ -n "$_v" ]] && _secret_args+=(--from-literal=WEBEX_WEBHOOK_SECRET="$_v")
         fi ;;
@@ -2544,25 +2149,6 @@ choose_features() {
       log "AgentGateway enabled"
     else
       log "AgentGateway skipped"
-    fi
-  fi
-
-  echo ""
-  echo -e "  ${DIM}RBAC runtime installs the in-chart Keycloak, OpenFGA, OpenFGA ext_authz bridge,${NC}"
-  echo -e "  ${DIM}and standalone AgentGateway proxy added for the 0.5.0 RBAC release.${NC}"
-  if $ENABLE_RBAC_RUNTIME; then
-    log "RBAC runtime already enabled (detected from cluster)"
-    ENABLE_AGENTGATEWAY=true
-    if ! ask_yn "Keep RBAC runtime?" "y"; then
-      ENABLE_RBAC_RUNTIME=false
-    fi
-  else
-    if ask_yn "Enable RBAC runtime services?" "n"; then
-      ENABLE_RBAC_RUNTIME=true
-      ENABLE_AGENTGATEWAY=true
-      log "RBAC runtime enabled"
-    else
-      log "RBAC runtime skipped"
     fi
   fi
 
@@ -2748,7 +2334,7 @@ _agent_secret_keys() {
     backstage) echo "BACKSTAGE_API_TOKEN BACKSTAGE_URL" ;;
     slack) echo "SLACK_BOT_TOKEN SLACK_APP_TOKEN SLACK_SIGNING_SECRET SLACK_CLIENT_SECRET SLACK_TEAM_ID" ;;
     pagerduty) echo "PAGERDUTY_API_KEY PAGERDUTY_API_URL" ;;
-    webex) echo "WEBEX_INTEGRATION_BOT_ACCESS_TOKEN" ;;
+    webex) echo "WEBEX_TOKEN" ;;
     komodor) echo "KOMODOR_TOKEN KOMODOR_API_URL" ;;
     aws) echo "AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_REGION AWS_DEFAULT_REGION AWS_BEDROCK_MODEL_ID AWS_BEDROCK_PROVIDER AWS_BEDROCK_ENABLE_PROMPT_CACHE" ;;
     splunk) echo "SPLUNK_TOKEN SPLUNK_API_URL" ;;
@@ -2869,17 +2455,6 @@ create_namespace_and_secrets() {
           [[ -z "${AZURE_OPENAI_ENDPOINT:-}" ]]    && AZURE_OPENAI_ENDPOINT=$(_elv AZURE_OPENAI_ENDPOINT)
           [[ -z "${AZURE_OPENAI_API_VERSION:-}" ]] && AZURE_OPENAI_API_VERSION=$(_elv AZURE_OPENAI_API_VERSION)
           ;;
-        aws-bedrock)
-          [[ -z "${AWS_ACCESS_KEY_ID:-}" ]]     && AWS_ACCESS_KEY_ID=$(_elv AWS_ACCESS_KEY_ID)
-          [[ -z "${AWS_SECRET_ACCESS_KEY:-}" ]] && AWS_SECRET_ACCESS_KEY=$(_elv AWS_SECRET_ACCESS_KEY)
-          [[ -z "${AWS_REGION:-}" ]]            && AWS_REGION=$(_elv AWS_REGION)
-          ;;
-        cohere)
-          [[ -z "${COHERE_API_KEY:-}" ]] && COHERE_API_KEY=$(_elv COHERE_API_KEY)
-          ;;
-        huggingface)
-          [[ -z "${HUGGINGFACEHUB_API_TOKEN:-}" ]] && HUGGINGFACEHUB_API_TOKEN=$(_elv HUGGINGFACEHUB_API_TOKEN)
-          ;;
         litellm)
           [[ -z "${LITELLM_ENDPOINT:-}" ]]  && LITELLM_ENDPOINT=$(_elv LITELLM_API_BASE)
           [[ -z "${LITELLM_API_KEY:-}" ]]   && LITELLM_API_KEY=$(_elv LITELLM_API_KEY)
@@ -2960,42 +2535,6 @@ create_namespace_and_secrets() {
       --from-literal=AZURE_OPENAI_API_VERSION="${AZURE_OPENAI_API_VERSION:-2025-04-01-preview}"
     )
     log "Added AZURE_OPENAI_API_KEY/ENDPOINT/API_VERSION to llm-secret (needed for Azure OpenAI embeddings)"
-  fi
-
-  # AWS Bedrock embeddings — reuse the existing AWS_* trio. If the LLM is
-  # also aws-bedrock, the AWS_* keys are already in the secret_args bundle
-  # above and we don't duplicate them.
-  if $ENABLE_RAG && [[ "$EMBEDDINGS_PROVIDER" == "aws-bedrock" && "$LLM_PROVIDER" != "aws-bedrock" ]]; then
-    if [[ -z "${AWS_ACCESS_KEY_ID:-}" || -z "${AWS_SECRET_ACCESS_KEY:-}" ]]; then
-      err "AWS Bedrock embeddings require AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY"
-      exit 1
-    fi
-    secret_args+=(
-      --from-literal=AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID}"
-      --from-literal=AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY}"
-      --from-literal=AWS_REGION="${AWS_REGION:-us-east-1}"
-    )
-    log "Added AWS_ACCESS_KEY_ID/SECRET_ACCESS_KEY/REGION to llm-secret (needed for Bedrock embeddings)"
-  fi
-
-  # Cohere embeddings — single API key.
-  if $ENABLE_RAG && [[ "$EMBEDDINGS_PROVIDER" == "cohere" ]]; then
-    if [[ -z "${COHERE_API_KEY:-}" ]]; then
-      err "Cohere embeddings require COHERE_API_KEY — re-run and select Cohere embeddings to be prompted for it"
-      exit 1
-    fi
-    secret_args+=(--from-literal=COHERE_API_KEY="${COHERE_API_KEY}")
-    log "Added COHERE_API_KEY to llm-secret (needed for Cohere embeddings)"
-  fi
-
-  # HuggingFace embeddings — token is optional (only required for gated models).
-  if $ENABLE_RAG && [[ "$EMBEDDINGS_PROVIDER" == "huggingface" ]]; then
-    if [[ -n "${HUGGINGFACEHUB_API_TOKEN:-}" ]]; then
-      secret_args+=(--from-literal=HUGGINGFACEHUB_API_TOKEN="${HUGGINGFACEHUB_API_TOKEN}")
-      log "Added HUGGINGFACEHUB_API_TOKEN to llm-secret (for gated HF models)"
-    fi
-    secret_args+=(--from-literal=EMBEDDINGS_DEVICE="${EMBEDDINGS_DEVICE:-cpu}")
-    log "HuggingFace embeddings configured (device: ${EMBEDDINGS_DEVICE:-cpu})"
   fi
 
   kubectl create secret generic llm-secret -n caipe \
@@ -3101,25 +2640,7 @@ deploy_langfuse() {
 create_langfuse_api_keys() {
   step "Creating Langfuse account and API keys"
 
-  # Workshop credentials are per-install: generated fresh on first run, then
-  # reused from the `langfuse-credentials` Secret on subsequent runs so the UI
-  # login keeps working after a re-run. Anyone with cluster access can retrieve
-  # them with the kubectl command printed in the "Services Ready" banner.
-  LANGFUSE_EMAIL="lab@lab.com"
-  local existing_pw
-  existing_pw=$(kubectl get secret langfuse-credentials -n langfuse -o jsonpath='{.data.LANGFUSE_PASSWORD}' 2>/dev/null | base64 -d 2>/dev/null || true)
-  if [[ -n "$existing_pw" ]]; then
-    LANGFUSE_PASSWORD="$existing_pw"
-    log "Reusing existing Langfuse workshop password from langfuse-credentials Secret"
-  else
-    # Langfuse password policy requires upper, lower, digit and >=8 chars; the
-    # "Lf!" prefix guarantees that even though `openssl rand -hex` only emits
-    # hex digits.
-    LANGFUSE_PASSWORD="Lf!$(openssl rand -hex 16)"
-    log "Generated random Langfuse workshop password"
-  fi
-
-  # Check if API keys already exist from a previous run
+  # Check if keys already exist from a previous run
   local existing_pk existing_sk
   existing_pk=$(kubectl get secret langfuse-secret -n caipe -o jsonpath='{.data.LANGFUSE_PUBLIC_KEY}' 2>/dev/null | base64 -d 2>/dev/null || true)
   existing_sk=$(kubectl get secret langfuse-secret -n caipe -o jsonpath='{.data.LANGFUSE_SECRET_KEY}' 2>/dev/null | base64 -d 2>/dev/null || true)
@@ -3155,33 +2676,19 @@ create_langfuse_api_keys() {
     sleep 5
   done
 
-  # The signup body is JSON; build it in Python so the generated password is
-  # safely JSON-escaped (the hex+"Lf!" prefix avoids quote/backslash hazards
-  # today, but doing this defensively keeps the call correct if the generator
-  # ever changes).
-  local signup_body
-  signup_body=$(LANGFUSE_EMAIL="$LANGFUSE_EMAIL" LANGFUSE_PASSWORD="$LANGFUSE_PASSWORD" \
-    python3 -c 'import json,os; print(json.dumps({"name":"lab","email":os.environ["LANGFUSE_EMAIL"],"password":os.environ["LANGFUSE_PASSWORD"]}))')
   curl -sf -X POST "${base}/api/auth/signup" \
     -H 'Content-Type: application/json' \
-    -d "${signup_body}" &>/dev/null || true
+    -d '{"name":"lab","email":"lab@lab.com","password":"Lab12345!"}' &>/dev/null || true
   log "User account ready"
 
   local csrf
   csrf=$(curl -sf -c /tmp/langfuse-cookies "${base}/api/auth/csrf" \
     | python3 -c "import sys,json;print(json.load(sys.stdin)['csrfToken'])")
 
-  # The credentials callback expects application/x-www-form-urlencoded; the
-  # password can in principle contain reserved chars (& = +), so url-encode
-  # it via Python rather than naive string interpolation.
-  local lf_email_enc lf_password_enc
-  lf_email_enc=$(LANGFUSE_EMAIL="$LANGFUSE_EMAIL" python3 -c 'import os,urllib.parse;print(urllib.parse.quote(os.environ["LANGFUSE_EMAIL"], safe=""))')
-  lf_password_enc=$(LANGFUSE_PASSWORD="$LANGFUSE_PASSWORD" python3 -c 'import os,urllib.parse;print(urllib.parse.quote(os.environ["LANGFUSE_PASSWORD"], safe=""))')
-
   curl -sf -c /tmp/langfuse-cookies -b /tmp/langfuse-cookies \
     -X POST "${base}/api/auth/callback/credentials" \
     -H 'Content-Type: application/x-www-form-urlencoded' \
-    -d "csrfToken=${csrf}&email=${lf_email_enc}&password=${lf_password_enc}&callbackUrl=${base}" \
+    -d "csrfToken=${csrf}&email=lab@lab.com&password=Lab12345!&callbackUrl=${base}" \
     -o /dev/null
 
   local org_id
@@ -3221,8 +2728,8 @@ create_langfuse_api_keys() {
     --from-literal=LANGFUSE_PUBLIC_KEY="$LANGFUSE_PUBLIC_KEY" \
     --from-literal=LANGFUSE_SECRET_KEY="$LANGFUSE_SECRET_KEY" \
     --from-literal=LANGFUSE_BASEURL="$langfuse_baseurl" \
-    --from-literal=LANGFUSE_EMAIL="$LANGFUSE_EMAIL" \
-    --from-literal=LANGFUSE_PASSWORD="$LANGFUSE_PASSWORD" \
+    --from-literal=LANGFUSE_EMAIL="lab@lab.com" \
+    --from-literal=LANGFUSE_PASSWORD="Lab12345!" \
     --dry-run=client -o yaml | kubectl apply -f - &>/dev/null
   log "langfuse-credentials stored in langfuse namespace"
 
@@ -3360,7 +2867,6 @@ patch_deployment_with_ca() {
 #    - PlatformEngineerResponse schema needs additionalProperties:false and
 #      all properties in required for OpenAI gpt-5.x strict mode.
 #    - httpx follow_redirects=True for MCP trailing-slash 307 redirects.
-#    Note: agent sys.path setup is handled in the Dockerfile PYTHONPATH, not here.
 # 2b.   OpenAI response dedup fix (agent-fix ConfigMap, supervisor only)
 #    - Mounts a patched agent.py that sets from_response_format_tool=True
 #      when handle_structured_response parses a PlatformEngineerResponse
@@ -3378,6 +2884,19 @@ _create_agent_patches_configmap() {
   kubectl create configmap agent-patches -n caipe \
     --from-literal=sitecustomize.py='
 import importlib, json, sys, os
+
+# ── Fix 0: Expose standalone agent packages for single-node (all-in-one) mode ──
+# In the ai-platform-engineering image, each agent package lives under:
+#   /app/ai_platform_engineering/agents/<name>/agent_<name>/
+# For "from agent_github.tools import ..." to work (as used in deep_agent_single.py),
+# the parent directory must be in sys.path. Add all agent parent dirs so that
+# single-node mode can import agent_github, agent_backstage, etc. directly.
+_agents_base = "/app/ai_platform_engineering/agents"
+if os.path.isdir(_agents_base):
+    for _agent_name in os.listdir(_agents_base):
+        _agent_dir = os.path.join(_agents_base, _agent_name)
+        if os.path.isdir(_agent_dir) and _agent_dir not in sys.path:
+            sys.path.insert(0, _agent_dir)
 
 # ── Fix 1: OpenAI Responses API strict schema ──
 # PlatformEngineerResponse and nested models need additionalProperties:false
@@ -3864,53 +3383,9 @@ _patch_rag_server_envfrom() {
   log "Patched rag-server: added rag-azure-openai-secret to envFrom"
 }
 
-# R2 (May 2026): The bitnami/mongodb install used to ship with the
-# literal password "changeme" baked into four sites in this script
-# (helm upgrade auth.rootPassword + auth.passwords[0], plus the
-# MONGODB_URI written into the dynamic-agents/supervisor/ui ConfigMaps).
-# Any operator who ran the workshop on-ramp inherited the same admin
-# password — and the same cluster-internal `mongodb://admin:changeme@…`
-# URI made it into the BFF's session-store Secret.
-#
-# This helper produces a per-install random password and persists it
-# in the `caipe-mongodb-credentials` Secret so:
-#   (a) re-runs of setup-caipe.sh reuse the password (idempotent),
-#   (b) the password is recoverable via `kubectl get secret …` for
-#       anyone doing post-hoc debugging or backup/restore.
-#
-# Mirrors the Langfuse `existing_pw` pattern already in this script
-# (see lines ~2671-2685). assisted-by Claude:claude-opus-4-7
-_resolve_mongodb_password() {
-  local existing_pw
-  existing_pw=$(kubectl get secret caipe-mongodb-credentials -n caipe \
-    -o jsonpath='{.data.MONGODB_ROOT_PASSWORD}' 2>/dev/null \
-    | base64 -d 2>/dev/null || true)
-  if [[ -n "$existing_pw" ]]; then
-    MONGODB_ROOT_PASSWORD="$existing_pw"
-    log "Reusing existing MongoDB root password from caipe-mongodb-credentials Secret"
-  else
-    # `openssl rand -hex 24` → 48 hex chars (24 bytes of entropy). Hex
-    # avoids any character that would need URL-encoding inside the
-    # MONGODB_URI connection string (no '@', '/', ':', '?', etc.).
-    MONGODB_ROOT_PASSWORD="$(openssl rand -hex 24)"
-    log "Generated random MongoDB root password"
-  fi
-  # Persist (or refresh) the Secret so re-runs reuse it. --dry-run +
-  # apply is the standard idempotent pattern used elsewhere in this
-  # script.
-  kubectl create secret generic caipe-mongodb-credentials \
-    --namespace caipe \
-    --from-literal=MONGODB_ROOT_USERNAME="admin" \
-    --from-literal=MONGODB_ROOT_PASSWORD="${MONGODB_ROOT_PASSWORD}" \
-    --from-literal=MONGODB_DATABASE="caipe" \
-    --dry-run=client -o yaml \
-    | kubectl apply -f - &>/dev/null
-}
-
 _ensure_dynamic_agents_mongodb() {
   local mongo_svc="caipe-mongodb"
-  _resolve_mongodb_password
-  local mongo_uri="mongodb://admin:${MONGODB_ROOT_PASSWORD}@${mongo_svc}:27017/caipe?authSource=caipe"
+  local mongo_uri="mongodb://admin:changeme@${mongo_svc}:27017/caipe?authSource=caipe"
 
   if ! kubectl get deploy "${mongo_svc}" -n caipe &>/dev/null; then
     step "Deploying MongoDB for dynamic-agents"
@@ -3918,14 +3393,14 @@ _ensure_dynamic_agents_mongodb() {
     helm upgrade --install "${mongo_svc}" bitnami/mongodb \
       -n caipe \
       --set auth.enabled=true \
-      --set "auth.rootPassword=${MONGODB_ROOT_PASSWORD}" \
+      --set auth.rootPassword=changeme \
       --set "auth.databases[0]=caipe" \
       --set "auth.usernames[0]=admin" \
-      --set "auth.passwords[0]=${MONGODB_ROOT_PASSWORD}" \
+      --set "auth.passwords[0]=changeme" \
       --set persistence.size=2Gi \
       --timeout 3m &>/dev/null
     kubectl rollout status deploy/"${mongo_svc}" -n caipe --timeout=180s &>/dev/null
-    log "MongoDB deployed (${mongo_svc}) with random root password"
+    log "MongoDB deployed (${mongo_svc})"
   else
     log "MongoDB already present (${mongo_svc}) — skipping install"
   fi
@@ -4345,84 +3820,6 @@ LITELLM_EOF
   log "LiteLLM proxy deployed (endpoint: http://litellm-proxy.caipe.svc.cluster.local:4000)"
 }
 
-_write_rbac_runtime_values() {
-  local values_file
-  values_file=$(mktemp /tmp/caipe-rbac-runtime-XXXXXX.yaml)
-
-  local keycloak_ssl_required="external"
-  if [[ -z "$CAIPE_DOMAIN" ]]; then
-    keycloak_ssl_required="none"
-  fi
-
-  cat > "$values_file" <<RBACEOF
-tags:
-  keycloak: true
-
-global:
-  openfga:
-    httpUrl: "http://caipe-openfga:8080"
-    storeName: "caipe-openfga"
-  agentgateway:
-    enabled: true
-    proxyPort: ${AGENTGATEWAY_PORT}
-    extAuth:
-      enabled: true
-      serviceName: "caipe-openfga-authz-bridge"
-      serviceNamespace: "caipe"
-      port: 9100
-
-keycloak:
-  realm:
-    sslRequired: "${keycloak_ssl_required}"
-
-openfga:
-  enabled: true
-  init:
-    enabled: true
-    storeName: "caipe-openfga"
-
-openfgaAuthzBridge:
-  enabled: true
-
-openfga-authz-bridge:
-  openfga:
-    httpUrl: "http://caipe-openfga:8080"
-    storeName: "caipe-openfga"
-  tokenValidation:
-    jwksUrl: "http://caipe-keycloak:8080/realms/caipe/protocol/openid-connect/certs"
-    algorithms:
-      - RS256
-
-agentgateway:
-  enabled: true
-
-caipe-ui:
-  config:
-    OPENFGA_HTTP: "http://caipe-openfga:8080"
-    OPENFGA_STORE_NAME: "caipe-openfga"
-    OPENFGA_RECONCILE_ENABLED: "true"
-    KEYCLOAK_URL: "http://caipe-keycloak:8080"
-    KEYCLOAK_REALM: "caipe"
-    KEYCLOAK_RESOURCE_SERVER_ID: "caipe-platform"
-RBACEOF
-
-  if [[ -n "$UI_ENV_FILE" ]]; then
-    local oidc_issuer
-    oidc_issuer=$(_env_get "$UI_ENV_FILE" "OIDC_ISSUER")
-    if [[ -n "$oidc_issuer" ]]; then
-      cat >> "$values_file" <<RBACEOF
-    SSO_ENABLED: "true"
-
-openfga-authz-bridge:
-  tokenValidation:
-    issuer: "${oidc_issuer}"
-RBACEOF
-    fi
-  fi
-
-  printf '%s' "$values_file"
-}
-
 deploy_agentgateway() {
   step "Deploying AgentGateway (${AGENTGATEWAY_VERSION})"
 
@@ -4648,20 +4045,12 @@ deploy_caipe() {
     # Build models list from llm-secret LLM_PROVIDER
     local _provider="${LLM_PROVIDER:-anthropic-claude}"
 
-    # Write auth/OIDC config into the values file. R2 (May 2026):
-    # MONGODB_ROOT_PASSWORD comes from _resolve_mongodb_password() which
-    # is called by _ensure_dynamic_agents_mongodb() — guaranteed to run
-    # before deploy_caipe() per the orchestration at line ~6060.
-    # Fall back to a clearly-broken placeholder if the variable isn't
-    # set (defensive: should only happen if someone re-orders the call
-    # graph and skips the MongoDB step), so the failure surfaces loudly
-    # at pod start rather than silently using "changeme".
-    local _mongo_pw="${MONGODB_ROOT_PASSWORD:-MONGODB_ROOT_PASSWORD_UNSET}"
+    # Write auth/OIDC config into the values file
     cat > "$_da_values_file" <<DAEOF
 dynamic-agents:
   config:
     # MongoDB URI baked in at deploy time so the pod can start before post_deploy_patches.
-    MONGODB_URI: "mongodb://admin:${_mongo_pw}@caipe-mongodb:27017/caipe?authSource=caipe"
+    MONGODB_URI: "mongodb://admin:changeme@caipe-mongodb:27017/caipe?authSource=caipe"
 DAEOF
     if [[ -n "$CAIPE_DOMAIN" && -n "$da_oidc_issuer" ]]; then
       cat >> "$_da_values_file" <<DAEOF
@@ -4926,13 +4315,6 @@ DAEOF
     log "Redis persistence configured (langgraph-redis subchart, fact extraction enabled)"
   fi
 
-  if $ENABLE_RBAC_RUNTIME; then
-    local _rbac_values_file
-    _rbac_values_file=$(_write_rbac_runtime_values)
-    helm_args+=(--values "$_rbac_values_file")
-    log "RBAC runtime configured (Keycloak, OpenFGA, OpenFGA bridge, AgentGateway)"
-  fi
-
   if $ENABLE_INGRESS && [[ -n "$CAIPE_DOMAIN" ]]; then
     # Kubernetes Ingress spec.rules[].host must be a DNS name, not an IP address.
     # When CAIPE_DOMAIN is an IP, omit the host field (nginx will match all requests).
@@ -5072,7 +4454,7 @@ run_validation() {
   else
     fail=$((fail + 1))
   fi
-  if check_http "http://localhost:${SUPERVISOR_PORT}/.well-known/agent.json" "Supervisor A2A"; then
+  if check_http "http://localhost:${SUPERVISOR_PORT}" "Supervisor A2A"; then
     pass=$((pass + 1))
   else
     fail=$((fail + 1))
@@ -5153,69 +4535,39 @@ run_validation() {
 
   # ── AgentGateway ──
   if $ENABLE_AGENTGATEWAY; then
-    if $ENABLE_RBAC_RUNTIME; then
-      local ag_proxy_ready
-      ag_proxy_ready=$(kubectl get deployment caipe-agentgateway -n caipe \
-        -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
-      if [[ "${ag_proxy_ready:-0}" -ge 1 ]]; then
-        print_result "$(date '+%H:%M:%S') ✓ AgentGateway proxy is running"
-        pass=$((pass + 1))
-      else
-        print_result "$(date '+%H:%M:%S') ✗ AgentGateway proxy is not ready"
-        fail=$((fail + 1))
-      fi
+    local ag_ready
+    ag_ready=$(kubectl get pods -n agentgateway-system -l app.kubernetes.io/name=agentgateway \
+      --no-headers 2>/dev/null \
+      | awk '$3=="Running" {split($2,a,"/"); if(a[1]==a[2]) print "ready"}' | head -1)
+    if [[ "$ag_ready" == "ready" ]]; then
+      print_result "$(date '+%H:%M:%S') ✓ AgentGateway control plane is running"
+      pass=$((pass + 1))
     else
-      local ag_ready
-      ag_ready=$(kubectl get pods -n agentgateway-system -l app.kubernetes.io/name=agentgateway \
-        --no-headers 2>/dev/null \
-        | awk '$3=="Running" {split($2,a,"/"); if(a[1]==a[2]) print "ready"}' | head -1)
-      if [[ "$ag_ready" == "ready" ]]; then
-        print_result "$(date '+%H:%M:%S') ✓ AgentGateway control plane is running"
-        pass=$((pass + 1))
-      else
-        print_result "$(date '+%H:%M:%S') ✗ AgentGateway control plane is not ready"
-        fail=$((fail + 1))
-      fi
-
-      local ag_proxy_ready
-      ag_proxy_ready=$(kubectl get deployment agentgateway-proxy -n agentgateway-system \
-        -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
-      if [[ "${ag_proxy_ready:-0}" -ge 1 ]]; then
-        print_result "$(date '+%H:%M:%S') ✓ AgentGateway proxy is running"
-        pass=$((pass + 1))
-      else
-        print_result "$(date '+%H:%M:%S') ✗ AgentGateway proxy is not ready"
-        fail=$((fail + 1))
-      fi
-
-      local mcp_backend_count
-      mcp_backend_count=$(kubectl get agentgatewaybackend -n caipe \
-        -l app.kubernetes.io/managed-by=setup-caipe --no-headers 2>/dev/null | wc -l | tr -d ' ')
-      if [[ "$mcp_backend_count" -gt 0 ]]; then
-        print_result "$(date '+%H:%M:%S') ✓ ${mcp_backend_count} MCP backend(s) configured in AgentGateway"
-        pass=$((pass + 1))
-      else
-        print_result "$(date '+%H:%M:%S') ⚠ No MCP backends configured in AgentGateway"
-        warn_count=$((warn_count + 1))
-      fi
+      print_result "$(date '+%H:%M:%S') ✗ AgentGateway control plane is not ready"
+      fail=$((fail + 1))
     fi
-  fi
 
-  # ── RBAC runtime ──
-  if $ENABLE_RBAC_RUNTIME; then
-    local component deploy_name ready_replicas
-    for component in keycloak openfga openfga-authz-bridge; do
-      deploy_name="caipe-${component}"
-      ready_replicas=$(kubectl get deployment "$deploy_name" -n caipe \
-        -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
-      if [[ "${ready_replicas:-0}" -ge 1 ]]; then
-        print_result "$(date '+%H:%M:%S') ✓ ${deploy_name} is running"
-        pass=$((pass + 1))
-      else
-        print_result "$(date '+%H:%M:%S') ✗ ${deploy_name} is not ready"
-        fail=$((fail + 1))
-      fi
-    done
+    local ag_proxy_ready
+    ag_proxy_ready=$(kubectl get deployment agentgateway-proxy -n agentgateway-system \
+      -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+    if [[ "${ag_proxy_ready:-0}" -ge 1 ]]; then
+      print_result "$(date '+%H:%M:%S') ✓ AgentGateway proxy is running"
+      pass=$((pass + 1))
+    else
+      print_result "$(date '+%H:%M:%S') ✗ AgentGateway proxy is not ready"
+      fail=$((fail + 1))
+    fi
+
+    local mcp_backend_count
+    mcp_backend_count=$(kubectl get agentgatewaybackend -n caipe \
+      -l app.kubernetes.io/managed-by=setup-caipe --no-headers 2>/dev/null | wc -l | tr -d ' ')
+    if [[ "$mcp_backend_count" -gt 0 ]]; then
+      print_result "$(date '+%H:%M:%S') ✓ ${mcp_backend_count} MCP backend(s) configured in AgentGateway"
+      pass=$((pass + 1))
+    else
+      print_result "$(date '+%H:%M:%S') ⚠ No MCP backends configured in AgentGateway"
+      warn_count=$((warn_count + 1))
+    fi
   fi
 
   # ── Summary ──
@@ -5295,27 +4647,20 @@ run_sanity_tests() {
     fail=$((fail + 1))
   fi
 
-  # ── Test 4: Sub-agent direct health (distributed mode only) ──
-  # In single-node mode agents run in-process inside the supervisor — no separate
-  # K8s services exist. Detect mode via the ConfigMap that Helm only creates in
-  # single-node deployments.
-  if kubectl get configmap caipe-single-node-agent-env -n caipe &>/dev/null; then
-    print_result "$(date '+%H:%M:%S') ─ [T4] skipped (single-node mode: agents run in-process)"
-  else
-    for agent_svc in caipe-agent-weather caipe-agent-netutils; do
-      local agent_label="${agent_svc#caipe-agent-}"
-      local agent_card_resp
-      agent_card_resp=$(kubectl exec deployment/caipe-supervisor-agent -n caipe -- \
-        curl -sf "http://${agent_svc}:8000/.well-known/agent.json" --max-time 5 2>/dev/null || echo "")
-      if [[ -n "$agent_card_resp" ]] && echo "$agent_card_resp" | jq -e '.name' &>/dev/null; then
-        print_result "$(date '+%H:%M:%S') ✓ [T4] ${agent_label} agent card reachable in-cluster"
-        pass=$((pass + 1))
-      else
-        print_result "$(date '+%H:%M:%S') ✗ [T4] ${agent_label} agent card not reachable in-cluster"
-        fail=$((fail + 1))
-      fi
-    done
-  fi
+  # ── Test 4: Sub-agent direct health (in-cluster) ──
+  for agent_svc in caipe-agent-weather caipe-agent-netutils; do
+    local agent_label="${agent_svc#caipe-agent-}"
+    local agent_card_resp
+    agent_card_resp=$(kubectl exec deployment/caipe-supervisor-agent -n caipe -- \
+      curl -sf "http://${agent_svc}:8000/.well-known/agent.json" --max-time 5 2>/dev/null || echo "")
+    if [[ -n "$agent_card_resp" ]] && echo "$agent_card_resp" | jq -e '.name' &>/dev/null; then
+      print_result "$(date '+%H:%M:%S') ✓ [T4] ${agent_label} agent card reachable in-cluster"
+      pass=$((pass + 1))
+    else
+      print_result "$(date '+%H:%M:%S') ✗ [T4] ${agent_label} agent card not reachable in-cluster"
+      fail=$((fail + 1))
+    fi
+  done
 
   # ── Test 5: RAG server health (if RAG enabled) ──
   if $ENABLE_RAG; then
@@ -5572,15 +4917,11 @@ auto_heal_rag_server() {
     recent_logs=$(kubectl logs "$rag_pod" -n caipe -c rag-server \
       --tail=200 2>/dev/null || true)
 
-    # EMBEDDINGS_PROVIDER defaulting to azure-openai when the user picked
-    # a different provider. We only correct this when the user's chosen
-    # provider is NOT azure-openai — otherwise a real Azure pick would get
-    # clobbered the moment the rag-server logs a normal "endpoint=..." line.
-    if [[ "${EMBEDDINGS_PROVIDER:-}" != "azure-openai" ]] \
-       && echo "$recent_logs" | grep -q "AZURE_OPENAI_ENDPOINT\|azure_endpoint"; then
-      warn "[auto-heal] RAG server has wrong embeddings provider; patching to ${EMBEDDINGS_PROVIDER:-openai}"
+    # EMBEDDINGS_PROVIDER defaulting to azure-openai
+    if echo "$recent_logs" | grep -q "AZURE_OPENAI_ENDPOINT\|azure_endpoint"; then
+      warn "[auto-heal] RAG server has wrong embeddings provider; patching to openai"
       kubectl set env deployment/rag-server -n caipe \
-        EMBEDDINGS_PROVIDER="${EMBEDDINGS_PROVIDER:-openai}" \
+        EMBEDDINGS_PROVIDER=openai \
         EMBEDDINGS_MODEL="${EMBEDDINGS_MODEL}" &>/dev/null || true
       log "[auto-heal] RAG server embeddings provider corrected"
       return 1
@@ -5859,16 +5200,7 @@ monitor_port_forwards() {
   fi
 
   if $ENABLE_AGENTGATEWAY; then
-    if $ENABLE_RBAC_RUNTIME; then
-      start_pf caipe-agentgateway caipe "$AGENTGATEWAY_PORT" 4000 "AgentGateway MCP"
-    else
-      start_pf agentgateway-proxy agentgateway-system "$AGENTGATEWAY_PORT" 80 "AgentGateway MCP"
-    fi
-  fi
-
-  if $ENABLE_RBAC_RUNTIME; then
-    start_pf caipe-keycloak caipe "$KEYCLOAK_PORT" 8080 "Keycloak"
-    start_pf caipe-openfga caipe "$OPENFGA_PORT" 8080 "OpenFGA"
+    start_pf agentgateway-proxy agentgateway-system "$AGENTGATEWAY_PORT" 80 "AgentGateway MCP"
   fi
 
   # Wait for port-forwards to become responsive before running tests
@@ -5918,37 +5250,23 @@ monitor_port_forwards() {
   fi
   if $ENABLE_TRACING; then
     echo -e "    Langfuse UI     ${CYAN}http://localhost:${LANGFUSE_PORT}${NC}"
-    if [[ -n "${LANGFUSE_EMAIL:-}" && -n "${LANGFUSE_PASSWORD:-}" ]]; then
-      echo -e "      Login: ${DIM}${LANGFUSE_EMAIL} / ${LANGFUSE_PASSWORD}${NC}"
-    else
-      echo -e "      ${DIM}Login: see langfuse-credentials Secret (kubectl command below)${NC}"
-    fi
-  fi
-  if $ENABLE_RBAC_RUNTIME; then
-    echo -e "    Keycloak        ${CYAN}http://localhost:${KEYCLOAK_PORT}${NC}"
-    echo -e "    OpenFGA         ${CYAN}http://localhost:${OPENFGA_PORT}${NC}"
-  fi
-  if $ENABLE_RBAC_RUNTIME; then
-    echo -e "    Keycloak        ${CYAN}http://localhost:${KEYCLOAK_PORT}${NC}"
-    echo -e "    OpenFGA         ${CYAN}http://localhost:${OPENFGA_PORT}${NC}"
+    echo -e "      Login: ${DIM}lab@lab.com / Lab12345!${NC}"
   fi
   if $ENABLE_AGENTGATEWAY; then
     echo -e "    AgentGateway    ${CYAN}http://localhost:${AGENTGATEWAY_PORT}${NC}"
-    if ! $ENABLE_RBAC_RUNTIME; then
-      echo ""
-      echo -e "  ${BOLD}MCP Client URLs (via AgentGateway):${NC}"
-      local ag_svcs
-      ag_svcs=$(kubectl get agentgatewaybackend -n caipe \
-        -l app.kubernetes.io/managed-by=setup-caipe \
-        -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null || true)
-      if [[ -n "$ag_svcs" ]]; then
-        while IFS= read -r backend_name; do
-          [[ -z "$backend_name" ]] && continue
-          local agent_short
-          agent_short=$(echo "$backend_name" | sed 's/^mcp-//' | sed 's/-backend$//')
-          echo -e "    ${DIM}http://localhost:${AGENTGATEWAY_PORT}/mcp/${agent_short}${NC}"
-        done <<< "$ag_svcs"
-      fi
+    echo ""
+    echo -e "  ${BOLD}MCP Client URLs (via AgentGateway):${NC}"
+    local ag_svcs
+    ag_svcs=$(kubectl get agentgatewaybackend -n caipe \
+      -l app.kubernetes.io/managed-by=setup-caipe \
+      -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null || true)
+    if [[ -n "$ag_svcs" ]]; then
+      while IFS= read -r backend_name; do
+        [[ -z "$backend_name" ]] && continue
+        local agent_short
+        agent_short=$(echo "$backend_name" | sed 's/^mcp-//' | sed 's/-backend$//')
+        echo -e "    ${DIM}http://localhost:${AGENTGATEWAY_PORT}/mcp/${agent_short}${NC}"
+      done <<< "$ag_svcs"
     fi
   fi
   echo ""
@@ -5961,11 +5279,6 @@ monitor_port_forwards() {
   if $ENABLE_TRACING; then
     echo -e "  ${BOLD}Retrieve Langfuse credentials:${NC}"
     echo -e "    ${DIM}kubectl get secret langfuse-credentials -n langfuse -o jsonpath='{.data}' | python3 -c \"import sys,json,base64; d=json.load(sys.stdin); print('\n'.join(f'{k}: {base64.b64decode(v).decode()}' for k,v in sorted(d.items())))\"${NC}"
-    echo ""
-  fi
-  if $ENABLE_DYNAMIC_AGENTS; then
-    echo -e "  ${BOLD}Retrieve MongoDB credentials${NC} ${DIM}(R2: random per-install, persisted in caipe-mongodb-credentials):${NC}"
-    echo -e "    ${DIM}kubectl get secret caipe-mongodb-credentials -n caipe -o jsonpath='{.data}' | python3 -c \"import sys,json,base64; d=json.load(sys.stdin); print('\n'.join(f'{k}: {base64.b64decode(v).decode()}' for k,v in sorted(d.items())))\"${NC}"
     echo ""
   fi
   echo -e "  ${BOLD}CLI chat:${NC}"
@@ -5982,7 +5295,7 @@ monitor_port_forwards() {
     local now
     now=$(date +%s)
 
-    for i in "${!PF_PIDS[@]}"; do
+    for i in "${!PF_PIDS[@]:-}"; do
       local _pf_port
       # shellcheck disable=SC2086
       _pf_port=$(echo ${PF_SVCS[$i]} | awk '{print $3}')
@@ -6230,14 +5543,6 @@ detect_deployed_features() {
   if helm status agentgateway -n agentgateway-system &>/dev/null; then
     ENABLE_AGENTGATEWAY=true
   fi
-  if kubectl get deployment caipe-agentgateway -n caipe &>/dev/null 2>&1; then
-    ENABLE_AGENTGATEWAY=true
-    ENABLE_RBAC_RUNTIME=true
-  fi
-  if kubectl get deployment caipe-openfga -n caipe &>/dev/null 2>&1 \
-       || kubectl get deployment caipe-keycloak -n caipe &>/dev/null 2>&1; then
-    ENABLE_RBAC_RUNTIME=true
-  fi
   if kubectl get deployment caipe-dynamic-agents -n caipe &>/dev/null 2>&1; then
     ENABLE_DYNAMIC_AGENTS=true
   fi
@@ -6458,8 +5763,7 @@ BANNER
     elif $NON_INTERACTIVE; then
       # Non-interactive: monitor only unless flags imply an upgrade
       if [[ -n "${CAIPE_CHART_VERSION:-}" ]] || $ENABLE_RAG || $ENABLE_GRAPH_RAG \
-           || $ENABLE_TRACING || $ENABLE_AGENTGATEWAY || $ENABLE_RBAC_RUNTIME \
-           || $INJECT_CORPORATE_CA || [[ ${#INGEST_URLS[@]} -gt 0 ]]; then
+           || $ENABLE_TRACING || $ENABLE_AGENTGATEWAY || $INJECT_CORPORATE_CA || [[ ${#INGEST_URLS[@]} -gt 0 ]]; then
         rerun_choice=2
       else
         rerun_choice=1
@@ -6505,10 +5809,7 @@ BANNER
       AWS_BEDROCK_MODEL_ID AWS_BEDROCK_PROVIDER AWS_BEDROCK_ENABLE_PROMPT_CACHE
       BEDROCK_TEMPERATURE
       AZURE_OPENAI_API_KEY AZURE_OPENAI_ENDPOINT AZURE_OPENAI_API_VERSION
-      AZURE_OPENAI_DEPLOYMENT OPENAI_API_KEY OPENAI_API_BASE
-      EMBEDDINGS_PROVIDER EMBEDDINGS_MODEL EMBEDDINGS_DEVICE
-      COHERE_API_KEY VOYAGE_API_KEY HUGGINGFACEHUB_API_TOKEN HF_TOKEN
-      LITELLM_ENDPOINT LITELLM_API_KEY)
+      AZURE_OPENAI_DEPLOYMENT OPENAI_API_KEY OPENAI_API_BASE)
     for _v in "${_llm_vars[@]}"; do
       local _val
       _val=$(_env_get "$ENV_FILE" "$_v")
@@ -6566,10 +5867,8 @@ BANNER
   deploy_caipe
   post_deploy_patches
 
-  # The legacy AgentGateway controller path runs after CAIPE so MCP services exist
-  # for auto-discovery. The RBAC runtime path installs the standalone proxy as
-  # part of the CAIPE Helm release.
-  if $ENABLE_AGENTGATEWAY && ! $ENABLE_RBAC_RUNTIME; then
+  # AgentGateway runs after CAIPE so MCP services exist for auto-discovery
+  if $ENABLE_AGENTGATEWAY; then
     deploy_agentgateway
   fi
 
@@ -6608,8 +5907,6 @@ Options:
                      with TLS inspection, e.g. Cisco Secure Access, Zscaler)
   --tracing          Enable Langfuse tracing (with --non-interactive, or pre-selects in interactive)
   --agentgateway     Deploy AgentGateway to federate MCP servers behind a single endpoint
-  --rbac-runtime     Install in-chart RBAC runtime services: Keycloak, OpenFGA,
-                     OpenFGA ext_authz bridge, and standalone AgentGateway
   --persistence      Enable Redis persistence for checkpoints and cross-thread memory
                      (deploys langgraph-redis subchart; enables fact extraction)
                      (allows Cursor/VS Code/Claude Code to connect to all MCP servers at once)
@@ -6657,24 +5954,11 @@ Environment variables (all optional):
   CAIPE_CHART_VERSION     Pre-set chart version (skips version picker)
   EMBEDDINGS_MODEL        Embedding model (default: text-embedding-3-large)
   EMBEDDINGS_PROVIDER     Embedding provider (default: openai)
-                          Supported: openai, azure-openai, aws-bedrock, cohere,
-                                     huggingface, ollama, litellm
-                          Note: Anthropic does NOT ship a native embeddings model;
-                          their official recommendation is Voyage AI (use the
-                          interactive menu's "Voyage AI" option which routes via
-                          the litellm-compatible code path, or set
-                          EMBEDDINGS_PROVIDER=litellm + VOYAGE_API_KEY directly).
-                          See https://platform.claude.com/docs/en/build-with-claude/embeddings
-  COHERE_API_KEY          Cohere API key (for EMBEDDINGS_PROVIDER=cohere)
-  VOYAGE_API_KEY          Voyage AI API key (Anthropic-recommended embeddings)
-  HUGGINGFACEHUB_API_TOKEN HuggingFace API token (only needed for gated models)
-  EMBEDDINGS_DEVICE       HuggingFace device: cpu (default) | cuda | mps
   ENABLE_VLLM             Deploy vLLM + LiteLLM in-cluster (default: false, or select option 4)
   HF_TOKEN                HuggingFace token (for vLLM model download)
   VLLM_MODEL              vLLM model (default: openai/gpt-oss-20b)
   VLLM_GPU_COUNT          GPUs per vLLM replica (default: 1)
   ENABLE_AGENTGATEWAY     Enable AgentGateway (default: false)
-  ENABLE_RBAC_RUNTIME     Enable in-chart RBAC runtime services (default: false)
   AGENTGATEWAY_VERSION    AgentGateway Helm chart version (default: v2.2.1)
 
 LLM provider credentials are read from (in order):
@@ -6683,15 +5967,6 @@ LLM provider credentials are read from (in order):
   Bedrock:   1) AWS_ACCESS_KEY_ID env    2) ~/.config/bedrock.txt
              3) AWS_PROFILE env          4) ~/.aws/credentials [default]
              5) prompt
-
-Embeddings provider credentials are read from (in order):
-  OpenAI:    1) OPENAI_API_KEY env       2) ~/.config/openai.txt    3) prompt
-  Cohere:    1) COHERE_API_KEY env       2) ~/.config/cohere.txt    3) prompt
-  Voyage:    1) VOYAGE_API_KEY env       2) ~/.config/voyage.txt    3) prompt
-  HF:        1) HUGGINGFACEHUB_API_TOKEN env or HF_TOKEN env        3) prompt (optional)
-                2) ~/.config/huggingface.txt
-  Bedrock:   Same as LLM Bedrock credentials (reused if both = aws-bedrock)
-  Azure:     1) AZURE_OPENAI_API_KEY env + AZURE_OPENAI_ENDPOINT env  2) prompt
 
   ~/.config/bedrock.txt formats:
     .env style (KEY=VALUE per line, recommended):
@@ -6723,7 +5998,6 @@ Examples:
   LLM_PROVIDER=aws-bedrock $(basename "$0") --non-interactive       # AWS Bedrock (uses profile)
   ENABLE_VLLM=true $(basename "$0") --non-interactive                    # vLLM + LiteLLM (gpt-oss-20B in-cluster)
   $(basename "$0") --non-interactive --agentgateway                     # deploy with AgentGateway for MCP access
-  $(basename "$0") --non-interactive --rbac-runtime                     # deploy Keycloak + OpenFGA + bridge + AgentGateway
   $(basename "$0") --non-interactive --agentgateway --rag               # full stack with AgentGateway + RAG
   $(basename "$0") --non-interactive --persistence                      # deploy with Redis persistence
   $(basename "$0") --non-interactive --rag --persistence                # RAG + Redis persistence (recommended)
@@ -6747,7 +6021,6 @@ for arg in "$@"; do
     --corporate-ca)    INJECT_CORPORATE_CA=true ;;
     --tracing)         ENABLE_TRACING=true ;;
     --agentgateway)    ENABLE_AGENTGATEWAY=true ;;
-    --rbac-runtime)    ENABLE_RBAC_RUNTIME=true; ENABLE_AGENTGATEWAY=true ;;
     --persistence)     ENABLE_PERSISTENCE=true ;;
     --metallb)         ENABLE_METALLB=true ;;
     --ingress)         ENABLE_INGRESS=true; ENABLE_METALLB=true ;;
@@ -6767,7 +6040,6 @@ for arg in "$@"; do
   esac
 done
 
-$ENABLE_RBAC_RUNTIME && ENABLE_AGENTGATEWAY=true
 $ENABLE_GRAPH_RAG && ENABLE_RAG=true
 [[ ${#INGEST_URLS[@]} -gt 0 ]] && ENABLE_RAG=true
 

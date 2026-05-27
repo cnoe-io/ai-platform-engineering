@@ -18,7 +18,6 @@ permissions:
 
 jobs:
   quick-sanity-release:
-    if: false  # disabled: runner decommissioned; re-enable when a replacement runner is available
     runs-on: caipe-integration-tests
 
     steps:

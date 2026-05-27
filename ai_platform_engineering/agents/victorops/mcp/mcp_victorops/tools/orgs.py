@@ -3,12 +3,11 @@
 
 """Tool for listing configured VictorOps organizations."""
 
-import json
-
+from typing import Dict, Any
 from ..api.client import list_orgs
 
 
-async def list_victorops_orgs() -> str:
+async def list_victorops_orgs() -> Dict[str, Any]:
     """List the configured VictorOps organizations.
 
     Returns the org slugs that can be passed as the org_slug parameter
@@ -16,6 +15,6 @@ async def list_victorops_orgs() -> str:
     use it automatically without requiring org_slug.
 
     Returns:
-        str: Pretty-printed JSON with an "orgs" key containing a list of org slug strings.
+        Dict with an "orgs" key containing a list of org slug strings.
     """
-    return json.dumps({"orgs": list_orgs()}, indent=2)
+    return {"orgs": list_orgs()}

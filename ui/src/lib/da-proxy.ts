@@ -14,44 +14,15 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getServerConfig } from "@/lib/config";
-import {
-  ApiError,
-  getAuthFromBearerOrSession,
-  requireRbacPermission,
-} from "@/lib/api-middleware";
-import type { RbacResource, RbacScope } from "@/lib/rbac/types";
+import { getAuthFromBearerOrSession } from "@/lib/api-middleware";
 
 // ═══════════════════════════════════════════════════════════════
 // Auth helper
 // ═══════════════════════════════════════════════════════════════
 
 export interface AuthResult {
-  /** Stable caller subject for ReBAC/OpenFGA checks. */
-  subject?: string;
-  /** Human-readable email for privacy-aware audit display. */
-  email?: string;
-  /** Product role resolved by the UI auth middleware. */
-  role?: string;
-  /** Tenant/org context for audit scoping. */
-  tenantId?: string;
   /** Base64-encoded JSON UserContext header, or undefined for anonymous */
   userContextHeader?: string;
-  /**
-   * The raw user JWT (Bearer access token) that authenticated this
-   * request, when available. Forwarded to DA as ``Authorization:
-   * Bearer <token>`` so DA's ``JwtAuthMiddleware`` can validate it
-   * against Keycloak and bind ``current_user_token`` for downstream
-   * MCP / AgentGateway calls. Browser sessions can temporarily fall back
-   * to ``X-User-Context`` when the server-side token cache is lost.
-   */
-  bearerToken?: string;
-  /** W3C trace context propagated from the Web UI backend authz span. */
-  traceparent?: string;
-}
-
-export interface ProxyRbacPermission {
-  resource: RbacResource;
-  scope: RbacScope;
 }
 
 /**
@@ -67,7 +38,6 @@ export interface ProxyRbacPermission {
  */
 export async function authenticateRequest(
   request: NextRequest,
-  permission?: ProxyRbacPermission,
 ): Promise<AuthResult | NextResponse> {
   const method = request.method;
   const path = request.nextUrl.pathname;
@@ -81,9 +51,6 @@ export async function authenticateRequest(
 
   try {
     const { user, session } = await getAuthFromBearerOrSession(request);
-    if (permission) {
-      await requireRbacPermission(session, permission.resource, permission.scope);
-    }
 
     console.log(
       `[gateway] ${method} ${path} — auth=${authMethod} user=${user.email} role=${user.role} client=${clientSource} ip=${ip} ua=${ua}`,
@@ -103,47 +70,14 @@ export async function authenticateRequest(
     };
 
     const encoded = Buffer.from(JSON.stringify(userContext)).toString("base64");
-    const bearerToken = (s?.accessToken as string | undefined) || undefined;
-    const subject = (s?.sub as string | undefined) || user.email;
-    const tenantId = (s?.org as string | undefined) || "default";
-    return { subject, email: user.email, role: user.role, tenantId, userContextHeader: encoded, bearerToken };
+    return { userContextHeader: encoded };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-
-    // Forward structured ApiError shape so the web UI / slack-bot can render
-    // a specific message (e.g. "session expired — sign in again" vs
-    // "token audience mismatch — contact admin") instead of a generic
-    // "Unauthorized". Falls back to 401 NOT_SIGNED_IN for any non-ApiError
-    // throw — current call sites only throw ApiError, but this keeps us
-    // safe if a new auth path leaks a plain Error.
-    if (err instanceof ApiError) {
-      console.error(
-        `[gateway] ${method} ${path} — auth=${authMethod} DENIED client=${clientSource} ip=${ip} ua=${ua} ` +
-          `status=${err.statusCode} reason=${err.reason ?? "unknown"} code=${err.code ?? "-"} msg=${err.message}`,
-      );
-      return NextResponse.json(
-        {
-          success: false,
-          error: err.message,
-          code: err.code,
-          reason: err.reason,
-          action: err.action,
-        },
-        { status: err.statusCode },
-      );
-    }
-
     console.error(
       `[gateway] ${method} ${path} — auth=${authMethod} DENIED client=${clientSource} ip=${ip} ua=${ua} reason=${message}`,
     );
     return NextResponse.json(
-      {
-        success: false,
-        error: "You are not signed in. Please sign in to continue.",
-        code: "NOT_SIGNED_IN",
-        reason: "not_signed_in",
-        action: "sign_in",
-      },
+      { success: false, error: "Unauthorized" },
       { status: 401 },
     );
   }
@@ -203,12 +137,6 @@ export function buildBackendHeaders(
   if (authResult.userContextHeader) {
     headers["X-User-Context"] = authResult.userContextHeader;
   }
-  if (authResult.bearerToken) {
-    headers["Authorization"] = `Bearer ${authResult.bearerToken}`;
-  }
-  if (authResult.traceparent) {
-    headers.traceparent = authResult.traceparent;
-  }
   return headers;
 }
 
@@ -243,10 +171,6 @@ export async function proxySSEStream(
 ): Promise<Response> {
   const backendHeaders = buildBackendHeaders("application/json", authResult);
   backendHeaders["Accept"] = "text/event-stream";
-
-  console.log(
-    `${logPrefix} Forwarding to ${backendUrl} hasAuth=${!!backendHeaders["Authorization"]} hasUserCtx=${!!backendHeaders["X-User-Context"]}`,
-  );
 
   try {
     const backendResponse = await fetch(backendUrl, {

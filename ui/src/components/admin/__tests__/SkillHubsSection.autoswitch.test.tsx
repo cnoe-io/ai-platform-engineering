@@ -65,14 +65,12 @@ jest.mock("lucide-react", () => ({
   Trash2: () => <span data-testid="icon-trash" />,
   Globe: () => <span data-testid="icon-globe" />,
   AlertCircle: () => <span data-testid="icon-alert" />,
-  AlertTriangle: () => <span data-testid="icon-alert-triangle" />,
   CheckCircle2: () => <span data-testid="icon-check" />,
   X: () => <span data-testid="icon-x" />,
   RefreshCcw: () => <span data-testid="icon-refresh" />,
   Search: () => <span data-testid="icon-search" />,
   ShieldAlert: () => <span data-testid="icon-shield-alert" />,
   Zap: () => <span data-testid="icon-zap" />,
-  ListFilter: () => <span data-testid="icon-list-filter" />,
 }));
 
 jest.mock("@/components/ui/card", () => ({
@@ -152,52 +150,6 @@ function getLocationInput() {
 // ============================================================================
 
 describe("SkillHubsSection — auto-switch source pill on URL paste", () => {
-  it("renders configured hubs read-only without management error or actions", async () => {
-    mockFetch.mockImplementation((url: string) => {
-      if (typeof url === "string" && url.includes("/api/skill-hubs")) {
-        return Promise.resolve({
-          ok: true,
-          status: 200,
-          headers: jsonHeaders,
-          json: async () => ({
-            hubs: [
-              {
-                id: "hub-1",
-                type: "github",
-                location: "cnoe-io/ai-platform-engineering",
-                enabled: true,
-                credentials_ref: null,
-                labels: ["platform"],
-                shared_with_teams: ["sre"],
-                last_success_at: null,
-                last_failure_at: null,
-                last_failure_message: null,
-                created_at: "2026-05-20T00:00:00.000Z",
-                updated_at: "2026-05-20T00:00:00.000Z",
-              },
-            ],
-          }),
-          text: async () => JSON.stringify({ hubs: [] }),
-        });
-      }
-      return Promise.resolve({
-        ok: true,
-        status: 200,
-        headers: jsonHeaders,
-        json: async () => ({}),
-        text: async () => "{}",
-      });
-    });
-
-    render(<SkillHubsSection isAdmin={false} />);
-
-    expect(await screen.findByText("cnoe-io/ai-platform-engineering")).toBeInTheDocument();
-    expect(screen.getByText("sre")).toBeInTheDocument();
-    expect(screen.queryByText(/Admin access required to manage skill hubs/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/Add Hub/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/Actions/i)).not.toBeInTheDocument();
-  });
-
   it("auto-switches to GitLab when a gitlab.com URL is pasted while GitHub is selected", async () => {
     await renderAndOpenAddForm();
 

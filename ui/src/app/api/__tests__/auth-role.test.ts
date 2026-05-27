@@ -8,9 +8,9 @@
  * - Returns role='user' when no session (unauthenticated)
  * - Returns role='user' when session has no email
  * - Returns role='admin' when session.role is 'admin' (no MongoDB call needed)
- * - Returns role='user' when session has no OpenFGA admin relationship
- * - Returns role='admin' when OpenFGA grants organization management
- * - Returns role='user' when OpenFGA lookup throws error (graceful fallback)
+ * - Returns role='user' when session.role is 'user' and no MongoDB admin record
+ * - Returns role='admin' when session.role is 'user' but MongoDB has admin metadata
+ * - Returns role='user' when MongoDB lookup throws error (graceful fallback)
  * - Returns email in response when session is present
  */
 
@@ -34,15 +34,11 @@ jest.mock('next-auth', () => ({ getServerSession: jest.fn() }));
 const mockGetServerSession = jest.requireMock<{ getServerSession: jest.Mock }>('next-auth')
   .getServerSession;
 
-jest.mock('@/lib/rbac/openfga', () => ({ checkOpenFgaTuple: jest.fn() }));
-const mockCheckOpenFgaTuple = jest.requireMock<{ checkOpenFgaTuple: jest.Mock }>('@/lib/rbac/openfga')
-  .checkOpenFgaTuple;
+jest.mock('@/lib/mongodb', () => ({ getCollection: jest.fn() }));
+const mockGetCollection = jest.requireMock<{ getCollection: jest.Mock }>('@/lib/mongodb')
+  .getCollection;
 
-jest.mock('@/lib/auth-config', () => ({
-  authOptions: {},
-  isBootstrapAdmin: jest.fn().mockReturnValue(false),
-  REQUIRED_ADMIN_GROUP: '',
-}));
+jest.mock('@/lib/auth-config', () => ({ authOptions: {} }));
 
 jest.spyOn(console, 'log').mockImplementation(() => {});
 jest.spyOn(console, 'warn').mockImplementation(() => {});
@@ -69,14 +65,6 @@ function userSession() {
   };
 }
 
-function userSessionWithSub() {
-  return {
-    user: { email: 'user@example.com', name: 'Regular User' },
-    role: 'user',
-    sub: 'user-sub',
-  };
-}
-
 // Import GET handler AFTER all mocks
 import { GET } from '../auth/role/route';
 
@@ -98,7 +86,7 @@ describe('GET /api/auth/role', () => {
     expect(res.status).toBe(401);
     const body = await res.json();
     expect(body).toEqual({ error: 'Unauthorized' });
-    expect(mockCheckOpenFgaTuple).not.toHaveBeenCalled();
+    expect(mockGetCollection).not.toHaveBeenCalled();
   });
 
   it('returns 401 when session has no email', async () => {
@@ -113,7 +101,7 @@ describe('GET /api/auth/role', () => {
     expect(res.status).toBe(401);
     const body = await res.json();
     expect(body).toEqual({ error: 'Unauthorized' });
-    expect(mockCheckOpenFgaTuple).not.toHaveBeenCalled();
+    expect(mockGetCollection).not.toHaveBeenCalled();
   });
 
   it('returns role="admin" when session.role is "admin" (no MongoDB call needed)', async () => {
@@ -125,12 +113,14 @@ describe('GET /api/auth/role', () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body).toEqual({ role: 'admin', email: 'admin@example.com' });
-    expect(mockCheckOpenFgaTuple).not.toHaveBeenCalled();
+    expect(mockGetCollection).not.toHaveBeenCalled();
   });
 
-  it('returns role="user" when session has no OpenFGA admin relationship', async () => {
-    mockGetServerSession.mockResolvedValue(userSessionWithSub());
-    mockCheckOpenFgaTuple.mockResolvedValue({ allowed: false });
+  it('returns role="user" when session.role is "user" and no MongoDB admin record', async () => {
+    mockGetServerSession.mockResolvedValue(userSession());
+
+    const mockFindOne = jest.fn().mockResolvedValue(null);
+    mockGetCollection.mockResolvedValue({ findOne: mockFindOne });
 
     const req = makeRequest('/api/auth/role');
     const res = await GET(req);
@@ -138,16 +128,18 @@ describe('GET /api/auth/role', () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body).toEqual({ role: 'user', email: 'user@example.com' });
-    expect(mockCheckOpenFgaTuple).toHaveBeenCalledWith({
-      user: 'user:user-sub',
-      relation: 'can_manage',
-      object: 'organization:caipe',
-    });
+    expect(mockGetCollection).toHaveBeenCalledWith('users');
+    expect(mockFindOne).toHaveBeenCalledWith({ email: 'user@example.com' });
   });
 
-  it('returns role="admin" when OpenFGA grants organization management', async () => {
-    mockGetServerSession.mockResolvedValue(userSessionWithSub());
-    mockCheckOpenFgaTuple.mockResolvedValue({ allowed: true });
+  it('returns role="admin" when session.role is "user" but MongoDB has admin metadata', async () => {
+    mockGetServerSession.mockResolvedValue(userSession());
+
+    const mockFindOne = jest.fn().mockResolvedValue({
+      email: 'user@example.com',
+      metadata: { role: 'admin' },
+    });
+    mockGetCollection.mockResolvedValue({ findOne: mockFindOne });
 
     const req = makeRequest('/api/auth/role');
     const res = await GET(req);
@@ -155,11 +147,15 @@ describe('GET /api/auth/role', () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body).toEqual({ role: 'admin', email: 'user@example.com' });
+    expect(mockGetCollection).toHaveBeenCalledWith('users');
+    expect(mockFindOne).toHaveBeenCalledWith({ email: 'user@example.com' });
   });
 
-  it('returns role="user" when OpenFGA lookup throws error (graceful fallback)', async () => {
-    mockGetServerSession.mockResolvedValue(userSessionWithSub());
-    mockCheckOpenFgaTuple.mockRejectedValue(new Error('OpenFGA unavailable'));
+  it('returns role="user" when MongoDB lookup throws error (graceful fallback)', async () => {
+    mockGetServerSession.mockResolvedValue(userSession());
+
+    const mockFindOne = jest.fn().mockRejectedValue(new Error('MongoDB connection failed'));
+    mockGetCollection.mockResolvedValue({ findOne: mockFindOne });
 
     const req = makeRequest('/api/auth/role');
     const res = await GET(req);
@@ -168,13 +164,16 @@ describe('GET /api/auth/role', () => {
     const body = await res.json();
     expect(body).toEqual({ role: 'user', email: 'user@example.com' });
     expect(console.warn).toHaveBeenCalledWith(
-      '[Auth Role API] Could not check OpenFGA organization admin relationship:',
+      '[Auth Role API] Could not check MongoDB for admin role:',
       expect.any(Error)
     );
   });
 
   it('returns email in response when session is present', async () => {
     mockGetServerSession.mockResolvedValue(userSession());
+
+    const mockFindOne = jest.fn().mockResolvedValue(null);
+    mockGetCollection.mockResolvedValue({ findOne: mockFindOne });
 
     const req = makeRequest('/api/auth/role');
     const res = await GET(req);

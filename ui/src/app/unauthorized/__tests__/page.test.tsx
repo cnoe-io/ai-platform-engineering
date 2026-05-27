@@ -62,7 +62,7 @@ jest.mock("@/components/ui/button", () => ({
 // ---------------------------------------------------------------------------
 
 const mockConfig = {
-  oidcRequiredGroup: "caipe-users",
+  oidcRequiredGroup: "backstage-access",
   supportEmail: "support@example.com",
   appName: "CAIPE",
   tagline: "AI Platform Engineering",
@@ -90,7 +90,7 @@ import UnauthorizedPage from "../page";
 describe("UnauthorizedPage", () => {
   beforeEach(() => {
     // Reset to safe defaults before each test
-    mockConfig.oidcRequiredGroup = "caipe-users";
+    mockConfig.oidcRequiredGroup = "backstage-access";
     mockConfig.supportEmail = "support@example.com";
     mockConfig.appName = "CAIPE";
     mockConfig.tagline = "AI Platform Engineering";
@@ -100,15 +100,15 @@ describe("UnauthorizedPage", () => {
   // ── Group name rendering ──────────────────────────────────────────────────
 
   describe("required group display", () => {
-    it("renders the configured group name in the code block", () => {
+    it("renders the default group name in the code block", () => {
       render(<UnauthorizedPage />);
-      expect(screen.getByRole("code")).toHaveTextContent("caipe-users");
+      expect(screen.getByRole("code")).toHaveTextContent("backstage-access");
     });
 
     it("renders a custom group name from config.oidcRequiredGroup in the code block", () => {
-      mockConfig.oidcRequiredGroup = "my-org-caipe-users";
+      mockConfig.oidcRequiredGroup = "my-org-platform-users";
       render(<UnauthorizedPage />);
-      expect(screen.getByRole("code")).toHaveTextContent("my-org-caipe-users");
+      expect(screen.getByRole("code")).toHaveTextContent("my-org-platform-users");
     });
 
     it("renders the group name in the <strong> contact-admin bullet", () => {
@@ -144,7 +144,7 @@ describe("UnauthorizedPage", () => {
     render(<UnauthorizedPage />);
     expect(screen.getByRole("code")).toHaveTextContent("sentinel-value-12345");
     expect(screen.getByRole("code")).not.toHaveTextContent("undefined");
-    expect(screen.getByRole("code")).not.toHaveTextContent("caipe-users");
+    expect(screen.getByRole("code")).not.toHaveTextContent("backstage-access");
   });
 
   // ── Static content ────────────────────────────────────────────────────────

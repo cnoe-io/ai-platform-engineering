@@ -22,7 +22,7 @@
 import {
   type SSEAgentEvent,
   createSSEAgentEvent,
-} from "@/lib/streaming/types";
+} from "@/components/dynamic-agents/sse-types";
 
 export interface DynamicAgentClientConfig {
   /** Proxy route URL base (e.g. /api/dynamic-agents/chat) */

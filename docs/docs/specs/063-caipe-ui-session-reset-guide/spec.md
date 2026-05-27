@@ -38,7 +38,7 @@ If you're stuck on the authorization screen and have to continuously delete cook
 - **Result**: Infinite authorization loop
 
 ### 3. **Group Authorization Failures**
-- **Problem**: User not in the deployment-configured required access group
+- **Problem**: User not in required group (`backstage-access` by default)
 - **Cause**: OIDC provider returns wrong group format or user not authorized
 - **Result**: Authorization check never completes
 

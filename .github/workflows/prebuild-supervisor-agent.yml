@@ -10,29 +10,6 @@ on:
       - 'ai_platform_engineering/agents/**'
       - 'ai_platform_engineering/utils/**'
       - 'ai_platform_engineering/__init__.py'
-  workflow_call:
-    inputs:
-      pr_number:
-        description: 'PR number to publish prebuild for'
-        required: true
-        type: number
-      head_ref:
-        description: 'PR head branch ref'
-        required: true
-        type: string
-      head_sha:
-        description: 'PR head commit SHA'
-        required: true
-        type: string
-      base_ref:
-        description: 'PR base branch ref'
-        required: true
-        type: string
-      base_sha:
-        description: 'PR base commit SHA'
-        required: false
-        type: string
-        default: ''
 env:
   IMAGE_NAME: ${{ github.repository_owner }}/prebuild/ai-platform-engineering
 
@@ -40,57 +17,34 @@ permissions:
   contents: write
   packages: write
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
-
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
     if: |
-      (github.actor != 'github-actions[bot]' && github.actor != 'caipe-ci-release[bot]') &&
-      (
-        startsWith(inputs.head_ref || github.head_ref, 'prebuild/') &&
-        github.event.action != 'closed'
-      )
+      github.event_name == 'pull_request' &&
+      startsWith(github.head_ref, 'prebuild/') &&
+      github.event.action != 'closed'
     permissions:
-      contents: write
+      contents: read
       packages: write
       pull-requests: write
 
     steps:
       - name: 🔒 harden runner
-        uses: step-security/harden-runner@ab7a9404c0f3da075243ca237b5fac12c98deaa5  # v2.19.3
+        uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450  # v2.19.1
         with:
           egress-policy: audit
-
-      - name: 🔑 Generate GitHub App token
-        id: app-token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
-        with:
-          app-id: ${{ secrets.CI_BUILD_APP_ID }}
-          private-key: ${{ secrets.CI_BUILD_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-          repositories: ${{ github.event.repository.name }}
-
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
-          ref: ${{ inputs.head_sha || github.ref }}
           fetch-depth: 0
 
       - name: Check build eligibility
         id: eligibility
         shell: bash
         run: |
-          BASE_REF="${{ inputs.base_ref || github.event.pull_request.base.ref }}"
-          BASE_SHA="${{ inputs.base_sha || github.event.pull_request.base.sha }}"
-          git fetch origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
-          if [[ -n "$BASE_SHA" ]] && git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
-            BASE="$BASE_SHA"
-          else
-            BASE="origin/${BASE_REF}"
-          fi
+          git fetch origin "${{ github.event.pull_request.base.ref }}"
+          BASE="origin/${{ github.event.pull_request.base.ref }}"
 
           CORE_CHANGED=false
           if git diff --name-only "$BASE..HEAD" -- \
@@ -103,7 +57,7 @@ jobs:
             CORE_CHANGED=true
           fi
 
-          if [[ "$CORE_CHANGED" == "true" || "${{ contains(inputs.head_ref || github.head_ref, 'single-node') }}" == "true" ]]; then
+          if [[ "$CORE_CHANGED" == "true" || "${{ contains(github.head_ref, 'single-node') }}" == "true" ]]; then
             echo "should_build=true" >> "$GITHUB_OUTPUT"
           else
             echo "should_build=false" >> "$GITHUB_OUTPUT"
@@ -118,45 +72,20 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ steps.app-token.outputs.token }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Compute prebuild tag
         if: steps.eligibility.outputs.should_build == 'true'
         id: compute_tag
         shell: bash
         run: |
-          BRANCH="${{ inputs.head_ref || github.head_ref }}"
-          BASE_REF="${{ inputs.base_ref || github.event.pull_request.base.ref }}"
-          BASE_SHA="${{ inputs.base_sha || github.event.pull_request.base.sha }}"
+          BRANCH="${{ github.head_ref || github.ref_name }}"
           BRANCH_NO_PREFIX="${BRANCH#prebuild/}"
           BRANCH_SANITIZED="${BRANCH_NO_PREFIX//\//-}"
-          git fetch origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
-          if [[ -n "$BASE_SHA" ]] && git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
-            BASE_COMMIT="$BASE_SHA"
-          else
-            BASE_COMMIT="origin/${BASE_REF}"
-          fi
-          COMMIT_COUNT=$(git rev-list --count "${BASE_COMMIT}..HEAD")
-          PREBUILD_TAG="${BRANCH_SANITIZED}-${COMMIT_COUNT}"
+          git fetch origin ${{ github.event.pull_request.base.ref }}
+          COMMIT_COUNT=$(git rev-list --count origin/${{ github.event.pull_request.base.ref }}..HEAD)
           echo "BRANCH_BARE=${BRANCH_SANITIZED}" >> $GITHUB_ENV
-          echo "PREBUILD_TAG=${PREBUILD_TAG}" >> $GITHUB_ENV
-          echo "prebuild_tag=${PREBUILD_TAG}" >> $GITHUB_OUTPUT
-
-      - name: Upload building prebuild status
-        if: steps.eligibility.outputs.should_build == 'true'
-        uses: ./.github/actions/prebuild-status
-        with:
-          pr_number: ${{ inputs.pr_number || github.event.pull_request.number }}
-          head_sha: ${{ inputs.head_sha || github.event.pull_request.head.sha }}
-          head_ref: ${{ inputs.head_ref || github.head_ref }}
-          source: supervisor-agent
-          type: docker
-          name: ai-platform-engineering
-          repository: ghcr.io/${{ env.IMAGE_NAME }}
-          tag: ${{ steps.compute_tag.outputs.prebuild_tag }}
-          ref: ghcr.io/${{ env.IMAGE_NAME }}:${{ steps.compute_tag.outputs.prebuild_tag }}
-          status: building
-          artifact_suffix: start
+          echo "PREBUILD_TAG=${BRANCH_SANITIZED}-${COMMIT_COUNT}" >> $GITHUB_ENV
 
       - name: Extract metadata for Docker
         if: steps.eligibility.outputs.should_build == 'true'
@@ -172,7 +101,6 @@ jobs:
         uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4
       - name: Build and Push A2A Docker image
         if: steps.eligibility.outputs.should_build == 'true'
-        id: build
         uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7
         with:
           context: .
@@ -184,21 +112,33 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Upload final prebuild status
-        if: ${{ always() && steps.compute_tag.outputs.prebuild_tag != '' }}
-        uses: ./.github/actions/prebuild-status
+      - name: 💬 Comment on PR
+        if: steps.eligibility.outputs.should_build == 'true' && github.event_name == 'pull_request'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          IMAGE_REPO: ghcr.io/${{ env.IMAGE_NAME }}
+          IMAGE_REF: ghcr.io/${{ env.IMAGE_NAME }}:${{ env.PREBUILD_TAG }}
+          PREBUILD_TAG: ${{ env.PREBUILD_TAG }}
         with:
-          pr_number: ${{ inputs.pr_number || github.event.pull_request.number }}
-          head_sha: ${{ inputs.head_sha || github.event.pull_request.head.sha }}
-          head_ref: ${{ inputs.head_ref || github.head_ref }}
-          source: supervisor-agent
-          type: docker
-          name: ai-platform-engineering
-          repository: ghcr.io/${{ env.IMAGE_NAME }}
-          tag: ${{ steps.compute_tag.outputs.prebuild_tag }}
-          ref: ghcr.io/${{ env.IMAGE_NAME }}:${{ steps.compute_tag.outputs.prebuild_tag }}
-          status: ${{ steps.build.outcome == 'success' && 'published' || 'failed' }}
-          artifact_suffix: final
+          script: |
+            const body = `## 🐳 Prebuild Docker Image Published
+
+            **Repository:** \`${process.env.IMAGE_REPO}\`
+            **Tag:** \`${process.env.PREBUILD_TAG}\`
+
+            ### Usage
+            \`\`\`bash
+            docker pull ${process.env.IMAGE_REF}
+            \`\`\`
+
+            > **Note:** This prebuild image will be automatically cleaned up when the PR is closed or merged.`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body
+            });
 
   cleanup-images:
     runs-on: ubuntu-latest

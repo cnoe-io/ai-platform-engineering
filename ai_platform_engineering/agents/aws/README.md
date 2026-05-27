@@ -20,7 +20,7 @@ ai-platform-engineering/
         └── aws/          # ← You are here
             ├── agent_aws/
             │   ├── __init__.py
-            │   ├── agent_langgraph.py
+            │   ├── agent_strands.py
             │   ├── models.py
             │   ├── state.py
             │   └── protocol_bindings/
@@ -40,13 +40,14 @@ ai-platform-engineering/
 
 ---
 
-- 🤖 **AWS Agent** is an LLM-powered LangGraph agent that uses AWS native tools.
+- 🤖 **AWS Agent** is an LLM-powered agent built using the [Strands Agents SDK](https://strandsagents.com/0.1.x/documentation/docs/) and official AWS MCP Servers.
 - 🌐 **Protocol Support:** Compatible with [A2A](https://github.com/google/A2A) protocol for integration with external user clients.
 - 🛡️ **Secure by Design:** Enforces AWS IAM-based RBAC and supports external authentication for strong access control.
-- 🔌 **EKS Management:** Uses AWS CLI and kubectl for Amazon EKS cluster management and Kubernetes operations.
-- 💰 **Cost Management:** Uses AWS Cost Explorer APIs through AWS CLI for FinOps insights and forecasting.
-- 🔐 **IAM Security:** Uses AWS IAM APIs through AWS CLI for access review and policy analysis.
-- 🏭 **Production Ready:** Built with LangGraph and deepagents for production-ready AI agent deployment.
+- 🔌 **EKS Management:** Uses the official [AWS EKS MCP Server](https://awslabs.github.io/mcp/servers/eks-mcp-server) for comprehensive Amazon EKS cluster management and Kubernetes operations.
+- 📦 **ECS Management (Optional):** Integrate the [AWS ECS MCP Server](https://awslabs.github.io/mcp/servers/ecs-mcp-server) for containerizing applications, deploying to Amazon ECS, and managing containerized workloads.
+- 💰 **Cost Management (Optional):** Integrate the AWS Cost Explorer MCP Server for FinOps insights, cost breakdowns, comparisons, forecasting, and optimization recommendations.
+- 🔐 **IAM Security (Optional):** Integrate the AWS IAM MCP Server for comprehensive Identity and Access Management operations with read-only mode for safety.
+- 🏭 **Production Ready:** Built with Strands Agents SDK for lightweight, production-ready AI agent deployment.
 
 ---
 
@@ -69,15 +70,34 @@ AWS_REGION=us-west-2
 AWS_ACCESS_KEY_ID=your-access-key-id
 AWS_SECRET_ACCESS_KEY=your-secret-access-key
 
-# LLM Configuration
-LLM_PROVIDER=azure-openai
+# LLM Configuration (Default: Amazon Bedrock Claude)
+# Refer to: https://strandsagents.com/0.1.x/documentation/docs/user-guide/quickstart/#model-providers
 
-# Optional: advertised skill toggles
+# Optional: Strands Agent Configuration
+STRANDS_LOG_LEVEL=INFO
+
+# Optional: MCP Server Configuration
+FASTMCP_LOG_LEVEL=ERROR
+# Enable/Disable individual MCP servers
 ENABLE_EKS_MCP=true
+ENABLE_ECS_MCP=false
 ENABLE_COST_EXPLORER_MCP=false
 ENABLE_IAM_MCP=false
-# Run IAM in read-only mode to block mutating operations (default: true)
+# Run IAM MCP in read-only mode to block mutating operations (default: true)
 IAM_MCP_READONLY=true
+# ECS MCP security controls (default: both false for safety)
+ECS_MCP_ALLOW_WRITE=false
+ECS_MCP_ALLOW_SENSITIVE_DATA=false
+```
+
+To enable AWS ECS container management capabilities, set:
+
+```
+ENABLE_ECS_MCP=true
+# Optional: Enable write operations for ECS (create/delete infrastructure)
+ECS_MCP_ALLOW_WRITE=true
+# Optional: Enable access to sensitive data (logs, detailed resource info)
+ECS_MCP_ALLOW_SENSITIVE_DATA=true
 ```
 
 To enable AWS Cost Explorer capabilities, set:
@@ -93,6 +113,7 @@ ENABLE_IAM_MCP=true
 ```
 
 **Important Notes:**
+- **ECS**: By default, write operations and sensitive data access are disabled. Enable `ECS_MCP_ALLOW_WRITE` for infrastructure creation/deletion and `ECS_MCP_ALLOW_SENSITIVE_DATA` for logs and detailed resource information
 - **Cost Explorer**: API calls incur cost ($0.01 per request)
 - **IAM**: By default runs in read-only mode for safety. Set `IAM_MCP_READONLY=false` to enable write operations
 
@@ -135,12 +156,12 @@ flowchart TD
   end
 
   subgraph Agent Framework Layer
-    C[LangGraph AWS Agent]
+    C[Strands Agent SDK]
   end
 
-  subgraph Tools Layer
-    D[AWS CLI and kubectl tools]
-    E[AWS APIs]
+  subgraph Tools/MCP Layer
+    D[MCP Client]
+    E[AWS EKS MCP Server]
     F[AWS EKS API]
   end
 
@@ -223,6 +244,7 @@ Ask the agent natural language questions like:
         "iam:ListAttachedRolePolicies",
         "iam:GetPolicy",
         "iam:GetPolicyVersion",
+        "eks-mcpserver:QueryKnowledgeBase",
         "ce:GetCostAndUsage",
         "ce:GetDimensionValues",
         "ce:GetTags",
@@ -252,12 +274,12 @@ Ask the agent natural language questions like:
 
 ### Write Operations (with --allow-write)
 For write operations, the following managed policies are recommended:
-- **IAMFullAccess**: For creating and managing IAM roles and policies when write mode is enabled
+- **IAMFullAccess**: For creating and managing IAM roles and policies (when `IAM_MCP_READONLY=false`)
 - **AmazonVPCFullAccess**: For VPC resource creation and configuration
 - **AWSCloudFormationFullAccess**: For CloudFormation stack management
 - **EKS Full Access**: Custom policy for EKS cluster operations
 
-**Note**: IAM runs in read-only mode by default (`IAM_MCP_READONLY=true`) to prevent accidental modifications. Set to `false` to enable write operations.
+**Note**: IAM MCP server runs in read-only mode by default (`IAM_MCP_READONLY=true`) to prevent accidental modifications. Set to `false` to enable write operations.
 
 ## 🔒 Security Best Practices
 
@@ -314,10 +336,11 @@ uv run python -m agent_aws.protocol_bindings.a2a_server
 
 ## 📦 Dependencies
 
-- **langgraph**: Graph-based agent orchestration
-- **deepagents**: Context-managed agent runtime
+- **strands-agents**: Lightweight AI agent framework
+- **awslabs.eks-mcp-server**: Official AWS EKS MCP Server
+- **awslabs.cost-explorer-mcp-server** (via `uvx` when enabled): AWS Cost Explorer MCP Server
 - **boto3**: AWS SDK for Python
-- **a2a-sdk**: Google A2A protocol implementation
+- **a2a-python**: Google A2A protocol implementation
 - **agntcy-acp**: Agent Control Protocol implementation
 - **python-dotenv**: Environment variable management
 - **click**: Command-line interface creation toolkit
@@ -352,6 +375,8 @@ Contributions are welcome! Please read our [Contributing Guide](CONTRIBUTING.md)
 
 ## 📚 Documentation
 
-- [LangGraph Documentation](https://langchain-ai.github.io/langgraph/)
-- [AWS CLI Documentation](https://docs.aws.amazon.com/cli/latest/userguide/)
+- [Strands Agents SDK Documentation](https://strandsagents.com/0.1.x/documentation/docs/)
+- [AWS EKS MCP Server Documentation](https://awslabs.github.io/mcp/servers/eks-mcp-server)
+- [AWS Cost Explorer MCP Server Documentation](https://awslabs.github.io/mcp/servers/cost-explorer-mcp-server)
+- [Model Context Protocol](https://modelcontextprotocol.io/introduction)
 - [Amazon EKS User Guide](https://docs.aws.amazon.com/eks/latest/userguide/)

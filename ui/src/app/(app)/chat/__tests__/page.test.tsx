@@ -16,7 +16,6 @@ import { render, screen, waitFor } from "@testing-library/react";
 const mockReplace = jest.fn();
 const mockPush = jest.fn();
 let mockSearchParams = new URLSearchParams();
-const mockFetch = jest.fn();
 
 jest.mock("next/navigation", () => ({
   useRouter: () => ({ replace: mockReplace, push: mockPush }),
@@ -49,7 +48,6 @@ const mockLoadAutonomousConversationsFromService = jest.fn().mockResolvedValue(u
 
 let mockConversations: any[] = [];
 let mockActiveConversationId: string | null = null;
-const mockGetLastActiveConversationId = jest.fn(() => null);
 
 jest.mock("@/store/chat-store", () => {
   const getState = () => ({
@@ -72,10 +70,7 @@ jest.mock("@/store/chat-store", () => {
   store.setState = jest.fn();
   store.subscribe = jest.fn();
 
-  return {
-    useChatStore: store,
-    getLastActiveConversationId: () => mockGetLastActiveConversationId(),
-  };
+  return { useChatStore: store };
 });
 
 jest.mock("@/components/auth-guard", () => ({
@@ -101,11 +96,6 @@ describe("Chat Redirect Page", () => {
     mockLoadConversationsFromServer.mockResolvedValue(undefined);
     mockLoadAutonomousConversationsFromService.mockResolvedValue(undefined);
     mockCreateConversation.mockResolvedValue("new-conv-id");
-    global.fetch = mockFetch;
-    mockFetch.mockResolvedValue({
-      json: async () => ({ success: true, data: { default_agent_id: "default-agent" } }),
-    });
-    mockGetLastActiveConversationId.mockReturnValue(null);
   });
 
   it("renders CAIPESpinner with branded loading message", () => {
@@ -178,45 +168,5 @@ describe("Chat Redirect Page", () => {
     expect(screen.getByText("Go to Autonomous Agents")).toBeInTheDocument();
     expect(mockCreateConversation).not.toHaveBeenCalled();
     expect(mockReplace).not.toHaveBeenCalled();
-  });
-
-  it("redirects to the persisted last active conversation after reload", async () => {
-    mockGetLastActiveConversationId.mockReturnValue("conv-2");
-    mockConversations = [
-      {
-        id: "conv-1",
-        owner_id: "test@example.com",
-        updatedAt: new Date("2026-05-18T09:00:00Z"),
-      },
-      {
-        id: "conv-2",
-        owner_id: "test@example.com",
-        updatedAt: new Date("2026-05-18T08:00:00Z"),
-      },
-    ];
-
-    render(<Chat />);
-
-    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith("/chat/conv-2"));
-    expect(mockCreateConversation).not.toHaveBeenCalled();
-  });
-
-  it("creates a new default-agent conversation when the user has no owned conversations", async () => {
-    render(<Chat />);
-
-    await waitFor(() => expect(mockCreateConversation).toHaveBeenCalledWith("default-agent"));
-    expect(mockFetch).toHaveBeenCalledWith("/api/admin/platform-config");
-    expect(mockReplace).toHaveBeenCalledWith("/chat/new-conv-id");
-  });
-
-  it("falls back to supervisor when no default agent is configured", async () => {
-    mockFetch.mockResolvedValueOnce({
-      json: async () => ({ success: true, data: { default_agent_id: null } }),
-    });
-
-    render(<Chat />);
-
-    await waitFor(() => expect(mockCreateConversation).toHaveBeenCalledWith(undefined));
-    expect(mockReplace).toHaveBeenCalledWith("/chat/new-conv-id");
   });
 });

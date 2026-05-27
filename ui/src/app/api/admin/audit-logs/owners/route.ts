@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
+  withAuth,
   withErrorHandler,
+  requireAdmin,
   successResponse,
-  getAuthFromBearerOrSession,
-  requireRbacPermission,
 } from '@/lib/api-middleware';
 import { getCollection, isMongoDBConfigured } from '@/lib/mongodb';
 import { getServerConfig } from '@/lib/config';
@@ -24,10 +24,10 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     );
   }
 
-  const { session } = await getAuthFromBearerOrSession(request);
-  await requireRbacPermission(session, 'admin_ui', 'audit.view');
+  return withAuth(request, async (req, _user, session) => {
+    requireAdmin(session);
 
-    const url = new URL(request.url);
+    const url = new URL(req.url);
     const q = url.searchParams.get('q')?.trim() || '';
 
     const conversations = await getCollection<Conversation>('conversations');
@@ -49,4 +49,5 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     const owners: string[] = results.map((r: any) => r.owner_id).filter(Boolean);
 
     return successResponse({ owners });
+  });
 });

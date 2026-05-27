@@ -9,18 +9,14 @@
 import { NextRequest } from "next/server";
 import { getCollection } from "@/lib/mongodb";
 import {
+  withAuth,
   withErrorHandler,
   successResponse,
   ApiError,
+  requireAdmin,
   getPaginationParams,
   paginatedResponse,
-  getAuthFromBearerOrSession,
 } from "@/lib/api-middleware";
-import {
-  filterResourcesByPermission,
-  requireResourcePermission,
-} from "@/lib/rbac/resource-authz";
-import { reconcileLlmModelRelationships } from "@/lib/rbac/openfga-owned-resources";
 import type { LLMModelConfig } from "@/types/dynamic-agent";
 
 const COLLECTION_NAME = "llm_models";
@@ -44,25 +40,12 @@ function pickMutableFields(
   return result;
 }
 
-function normalizeString(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
-function requireStableSubject(session: { sub?: unknown }): string {
-  const subject = normalizeString(session.sub);
-  if (!subject) {
-    throw new ApiError("A stable user subject is required for LLM model ownership.", 401, "NO_SUBJECT");
-  }
-  return subject;
-}
-
 // ═══════════════════════════════════════════════════════════════
 // GET — list LLM models
 // ═══════════════════════════════════════════════════════════════
 
 export const GET = withErrorHandler(async (request: NextRequest) => {
-  const { session } = await getAuthFromBearerOrSession(request);
-
+  return await withAuth(request, async () => {
     const { page, pageSize } = getPaginationParams(request);
 
     const collection = await getCollection<LLMModelConfig>(COLLECTION_NAME);
@@ -73,18 +56,9 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       .skip((page - 1) * pageSize)
       .limit(pageSize)
       .toArray();
-    const visibleItems = await filterResourcesByPermission(session, items, {
-      type: "llm_model",
-      action: "read",
-      id: (model) => String(model._id),
-    });
 
-    return paginatedResponse(
-      visibleItems,
-      visibleItems.length < items.length ? visibleItems.length : total,
-      page,
-      pageSize,
-    );
+    return paginatedResponse(items, total, page, pageSize);
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -92,8 +66,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
 // ═══════════════════════════════════════════════════════════════
 
 export const POST = withErrorHandler(async (request: NextRequest) => {
-  const { session, user } = await getAuthFromBearerOrSession(request);
-  const ownerSubject = requireStableSubject(session);
+  return await withAuth(request, async (_req, _user, session) => {
+    requireAdmin(session);
 
     const body = await request.json();
     const { model_id, name, provider } = body;
@@ -119,25 +93,20 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     }
 
     const now = new Date().toISOString();
-    const doc: LLMModelConfig = {
+    const doc = {
       _id: model_id,
       model_id,
       name,
       provider,
       description: body.description ?? "",
       config_driven: false,
-      owner_id: user.email,
-      owner_subject: ownerSubject,
       updated_at: now,
     };
 
-    await reconcileLlmModelRelationships({
-      modelId: model_id,
-      ownerSubject,
-    });
-    await collection.insertOne(doc);
+    await collection.insertOne(doc as any);
 
     return successResponse(doc, 201);
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -145,7 +114,8 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
 // ═══════════════════════════════════════════════════════════════
 
 export const PUT = withErrorHandler(async (request: NextRequest) => {
-  const { session } = await getAuthFromBearerOrSession(request);
+  return await withAuth(request, async (req, _user, session) => {
+    requireAdmin(session);
 
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
@@ -158,7 +128,6 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     if (existing.config_driven) {
       throw new ApiError("Config-driven models cannot be edited", 403);
     }
-    await requireResourcePermission(session, { type: "llm_model", id, action: "write" });
 
     const body = await request.json();
     const updates = pickMutableFields(body);
@@ -173,6 +142,7 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     const updated = await collection.findOne({ _id: id });
 
     return successResponse(updated);
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -180,7 +150,8 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
 // ═══════════════════════════════════════════════════════════════
 
 export const DELETE = withErrorHandler(async (request: NextRequest) => {
-  const { session } = await getAuthFromBearerOrSession(request);
+  return await withAuth(request, async (req, _user, session) => {
+    requireAdmin(session);
 
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
@@ -193,9 +164,9 @@ export const DELETE = withErrorHandler(async (request: NextRequest) => {
     if (existing.config_driven) {
       throw new ApiError("Config-driven models cannot be deleted", 403);
     }
-    await requireResourcePermission(session, { type: "llm_model", id, action: "delete" });
 
     await collection.deleteOne({ _id: id });
 
     return successResponse({ deleted: true });
+  });
 });

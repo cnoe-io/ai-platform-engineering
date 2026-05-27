@@ -3,7 +3,7 @@
 
 import os
 from enum import Enum
-from typing import Optional, List
+from typing import Optional, List, Union
 from pydantic import BaseModel, Field
 
 
@@ -34,9 +34,9 @@ class AgentConfig(BaseModel):
     @classmethod
     def from_env(cls) -> 'AgentConfig':
         """Create configuration from environment variables."""
-        # assisted-by Codex Codex-sonnet-4-6
-        model_provider = os.getenv("LLM_PROVIDER")
-        model_name = os.getenv("AZURE_OPENAI_DEPLOYMENT")
+        # Use LLM_PROVIDER to match other agents in workspace
+        model_provider = os.getenv("LLM_PROVIDER") or os.getenv("STRANDS_MODEL_PROVIDER")
+        model_name = os.getenv("AZURE_OPENAI_DEPLOYMENT") or os.getenv("STRANDS_MODEL_NAME")
         
         return cls(
             agent_name=os.getenv("AWS_AGENT_NAME", "aws-eks"),
@@ -46,7 +46,25 @@ class AgentConfig(BaseModel):
             aws_profile=os.getenv("AWS_PROFILE"),
             log_level=os.getenv("LOG_LEVEL", "INFO")
         )
-
+    
+    def get_model_config(self) -> Union[str, object, None]:
+        """Get model configuration for Strands Agent creation."""
+        
+        if self.model_provider == "azure-openai":
+            # For Azure OpenAI, let Strands use environment variables
+            # We've set OPENAI_API_KEY and OPENAI_API_BASE which should work
+            return None
+        elif self.model_provider == "bedrock":
+            # Return a bedrock model identifier
+            model_name = self.model_name or "anthropic.claude-3-5-sonnet-20241022-v2:0"
+            return f"bedrock:{model_name}"
+        elif self.model_provider == "openai":
+            # Return an openai model identifier
+            model_name = self.model_name or "gpt-4o"
+            return f"openai:{model_name}"
+        else:
+            # Default/fallback - let Strands decide based on environment
+            return None
     enable_write_operations: bool = Field(default=True, description="Enable write operations")
     enable_sensitive_data_access: bool = Field(default=True, description="Enable sensitive data access")
 

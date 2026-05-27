@@ -7,6 +7,7 @@ import {
   Wrench,
   AlertTriangle,
   XCircle,
+  Bot,
   CheckCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -31,9 +32,8 @@ import type {
 } from "@/types/dynamic-agent-timeline";
 import { extractToolThought, groupConsecutiveTools } from "@/types/dynamic-agent-timeline";
 import { FileTree } from "@/components/dynamic-agents/FileTree";
-import { isFileToolName, isTodoToolName, isWorkflowToolName } from "@/lib/streaming/types";
-import { AgentAvatar } from "@/components/dynamic-agents/AgentAvatar";
-import { WorkflowRunCard } from "./WorkflowRunCard";
+import { isFileToolName, isTodoToolName } from "@/components/dynamic-agents/sse-types";
+import { getGradientStyle, getAccentColor } from "@/lib/gradient-themes";
 
 // ═══════════════════════════════════════════════════════════════
 // Helper: Detect file-related tools in segments
@@ -77,54 +77,6 @@ function hasTodoToolsInSegments(segments: TimelineSegment[]): boolean {
     }
   }
   return false;
-}
-
-/**
- * Extract workflow run IDs from tool segments that called workflow tools.
- * Looks at tool result (for start_workflow_run → {run_id}) and args (for get_workflow_run_status → {run_id}).
- */
-function extractWorkflowRunIds(segments: TimelineSegment[]): { runId: string; workflowConfigId?: string }[] {
-  const seen = new Set<string>();
-  const runs: { runId: string; workflowConfigId?: string }[] = [];
-
-  function extract(tools: ToolInfo[]) {
-    for (const tool of tools) {
-      if (!isWorkflowToolName(tool.name)) continue;
-      let runId: string | undefined;
-      let configId: string | undefined;
-
-      // Try to get run_id from result (start_workflow_run returns it)
-      if (tool.result) {
-        try {
-          const parsed = JSON.parse(tool.result);
-          if (parsed.run_id) runId = parsed.run_id;
-          if (parsed.workflow_config_id) configId = parsed.workflow_config_id;
-        } catch { /* not JSON */ }
-      }
-      // Also check args (get_workflow_run_status passes run_id as arg)
-      if (!runId && tool.args) {
-        if (typeof tool.args.run_id === "string") runId = tool.args.run_id;
-        if (typeof tool.args.workflow_config_id === "string") configId = tool.args.workflow_config_id;
-      }
-
-      if (runId && !seen.has(runId)) {
-        seen.add(runId);
-        runs.push({ runId, workflowConfigId: configId });
-      }
-    }
-  }
-
-  for (const segment of segments) {
-    if (segment.type === "tool") extract([segment.data]);
-    if (segment.type === "tool-group") extract(segment.tools);
-    if (segment.type === "subagent") {
-      const nested = extractWorkflowRunIds(segment.segments);
-      for (const r of nested) {
-        if (!seen.has(r.runId)) { seen.add(r.runId); runs.push(r); }
-      }
-    }
-  }
-  return runs;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -253,8 +205,6 @@ export function AgentTimeline({
   // Determine if tasks/files sections will actually be shown
   const showTasksSection = tasks.length > 0 && hasTodoToolsInSegments(segments) && (isStreaming || tasks.some(t => t.status !== "completed"));
   const showFilesSection = files.length > 0 && hasFileToolsInSegments(segments);
-  const workflowRuns = extractWorkflowRunIds(segments);
-  const showWorkflowSection = workflowRuns.length > 0;
 
   // Check if we have meaningful timeline segments (tools, subagents, content, warnings, errors)
   // "done" and "status" segments don't count - they're just markers
@@ -272,7 +222,7 @@ export function AgentTimeline({
   const showFinalAnswerOutside = !isStreaming && finalAnswer;
 
   // If there's nothing to show at all, render nothing
-  const hasAnythingToShow = hasMeaningfulSegments || showStreamingContent || showFinalAnswerInTimeline || showFinalAnswerOutside || showTasksSection || showFilesSection || showWorkflowSection;
+  const hasAnythingToShow = hasMeaningfulSegments || showStreamingContent || showFinalAnswerInTimeline || showFinalAnswerOutside || showTasksSection || showFilesSection;
 
   // If streaming but nothing to show yet, show thinking indicator
   if (isStreaming && !hasAnythingToShow) {
@@ -375,11 +325,6 @@ export function AgentTimeline({
             isDeleting={isDeletingFile}
             deletingPath={deletingFilePath}
           />
-        )}
-
-        {/* Workflow runs section */}
-        {showWorkflowSection && (
-          <WorkflowRunCard runs={workflowRuns} />
         )}
 
         {/* Final answer - only shown after streaming completes */}
@@ -887,14 +832,21 @@ function SubagentSegmentView({
   // Look up subagent info for gradient
   const getSubagentInfo = useContext(SubagentLookupContext);
   const subagentLookup = getSubagentInfo?.(info.name);
+  const gradientStyle = subagentLookup?.gradientTheme 
+    ? getGradientStyle(subagentLookup.gradientTheme, subagentLookup.customThemeConfig) 
+    : null;
+
   // Custom icon with gradient avatar
   const subagentIcon = (
-    <AgentAvatar
-      agent={subagentLookup ? { gradient_theme: subagentLookup.gradientTheme, custom_theme_config: subagentLookup.customThemeConfig } : undefined}
-      rounded="rounded-full"
-      size="w-5 h-5"
-      iconSize="h-3 w-3"
-    />
+    <div 
+      className={cn(
+        "w-5 h-5 rounded-full flex items-center justify-center shrink-0",
+        !gradientStyle && "bg-sky-500/20"
+      )}
+      style={gradientStyle || undefined}
+    >
+      <Bot className="h-3 w-3" style={{ color: getAccentColor(subagentLookup?.gradientTheme, subagentLookup?.customThemeConfig) || "white" }} />
+    </div>
   );
   
   // Build a description string for collapsed mode

@@ -22,16 +22,13 @@
  *       https://opencode.ai/docs/skills/ (only name/description/license/compatibility/metadata recognized)
  *   - Which `launchGuide` text is shown after install.
  *
- * Most agents read the shared agentskills.io location. Claude Code's
- * `/skills` discovery currently reads only `.claude/skills`, so Claude
- * installs write a native Claude copy plus the shared copy:
+ * Every install writes to TWO universal locations per scope so a single
+ * install satisfies every supported agent simultaneously:
  *
- *   Claude user scope    → `~/.claude/skills/<name>/SKILL.md`
- *                         + `~/.agents/skills/<name>/SKILL.md`
- *   Claude project scope → `./.claude/skills/<name>/SKILL.md`
- *                         + `./.agents/skills/<name>/SKILL.md`
- *   Other agents         → `~/.agents/skills/<name>/SKILL.md`
- *                         or `./.agents/skills/<name>/SKILL.md`
+ *   user scope    → `~/.claude/skills/<name>/SKILL.md`
+ *                   `~/.agents/skills/<name>/SKILL.md`
+ *   project scope → `.claude/skills/<name>/SKILL.md`
+ *                   `.agents/skills/<name>/SKILL.md`
  *
  * Adding a new agent = one entry in AGENTS.
  *
@@ -52,45 +49,25 @@
  */
 export type AgentScope = "user" | "project";
 
-// assisted-by Codex Codex-sonnet-4-6
-export const DEFAULT_LIVE_SKILLS_COMMAND = "caipe-skills";
-export const DEFAULT_UPDATE_SKILLS_COMMAND = "update-caipe-skills";
-
-export function deriveUpdateCommandName(commandName: string): string {
-  if (commandName.startsWith("update-")) return commandName;
-  const updateCommandName = `update-${commandName}`;
-  return updateCommandName.length <= 64
-    ? updateCommandName
-    : DEFAULT_UPDATE_SKILLS_COMMAND;
-}
-
 /**
- * Shared install paths. `{name}` is replaced with the slash command name. Tilde paths
+ * Universal install paths — every agent gets the same two paths per
+ * scope. `{name}` is replaced with the slash command name. Tilde paths
  * (`~/...`) are expanded at install time by the shell or the generated
  * install.sh. Project paths intentionally use a leading `./` so they're
  * unambiguous in shell snippets.
  *
- * The `~/.agents/skills/` tree is the vendor-neutral discovery path, but
- * Claude Code's native `/skills` command looks in `.claude/skills`.
- *
- * assisted-by Codex Codex-sonnet-4-6
+ * The `~/.agents/skills/` mirror is the vendor-neutral discovery path
+ * read by Codex CLI, Gemini CLI, and opencode (and harmlessly ignored
+ * by agents that don't look there).
  */
 const UNIVERSAL_USER_PATHS: readonly string[] = [
+  "~/.claude/skills/{name}/SKILL.md",
   "~/.agents/skills/{name}/SKILL.md",
 ];
 
 const UNIVERSAL_PROJECT_PATHS: readonly string[] = [
-  "./.agents/skills/{name}/SKILL.md",
-];
-
-const CLAUDE_USER_PATHS: readonly string[] = [
-  "~/.claude/skills/{name}/SKILL.md",
-  ...UNIVERSAL_USER_PATHS,
-];
-
-const CLAUDE_PROJECT_PATHS: readonly string[] = [
   "./.claude/skills/{name}/SKILL.md",
-  ...UNIVERSAL_PROJECT_PATHS,
+  "./.agents/skills/{name}/SKILL.md",
 ];
 
 export interface AgentSpec {
@@ -100,7 +77,8 @@ export interface AgentSpec {
   label: string;
   /**
    * Install paths per scope. Each scope maps to an array of universal
-   * paths. Every entry MUST end in
+   * paths (typically two — the agent-specific tree + the vendor-neutral
+   * `~/.agents/skills/` mirror). Every entry MUST end in
    * `/{name}/SKILL.md` so callers can derive the parent skill directory
    * by stripping the trailing two segments.
    */
@@ -115,13 +93,13 @@ export interface AgentSpec {
    * verbatim, so the token surfaces as plain instructional text the
    * model interprets. We standardize on `$ARGUMENTS` (Claude's
    * canonical token) across every agent to keep the rendered file
-   * byte-identical in the shared skills tree.
+   * byte-identical and discoverable on either tree.
    */
   argRef: "$ARGUMENTS";
   /**
    * Short, copy-pasteable launch + invocation guidance shown in the UI
    * after the install step. Markdown allowed. Use `{name}` for the
-   * browse command name and `{updateName}` for its paired refresh command.
+   * slash command name.
    */
   launchGuide: string;
   /** Optional homepage / docs link. */
@@ -133,14 +111,17 @@ export const AGENTS: Record<string, AgentSpec> = {
     id: "claude",
     label: "Claude Code",
     installPaths: {
-      user: CLAUDE_USER_PATHS,
-      project: CLAUDE_PROJECT_PATHS,
+      user: UNIVERSAL_USER_PATHS,
+      project: UNIVERSAL_PROJECT_PATHS,
     },
     argRef: "$ARGUMENTS",
     docsUrl: "https://docs.claude.com/en/docs/claude-code/skills",
-    // assisted-by Codex Codex-sonnet-4-6
     launchGuide: [
-      "Need Claude Code? See the [Claude Code quickstart](https://code.claude.com/docs/en/quickstart).",
+      "**Install Claude Code**:",
+      "```bash",
+      "npm install -g @anthropic-ai/claude-code",
+      "# or: brew install --cask claude-code",
+      "```",
       "",
       "**Launch from your repo root**:",
       "```bash",
@@ -148,13 +129,12 @@ export const AGENTS: Record<string, AgentSpec> = {
       "```",
       "",
       "**Use the skill**:",
-      "- `/{name}`: browse the catalog",
-      "- `/{name} kubernetes`: search",
-      "- `/{name} run create-ci-pipeline`: fetch and execute inline",
-      "- `/{updateName}`: install or refresh on-disk skill copies",
-      "- `/create-ci-pipeline`: run the locally installed skill directly",
+      "- `/{name}` &mdash; browse the catalog",
+      "- `/{name} kubernetes` &mdash; search",
+      "- `/{name} run create-ci-pipeline` &mdash; fetch & execute inline",
+      "- `/{name} install create-ci-pipeline` &mdash; save locally",
       "",
-      "Skills are installed under Claude's native `~/.claude/skills/` (user-global) or `./.claude/skills/` (per-repo) tree, with an additional shared copy under `.agents/skills`. The installer also registers a Claude SessionStart hook so Claude can see the live catalog.",
+      "Claude Code auto-discovers skills in `~/.claude/skills/` (user-global) and `./.claude/skills/` (per-repo).",
     ].join("\n"),
   },
 
@@ -168,16 +148,16 @@ export const AGENTS: Record<string, AgentSpec> = {
     argRef: "$ARGUMENTS",
     docsUrl: "https://cursor.com/docs/skills",
     launchGuide: [
-      "Need Cursor? See [Cursor get started](https://cursor.com/get-started).",
+      "**Install Cursor**: download from [cursor.com](https://cursor.com).",
       "",
       "**Open the repo in Cursor**, then open the chat (`Cmd/Ctrl + L`).",
       "",
       "**Use the skill** in the chat:",
-      "- `/{name}`: browse the catalog",
-      "- `/{name} pipeline`: search",
-      "- `/{name} run <skill>`: fetch and execute inline",
+      "- `/{name}` &mdash; browse the catalog",
+      "- `/{name} pipeline` &mdash; search",
+      "- `/{name} run <skill>` &mdash; fetch & execute inline",
       "",
-      "Skills are installed under `~/.agents/skills/` (user-global) or `./.agents/skills/` (per-repo). Reload the window if a new skill does not appear in the picker.",
+      "Cursor reads skills from `~/.claude/skills/` (user-global) and `./.claude/skills/` (per-repo) for cross-agent compatibility. Reload the window if a new skill does not appear in the picker.",
     ].join("\n"),
   },
 
@@ -206,7 +186,7 @@ export const AGENTS: Record<string, AgentSpec> = {
       "```",
       "",
       "**Use the skill** (e.g. `{name}`):",
-      "- Just describe what you want; Codex auto-loads matching skills",
+      "- Just describe what you want &mdash; Codex auto-loads matching skills",
       "  from the catalog when the model decides they're relevant.",
       "- Or invoke explicitly: `Use the {name} skill to <task>`",
       "",
@@ -238,8 +218,8 @@ export const AGENTS: Record<string, AgentSpec> = {
       "```",
       "",
       "**List & use the skill** (e.g. `{name}`):",
-      "- `/skills list`: show every skill Gemini has discovered",
-      "- Then describe what you want; Gemini picks the right skill",
+      "- `/skills list` &mdash; show every skill Gemini has discovered",
+      "- Then describe what you want &mdash; Gemini picks the right skill",
       "  automatically based on its description (e.g. `Use the {name} skill to <task>`).",
       "",
       "Skills live in `~/.agents/skills/` (user-global) or `./.agents/skills/` (per-repo). Gemini reloads skills on each invocation.",
@@ -268,10 +248,10 @@ export const AGENTS: Record<string, AgentSpec> = {
       "```",
       "",
       "**Use the skill**:",
-      "- `/{name}`: browse the catalog",
-      "- `/{name} run <skill>`: fetch and execute inline",
+      "- `/{name}` &mdash; browse the catalog",
+      "- `/{name} run <skill>` &mdash; fetch & execute inline",
       "",
-      "opencode auto-discovers skills from `~/.agents/skills/` (user-global) and `./.agents/skills/` (per-repo).",
+      "opencode auto-discovers skills from `~/.claude/skills/` (user-global) and `./.claude/skills/` (per-repo) for cross-agent compatibility.",
     ].join("\n"),
   },
 };
@@ -338,20 +318,13 @@ export function parseFrontmatter(template: string): ParsedTemplate {
   };
 }
 
-/** Substitute the canonical template placeholders. */
+/** Substitute the four canonical placeholders. */
 export function substitutePlaceholders(
   body: string,
-  vars: {
-    commandName: string;
-    updateCommandName: string;
-    description: string;
-    baseUrl: string;
-    argRef: string;
-  },
+  vars: { commandName: string; description: string; baseUrl: string; argRef: string },
 ): string {
   return body
     .replace(/\{\{COMMAND_NAME\}\}/g, vars.commandName)
-    .replace(/\{\{UPDATE_COMMAND_NAME\}\}/g, vars.updateCommandName)
     .replace(/\{\{DESCRIPTION\}\}/g, vars.description)
     .replace(/\{\{BASE_URL\}\}/g, vars.baseUrl)
     .replace(/\{\{ARG_REF\}\}/g, vars.argRef);
@@ -392,7 +365,7 @@ export interface RenderResult {
   scope: AgentScope | null;
   /** True if the requested scope was unsupported. (Always false in the new layout.) */
   scope_fallback: boolean;
-  /** Launch & invocation guidance, with `{name}` and `{updateName}` substituted. */
+  /** Launch & invocation guidance, with `{name}` substituted. */
   launch_guide: string;
   /** Optional docs link for the agent. */
   docs_url?: string;
@@ -445,7 +418,6 @@ export function renderForAgent(agent: AgentSpec, inputs: RenderInputs): RenderRe
 
   const body = substitutePlaceholders(parsed.body, {
     commandName: inputs.commandName,
-    updateCommandName: deriveUpdateCommandName(inputs.commandName),
     description,
     baseUrl: inputs.baseUrl,
     argRef: agent.argRef,
@@ -500,9 +472,7 @@ export function renderForAgent(agent: AgentSpec, inputs: RenderInputs): RenderRe
     scopes_available: scopesAvail,
     scope: resolvedScope,
     scope_fallback: scopeFallback,
-    launch_guide: agent.launchGuide
-      .replace(/\{name\}/g, inputs.commandName)
-      .replace(/\{updateName\}/g, deriveUpdateCommandName(inputs.commandName)),
+    launch_guide: agent.launchGuide.replace(/\{name\}/g, inputs.commandName),
     docs_url: agent.docsUrl,
     label: agent.label,
   };

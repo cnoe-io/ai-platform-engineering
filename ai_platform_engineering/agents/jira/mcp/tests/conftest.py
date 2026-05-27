@@ -1,8 +1,5 @@
 """Shared pytest fixtures for Jira MCP tests."""
 
-import sys
-import types
-
 import pytest
 
 
@@ -20,14 +17,6 @@ def setup_test_environment(monkeypatch):
     monkeypatch.setenv("MCP_JIRA_SPRINTS_DELETE_PROTECTION", "false")
     monkeypatch.setenv("MCP_JIRA_BOARDS_DELETE_PROTECTION", "false")
     monkeypatch.setenv("ATLASSIAN_API_URL", "https://test.atlassian.net")
-    monkeypatch.setitem(
-        sys.modules,
-        "keyring",
-        types.SimpleNamespace(
-            get_password=lambda *args, **kwargs: None,
-            set_password=lambda *args, **kwargs: None,
-        ),
-    )
 
     # Reload the config module to pick up the new env vars
     import importlib

@@ -84,7 +84,7 @@ Use the Webex API to list your spaces:
 
 ```bash
 curl -X GET https://webexapis.com/v1/rooms \
-  -H "Authorization: Bearer ${WEBEX_ACCESS_TOKEN}"
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN"
 ```
 
 - Copy the `id` field from each space you want to ingest

@@ -3,10 +3,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCollection, isMongoDBConfigured } from '@/lib/mongodb';
 import {
-  getAuthFromBearerOrSession,
+  withAuth,
   withErrorHandler,
   successResponse,
-  requireRbacPermission,
+  requireAdmin,
   ApiError,
 } from '@/lib/api-middleware';
 
@@ -32,8 +32,8 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     );
   }
 
-  const { user, session } = await getAuthFromBearerOrSession(request);
-  await requireRbacPermission(session, 'admin_ui', 'admin');
+  return withAuth(request, async (req, user, session) => {
+    requireAdmin(session);
 
     const body: MigrateRequest = await request.json();
 
@@ -119,4 +119,5 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       skipped,
       errors: errors.length > 0 ? errors : undefined,
     });
+  });
 });

@@ -3,11 +3,12 @@ import { readFileSync } from "fs";
 import { resolve } from "path";
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import {
+  withAuth,
   withErrorHandler,
   successResponse,
   ApiError,
-  getAuthFromBearerOrSession,
-  requireRbacPermission,
+  requireAdmin,
+  requireAdminView,
 } from "@/lib/api-middleware";
 
 interface PolicyDocument {
@@ -23,8 +24,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     throw new ApiError("Policy storage requires MongoDB to be configured", 503);
   }
 
-  const { session } = await getAuthFromBearerOrSession(request);
-  await requireRbacPermission(session, "admin_ui", "view");
+  return await withAuth(request, async (_req, _user, session) => {
+    requireAdminView(session);
 
     const collection = await getCollection<PolicyDocument>("policies");
     const policy = await collection.findOne({ name: "default" });
@@ -46,6 +47,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       updated_by: policy.updated_by,
       exists: true,
     });
+  });
 });
 
 export const PUT = withErrorHandler(async (request: NextRequest) => {
@@ -53,8 +55,8 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     throw new ApiError("Policy storage requires MongoDB to be configured", 503);
   }
 
-  const { user, session } = await getAuthFromBearerOrSession(request);
-  await requireRbacPermission(session, "admin_ui", "admin");
+  return await withAuth(request, async (_req, user, session) => {
+    requireAdmin(session);
 
     const body = await request.json();
 
@@ -81,6 +83,7 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     );
 
     return successResponse({ message: "Policy updated successfully" });
+  });
 });
 
 export const POST = withErrorHandler(async (request: NextRequest) => {
@@ -88,8 +91,8 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     throw new ApiError("Policy storage requires MongoDB to be configured", 503);
   }
 
-  const { session } = await getAuthFromBearerOrSession(request);
-  await requireRbacPermission(session, "admin_ui", "admin");
+  return await withAuth(request, async (_req, _user, session) => {
+    requireAdmin(session);
 
     const { searchParams } = new URL(request.url);
     const action = searchParams.get("action");
@@ -141,4 +144,5 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     );
 
     return successResponse({ message: "Policy reset to default from file" });
+  });
 });

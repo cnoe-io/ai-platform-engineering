@@ -29,7 +29,7 @@ const CHANNELS = [
     title: 'Meeting Recordings',
     description: 'Catch up on past community meetings and demos.',
     cta: 'Watch recordings',
-    href: 'https://www.youtube.com/@cnoe-community',
+    href: 'https://github.com/cnoe-io/agentic-ai/wiki/Meeting-Recordings',
     note: null,
     noteHref: null,
   },

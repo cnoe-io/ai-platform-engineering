@@ -162,19 +162,9 @@ export async function POST(request: NextRequest) {
   const userMessage = task.buildUserMessage(context);
   const model = await resolveModel(body.model, task.defaultModel(process.env));
 
-  // Forward bearer + trace headers in addition to X-User-Context so the
-  // dynamic-agents `JwtAuthMiddleware` accepts the call. Without this the
-  // backend returns 401 ("Backend error: Unauthorized") even for signed-in
-  // admins whenever SSO is enabled.
   const headers: Record<string, string> = {};
   if (auth.userContextHeader) {
     headers["X-User-Context"] = auth.userContextHeader;
-  }
-  if (auth.bearerToken) {
-    headers["Authorization"] = `Bearer ${auth.bearerToken}`;
-  }
-  if (auth.traceparent) {
-    headers.traceparent = auth.traceparent;
   }
 
   const encoder = new TextEncoder();

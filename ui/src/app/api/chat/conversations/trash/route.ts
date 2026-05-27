@@ -9,7 +9,6 @@ import {
   paginatedResponse,
   getPaginationParams,
 } from '@/lib/api-middleware';
-import { filterConversationsByImplicitOrExplicitPermission } from '@/lib/rbac/conversation-implicit-authz';
 import type { Conversation } from '@/types/mongodb';
 
 const ARCHIVE_RETENTION_DAYS = 7;
@@ -27,7 +26,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     );
   }
 
-  return withAuth(request, async (req, user, session) => {
+  return withAuth(request, async (req, user) => {
     const { page, pageSize, skip } = getPaginationParams(request);
     const conversations = await getCollection<Conversation>('conversations');
 
@@ -69,8 +68,9 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       console.log(`[Trash] Auto-purged ${expired.length} conversations older than ${ARCHIVE_RETENTION_DAYS} days for ${user.email}`);
     }
 
-    // Query for soft-deleted conversation candidates, then filter by ReBAC.
+    // Query for soft-deleted conversations (have deleted_at set), exclude Slack
     const query = {
+      owner_id: user.email,
       source: { $ne: 'slack' } as any,
       deleted_at: { $exists: true, $ne: null },
     };
@@ -84,13 +84,6 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       .limit(pageSize)
       .toArray();
 
-    const visibleItems = await filterConversationsByImplicitOrExplicitPermission(session, user.email, items);
-
-    return paginatedResponse(
-      visibleItems,
-      visibleItems.length < items.length ? visibleItems.length : total,
-      page,
-      pageSize
-    );
+    return paginatedResponse(items, total, page, pageSize);
   });
 });

@@ -28,8 +28,6 @@ jest.mock('next-auth', () => ({
 
 jest.mock('@/lib/auth-config', () => ({
   authOptions: {},
-  isBootstrapAdmin: jest.fn().mockReturnValue(false),
-  REQUIRED_ADMIN_GROUP: '',
 }));
 
 jest.mock('@/lib/config', () => ({
@@ -303,7 +301,7 @@ describe('requireConversationAccess — team-based access', () => {
 
     await expect(
       requireConversationAccess(conv._id, NON_MEMBER_EMAIL, mockGetCollection)
-    ).rejects.toThrow('You do not have access to this conversation.');
+    ).rejects.toThrow('Forbidden');
   });
 
   it('denies access when user belongs to a different team than shared', async () => {
@@ -332,7 +330,7 @@ describe('requireConversationAccess — team-based access', () => {
 
     await expect(
       requireConversationAccess(conv._id, NON_MEMBER_EMAIL, mockGetCollection)
-    ).rejects.toThrow('You do not have access to this conversation.');
+    ).rejects.toThrow('Forbidden');
   });
 
   it('grants access via sharing_access record when no team or direct share', async () => {
@@ -392,7 +390,7 @@ describe('requireConversationAccess — team-based access', () => {
 
     await expect(
       requireConversationAccess(conv._id, NON_MEMBER_EMAIL, mockGetCollection)
-    ).rejects.toThrow('You do not have access to this conversation.');
+    ).rejects.toThrow('Forbidden');
 
     // getUserTeamIds should NOT have been called — no teams collection access needed
     expect(mockGetCollection).not.toHaveBeenCalledWith('teams');
@@ -414,7 +412,7 @@ describe('requireConversationAccess — team-based access', () => {
 
     await expect(
       requireConversationAccess(conv._id, NON_MEMBER_EMAIL, mockGetCollection)
-    ).rejects.toThrow('You do not have access to this conversation.');
+    ).rejects.toThrow('Forbidden');
 
     expect(mockGetCollection).not.toHaveBeenCalledWith('teams');
   });

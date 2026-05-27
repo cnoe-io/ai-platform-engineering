@@ -19,7 +19,6 @@ jest.mock("next-auth", () => ({
 
 jest.mock("@/lib/auth-config", () => ({
   authOptions: {},
-  isBootstrapAdmin: jest.fn().mockReturnValue(false),
 }));
 
 jest.mock("@/lib/mongodb", () => ({

@@ -159,6 +159,7 @@ curl -sfS http://localhost:8000/.well-known/agent.json >/dev/null
 
 **Workflows**:
 - [`tests-quick-sanity-integration-on-latest-tag.yml`](https://github.com/cnoe-io/ai-platform-engineering/blob/main/.github/workflows/tests-quick-sanity-integration-on-latest-tag.yml) - Tests against `latest` tag
+- [`tests-quick-sanity-integration-on-stable-tag.yml`](https://github.com/cnoe-io/ai-platform-engineering/blob/main/.github/workflows/tests-quick-sanity-integration-on-stable-tag.yml) - Tests against `stable` tag
 
 **Purpose**: Validate that published container images work correctly
 
@@ -447,7 +448,7 @@ Workflows support agent-specific Dockerfiles:
 ```
 
 **Priority**:
-1. Agent-specific Dockerfile: `ai_platform_engineering/agents/{agent}/build/Dockerfile.{type}` (e.g., [`build/agents/Dockerfile.a2a`](https://github.com/cnoe-io/ai-platform-engineering/blob/main/build/agents/Dockerfile.a2a))
+1. Agent-specific Dockerfile: `ai_platform_engineering/agents/{agent}/build/Dockerfile.{type}` (e.g., [`ai_platform_engineering/agents/github/build/Dockerfile.a2a`](https://github.com/cnoe-io/ai-platform-engineering/blob/main/ai_platform_engineering/agents/github/build/Dockerfile.a2a))
 2. Shared Dockerfile: [`build/agents/Dockerfile.{type}`](https://github.com/cnoe-io/ai-platform-engineering/tree/main/build/agents) (e.g., [`build/agents/Dockerfile.a2a`](https://github.com/cnoe-io/ai-platform-engineering/blob/main/build/agents/Dockerfile.a2a))
 
 **9. Build Arguments**
@@ -470,10 +471,10 @@ build-args: |
 Separate workflows for PR preview builds:
 
 **Workflows**:
-- [`prebuild-supervisor-agent.yml`](https://github.com/cnoe-io/ai-platform-engineering/blob/main/.github/workflows/prebuild-supervisor-agent.yml)
-- [`prebuild-a2a-sub-agent.yml`](https://github.com/cnoe-io/ai-platform-engineering/blob/main/.github/workflows/prebuild-a2a-sub-agent.yml)
-- [`prebuild-mcp-agent.yml`](https://github.com/cnoe-io/ai-platform-engineering/blob/main/.github/workflows/prebuild-mcp-agent.yml)
-- [`prebuild-a2a-rag.yml`](https://github.com/cnoe-io/ai-platform-engineering/blob/main/.github/workflows/prebuild-a2a-rag.yml)
+- [`pre-release-supervisor-agent.yaml`](https://github.com/cnoe-io/ai-platform-engineering/blob/main/.github/workflows/pre-release-supervisor-agent.yaml)
+- [`pre-release-a2a-sub-agent.yaml`](https://github.com/cnoe-io/ai-platform-engineering/blob/main/.github/workflows/pre-release-a2a-sub-agent.yaml)
+- [`pre-release-mcp-agent.yaml`](https://github.com/cnoe-io/ai-platform-engineering/blob/main/.github/workflows/pre-release-mcp-agent.yaml)
+- [`pre-release-a2a-rag.yml`](https://github.com/cnoe-io/ai-platform-engineering/blob/main/.github/workflows/pre-release-a2a-rag.yml)
 
 **Trigger**: Pull requests with branch prefix `prebuild/`
 
@@ -646,7 +647,7 @@ prompts:
 
 **Method 2: Python Test Function**
 
-Add to [`integration/test_platform_engineer_executor.py`](https://github.com/cnoe-io/ai-platform-engineering/blob/main/integration/test_platform_engineer_executor.py):
+Add to [`integration/integration_ai_platform_engineering.py`](https://github.com/cnoe-io/ai-platform-engineering/blob/main/integration/integration_ai_platform_engineering.py):
 ```python
 async def test_my_new_functionality(self):
     """Test my new functionality"""

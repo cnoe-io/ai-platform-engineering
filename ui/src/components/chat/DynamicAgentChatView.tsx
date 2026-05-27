@@ -1,11 +1,9 @@
 "use client";
 
-import React, { useState, useCallback } from "react";
+import React, { useState } from "react";
 import { ChatPanel } from "@/components/chat/DynamicAgentChatPanel";
 import { DynamicAgentContext } from "@/components/dynamic-agents/DynamicAgentContext";
-import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
-import type { DynamicAgentConfig } from "@/types/dynamic-agent";
-import { usePanelRef } from "react-resizable-panels";
+import type { SubAgentRef, CustomThemeConfig } from "@/types/dynamic-agent";
 
 interface ChatViewProps {
   /** The dynamic agent backend endpoint */
@@ -16,10 +14,28 @@ interface ChatViewProps {
   conversationTitle?: string;
   /** The selected dynamic agent ID */
   selectedAgentId: string;
-  /** Full agent config (null while loading) */
-  agent?: DynamicAgentConfig | null;
+  /** Agent name for display in context panel */
+  agentName?: string;
+  /** Agent description for display in context panel */
+  agentDescription?: string;
+  /** Agent model ID */
+  agentModel?: string;
+  /** Agent visibility (private, team, global) */
+  agentVisibility?: string;
+  /** Agent gradient theme (e.g., "ocean", "sunset") */
+  agentGradient?: string | null;
+  /** Custom theme config (when agentGradient === "custom") */
+  agentCustomTheme?: CustomThemeConfig | null;
+  /** Map of server_id -> tool names */
+  allowedTools?: Record<string, string[]>;
+  /** Configured subagents */
+  subagents?: SubAgentRef[];
+  /** Configured skill IDs */
+  agentSkills?: string[];
   /** Whether the agent has been deleted */
   agentNotFound?: boolean;
+  /** Whether the agent is disabled */
+  agentDisabled?: boolean;
   /** Whether the chat is read-only */
   readOnly?: boolean;
   /** Reason for read-only mode */
@@ -32,83 +48,68 @@ interface ChatViewProps {
 
 /**
  * Chat view for Dynamic Agents.
- * Combines ChatPanel with a resizable DynamicAgentContext panel.
+ * Combines ChatPanel with DynamicAgentContext (simplified tools/info panel).
  */
 export function ChatView({
   endpoint,
   conversationId,
   conversationTitle,
   selectedAgentId,
-  agent,
+  agentName,
+  agentDescription,
+  agentModel,
+  agentVisibility,
+  agentGradient,
+  agentCustomTheme,
+  allowedTools,
+  subagents,
+  agentSkills,
   agentNotFound,
+  agentDisabled,
   readOnly,
   readOnlyReason,
   adminOrigin,
   isLoadingMessages,
 }: ChatViewProps) {
   const [contextPanelCollapsed, setContextPanelCollapsed] = useState(true);
-  const [isAnimating, setIsAnimating] = useState(false);
-  const contextPanelRef = usePanelRef();
-
-  const handleCollapse = useCallback((collapsed: boolean) => {
-    // Enable transition for programmatic expand/collapse, disable after animation
-    setIsAnimating(true);
-    if (collapsed) {
-      contextPanelRef.current?.collapse();
-    } else {
-      contextPanelRef.current?.expand();
-    }
-    // Remove transition after animation completes so dragging isn't laggy
-    setTimeout(() => setIsAnimating(false), 300);
-  }, [contextPanelRef]);
-
-  const isDisabled = agentNotFound || agent?.enabled === false;
 
   return (
-    <ResizablePanelGroup
-      direction="horizontal"
-      className="flex-1 min-w-0 h-full"
-      data-animating={isAnimating || undefined}
-    >
-      {/* Chat Panel */}
-      <ResizablePanel minSize={40}>
-        <div className="flex-1 min-w-0 flex flex-col overflow-hidden h-full">
-          <ChatPanel
-            endpoint={endpoint}
-            conversationId={conversationId}
-            conversationTitle={conversationTitle}
-            readOnly={readOnly || isDisabled}
-            readOnlyReason={agentNotFound ? 'agent_deleted' : agent?.enabled === false ? 'agent_disabled' : readOnlyReason}
-            agentId={selectedAgentId}
-            agent={agent}
-            isLoadingMessages={isLoadingMessages}
-          />
-        </div>
-      </ResizablePanel>
-
-      <ResizableHandle />
+    <div className="flex-1 min-w-0 flex h-full">
+      {/* Chat Panel - no fade animation to avoid flash on conversation switch */}
+      <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
+        <ChatPanel
+          endpoint={endpoint}
+          conversationId={conversationId}
+          conversationTitle={conversationTitle}
+          readOnly={readOnly || agentNotFound || agentDisabled}
+          readOnlyReason={agentNotFound ? 'agent_deleted' : agentDisabled ? 'agent_disabled' : readOnlyReason}
+          agentId={selectedAgentId}
+          agentGradient={agentGradient}
+          agentCustomTheme={agentCustomTheme}
+          agentName={agentName}
+          agentSkills={agentSkills}
+          isLoadingMessages={isLoadingMessages}
+        />
+      </div>
 
       {/* Context Panel - Dynamic Agent variant */}
-      <ResizablePanel
-        panelRef={contextPanelRef}
-        defaultSize="64px"
-        minSize="340px"
-        maxSize="70%"
-        collapsible
-        collapsedSize="64px"
-        onResize={(size) => {
-          setContextPanelCollapsed(size.inPixels <= 80);
-        }}
-      >
-        <DynamicAgentContext
-          conversationId={conversationId}
-          agentId={selectedAgentId}
-          agent={agent}
-          agentNotFound={agentNotFound}
-          collapsed={contextPanelCollapsed}
-          onCollapse={handleCollapse}
-        />
-      </ResizablePanel>
-    </ResizablePanelGroup>
+      <DynamicAgentContext
+        conversationId={conversationId}
+        agentId={selectedAgentId}
+        agentName={agentName}
+        agentDescription={agentDescription}
+        agentModel={agentModel}
+        agentVisibility={agentVisibility}
+        agentGradient={agentGradient}
+        agentCustomTheme={agentCustomTheme}
+        allowedTools={allowedTools}
+        subagents={subagents}
+        agentSkills={agentSkills}
+        agentNotFound={agentNotFound}
+        agentDisabled={agentDisabled}
+        collapsed={contextPanelCollapsed}
+        onCollapse={setContextPanelCollapsed}
+      />
+    </div>
   );
 }

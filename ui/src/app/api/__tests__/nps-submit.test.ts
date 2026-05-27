@@ -9,11 +9,7 @@ const mockGetServerSession = jest.fn();
 jest.mock('next-auth', () => ({
   getServerSession: (...args: any[]) => mockGetServerSession(...args),
 }));
-jest.mock('@/lib/auth-config', () => ({
-  authOptions: {},
-  isBootstrapAdmin: jest.fn().mockReturnValue(false),
-  REQUIRED_ADMIN_GROUP: '',
-}));
+jest.mock('@/lib/auth-config', () => ({ authOptions: {} }));
 
 let mockNpsEnabled = true;
 jest.mock('@/lib/config', () => ({
@@ -71,6 +67,7 @@ function userSession() {
   return {
     user: { email: 'user@example.com', name: 'User' },
     role: 'user',
+    canViewAdmin: false,
   };
 }
 
@@ -78,6 +75,7 @@ function adminSession() {
   return {
     user: { email: 'admin@example.com', name: 'Admin' },
     role: 'admin',
+    canViewAdmin: true,
   };
 }
 

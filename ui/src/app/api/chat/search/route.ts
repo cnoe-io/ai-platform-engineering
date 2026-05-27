@@ -8,12 +8,11 @@ import {
   paginatedResponse,
   getPaginationParams,
 } from '@/lib/api-middleware';
-import { filterConversationsByImplicitOrExplicitPermission } from '@/lib/rbac/conversation-implicit-authz';
 import type { Conversation } from '@/types/mongodb';
 
 // GET /api/chat/search
 export const GET = withErrorHandler(async (request: NextRequest) => {
-  return withAuth(request, async (req, user, session) => {
+  return withAuth(request, async (req, user) => {
     const url = new URL(request.url);
     const query = url.searchParams.get('q') || '';
     const tagsParam = url.searchParams.get('tags');
@@ -23,8 +22,13 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
 
     const conversations = await getCollection<Conversation>('conversations');
 
-    // Build search query from content filters only; OpenFGA filters access below.
-    const searchQuery: any = {};
+    // Build search query
+    const searchQuery: any = {
+      $or: [
+        { owner_id: user.email },
+        { 'sharing.shared_with': user.email },
+      ],
+    };
 
     // Add text search if query provided
     if (query) {
@@ -54,13 +58,6 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       .limit(pageSize)
       .toArray();
 
-    const visibleItems = await filterConversationsByImplicitOrExplicitPermission(session, user.email, items);
-
-    return paginatedResponse(
-      visibleItems,
-      visibleItems.length < items.length ? visibleItems.length : total,
-      page,
-      pageSize
-    );
+    return paginatedResponse(items, total, page, pageSize);
   });
 });

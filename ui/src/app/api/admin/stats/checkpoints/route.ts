@@ -3,10 +3,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { connectToDatabase, isMongoDBConfigured } from '@/lib/mongodb';
 import {
+  withAuth,
   withErrorHandler,
   successResponse,
-  getAuthFromBearerOrSession,
-  requireRbacPermission,
+  requireAdminView,
 } from '@/lib/api-middleware';
 
 // Limits to prevent overloading MongoDB
@@ -72,8 +72,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     );
   }
 
-  const { session } = await getAuthFromBearerOrSession(request);
-  await requireRbacPermission(session, 'admin_ui', 'view');
+  return withAuth(request, async (req, user, session) => {
+    requireAdminView(session);
 
     const { searchParams } = new URL(request.url);
     const includePeek = searchParams.get('peek') !== 'false'; // default: include
@@ -233,4 +233,5 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       peek_data: peekData,
       range: searchParams.get('range') || `${days}d`,
     });
+  });
 });

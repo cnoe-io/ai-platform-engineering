@@ -1,10 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth-config";
 import { getInternalA2AUrl } from "@/lib/config";
-import {
-  getAuthFromBearerOrSession,
-  requireRbacPermission,
-  withErrorHandler,
-} from "@/lib/api-middleware";
 
 /**
  * GET /api/agents/tools
@@ -13,18 +10,21 @@ import {
  * discovered tool names grouped by subagent.  The supervisor builds this
  * mapping from the actual MCP tools loaded at startup.
  *
- * Requires mcp_server#read before forwarding the user's OAuth2 access token
- * so the supervisor request passes through downstream auth middleware.
+ * Forwards the user's OAuth2 access token so the request passes through
+ * the supervisor's auth middleware.
  */
-export const GET = withErrorHandler<unknown>(async (request: NextRequest) => {
-  const { session } = await getAuthFromBearerOrSession(request);
-  await requireRbacPermission(session, "mcp_server", "read");
-
+export async function GET() {
   const baseUrl = getInternalA2AUrl();
 
   const headers: Record<string, string> = { Accept: "application/json" };
-  if (session.accessToken) {
-    headers["Authorization"] = `Bearer ${session.accessToken}`;
+
+  try {
+    const session = await getServerSession(authOptions);
+    if (session?.accessToken) {
+      headers["Authorization"] = `Bearer ${session.accessToken}`;
+    }
+  } catch {
+    // Continue without auth — supervisor may allow unauthenticated access
   }
 
   try {
@@ -50,4 +50,4 @@ export const GET = withErrorHandler<unknown>(async (request: NextRequest) => {
       { status: 502 },
     );
   }
-});
+}

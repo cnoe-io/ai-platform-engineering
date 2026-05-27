@@ -52,8 +52,6 @@ interface SkillHub {
   enabled: boolean;
   credentials_ref: string | null;
   labels?: string[];
-  /** Team ids or slugs granted use access to every skill from this hub. */
-  shared_with_teams?: string[];
   /** Optional path-prefix allow-list for hub crawl (FR-020). */
   include_paths?: string[];
   /** GitLab-only per-hub override of the recursive-tree page cap. */
@@ -95,7 +93,6 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
   const [autoSwitchedTo, setAutoSwitchedTo] = useState<HubType | null>(null);
   const [formCredRef, setFormCredRef] = useState("");
   const [formLabels, setFormLabels] = useState("");
-  const [formTeamRefs, setFormTeamRefs] = useState("");
   // One prefix per line; empty lines are dropped before submit. FR-020.
   const [formIncludePaths, setFormIncludePaths] = useState("");
   // Per-hub override of the GitLab tree-listing page cap. Empty string
@@ -151,16 +148,6 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
       .map((line) => line.trim())
       .filter(Boolean);
 
-  const parseCommaList = (raw: string): string[] =>
-    Array.from(
-      new Set(
-        raw
-          .split(",")
-          .map((value) => value.trim())
-          .filter(Boolean),
-      ),
-    );
-
   /**
    * Parse the "Max tree pages (advanced)" input into a number for the
    * POST body, returning `undefined` when empty (so the server falls
@@ -183,7 +170,6 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
     try {
       const labels = formLabels.split(",").map((l) => l.trim().toLowerCase()).filter(Boolean);
       const includePaths = parseIncludePaths(formIncludePaths);
-      const teamRefs = parseCommaList(formTeamRefs);
       let maxTreePages: number | undefined;
       if (formType === "gitlab") {
         const parsed = parseMaxTreePages(formMaxTreePages);
@@ -202,7 +188,6 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
           location: formLocation.trim(),
           credentials_ref: formCredRef.trim() || null,
           labels: labels.length > 0 ? labels : undefined,
-          shared_with_teams: teamRefs.length > 0 ? teamRefs : undefined,
           include_paths: includePaths.length > 0 ? includePaths : undefined,
           max_tree_pages: maxTreePages,
           enabled: true,
@@ -216,7 +201,6 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
       setFormLocation("");
       setFormCredRef("");
       setFormLabels("");
-      setFormTeamRefs("");
       setFormIncludePaths("");
       setFormMaxTreePages("");
       setShowAdvanced(false);
@@ -338,31 +322,6 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
       await loadHubs();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to update hub");
-    }
-  };
-
-  const handleEditTeams = async (hub: SkillHub) => {
-    const current = (hub.shared_with_teams ?? []).join(", ");
-    const next = window.prompt(
-      `Team access for ${hub.location}\n\n` +
-        `Comma-separated team slugs or IDs. Leave empty to clear automatic grants.`,
-      current,
-    );
-    if (next === null) return;
-    const teamRefs = parseCommaList(next);
-    try {
-      const res = await fetch(`/api/skill-hubs/${hub.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ shared_with_teams: teamRefs }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || data.message || `Failed to update teams (${res.status})`);
-      }
-      await loadHubs();
-    } catch (err: any) {
-      setError(err.message || "Failed to update hub teams");
     }
   };
 
@@ -705,21 +664,6 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
               </p>
             </div>
             <div>
-              <label className="text-xs font-medium text-muted-foreground">
-                Team access (optional, comma-separated team slugs or IDs)
-              </label>
-              <input
-                type="text"
-                value={formTeamRefs}
-                onChange={(e) => setFormTeamRefs(e.target.value)}
-                placeholder="e.g. platform, sre"
-                className="mt-1 w-full px-3 py-2 text-sm bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/50"
-              />
-              <p className="text-xs text-muted-foreground mt-1">
-                Every skill crawled from this hub is granted to these teams on refresh and migration backfill.
-              </p>
-            </div>
-            <div>
               <label
                 htmlFor="hub-include-paths"
                 className="text-xs font-medium text-muted-foreground"
@@ -954,15 +898,6 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="h-7 text-xs"
-                      title="Edit automatic team grants for this hub"
-                      onClick={() => handleEditTeams(hub)}
-                    >
-                      Teams
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
                       className="h-7 w-7 p-0 text-red-400 hover:text-red-500"
                       onClick={() => handleDelete(hub.id)}
                       disabled={deletingId === hub.id}
@@ -986,20 +921,6 @@ export function SkillHubsSection({ isAdmin }: SkillHubsSectionProps) {
                       className="font-mono text-[10px] py-0 px-1.5"
                     >
                       {p}
-                    </Badge>
-                  ))}
-                </div>
-              ) : null}
-              {hub.shared_with_teams && hub.shared_with_teams.length > 0 ? (
-                <div className="px-2 pl-10 flex flex-wrap items-center gap-1 text-[11px] text-muted-foreground">
-                  <span className="opacity-70">Teams:</span>
-                  {hub.shared_with_teams.map((teamRef) => (
-                    <Badge
-                      key={teamRef}
-                      variant="outline"
-                      className="font-mono text-[10px] py-0 px-1.5"
-                    >
-                      {teamRef}
                     </Badge>
                   ))}
                 </div>

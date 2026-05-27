@@ -3,10 +3,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCollection, isMongoDBConfigured } from '@/lib/mongodb';
 import {
+  withAuth,
   withErrorHandler,
   successResponse,
-  getAuthFromBearerOrSession,
-  requireRbacPermission,
+  requireAdminView,
 } from '@/lib/api-middleware';
 import type { AgentSkill } from '@/types/agent-skill';
 import type { WorkflowRun } from '@/types/workflow-run';
@@ -23,8 +23,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     );
   }
 
-  const { session } = await getAuthFromBearerOrSession(request);
-  await requireRbacPermission(session, 'admin_ui', 'view');
+  return withAuth(request, async (_req, _user, session) => {
+    requireAdminView(session);
 
     const configs = await getCollection<AgentSkill>('agent_skills');
     const runs = await getCollection<WorkflowRun>('workflow_runs');
@@ -176,4 +176,5 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       top_skills_by_runs: topSkillsByRuns,
       overall_run_stats: overallRunStats,
     });
+  });
 });

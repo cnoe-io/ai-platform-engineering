@@ -16,7 +16,7 @@ interface AuthGuardProps {
  *
  * Protects routes when SSO is enabled.
  * If SSO is disabled, it renders children directly without authentication check.
- * Also checks for the deployment-configured group-based admission gate.
+ * Also checks for group-based authorization (backstage-access group).
  */
 export function AuthGuard({ children }: AuthGuardProps) {
   const { data: session, status } = useSession();

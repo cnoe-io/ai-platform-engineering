@@ -88,7 +88,7 @@ uvx --no-cache git+https://github.com/cnoe-io/agent-chat-cli.git a2a \
 ## Related
 
 - LangGraph Streaming: https://python.langchain.com/docs/langgraph/streaming
-- A2A Protocol: https://github.com/google/A2A
+- A2A Protocol: https://github.com/cnoe-io/a2a-spec
 - Deep Agent: https://docs.deepagent.ai/
 - Related Issue: https://github.com/langchain-ai/langgraph/issues/XXXX (streaming tools)
 

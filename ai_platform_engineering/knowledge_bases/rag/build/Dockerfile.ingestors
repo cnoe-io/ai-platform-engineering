@@ -1,6 +1,5 @@
 # First, build the application in the `/app` directory.
 # See `Dockerfile` for details.
-# assisted-by Codex Codex-sonnet-4-6
 FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim AS builder
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
 
@@ -57,7 +56,7 @@ ARG VARIANT=default
 
 # Install system dependencies:
 # - AWS CLI v2 for EKS authentication (k8s ingestor)
-# - Debian Chromium (default variant only, not slim) for Playwright full-browser launches
+# - Playwright/Chromium dependencies (default variant only, not slim)
 RUN apt-get update && \
     apt-get upgrade -y --no-install-recommends && \
     apt-get install -y --no-install-recommends \
@@ -66,7 +65,6 @@ RUN apt-get update && \
     # Conditionally install Playwright dependencies (default variant)
     if [ "$VARIANT" != "slim" ]; then \
         apt-get install -y --no-install-recommends \
-        chromium \
         libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 \
         libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 \
         libgbm1 libasound2 libpango-1.0-0 libcairo2 libatspi2.0-0; \
@@ -98,16 +96,47 @@ WORKDIR /app/ingestors
 # Place executables in the environment at the front of the path
 ENV PATH="/app/ingestors/.venv/bin:$PATH"
 
-# Use Debian Chromium instead of Playwright's bundled full Chromium, which can
-# lag security updates. PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH tells Playwright to
-# use the distro browser while retaining Playwright's headless shell.
+# Install Chrome for Testing (latest stable) — replaces playwright's bundled Chrome 145
+# which carries ~90 High/Critical CVEs. PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH tells
+# playwright to use this binary instead of its bundled one.
 # A fixed symlink /opt/chrome/chrome makes the ENV path arch-independent.
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright
 RUN if [ "$VARIANT" != "slim" ]; then \
-        mkdir -p /opt/chrome && \
-        ln -sf /usr/bin/chromium /opt/chrome/chrome && \
-        playwright install chromium && \
-        rm -rf /opt/playwright/chromium-[0-9]*; \
+        ARCH=$(uname -m) && \
+        if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then \
+            # Chrome for Testing has no linux-arm64 build; use playwright's bundled chromium
+            playwright install chromium && \
+            mkdir -p /opt/chrome && \
+            ln -sf "$(find /opt/playwright -name chrome -type f 2>/dev/null | head -1)" /opt/chrome/chrome; \
+        else \
+            # linux64 is the only Linux platform offered by Chrome for Testing
+            PLATFORM="linux64" && \
+            for i in 1 2 3 4 5; do \
+                CHROME_VERSION=$(curl -sfL --retry 3 --retry-delay 5 \
+                    "https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions.json" \
+                    | python3 -c "import sys,json; print(json.load(sys.stdin)['channels']['Stable']['version'])" 2>/dev/null) && \
+                [ -n "$CHROME_VERSION" ] && break; \
+                echo "Attempt $i: failed to fetch Chrome version, retrying in $((i*10))s..." && sleep $((i * 10)); \
+            done && \
+            [ -n "$CHROME_VERSION" ] || (echo "ERROR: Could not fetch Chrome version after 5 attempts" && exit 1) && \
+            echo "Chrome version: $CHROME_VERSION" && \
+            mkdir -p /opt/chrome && \
+            for i in 1 2 3; do \
+                curl -sfL --retry 3 --retry-delay 5 \
+                    "https://storage.googleapis.com/chrome-for-testing-public/${CHROME_VERSION}/${PLATFORM}/chrome-${PLATFORM}.zip" \
+                    -o /tmp/chrome.zip && break; \
+                [ $i -lt 3 ] && sleep $((i * 10)); \
+            done && \
+            unzip -q /tmp/chrome.zip -d /opt/chrome && \
+            rm /tmp/chrome.zip && \
+            ln -sf /opt/chrome/chrome-${PLATFORM}/chrome /opt/chrome/chrome && \
+            chmod -R 755 /opt/chrome && \
+            playwright install-deps chromium && \
+            # Also install Playwright's chromium_headless_shell (used by headless launches)
+            # PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH only overrides full-chromium; headless shell
+            # resolves via PLAYWRIGHT_BROWSERS_PATH and must be present there.
+            playwright install chromium; \
+        fi; \
     fi
 
 ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/opt/chrome/chrome

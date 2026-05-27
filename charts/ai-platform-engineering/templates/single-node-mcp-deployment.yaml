@@ -44,7 +44,7 @@ spec:
       automountServiceAccountToken: {{ $mcp.automountServiceAccountToken | default false }}
       containers:
         - name: mcp
-          image: "{{ include "ai-platform-engineering.imageRepository" (dict "root" $ "repository" $mcpImageRepo) }}:{{ $mcpImage.tag | default (include "ai-platform-engineering.appVersion" $) }}"
+          image: "{{ $mcpImageRepo }}:{{ $mcpImage.tag | default (include "ai-platform-engineering.appVersion" $) }}"
           imagePullPolicy: {{ $mcpImage.pullPolicy | default "Always" }}
           ports:
             - name: http

@@ -9,7 +9,6 @@ import logging
 from typing import Optional, Dict, Tuple, Any
 import httpx
 from dotenv import load_dotenv
-from mcp_agent_auth.token import get_request_token
 
 # Load environment variables
 load_dotenv()
@@ -53,7 +52,8 @@ async def make_api_request(
     logger.debug(f"Making {method} request to {path}")
 
     if not token:
-        token = get_request_token("PAGERDUTY_API_KEY")
+        logger.debug("No token provided, using default token")
+        token = DEFAULT_API_KEY
 
     if not token:
         logger.error("No token available - neither provided nor found in environment")

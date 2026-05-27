@@ -23,7 +23,6 @@ import path from "path";
 import {
   AGENTS,
   DEFAULT_AGENT_ID,
-  parseFrontmatter,
   renderForAgent,
   scopesAvailableFor,
   type AgentScope,
@@ -220,15 +219,10 @@ export function makeTemplateRouteHandler(
 
     const { template: canonicalTemplate, source } = resolveTemplate(cfg);
 
-    const parsedDescription = parseFrontmatter(canonicalTemplate).description.trim();
-    const description =
-      descriptionInput ||
-      (/\{\{\w+\}\}/.test(parsedDescription) ? cfg.defaultDescription : "");
-
     const rendered = renderForAgent(agent, {
       canonicalTemplate,
       commandName,
-      description,
+      description: descriptionInput,
       baseUrl,
       scope: requestedScope,
     });
@@ -276,7 +270,6 @@ export function makeTemplateRouteHandler(
         canonical_template: canonicalTemplate,
         placeholders: [
           "{{COMMAND_NAME}}",
-          "{{UPDATE_COMMAND_NAME}}",
           "{{DESCRIPTION}}",
           "{{BASE_URL}}",
           "{{ARG_REF}}",

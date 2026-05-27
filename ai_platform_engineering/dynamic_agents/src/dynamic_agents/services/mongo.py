@@ -21,17 +21,6 @@ from dynamic_agents.models import (
 logger = logging.getLogger(__name__)
 
 
-def _strip_nulls(doc: dict) -> dict:
-    """Strip None values from a MongoDB document before pydantic construction.
-
-    Pydantic only applies default_factory when a key is absent — an explicit
-    None passed as a kwarg bypasses the default. Stripping nulls here lets
-    fields like interrupt_on recover their default when stored as null in
-    older documents.
-    """
-    return {k: v for k, v in doc.items() if v is not None}
-
-
 class MongoDBService:
     """MongoDB service for reading dynamic agent and MCP server configs."""
 
@@ -106,10 +95,8 @@ class MongoDBService:
         """Get a dynamic agent config by ID."""
         doc = self._get_agents_collection().find_one({"_id": agent_id})
         if doc:
-            return DynamicAgentConfig(**_strip_nulls(doc))
+            return DynamicAgentConfig(**doc)
         return None
-
-
 
     # =========================================================================
     # Read-only MCP server access
@@ -119,13 +106,13 @@ class MongoDBService:
         """Get an MCP server config by ID."""
         doc = self._get_servers_collection().find_one({"_id": server_id})
         if doc:
-            return MCPServerConfig(**_strip_nulls(doc))
+            return MCPServerConfig(**doc)
         return None
 
     def get_servers_by_ids(self, server_ids: list[str]) -> list[MCPServerConfig]:
         """Get multiple MCP servers by their IDs."""
         docs = self._get_servers_collection().find({"_id": {"$in": server_ids}})
-        return [MCPServerConfig(**_strip_nulls(doc)) for doc in docs]
+        return [MCPServerConfig(**doc) for doc in docs]
 
     def get_agent_mcp_servers(self, agent: DynamicAgentConfig) -> list[MCPServerConfig]:
         """Get MCP servers for an agent AND all its subagents.

@@ -1,21 +1,13 @@
 "use client";
 
-// assisted-by Codex Codex-sonnet-4-6
-
 import { useSession, signOut } from "next-auth/react";
 import { useEffect, useState, useCallback, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { isTokenExpired, getTimeUntilExpiry, formatTimeUntilExpiry, getWarningTimestamp } from "@/lib/auth-utils";
 import { getConfig } from "@/lib/config";
 import { Button } from "@/components/ui/button";
-import { AlertCircle, LogOut } from "lucide-react";
+import { AlertCircle, ExternalLink, LogOut } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-
-const LOGIN_REDIRECT_COUNTDOWN_SECONDS = 5;
-const SESSION_CREDENTIAL_ERRORS = new Set([
-  "RefreshTokenExpired",
-  "RefreshTokenError",
-  "AccessTokenMissing",
-]);
 
 /**
  * TokenExpiryGuard Component
@@ -29,70 +21,53 @@ const SESSION_CREDENTIAL_ERRORS = new Set([
  */
 export function TokenExpiryGuard() {
   const { data: session, status, update: updateSession } = useSession();
+  const router = useRouter();
   const [showWarning, setShowWarning] = useState(false);
   const [showExpired, setShowExpired] = useState(false);
-  const [refreshFailed, setRefreshFailed] = useState(false);
   const [timeRemaining, setTimeRemaining] = useState<string>("");
-  const [redirectCountdown, setRedirectCountdown] = useState(LOGIN_REDIRECT_COUNTDOWN_SECONDS);
   const checkIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const redirectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   /** Tracks user dismissal — stores the expiresAt timestamp for which the warning was dismissed.
    *  This way, if the token is refreshed (new expiresAt), the warning can show again for the new cycle. */
   const dismissedForExpiryRef = useRef<number | null>(null);
   /** Tracks whether a silent refresh is in flight to prevent concurrent attempts. */
   const isRefreshingRef = useRef(false);
-  /** Cooldown: timestamp of the last successful refresh to prevent rapid re-refresh loops. */
-  const lastRefreshAtRef = useRef<number>(0);
 
-  const clearRedirectTimers = useCallback(() => {
-    if (countdownIntervalRef.current) {
-      clearInterval(countdownIntervalRef.current);
-      countdownIntervalRef.current = null;
+  // Handle logout
+  const handleLogout = useCallback(async () => {
+    setShowWarning(false);
+    setShowExpired(false);
+    // Clear the flag when logging out
+    if (typeof window !== 'undefined') {
+      sessionStorage.removeItem('token-expiry-handling');
     }
-    if (redirectTimeoutRef.current) {
-      clearTimeout(redirectTimeoutRef.current);
-      redirectTimeoutRef.current = null;
-    }
+    await signOut({ callbackUrl: "/login" });
+  }, []);
+
+  // Handle relogin in a new tab — user stays on the current page and their
+  // live chat is not interrupted. The new tab completes Duo login, redirects
+  // to /auth/reauth-complete which broadcasts SESSION_REFRESHED and closes.
+  // This tab listens for that broadcast and silently updates the session.
+  const handleReloginNewTab = useCallback(() => {
+    const callbackUrl = encodeURIComponent("/auth/reauth-complete");
+    window.open(
+      `/api/auth/signin/oidc?callbackUrl=${callbackUrl}`,
+      "_blank",
+      "noopener"
+    );
   }, []);
 
   // Handle relogin — must sign out first to clear the session cookie,
   // otherwise the login page sees "authenticated" status and bounces back,
   // creating an infinite redirect loop.
   const handleRelogin = useCallback(async () => {
-    clearRedirectTimers();
     setShowWarning(false);
     setShowExpired(false);
-    setRefreshFailed(false);
     // Set flag to prevent AuthGuard from also redirecting (prevents flickering)
     if (typeof window !== 'undefined') {
       sessionStorage.setItem('token-expiry-handling', 'true');
     }
-    await signOut({ callbackUrl: buildSessionExpiredLoginUrl() });
-  }, [clearRedirectTimers]);
-
-  const beginLoginCountdown = useCallback((reason: "expired" | "refresh_failed") => {
-    setShowWarning(false);
-    setShowExpired(true);
-    setRefreshFailed(reason === "refresh_failed");
-    setRedirectCountdown(LOGIN_REDIRECT_COUNTDOWN_SECONDS);
-
-    if (typeof window !== 'undefined') {
-      sessionStorage.setItem('token-expiry-handling', 'true');
-    }
-    if (checkIntervalRef.current) {
-      clearInterval(checkIntervalRef.current);
-      checkIntervalRef.current = null;
-    }
-
-    clearRedirectTimers();
-    countdownIntervalRef.current = setInterval(() => {
-      setRedirectCountdown((current) => Math.max(0, current - 1));
-    }, 1000);
-    redirectTimeoutRef.current = setTimeout(() => {
-      void handleRelogin();
-    }, LOGIN_REDIRECT_COUNTDOWN_SECONDS * 1000);
-  }, [clearRedirectTimers, handleRelogin]);
+    await signOut({ callbackUrl: "/login?session_expired=true" });
+  }, []);
 
   // Handle dismiss — persist until this expiry cycle ends
   const handleDismiss = useCallback((currentExpiresAt: number | null) => {
@@ -118,27 +93,21 @@ export function TokenExpiryGuard() {
       return false;
     }
 
-    const now = Date.now();
-    const COOLDOWN_MS = 60_000;
-    if (now - lastRefreshAtRef.current < COOLDOWN_MS) {
-      return false;
-    }
-
     isRefreshingRef.current = true;
     try {
       console.log("[TokenExpiryGuard] Attempting silent token refresh...");
+      // updateSession() triggers NextAuth to re-run the JWT callback server-side.
+      // If the token is near expiry, the JWT callback calls refreshAccessToken().
       await updateSession();
-      lastRefreshAtRef.current = Date.now();
       console.log("[TokenExpiryGuard] Silent refresh triggered successfully");
       return true;
     } catch (error) {
       console.error("[TokenExpiryGuard] Silent refresh failed:", error);
-      beginLoginCountdown("refresh_failed");
       return false;
     } finally {
       isRefreshingRef.current = false;
     }
-  }, [beginLoginCountdown, session?.hasRefreshToken, updateSession]);
+  }, [session?.hasRefreshToken, updateSession]);
 
   // Check token expiry
   const checkTokenExpiry = useCallback(() => {
@@ -150,10 +119,27 @@ export function TokenExpiryGuard() {
       return; // Not authenticated
     }
 
-    // Check if token refresh failed or the server-side token cache was lost.
-    if (SESSION_CREDENTIAL_ERRORS.has(session.error ?? "")) {
-      console.error(`[TokenExpiryGuard] Session credentials unavailable: ${session.error}`);
-      beginLoginCountdown("refresh_failed");
+    // Check if token refresh failed
+    if (session.error === "RefreshTokenExpired" || session.error === "RefreshTokenError") {
+      console.error(`[TokenExpiryGuard] Token refresh failed: ${session.error}`);
+      setShowWarning(false);
+      setShowExpired(true);
+
+      // Set flag to prevent AuthGuard from also redirecting (prevents flickering)
+      if (typeof window !== 'undefined') {
+        sessionStorage.setItem('token-expiry-handling', 'true');
+      }
+
+      // Stop checking
+      if (checkIntervalRef.current) {
+        clearInterval(checkIntervalRef.current);
+        checkIntervalRef.current = null;
+      }
+
+      // Auto-redirect after 5 seconds
+      setTimeout(() => {
+        handleLogout();
+      }, 5000);
       return;
     }
 
@@ -180,7 +166,24 @@ export function TokenExpiryGuard() {
     // Token has expired
     if (isExpired) {
       console.error("[TokenExpiryGuard] Token expired! Forcing logout...");
-      beginLoginCountdown("expired");
+      setShowWarning(false);
+      setShowExpired(true);
+
+      // Set flag to prevent AuthGuard from also redirecting (prevents flickering)
+      if (typeof window !== 'undefined') {
+        sessionStorage.setItem('token-expiry-handling', 'true');
+      }
+
+      // Stop checking
+      if (checkIntervalRef.current) {
+        clearInterval(checkIntervalRef.current);
+        checkIntervalRef.current = null;
+      }
+
+      // Auto-redirect after 5 seconds
+      setTimeout(() => {
+        handleLogout();
+      }, 5000);
       return;
     }
 
@@ -226,7 +229,38 @@ export function TokenExpiryGuard() {
         sessionStorage.removeItem('token-expiry-handling');
       }
     }
-  }, [status, session, showWarning, showExpired, beginLoginCountdown, attemptSilentRefresh]);
+  }, [status, session, showWarning, showExpired, handleLogout, attemptSilentRefresh]);
+
+  // Listen for SESSION_REFRESHED broadcast from the reauth-complete tab.
+  // When received, silently update the session so the warning disappears
+  // without any disruption to the current page.
+  useEffect(() => {
+    if (!getConfig('ssoEnabled')) return;
+
+    let channel: BroadcastChannel | null = null;
+    try {
+      channel = new BroadcastChannel("caipe-auth");
+      channel.onmessage = (event) => {
+        if (event.data?.type === "SESSION_REFRESHED") {
+          console.log("[TokenExpiryGuard] Session refreshed in new tab, updating...");
+          updateSession().then(() => {
+            setShowWarning(false);
+            setShowExpired(false);
+            dismissedForExpiryRef.current = null;
+            if (typeof window !== "undefined") {
+              sessionStorage.removeItem("token-expiry-handling");
+            }
+          });
+        }
+      };
+    } catch {
+      // BroadcastChannel not supported — refetchOnWindowFocus handles it
+    }
+
+    return () => {
+      channel?.close();
+    };
+  }, [updateSession]);
 
   // Set up periodic token expiry checking
   useEffect(() => {
@@ -246,8 +280,6 @@ export function TokenExpiryGuard() {
       }
     };
   }, [status, checkTokenExpiry]);
-
-  useEffect(() => clearRedirectTimers, [clearRedirectTimers]);
 
   // Don't render if SSO is not enabled
   if (!getConfig('ssoEnabled')) {
@@ -290,11 +322,11 @@ export function TokenExpiryGuard() {
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={handleRelogin}
+                      onClick={handleReloginNewTab}
                       className="gap-2"
                     >
-                      <LogOut className="h-4 w-4" />
-                      Sign in again
+                      <ExternalLink className="h-4 w-4" />
+                      Refresh in New Tab
                     </Button>
                     <Button
                       size="sm"
@@ -332,19 +364,17 @@ export function TokenExpiryGuard() {
                 </div>
                 <div className="flex-1">
                   <h2 className="text-lg font-semibold text-foreground mb-2">
-                    {refreshFailed ? "Session Refresh Failed" : "Session Expired"}
+                    Session Expired
                   </h2>
                   <p className="text-sm text-muted-foreground mb-4">
-                    {refreshFailed
-                      ? "We could not refresh your session. Please sign in again to continue."
-                      : "Your session has expired for security reasons. Please log in again to continue using the application."}
+                    Your session has expired for security reasons. Please log in again to continue using the application.
                   </p>
                   <p className="text-xs text-muted-foreground mb-4">
-                    Redirecting to login in {redirectCountdown} seconds...
+                    Redirecting to login in 5 seconds...
                   </p>
                   <div className="flex gap-2">
                     <Button
-                      onClick={handleRelogin}
+                      onClick={handleLogout}
                       className="gap-2 w-full"
                       variant="default"
                     >
@@ -360,15 +390,4 @@ export function TokenExpiryGuard() {
       </AnimatePresence>
     </>
   );
-}
-
-function buildSessionExpiredLoginUrl(): string {
-  if (typeof window === "undefined") {
-    return "/login?session_expired=true";
-  }
-  const currentPath =
-    window.location.pathname +
-    window.location.search +
-    window.location.hash;
-  return `/login?session_expired=true&callbackUrl=${encodeURIComponent(currentPath || "/")}`;
 }

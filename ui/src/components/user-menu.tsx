@@ -272,7 +272,7 @@ function ChangelogSection({ release, defaultOpen, onScopeClick }: {
   );
 }
 
-export function UserMenu({ compact = false }: { compact?: boolean } = {}) {
+export function UserMenu() {
   const { data: session, status, update } = useSession();
   const { initialize } = useFeatureFlagStore();
   const [open, setOpen] = useState(false);
@@ -282,6 +282,7 @@ export function UserMenu({ compact = false }: { compact?: boolean } = {}) {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshResult, setRefreshResult] = useState<'success' | 'error' | null>(null);
   const [tokenCopied, setTokenCopied] = useState(false);
+  const [idTokenCopied, setIdTokenCopied] = useState(false);
   const [changelogReleases, setChangelogReleases] = useState<ChangelogRelease[]>([]);
   const [changelogScopes, setChangelogScopes] = useState<string[]>([]);
   const [changelogScopeFilter, setChangelogScopeFilter] = useState<string | null>(null);
@@ -290,17 +291,6 @@ export function UserMenu({ compact = false }: { compact?: boolean } = {}) {
   const [changelogError, setChangelogError] = useState<string | null>(null);
   const changelogFetched = useRef(false);
   const menuRef = useRef<HTMLDivElement>(null);
-  const [rbacPosture, setRbacPosture] = useState<{
-    realm_roles: string[];
-    per_kb_roles: string[];
-    per_agent_roles: string[];
-    teams: Array<{ _id: string; name: string; role?: string }>;
-    idp_source: string;
-    slack_linked: boolean;
-    role: string;
-  } | null>(null);
-  const [rbacLoading, setRbacLoading] = useState(false);
-  const rbacFetched = useRef(false);
 
   const fetchChangelog = useCallback(async () => {
     if (changelogFetched.current) return;
@@ -318,22 +308,6 @@ export function UserMenu({ compact = false }: { compact?: boolean } = {}) {
       setChangelogError("Unable to load changelog");
     } finally {
       setChangelogLoading(false);
-    }
-  }, []);
-
-  const fetchRbacPosture = useCallback(async () => {
-    if (rbacFetched.current) return;
-    rbacFetched.current = true;
-    setRbacLoading(true);
-    try {
-      const res = await fetch("/api/auth/my-roles");
-      if (!res.ok) throw new Error("Failed to fetch RBAC posture");
-      const data = await res.json();
-      setRbacPosture(data);
-    } catch (err) {
-      console.error("[UserMenu] RBAC posture fetch failed:", err);
-    } finally {
-      setRbacLoading(false);
     }
   }, []);
 
@@ -408,7 +382,7 @@ export function UserMenu({ compact = false }: { compact?: boolean } = {}) {
     }
   };
 
-  const decodedToken = session?.accessToken ? decodeJWT(session.accessToken) : null;
+  const decodedToken = session?.idToken ? decodeJWT(session.idToken) : null;
 
   // Handle manual token refresh
   const handleRefreshToken = async () => {
@@ -444,6 +418,18 @@ export function UserMenu({ compact = false }: { compact?: boolean } = {}) {
     }
   };
 
+  // Handle copy ID token to clipboard
+  const handleCopyIdToken = async () => {
+    if (!session?.idToken) return;
+    try {
+      await navigator.clipboard.writeText(session.idToken);
+      setIdTokenCopied(true);
+      setTimeout(() => setIdTokenCopied(false), 2000);
+    } catch (err) {
+      console.error('[UserMenu] Failed to copy ID token:', err);
+    }
+  };
+
   // Authenticated - show user menu
   const userInitials = session?.user?.name
     ? session.user.name
@@ -466,10 +452,8 @@ export function UserMenu({ compact = false }: { compact?: boolean } = {}) {
     <div className="relative" ref={menuRef}>
       <button
         onClick={() => setOpen(!open)}
-        aria-label={compact ? `User menu for ${displayName}` : undefined}
         className={cn(
           "flex items-center gap-2 px-2 py-1 rounded-full transition-colors",
-          compact && "px-1.5",
           open
             ? "bg-primary/10"
             : "hover:bg-muted"
@@ -486,13 +470,11 @@ export function UserMenu({ compact = false }: { compact?: boolean } = {}) {
             <span className="text-[10px] font-medium text-white">{userInitials}</span>
           </div>
         )}
-        {!compact && <span className="text-xs font-medium max-w-[100px] truncate">{firstName}</span>}
-        {!compact && (
-          <ChevronDown className={cn(
-            "h-3 w-3 text-muted-foreground transition-transform",
-            open && "rotate-180"
-          )} />
-        )}
+        <span className="text-xs font-medium max-w-[100px] truncate">{firstName}</span>
+        <ChevronDown className={cn(
+          "h-3 w-3 text-muted-foreground transition-transform",
+          open && "rotate-180"
+        )} />
       </button>
 
       <AnimatePresence>
@@ -643,16 +625,9 @@ export function UserMenu({ compact = false }: { compact?: boolean } = {}) {
             </div>
           </DialogHeader>
 
-          <Tabs value={systemTab} className="w-full" onValueChange={(val) => { setSystemTab(val); if (val === "changelog") fetchChangelog(); if (val === "rbac") fetchRbacPosture(); }}>
+          <Tabs value={systemTab} className="w-full" onValueChange={(val) => { setSystemTab(val); if (val === "changelog") fetchChangelog(); }}>
             <div className="px-6 pt-2 border-b border-border">
               <TabsList className="bg-transparent h-auto p-0 gap-4">
-                <TabsTrigger
-                  value="rbac"
-                  className="px-1 pb-2 pt-1 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none text-xs font-medium"
-                >
-                  <KeyRound className="h-3.5 w-3.5 mr-1.5" />
-                  My RBAC
-                </TabsTrigger>
                 <TabsTrigger
                   value="oidc"
                   className="px-1 pb-2 pt-1 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none text-xs font-medium"
@@ -683,164 +658,6 @@ export function UserMenu({ compact = false }: { compact?: boolean } = {}) {
                 </TabsTrigger>
               </TabsList>
             </div>
-
-            {/* My RBAC Tab */}
-            <TabsContent value="rbac" className="mt-0">
-              <div className="p-6 overflow-y-auto max-h-[50vh] space-y-6">
-                {rbacLoading && (
-                  <div className="flex items-center justify-center py-12">
-                    <RefreshCw className="h-5 w-5 animate-spin text-muted-foreground" />
-                  </div>
-                )}
-                {!rbacLoading && rbacPosture && (
-                  <>
-                    {/* Platform Role */}
-                    <div>
-                      <div className="flex items-center gap-2 mb-3">
-                        <Shield className="h-4 w-4 text-muted-foreground" />
-                        <span className="text-sm font-semibold">Platform Role</span>
-                      </div>
-                      <div className="bg-muted/30 rounded-lg p-4 border border-border">
-                        <span className={cn(
-                          "inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold",
-                          rbacPosture.role === "admin"
-                            ? "bg-primary/20 text-primary border border-primary/30"
-                            : "bg-muted text-muted-foreground border border-border"
-                        )}>
-                          {rbacPosture.role === "admin" ? "Admin" : "User"}
-                        </span>
-                        <div className="mt-2 text-xs text-muted-foreground">
-                          IdP: <span className="font-mono">{rbacPosture.idp_source}</span>
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          Slack: {rbacPosture.slack_linked ? (
-                            <span className="text-green-600 dark:text-green-500 font-medium">Linked</span>
-                          ) : (
-                            <span className="text-muted-foreground">Not linked</span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Realm Roles */}
-                    <div>
-                      <div className="flex items-center gap-2 mb-3">
-                        <KeyRound className="h-4 w-4 text-muted-foreground" />
-                        <span className="text-sm font-semibold">Realm Roles</span>
-                        <span className="text-xs text-muted-foreground/70">({rbacPosture.realm_roles.length})</span>
-                      </div>
-                      <div className="bg-muted/30 rounded-lg p-4 border border-border">
-                        {rbacPosture.realm_roles.length > 0 ? (
-                          <div className="flex flex-wrap gap-1.5">
-                            {rbacPosture.realm_roles.map((role) => (
-                              <span key={role} className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-primary/10 text-primary border border-primary/20">
-                                {role}
-                              </span>
-                            ))}
-                          </div>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">No realm roles assigned</span>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Teams */}
-                    <div>
-                      <div className="flex items-center gap-2 mb-3">
-                        <Users className="h-4 w-4 text-muted-foreground" />
-                        <span className="text-sm font-semibold">Teams</span>
-                        <span className="text-xs text-muted-foreground/70">({rbacPosture.teams.length})</span>
-                      </div>
-                      <div className="bg-muted/30 rounded-lg p-4 border border-border">
-                        {rbacPosture.teams.length > 0 ? (
-                          <div className="space-y-2">
-                            {rbacPosture.teams.map((team) => (
-                              <div key={team._id} className="flex items-center justify-between">
-                                <span className="text-sm font-medium">{team.name}</span>
-                                {team.role && (
-                                  <span className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
-                                    {team.role}
-                                  </span>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">Not a member of any team</span>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Per-KB Roles */}
-                    {rbacPosture.per_kb_roles.length > 0 && (
-                      <div>
-                        <div className="flex items-center gap-2 mb-3">
-                          <Layers className="h-4 w-4 text-muted-foreground" />
-                          <span className="text-sm font-semibold">Knowledge Base Access</span>
-                          <span className="text-xs text-muted-foreground/70">({rbacPosture.per_kb_roles.length})</span>
-                        </div>
-                        <div className="bg-muted/30 rounded-lg p-4 border border-border">
-                          <div className="space-y-1.5">
-                            {rbacPosture.per_kb_roles.map((role) => {
-                              const [type, id] = role.split(":");
-                              return (
-                                <div key={role} className="flex items-center justify-between text-xs">
-                                  <span className="font-mono text-foreground/80">{id}</span>
-                                  <span className={cn(
-                                    "px-1.5 py-0.5 rounded text-[10px] font-medium",
-                                    type === "kb_admin"
-                                      ? "bg-orange-500/10 text-orange-600 dark:text-orange-400"
-                                      : "bg-blue-500/10 text-blue-600 dark:text-blue-400"
-                                  )}>
-                                    {type === "kb_admin" ? "admin" : "reader"}
-                                  </span>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Per-Agent Roles */}
-                    {rbacPosture.per_agent_roles.length > 0 && (
-                      <div>
-                        <div className="flex items-center gap-2 mb-3">
-                          <Code className="h-4 w-4 text-muted-foreground" />
-                          <span className="text-sm font-semibold">Agent Access</span>
-                          <span className="text-xs text-muted-foreground/70">({rbacPosture.per_agent_roles.length})</span>
-                        </div>
-                        <div className="bg-muted/30 rounded-lg p-4 border border-border">
-                          <div className="space-y-1.5">
-                            {rbacPosture.per_agent_roles.map((role) => {
-                              const [type, id] = role.split(":");
-                              return (
-                                <div key={role} className="flex items-center justify-between text-xs">
-                                  <span className="font-mono text-foreground/80">{id}</span>
-                                  <span className={cn(
-                                    "px-1.5 py-0.5 rounded text-[10px] font-medium",
-                                    type === "agent_admin"
-                                      ? "bg-orange-500/10 text-orange-600 dark:text-orange-400"
-                                      : "bg-green-500/10 text-green-600 dark:text-green-400"
-                                  )}>
-                                    {type === "agent_admin" ? "admin" : "user"}
-                                  </span>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </>
-                )}
-                {!rbacLoading && !rbacPosture && (
-                  <div className="text-center py-12">
-                    <span className="text-xs text-muted-foreground">Unable to load RBAC posture</span>
-                  </div>
-                )}
-              </div>
-            </TabsContent>
 
             {/* OIDC Token Tab */}
             <TabsContent value="oidc" className="mt-0">
@@ -899,6 +716,50 @@ export function UserMenu({ compact = false }: { compact?: boolean } = {}) {
                                   : 'Expired';
                               })()}
                             </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* ID Token */}
+                    {session?.idToken && (
+                      <div className="bg-muted/30 rounded-lg p-3 border border-border">
+                        <div className="flex items-start gap-2">
+                          <KeyRound className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
+                          <div className="flex-1">
+                            <div className="flex items-center justify-between mb-1">
+                              <div className="text-xs font-medium">ID Token</div>
+                              <button
+                                onClick={handleCopyIdToken}
+                                className={cn(
+                                  "flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium rounded-md transition-all",
+                                  idTokenCopied
+                                    ? "bg-green-500/10 text-green-600 dark:text-green-500 border border-green-500/30"
+                                    : "bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground border border-border"
+                                )}
+                                title="Copy ID token to clipboard (contains group claims)"
+                              >
+                                {idTokenCopied ? (
+                                  <>
+                                    <Check className="h-3 w-3" />
+                                    Copied
+                                  </>
+                                ) : (
+                                  <>
+                                    <Copy className="h-3 w-3" />
+                                    Copy Token
+                                  </>
+                                )}
+                              </button>
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              Contains user identity, group memberships, and OIDC claims
+                            </div>
+                            {decodedToken?.exp && (
+                              <div className="text-xs text-muted-foreground/70 mt-1">
+                                Expires: {new Date(decodedToken.exp * 1000).toLocaleString()}
+                              </div>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -980,7 +841,7 @@ export function UserMenu({ compact = false }: { compact?: boolean } = {}) {
                   </div>
                 </div>
 
-                {/* Group Memberships from decoded access token */}
+                {/* Group Memberships from decoded token */}
                 {(() => {
                   const groups: string[] = [];
                   if (decodedToken) {
@@ -1008,7 +869,7 @@ export function UserMenu({ compact = false }: { compact?: boolean } = {}) {
                           </span>
                         </div>
                         <p className="text-xs text-muted-foreground/70 ml-6">
-                          OIDC groups from access token claims
+                          OIDC groups from ID token claims
                         </p>
                       </div>
                       <div className="bg-muted/30 rounded-lg p-4 border border-border">
@@ -1328,14 +1189,14 @@ export function UserMenu({ compact = false }: { compact?: boolean } = {}) {
             <p className="text-xs text-center text-muted-foreground">
               Built with ❤️ by the{" "}
               <a
-                href="https://caipe.io/"
+                href="https://cnoe.io/"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-primary hover:underline"
               >
-                caipe.io
+                CNOE
               </a>{" "}
-              OSS community
+              community
             </p>
           </div>
         </DialogContent>

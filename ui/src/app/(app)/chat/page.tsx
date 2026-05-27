@@ -4,23 +4,11 @@ import React, { useEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useChatStore } from "@/store/chat-store";
-import { getLastActiveConversationId } from "@/store/chat-store";
 import { getStorageMode } from "@/lib/storage-config";
 import { getConfig } from "@/lib/config";
 import { AuthGuard } from "@/components/auth-guard";
 import { CAIPESpinner } from "@/components/ui/caipe-spinner";
 import { Button } from "@/components/ui/button";
-
-async function resolveDefaultAgentId(): Promise<string | undefined> {
-  try {
-    const response = await fetch("/api/admin/platform-config");
-    const data = await response.json();
-    const agentId = data?.success ? data.data?.default_agent_id : null;
-    return typeof agentId === "string" && agentId.trim() ? agentId.trim() : undefined;
-  } catch {
-    return undefined;
-  }
-}
 
 /**
  * /chat landing page — resumes the last active conversation, falls back to
@@ -75,7 +63,6 @@ function ChatRedirectPage() {
       // Re-read from the store after potential server load
       const state = useChatStore.getState();
       const { conversations: currentConversations, activeConversationId } = state;
-      const lastActiveConversationId = activeConversationId ?? getLastActiveConversationId();
       const userEmail = session?.user?.email;
 
       // Only consider conversations OWNED by the current user for auto-redirect.
@@ -91,11 +78,11 @@ function ChatRedirectPage() {
         : ownedConversations;
 
       // 1. Resume the last active conversation if it still exists and is owned
-      if (lastActiveConversationId) {
-        const stillOwned = redirectCandidates.some((c) => c.id === lastActiveConversationId);
+      if (activeConversationId) {
+        const stillOwned = redirectCandidates.some((c) => c.id === activeConversationId);
         if (stillOwned) {
           redirected.current = true;
-          router.replace(`/chat/${lastActiveConversationId}`);
+          router.replace(`/chat/${activeConversationId}`);
           return;
         }
       }
@@ -109,7 +96,7 @@ function ChatRedirectPage() {
         setShowAutonomousEmpty(true);
       } else {
         // 3. No owned conversations — create a new one
-        const newId = await createConversation(await resolveDefaultAgentId());
+        const newId = await createConversation();
         redirected.current = true;
         router.replace(`/chat/${newId}`);
       }
@@ -123,7 +110,7 @@ function ChatRedirectPage() {
           setShowAutonomousEmpty(true);
           return;
         }
-        const newId = await createConversation(await resolveDefaultAgentId());
+        const newId = await createConversation();
         redirected.current = true;
         router.replace(`/chat/${newId}`);
       }

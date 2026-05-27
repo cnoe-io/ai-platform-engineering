@@ -11,21 +11,10 @@ permissions:
   contents: read
   pull-requests: write
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
-
 jobs:
   check-proprietary-content:
     runs-on: ubuntu-latest
     steps:
-      - name: 🔑 Generate GitHub App token
-        id: app-token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
-        with:
-          app-id: ${{ secrets.CI_SECURITY_APP_ID }}
-          private-key: ${{ secrets.CI_SECURITY_APP_PRIVATE_KEY }}
-
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
@@ -133,7 +122,6 @@ jobs:
         if: steps.check-content.outputs.violations_found == 'true'
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
-          github-token: ${{ steps.app-token.outputs.token }}
           script: |
             const fs = require('fs');
             const violationDetails = fs.readFileSync('/tmp/violation_details.txt', 'utf8');
@@ -194,29 +182,10 @@ jobs:
         if: steps.check-content.outputs.violations_found == 'false'
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
-          github-token: ${{ steps.app-token.outputs.token }}
           script: |
-            const { owner, repo } = context.repo;
-            const issue_number = context.issue.number;
-            const body = '✅ No proprietary content detected. This PR is clear for review!';
-
-            const comments = await github.paginate(github.rest.issues.listComments, {
-              owner,
-              repo,
-              issue_number,
-              per_page: 100
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '✅ No proprietary content detected. This PR is clear for review!'
             });
-
-            const existing = comments.find(c =>
-              c.body?.trim() === body &&
-              c.user?.type === 'Bot'
-            );
-
-            if (!existing) {
-              await github.rest.issues.createComment({
-                owner,
-                repo,
-                issue_number,
-                body
-              });
-            }

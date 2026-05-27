@@ -1,8 +1,8 @@
 import { NextRequest } from "next/server";
 import {
-  getAuthFromBearerOrSession,
+  withAuth,
   withErrorHandler,
-  requireRbacPermission,
+  requireAdmin,
   successResponse,
   ApiError,
   validateCredentialsRef,
@@ -409,10 +409,11 @@ export async function runImport(
 }
 
 export const POST = withErrorHandler(async (request: NextRequest) => {
-  const { session } = await getAuthFromBearerOrSession(request);
-  await requireRbacPermission(session, "admin_ui", "admin");
+  return await withAuth(request, async (_req, _user, session) => {
+    requireAdmin(session);
 
-  const body = (await request.json()) as Record<string, unknown>;
-  const result = await runImport(body);
-  return successResponse(result);
+    const body = (await request.json()) as Record<string, unknown>;
+    const result = await runImport(body);
+    return successResponse(result);
+  });
 });

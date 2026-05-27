@@ -9,10 +9,10 @@ authors = [
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-  "fastmcp==3.3.1",
-  "mcp==1.27.1",
+  "fastmcp==3.2.3",
+  "mcp==1.26.0",
   "pydantic==2.12.5",
-  "python-dotenv==1.2.2",
+  "python-dotenv==1.2.1",
 ]
 
 [project.scripts]

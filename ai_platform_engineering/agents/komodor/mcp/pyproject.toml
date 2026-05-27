@@ -17,15 +17,11 @@ packages = ["mcp_komodor"]
 [tool.poetry.dependencies]
       python = ">=3.13,<4.0"
       httpx = "==0.28.1"
-      python-dotenv = "==1.2.2"
+      python-dotenv = "==1.2.1"
       pydantic = "==2.12.5"
-      mcp = "==1.27.1"
-      mcp-agent-auth = "*"
-      fastmcp = "==3.2.4"
+      mcp = "==1.26.0"
+      fastmcp = "==3.2.3"
       typing-extensions = "==4.15.0"
-[tool.uv.sources]
-mcp-agent-auth = { path = "../../common/mcp-auth", editable = true }
-
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"

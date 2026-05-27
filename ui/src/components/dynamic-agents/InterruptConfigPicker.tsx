@@ -22,7 +22,7 @@ interface InterruptRow {
 interface InterruptConfigPickerProps {
   value: InterruptOn;
   onChange: (value: InterruptOn) => void;
-  allowedTools: Record<string, string[] | boolean>;
+  allowedTools: Record<string, string[]>;
   builtinTools?: BuiltinToolsConfig;
   disabled?: boolean;
 }
@@ -77,7 +77,7 @@ function rowsToConfig(rows: InterruptRow[]): InterruptOn {
 /** Get available tool names for a namespace (excludes request_user_input — auto-managed). */
 function getToolOptions(
   namespace: string,
-  allowedTools: Record<string, string[] | boolean>,
+  allowedTools: Record<string, string[]>,
   builtinTools?: BuiltinToolsConfig,
   probedTools?: Record<string, string[]>,
 ): string[] {
@@ -91,9 +91,8 @@ function getToolOptions(
   // MCP server: use specific allowed tools if configured, otherwise use probed tools
   const configured = allowedTools[namespace];
   if (!configured) return [];
-  if (configured === true) return probedTools?.[namespace] || [];
   if (configured.length > 0) return configured;
-  // Empty array means "all tools" (legacy) — use probed tools if available
+  // Empty array means "all tools" — use probed tools if available
   return probedTools?.[namespace] || [];
 }
 
@@ -188,9 +187,8 @@ export function InterruptConfigPicker({
       const available = getToolOptions(row.namespace, allowedTools, builtinTools, probedTools);
       // If namespace doesn't exist at all, it's stale
       if (row.namespace !== "builtin" && !allowedTools[row.namespace]) return true;
-      // If tools is true or empty array (meaning "all"), we can't validate — assume ok
-      const val = allowedTools[row.namespace];
-      if (row.namespace !== "builtin" && (val === true || (Array.isArray(val) && val.length === 0))) return false;
+      // If tools list is empty for MCP (meaning "all"), we can't validate — assume ok
+      if (row.namespace !== "builtin" && allowedTools[row.namespace]?.length === 0) return false;
       return !available.includes(row.tool);
     },
     [allowedTools, builtinTools],

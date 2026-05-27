@@ -1,6 +1,6 @@
 # A2A Base Classes Tests
 
-This directory contains tests for the A2A LangGraph base classes.
+This directory contains tests for the A2A base classes (both LangGraph and Strands patterns).
 
 ## Running Tests
 
@@ -12,7 +12,8 @@ pytest
 
 ### Run specific test file
 ```bash
-pytest test_a2a_streaming_compliance.py
+pytest test_base_strands_agent.py
+pytest test_base_strands_agent_executor.py
 ```
 
 ### Run with coverage
@@ -37,13 +38,24 @@ tests/
 ├── __init__.py
 ├── conftest.py                          # Pytest fixtures and configuration
 ├── pytest.ini                           # Pytest settings
-├── test_a2a_streaming_compliance.py     # Tests for LangGraph A2A streaming
+├── test_base_strands_agent.py          # Tests for BaseStrandsAgent
+├── test_base_strands_agent_executor.py  # Tests for BaseStrandsAgentExecutor
 └── README.md                            # This file
 ```
 
 ## Test Coverage
 
-### BaseLangGraphAgentExecutor Tests
+### BaseStrandsAgent Tests
+- Initialization and configuration
+- MCP client management
+- Multi-server MCP support
+- Tool aggregation and deduplication
+- Chat and streaming methods
+- Resource cleanup
+- Error handling
+- Context manager support
+
+### BaseStrandsAgentExecutor Tests
 - Initialization with agent
 - Execute method with streaming
 - Artifact chunking
@@ -57,6 +69,7 @@ tests/
 
 Common fixtures available in `conftest.py`:
 - `mock_mcp_client` - Mock MCP client with tools
+- `mock_strands_agent` - Mock Strands agent instance
 - `mock_agent_config` - Mock agent configuration
 - `mock_a2a_context` - Mock A2A request context
 - `mock_a2a_event_queue` - Mock A2A event queue
@@ -128,3 +141,4 @@ pip install pytest-asyncio
 ### Mock Issues
 If mocks aren't working as expected, check that you're patching the correct import path.
 Remember to patch where the object is used, not where it's defined.
+

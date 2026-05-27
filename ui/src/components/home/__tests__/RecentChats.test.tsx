@@ -32,7 +32,6 @@ jest.mock('lucide-react', () => ({
   Plus: (props: any) => <svg data-testid="icon-plus" {...props} />,
   Users2: (props: any) => <svg data-testid="icon-users2" {...props} />,
   Clock: (props: any) => <svg data-testid="icon-clock" {...props} />,
-  Bot: (props: any) => <svg data-testid="icon-bot" {...props} />,
 }))
 
 jest.mock('@/lib/utils', () => ({
@@ -112,24 +111,6 @@ describe('RecentChats', () => {
       expect(screen.getByText('Conversation 1')).toBeInTheDocument()
       expect(screen.getByText('Conversation 2')).toBeInTheDocument()
       expect(screen.getByText('Conversation 3')).toBeInTheDocument()
-    })
-
-    it('passes agent names through to conversation cards', () => {
-      render(
-        <RecentChats
-          conversations={[
-            {
-              id: 'conv-agent',
-              title: 'Agent Chat',
-              updatedAt: new Date().toISOString(),
-              agentName: 'Platform Helper',
-            },
-          ]}
-          loading={false}
-        />,
-      )
-
-      expect(screen.getByText('Platform Helper')).toBeInTheDocument()
     })
 
     it('limits to maxItems (default 6)', () => {

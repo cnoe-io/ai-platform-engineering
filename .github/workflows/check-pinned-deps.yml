@@ -2,21 +2,11 @@ name: Check pinned dependencies
 
 on:
   pull_request:
-    paths:
-      - 'pyproject.toml'
-      - 'uv.lock'
-      - '**/package.json'
-      - '**/package-lock.json'
-      - 'scripts/check_pinned_deps.py'
   push:
     branches: [main]
 
 permissions:
   contents: read
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   check-pinned-deps:

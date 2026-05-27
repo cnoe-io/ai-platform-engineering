@@ -50,9 +50,8 @@ RUN find /app/dynamic_agents/.venv -type d -name "__pycache__" -exec rm -rf {} +
 # =============================================================================
 FROM python:3.13-slim-bookworm
 
-# Patch system packages to address CVEs; install curl for the curl builtin tool
+# Patch system packages to address CVEs
 RUN apt-get update && apt-get upgrade -y --no-install-recommends \
-    && apt-get install -y --no-install-recommends curl \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user (UID/GID 1001 for Kubernetes compatibility)

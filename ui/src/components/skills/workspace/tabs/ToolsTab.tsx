@@ -565,13 +565,6 @@ function McpServerRow({
       });
       const json = await res.json();
       if (json.success) {
-        if (json.data?.success === false) {
-          setProbe({
-            loading: false,
-            error: json.data.error || "Probe failed",
-          });
-          return;
-        }
         setProbe({ loading: false, tools: json.data?.tools ?? [] });
       } else {
         setProbe({ loading: false, error: json.error || "Probe failed" });

@@ -33,11 +33,7 @@ jest.mock('next-auth', () => ({ getServerSession: jest.fn() }));
 const mockGetServerSession =
   jest.requireMock<{ getServerSession: jest.Mock }>('next-auth').getServerSession;
 
-jest.mock('@/lib/auth-config', () => ({
-  authOptions: {},
-  isBootstrapAdmin: jest.fn().mockReturnValue(false),
-  REQUIRED_ADMIN_GROUP: '',
-}));
+jest.mock('@/lib/auth-config', () => ({ authOptions: {} }));
 
 jest.mock('@/lib/mongodb', () => ({
   getCollection: jest.fn(),
@@ -85,7 +81,8 @@ function makeRequest(
 function sessionWith(email: string) {
   return {
     user: { email, name: 'Test User' },
-    role: 'admin',
+    role: 'user',
+    canViewAdmin: false,
   };
 }
 

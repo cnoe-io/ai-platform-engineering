@@ -76,7 +76,6 @@ class StreamEncoder(ABC):
         tool_name: str | None = None,
         tool_args: dict[str, Any] | None = None,
         allowed_decisions: list[str] | None = None,
-        tool_approvals: list[dict[str, Any]] | None = None,
     ) -> list[str]:
         """Agent execution paused — requires human input or approval.
 
@@ -86,8 +85,7 @@ class StreamEncoder(ABC):
 
         - ``"form_input"``: render a form with ``fields`` and ``prompt``.
         - ``"tool_approval"``: render an approval card with ``tool_name``,
-          ``tool_args``, and ``allowed_decisions``.  When multiple tools
-          need approval, ``tool_approvals`` contains the full list.
+          ``tool_args``, and ``allowed_decisions``.
 
         The caller must **not** follow this with ``on_run_finish()`` — the
         interrupt terminates the run.

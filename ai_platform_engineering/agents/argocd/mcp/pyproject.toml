@@ -9,15 +9,12 @@ authors = [
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-  "fastmcp==3.2.4",
+  "fastmcp==3.2.3",
   "httpx==0.28.1",
-  "mcp==1.27.1",
-  "mcp-agent-auth", # gitleaks:allow - package name, not a credential
+  "mcp==1.26.0",
   "pydantic==2.12.5",
-  "python-dotenv==1.2.2",
+  "python-dotenv==1.2.1",
 ]
-[tool.uv.sources]
-mcp-agent-auth = { path = "../../common/mcp-auth", editable = true }
 
 [project.scripts]
 mcp-argocd = "mcp_argocd.__main__:main"

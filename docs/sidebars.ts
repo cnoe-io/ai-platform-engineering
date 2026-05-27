@@ -272,21 +272,6 @@ const sidebars: SidebarsConfig = {
         {
           type: 'doc',
           id: 'architecture/gateway',
-        },
-        {
-          type: 'doc',
-          id: 'architecture/enterprise-identity-federation',
-          label: 'Enterprise Identity Federation',
-        },
-        {
-          type: 'doc',
-          id: 'architecture/slack-bot-authorization',
-          label: 'Slack Bot Authorization',
-        },
-        {
-          type: 'doc',
-          id: 'architecture/slack-io-guardrails',
-          label: 'Slack I/O Guardrails',
         }
       ],
     },
@@ -302,7 +287,6 @@ const sidebars: SidebarsConfig = {
           items: [
             { type: 'doc', id: 'ui/index', label: 'Overview' },
             { type: 'doc', id: 'ui/features', label: 'Features' },
-            { type: 'doc', id: 'features/admin-settings', label: 'Admin Settings' },
             { type: 'doc', id: 'ui/auth-flow', label: 'Authentication Flow' },
             { type: 'doc', id: 'ui/configuration', label: 'Configuration' },
             { type: 'doc', id: 'ui/customization', label: 'Customization & Branding' },
@@ -316,8 +300,6 @@ const sidebars: SidebarsConfig = {
           label: 'Knowledge Bases',
           items: [
             { type: 'doc', id: 'knowledge_bases/index', label: 'Overview' },
-            // assisted-by Codex Codex-sonnet-4-6
-            { type: 'doc', id: 'knowledge_bases/api-reference', label: 'API Reference' },
             { type: 'doc', id: 'knowledge_bases/architecture', label: 'Architecture' },
             { type: 'doc', id: 'knowledge_bases/ingestors', label: 'Ingestors' },
             { type: 'doc', id: 'knowledge_bases/ontology-agent', label: 'Ontology Agent' },
@@ -339,7 +321,6 @@ const sidebars: SidebarsConfig = {
             { type: 'doc', id: 'integrations/slack-bot', label: 'Slack Bot' },
             { type: 'doc', id: 'integrations/backstage-plugin', label: 'Agent Forge (Backstage)' },
             { type: 'doc', id: 'integrations/webex-bot', label: 'Webex Bot' },
-            { type: 'doc', id: 'api/webex-integration', label: 'Webex Bot RBAC API' },
             { type: 'doc', id: 'integrations/cli', label: 'CAIPE CLI' },
           ],
         },
@@ -349,22 +330,6 @@ const sidebars: SidebarsConfig = {
           items: [
             { type: 'doc', id: 'security/index', label: 'Overview' },
             { type: 'doc', id: 'security/a2a-auth', label: 'A2A Authentication' },
-            {
-              type: 'category',
-              label: 'RBAC',
-              link: { type: 'doc', id: 'security/rbac/index' },
-              items: [
-                { type: 'doc', id: 'security/rbac/feature-guide', label: 'Feature Guide' },
-                { type: 'doc', id: 'security/rbac/architecture', label: 'Architecture' },
-                { type: 'doc', id: 'security/rbac/comprehensive-rbac-refactor', label: 'Comprehensive Refactor' },
-                { type: 'doc', id: 'security/rbac/workflows', label: 'Workflows' },
-                { type: 'doc', id: 'security/rbac/usage', label: 'Usage' },
-                { type: 'doc', id: 'security/rbac/roles-scopes-comparison', label: 'Roles vs Scopes' },
-                { type: 'doc', id: 'security/rbac/helm-install-upgrade', label: 'Helm Install and Upgrade' },
-                { type: 'doc', id: 'security/rbac/secrets-bootstrap', label: 'Secrets Bootstrap' },
-                { type: 'doc', id: 'security/rbac/file-map', label: 'File Map' },
-              ],
-            },
             { type: 'doc', id: 'security/supply-chain', label: 'Supply Chain Security' },
           ],
         },

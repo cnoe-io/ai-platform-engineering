@@ -31,8 +31,6 @@ jest.mock('next-auth', () => ({
 
 jest.mock('@/lib/auth-config', () => ({
   authOptions: {},
-  isBootstrapAdmin: jest.fn().mockReturnValue(false),
-  REQUIRED_ADMIN_GROUP: '',
 }));
 
 jest.mock('@/lib/config', () => ({
@@ -50,10 +48,6 @@ const mockGetCollection = jest.fn((name: string) => {
 jest.mock('@/lib/mongodb', () => ({
   getCollection: (...args: any[]) => mockGetCollection(...args),
   isMongoDBConfigured: true,
-}));
-
-jest.mock('@/lib/rbac/keycloak-authz', () => ({
-  checkPermission: jest.fn().mockResolvedValue({ allowed: true }),
 }));
 
 // ============================================================================
@@ -92,8 +86,6 @@ function authenticatedSession(email = 'user@example.com') {
   return {
     user: { email, name: 'Test User' },
     role: 'user',
-    accessToken: 'test-access-token',
-    sub: 'test-sub',
   };
 }
 
@@ -1373,8 +1365,7 @@ describe('POST /api/chat/conversations/[id]/messages — admin audit write block
     mockGetServerSession.mockResolvedValue({
       user: { email: 'admin@example.com', name: 'Admin' },
       role: 'admin',
-      accessToken: 'test-access-token',
-      sub: 'admin-sub',
+      canViewAdmin: true,
     });
 
     setupConversationMocks('owner@example.com');
@@ -1404,8 +1395,6 @@ describe('POST /api/chat/conversations/[id]/messages — admin audit write block
     mockGetServerSession.mockResolvedValue({
       user: { email: 'owner@example.com', name: 'Owner' },
       role: 'user',
-      accessToken: 'test-access-token',
-      sub: 'owner-sub',
     });
 
     const convCol = setupConversationMocks('owner@example.com');
@@ -1448,6 +1437,7 @@ describe('POST /api/chat/conversations/[id]/messages — admin audit write block
     mockGetServerSession.mockResolvedValue({
       user: { email: 'admin@example.com', name: 'Admin' },
       role: 'admin',
+      canViewAdmin: true,
     });
 
     setupConversationMocks('owner@example.com');

@@ -103,7 +103,6 @@ def _create_datasource_info(
 
   return DataSourceInfo(
     datasource_id=datasource_id,
-    name=f"Confluence: {space_key}",
     ingestor_id=ingestor_id,
     description=description,
     source_type="confluence",

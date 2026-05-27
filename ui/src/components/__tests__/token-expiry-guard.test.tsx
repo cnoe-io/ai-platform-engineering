@@ -7,18 +7,18 @@
  * - Silent token auto-refresh via updateSession
  * - Expired token handling and auto-redirect
  * - Warning message changes based on refresh token availability
- * - "Sign in again" clears the stale session and preserves return path
+ * - "Refresh in New Tab" opens new tab without disrupting current page
  * - "Log In Again" on expired modal signs out and clears flag
+ * - BroadcastChannel SESSION_REFRESHED updates session silently
  * - Auto-logout after 5-second countdown
  * - Concurrent refresh lock (only one refresh attempt at a time)
  * - Cleanup on unmount
- *
- * assisted-by Codex Codex-sonnet-4-6
  */
 
 import React from 'react'
 import { render, screen, waitFor, act, fireEvent } from '@testing-library/react'
 import { useSession, signOut } from 'next-auth/react'
+import { useRouter } from 'next/navigation'
 import { TokenExpiryGuard } from '../token-expiry-guard'
 
 // Mock Next Auth
@@ -27,6 +27,11 @@ const mockUpdateSession = jest.fn().mockResolvedValue(undefined)
 jest.mock('next-auth/react', () => ({
   useSession: jest.fn(),
   signOut: jest.fn(),
+}))
+
+// Mock Next Router
+jest.mock('next/navigation', () => ({
+  useRouter: jest.fn(),
 }))
 
 // Mock config
@@ -46,8 +51,10 @@ jest.mock('framer-motion', () => ({
 }))
 
 describe('TokenExpiryGuard', () => {
+  const mockPush = jest.fn()
   const mockSignOut = signOut as jest.MockedFunction<typeof signOut>
   const mockUseSession = useSession as jest.MockedFunction<typeof useSession>
+  const mockUseRouter = useRouter as jest.MockedFunction<typeof useRouter>
   let mockWindowOpen: jest.Mock
 
   // Mock sessionStorage
@@ -59,18 +66,28 @@ describe('TokenExpiryGuard', () => {
     clear: jest.fn(() => { sessionStorageData = {} }),
   }
 
+  // BroadcastChannel mock instances (pushed in order of creation)
+  const broadcastChannelInstances: Array<{ onmessage: ((e: any) => void) | null; close: jest.Mock }> = []
+
   beforeEach(() => {
     jest.restoreAllMocks()
     jest.useFakeTimers()
     mockUpdateSession.mockClear().mockResolvedValue(undefined)
     sessionStorageData = {}
+    broadcastChannelInstances.length = 0
 
     Object.defineProperty(window, 'sessionStorage', { value: mockSessionStorage, writable: true })
-    window.history.pushState({}, '', '/')
 
     // Mock window.open
     mockWindowOpen = jest.fn()
     Object.defineProperty(window, 'open', { value: mockWindowOpen, writable: true })
+
+    // Mock BroadcastChannel
+    ;(global as any).BroadcastChannel = jest.fn().mockImplementation(() => {
+      const instance = { onmessage: null as any, close: jest.fn() }
+      broadcastChannelInstances.push(instance)
+      return instance
+    })
 
     // Reset getConfig mock to default (ssoEnabled = true)
     const { getConfig } = require('@/lib/config')
@@ -78,6 +95,10 @@ describe('TokenExpiryGuard', () => {
       if (key === 'ssoEnabled') return true
       return undefined
     })
+
+    mockUseRouter.mockReturnValue({
+      push: mockPush,
+    } as any)
 
     mockSignOut.mockResolvedValue(undefined as any)
   })
@@ -271,13 +292,12 @@ describe('TokenExpiryGuard', () => {
   })
 
   // ─────────────────────────────────────────────────────────────────────
-  // Sign in again button
+  // Refresh in New Tab button
   // ─────────────────────────────────────────────────────────────────────
 
-  describe('Sign in again button', () => {
-    it('should sign out with current page preserved as callbackUrl when clicked', async () => {
+  describe('Refresh in New Tab button', () => {
+    it('should open new tab with correct callbackUrl when clicked', async () => {
       jest.useRealTimers()
-      window.history.pushState({}, '', '/apps/embed/kaleidoscope?view=study#report')
       const soonExpiry = Math.floor(Date.now() / 1000) + 240
 
       mockUseSession.mockReturnValue({
@@ -296,17 +316,17 @@ describe('TokenExpiryGuard', () => {
         expect(screen.getByText(/session expiring soon/i)).toBeInTheDocument()
       })
 
-      fireEvent.click(screen.getByText(/sign in again/i))
+      fireEvent.click(screen.getByText(/refresh in new tab/i))
 
-      await waitFor(() => {
-        expect(mockSignOut).toHaveBeenCalledWith({
-          callbackUrl:
-            '/login?session_expired=true&callbackUrl=%2Fapps%2Fembed%2Fkaleidoscope%3Fview%3Dstudy%23report',
-        })
-      })
+      const expectedCallbackUrl = encodeURIComponent('/auth/reauth-complete')
+      expect(mockWindowOpen).toHaveBeenCalledWith(
+        `/api/auth/signin/oidc?callbackUrl=${expectedCallbackUrl}`,
+        '_blank',
+        'noopener',
+      )
     })
 
-    it('should set the expiry-handling flag before redirecting to login', async () => {
+    it('should NOT call signOut when Refresh in New Tab is clicked', async () => {
       jest.useRealTimers()
       const soonExpiry = Math.floor(Date.now() / 1000) + 240
 
@@ -326,12 +346,13 @@ describe('TokenExpiryGuard', () => {
         expect(screen.getByText(/session expiring soon/i)).toBeInTheDocument()
       })
 
-      fireEvent.click(screen.getByText(/sign in again/i))
+      fireEvent.click(screen.getByText(/refresh in new tab/i))
 
-      expect(mockSessionStorage.setItem).toHaveBeenCalledWith('token-expiry-handling', 'true')
+      // Should NOT sign out — user stays on the current page
+      expect(mockSignOut).not.toHaveBeenCalled()
     })
 
-    it('should not use the brittle new-tab refresh flow', async () => {
+    it('should NOT redirect (router.push) when Refresh in New Tab is clicked', async () => {
       jest.useRealTimers()
       const soonExpiry = Math.floor(Date.now() / 1000) + 240
 
@@ -351,9 +372,9 @@ describe('TokenExpiryGuard', () => {
         expect(screen.getByText(/session expiring soon/i)).toBeInTheDocument()
       })
 
-      fireEvent.click(screen.getByText(/sign in again/i))
+      fireEvent.click(screen.getByText(/refresh in new tab/i))
 
-      expect(mockWindowOpen).not.toHaveBeenCalled()
+      expect(mockPush).not.toHaveBeenCalled()
     })
   })
 
@@ -536,8 +557,8 @@ describe('TokenExpiryGuard', () => {
       expect(screen.queryByText(/attempting to refresh automatically/i)).not.toBeInTheDocument()
     })
 
-    it('should show a countdown and redirect through current-tab login if updateSession rejects', async () => {
-      window.history.pushState({}, '', '/apps/embed/kaleidoscope?view=study#report')
+    it('should not crash if updateSession rejects', async () => {
+      jest.useRealTimers()
       const soonExpiry = Math.floor(Date.now() / 1000) + 240
       mockUpdateSession.mockRejectedValueOnce(new Error('Network error'))
 
@@ -555,19 +576,9 @@ describe('TokenExpiryGuard', () => {
 
       render(<TokenExpiryGuard />)
 
-      await act(async () => { jest.advanceTimersByTime(0) })
-
+      // Should not crash — warning is still displayed
       await waitFor(() => {
-        expect(screen.getByText(/session refresh failed/i)).toBeInTheDocument()
-        expect(screen.getByText(/redirecting to login in 5 seconds/i)).toBeInTheDocument()
-      })
-
-      await act(async () => { jest.advanceTimersByTime(1000) })
-      expect(screen.getByText(/redirecting to login in 4 seconds/i)).toBeInTheDocument()
-
-      await act(async () => { jest.advanceTimersByTime(4000) })
-      expect(mockSignOut).toHaveBeenCalledWith({
-        callbackUrl: '/login?session_expired=true&callbackUrl=%2Fapps%2Fembed%2Fkaleidoscope%3Fview%3Dstudy%23report',
+        expect(screen.getByText(/session expiring soon/i)).toBeInTheDocument()
       })
 
       consoleSpy.mockRestore()
@@ -654,26 +665,7 @@ describe('TokenExpiryGuard', () => {
       })
     })
 
-    it('should set token-expiry-handling flag when the server-side access token cache is missing', async () => {
-      jest.useRealTimers()
-
-      mockUseSession.mockReturnValue({
-        data: {
-          user: { name: 'Test User', email: 'test@example.com' },
-          error: 'AccessTokenMissing',
-        } as any,
-        status: 'authenticated',
-        update: mockUpdateSession,
-      })
-
-      render(<TokenExpiryGuard />)
-
-      await waitFor(() => {
-        expect(mockSessionStorage.setItem).toHaveBeenCalledWith('token-expiry-handling', 'true')
-      })
-    })
-
-    it('should show refresh-failed modal when session has RefreshTokenExpired error', async () => {
+    it('should show expired modal when session has RefreshTokenExpired error', async () => {
       jest.useRealTimers()
 
       mockUseSession.mockReturnValue({
@@ -688,8 +680,7 @@ describe('TokenExpiryGuard', () => {
       render(<TokenExpiryGuard />)
 
       await waitFor(() => {
-        expect(screen.getByText(/session refresh failed/i)).toBeInTheDocument()
-        expect(screen.getByText(/redirecting to login in 5 seconds/i)).toBeInTheDocument()
+        expect(screen.getByText(/session expired/i)).toBeInTheDocument()
       })
     })
   })
@@ -699,9 +690,8 @@ describe('TokenExpiryGuard', () => {
   // ─────────────────────────────────────────────────────────────────────
 
   describe('logout handler', () => {
-    it('should call signOut with preserved login callbackUrl when Log In Again is clicked', async () => {
+    it('should call signOut with /login callbackUrl when Log In Again is clicked', async () => {
       jest.useRealTimers()
-      window.history.pushState({}, '', '/chat/thread-123')
 
       mockUseSession.mockReturnValue({
         data: {
@@ -715,19 +705,17 @@ describe('TokenExpiryGuard', () => {
       render(<TokenExpiryGuard />)
 
       await waitFor(() => {
-        expect(screen.getByText(/session refresh failed/i)).toBeInTheDocument()
+        expect(screen.getByText(/session expired/i)).toBeInTheDocument()
       })
 
       fireEvent.click(screen.getByRole('button', { name: /log in again/i }))
 
       await waitFor(() => {
-        expect(mockSignOut).toHaveBeenCalledWith({
-          callbackUrl: '/login?session_expired=true&callbackUrl=%2Fchat%2Fthread-123',
-        })
+        expect(mockSignOut).toHaveBeenCalledWith({ callbackUrl: '/login' })
       })
     })
 
-    it('should keep token-expiry-handling flag set when Log In Again is clicked', async () => {
+    it('should clear token-expiry-handling flag when Log In Again is clicked', async () => {
       jest.useRealTimers()
       // Pre-populate the flag (as set when entering the error/expired state)
       sessionStorageData['token-expiry-handling'] = 'true'
@@ -744,13 +732,13 @@ describe('TokenExpiryGuard', () => {
       render(<TokenExpiryGuard />)
 
       await waitFor(() => {
-        expect(screen.getByText(/session refresh failed/i)).toBeInTheDocument()
+        expect(screen.getByText(/session expired/i)).toBeInTheDocument()
       })
 
       fireEvent.click(screen.getByRole('button', { name: /log in again/i }))
 
       await waitFor(() => {
-        expect(mockSessionStorage.setItem).toHaveBeenCalledWith('token-expiry-handling', 'true')
+        expect(mockSessionStorage.removeItem).toHaveBeenCalledWith('token-expiry-handling')
       })
     })
   })
@@ -778,9 +766,7 @@ describe('TokenExpiryGuard', () => {
       // Advance 5 seconds — auto-logout fires
       await act(async () => { jest.advanceTimersByTime(5000) })
 
-      expect(mockSignOut).toHaveBeenCalledWith({
-        callbackUrl: '/login?session_expired=true&callbackUrl=%2F',
-      })
+      expect(mockSignOut).toHaveBeenCalledWith({ callbackUrl: '/login' })
     })
 
     it('should auto-redirect after 5 seconds when token has actually expired', async () => {
@@ -800,9 +786,154 @@ describe('TokenExpiryGuard', () => {
       await act(async () => { jest.advanceTimersByTime(0) })
       await act(async () => { jest.advanceTimersByTime(5000) })
 
-      expect(mockSignOut).toHaveBeenCalledWith({
-        callbackUrl: '/login?session_expired=true&callbackUrl=%2F',
+      expect(mockSignOut).toHaveBeenCalledWith({ callbackUrl: '/login' })
+    })
+  })
+
+  // ─────────────────────────────────────────────────────────────────────
+  // BroadcastChannel SESSION_REFRESHED
+  // ─────────────────────────────────────────────────────────────────────
+
+  describe('BroadcastChannel SESSION_REFRESHED', () => {
+    it('should call updateSession and clear warning when SESSION_REFRESHED is received', async () => {
+      jest.useRealTimers()
+      const soonExpiry = Math.floor(Date.now() / 1000) + 240
+      const freshExpiry = Math.floor(Date.now() / 1000) + 3600
+
+      const sessionConfig = {
+        data: {
+          user: { name: 'Test User', email: 'test@example.com' },
+          expiresAt: soonExpiry,
+          hasRefreshToken: false,
+        } as any,
+        status: 'authenticated',
+        update: mockUpdateSession,
+      }
+
+      mockUseSession.mockReturnValue(sessionConfig)
+
+      render(<TokenExpiryGuard />)
+
+      // Wait for warning to appear
+      await waitFor(() => {
+        expect(screen.getByText(/session expiring soon/i)).toBeInTheDocument()
       })
+
+      // Update session mock to simulate what updateSession() fetches: fresh token
+      // This ensures checkTokenExpiry (re-triggered after showWarning→false) sees
+      // the refreshed expiry and does not re-show the warning.
+      mockUseSession.mockReturnValue({
+        ...sessionConfig,
+        data: { ...sessionConfig.data, expiresAt: freshExpiry },
+      })
+
+      // Simulate SESSION_REFRESHED broadcast from reauth-complete tab
+      const channel = broadcastChannelInstances[0]
+      await act(async () => {
+        channel.onmessage!({ data: { type: 'SESSION_REFRESHED' } })
+        // Flush promise microtasks (updateSession().then(...))
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+
+      // updateSession should have been called
+      expect(mockUpdateSession).toHaveBeenCalled()
+      // Warning should be cleared (fresh session + setShowWarning(false))
+      await waitFor(() => {
+        expect(screen.queryByText(/session expiring soon/i)).not.toBeInTheDocument()
+      })
+    })
+
+    it('should remove token-expiry-handling flag after SESSION_REFRESHED', async () => {
+      jest.useRealTimers()
+      sessionStorageData['token-expiry-handling'] = 'true'
+      const soonExpiry = Math.floor(Date.now() / 1000) + 240
+
+      mockUseSession.mockReturnValue({
+        data: {
+          user: { name: 'Test User', email: 'test@example.com' },
+          expiresAt: soonExpiry,
+          hasRefreshToken: false,
+        } as any,
+        status: 'authenticated',
+        update: mockUpdateSession,
+      })
+
+      render(<TokenExpiryGuard />)
+
+      await waitFor(() => {
+        expect(screen.getByText(/session expiring soon/i)).toBeInTheDocument()
+      })
+
+      const channel = broadcastChannelInstances[0]
+      await act(async () => {
+        channel.onmessage!({ data: { type: 'SESSION_REFRESHED' } })
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+
+      expect(mockSessionStorage.removeItem).toHaveBeenCalledWith('token-expiry-handling')
+    })
+
+    it('should ignore broadcast messages that are not SESSION_REFRESHED', async () => {
+      jest.useRealTimers()
+      const soonExpiry = Math.floor(Date.now() / 1000) + 240
+
+      mockUseSession.mockReturnValue({
+        data: {
+          user: { name: 'Test User', email: 'test@example.com' },
+          expiresAt: soonExpiry,
+          hasRefreshToken: false,
+        } as any,
+        status: 'authenticated',
+        update: mockUpdateSession,
+      })
+
+      render(<TokenExpiryGuard />)
+
+      await waitFor(() => {
+        expect(screen.getByText(/session expiring soon/i)).toBeInTheDocument()
+      })
+
+      const callCountBefore = mockUpdateSession.mock.calls.length
+
+      const channel = broadcastChannelInstances[0]
+      await act(async () => {
+        channel.onmessage!({ data: { type: 'SOME_OTHER_EVENT' } })
+        await Promise.resolve()
+      })
+
+      // updateSession should NOT have been called for this event
+      expect(mockUpdateSession).toHaveBeenCalledTimes(callCountBefore)
+      // Warning should still be visible
+      expect(screen.getByText(/session expiring soon/i)).toBeInTheDocument()
+    })
+
+    it('should close the BroadcastChannel on unmount', async () => {
+      jest.useRealTimers()
+      const futureExpiry = Math.floor(Date.now() / 1000) + 600
+
+      mockUseSession.mockReturnValue({
+        data: {
+          user: { name: 'Test User', email: 'test@example.com' },
+          expiresAt: futureExpiry,
+        } as any,
+        status: 'authenticated',
+        update: mockUpdateSession,
+      })
+
+      const { unmount } = render(<TokenExpiryGuard />)
+
+      // Wait for the BroadcastChannel to be created
+      await waitFor(() => {
+        expect(broadcastChannelInstances.length).toBeGreaterThan(0)
+      })
+
+      const channel = broadcastChannelInstances[0]
+
+      unmount()
+
+      expect(channel.close).toHaveBeenCalled()
     })
   })
 

@@ -5,12 +5,12 @@
 import { NextRequest } from "next/server";
 import { getCollection } from "@/lib/mongodb";
 import {
+  withAuth,
   withErrorHandler,
   successResponse,
   ApiError,
-  getAuthFromBearerOrSession,
+  requireAdmin,
 } from "@/lib/api-middleware";
-import { filterResourcesByPermission, requireResourcePermission } from "@/lib/rbac/resource-authz";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 
 const COLLECTION_NAME = "dynamic_agents";
@@ -23,7 +23,7 @@ const COLLECTION_NAME = "dynamic_agents";
  * - The agent itself (can't delegate to itself)
  * - Agents that would create a circular reference
  * 
- * Requires OpenFGA write access on the parent agent.
+ * Requires admin role.
  */
 export const GET = withErrorHandler(async (request: NextRequest) => {
   const { searchParams } = new URL(request.url);
@@ -33,7 +33,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     throw new ApiError("Agent ID is required", 400);
   }
 
-  const { session } = await getAuthFromBearerOrSession(request);
+  return await withAuth(request, async (req, user, session) => {
+    requireAdmin(session);
 
     const collection = await getCollection<DynamicAgentConfig>(COLLECTION_NAME);
 
@@ -42,7 +43,6 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     if (!parentAgent) {
       throw new ApiError("Agent not found", 404);
     }
-    await requireResourcePermission(session, { type: "agent", id: agentId, action: "write" });
 
     // Get all enabled agents (enabled: true OR enabled field doesn't exist, which defaults to true)
     const allAgents = await collection.find({ 
@@ -52,20 +52,13 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     // Find agents that would create a cycle
     const ancestors = getAncestorAgentIds(agentId, allAgents);
 
-    // Filter out self and ancestors before checking ReBAC can_use on candidates.
-    const candidates = allAgents.filter((agent) => {
-      if (agent._id === agentId) return false; // Can't delegate to self
-      if (ancestors.has(agent._id)) return false; // Would create a cycle
-      return true;
-    });
-
-    const usableCandidates = await filterResourcesByPermission(session, candidates, {
-      type: "agent",
-      action: "use",
-      id: (agent) => String(agent._id),
-    });
-
-    const available = usableCandidates
+    // Filter out self and ancestors
+    const available = allAgents
+      .filter((agent) => {
+        if (agent._id === agentId) return false; // Can't delegate to self
+        if (ancestors.has(agent._id)) return false; // Would create a cycle
+        return true;
+      })
       .map((agent) => ({
         id: agent._id,
         name: agent.name,
@@ -76,6 +69,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       }));
 
     return successResponse({ agents: available });
+  });
 });
 
 /**

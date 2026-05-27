@@ -1,10 +1,11 @@
 /**
- * Conversation-scoped Dynamic Agents file content proxy.
+ * Proxy route for dynamic agent file operations.
  *
- * GET    /api/dynamic-agents/conversations/[id]/files/content?agent_id=X&path=file.txt
- * DELETE /api/dynamic-agents/conversations/[id]/files/content?agent_id=X&path=file.txt
+ * GET /api/dynamic-agents/conversations/[id]/files/content?agent_id=X&path=Y
+ * DELETE /api/dynamic-agents/conversations/[id]/files/content?agent_id=X&path=Y
  *
- * Proxies to Dynamic Agents service: /api/v1/files/content
+ * This proxies to the Dynamic Agents service which retrieves/deletes file content
+ * from the LangGraph checkpointer state.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -14,15 +15,13 @@ import {
   proxyRequest,
 } from "@/lib/da-proxy";
 
-function buildFileNamespace(agentId: string, conversationId: string): string {
-  return JSON.stringify([agentId, conversationId, "filesystem"]);
-}
-
-async function proxyFileContent(
+/**
+ * Validate common params and return backend URL, or a NextResponse error.
+ */
+async function resolveBackendUrl(
   request: NextRequest,
   context: { params: Promise<{ id: string }> },
-  method: "GET" | "DELETE",
-): Promise<Response> {
+): Promise<{ backendUrl: string; authResult: Exclude<Awaited<ReturnType<typeof authenticateRequest>>, NextResponse> } | NextResponse> {
   const { id: conversationId } = await context.params;
 
   if (!conversationId) {
@@ -34,7 +33,7 @@ async function proxyFileContent(
 
   const { searchParams } = new URL(request.url);
   const agentId = searchParams.get("agent_id");
-  const filePath = searchParams.get("path");
+  const path = searchParams.get("path");
 
   if (!agentId) {
     return NextResponse.json(
@@ -43,44 +42,56 @@ async function proxyFileContent(
     );
   }
 
-  if (!filePath) {
+  if (!path) {
     return NextResponse.json(
       { success: false, error: "path query parameter is required" },
       { status: 400 },
     );
   }
 
-  const authResult = await authenticateRequest(request, {
-    resource: "dynamic_agent",
-    scope: "invoke",
-  });
+  // Authenticate
+  const authResult = await authenticateRequest(request);
   if (authResult instanceof NextResponse) return authResult;
 
+  // Check DA config
   const daConfig = getDynamicAgentsConfig();
   if (daConfig instanceof NextResponse) return daConfig;
 
-  const backendUrl = new URL("/api/v1/files/content", daConfig.dynamicAgentsUrl);
-  backendUrl.searchParams.set("fs_namespace", buildFileNamespace(agentId, conversationId));
-  backendUrl.searchParams.set("path", filePath);
-
-  return proxyRequest(
-    backendUrl.toString(),
-    method,
-    authResult,
-    `[conversation-files/content:${method}]`,
+  // Build backend URL
+  const backendUrl = new URL(
+    `/api/v1/conversations/${conversationId}/files/content`,
+    daConfig.dynamicAgentsUrl,
   );
+  backendUrl.searchParams.set("agent_id", agentId);
+  backendUrl.searchParams.set("path", path);
+
+  return { backendUrl: backendUrl.toString(), authResult };
 }
 
+/**
+ * GET /api/dynamic-agents/conversations/[id]/files/content
+ * Proxy to Dynamic Agents service to get file content from checkpointer.
+ */
 export async function GET(
   request: NextRequest,
   context: { params: Promise<{ id: string }> },
 ): Promise<Response> {
-  return proxyFileContent(request, context, "GET");
+  const resolved = await resolveBackendUrl(request, context);
+  if (resolved instanceof NextResponse) return resolved;
+
+  return proxyRequest(resolved.backendUrl, "GET", resolved.authResult, "[files/content]");
 }
 
+/**
+ * DELETE /api/dynamic-agents/conversations/[id]/files/content
+ * Proxy to Dynamic Agents service to delete a file from checkpointer.
+ */
 export async function DELETE(
   request: NextRequest,
   context: { params: Promise<{ id: string }> },
 ): Promise<Response> {
-  return proxyFileContent(request, context, "DELETE");
+  const resolved = await resolveBackendUrl(request, context);
+  if (resolved instanceof NextResponse) return resolved;
+
+  return proxyRequest(resolved.backendUrl, "DELETE", resolved.authResult, "[files/content]");
 }

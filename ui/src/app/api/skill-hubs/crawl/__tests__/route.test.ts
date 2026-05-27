@@ -56,11 +56,6 @@ jest.mock("@/lib/api-middleware", () => {
         ) => Promise<unknown>,
       ) => handler(_req, mockUser, mockSession),
     ),
-    getAuthFromBearerOrSession: jest.fn(async () => ({
-      user: mockUser,
-      session: mockSession,
-    })),
-    requireRbacPermission: jest.fn(async () => undefined),
   };
 });
 

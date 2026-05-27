@@ -7,7 +7,7 @@ let mockStorageMode: 'mongodb' | 'localStorage' = 'mongodb';
 jest.mock('@/lib/config', () => ({
   config: {
     get caipeUrl() {
-      return '/api/a2a';
+      return 'http://localhost:8000';
     },
     get storageMode() {
       return mockStorageMode;
@@ -46,22 +46,6 @@ describe('useCAIPEHealth', () => {
 
     await waitFor(() => {
       expect(result.current.status).toBe('connected');
-    });
-  });
-
-  it('checks supervisor health through the same-origin A2A proxy', async () => {
-    (global.fetch as jest.Mock).mockResolvedValue({
-      ok: true,
-      json: async () => ({ name: 'CAIPE', skills: [] }),
-    });
-
-    renderHook(() => useCAIPEHealth());
-
-    await waitFor(() => {
-      expect(global.fetch).toHaveBeenCalledWith(
-        '/api/a2a/.well-known/agent-card.json',
-        expect.objectContaining({ method: 'GET' })
-      );
     });
   });
 
