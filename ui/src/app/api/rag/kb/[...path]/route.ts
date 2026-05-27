@@ -99,6 +99,7 @@ async function proxyToRag(
     await requireResourcePermission(
       { sub: session.sub, role: session.role, user: session.user },
       { type: "knowledge_base", id: kbId, action: actionForKbRequest(method, pathSegments) },
+      { bypassForOrgAdmin: true },
     );
   }
 

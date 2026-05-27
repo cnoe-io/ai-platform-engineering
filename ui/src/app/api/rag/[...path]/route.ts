@@ -13,6 +13,8 @@ import {
   type ResourcePermissionAction,
 } from '@/lib/rbac/resource-authz';
 import { reconcileKnowledgeBaseRelationships } from '@/lib/rbac/openfga-owned-resources';
+import { checkOpenFgaTuple } from '@/lib/rbac/openfga';
+import { organizationObjectId } from '@/lib/rbac/organization';
 
 /**
  * RAG API Proxy with JWT Bearer Token Authentication
@@ -171,7 +173,11 @@ async function getAuthorizedRagContext(
   } else if (kbId) {
     const authzSession = { sub: session.sub, role: session.role, user: session.user };
     const target = { type: 'knowledge_base' as const, id: kbId, action: actionForRagRequest(method, pathSegments) };
-    await requireResourcePermission(authzSession, target);
+    // PR 1 of the 2026-05-27 fine-grained KB ReBAC plan — org admins
+    // (`organization#admin`) are always allowed on the KB sidebar
+    // surfaces. The kill switch `RAG_ADMIN_BYPASS_DISABLED=true`
+    // reverts to pure per-resource checks.
+    await requireResourcePermission(authzSession, target, { bypassForOrgAdmin: true });
   }
 
   const headers: Record<string, string> = {
@@ -225,7 +231,9 @@ async function filterDatasourceListResponse(
       action: 'read',
       id: datasourceId,
     },
-    { allowAdminBypass: true },
+    // PR 1 of the 2026-05-27 fine-grained KB ReBAC plan — org admins
+    // see every datasource without needing per-KB tuples.
+    { bypassForOrgAdmin: true },
   );
 
   return { ...envelope, datasources, count: datasources.length };
@@ -255,10 +263,37 @@ async function loadReadableDatasourceIds(
       action: 'read',
       id: datasourceId,
     },
-    { allowAdminBypass: true },
+    // PR 1 of the 2026-05-27 fine-grained KB ReBAC plan.
+    { bypassForOrgAdmin: true },
   );
 
   return datasources.map(datasourceId).filter(Boolean);
+}
+
+/**
+ * Org-admin OpenFGA short-circuit for the search/MCP-invoke filter
+ * injection path. Mirrors the `bypassForOrgAdmin` option threaded
+ * through `requireResourcePermission`. Honours
+ * `RAG_ADMIN_BYPASS_DISABLED=true` as a kill switch.
+ *
+ * assisted-by Cursor claude-opus-4-7
+ */
+async function isOrgAdminForRagBypass(subject: string | null | undefined): Promise<boolean> {
+  if (!subject) return false;
+  const killSwitch = process.env.RAG_ADMIN_BYPASS_DISABLED;
+  if (killSwitch === '1' || killSwitch?.trim().toLowerCase() === 'true') {
+    return false;
+  }
+  try {
+    const result = await checkOpenFgaTuple({
+      user: `user:${subject}`,
+      relation: 'can_manage',
+      object: organizationObjectId(),
+    });
+    return result.allowed === true;
+  } catch {
+    return false;
+  }
 }
 
 function constrainDatasourceFilter(
@@ -301,12 +336,22 @@ async function constrainSearchBody(
   pathSegments: string[],
   body: unknown,
 ): Promise<unknown> {
-  if (session.role === 'admin' || !isRecord(body)) {
+  if (!isRecord(body)) {
     return body;
   }
 
   const targetPath = pathSegments.join('/');
   if (targetPath !== 'v1/query' && targetPath !== 'v1/mcp/invoke') {
+    return body;
+  }
+
+  // PR 1 of the 2026-05-27 fine-grained KB ReBAC plan — org admins
+  // (resolved via OpenFGA, not session.role) skip filter injection so
+  // they search across every datasource. `session.role === 'admin'`
+  // alone is not sufficient because some installs disable the JWT-side
+  // role assignment.
+  const subject = typeof session.sub === 'string' ? session.sub : null;
+  if (await isOrgAdminForRagBypass(subject)) {
     return body;
   }
 
