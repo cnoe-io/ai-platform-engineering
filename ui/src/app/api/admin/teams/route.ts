@@ -17,6 +17,7 @@ import {
   resolveKeycloakUserSubject,
   writeTeamMembershipTuples,
 } from '@/lib/rbac/team-membership-sync';
+import { loadTeamMemberCounts } from '@/lib/rbac/team-membership-store';
 import type { TeamMembershipSource } from '@/types/identity-group-sync';
 
 export const dynamic = 'force-dynamic';
@@ -61,15 +62,35 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   await requireBaselineAdminSurfaceRead(session, 'teams');
 
   const teams = await getCollection('teams');
-  
+
   const allTeams = await teams
     .find({})
     .sort({ created_at: -1 })
     .toArray();
 
+  // Commit 4/8 of the canonical-team-membership refactor (spec
+  // 2026-05-26-canonical-team-membership): instead of returning
+  // team.members[] (which the Admin UI used to read .length on for the
+  // Members badge), decorate every row with `member_count` derived from
+  // the canonical team_membership_sources store via a single aggregation
+  // query. This is a tracer-bullet step — the legacy team.members[]
+  // payload is still emitted so older UI revisions and integration
+  // tests keep working until commit 5/8 drops the embedded array.
+  const slugs = allTeams
+    .map((team) => (typeof team.slug === 'string' ? team.slug : ''))
+    .filter((slug): slug is string => slug.length > 0);
+  const memberCounts = slugs.length > 0 ? await loadTeamMemberCounts(slugs) : new Map<string, number>();
+  const teamsWithCounts = allTeams.map((team) => {
+    const slug = typeof team.slug === 'string' ? team.slug : '';
+    return {
+      ...team,
+      member_count: slug ? memberCounts.get(slug) ?? 0 : 0,
+    };
+  });
+
   const response = successResponse({
-    teams: allTeams,
-    total: allTeams.length,
+    teams: teamsWithCounts,
+    total: teamsWithCounts.length,
   });
   response.headers.set('Cache-Control', 'no-store, max-age=0');
   return response;
