@@ -2,7 +2,7 @@
 
 **Feature Branch**: `prebuild/feat-canonical-team-membership`
 **Created**: 2026-05-26
-**Status**: Draft
+**Status**: SHIPPED (commits 1–8 of 8 merged; commit 8 conservative — see [tasks.md](./tasks.md#commit-8--schema-cleanup--eslint-guard-phase-3b) for the deferred schema-lockdown follow-up that fires once the migration is confirmed applied in every environment)
 **Input**: User description: "Why do we need to maintain two membership stores in CAIPE — `team_membership_sources` (audit/source-of-truth) and `teams.members[]`? As the owner of this repo, what is the most optimal solution to avoid code duplication?"
 
 ## Summary

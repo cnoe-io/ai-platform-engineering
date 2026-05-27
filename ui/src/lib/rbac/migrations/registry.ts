@@ -382,6 +382,12 @@ function deriveUniversalRebacPlan(input: {
       continue;
     }
 
+    // Historic universal-rebac migration: reads legacy team.members[] to seed
+    // team_membership_sources for clusters upgrading from < 0.5.1. After the
+    // canonical-team-membership refactor (spec 2026-05-26), live writers no
+    // longer populate this array, but this code path must remain for legacy
+    // upgrade paths and is harmless on already-canonical clusters (the array
+    // is undefined, so the loop is empty).
     for (const member of team.members ?? []) {
       const email = normalizeEmail(member.user_id);
       const subject = email ? emailSubjects.get(email) ?? email : null;
