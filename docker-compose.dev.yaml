@@ -1517,6 +1517,16 @@ services:
     # Same host port as caipe-ui — these two services are mutually exclusive.
     # Keycloak's caipe-ui client only allow-lists http://localhost:3000/*.
     ports: ["3000:3000"]
+    # Slack-bot, webex-bot, dynamic-agents, and a handful of other sibling
+    # services hardcode the in-network hostname `http://caipe-ui:3000` for
+    # CAIPE_API_URL/CREDENTIAL_API_URL. The hot-reload `caipe-ui` service
+    # gets that hostname for free via its container_name, but this prod
+    # sibling needs an explicit network alias so the same env var resolves
+    # when only `caipe-ui-prod` is up.
+    networks:
+      default:
+        aliases:
+          - caipe-ui
     env_file:
       - .env
     environment:
