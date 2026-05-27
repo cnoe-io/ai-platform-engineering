@@ -425,6 +425,227 @@ describe("dynamic agents RBAC routes", () => {
     );
   });
 
+  // Regression test for the May-27-2026 silent shared_with_teams bug.
+  // Before this fix, the editor's "Share with Teams" multi-select
+  // persisted to Mongo only — the canonical OpenFGA tuples
+  // (`team:<slug>#member can_use agent:<id>`) were never written, so the
+  // shared teams' members were denied in DM access checks and the
+  // multi-select was effectively decorative. The route must now resolve
+  // each shared entry to a canonical slug, drop the owner-team
+  // duplicate, persist slugs in Mongo, and propagate the slug set to
+  // the reconciler under `nextSharedTeamSlugs`.
+  // assisted-by Cursor Claude:claude-opus-4-7
+  it("resolves shared_with_teams entries to slugs and passes them to the reconciler on POST", async () => {
+    const insertOne = jest.fn();
+    const dynamicAgents = {
+      findOne: jest.fn().mockResolvedValue(null),
+      insertOne,
+    };
+    // The teams collection is consulted twice on POST:
+    //  1) `loadOwnerTeam` calls findOne for the owner slug
+    //  2) `resolveSharedTeamSlugs` calls find/project/toArray for
+    //     shared_with_teams resolution
+    const teams = {
+      findOne: jest.fn().mockResolvedValue({
+        _id: "platform-id",
+        slug: "platform",
+        members: [{ user_id: "alice@example.com", role: "admin" }],
+      }),
+      find: jest.fn().mockReturnValue({
+        project: jest.fn().mockReturnThis(),
+        toArray: jest.fn().mockResolvedValue([
+          { _id: "platform-id", slug: "platform" },
+          { _id: "sre-id", slug: "sre" },
+          { _id: "ops-id", slug: "ops" },
+        ]),
+      }),
+    };
+    mockGetCollection.mockImplementation(async (name: string) => {
+      if (name === "dynamic_agents") return dynamicAgents;
+      if (name === "teams") return teams;
+      throw new Error(`unexpected collection ${name}`);
+    });
+    const { POST } = await import("../route");
+
+    const response = await POST(
+      request("/api/dynamic-agents", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: "Shared Agent",
+          system_prompt: "Help",
+          model: { id: "gpt-4.1", provider: "openai" },
+          owner_team_slug: "platform",
+          visibility: "team",
+          // Mixed input: an _id (legacy editor shape), a canonical
+          // slug (post-fix editor shape), the owner team duplicate
+          // (must be dropped), and a bogus entry (must be ignored
+          // with a warning, never silently granted).
+          shared_with_teams: ["sre-id", "ops", "platform", "bogus"],
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    expect(mockReconcileAgentRelationships).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentId: "agent-shared-agent",
+        ownerTeamSlug: "platform",
+        // Canonical slug set, owner stripped, bogus dropped.
+        nextSharedTeamSlugs: ["sre", "ops"],
+        previousSharedTeamSlugs: [],
+      }),
+    );
+    // Mongo is persisted with the canonical slug form so the editor
+    // round-trips correctly on the next load.
+    expect(insertOne).toHaveBeenCalledWith(
+      expect.objectContaining({
+        shared_with_teams: ["sre", "ops"],
+      }),
+    );
+  });
+
+  it("emits previousSharedTeamSlugs so removing a team from the editor revokes its OpenFGA grant", async () => {
+    // PUT path: existing agent had ["sre", "ops"] shared. Admin
+    // unchecks "ops" in the editor and saves. The reconciler must
+    // receive both the new ["sre"] set AND the previous ["sre", "ops"]
+    // set so the diff produces a delete tuple for `team:ops#...`.
+    // Without `previousSharedTeamSlugs`, the unchecked team would keep
+    // its grant forever — which is the old (buggy) silent-Mongo
+    // behaviour we are fixing.
+    // assisted-by Cursor Claude:claude-opus-4-7
+    const existingAgent = {
+      _id: "agent-shared-agent",
+      name: "Shared Agent",
+      owner_team_slug: "platform",
+      owner_subject: "alice-sub",
+      shared_with_teams: ["sre", "ops"],
+      allowed_tools: {},
+      visibility: "team",
+    };
+    const findOneAndUpdate = jest.fn().mockResolvedValue({
+      ...existingAgent,
+      shared_with_teams: ["sre"],
+    });
+    const dynamicAgents = {
+      findOne: jest.fn().mockResolvedValue(existingAgent),
+      findOneAndUpdate,
+    };
+    const teams = {
+      find: jest.fn().mockReturnValue({
+        project: jest.fn().mockReturnThis(),
+        toArray: jest.fn().mockResolvedValue([
+          { _id: "sre-id", slug: "sre" },
+          { _id: "ops-id", slug: "ops" },
+        ]),
+      }),
+    };
+    mockGetCollection.mockImplementation(async (name: string) => {
+      if (name === "dynamic_agents") return dynamicAgents;
+      if (name === "teams") return teams;
+      throw new Error(`unexpected collection ${name}`);
+    });
+    // Platform-default guard short-circuit (this agent isn't default).
+    mockIsPlatformDefaultAgent.mockResolvedValue(false);
+
+    const { PUT } = await import("../route");
+
+    const response = await PUT(
+      request(
+        "/api/dynamic-agents?id=agent-shared-agent",
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ shared_with_teams: ["sre"] }),
+        },
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockReconcileAgentRelationships).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentId: "agent-shared-agent",
+        ownerTeamSlug: "platform",
+        nextSharedTeamSlugs: ["sre"],
+        previousSharedTeamSlugs: ["sre", "ops"],
+      }),
+    );
+    // The persisted shared_with_teams should be canonical slugs only.
+    expect(findOneAndUpdate).toHaveBeenCalledWith(
+      { _id: "agent-shared-agent" },
+      expect.objectContaining({
+        $set: expect.objectContaining({ shared_with_teams: ["sre"] }),
+      }),
+      expect.any(Object),
+    );
+  });
+
+  it("leaves shared_with_teams alone on PUT updates that don't include the field", async () => {
+    // Metadata-only edits (rename, prompt tweak, etc.) must NOT
+    // silently clear shared teams: the absence of `shared_with_teams`
+    // in the patch means "no change" — the previous slug set is passed
+    // as both `next` and `previous`, producing zero diff in the
+    // reconciler (idempotent).
+    // assisted-by Cursor Claude:claude-opus-4-7
+    const existingAgent = {
+      _id: "agent-shared-agent",
+      name: "Shared Agent",
+      owner_team_slug: "platform",
+      owner_subject: "alice-sub",
+      shared_with_teams: ["sre"],
+      allowed_tools: {},
+      visibility: "team",
+    };
+    const findOneAndUpdate = jest
+      .fn()
+      .mockResolvedValue({ ...existingAgent, name: "Renamed Agent" });
+    const dynamicAgents = {
+      findOne: jest.fn().mockResolvedValue(existingAgent),
+      findOneAndUpdate,
+    };
+    const teams = {
+      find: jest.fn().mockReturnValue({
+        project: jest.fn().mockReturnThis(),
+        toArray: jest.fn().mockResolvedValue([{ _id: "sre-id", slug: "sre" }]),
+      }),
+    };
+    mockGetCollection.mockImplementation(async (name: string) => {
+      if (name === "dynamic_agents") return dynamicAgents;
+      if (name === "teams") return teams;
+      throw new Error(`unexpected collection ${name}`);
+    });
+    mockIsPlatformDefaultAgent.mockResolvedValue(false);
+
+    const { PUT } = await import("../route");
+    const response = await PUT(
+      request(
+        "/api/dynamic-agents?id=agent-shared-agent",
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: "Renamed Agent" }),
+        },
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockReconcileAgentRelationships).toHaveBeenCalledWith(
+      expect.objectContaining({
+        nextSharedTeamSlugs: ["sre"],
+        previousSharedTeamSlugs: ["sre"],
+      }),
+    );
+    // The update document must not touch shared_with_teams since the
+    // patch didn't include it — only `name` and `updated_at`.
+    expect(findOneAndUpdate).toHaveBeenCalledWith(
+      { _id: "agent-shared-agent" },
+      expect.objectContaining({
+        $set: expect.not.objectContaining({ shared_with_teams: expect.anything() }),
+      }),
+      expect.any(Object),
+    );
+  });
+
   it("rejects creation when 'private' visibility is sent without an owner team (private retired)", async () => {
     // Post-2026-05-22 'private' visibility was retired: the API coerces the
     // legacy value to 'team', which then requires an explicit owner team.

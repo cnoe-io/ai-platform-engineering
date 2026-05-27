@@ -16,6 +16,7 @@ import { useToast } from "@/components/ui/toast";
 import { useEditorDirtyTracking } from "@/hooks/use-editor-dirty-tracking";
 import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
 import { UnsavedChangesDialog } from "@/components/task-builder/UnsavedChangesDialog";
+import { TeamPicker, TeamMultiPicker, type TeamPickerOption } from "@/components/ui/team-picker";
 
 // Lazy-load CodeMirror to avoid SSR issues
 const CodeMirrorEditor = React.lazy(() => import("@uiw/react-codemirror"));
@@ -1430,23 +1431,39 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                 <Label htmlFor="ownerTeam">
                   Owner Team {!isEditing && <span className="text-destructive">*</span>}
                 </Label>
-                <select
+                {/* Native <select> would mount the entire team list
+                    (often 600+ AWS-* SSO entries) directly into the
+                    DOM, making the editor unusable. Switched to the
+                    searchable TeamPicker on 2026-05-27 — same on-disk
+                    contract (slug-string), but the trigger renders
+                    only the current selection and admins can type to
+                    filter. Teams the caller is not a member of are
+                    rendered as `disabled` so they remain visible (the
+                    "why can't I pick this one?" answer) but not
+                    pickable, matching the old <option disabled>. */}
+                <TeamPicker
                   id="ownerTeam"
                   value={ownerTeamSlug}
-                  onChange={(e) => setOwnerTeamSlug(e.target.value)}
+                  onChange={setOwnerTeamSlug}
                   disabled={loading || isEditing}
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                >
-                  <option value="">Select a team that will own this agent</option>
-                  {availableTeams
-                    .filter((team) => team.slug)
-                    .map((team) => (
-                      <option key={team._id} value={team.slug} disabled={!team.can_own_agents}>
-                        {team.name}
-                        {team.user_role ? ` (${team.user_role})` : ""}
-                      </option>
-                    ))}
-                </select>
+                  placeholder="Select a team that will own this agent"
+                  searchPlaceholder="Search your teams..."
+                  emptyLabel={
+                    availableTeams.length === 0
+                      ? "You are not a member of any teams"
+                      : "No teams match"
+                  }
+                  options={availableTeams
+                    .filter((team): team is typeof team & { slug: string } => Boolean(team.slug))
+                    .map<TeamPickerOption>((team) => ({
+                      slug: team.slug,
+                      name: team.user_role
+                        ? `${team.name} (${team.user_role})`
+                        : team.name,
+                      _id: team._id,
+                      disabled: !team.can_own_agents,
+                    }))}
+                />
                 <p className="text-xs text-muted-foreground">
                   Owner-team members can use the agent; owner-team admins can manage it.
                 </p>
@@ -1502,37 +1519,92 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                   <div className="mt-4 p-3 rounded-lg border bg-muted/30">
                     <Label className="text-sm">Share with Teams</Label>
                     <p className="text-xs text-muted-foreground mb-3">
-                      Select which teams can access this agent.
+                      Select which teams can access this agent. Each selected
+                      team gets <code>can_use</code> on the agent in OpenFGA,
+                      so every member can DM it and use it in any Slack
+                      channel or Webex space mapped to that team.
                     </p>
                     {availableTeams.length === 0 ? (
                       <p className="text-xs text-muted-foreground italic">
                         You are not a member of any teams.
                       </p>
                     ) : (
-                      <div className="space-y-2">
-                        {availableTeams.map((team) => (
-                          <label
-                            key={team._id}
-                            className="flex items-center gap-2 cursor-pointer"
-                          >
-                            <input
-                              type="checkbox"
-                              checked={sharedWithTeams.includes(team._id)}
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  setSharedWithTeams([...sharedWithTeams, team._id]);
-                                } else {
-                                  setSharedWithTeams(sharedWithTeams.filter((id) => id !== team._id));
-                                }
-                              }}
-                              disabled={loading}
-                              className="rounded border-muted"
-                            />
-                            <span className="text-sm">{team.name}</span>
-                          </label>
-                        ))}
-                      </div>
+                      // Searchable multi-select — replaces the long
+                      // vertical checklist that became unusable in
+                      // environments with hundreds of AWS-* / SSO-*
+                      // teams (see screenshot 2026-05-27). Selected
+                      // teams render as chips on the trigger; the
+                      // full list is hidden until the popover opens.
+                      // `selected` accepts both canonical slugs and
+                      // legacy Mongo `_id` values for pre-migration
+                      // round-tripping; the picker normalises both
+                      // shapes against the options list.
+                      <TeamMultiPicker
+                        options={availableTeams
+                          .filter((team): team is typeof team & { slug: string } => Boolean(team.slug))
+                          .map<TeamPickerOption>((team) => ({
+                            slug: team.slug,
+                            name: team.name,
+                            _id: team._id,
+                          }))}
+                        selected={sharedWithTeams}
+                        onChange={setSharedWithTeams}
+                        disabled={loading}
+                        placeholder="Pick one or more teams to share with..."
+                        searchPlaceholder="Search your teams..."
+                        emptyLabel="No teams match"
+                      />
                     )}
+
+                    {/* Effective access summary — names exactly what the
+                        next save will write to OpenFGA so the admin
+                        cannot be surprised by transitive grants. The
+                        rendered list mirrors the diff computed in
+                        `reconcileAgentRelationships`. */}
+                    {(() => {
+                      const ownerSlug = ownerTeamSlug?.trim() || null;
+                      const sharedSlugs = sharedWithTeams
+                        .map((entry) => {
+                          const match = availableTeams.find(
+                            (t) => t._id === entry || t.slug === entry,
+                          );
+                          return match?.slug || (typeof entry === "string" ? entry : null);
+                        })
+                        .filter((slug): slug is string => Boolean(slug))
+                        .filter((slug) => slug !== ownerSlug);
+                      const allSlugs = [
+                        ...(ownerSlug ? [{ slug: ownerSlug, kind: "owner" as const }] : []),
+                        ...sharedSlugs.map((slug) => ({ slug, kind: "shared" as const })),
+                      ];
+                      if (allSlugs.length === 0) return null;
+                      return (
+                        <div
+                          role="note"
+                          aria-label="Effective access summary"
+                          className="mt-4 rounded-md border border-amber-300/60 bg-amber-50 p-3 text-xs text-amber-950 dark:bg-amber-950/30 dark:text-amber-200"
+                        >
+                          <div className="font-medium mb-2">
+                            On save, these OpenFGA grants will be written:
+                          </div>
+                          <ul className="space-y-1.5">
+                            {allSlugs.map(({ slug, kind }) => (
+                              <li key={`${kind}-${slug}`}>
+                                <code>team:{slug}#member</code> can use
+                                this agent
+                                {kind === "owner" && " (owner team)"}
+                                <span className="block pl-4 text-amber-900/80 dark:text-amber-300/80">
+                                  every member of <code>team:{slug}</code>{" "}
+                                  can DM this agent in a 1:1 chat and use
+                                  it in any Slack channel or Webex space
+                                  that is mapped to{" "}
+                                  <code>team:{slug}</code>.
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      );
+                    })()}
                   </div>
                 )}
               </div>
