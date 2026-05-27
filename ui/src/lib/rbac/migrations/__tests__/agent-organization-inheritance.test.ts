@@ -2,7 +2,16 @@ jest.mock("@/lib/mongodb", () => ({
   getCollection: jest.fn(),
 }));
 
+const mockReadOpenFgaTuples = jest.fn();
+const mockWriteOpenFgaTuples = jest.fn();
+
+jest.mock("@/lib/rbac/openfga", () => ({
+  readOpenFgaTuples: (...args: unknown[]) => mockReadOpenFgaTuples(...args),
+  writeOpenFgaTuples: (...args: unknown[]) => mockWriteOpenFgaTuples(...args),
+}));
+
 import {
+  DATA_SOURCE_GRANTS_BACKFILL_MIGRATION_ID,
   deriveAdminSurfaceRagDatasourcesAdminGrantPlan,
   deriveAgentOrganizationInheritancePlan,
   deriveAgentSharedTeamGrantsPlan,
@@ -11,7 +20,12 @@ import {
   deriveMcpToolGrantsBackfillPlan,
   deriveOrganizationMembershipPlan,
   deriveSkillHubTeamGrantPlan,
+  planMigration,
 } from "../registry";
+
+beforeEach(() => {
+  jest.clearAllMocks();
+});
 
 describe("agent organization inheritance migration", () => {
   it("plans organization-admin manager tuples for existing dynamic agents", () => {
@@ -380,6 +394,35 @@ describe("knowledge_base shared-team grants migration", () => {
 });
 
 describe("data_source grants backfill migration", () => {
+  it("plans from paginated OpenFGA reads without sending an invalid knowledge_base prefix filter", async () => {
+    mockReadOpenFgaTuples.mockResolvedValueOnce({
+      tuples: [
+        {
+          key: {
+            user: "team:platform#member",
+            relation: "reader",
+            object: "knowledge_base:kb-alpha",
+          },
+        },
+        {
+          key: {
+            user: "team:platform#member",
+            relation: "reader",
+            object: "agent:agent-1",
+          },
+        },
+      ],
+      continuationToken: undefined,
+    });
+
+    const plan = await planMigration(DATA_SOURCE_GRANTS_BACKFILL_MIGRATION_ID);
+
+    expect(mockReadOpenFgaTuples).toHaveBeenCalledWith({ pageSize: 100 });
+    expect(plan.tuples).toEqual([
+      { user: "team:platform#member", relation: "reader", object: "data_source:kb-alpha" },
+    ]);
+  });
+
   it("mirrors every knowledge_base tuple as a data_source tuple", () => {
     const plan = deriveDataSourceGrantsBackfillPlan([
       { user: "team:platform#member", relation: "reader", object: "knowledge_base:kb-alpha" },
