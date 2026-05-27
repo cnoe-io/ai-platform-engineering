@@ -22,7 +22,7 @@
 // source rows already exist; `$unset` of an already-missing field is
 // also a no-op).
 
-import { MongoClient, type Collection, type Db } from "mongodb";
+import { MongoClient, ObjectId, type Collection, type Db } from "mongodb";
 
 export const MIGRATION_ID = "canonical_team_membership_v1";
 export const MIGRATION_ACTOR = `migration:${MIGRATION_ID}`;
@@ -234,11 +234,20 @@ async function applyMigration(input: {
 
   let unsetTeams = 0;
   for (const teamId of input.plan.teamsToUnset) {
+    // `_id` in the `teams` collection is stored as ObjectId; the planner
+    // stringifies it for the plain-JSON plan. Re-coerce when both possible
+    // (24-hex string) and fall back to the string form for any legacy docs
+    // that happen to use a string `_id`. The OR keeps the migration safe
+    // against future schema drift without needing a separate filter for
+    // each case.
+    const filter: Record<string, unknown> = ObjectId.isValid(teamId)
+      ? { $or: [{ _id: new ObjectId(teamId) }, { _id: teamId }] }
+      : { _id: teamId };
     // `$unset` against a missing field is a no-op; `matchedCount` may
     // still be 0 if the team was deleted between planning and apply,
     // which we tolerate (the migration is best-effort idempotent).
     const result = await teams.updateOne(
-      { _id: teamId as never },
+      filter as never,
       { $unset: { members: "" } },
     );
     if (result.matchedCount > 0) unsetTeams += 1;
