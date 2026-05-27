@@ -331,6 +331,124 @@ export async function listOpenFgaObjects(
   );
 }
 
+/**
+ * OpenFGA's HTTP `Write` API caps each call at 100 tuple operations
+ * (writes + deletes combined). Larger diffs MUST be split or the call
+ * is rejected with `exceeded_entity_limit`.
+ *
+ * In CAIPE this surfaces most often during identity-group-sync reconciliation
+ * for users who carry many OIDC group claims (corporate ADs frequently
+ * yield 500+ groups per user). The plan happily computes the full diff
+ * but the un-chunked HTTP call fails, leaving Mongo populated with
+ * teams/membership-sources that have no backing OpenFGA tuples.
+ *
+ * Configurable via `OPENFGA_MAX_WRITES_PER_BATCH` for environments that
+ * tune the server-side limit (rare); defaults to 100 to match the stock
+ * server.
+ */
+const DEFAULT_OPENFGA_BATCH_LIMIT = 100;
+
+function openFgaBatchLimit(): number {
+  const fromEnv = Number(process.env.OPENFGA_MAX_WRITES_PER_BATCH);
+  if (Number.isFinite(fromEnv) && fromEnv > 0 && fromEnv <= 100) {
+    return Math.floor(fromEnv);
+  }
+  return DEFAULT_OPENFGA_BATCH_LIMIT;
+}
+
+/**
+ * Result of a single OpenFGA write chunk. Used by callers that need to
+ * compensate (delete already-written tuples) when a later chunk fails.
+ *
+ * `applied` is the exact list of tuple-keys the server acknowledged on
+ * success — the value passed in the request body, since OpenFGA's `Write`
+ * API is all-or-nothing per call (4xx/5xx aborts the call entirely
+ * server-side).
+ */
+interface OpenFgaChunkResult {
+  applied: { writes: OpenFgaTupleKey[]; deletes: OpenFgaTupleKey[] };
+}
+
+/**
+ * POST one chunk to OpenFGA's `Write` endpoint. Throws on non-2xx with a
+ * shape that callers can detect by name (`OpenFgaWriteError`).
+ */
+async function postOpenFgaWriteChunk(
+  baseUrl: string,
+  storeId: string,
+  chunk: TeamResourceTupleDiff,
+): Promise<OpenFgaChunkResult> {
+  if (chunk.writes.length === 0 && chunk.deletes.length === 0) {
+    return { applied: { writes: [], deletes: [] } };
+  }
+  const body = {
+    ...(chunk.writes.length > 0 ? { writes: { tuple_keys: chunk.writes } } : {}),
+    ...(chunk.deletes.length > 0 ? { deletes: { tuple_keys: chunk.deletes } } : {}),
+  };
+  const response = await fetch(`${baseUrl}/stores/${storeId}/write`, {
+    method: "POST",
+    headers: openFgaHeaders(),
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    const errorBody = await response.text().catch(() => "");
+    throw new OpenFgaWriteError(
+      `OpenFGA tuple write failed: ${response.status} ${errorBody.slice(0, 200)}`,
+      response.status,
+    );
+  }
+  return { applied: { writes: chunk.writes, deletes: chunk.deletes } };
+}
+
+/**
+ * Error thrown by chunked OpenFGA writes; carries the HTTP status so
+ * callers can distinguish 4xx (definitely not applied) from 5xx
+ * (ambiguous, but `Write` is all-or-nothing per call so this still means
+ * not applied for THIS call).
+ */
+export class OpenFgaWriteError extends Error {
+  readonly status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "OpenFgaWriteError";
+    this.status = status;
+  }
+}
+
+/**
+ * Split a diff into ≤`limit`-sized chunks. Writes and deletes share the
+ * same per-call budget (the OpenFGA limit counts them together). When
+ * the total fits in one chunk this returns a single-element array
+ * containing the original diff, so the common case is allocation-free.
+ */
+export function chunkOpenFgaDiff(
+  diff: TeamResourceTupleDiff,
+  limit: number = openFgaBatchLimit(),
+): TeamResourceTupleDiff[] {
+  if (diff.writes.length + diff.deletes.length <= limit) {
+    return [diff];
+  }
+  const chunks: TeamResourceTupleDiff[] = [];
+  // Greedy fill: drain writes first, then deletes. Order doesn't matter
+  // semantically (each chunk is its own server-side transaction), but
+  // grouping by kind makes the chunk shape easy to reason about in tests
+  // and in logs.
+  let writes = diff.writes;
+  let deletes = diff.deletes;
+  while (writes.length + deletes.length > 0) {
+    const take = Math.min(limit, writes.length + deletes.length);
+    const writeTake = Math.min(take, writes.length);
+    const deleteTake = take - writeTake;
+    chunks.push({
+      writes: writes.slice(0, writeTake),
+      deletes: deletes.slice(0, deleteTake),
+    });
+    writes = writes.slice(writeTake);
+    deletes = deletes.slice(deleteTake);
+  }
+  return chunks;
+}
+
 export async function writeOpenFgaTuples(diff: TeamResourceTupleDiff): Promise<OpenFgaReconcileResult> {
   assertWritableRelations(diff);
   if (!isOpenFgaConfigured()) {
@@ -349,22 +467,74 @@ export async function writeOpenFgaTuples(diff: TeamResourceTupleDiff): Promise<O
   if (filteredDiff.writes.length === 0 && filteredDiff.deletes.length === 0) {
     return { enabled: true, writes: 0, deletes: 0 };
   }
-  const body = {
-    ...(filteredDiff.writes.length > 0 ? { writes: { tuple_keys: filteredDiff.writes } } : {}),
-    ...(filteredDiff.deletes.length > 0 ? { deletes: { tuple_keys: filteredDiff.deletes } } : {}),
-  };
 
-  const response = await fetch(`${baseUrl}/stores/${storeId}/write`, {
-    method: "POST",
-    headers: openFgaHeaders(),
-    body: JSON.stringify(body),
-  });
-  if (!response.ok) {
-    const errorBody = await response.text().catch(() => "");
-    throw new Error(`OpenFGA tuple write failed: ${response.status} ${errorBody.slice(0, 200)}`);
+  // Chunk to honor OpenFGA's per-call entity limit. Each chunk is its
+  // own server-side transaction; on failure we attempt to compensate
+  // already-applied chunks so callers see "all-or-nothing" semantics
+  // across the full diff. If a chunk fails AND compensation also fails,
+  // we surface the original error and log the compensation failure —
+  // the caller is responsible for higher-level rollback (e.g. the
+  // identity-group-sync reconciler reverts Mongo state on this throw).
+  const chunks = chunkOpenFgaDiff(filteredDiff);
+  const applied: OpenFgaChunkResult[] = [];
+  let totalWrites = 0;
+  let totalDeletes = 0;
+  try {
+    for (const chunk of chunks) {
+      const result = await postOpenFgaWriteChunk(baseUrl, storeId, chunk);
+      applied.push(result);
+      totalWrites += result.applied.writes.length;
+      totalDeletes += result.applied.deletes.length;
+    }
+  } catch (err) {
+    if (applied.length > 0) {
+      await compensateAppliedChunks(baseUrl, storeId, applied).catch(
+        (compensationErr) => {
+          console.error(
+            "[openfga] failed to compensate already-applied tuple chunks; manual cleanup may be required",
+            { compensationErr, originalError: err },
+          );
+        },
+      );
+    }
+    throw err;
   }
 
-  return { enabled: true, writes: filteredDiff.writes.length, deletes: filteredDiff.deletes.length };
+  return { enabled: true, writes: totalWrites, deletes: totalDeletes };
+}
+
+/**
+ * Best-effort compensating rollback of chunks that were successfully
+ * applied before a later chunk failed. For each acknowledged write we
+ * issue a delete; for each acknowledged delete we re-issue the write.
+ *
+ * Compensation is itself chunked. If compensation throws, the error is
+ * logged at the call site (we don't want compensation failures to mask
+ * the original error). OpenFGA's idempotency on duplicate-delete /
+ * duplicate-write is what makes this safe even if some compensation
+ * tuples partially succeeded before our compensation failed.
+ */
+async function compensateAppliedChunks(
+  baseUrl: string,
+  storeId: string,
+  applied: OpenFgaChunkResult[],
+): Promise<void> {
+  const compensateWrites: OpenFgaTupleKey[] = [];
+  const compensateDeletes: OpenFgaTupleKey[] = [];
+  for (const result of applied) {
+    // Reverse a write by deleting the same tuple, and reverse a delete
+    // by re-writing it.
+    compensateWrites.push(...result.applied.deletes);
+    compensateDeletes.push(...result.applied.writes);
+  }
+  const compensationDiff: TeamResourceTupleDiff = {
+    writes: compensateWrites,
+    deletes: compensateDeletes,
+  };
+  const chunks = chunkOpenFgaDiff(compensationDiff);
+  for (const chunk of chunks) {
+    await postOpenFgaWriteChunk(baseUrl, storeId, chunk);
+  }
 }
 
 async function filterTupleDiff(
