@@ -82,6 +82,7 @@ jest.mock("framer-motion", () => ({
 // ============================================================================
 
 import { DynamicAgentEditor } from "../DynamicAgentEditor";
+import { pickTeam } from "@/__test-utils__/team-picker";
 
 // ============================================================================
 // Helpers
@@ -188,9 +189,8 @@ describe("DynamicAgentEditor — submit-blocked hint", () => {
     // Pre-condition: Owner Team is currently the first blocker.
     expect(await screen.findByTestId("create-agent-blocker-hint")).toHaveTextContent(/Owner Team/);
 
-    // Pick the team.
-    const ownerSelect = screen.getByLabelText(/Owner Team/i) as HTMLSelectElement;
-    fireEvent.change(ownerSelect, { target: { value: "platform" } });
+    // Pick the team via the searchable TeamPicker (2026-05-27).
+    await pickTeam(/Owner Team/i, "platform");
 
     // System prompt is still empty — so the hint stays visible, but now it
     // surfaces Instructions instead of Owner Team. Owner Team must be gone.

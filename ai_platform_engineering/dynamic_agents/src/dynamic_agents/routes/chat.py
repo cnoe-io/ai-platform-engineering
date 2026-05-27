@@ -14,7 +14,12 @@ from dynamic_agents.config import get_settings
 from dynamic_agents.log_config import conversation_id_var
 from dynamic_agents.models import ChatRequest, ClientContext, DynamicAgentConfig, UserContext
 from dynamic_agents.services.mongo import MongoDBService, get_mongo_service
-from dynamic_agents.services.runtime_cache import RuntimeCapacityError, get_runtime_cache
+from dynamic_agents.services.llm_clients import LLMConfigError
+from dynamic_agents.services.runtime_cache import (
+    RuntimeCapacityError,
+    RuntimeInitError,
+    get_runtime_cache,
+)
 from dynamic_agents.services.stream_encoders import StreamEncoder, get_encoder
 
 logger = logging.getLogger(__name__)
@@ -216,6 +221,25 @@ async def _generate_sse_events(
         logger.warning(f"Agent runtime at capacity: {e}")
         for frame in encoder.on_run_error("This agent is at capacity right now. Please try again in a moment."):
             yield frame
+    except RuntimeInitError as e:
+        # If init failed because of a config problem (no LLM provider/model,
+        # invalid provider, missing API key, etc.) we own the message — emit
+        # the actionable LLMConfigError text instead of GENERIC_AGENT_ERROR
+        # so the client surface (Slack/Webex/UI) can tell the operator what
+        # to fix. Anything else falls through to the generic message.
+        cause = e.cause
+        if isinstance(cause, LLMConfigError):
+            logger.warning(
+                f"Agent '{agent_config.name}' has no usable LLM config: {cause}"
+            )
+            for frame in encoder.on_run_error(str(cause)):
+                yield frame
+        else:
+            logger.exception(
+                f"Runtime init failed for agent '{agent_config.name}'"
+            )
+            for frame in encoder.on_run_error(GENERIC_AGENT_ERROR):
+                yield frame
     except Exception:
         logger.exception(f"Error streaming from agent '{agent_config.name}'")
         for frame in encoder.on_run_error(GENERIC_AGENT_ERROR):

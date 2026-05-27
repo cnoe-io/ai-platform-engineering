@@ -49,17 +49,42 @@ jest.mock("@/lib/rbac/openfga", () => ({
   writeOpenFgaTuples: (...args: unknown[]) => mockWriteOpenFgaTuples(...args),
 }));
 
+/**
+ * Minimal MongoDB-filter shim. Supports the shapes used by route
+ * handlers under test:
+ *   - equality:               { team_slug: "x" }
+ *   - object id equality:     { _id: <ObjectId> }
+ *   - $or with sub-filters:   { $or: [{user_email: ...}, ...] }
+ *   - $ne:                    { status: { $ne: "removed" } }
+ *   - $in:                    { slug: { $in: [...] } }
+ */
 function matchesFilter(row: any, filter: Record<string, any>): boolean {
   return Object.entries(filter).every(([key, value]) => {
+    if (key === "$or" && Array.isArray(value)) {
+      return value.some((clause: Record<string, any>) => matchesFilter(row, clause));
+    }
     if (value instanceof ObjectId) return String(row[key]) === String(value);
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      if ("$ne" in value) return row[key] !== value.$ne;
+      if ("$in" in value) return Array.isArray(value.$in) && value.$in.includes(row[key]);
+    }
     return row[key] === value;
   });
 }
 
 function createMockCollection(rows: any[]) {
+  // Cursor must support `find().toArray()` so the canonical
+  // team-membership reader (post 2026-05-26 canonical-membership refactor)
+  // can resolve the calling user's role for KB-permission gates.
   return {
     rows,
     findOne: jest.fn(async (filter: Record<string, any>) => rows.find((row) => matchesFilter(row, filter)) ?? null),
+    find: jest.fn((filter: Record<string, any> = {}) => ({
+      toArray: jest.fn(async () => rows.filter((row) => matchesFilter(row, filter))),
+      sort: jest.fn().mockReturnValue({
+        toArray: jest.fn(async () => rows.filter((row) => matchesFilter(row, filter))),
+      }),
+    })),
     updateOne: jest.fn(async (filter: Record<string, any>, update: any, options?: any) => {
       const row = rows.find((candidate) => matchesFilter(candidate, filter));
       if (row && update.$set) Object.assign(row, update.$set);
@@ -209,7 +234,17 @@ describe("/api/admin/teams/[id]/kb-assignments", () => {
         _id: teamId,
         slug: "platform",
         name: "Platform",
-        members: [{ user_id: "lead@example.com", role: "admin" }],
+      },
+    ]);
+    // Post-canonical-membership refactor: scoped-admin gate reads from
+    // team_membership_sources, not team.members[].
+    mockCollections.team_membership_sources = createMockCollection([
+      {
+        team_slug: "platform",
+        user_email: "lead@example.com",
+        relationship: "admin",
+        source_type: "manual",
+        status: "active",
       },
     ]);
     const { PUT } = await import("../route");

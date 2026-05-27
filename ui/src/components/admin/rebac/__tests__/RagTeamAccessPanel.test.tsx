@@ -68,7 +68,10 @@ it("saves RAG datasource admin access as an admin surface tuple", async () => {
   render(<RagTeamAccessPanel isAdmin />);
 
   expect(await screen.findByText("RAG Team Access")).toBeInTheDocument();
-  expect(await screen.findByRole("option", { name: "Platform" })).toBeInTheDocument();
+  // Team picker is now a searchable TeamPicker (2026-05-27) so the
+  // options aren't in the DOM until the popover opens. Confirm the
+  // selected team is rendered on the trigger label instead.
+  expect(await screen.findByLabelText("Team")).toHaveTextContent(/Platform/);
   fireEvent.click(await screen.findByRole("checkbox", { name: /Data Sources admin/ }));
   fireEvent.click(screen.getByRole("button", { name: "Save RAG Team Access" }));
 

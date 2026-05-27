@@ -4,6 +4,7 @@ jest.mock("@/lib/mongodb", () => ({
 
 import {
   deriveAgentOrganizationInheritancePlan,
+  deriveAgentSharedTeamGrantsPlan,
   deriveOrganizationMembershipPlan,
   deriveSkillHubTeamGrantPlan,
 } from "../registry";
@@ -73,6 +74,92 @@ describe("organization membership migration", () => {
         after: { user: "user:bob-sub", relation: "member", object: "organization:caipe" },
       },
     ]);
+  });
+});
+
+// assisted-by Cursor Claude:claude-opus-4-7
+//
+// Regression test for the May-27-2026 silent-shared-team-grant bug:
+// before this migration, the dynamic_agents.shared_with_teams field
+// was Mongo-only — no canonical OpenFGA `team:<slug>#member can_use
+// agent:<id>` tuples were written. The backfill walks every existing
+// agent, resolves shared entries (legacy _id OR slug) against the
+// teams collection, and writes the two-tuple pair per shared team.
+describe("agent shared team grants migration", () => {
+  it("writes member+admin tuples for every resolved shared team and skips the owner-team duplicate", () => {
+    const plan = deriveAgentSharedTeamGrantsPlan(
+      [
+        {
+          _id: "agent-deploy-helper",
+          owner_team_slug: "platform",
+          // Mixed legacy + modern + duplicate + bogus entries — only
+          // sre + ops should produce tuples (platform is owner,
+          // "missing-team" doesn't exist).
+          shared_with_teams: [
+            "507f1f77bcf86cd799439011", // → sre via _id
+            "ops", // → ops via slug
+            "platform", // owner — must be filtered
+            "missing-team", // unresolved — warning only
+          ],
+        },
+        {
+          _id: "agent-noop",
+          owner_team_slug: "platform",
+          shared_with_teams: [],
+        },
+        {
+          _id: "bad id",
+          owner_team_slug: "platform",
+          shared_with_teams: ["sre"],
+        },
+      ],
+      [
+        { _id: "507f1f77bcf86cd799439011", slug: "sre" },
+        { slug: "ops" },
+        { slug: "platform" },
+      ],
+    );
+
+    expect(plan.counts).toMatchObject({
+      agents_scanned: 3,
+      agents_with_shared_teams: 1,
+      shared_slugs_resolved: 2,
+      unresolved_entries: 1,
+      teams_scanned: 3,
+      tuples_planned: 4,
+    });
+    expect(plan.tuple_writes_planned).toBe(4);
+    expect(plan.sample_diffs).toEqual([
+      {
+        collection: "openfga_tuples",
+        id: "agent_shared_team_grants_backfill_v1:0",
+        before: {},
+        after: { user: "team:sre#member", relation: "user", object: "agent:agent-deploy-helper" },
+      },
+      {
+        collection: "openfga_tuples",
+        id: "agent_shared_team_grants_backfill_v1:1",
+        before: {},
+        after: { user: "team:sre#admin", relation: "manager", object: "agent:agent-deploy-helper" },
+      },
+      {
+        collection: "openfga_tuples",
+        id: "agent_shared_team_grants_backfill_v1:2",
+        before: {},
+        after: { user: "team:ops#member", relation: "user", object: "agent:agent-deploy-helper" },
+      },
+      {
+        collection: "openfga_tuples",
+        id: "agent_shared_team_grants_backfill_v1:3",
+        before: {},
+        after: { user: "team:ops#admin", relation: "manager", object: "agent:agent-deploy-helper" },
+      },
+    ]);
+    // Warnings exist for the bad agent id and the unresolved team
+    // reference — the migration must surface these instead of silently
+    // dropping them, so admins know exactly what wasn't backfilled.
+    expect(plan.warnings.some((w: string) => w.includes("missing-team"))).toBe(true);
+    expect(plan.warnings.some((w: string) => w.includes("bad id"))).toBe(true);
   });
 });
 

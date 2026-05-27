@@ -34,7 +34,8 @@ import {
   buildTeamResourceTupleDiff,
   writeOpenFgaTupleDiff,
 } from "@/lib/rbac/openfga";
-import type { Team, TeamMember } from "@/types/teams";
+import { loadActiveTeamMembers } from "@/lib/rbac/team-membership-store";
+import type { Team } from "@/types/teams";
 
 interface DynamicAgentLite {
   _id: string;
@@ -321,22 +322,30 @@ export const PUT = withErrorHandler(
 
       // ── 1. Resolve current member subjects for OpenFGA team membership.
       //
-      //    A team can have a member email that doesn't have a Keycloak account
-      //    yet (e.g. invited but never logged in). We log + skip those rather
-      //    than failing the whole PUT — the UI flags them in the response.
-      const members: TeamMember[] = team.members ?? [];
+      //    Member list comes from the canonical team_membership_sources
+      //    store (post 2026-05-26 canonical-membership refactor); deduped
+      //    by identity, status:"active" only. A team can have a member
+      //    email that doesn't have a Keycloak account yet (e.g. invited
+      //    but never logged in). We log + skip those rather than failing
+      //    the whole PUT — the UI flags them in the response. Subject-
+      //    only rows (no email) are also skipped because Keycloak lookup
+      //    is by email.
+      const canonicalMembers = await loadActiveTeamMembers(team.slug ?? "");
+      const memberEmails: string[] = canonicalMembers
+        .map((m) => m.user_email)
+        .filter((email): email is string => typeof email === "string" && email.length > 0);
       const skippedMembers: string[] = [];
       const resolvedMembers: string[] = [];
       const resolvedMemberUserIds: string[] = [];
 
-      for (const m of members) {
-        const userId = await findUserIdByEmail(m.user_id);
+      for (const memberEmail of memberEmails) {
+        const userId = await findUserIdByEmail(memberEmail);
         if (!userId) {
-          skippedMembers.push(m.user_id);
+          skippedMembers.push(memberEmail);
           continue;
         }
         resolvedMemberUserIds.push(userId);
-        resolvedMembers.push(m.user_id);
+        resolvedMembers.push(memberEmail);
       }
 
       // ── 2. Reconcile OpenFGA ReBAC tuples before Mongo persistence.

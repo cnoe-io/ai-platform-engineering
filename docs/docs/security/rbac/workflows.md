@@ -870,6 +870,79 @@ The two load-bearing invariants are:
 1. **Audience follows the next hop.** Bot pre-dispatch calls target the CAIPE UI BFF, so OBO uses `CAIPE_PLATFORM_AUDIENCE` (`caipe-platform` by default). The same bearer can still be forwarded later because Dynamic Agents and AgentGateway accept `caipe-platform`.
 2. **Team context is data-layer derived, not JWT-signed** (Phase 3 of spec 2026-05-24-derive-team-from-channel). Channel/space → team mapping is read from MongoDB at every request, and the BFF + AgentGateway PDP evaluate the OpenFGA decision against that mapping. The OBO token is team-agnostic.
 
+#### Sharing model: assigning a channel to a team transitively shares its agents
+
+Channel-dispatch authorization deliberately uses the channel's mapped team as
+the user-side subject of the `can_use agent:<id>` check
+(`team:<slug>#member can_use agent:<id>`). This is **stronger than a direct
+per-user grant on the user → agent edge**, because the OpenFGA model lets a
+user reach the agent through any team they belong to that has the grant.
+
+Operationally that means:
+
+- Assigning channel `C` to `team:T` and then sharing any agent `A` with `C`
+  (via the channel's `can_use agent` tuple) **also makes `A` callable in `C`
+  by every member of `team:T`**, including members who were never granted
+  `A` directly.
+- Removing the channel→team assignment, or unsharing the agent from the
+  channel, revokes that transitive access immediately on the next request.
+- A DM with the same user does **not** inherit this channel→team cascade
+  on its own — DM dispatch uses `user:<sub> can_use agent:<id>` and
+  ignores channel/team mappings. However, the DM check **does** fall
+  back to a team-union OpenFGA evaluation against existing
+  `team:<slug>#member can_use agent:<id>` tuples (see
+  `evaluateAgentAccess`), so any agent explicitly shared with a team
+  via the Agent editor (next section) **is** callable in DM by every
+  member of that team.
+
+If an agent must stay private to a subset of a team, do not pin it to a
+channel that is mapped to that team. Either:
+
+1. Share the agent with a smaller team (or with individual users) and keep
+   the channel mapped to the broader team for other agents, or
+2. Map the channel to a narrower team whose membership matches the intended
+   audience for that agent.
+
+The admin UI (Slack channel and Webex space ReBAC panels) surfaces this
+trade-off in the top-of-card "Sharing model" callout and in a per-channel
+heads-up under the agent-association form. Future work may add an
+optional per-channel agent allow-list that is stricter than the team-level
+grant; until then, the team cascade is the canonical policy and is
+documented behavior, not a bug.
+
+#### Sharing model: explicit "Share with Teams" on an agent
+
+The Agent editor (`DynamicAgentEditor`) has a "Share with Teams"
+multi-select that operates on the same two-tuple inheritance pair as
+the owner team, but **additively** — selecting a team T writes
+`team:T#member can_use agent:<id>` and `team:T#admin can_manage
+agent:<id>` to OpenFGA without disturbing the owner-team tuples. The
+practical consequence is:
+
+- Every member of team T can DM the agent in a 1:1 chat (because the
+  DM dispatch's team-union fallback resolves `user:<sub>` →
+  `team:T#member` → `can_use agent:<id>`).
+- Every member of team T can use the agent in any Slack channel or
+  Webex space whose `channel_team_mappings`/`webex_space_team_mappings`
+  row points at team T (because channel dispatch evaluates
+  `team:T#member can_use agent:<id>` directly).
+- Every admin of team T inherits `can_manage` on the agent and can
+  edit, disable, or delete it from the admin surfaces.
+
+Removing a team from the multi-select on the editor is symmetric:
+`POST/PUT /api/dynamic-agents` walks the previous `shared_with_teams`
+list against the new one and emits OpenFGA *delete* tuples for every
+removed slug (via `previousSharedTeamSlugs` on
+`reconcileAgentRelationships`). Until 2026-05-27 this field was
+Mongo-only — the multi-select silently denied access — see
+`agent_shared_team_grants_backfill_v1` for the one-shot replay that
+fixes existing agents.
+
+The "Effective access" callout under the multi-select is the
+operator-facing render of exactly which `team:<slug>#member` tuples the
+next save will write to OpenFGA, so admins can confirm the transitive
+grant before the form is submitted.
+
 ### `/use default` workflow (DM personal default)
 
 `/caipe-use default <agent_id>` and `/caipe-use default` (no agent) update a

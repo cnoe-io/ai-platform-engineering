@@ -88,11 +88,17 @@ jest.spyOn(console, 'warn').mockImplementation(() => {});
 // ============================================================================
 
 function createMockCollection() {
+  // Cursor supports BOTH `find().toArray()` and `find().sort().toArray()`.
+  // Team-admin-guard reader (post 2026-05-26 canonical-membership) calls
+  // toArray() directly. `deleteMany` is also stubbed because
+  // `upsertTeamMembershipSource` (called by route POST) uses it to
+  // collapse stale rows.
   return {
     find: jest.fn().mockReturnValue({
       sort: jest.fn().mockReturnValue({
         toArray: jest.fn().mockResolvedValue([]),
       }),
+      toArray: jest.fn().mockResolvedValue([]),
     }),
     findOne: jest.fn().mockResolvedValue(null),
     insertOne: jest.fn().mockResolvedValue({ insertedId: new ObjectId() }),
@@ -100,6 +106,7 @@ function createMockCollection() {
     updateOne: jest.fn().mockResolvedValue({ matchedCount: 1, modifiedCount: 1 }),
     updateMany: jest.fn().mockResolvedValue({ modifiedCount: 0 }),
     deleteOne: jest.fn().mockResolvedValue({ deletedCount: 1 }),
+    deleteMany: jest.fn().mockResolvedValue({ deletedCount: 0 }),
     countDocuments: jest.fn().mockResolvedValue(0),
     aggregate: jest.fn().mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) }),
   };
@@ -134,9 +141,15 @@ function userSession() {
 }
 
 const TEST_TEAM_ID = '507f1f77bcf86cd799439011';
+const TEST_TEAM_SLUG = 'platform-engineering';
 const TEST_TEAM = {
   _id: new ObjectId(TEST_TEAM_ID),
   name: 'Platform Engineering',
+  // Post 2026-05-26 canonical-membership refactor: route handlers
+  // require a slug to query team_membership_sources. Pre-refactor the
+  // tests passed without a slug because the routes read the embedded
+  // members[] array directly.
+  slug: TEST_TEAM_SLUG,
   description: 'The platform team',
   owner_id: 'admin@example.com',
   created_at: new Date(),
@@ -157,6 +170,67 @@ const TEST_TEAM = {
   ],
 };
 
+/**
+ * Seed `team_membership_sources` to mirror TEST_TEAM.members so route
+ * handlers that gate on canonical membership find the same identities.
+ * Pre 2026-05-26 the routes read team.members[] directly; this seed
+ * keeps the existing test cases green without overhauling the entire
+ * suite.
+ *
+ * Crucial: `find()` honors the `user_email` clause so per-user lookups
+ * (`findUserRoleInTeam(slug, {user_email})`) only return matching rows.
+ * Without this, every user appears to be a team admin and the 403/404
+ * tests collapse into 200/400.
+ */
+function seedTestTeamCanonicalMembers() {
+  // Start from createMockCollection() so the stub also has updateOne,
+  // deleteMany, etc. — needed by upsertTeamMembershipSource and
+  // related write paths that the route still exercises post-gate.
+  const sourcesCol = createMockCollection();
+  const rows = [
+    {
+      team_slug: TEST_TEAM_SLUG,
+      user_email: 'admin@example.com',
+      relationship: 'admin',
+      source_type: 'manual',
+      status: 'active',
+    },
+    {
+      team_slug: TEST_TEAM_SLUG,
+      user_email: 'member@example.com',
+      relationship: 'member',
+      source_type: 'manual',
+      status: 'active',
+    },
+  ];
+  // Minimal MongoDB-filter shim. Supports the exact filter shapes used
+  // by the canonical-membership readers: equality on `team_slug`, `status`,
+  // and identity clauses (`user_email`, `user_subject`) inside `$or`.
+  function rowMatches(filter: Record<string, unknown>, row: Record<string, unknown>): boolean {
+    for (const [key, value] of Object.entries(filter)) {
+      if (key === '$or' && Array.isArray(value)) {
+        if (!value.some((clause: Record<string, unknown>) => rowMatches(clause, row))) return false;
+        continue;
+      }
+      if (value && typeof value === 'object' && '$in' in (value as object)) {
+        const arr = (value as { $in: unknown[] }).$in ?? [];
+        if (!arr.includes(row[key])) return false;
+        continue;
+      }
+      if (row[key] !== value) return false;
+    }
+    return true;
+  }
+  sourcesCol.find = jest.fn((filter: Record<string, unknown> = {}) => {
+    const matched = rows.filter((row) => rowMatches(filter, row));
+    return {
+      sort: jest.fn().mockReturnValue({ toArray: jest.fn().mockResolvedValue(matched) }),
+      toArray: jest.fn().mockResolvedValue(matched),
+    };
+  });
+  mockCollections['team_membership_sources'] = sourcesCol;
+}
+
 // ============================================================================
 // Test Setup
 // ============================================================================
@@ -166,6 +240,11 @@ beforeEach(() => {
   mockIsMongoDBConfigured = true;
   Object.keys(mockCollections).forEach(key => delete mockCollections[key]);
   setDefaultCheckPermissionMock();
+  // Default: team_membership_sources mirrors TEST_TEAM.members so the
+  // canonical-store reader (post 2026-05-26 canonical-membership refactor)
+  // returns the expected identities. Tests that need a different roster
+  // can override mockCollections.team_membership_sources after this.
+  seedTestTeamCanonicalMembers();
 });
 
 // ============================================================================
@@ -454,10 +533,18 @@ describe('POST /api/admin/teams/[id]/members', () => {
     expect(res.status).toBe(201);
     expect(body.success).toBe(true);
     expect(body.data.team).toBeDefined();
+    // Commit 6/8 of the canonical-team-membership refactor (spec
+    // 2026-05-26-canonical-team-membership): the POST /members route
+    // no longer $push'es into teams.members[]. It only refreshes the
+    // mutation timestamps on the team doc; the new member lives in
+    // team_membership_sources (covered by membership-sources.test.ts).
     expect(teamsCol.updateOne).toHaveBeenCalledTimes(1);
     const updateCall = teamsCol.updateOne.mock.calls[0];
-    expect(updateCall[1].$push.members.user_id).toBe('new@example.com');
-    expect(updateCall[1].$push.members.role).toBe('admin');
+    expect(updateCall[1].$push).toBeUndefined();
+    expect(updateCall[1].$set).toMatchObject({
+      updated_by: 'admin@example.com',
+    });
+    expect(updateCall[1].$set.updated_at).toBeInstanceOf(Date);
   });
 });
 

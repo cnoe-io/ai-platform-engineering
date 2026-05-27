@@ -3,6 +3,7 @@ import { successResponse, withErrorHandler } from "@/lib/api-middleware";
 import { getCollection } from "@/lib/mongodb";
 import { isOpenFgaConfigured, isOpenFgaReconciliationEnabled } from "@/lib/rbac/openfga";
 import { listRebacCatalog } from "@/lib/rbac/resource-catalog";
+import { loadTeamMembersForSlugs } from "@/lib/rbac/team-membership-store";
 import type { Team } from "@/types/teams";
 import { withOpenFgaViewAuth } from "../_lib";
 
@@ -100,6 +101,16 @@ export const GET = withErrorHandler(async (request: NextRequest) =>
       return acc;
     }, {});
 
+    // Member rosters come from the canonical team_membership_sources
+    // store (post 2026-05-26 canonical-membership refactor). One bulk
+    // query covers every team in the catalog. Each canonical member is
+    // shaped back into the legacy { user_id, role } pair so existing
+    // catalog consumers don't need to change.
+    const teamSlugs = teams
+      .map((t) => t.slug)
+      .filter((slug): slug is string => typeof slug === "string" && slug.length > 0);
+    const membersBySlug = await loadTeamMembersForSlugs(teamSlugs);
+
     return successResponse({
       status: {
         configured: isOpenFgaConfigured(),
@@ -108,16 +119,20 @@ export const GET = withErrorHandler(async (request: NextRequest) =>
       },
       resource_types: universal.resource_types,
       actions: universal.actions,
-      teams: teams.map((team) => ({
-        id: String(team._id),
-        slug: team.slug || String(team._id),
-        name: team.name,
-        members: (team.members ?? []).map((member) => ({
-          user_id: member.user_id,
-          role: member.role,
-        })),
-        resources: team.resources ?? {},
-      })),
+      teams: teams.map((team) => {
+        const slug = team.slug || String(team._id);
+        const canonical = team.slug ? membersBySlug.get(team.slug) ?? [] : [];
+        return {
+          id: String(team._id),
+          slug,
+          name: team.name,
+          members: canonical.map((member) => ({
+            user_id: member.user_email ?? member.user_subject ?? "",
+            role: member.role,
+          })),
+          resources: team.resources ?? {},
+        };
+      }),
       resources: {
         agents: agents.map((agent) => ({
           id: String(agent._id),
