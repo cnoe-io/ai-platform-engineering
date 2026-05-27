@@ -100,6 +100,11 @@ export const SCHEMA_AREA_CLASSIFICATIONS: Record<string, SchemaAreaClassificatio
     classification: "baseline_v1",
     description: "NPS response records.",
   },
+  openfga_tuples: {
+    classification: "migration",
+    description:
+      "OpenFGA tuple backfill target. PR 4 of the 2026-05-27 fine-grained KB ReBAC plan registers the `data_source_grants_backfill_v1` and `mcp_tool_grants_backfill_v1` migrations to mirror existing `knowledge_base:<id>` tuples onto the new `data_source:<id>` type and to derive `mcp_tool:<id>` tuples from Mongo `team_rag_tools`.",
+  },
   organization_membership: {
     classification: "migration",
     description: "Organization membership migration target.",
