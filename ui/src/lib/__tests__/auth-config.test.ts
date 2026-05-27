@@ -471,6 +471,8 @@ describe('auth-config', () => {
         displayName: 'User Example',
         groups: ['caipe-users', 'caipe-admins'],
         providerId: 'oidc-claims',
+        // IDENTITY_SYNC_LOGIN_AUTO_CREATE_TEAMS unset → false (locked-down default).
+        allowTeamCreation: false,
       })
       expect(getCachedOidcClaimGroups('sub-123')).toEqual(['caipe-users', 'caipe-admins'])
       expect(result.groups).toBeUndefined()
@@ -498,6 +500,62 @@ describe('auth-config', () => {
         expect(mockReconcileOidcClaimGroupsForUser).not.toHaveBeenCalled()
       } finally {
         delete process.env.IDENTITY_SYNC_LOGIN_CLAIMS_ENABLED
+      }
+    })
+
+    it('forwards allowTeamCreation=true when IDENTITY_SYNC_LOGIN_AUTO_CREATE_TEAMS is set', async () => {
+      process.env.IDENTITY_SYNC_LOGIN_AUTO_CREATE_TEAMS = 'true'
+      try {
+        await (authOptions.callbacks!.jwt! as Function)({
+          token: {},
+          account: {
+            access_token: 'at',
+            id_token: 'idt',
+            expires_at: Math.floor(Date.now() / 1000) + 3600,
+          },
+          profile: {
+            sub: 'sub-123',
+            email: 'user@example.com',
+            name: 'User Example',
+            groups: ['caipe-users'],
+          },
+        })
+
+        await new Promise((resolve) => setTimeout(resolve, 0))
+
+        expect(mockReconcileOidcClaimGroupsForUser).toHaveBeenCalledWith(
+          expect.objectContaining({ allowTeamCreation: true })
+        )
+      } finally {
+        delete process.env.IDENTITY_SYNC_LOGIN_AUTO_CREATE_TEAMS
+      }
+    })
+
+    it('treats any non-"true" IDENTITY_SYNC_LOGIN_AUTO_CREATE_TEAMS value as false (strict opt-in)', async () => {
+      process.env.IDENTITY_SYNC_LOGIN_AUTO_CREATE_TEAMS = '1'
+      try {
+        await (authOptions.callbacks!.jwt! as Function)({
+          token: {},
+          account: {
+            access_token: 'at',
+            id_token: 'idt',
+            expires_at: Math.floor(Date.now() / 1000) + 3600,
+          },
+          profile: {
+            sub: 'sub-123',
+            email: 'user@example.com',
+            name: 'User Example',
+            groups: ['caipe-users'],
+          },
+        })
+
+        await new Promise((resolve) => setTimeout(resolve, 0))
+
+        expect(mockReconcileOidcClaimGroupsForUser).toHaveBeenCalledWith(
+          expect.objectContaining({ allowTeamCreation: false })
+        )
+      } finally {
+        delete process.env.IDENTITY_SYNC_LOGIN_AUTO_CREATE_TEAMS
       }
     })
 

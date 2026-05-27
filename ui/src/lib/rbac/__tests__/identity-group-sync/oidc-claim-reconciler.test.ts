@@ -111,7 +111,7 @@ describe("OIDC claim identity group reconciliation", () => {
     );
   });
 
-  it("does not create teams or grant missing teams during login-time claim reconciliation", async () => {
+  it("does not create teams or grant missing teams during login-time claim reconciliation by default", async () => {
     const { reconcileOidcClaimGroupsForUser } = await import("../../oidc-claim-reconciler");
 
     await reconcileOidcClaimGroupsForUser({
@@ -128,6 +128,40 @@ describe("OIDC claim identity group reconciliation", () => {
           teams_to_create: [],
           membership_sources_to_add: [],
           tuple_writes: [],
+        }),
+      })
+    );
+  });
+
+  it("creates teams during login when allowTeamCreation=true and the matched rule has auto_create_team=true", async () => {
+    // The fixture rule already has auto_create_team=true (see beforeEach), and
+    // the Engineering Platform Users group does NOT match an existing team
+    // (the teams collection is mocked empty). Caller-supplied opt-in flips the
+    // gate; without it the planner short-circuits team creation.
+    const { reconcileOidcClaimGroupsForUser } = await import("../../oidc-claim-reconciler");
+
+    await reconcileOidcClaimGroupsForUser({
+      subject: "keycloak-sub",
+      email: "bob@example.test",
+      displayName: "Bob",
+      groups: ["Engineering Platform Users"],
+      now: "2026-05-12T00:00:00.000Z",
+      allowTeamCreation: true,
+    });
+
+    expect(applyIdentityGroupSyncPlan).toHaveBeenCalledWith(
+      expect.objectContaining({
+        plan: expect.objectContaining({
+          teams_to_create: expect.arrayContaining([
+            expect.objectContaining({
+              slug: "platform",
+              name: "Platform",
+              source_group_id: "Engineering Platform Users",
+            }),
+          ]),
+          tuple_writes: expect.arrayContaining([
+            expect.objectContaining({ object: "team:platform", relation: "member" }),
+          ]),
         }),
       })
     );

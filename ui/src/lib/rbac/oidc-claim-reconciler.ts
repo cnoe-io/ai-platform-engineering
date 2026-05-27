@@ -76,6 +76,18 @@ export async function reconcileOidcClaimGroupsForUser(input: {
   groups: string[];
   providerId?: string;
   now?: string;
+  /**
+   * Allow login-time reconciliation to CREATE new teams from unmatched groups.
+   * Defaults to `false` — login-time team creation is opt-in because silently
+   * spawning teams from raw IdP claims expands the auth-data surface (typos,
+   * deprecated groups, rogue claims). When `true`, the matched identity-group-sync
+   * rule must ALSO have `auto_create_team: true` for a team to be created
+   * (see identity-group-sync-planner.ts:121). Callers from the Admin
+   * Identity-Group-Sync UI pass `true` because they're an explicit admin action.
+   *
+   * Wired to env IDENTITY_SYNC_LOGIN_AUTO_CREATE_TEAMS at the auth-config call site.
+   */
+  allowTeamCreation?: boolean;
 }): Promise<void> {
   if (!isMongoDBConfigured) return;
   if (!input.subject || input.groups.length === 0) return;
@@ -111,7 +123,10 @@ export async function reconcileOidcClaimGroupsForUser(input: {
     existingMembershipSources: existingMembershipSources as TeamMembershipSource[],
     now,
     actor,
-    allowTeamCreation: false,
+    // Default `false` preserves the original locked-down login-time behavior
+    // for any direct caller of this function. The auth-config login path
+    // forwards `IDENTITY_SYNC_LOGIN_AUTO_CREATE_TEAMS` from env when set.
+    allowTeamCreation: input.allowTeamCreation ?? false,
   });
 
   await applyIdentityGroupSyncPlan({ plan, actor, now });
