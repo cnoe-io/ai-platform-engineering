@@ -17,6 +17,7 @@ import {
   markTeamMembershipSourceRemoved,
   upsertTeamMembershipSource,
 } from '@/lib/rbac/team-membership-source-store';
+import { findUserRoleInTeam } from '@/lib/rbac/team-membership-store';
 import {
   buildTeamMembershipTuples,
   mongoRoleToOpenFgaRelations,
@@ -194,29 +195,31 @@ export const POST = withErrorHandler(async (
     }
     await requireTeamMembershipManagementPermission(session, user.email, team);
 
-    // Check if member already exists
-    const existingMember = team.members?.find(
-      (m: any) => m.user_id.toLowerCase() === email
-    );
+    // Check if member already exists. Source of truth: canonical
+    // team_membership_sources store (post 2026-05-26 canonical-membership
+    // refactor). team.members[] is no longer consulted on read.
+    const teamSlugForDupeCheck = String(team.slug || "").trim();
+    const existingRole = teamSlugForDupeCheck
+      ? await findUserRoleInTeam(teamSlugForDupeCheck, { user_email: email })
+      : null;
+    const existingMember = existingRole !== null;
     if (existingMember) {
       throw new ApiError('User is already a member of this team', 400);
     }
 
     const now = new Date();
-    const newMember = {
-      user_id: email,
-      role,
-      added_at: now,
-      added_by: user.email,
-    };
 
+    // Commit 6/8 of the canonical-team-membership refactor (spec
+    // 2026-05-26-canonical-team-membership): we no longer $push onto
+    // team.members[]. The team_membership_sources upsert below is the
+    // sole record of "this user is on this team". We still touch the
+    // team document so updated_at/updated_by reflect the mutation —
+    // the Admin UI relies on that timestamp for the "last modified"
+    // chip on the team card.
     if (!existingMember) {
       await teams.updateOne(
         { _id: teamId },
-        {
-          $push: { members: newMember } as any,
-          $set: { updated_at: now, updated_by: user.email },
-        }
+        { $set: { updated_at: now, updated_by: user.email } },
       );
     }
 
@@ -287,18 +290,20 @@ export const DELETE = withErrorHandler(async (
       throw new ApiError('Cannot remove the team owner. Transfer ownership first.', 400);
     }
 
-    // Check if member exists
-    const memberExists = team.members?.some(
-      (m: any) => m.user_id.toLowerCase() === email
-    );
-    if (!memberExists) {
-      throw new ApiError('User is not a member of this team', 404);
-    }
-
     const now = new Date();
     const teamSlug = String(team.slug || "").trim();
-    const member = team.members?.find((m: any) => m.user_id.toLowerCase() === email);
-    const relationship = member?.role === 'admin' ? 'admin' : 'member';
+
+    // Check if member exists; resolve their canonical role for the
+    // OpenFGA cleanup below. Source of truth: team_membership_sources
+    // (post 2026-05-26 canonical-membership refactor). team.members[]
+    // is no longer consulted on read.
+    const canonicalRole = teamSlug
+      ? await findUserRoleInTeam(teamSlug, { user_email: email })
+      : null;
+    if (canonicalRole === null) {
+      throw new ApiError('User is not a member of this team', 404);
+    }
+    const relationship: 'admin' | 'member' = canonicalRole;
 
     // Resolve the Keycloak subject up front. We need it both to mark the
     // manual source row removed by its original `(team_slug, user_subject,
@@ -335,13 +340,16 @@ export const DELETE = withErrorHandler(async (
       : [];
     const stillGranted = otherActiveSources.some((source) => source.source_type !== 'manual');
 
+    // Commit 6/8 of the canonical-team-membership refactor (spec
+    // 2026-05-26-canonical-team-membership): we no longer $pull from
+    // team.members[]. The membership-source rows above are the single
+    // source of truth — when every non-manual source agrees this user
+    // is gone, the canonical store reflects that and the team document
+    // only needs its mutation timestamps refreshed.
     if (!stillGranted) {
       await teams.updateOne(
         { _id: teamId },
-        {
-          $pull: { members: { user_id: { $regex: new RegExp(`^${email}$`, 'i') } } } as any,
-          $set: { updated_at: now, updated_by: user.email },
-        }
+        { $set: { updated_at: now, updated_by: user.email } },
       );
     }
 

@@ -10,6 +10,7 @@ import {
 } from '@/lib/api-middleware';
 import type { TeamKbOwnership, KbPermission } from '@/lib/rbac/types';
 import { writeOpenFgaTuples, type OpenFgaTupleKey, type TeamResourceTupleDiff } from '@/lib/rbac/openfga';
+import { findUserRoleInTeam } from '@/lib/rbac/team-membership-store';
 
 function requireMongoDB() {
   if (!isMongoDBConfigured) {
@@ -37,25 +38,33 @@ function validateTeamId(id: string): void {
 interface TeamDoc {
   _id: ObjectId;
   slug?: string;
-  members?: Array<{ user_id?: string; email?: string; role?: string }>;
 }
 
 function normalizeEmail(value: unknown): string {
   return typeof value === 'string' ? value.trim().toLowerCase() : '';
 }
 
-function userTeamRole(team: TeamDoc, email: string): string | null {
-  const userEmail = normalizeEmail(email);
-  const member = team.members?.find((entry) => normalizeEmail(entry.user_id ?? entry.email) === userEmail);
-  return member?.role ?? null;
+/**
+ * KB-permission gate helpers backed by the canonical
+ * team_membership_sources store (post 2026-05-26 canonical-membership
+ * refactor). The legacy embedded `team.members[]` is no longer
+ * consulted.
+ *
+ * Note on `"owner"`: the legacy store distinguished "owner" from
+ * "admin"; the canonical store collapses both to "admin". KB gates
+ * always treated owner == admin (see `isTeamAdminOrOwner` original
+ * impl), so the collapse is behavior-preserving.
+ */
+async function isTeamMember(team: TeamDoc, email: string): Promise<boolean> {
+  if (!team.slug) return false;
+  const role = await findUserRoleInTeam(team.slug, { user_email: normalizeEmail(email) });
+  return role !== null;
 }
 
-function isTeamMember(team: TeamDoc, email: string): boolean {
-  return Boolean(userTeamRole(team, email));
-}
-
-function isTeamAdminOrOwner(team: TeamDoc, email: string): boolean {
-  return ['admin', 'owner'].includes(userTeamRole(team, email) ?? '');
+async function isTeamAdminOrOwner(team: TeamDoc, email: string): Promise<boolean> {
+  if (!team.slug) return false;
+  const role = await findUserRoleInTeam(team.slug, { user_email: normalizeEmail(email) });
+  return role === "admin";
 }
 
 const VALID_PERMISSIONS: KbPermission[] = ['read', 'ingest', 'admin'];
@@ -152,7 +161,7 @@ export const GET = withErrorHandler(
         if (!team) {
           throw new ApiError('Team not found', 404);
         }
-        if (!canViewAdmin && !isTeamMember(team, user.email)) {
+        if (!canViewAdmin && !(await isTeamMember(team, user.email))) {
           throw new ApiError('You do not have permission to view this team\'s KB assignments', 403);
         }
       }
@@ -205,7 +214,7 @@ export const PUT = withErrorHandler(
         if (!team) {
           throw new ApiError('Team not found', 404);
         }
-        if (!canAdmin && !isTeamAdminOrOwner(team, user.email)) {
+        if (!canAdmin && !(await isTeamAdminOrOwner(team, user.email))) {
           throw new ApiError('You do not have permission to manage this team\'s KB assignments', 403);
         }
         teamSlug = (team.slug as string | undefined) || params.id;
@@ -301,7 +310,7 @@ export const DELETE = withErrorHandler(
         if (!team) {
           throw new ApiError('Team not found', 404);
         }
-        if (!canAdmin && !isTeamAdminOrOwner(team, user.email)) {
+        if (!canAdmin && !(await isTeamAdminOrOwner(team, user.email))) {
           throw new ApiError('You do not have permission to manage this team\'s KB assignments', 403);
         }
         teamSlug = (team.slug as string | undefined) || params.id;

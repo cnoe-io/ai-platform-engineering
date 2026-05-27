@@ -919,6 +919,113 @@ describe('withAuth', () => {
     });
     expect(handler).not.toHaveBeenCalled();
   });
+
+  // Regression: read-only admin endpoints that handle their own resource-level
+  // RBAC must NOT have an `admin_ui#view` blanket gate slapped on by the BFF
+  // — otherwise a non-admin user with the resource-level grant (e.g. a viewer
+  // with `system_config:platform_settings#read`) gets a misleading
+  // `admin_ui#view` 403 long before the route handler runs and the Settings
+  // tab silently falls back to the placeholder ("Default CAIPE Supervisor")
+  // instead of showing the configured value.
+  describe('legacy RBAC policy resolution', () => {
+    function viewerSession() {
+      mockGetServerSession.mockResolvedValue({
+        user: { email: 'viewer@test.com', name: 'Read-Only Viewer' },
+        role: 'user',
+        sub: 'viewer-sub',
+        accessToken: 'mock-viewer-token',
+      });
+      mockGetCollection.mockResolvedValue({
+        findOne: jest.fn().mockResolvedValue(null),
+      });
+    }
+
+    it('lets a non-admin signed-in user reach GET /api/admin/platform-config (route enforces system_config:read itself)', async () => {
+      viewerSession();
+      // OpenFGA says the viewer has the organization tuple that maps to
+      // `supervisor#invoke` (i.e. is signed in). The BFF must check that
+      // and NOT `admin_ui#view` for this read-only admin endpoint.
+      mockCheckOpenFgaTuple.mockResolvedValue({ allowed: true });
+
+      const handler = jest.fn().mockResolvedValue('config-payload');
+      const req = new Request('http://test.com/api/admin/platform-config', {
+        method: 'GET',
+      }) as unknown as NextRequest;
+
+      const result = await withAuth(req, handler);
+
+      expect(result).toBe('config-payload');
+      expect(handler).toHaveBeenCalledTimes(1);
+      // Confirm the BFF asked OpenFGA for `can_use` (the relation that the
+      // `supervisor#invoke` RBAC pair maps to), proving the admin_ui#view
+      // gate was bypassed and the narrower in-route system_config check is
+      // free to run.
+      const calls = mockCheckOpenFgaTuple.mock.calls as Array<[
+        { user: string; relation: string; object: string },
+      ]>;
+      const relations = calls.map((c) => c[0]?.relation);
+      expect(relations).toContain('can_use');
+      expect(relations).not.toContain('can_audit'); // admin_ui#view → can_audit
+    });
+
+    it('still gates PATCH /api/admin/platform-config behind admin_ui#manage', async () => {
+      viewerSession();
+      // The viewer is signed in but has no admin tuple — OpenFGA denies.
+      mockCheckOpenFgaTuple.mockResolvedValue({ allowed: false });
+      // Keycloak legacy fallback also denies.
+      mockCheckPermission.mockResolvedValue({
+        allowed: false,
+        reason: 'DENY_NO_CAPABILITY',
+      });
+
+      const handler = jest.fn();
+      const req = new Request('http://test.com/api/admin/platform-config', {
+        method: 'PATCH',
+      }) as unknown as NextRequest;
+
+      await expect(withAuth(req, handler)).rejects.toMatchObject({
+        statusCode: 403,
+        reason: 'pdp_denied',
+      });
+      expect(handler).not.toHaveBeenCalled();
+
+      // Confirm the BFF asked OpenFGA for `can_manage` (the relation that
+      // the `admin_ui#manage` RBAC pair maps to).
+      const calls = mockCheckOpenFgaTuple.mock.calls as Array<[
+        { user: string; relation: string; object: string },
+      ]>;
+      const relations = calls.map((c) => c[0]?.relation);
+      expect(relations).toContain('can_manage');
+    });
+
+    it('still gates other GET /api/admin/* endpoints behind admin_ui#view', async () => {
+      viewerSession();
+      mockCheckOpenFgaTuple.mockResolvedValue({ allowed: false });
+      mockCheckPermission.mockResolvedValue({
+        allowed: false,
+        reason: 'DENY_NO_CAPABILITY',
+      });
+
+      const handler = jest.fn();
+      const req = new Request('http://test.com/api/admin/users', {
+        method: 'GET',
+      }) as unknown as NextRequest;
+
+      await expect(withAuth(req, handler)).rejects.toMatchObject({
+        statusCode: 403,
+        reason: 'pdp_denied',
+      });
+      expect(handler).not.toHaveBeenCalled();
+
+      // Confirm the BFF asked OpenFGA for `can_audit` (the relation that
+      // the `admin_ui#view` RBAC pair maps to).
+      const calls = mockCheckOpenFgaTuple.mock.calls as Array<[
+        { user: string; relation: string; object: string },
+      ]>;
+      const relations = calls.map((c) => c[0]?.relation);
+      expect(relations).toContain('can_audit');
+    });
+  });
 });
 
 describe('requireAdmin', () => {

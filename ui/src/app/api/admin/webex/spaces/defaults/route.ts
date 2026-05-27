@@ -1,8 +1,18 @@
 import { NextRequest } from "next/server";
 import type { Document } from "mongodb";
 
-import { ApiError, successResponse, withErrorHandler } from "@/lib/api-middleware";
+import {
+  ApiError,
+  getAuthFromBearerOrSession,
+  successResponse,
+  withErrorHandler,
+} from "@/lib/api-middleware";
 import { getRbacCollection } from "@/lib/rbac/mongo-collections";
+import {
+  OnboardingDefaultsValidationError,
+  readOnboardingDefaults,
+  writeOnboardingDefaults,
+} from "@/lib/rbac/onboarding-defaults";
 import {
   canonicalizeWebexSpaceId,
   onboardWebexSpace,
@@ -37,15 +47,43 @@ interface ManualWebexSpace {
 const WEBEX_SPACE_ID_RE = /^[a-zA-Z0-9._-]{8,128}$/;
 
 export const GET = withErrorHandler(async (request: NextRequest) =>
-  withWebexSpaceRebacViewAuth(request, async () =>
-    successResponse({
-      defaults: {
-        team_slug: process.env.WEBEX_DEFAULT_TEAM_SLUG?.trim() || "",
-        agent_id: process.env.WEBEX_DEFAULT_AGENT_ID?.trim() || "",
-        create_routes: true,
-      },
-    })
-  )
+  withWebexSpaceRebacViewAuth(request, async () => {
+    // DB-first read so admin's saved picks survive a page reload.
+    // Falls back to `WEBEX_DEFAULT_TEAM_SLUG` / `WEBEX_DEFAULT_AGENT_ID`
+    // when nothing has been saved yet.
+    const defaults = await readOnboardingDefaults("webex");
+    return successResponse({ defaults });
+  }),
+);
+
+/**
+ * PUT — save the onboarding defaults without running the onboarding
+ * pipeline. The migration POST below remains unchanged.
+ */
+export const PUT = withErrorHandler(async (request: NextRequest) =>
+  withWebexSpaceRebacManageAuth(request, async () => {
+    const { session } = await getAuthFromBearerOrSession(request);
+    const body = (await request.json().catch(() => ({}))) as WebexMigrationDefaultsRequest;
+    const teamSlug = readOptionalString(body.team_slug);
+    const agentId = readOptionalString(body.agent_id);
+    const createRoutes =
+      typeof body.create_routes === "boolean" ? body.create_routes : true;
+
+    try {
+      const saved = await writeOnboardingDefaults("webex", {
+        team_slug: teamSlug,
+        agent_id: agentId,
+        create_routes: createRoutes,
+        actor: session?.user?.email ?? "api",
+      });
+      return successResponse({ defaults: saved });
+    } catch (error) {
+      if (error instanceof OnboardingDefaultsValidationError) {
+        throw new ApiError(error.message, 400);
+      }
+      throw error;
+    }
+  }),
 );
 
 function readRequiredString(value: unknown, field: string): string {

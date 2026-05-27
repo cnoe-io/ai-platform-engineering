@@ -4,6 +4,7 @@ import { AlertCircle, CheckCircle2, CircleDashed, Search } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { TeamPicker, type TeamPickerOption } from "@/components/ui/team-picker";
 import { cn } from "@/lib/utils";
 import {
   DiscoveryCacheControls,
@@ -277,20 +278,26 @@ export function ConnectorOnboardingWizard({
                             <span className="block text-xs text-muted-foreground">{row.secondary}</span>
                           </span>
                         </label>
-                        <select
-                          aria-label={row.teamLabel}
-                          className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+                        {/* Switched from native <select> to TeamPicker on
+                            2026-05-27 — environments with hundreds of
+                            AWS-* / SSO-* teams made the per-row
+                            dropdown unusable and made the wizard
+                            impossible to scan. The picker is portaled
+                            so it can sit comfortably inside the
+                            wizard's tight grid row. */}
+                        <TeamPicker
+                          ariaLabel={row.teamLabel}
+                          triggerClassName="h-9 text-sm"
                           value={row.teamSlug}
-                          onChange={(event) => onRowChange(row.id, { teamSlug: event.target.value })}
+                          onChange={(value) => onRowChange(row.id, { teamSlug: value })}
                           disabled={loading || !row.selected}
-                        >
-                          {!row.teamSlug && <option value="">Select team</option>}
-                          {teams.map((team) => (
-                            <option key={team.value} value={team.value}>
-                              {team.label}
-                            </option>
-                          ))}
-                        </select>
+                          placeholder="Select team"
+                          searchPlaceholder="Search teams..."
+                          options={teams.map<TeamPickerOption>((team) => ({
+                            slug: team.value,
+                            name: team.label,
+                          }))}
+                        />
                         <select
                           aria-label={row.agentLabel}
                           className="h-9 rounded-md border border-input bg-background px-2 text-sm"

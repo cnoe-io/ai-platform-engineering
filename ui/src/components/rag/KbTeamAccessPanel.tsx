@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { TeamPicker, type TeamPickerOption } from "@/components/ui/team-picker";
 import {
   Popover,
   PopoverTrigger,
@@ -311,18 +312,30 @@ export function KbTeamAccessPanel({
 
           {unassignedTeams.length > 0 && (
             <div className="flex items-center gap-1.5 pt-1.5 border-t border-border">
-              <select
-                className={`${selectClass} flex-1`}
-                value={addTeamId}
-                onChange={(e) => setAddTeamId(e.target.value)}
-              >
-                <option value="">Add team...</option>
-                {unassignedTeams.map((t) => (
-                  <option key={t._id} value={t._id}>
-                    {t.name}
-                  </option>
-                ))}
-              </select>
+              {/* Switched from native <select> to TeamPicker on
+                  2026-05-27 — environments with hundreds of teams
+                  made the dropdown unusable. The picker emits the
+                  team `_id` (this panel addresses teams by Mongo id
+                  for the `/api/admin/teams/:id/kb-assignments`
+                  routes), so we wire `slug → _id` on output and pass
+                  `hideSlugSuffix` to suppress the ugly ObjectId
+                  `team:<oid>` annotation. */}
+              <div className="flex-1">
+                <TeamPicker
+                  ariaLabel="Add team"
+                  triggerClassName="h-8 text-xs"
+                  value={addTeamId}
+                  onChange={setAddTeamId}
+                  placeholder="Add team..."
+                  searchPlaceholder="Search teams..."
+                  hideSlugSuffix
+                  options={unassignedTeams.map<TeamPickerOption>((t) => ({
+                    slug: t._id,
+                    name: t.name,
+                    _id: t._id,
+                  }))}
+                />
+              </div>
               <select
                 className={`${selectClass} w-20`}
                 value={addPermission}
