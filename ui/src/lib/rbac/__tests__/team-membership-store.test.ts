@@ -103,6 +103,7 @@ import {
   isUserInTeam,
   loadActiveTeamMembers,
   loadTeamMemberCounts,
+  loadTeamMembersForSlugs,
 } from "../team-membership-store";
 
 function row(overrides: Partial<TeamMembershipSource> = {}): TeamMembershipSource {
@@ -257,6 +258,41 @@ describe("loadTeamMemberCounts", () => {
     );
     const counts = await loadTeamMemberCounts(["alpha"]);
     expect(counts.get("alpha")).toBe(1);
+  });
+});
+
+describe("loadTeamMembersForSlugs", () => {
+  it("returns empty arrays for an empty input", async () => {
+    const map = await loadTeamMembersForSlugs([]);
+    expect(map.size).toBe(0);
+  });
+
+  it("returns one entry per requested slug, including zero-member slugs", async () => {
+    fixtureRows.push(row({ team_slug: "alpha", user_subject: "kc-A" }));
+    const map = await loadTeamMembersForSlugs(["alpha", "beta"]);
+    expect(map.get("alpha")).toHaveLength(1);
+    expect(map.get("beta")).toEqual([]);
+  });
+
+  it("dedupes within each team independently", async () => {
+    fixtureRows.push(
+      row({ team_slug: "alpha", user_subject: "kc-A", source_type: "manual" }),
+      row({ team_slug: "alpha", user_subject: "kc-A", source_type: "okta", provider_id: "okta-prod" }),
+      row({ team_slug: "beta", user_subject: "kc-A" }),
+    );
+    const map = await loadTeamMembersForSlugs(["alpha", "beta"]);
+    expect(map.get("alpha")).toHaveLength(1);
+    expect(map.get("alpha")![0].source_types.sort()).toEqual(["manual", "okta"]);
+    expect(map.get("beta")).toHaveLength(1);
+  });
+
+  it("excludes non-active rows by default", async () => {
+    fixtureRows.push(
+      row({ team_slug: "alpha", user_subject: "kc-A", status: "active" }),
+      row({ team_slug: "alpha", user_subject: "kc-B", status: "removed" }),
+    );
+    const map = await loadTeamMembersForSlugs(["alpha"]);
+    expect(map.get("alpha")).toHaveLength(1);
   });
 });
 

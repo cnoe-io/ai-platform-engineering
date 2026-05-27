@@ -115,6 +115,55 @@ function session(email: string, role: "admin" | "user" = "user") {
   };
 }
 
+/**
+ * Seed `team_membership_sources` to mirror TEAM.members so route
+ * handlers that gate or read on canonical membership find the same
+ * identities. Pre 2026-05-26 the routes read team.members[] directly.
+ */
+function seedTeamCanonicalMembers(rows?: Array<{ user_email: string; relationship: "member" | "admin" }>) {
+  const sourcesCol = createMockCollection();
+  const fixtureRows = (
+    rows ?? [
+      { user_email: "owner@example.com", relationship: "admin" },
+      { user_email: "team-admin@example.com", relationship: "admin" },
+      { user_email: "synced@example.com", relationship: "member" },
+    ]
+  ).map((r) => ({
+    team_slug: "platform",
+    user_email: r.user_email,
+    user_subject: `kc-${r.user_email.split("@")[0]}`,
+    relationship: r.relationship,
+    source_type: "manual",
+    status: "active",
+  }));
+  function rowMatches(filter: Record<string, unknown>, row: Record<string, unknown>): boolean {
+    for (const [key, value] of Object.entries(filter)) {
+      if (key === "$or" && Array.isArray(value)) {
+        if (!value.some((c: Record<string, unknown>) => rowMatches(c, row))) return false;
+        continue;
+      }
+      if (value && typeof value === "object" && !Array.isArray(value)) {
+        if ("$ne" in (value as object) && (row as Record<string, unknown>)[key] === (value as { $ne: unknown }).$ne) return false;
+        if ("$in" in (value as object)) {
+          const arr = ((value as { $in: unknown[] }).$in) ?? [];
+          if (!arr.includes((row as Record<string, unknown>)[key])) return false;
+        }
+        continue;
+      }
+      if ((row as Record<string, unknown>)[key] !== value) return false;
+    }
+    return true;
+  }
+  sourcesCol.find = jest.fn((filter: Record<string, unknown> = {}) => {
+    const matched = fixtureRows.filter((r) => rowMatches(filter, r));
+    return {
+      sort: jest.fn().mockReturnValue({ toArray: jest.fn().mockResolvedValue(matched) }),
+      toArray: jest.fn().mockResolvedValue(matched),
+    };
+  });
+  mockCollections.team_membership_sources = sourcesCol;
+}
+
 beforeEach(() => {
   jest.clearAllMocks();
   mockIsMongoDBConfigured = true;
@@ -123,6 +172,11 @@ beforeEach(() => {
   mockUpsertTeamMembershipSource.mockResolvedValue(undefined);
   mockMarkTeamMembershipSourceRemoved.mockResolvedValue({ matchedCount: 1, modifiedCount: 1 });
   mockListActiveTeamMembershipSourcesForTeamUser.mockResolvedValue([]);
+  // Default canonical roster mirrors TEAM.members so existing tests
+  // don't have to opt-in. Tests that need a different roster (e.g. the
+  // "denies scoped admins for unrelated teams" case) call
+  // seedTeamCanonicalMembers([]) to override.
+  seedTeamCanonicalMembers();
   // Echo back a deterministic Keycloak sub for the email being searched, so
   // both the add (new@example.com) and the delete (synced@example.com) paths
   // resolve to a usable user_subject without per-test setup.
@@ -188,24 +242,8 @@ describe("manual membership source preservation", () => {
       members: [...TEAM.members, { user_id: "new@example.com", role: "member" }],
     });
     mockCollections.teams = teamsCol;
-    // Post-canonical-membership: team-admin is recognized via the
-    // canonical team_membership_sources store, not team.members[].
-    const sourcesCol = createMockCollection();
-    sourcesCol.find.mockReturnValue({
-      sort: jest
-        .fn()
-        .mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) }),
-      toArray: jest.fn().mockResolvedValue([
-        {
-          team_slug: "platform",
-          user_email: "team-admin@example.com",
-          relationship: "admin",
-          source_type: "manual",
-          status: "active",
-        },
-      ]),
-    });
-    mockCollections.team_membership_sources = sourcesCol;
+    // Default canonical seed (see beforeEach) recognizes team-admin@
+    // as an admin in the platform team.
     const { POST } = await import("../route");
 
     const response = await POST(
@@ -225,6 +263,9 @@ describe("manual membership source preservation", () => {
     const teamsCol = createMockCollection();
     teamsCol.findOne.mockResolvedValue({ ...TEAM, members: [] });
     mockCollections.teams = teamsCol;
+    // Override default seed: this team has NO canonical members, so
+    // the scoped-admin gate must deny.
+    seedTeamCanonicalMembers([]);
     const { POST } = await import("../route");
 
     const response = await POST(

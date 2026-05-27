@@ -38,7 +38,8 @@ import {
   listRealmRoles,
   type KeycloakRole,
 } from "@/lib/rbac/keycloak-admin";
-import type { Team, TeamMember } from "@/types/teams";
+import { loadActiveTeamMembers } from "@/lib/rbac/team-membership-store";
+import type { Team } from "@/types/teams";
 
 // Roles that should never appear in the team picker — Keycloak system roles
 // users have no business toggling at the team scope. They're either the
@@ -242,15 +243,23 @@ export const PUT = withErrorHandler(
 
       // Reconcile each member. See /resources for the rationale on why we
       // soft-skip members without a Keycloak account rather than failing.
-      const members: TeamMember[] = team.members ?? [];
+      // Member list comes from the canonical team_membership_sources store
+      // (post 2026-05-26 canonical-membership refactor); rows are deduped
+      // by identity and limited to status:"active". Members without an
+      // email (subject-only rows) are skipped — Keycloak realm-role
+      // assignment requires an email lookup.
+      const canonicalMembers = await loadActiveTeamMembers(team.slug ?? "");
+      const memberEmails: string[] = canonicalMembers
+        .map((m) => m.user_email)
+        .filter((email): email is string => typeof email === "string" && email.length > 0);
       const skippedMembers: string[] = [];
       const updatedMembers: string[] = [];
 
       if (addedRoleObjs.length > 0 || removedRoleObjs.length > 0) {
-        for (const m of members) {
-          const userId = await findUserIdByEmail(m.user_id);
+        for (const memberEmail of memberEmails) {
+          const userId = await findUserIdByEmail(memberEmail);
           if (!userId) {
-            skippedMembers.push(m.user_id);
+            skippedMembers.push(memberEmail);
             continue;
           }
           try {
@@ -260,13 +269,13 @@ export const PUT = withErrorHandler(
             if (removedRoleObjs.length > 0) {
               await removeRealmRolesFromUser(userId, removedRoleObjs);
             }
-            updatedMembers.push(m.user_id);
+            updatedMembers.push(memberEmail);
           } catch (err) {
             console.error(
-              `[Admin TeamRoles] Failed to reconcile roles for ${m.user_id}:`,
+              `[Admin TeamRoles] Failed to reconcile roles for ${memberEmail}:`,
               err instanceof Error ? err.message : err
             );
-            skippedMembers.push(m.user_id);
+            skippedMembers.push(memberEmail);
           }
         }
       }

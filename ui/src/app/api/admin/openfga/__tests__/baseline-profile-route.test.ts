@@ -33,6 +33,13 @@ const teamsCollection = {
   find: jest.fn(),
   bulkWrite: jest.fn(),
 };
+// Post 2026-05-26 canonical-membership refactor: the route's
+// reconcileBundle path queries `team_membership_sources` via
+// loadTeamMembersForSlugs to resolve which users belong to each team.
+// Pre-refactor it walked `team.members[]` from the teams collection.
+const teamMembershipSourcesCollection = {
+  find: jest.fn(),
+};
 
 jest.mock("../_lib", () => ({
   withOpenFgaAdminAuth: (...args: unknown[]) => mockWithOpenFgaAdminAuth(...args),
@@ -94,10 +101,26 @@ beforeEach(() => {
     ]),
   });
   teamsCollection.bulkWrite.mockResolvedValue({ modifiedCount: 1 });
+  // Mirror teams[0].members[] as a canonical row so loadTeamMembersForSlugs
+  // returns member@example.com for slug "support".
+  teamMembershipSourcesCollection.find.mockReturnValue({
+    sort: jest.fn().mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) }),
+    toArray: jest.fn().mockResolvedValue([
+      {
+        team_slug: "support",
+        user_email: "member@example.com",
+        user_subject: "member-sub",
+        relationship: "member",
+        source_type: "manual",
+        status: "active",
+      },
+    ]),
+  });
   mockGetCollection.mockImplementation(async (name: string) => {
     if (name === "openfga_baseline_profiles") return profileCollection;
     if (name === "users") return usersCollection;
     if (name === "teams") return teamsCollection;
+    if (name === "team_membership_sources") return teamMembershipSourcesCollection;
     throw new Error(`unexpected collection ${name}`);
   });
   mockWriteOpenFgaTuples.mockResolvedValue({ enabled: true, writes: 4, deletes: 2 });

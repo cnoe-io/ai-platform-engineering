@@ -45,6 +45,17 @@ jest.mock('@/lib/rbac/keycloak-authz', () => ({
 }));
 jest.mock('@/lib/rbac/openfga', () => ({
   checkOpenFgaTuple: (...args: unknown[]) => mockCheckOpenFgaTuple(...args),
+  // Post 2026-05-26 canonical-membership refactor: GET
+  // /api/admin/teams/[id] now decorates the response with an OpenFGA
+  // sync report (`computeTeamMembershipSyncReport`) and therefore calls
+  // `readTeamOpenFgaTuples` -> `isOpenFgaConfigured`/`readOpenFgaTuples`.
+  // We treat OpenFGA as unconfigured in this admin-CRUD suite so the
+  // route returns a null sync report instead of crashing on undefined
+  // helpers. The dedicated team-openfga-sync-status.test.ts suite
+  // exercises the configured path.
+  isOpenFgaConfigured: jest.fn(() => false),
+  readOpenFgaTuples: jest.fn(async () => ({ tuples: [], continuationToken: undefined })),
+  writeOpenFgaTuples: jest.fn(async () => ({ enabled: false, writes: 0, deletes: 0 })),
 }));
 jest.mock('@/lib/rbac/audit', () => ({
   logAuthzDecision: jest.fn(),
@@ -97,11 +108,15 @@ jest.mock('@/lib/mongodb', () => ({
 // ============================================================================
 
 function createMockCollection() {
+  // Cursor supports BOTH `find().toArray()` and `find().sort().toArray()`.
+  // Post 2026-05-26 canonical-membership refactor, route handlers
+  // query team_membership_sources via toArray() directly.
   return {
     find: jest.fn().mockReturnValue({
       sort: jest.fn().mockReturnValue({
         toArray: jest.fn().mockResolvedValue([]),
       }),
+      toArray: jest.fn().mockResolvedValue([]),
     }),
     findOne: jest.fn().mockResolvedValue(null),
     insertOne: jest.fn().mockResolvedValue({ insertedId: new ObjectId() }),
@@ -117,6 +132,7 @@ function createMockCollection() {
     // or the POST route fails with HTTP 500.
     deleteMany: jest.fn().mockResolvedValue({ deletedCount: 0 }),
     countDocuments: jest.fn().mockResolvedValue(0),
+    aggregate: jest.fn().mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) }),
   };
 }
 
@@ -151,9 +167,14 @@ function userSession() {
 }
 
 const TEST_TEAM_ID = new ObjectId();
+const TEST_TEAM_SLUG = 'platform-engineering';
 const TEST_TEAM = {
   _id: TEST_TEAM_ID,
   name: 'Platform Engineering',
+  // Required by the canonical-membership readers (post 2026-05-26
+  // refactor). Older tests didn't need a slug because the route read
+  // team.members[] directly.
+  slug: TEST_TEAM_SLUG,
   description: 'The platform team',
   owner_id: 'admin@example.com',
   created_at: new Date(),
@@ -163,6 +184,59 @@ const TEST_TEAM = {
     { user_id: 'member@example.com', role: 'member', added_at: new Date(), added_by: 'admin@example.com' },
   ],
 };
+
+/**
+ * Seed `team_membership_sources` to mirror TEST_TEAM.members so route
+ * handlers gating on canonical membership find the same identities.
+ * Pre 2026-05-26 the routes read team.members[] directly.
+ */
+function seedTestTeamCanonicalMembers() {
+  const sourcesCol = createMockCollection();
+  const rows = [
+    {
+      team_slug: TEST_TEAM_SLUG,
+      user_email: 'admin@example.com',
+      user_subject: 'kc-admin',
+      relationship: 'admin',
+      source_type: 'manual',
+      status: 'active',
+    },
+    {
+      team_slug: TEST_TEAM_SLUG,
+      user_email: 'member@example.com',
+      user_subject: 'kc-member',
+      relationship: 'member',
+      source_type: 'manual',
+      status: 'active',
+    },
+  ];
+  function rowMatches(filter: Record<string, unknown>, row: Record<string, unknown>): boolean {
+    for (const [key, value] of Object.entries(filter)) {
+      if (key === '$or' && Array.isArray(value)) {
+        if (!value.some((c: Record<string, unknown>) => rowMatches(c, row))) return false;
+        continue;
+      }
+      if (value && typeof value === 'object' && !Array.isArray(value)) {
+        if ('$ne' in (value as object) && row[key] === (value as { $ne: unknown }).$ne) return false;
+        if ('$in' in (value as object)) {
+          const arr = ((value as { $in: unknown[] }).$in) ?? [];
+          if (!arr.includes(row[key])) return false;
+        }
+        continue;
+      }
+      if (row[key] !== value) return false;
+    }
+    return true;
+  }
+  sourcesCol.find = jest.fn((filter: Record<string, unknown> = {}) => {
+    const matched = rows.filter((r) => rowMatches(filter, r));
+    return {
+      sort: jest.fn().mockReturnValue({ toArray: jest.fn().mockResolvedValue(matched) }),
+      toArray: jest.fn().mockResolvedValue(matched),
+    };
+  });
+  mockCollections['team_membership_sources'] = sourcesCol;
+}
 
 // ============================================================================
 // Test Setup
@@ -175,6 +249,10 @@ beforeEach(() => {
     allowed: tuple.user === 'user:admin-user-sub',
   }));
   setDefaultCheckPermissionMock();
+  // Default canonical seed mirrors TEST_TEAM.members; tests that need
+  // a different roster override mockCollections.team_membership_sources
+  // afterwards.
+  seedTestTeamCanonicalMembers();
 });
 
 // ============================================================================
