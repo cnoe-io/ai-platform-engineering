@@ -42,7 +42,7 @@ jobs:
         with:
           ref: ${{ github.head_ref }}
           fetch-depth: 0
-          token: ${{ secrets.GH_PAT }}
+          token: ${{ secrets.GH_PAT || github.token }}
 
       - name: 🔍 Check if PR branch is up to date
         id: branch-status
