@@ -229,6 +229,12 @@ const mockTeamsResponse = {
         description: 'The platform engineering team',
         owner_id: 'admin@example.com',
         created_at: new Date().toISOString(),
+        // Commit 4/8 + 5/8 of the canonical-team-membership refactor:
+        // `member_count` is the new server-aggregated truth from
+        // `team_membership_sources`. We still emit a legacy `members[]`
+        // so older defensive readers (search/filter UX) keep working
+        // through the dual-write window.
+        member_count: 2,
         members: [
           { user_id: 'admin@example.com', role: 'owner', added_at: new Date().toISOString() },
           { user_id: 'user@example.com', role: 'member', added_at: new Date().toISOString() },

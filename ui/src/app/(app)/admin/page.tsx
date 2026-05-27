@@ -199,7 +199,15 @@ interface Team {
   description?: string;
   owner_id: string;
   created_at: Date;
-  members: Array<{
+  // Commit 5/8 of the canonical-team-membership refactor (spec
+  // 2026-05-26-canonical-team-membership): `member_count` is now the
+  // authoritative source for the Members badge, aggregated server-side
+  // from `team_membership_sources`. `members[]` remains optional during
+  // the migration window (commit 6/8 stops the dual write entirely)
+  // and is no longer read by the page badge — only kept on the type
+  // so older fixtures and dialog state shapes continue to compile.
+  member_count?: number;
+  members?: Array<{
     user_id: string;
     role: string;
     added_at: Date;
@@ -821,7 +829,12 @@ function AdminPage() {
         team.slug,
         team.description,
         team.owner_id,
-        ...team.members.map((member) => member.user_id),
+        // Defensive read: post Commit 6/8 of the canonical-team-membership
+        // refactor the embedded `members[]` array goes away. Until the
+        // search-by-member-email UX is reworked to lazily fetch rosters
+        // via `/api/admin/teams/[id]` we still consult the embedded list
+        // when it's present, but never crash if it's absent.
+        ...(team.members ?? []).map((member) => member.user_id),
       ];
       return searchableValues
         .filter(Boolean)
@@ -830,12 +843,14 @@ function AdminPage() {
   }, [teams, teamSearch]);
 
   // Expand team: prefixed selections to member emails
+  // See `filteredTeams` above for the canonical-team-membership refactor note —
+  // same defensive guard applies here.
   const expandStatsUsers = (selected: string[]): string[] => {
     const emails = new Set<string>();
     for (const s of selected) {
       if (s.startsWith('team:')) {
         const team = teams.find((t) => t.name === s.slice(5));
-        if (team) team.members.forEach((m) => emails.add(m.user_id));
+        if (team) (team.members ?? []).forEach((m) => emails.add(m.user_id));
       } else {
         emails.add(s);
       }
@@ -1593,7 +1608,7 @@ function AdminPage() {
                             <StatChip
                               icon={<Users className="h-3.5 w-3.5" />}
                               label="Members"
-                              count={team.members.length}
+                              count={team.member_count ?? 0}
                               onClick={() => openTeamDialog(team, "members")}
                             />
                             <StatChip
@@ -1858,7 +1873,9 @@ function AdminPage() {
                             for (const s of selected) {
                               if (s.startsWith('team:')) {
                                 const team = teams.find((t) => t.name === s.slice(5));
-                                if (team) team.members.forEach((m) => emails.add(m.user_id));
+                                // Defensive read — see `filteredTeams` for the
+                                // canonical-team-membership refactor context.
+                                if (team) (team.members ?? []).forEach((m) => emails.add(m.user_id));
                               } else {
                                 emails.add(s);
                               }
@@ -2471,7 +2488,9 @@ function AdminPage() {
                           if (s.startsWith('team:')) {
                             const teamName = s.slice(5);
                             const team = teams.find((t) => t.name === teamName);
-                            if (team) team.members.forEach((m) => emails.add(m.user_id));
+                            // Defensive read — see `filteredTeams` for the
+                            // canonical-team-membership refactor context.
+                            if (team) (team.members ?? []).forEach((m) => emails.add(m.user_id));
                           } else {
                             emails.add(s);
                           }
