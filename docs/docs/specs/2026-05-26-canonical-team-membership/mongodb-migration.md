@@ -11,7 +11,7 @@ For every document in `db.teams`:
    active row exists in `team_membership_sources`. The natural key is
    `(team_slug, lower(user_email), source_type="manual")`. If the row
    already exists (because the runtime helper
-   [`upsertTeamMembershipSource`](../../../../../ui/src/lib/rbac/team-membership-source-store.ts)
+   `ui/src/lib/rbac/team-membership-source-store.ts`
    wrote it), the migration leaves it alone — strictly idempotent.
 2. `$unset` the legacy `members` field so the array stops appearing
    on freshly-fetched documents.
@@ -132,8 +132,8 @@ After apply:
   ])
 ```
 
-(The aggregation mirrors
-[`loadTeamMemberCounts`](../../../../../ui/src/lib/rbac/team-membership-store.ts).)
+(The aggregation mirrors `loadTeamMemberCounts` in
+`ui/src/lib/rbac/team-membership-store.ts`.)
 
 ## Roll back
 

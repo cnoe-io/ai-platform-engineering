@@ -152,19 +152,33 @@ function teamWith(resources: { agents: string[]; tools: string[] } | undefined) 
  * that exercise the route's membership read path so the route can
  * resolve email→Keycloak subject for OpenFGA tuple generation.
  */
-function seedCanonicalMembers(rows: Array<{ user_email: string; relationship: "member" | "admin" }>) {
+function seedCanonicalMembers(
+  rows: Array<{ user_email: string; relationship: "member" | "admin" }>,
+  teamSlug = TEAM_SLUG
+) {
   const sourcesCol = createMockCollection();
   const fixtureRows = rows.map((r) => ({
     team_id: TEAM_ID.toString(),
-    team_slug: TEAM_SLUG,
+    team_slug: teamSlug,
     user_email: r.user_email,
     relationship: r.relationship,
     source_type: "manual",
     status: "active",
   }));
-  sourcesCol.find = jest.fn().mockReturnValue({
-    sort: jest.fn().mockReturnValue({ toArray: jest.fn().mockResolvedValue(fixtureRows) }),
-    toArray: jest.fn().mockResolvedValue(fixtureRows),
+  sourcesCol.find = jest.fn((filter: Record<string, unknown> = {}) => {
+    const filteredRows = fixtureRows.filter((row) => {
+      if (filter.team_slug && row.team_slug !== filter.team_slug) return false;
+      if (filter.status && row.status !== filter.status) return false;
+      const clauses = Array.isArray(filter.$or) ? (filter.$or as Array<Record<string, unknown>>) : [];
+      if (clauses.length === 0) return true;
+      return clauses.some((clause) =>
+        Object.entries(clause).every(([key, value]) => row[key as keyof typeof row] === value)
+      );
+    });
+    return {
+      sort: jest.fn().mockReturnThis(),
+      toArray: jest.fn().mockResolvedValue(filteredRows),
+    };
   });
   mockCollections["team_membership_sources"] = sourcesCol;
 }
@@ -189,7 +203,6 @@ beforeEach(() => {
 
 async function loadRoute() {
   jest.resetModules();
-  setDefaultPermissionMock(true);
   // Re-bind keycloak admin mocks after resetModules.
   jest.doMock("@/lib/rbac/keycloak-admin", () => ({
     findUserIdByEmail: (...a: unknown[]) => mockFindUserIdByEmail(...a),
@@ -370,6 +383,10 @@ describe("PUT /api/admin/teams/[id]/resources — reconciliation", () => {
       slug: "platform-engineering",
     });
     mockCollections["teams"] = teamsCol;
+    seedCanonicalMembers([
+      { user_email: "alice@example.com", relationship: "admin" },
+      { user_email: "bob@example.com", relationship: "member" },
+    ], "platform-engineering");
     const tupleDiff = {
       writes: [
         { user: "team:platform-engineering#member", relation: "user", object: "agent:agent-new" },

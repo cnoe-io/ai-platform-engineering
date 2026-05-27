@@ -25,7 +25,7 @@ This feature consolidates the Mongo side onto a single canonical store: **`team_
 **Why now:**
 - The drift bug just hit production: the Admin → Teams page rendered 561 teams with "0 MEMBERS" badges even though every team had real membership in the audit collection and in OpenFGA. The badge is reading the embedded array, which the OIDC-claim reconciler doesn't write to.
 - We are about to add more identity providers (Slack via `slack_user_id` attributes, Keycloak group sync, future SAML connectors). Every new provider would have to remember to triple-write or repeat the same drift bug.
-- This crosses the [project constitution's](../../../.specify/memory/constitution.md) **Rule of Three** threshold: we have three independent membership stores (`teams.members[]`, `team_membership_sources`, OpenFGA tuples) all carrying overlapping data with separate write paths. The constitution says "tolerate duplication until the third occurrence, then refactor." We're at the third occurrence and the duplication is now causing user-visible bugs.
+- This crosses the project constitution's **Rule of Three** threshold: we have three independent membership stores (`teams.members[]`, `team_membership_sources`, OpenFGA tuples) all carrying overlapping data with separate write paths. The constitution says "tolerate duplication until the third occurrence, then refactor." We're at the third occurrence and the duplication is now causing user-visible bugs.
 
 **What this is not:**
 - It is not a change to the authorization model. OpenFGA tuples remain the only source of truth for "can user X do operation Y on team Z."
@@ -162,8 +162,8 @@ The migration is idempotent — re-running it on a converted database is a no-op
 
 ## Dependencies
 
-- Spec [098-enterprise-rbac-slack-ui](../098-enterprise-rbac-slack-ui/) — established the `team_membership_sources` collection and the OIDC claim reconciler.
-- Spec [102-comprehensive-rbac-tests-and-completion](../102-comprehensive-rbac-tests-and-completion/) — the test suite that exercises auth gates end-to-end. The migration's auth-gate changes must be covered by spec 102's matrix.
+- Spec [098-enterprise-rbac-slack-ui](../098-enterprise-rbac-slack-ui/spec.md) — established the `team_membership_sources` collection and the OIDC claim reconciler.
+- Spec [102-comprehensive-rbac-tests-and-completion](../102-comprehensive-rbac-tests-and-completion/spec.md) — the test suite that exercises auth gates end-to-end. The migration's auth-gate changes must be covered by spec 102's matrix.
 - No new external dependencies. No Keycloak / OpenFGA / docker-compose changes.
 
 ## Rollout

@@ -157,10 +157,12 @@ def test_deduplicated_event_returns_200(monkeypatch: pytest.MonkeyPatch) -> None
     assert next_calls == 1
     assert first is None  # next() returned, no short-circuit response
 
+    calls_before_duplicate = next_calls
+
     # Second delivery of the same event_id — must NOT advance the chain and
     # must return BoltResponse(200) so Slack stops retrying.
     second = app_module.rbac_global_middleware(payload, {}, next_handler, _Logger())
-    assert next_calls == 1, "duplicate event must not re-invoke handlers"
+    assert next_calls == calls_before_duplicate, "duplicate event must not re-invoke handlers"
     assert isinstance(second, BoltResponse)
     assert second.status == 200
 
