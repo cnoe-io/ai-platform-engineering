@@ -163,6 +163,71 @@ export async function countActiveTeamMembers(
 }
 
 /**
+ * Bulk variant of `loadActiveTeamMembers` for catalog/listing endpoints
+ * that need (slug, member) pairs across many teams in a single round-trip.
+ *
+ * Returns a Map keyed by team_slug → CanonicalTeamMember[]. Slugs with
+ * zero members are present in the map with `[]`. Members within each
+ * team are sorted by `identity_key` (deterministic) and deduped with
+ * role escalation, just like `loadActiveTeamMembers`.
+ *
+ * Use sparingly — this loads ALL active membership rows for the requested
+ * slugs into memory at once. For pagination-friendly callers, prefer
+ * per-team `loadActiveTeamMembers`.
+ */
+export async function loadTeamMembersForSlugs(
+  teamSlugs: string[],
+  opts?: QueryOptions,
+): Promise<Map<string, CanonicalTeamMember[]>> {
+  const result = new Map<string, CanonicalTeamMember[]>();
+  for (const slug of teamSlugs) result.set(slug, []);
+  if (teamSlugs.length === 0) return result;
+
+  const collection = await getRbacCollection<TeamMembershipSource>("teamMembershipSources");
+  const cursor = collection.find({
+    team_slug: { $in: teamSlugs },
+    ...buildStatusFilter(opts),
+  });
+  const rows = await cursor.toArray();
+
+  // Build per-slug dedup maps, mirroring loadActiveTeamMembers.
+  const perSlug = new Map<string, Map<string, CanonicalTeamMember>>();
+  for (const slug of teamSlugs) perSlug.set(slug, new Map());
+  for (const row of rows) {
+    if (!row.team_slug || !perSlug.has(row.team_slug)) continue;
+    const identity = deriveIdentityKey(row);
+    if (!identity) continue;
+    const byIdentity = perSlug.get(row.team_slug)!;
+    const existing = byIdentity.get(identity);
+    if (!existing) {
+      byIdentity.set(identity, {
+        identity_key: identity,
+        user_subject: row.user_subject || undefined,
+        user_email: row.user_email || undefined,
+        role: row.relationship,
+        source_types: [row.source_type],
+        provider_ids: row.provider_id ? [row.provider_id] : [],
+      });
+      continue;
+    }
+    existing.role = escalate(existing.role, row.relationship);
+    if (!existing.user_subject && row.user_subject) existing.user_subject = row.user_subject;
+    if (!existing.user_email && row.user_email) existing.user_email = row.user_email;
+    if (!existing.source_types.includes(row.source_type)) existing.source_types.push(row.source_type);
+    if (row.provider_id && !existing.provider_ids.includes(row.provider_id)) {
+      existing.provider_ids.push(row.provider_id);
+    }
+  }
+  for (const [slug, byIdentity] of perSlug) {
+    result.set(
+      slug,
+      Array.from(byIdentity.values()).sort((a, b) => a.identity_key.localeCompare(b.identity_key)),
+    );
+  }
+  return result;
+}
+
+/**
  * Bulk variant of `countActiveTeamMembers` for the admin teams list
  * endpoint. Returns a map keyed by team_slug. Slugs with zero members
  * are present in the map with value 0 (so callers don't have to check

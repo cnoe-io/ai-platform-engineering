@@ -19,6 +19,7 @@ import {
   type TeamBaselineProfileOverride,
 } from "@/lib/rbac/baseline-access";
 import { writeOpenFgaTuples, type OpenFgaTupleKey } from "@/lib/rbac/openfga";
+import { loadTeamMembersForSlugs, type CanonicalTeamMember } from "@/lib/rbac/team-membership-store";
 import { withOpenFgaAdminAuth, withOpenFgaViewAuth } from "../_lib";
 
 type ApplyMode = "none" | "user" | "all";
@@ -227,13 +228,37 @@ function applyTeamAssignments(teams: TeamDoc[], assignments: TeamAssignment[]): 
   });
 }
 
-function overridesForUser(email: string | undefined, teams: TeamDoc[]): TeamBaselineProfileOverride[] {
+/**
+ * Resolve which baseline-profile overrides apply to a user, given a
+ * pre-fetched per-team membership index.
+ *
+ * Pre-2026-05-26 this iterated `team.members[]` directly. Now: callers
+ * build an index from the canonical `team_membership_sources` store
+ * via `loadTeamMembersForSlugs` (one bulk query per reconciliation),
+ * then pass it in. This keeps reconciliation O(teams + users) instead
+ * of O(teams × users) round-trips.
+ *
+ * Role normalization: the canonical store collapses "owner" → "admin".
+ * The downstream consumer treats admin == owner, so this is
+ * behavior-preserving.
+ */
+function overridesForUser(
+  email: string | undefined,
+  teams: TeamDoc[],
+  membersBySlug: Map<string, CanonicalTeamMember[]>,
+): TeamBaselineProfileOverride[] {
   if (!email) return [];
   const normalizedEmail = email.trim().toLowerCase();
   const overrides: TeamBaselineProfileOverride[] = [];
   for (const team of teams) {
-    const member = team.members?.find((row) => row.user_id?.trim().toLowerCase() === normalizedEmail);
-    if (!member || !team.slug) continue;
+    if (!team.slug) continue;
+    const canonical = membersBySlug.get(team.slug) ?? [];
+    const member = canonical.find(
+      (m) =>
+        (m.user_email && m.user_email.toLowerCase() === normalizedEmail) ||
+        false,
+    );
+    if (!member) continue;
     const memberProfileId = team.baseline_profile_overrides?.member_profile_id;
     const adminProfileId = team.baseline_profile_overrides?.admin_profile_id;
     if (!memberProfileId && !adminProfileId) continue;
@@ -241,12 +266,25 @@ function overridesForUser(email: string | undefined, teams: TeamDoc[]): TeamBase
       team_id: idString(team._id),
       team_slug: team.slug,
       team_name: team.name,
-      role: member.role === "owner" || member.role === "admin" ? member.role : "member",
+      role: member.role,
       member_profile_id: memberProfileId,
       admin_profile_id: adminProfileId,
     });
   }
   return overrides;
+}
+
+/**
+ * Build a Map<team_slug, CanonicalTeamMember[]> for every team in the
+ * input. One bulk query against `team_membership_sources`. Use as the
+ * `membersBySlug` argument to `overridesForUser` during a multi-user
+ * reconciliation.
+ */
+async function loadMembershipIndex(teams: TeamDoc[]): Promise<Map<string, CanonicalTeamMember[]>> {
+  const slugs = teams
+    .map((t) => t.slug)
+    .filter((slug): slug is string => typeof slug === "string" && slug.length > 0);
+  return loadTeamMembersForSlugs(slugs);
 }
 
 async function saveTeamAssignments(assignments: TeamAssignment[]): Promise<void> {
@@ -320,6 +358,16 @@ async function reconcileBundle(input: {
       ? [{ subject: input.apply.userId ?? "", isAdmin: input.apply.role === "admin" }]
       : await usersForApplyAll();
 
+  // Prefetch canonical membership indices once per team set. The
+  // previous-bundle vs next-bundle distinction in this function is
+  // about baseline-profile assignments, not memberships, so the
+  // membership index is the same shape for both — however we still
+  // build two indices (one per TeamDoc[] parameter) because the team
+  // docs themselves may differ (e.g. a team could be renamed mid-
+  // reconcile). The bulk query is one indexed find per call.
+  const previousMembers = await loadMembershipIndex(input.previousTeams);
+  const nextMembers = await loadMembershipIndex(input.nextTeams);
+
   const writes: OpenFgaTupleKey[] = [];
   const deletes: OpenFgaTupleKey[] = [];
   for (const target of targets) {
@@ -328,13 +376,13 @@ async function reconcileBundle(input: {
       subject: target.subject,
       isAdmin: target.isAdmin,
       bundle: input.previousBundle,
-      teamOverrides: overridesForUser(target.email, input.previousTeams),
+      teamOverrides: overridesForUser(target.email, input.previousTeams, previousMembers),
     });
     const nextTuples = effectiveBaselineBootstrapTuples({
       subject: target.subject,
       isAdmin: target.isAdmin,
       bundle: input.nextBundle,
-      teamOverrides: overridesForUser(target.email, input.nextTeams),
+      teamOverrides: overridesForUser(target.email, input.nextTeams, nextMembers),
     });
     writes.push(...nextTuples);
     deletes.push(...diffTuples(previousTuples, nextTuples));

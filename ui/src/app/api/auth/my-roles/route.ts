@@ -3,6 +3,8 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth-config";
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import { getRealmUserById } from "@/lib/rbac/keycloak-admin";
+import { getRbacCollection } from "@/lib/rbac/mongo-collections";
+import type { TeamMembershipSource } from "@/types/identity-group-sync";
 
 function decodeJwtPayload(token: string): Record<string, unknown> {
   try {
@@ -80,23 +82,41 @@ export async function GET() {
 
   if (isMongoDBConfigured) {
     try {
-      const teamsCol = await getCollection("teams");
-      const userTeams = await teamsCol
-        .find({ "members.user_id": email })
-        .project({ _id: 1, name: 1, members: 1 })
+      // Source of truth: team_membership_sources (post 2026-05-26
+      // canonical-membership refactor). One indexed query yields the
+      // user's slugs + role; a single {$in} lookup decorates them with
+      // team display names.
+      const sources = await getRbacCollection<TeamMembershipSource>("teamMembershipSources");
+      const rows = await sources
+        .find({ status: "active", user_email: email })
         .toArray();
-      teams = userTeams.map((t) => {
-        const member = (t.members as Array<{ user_id: string; role?: string }>)?.find(
-          (m) => m.user_id === email
-        );
-        return {
-          _id: t._id.toString(),
-          name: t.name as string,
-          role: member?.role,
-        };
-      });
+
+      const roleBySlug = new Map<string, "member" | "admin">();
+      for (const row of rows) {
+        if (!row.team_slug) continue;
+        const current = roleBySlug.get(row.team_slug);
+        if (current === "admin") continue;
+        roleBySlug.set(row.team_slug, row.relationship === "admin" ? "admin" : "member");
+      }
+
+      if (roleBySlug.size > 0) {
+        const teamsCol = await getCollection("teams");
+        const teamDocs = await teamsCol
+          .find({ slug: { $in: Array.from(roleBySlug.keys()) } })
+          .project({ _id: 1, name: 1, slug: 1 })
+          .toArray();
+        teams = teamDocs.map((t) => {
+          const slug = typeof t.slug === "string" ? t.slug : "";
+          return {
+            _id: t._id.toString(),
+            name: t.name as string,
+            role: roleBySlug.get(slug),
+          };
+        });
+      }
     } catch {
-      // MongoDB may not be available
+      // MongoDB may not be available, or the source store may not exist
+      // on a fresh install. Empty `teams` is the correct safe default.
     }
 
     try {
