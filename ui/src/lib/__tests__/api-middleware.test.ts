@@ -52,6 +52,7 @@ const mockCheckPermission = jest.requireMock('@/lib/rbac/keycloak-authz').checkP
 
 beforeEach(() => {
   mockGetConfig.mockImplementation((key: string) => key === 'ssoEnabled');
+  delete process.env.CAIPE_UNSAFE_RBAC_BYPASS;
 });
 
 jest.spyOn(console, 'error').mockImplementation(() => {});
@@ -255,6 +256,7 @@ describe('requireRbacPermission organization ReBAC', () => {
     mockCheckPermission.mockResolvedValue({ allowed: false, reason: 'DENY_NO_CAPABILITY' });
     delete process.env.BOOTSTRAP_ADMIN_EMAILS;
     delete process.env.CAIPE_ORG_KEY;
+    delete process.env.CAIPE_UNSAFE_RBAC_BYPASS;
   });
 
   it('allows admin UI management via organization can_manage', async () => {
@@ -441,6 +443,27 @@ describe('requireRbacPermission organization ReBAC', () => {
         'admin'
       )
     ).resolves.toBeUndefined();
+  });
+
+  it('allows all RBAC decisions behind the unsafe bypass flag', async () => {
+    process.env.CAIPE_UNSAFE_RBAC_BYPASS = 'true';
+    const warnMock = jest.mocked(console.warn);
+    warnMock.mockClear();
+
+    await expect(
+      requireRbacPermission(
+        {
+          role: 'admin',
+          user: { email: 'anonymous@local' },
+        },
+        'admin_ui',
+        'admin'
+      )
+    ).resolves.toBeUndefined();
+
+    expect(mockCheckOpenFgaTuple).not.toHaveBeenCalled();
+    expect(mockCheckPermission).not.toHaveBeenCalled();
+    expect(warnMock).toHaveBeenCalledWith(expect.stringContaining('RBAC IS DISABLED'));
   });
 });
 
