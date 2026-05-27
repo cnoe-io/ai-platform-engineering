@@ -392,6 +392,7 @@ describe('RAG RBAC Integration', () => {
       expect(mockRequireResourcePermission).toHaveBeenCalledWith(
         expect.objectContaining({ sub: 'alice-sub', role: 'kb_admin' }),
         { type: 'knowledge_base', id: 'kb-alpha', action: 'discover' },
+        { bypassForOrgAdmin: true },
       );
       expect(global.fetch).toHaveBeenCalledWith(
         'http://localhost:9446/v1/datasources?datasource_id=kb-alpha',
@@ -456,7 +457,7 @@ describe('RAG RBAC Integration', () => {
         expect.objectContaining({ sub: 'alice-sub', role: 'user' }),
         expect.any(Array),
         expect.objectContaining({ type: 'knowledge_base', action: 'read' }),
-        expect.objectContaining({ allowAdminBypass: true }),
+        expect.objectContaining({ bypassForOrgAdmin: true }),
       );
     });
 
@@ -666,6 +667,7 @@ describe('RAG RBAC Integration', () => {
       expect(mockRequireResourcePermission).toHaveBeenCalledWith(
         expect.objectContaining({ sub: 'alice-sub' }),
         { type: 'knowledge_base', id: 'kb-beta', action: 'ingest' },
+        { bypassForOrgAdmin: true },
       );
       expect(global.fetch).toHaveBeenCalledWith(
         'http://localhost:9446/v1/ingest/webloader/reload',
@@ -708,6 +710,7 @@ describe('RAG RBAC Integration', () => {
       expect(mockRequireResourcePermission).toHaveBeenCalledWith(
         expect.objectContaining({ sub: 'admin-sub', role: 'admin' }),
         { type: 'knowledge_base', id: 'kb-reload', action: 'ingest' },
+        { bypassForOrgAdmin: true },
       );
       expect(global.fetch).not.toHaveBeenCalledWith(
         'http://localhost:9446/v1/ingest/webloader/reload',
@@ -740,6 +743,7 @@ describe('RAG RBAC Integration', () => {
       expect(mockRequireResourcePermission).toHaveBeenCalledWith(
         expect.objectContaining({ sub: 'alice-sub' }),
         { type: 'knowledge_base', id: 'kb-gamma', action: 'admin' },
+        { bypassForOrgAdmin: true },
       );
     });
 
@@ -768,6 +772,7 @@ describe('RAG RBAC Integration', () => {
       expect(mockRequireResourcePermission).toHaveBeenCalledWith(
         expect.objectContaining({ sub: 'alice-sub' }),
         { type: 'knowledge_base', id: 'kb-delta', action: 'read' },
+        { bypassForOrgAdmin: true },
       );
     });
 
@@ -791,6 +796,7 @@ describe('RAG RBAC Integration', () => {
       expect(mockRequireResourcePermission).toHaveBeenCalledWith(
         expect.objectContaining({ sub: 'alice-sub' }),
         { type: 'knowledge_base', id: 'kb-epsilon', action: 'admin' },
+        { bypassForOrgAdmin: true },
       );
     });
 

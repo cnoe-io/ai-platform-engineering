@@ -5,7 +5,7 @@ import {
   KEYCLOAK_RBAC_RECONCILIATION_MIGRATION_ID,
   planKeycloakRbacReconciliationMigration,
 } from "@/lib/rbac/keycloak-rbac-reconciliation";
-import { writeOpenFgaTuples, type OpenFgaTupleKey } from "@/lib/rbac/openfga";
+import { readOpenFgaTuples, writeOpenFgaTuples, type OpenFgaTupleKey } from "@/lib/rbac/openfga";
 import { caipeOrgKey } from "@/lib/rbac/organization";
 import { slackChannelTeamVisibilityRelationships } from "@/lib/rbac/slack-channel-rebac";
 import { webexSpaceTeamVisibilityRelationships } from "@/lib/rbac/webex-space-rebac";
@@ -56,6 +56,18 @@ export const AGENT_ORG_ADMIN_MIGRATION_ID = "agent_org_admin_inheritance_v1";
 // canonical team-member/team-admin tuple pair for every resolved slug.
 // Idempotent — re-running it is safe and a no-op when nothing changed.
 export const AGENT_SHARED_TEAM_GRANTS_MIGRATION_ID = "agent_shared_team_grants_backfill_v1";
+// assisted-by Cursor claude-opus-4-7
+// PR 1 of the fine-grained KB ReBAC plan (2026-05-27).
+// Adds `rag_datasources` to PRIVILEGED_ADMIN_SURFACES, but every
+// previously-bootstrapped org-admin in OpenFGA still lacks the matching
+// `user:<sub> manager admin_surface:rag_datasources` tuple. The `rag` +
+// `admin` short-circuit in `api-middleware.ts` resolves that tuple via
+// model inheritance from `organization#admin`, but writing it explicitly
+// makes the org-admin super-grant on KB/Search/Data Sources/Graph/MCP
+// fail-safe instead of inheritance-dependent. Idempotent — re-running
+// it writes the same tuples and OpenFGA no-ops on identical writes.
+export const ADMIN_SURFACE_RAG_DATASOURCES_ADMIN_GRANT_MIGRATION_ID =
+  "admin_surface_rag_datasources_admin_grant_v1";
 const RBAC_INDEXES_MIGRATION_ID = "rbac_indexes_v1";
 const SLACK_CHANNEL_REBAC_MIGRATION_ID = "slack_channel_rebac_backfill_v1";
 const WEBEX_SPACE_REBAC_MIGRATION_ID = "webex_space_rebac_backfill_v1";
@@ -193,6 +205,20 @@ export const MIGRATION_DEFINITIONS: MigrationDefinition[] = [
     required: true,
     implemented: true,
     dependencies: [AGENT_ORG_ADMIN_MIGRATION_ID],
+  },
+  {
+    id: ADMIN_SURFACE_RAG_DATASOURCES_ADMIN_GRANT_MIGRATION_ID,
+    release: RELEASE_051,
+    schema_area: "admin_surfaces",
+    from_version: 1,
+    to_version: 2,
+    kind: "explicit",
+    title: "rag_datasources admin-surface manager grant",
+    description:
+      "Backfill `user:<sub> manager admin_surface:rag_datasources` for every existing org admin so the org-admin super-grant on KB/Search/Data Sources/Graph/MCP Tools no longer relies solely on OpenFGA model inheritance.",
+    confirmation: "MIGRATE admin_surfaces TO v2",
+    required: true,
+    implemented: true,
   },
   {
     id: "rbac_indexes_v1",
@@ -910,6 +936,72 @@ export function deriveAgentSharedTeamGrantsPlan(
   };
 }
 
+/**
+ * Backfill the `user:<sub> manager admin_surface:rag_datasources` tuple
+ * for every existing org admin. PR 1 of the fine-grained KB ReBAC plan.
+ *
+ * Inputs:
+ *  - `adminSubjects`: list of OpenFGA user subjects (no `user:` prefix)
+ *    derived from the `user:<sub> admin organization:<key>` tuples in
+ *    OpenFGA. Invalid subjects are skipped with a warning.
+ *
+ * Idempotent: re-running this migration writes the same tuples; OpenFGA's
+ * tuple store no-ops on identical writes.
+ *
+ * assisted-by Cursor claude-opus-4-7
+ */
+export function deriveAdminSurfaceRagDatasourcesAdminGrantPlan(
+  adminSubjects: string[],
+): MigrationRuntimePlan {
+  const tuples: OpenFgaTupleKey[] = [];
+  const warnings: string[] = [];
+  let invalidSubjects = 0;
+  const seen = new Set<string>();
+
+  for (const raw of adminSubjects) {
+    const subject = typeof raw === "string" ? raw.trim() : "";
+    if (!subject) continue;
+    if (!isOpenFgaId(subject)) {
+      invalidSubjects += 1;
+      warnings.push(`Skipping org admin with invalid OpenFGA subject: ${raw}`);
+      continue;
+    }
+    if (seen.has(subject)) continue;
+    seen.add(subject);
+    tuples.push({
+      user: `user:${subject}`,
+      relation: "manager",
+      object: "admin_surface:rag_datasources",
+    });
+  }
+
+  const unique = uniqueTuples(tuples);
+  return {
+    migration_id: ADMIN_SURFACE_RAG_DATASOURCES_ADMIN_GRANT_MIGRATION_ID,
+    release: RELEASE_051,
+    schema_area: "admin_surfaces",
+    kind: "explicit",
+    from_version: 1,
+    to_version: 2,
+    counts: {
+      admins_scanned: adminSubjects.length,
+      admins_resolved: seen.size,
+      tuples_planned: unique.length,
+      invalid_subjects: invalidSubjects,
+    },
+    warnings,
+    sample_diffs: unique.slice(0, 10).map((tuple, index) => ({
+      collection: "openfga_tuples",
+      id: `${ADMIN_SURFACE_RAG_DATASOURCES_ADMIN_GRANT_MIGRATION_ID}:${index}`,
+      before: {},
+      after: { ...tuple },
+    })),
+    tuple_writes_planned: unique.length,
+    confirmation: "MIGRATE admin_surfaces TO v2",
+    tuples: unique,
+  };
+}
+
 type MessagingGrantSurface = {
   migrationId: string;
   schemaArea: string;
@@ -1419,6 +1511,37 @@ async function loadAgentSharedTeamGrantInputs() {
   return { agentDocs, teamDocs };
 }
 
+/**
+ * PR 1 of the 2026-05-27 fine-grained KB ReBAC plan. Reads every
+ * `user:<sub> admin organization:<key>` tuple from OpenFGA so the
+ * `admin_surface_rag_datasources_admin_grant_v1` migration can derive
+ * the `manager admin_surface:rag_datasources` tuples for every existing
+ * org admin.
+ *
+ * assisted-by Cursor claude-opus-4-7
+ */
+async function loadOrgAdminSubjects(): Promise<string[]> {
+  const subjects = new Set<string>();
+  const organizationObject = `organization:${caipeOrgKey()}`;
+  let continuationToken: string | undefined;
+  do {
+    const page = await readOpenFgaTuples({
+      tuple: { object: organizationObject, relation: "admin" },
+      continuationToken,
+      pageSize: 100,
+    });
+    for (const tuple of page.tuples) {
+      const user = tuple.key?.user;
+      if (typeof user !== "string") continue;
+      if (!user.startsWith("user:")) continue;
+      const subject = user.slice("user:".length).trim();
+      if (subject) subjects.add(subject);
+    }
+    continuationToken = page.continuationToken;
+  } while (continuationToken);
+  return Array.from(subjects);
+}
+
 async function loadMessagingRebacInputs(surface: "slack" | "webex") {
   if (surface === "slack") {
     const [grants, routes] = await Promise.all([
@@ -1877,6 +2000,10 @@ export async function planMigration(migrationId: string, now = new Date().toISOS
       agentDocs as Array<Record<string, any>>,
       teamDocs as Array<Record<string, any>>,
     );
+  }
+  if (migrationId === ADMIN_SURFACE_RAG_DATASOURCES_ADMIN_GRANT_MIGRATION_ID) {
+    const subjects = await loadOrgAdminSubjects();
+    return deriveAdminSurfaceRagDatasourcesAdminGrantPlan(subjects);
   }
   if (migrationId === RBAC_INDEXES_MIGRATION_ID) {
     return deriveIndexPlan();
