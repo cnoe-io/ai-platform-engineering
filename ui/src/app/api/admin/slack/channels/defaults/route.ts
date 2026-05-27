@@ -1,9 +1,19 @@
 import { NextRequest } from "next/server";
 import type { Document } from "mongodb";
 
-import { ApiError, successResponse, withErrorHandler } from "@/lib/api-middleware";
+import {
+  ApiError,
+  getAuthFromBearerOrSession,
+  successResponse,
+  withErrorHandler,
+} from "@/lib/api-middleware";
 import { getCollection } from "@/lib/mongodb";
 import { ensureSlackBotOboPermissions } from "@/lib/rbac/keycloak-admin";
+import {
+  OnboardingDefaultsValidationError,
+  readOnboardingDefaults,
+  writeOnboardingDefaults,
+} from "@/lib/rbac/onboarding-defaults";
 import { writeOpenFgaTuples } from "@/lib/rbac/openfga";
 import { slackWorkspaceRef } from "@/lib/rbac/slack-channel-grant-store";
 import {
@@ -25,15 +35,46 @@ interface SlackMigrationDefaultsRequest {
 }
 
 export const GET = withErrorHandler(async (request: NextRequest) =>
-  withSlackChannelRebacViewAuth(request, async () =>
-    successResponse({
-      defaults: {
-        team_slug: process.env.SLACK_DEFAULT_TEAM_SLUG?.trim() || "",
-        agent_id: process.env.SLACK_DEFAULT_AGENT_ID?.trim() || "",
-        create_routes: true,
-      },
-    })
-  )
+  withSlackChannelRebacViewAuth(request, async () => {
+    // DB-first read so admin's saved picks survive a page reload.
+    // Falls back to legacy env vars (`SLACK_DEFAULT_TEAM_SLUG`,
+    // `SLACK_DEFAULT_AGENT_ID`) when nothing has been saved yet, which
+    // keeps fresh installs / compose bootstrap behaviour intact.
+    const defaults = await readOnboardingDefaults("slack");
+    return successResponse({ defaults });
+  }),
+);
+
+/**
+ * PUT — save the onboarding defaults without running the migration
+ * pipeline. The migration POST (below) remains unchanged for callers
+ * that want the old "save + onboard everything" behaviour, but the
+ * Admin UI now uses PUT for its dedicated "Save defaults" button.
+ */
+export const PUT = withErrorHandler(async (request: NextRequest) =>
+  withSlackChannelRebacManageAuth(request, async () => {
+    const { session } = await getAuthFromBearerOrSession(request);
+    const body = (await request.json().catch(() => ({}))) as SlackMigrationDefaultsRequest;
+    const teamSlug = readOptionalString(body.team_slug);
+    const agentId = readOptionalString(body.agent_id);
+    const createRoutes =
+      typeof body.create_routes === "boolean" ? body.create_routes : true;
+
+    try {
+      const saved = await writeOnboardingDefaults("slack", {
+        team_slug: teamSlug,
+        agent_id: agentId,
+        create_routes: createRoutes,
+        actor: session?.user?.email ?? "api",
+      });
+      return successResponse({ defaults: saved });
+    } catch (error) {
+      if (error instanceof OnboardingDefaultsValidationError) {
+        throw new ApiError(error.message, 400);
+      }
+      throw error;
+    }
+  }),
 );
 
 interface ChannelTeamMappingDoc extends Document {

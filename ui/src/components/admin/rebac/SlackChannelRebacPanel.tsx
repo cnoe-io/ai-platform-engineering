@@ -23,6 +23,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/toast";
+import { TeamPicker, type TeamPickerOption } from "@/components/ui/team-picker";
 import { ConnectorOnboardingWizard } from "./ConnectorOnboardingWizard";
 
 interface SlackChannelSummary {
@@ -88,6 +89,12 @@ interface SlackChannelAssociationDefaults {
   team_slug: string;
   agent_id: string;
   create_routes?: boolean;
+  /** Set by the persistence API (DB-backed); empty when value came from env. */
+  updated_at?: string;
+  /** Email of the admin who last saved; empty for env-only values. */
+  updated_by?: string;
+  /** "db" | "env" | "unset" — drives the "Saved" vs "Env default" label. */
+  source?: "db" | "env" | "unset";
 }
 
 interface SlackBotRuntimeStatus {
@@ -200,6 +207,7 @@ export function SlackChannelRebacPanel({
   const [runtimeSyncModalStatus, setRuntimeSyncModalStatus] = useState<RuntimeSyncModalStatus>("idle");
   const [runtimeSyncModalError, setRuntimeSyncModalError] = useState<string | null>(null);
   const [createDefaultRoutes, setCreateDefaultRoutes] = useState(true);
+  const [savingDefaults, setSavingDefaults] = useState(false);
   const [discoverDefaultsLoading, setDiscoverDefaultsLoading] = useState(false);
   const [discoverDefaultsError, setDiscoverDefaultsError] = useState<string | null>(null);
   const [discoveredBotChannels, setDiscoveredBotChannels] = useState<DiscoveredSlackChannel[]>([]);
@@ -242,6 +250,24 @@ export function SlackChannelRebacPanel({
     if (defaultAgentId && dynamicAgentIds.has(defaultAgentId)) return defaultAgentId;
     return sortedDynamicAgents[0]?._id ?? "";
   }, [defaultAgentId, dynamicAgentIds, sortedDynamicAgents]);
+  // True when the form picks differ from what's actually persisted —
+  // drives the dedicated "Save defaults" button's enabled state and
+  // the small "Unsaved changes" indicator next to the chips. Treat
+  // missing fields on `configuredDefaults` as empty so a never-saved
+  // tenant doesn't get a permanent "dirty" badge.
+  const associationDefaultsDirty = useMemo(() => {
+    const savedTeam = configuredDefaults?.team_slug ?? "";
+    const savedAgent = configuredDefaults?.agent_id ?? "";
+    const savedCreateRoutes =
+      typeof configuredDefaults?.create_routes === "boolean"
+        ? configuredDefaults.create_routes
+        : true;
+    return (
+      savedTeam !== defaultTeamSlug ||
+      savedAgent !== defaultAgentId ||
+      savedCreateRoutes !== createDefaultRoutes
+    );
+  }, [configuredDefaults, defaultTeamSlug, defaultAgentId, createDefaultRoutes]);
   const discoveredNewChannelCount = useMemo(
     () => discoveredBotChannels.filter((channel) => !configuredChannelIds.has(channel.id)).length,
     [configuredChannelIds, discoveredBotChannels]
@@ -312,12 +338,60 @@ export function SlackChannelRebacPanel({
     if (!response.ok) throw new Error(await response.text());
     const data = apiData<{ defaults: SlackChannelAssociationDefaults }>(await response.json());
     setConfiguredDefaults(data.defaults ?? null);
-    if (data.defaults?.team_slug) setDefaultTeamSlug((current) => current || data.defaults.team_slug);
-    if (data.defaults?.agent_id) setDefaultAgentId((current) => current || data.defaults.agent_id);
-    if (typeof data.defaults?.create_routes === "boolean") {
-      setCreateDefaultRoutes(data.defaults.create_routes);
+    // Adopt the saved values verbatim — empty strings included — so
+    // clearing the save in another tab is reflected here on the next
+    // load. The previous `current || …` pattern was a one-way bridge
+    // that only ever populated empty fields, which is why admins saw
+    // stale values stick after they cleared their pick.
+    if (data.defaults) {
+      setDefaultTeamSlug(data.defaults.team_slug ?? "");
+      setDefaultAgentId(data.defaults.agent_id ?? "");
+      if (typeof data.defaults.create_routes === "boolean") {
+        setCreateDefaultRoutes(data.defaults.create_routes);
+      }
     }
   }, []);
+
+  // Persist the onboarding defaults to MongoDB (`platform_config`) so
+  // the admin's pick survives a page reload. This is the explicit
+  // "Save defaults" button the UI exposes — distinct from the
+  // migration POST, which only fires when the admin clicks "Apply" on
+  // the import wizard.
+  const saveAssociationDefaults = useCallback(async () => {
+    setSavingDefaults(true);
+    setMessage(null);
+    try {
+      const response = await fetch("/api/admin/slack/channels/defaults", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          team_slug: defaultTeamSlug,
+          agent_id: defaultAgentId,
+          create_routes: createDefaultRoutes,
+        }),
+      });
+      if (!response.ok) throw new Error(await response.text());
+      const data = apiData<{ defaults: SlackChannelAssociationDefaults }>(
+        await response.json(),
+      );
+      setConfiguredDefaults(data.defaults ?? null);
+      if (data.defaults) {
+        setDefaultTeamSlug(data.defaults.team_slug ?? "");
+        setDefaultAgentId(data.defaults.agent_id ?? "");
+        if (typeof data.defaults.create_routes === "boolean") {
+          setCreateDefaultRoutes(data.defaults.create_routes);
+        }
+      }
+      toast("Onboarding defaults saved.", "success");
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : "Failed to save Slack onboarding defaults";
+      setMessage(errorMessage);
+      toast(errorMessage, "error");
+    } finally {
+      setSavingDefaults(false);
+    }
+  }, [defaultTeamSlug, defaultAgentId, createDefaultRoutes, toast]);
 
   const loadSlackRuntimeStatus = useCallback(async () => {
     const response = await fetch("/api/admin/slack/runtime/status");
@@ -769,11 +843,21 @@ export function SlackChannelRebacPanel({
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
-        <div className="order-0 rounded-md border p-3 text-sm text-muted-foreground">
-          Slack authorization has two checks before dispatch: the channel must have
-          <code className="mx-1">can_use agent:&lt;id&gt;</code>, and the user&apos;s active
-          team must also have <code className="mx-1">can_use agent:&lt;id&gt;</code>.
-          If either check fails, the Slack bot denies the request before calling the agent.
+        <div className="order-0 space-y-2 rounded-md border p-3 text-sm text-muted-foreground">
+          <div>
+            Slack authorization has two checks before dispatch: the channel must have
+            <code className="mx-1">can_use agent:&lt;id&gt;</code>, and the user&apos;s active
+            team must also have <code className="mx-1">can_use agent:&lt;id&gt;</code>.
+            If either check fails, the Slack bot denies the request before calling the agent.
+          </div>
+          <div className="rounded-md border border-amber-300/60 bg-amber-50 p-2 text-amber-950 dark:bg-amber-950/30 dark:text-amber-200">
+            <span className="font-medium">Sharing model:</span> Adding an agent to a
+            channel that is assigned to a team transitively grants <em>every member of
+            that team</em> permission to invoke the agent in this channel — even members
+            who were never granted the agent directly. If that is not what you want, share
+            the agent with a smaller subgroup (or with individual users) instead of the
+            channel&apos;s team.
+          </div>
         </div>
 
         {!selfService && (
@@ -993,33 +1077,58 @@ export function SlackChannelRebacPanel({
               Only changes what is preselected when you onboard channels. Each channel still needs an explicit setup action.
             </p>
           </div>
-          <div className="grid gap-2 rounded-md border border-teal-500/15 bg-background/60 p-3 text-xs md:grid-cols-2">
-            <div>
-              <div className="text-muted-foreground">Saved onboarding team</div>
-              <code>{configuredDefaults?.team_slug ? `team:${configuredDefaults.team_slug}` : "not configured"}</code>
+          <div className="rounded-md border border-teal-500/15 bg-background/60 p-3 text-xs">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="font-medium text-foreground">Last saved</span>
+              {configuredDefaults?.source === "env" && (
+                <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                  from environment variable
+                </span>
+              )}
+              {configuredDefaults?.source === "db" && configuredDefaults?.updated_at && (
+                <span className="text-[10px] text-muted-foreground">
+                  {new Date(configuredDefaults.updated_at).toLocaleString()}
+                  {configuredDefaults?.updated_by ? ` · ${configuredDefaults.updated_by}` : ""}
+                </span>
+              )}
+              {configuredDefaults?.source === "unset" && (
+                <span className="text-[10px] text-muted-foreground">never saved</span>
+              )}
             </div>
-            <div>
-              <div className="text-muted-foreground">Saved onboarding Dynamic Agent</div>
-              <code>{configuredDefaults?.agent_id ? `agent:${configuredDefaults.agent_id}` : "not configured"}</code>
+            <div className="mt-2 grid gap-2 md:grid-cols-2">
+              <div>
+                <div className="text-muted-foreground">Onboarding team</div>
+                <code>{configuredDefaults?.team_slug ? `team:${configuredDefaults.team_slug}` : "not configured"}</code>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Onboarding Dynamic Agent</div>
+                <code>{configuredDefaults?.agent_id ? `agent:${configuredDefaults.agent_id}` : "not configured"}</code>
+              </div>
             </div>
           </div>
           <div className="grid gap-3 md:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="slack-default-team">Preselected Team</Label>
-              <select
+              {/* Switched from native <select> to TeamPicker on
+                  2026-05-27 — environments with hundreds of AWS-* /
+                  SSO-* teams made the dropdown unusable. Same on-disk
+                  contract (slug string); search by name or slug. */}
+              <TeamPicker
                 id="slack-default-team"
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                 value={defaultTeamSlug}
-                onChange={(event) => setDefaultTeamSlug(event.target.value)}
+                onChange={setDefaultTeamSlug}
                 disabled={disabled || teams.length === 0}
-              >
-                <option value="">{teams.length === 0 ? "No teams configured" : "Select preselected team"}</option>
-                {teams.map((team) => (
-                  <option key={team.slug || team.id || team._id} value={team.slug}>
-                    {team.name || team.slug} ({team.slug})
-                  </option>
-                ))}
-              </select>
+                placeholder={
+                  teams.length === 0 ? "No teams configured" : "Select preselected team"
+                }
+                searchPlaceholder="Search teams..."
+                options={teams.map<TeamPickerOption>((team) => ({
+                  slug: team.slug,
+                  name: team.name || team.slug,
+                  id: team.id,
+                  _id: team._id,
+                }))}
+              />
               {invalidDefaultTeamSlug && (
                 <p className="text-xs text-amber-700 dark:text-amber-400" role="alert">
                   The saved default team <code>team:{invalidDefaultTeamSlug}</code> doesn&apos;t match any
@@ -1069,6 +1178,31 @@ export function SlackChannelRebacPanel({
               </span>
             </span>
           </label>
+          {/* Dedicated Save button — distinct from "Apply" on the
+              import wizard. Persists to `platform_config`. The
+              wizard's onboarding pipeline still uses whatever the
+              admin has on screen, but you no longer need to run the
+              pipeline just to durably remember a pick. */}
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {associationDefaultsDirty && (
+              <span
+                role="status"
+                className="text-[11px] text-amber-700 dark:text-amber-400"
+              >
+                Unsaved changes
+              </span>
+            )}
+            <Button
+              type="button"
+              size="sm"
+              variant="default"
+              onClick={() => void saveAssociationDefaults()}
+              disabled={disabled || savingDefaults || !associationDefaultsDirty}
+              aria-label="Save Slack onboarding defaults"
+            >
+              {savingDefaults ? "Saving…" : "Save defaults"}
+            </Button>
+          </div>
           {(teams.length === 0 || dynamicAgents.length === 0) && (
             <p className="text-xs text-muted-foreground">
               Configure a team or Dynamic Agent in the admin UI, then reload this page.
@@ -1218,6 +1352,21 @@ export function SlackChannelRebacPanel({
               tuple. Listen mode and priority are saved as dependent route metadata.
             </p>
           </div>
+          {selected?.team_slug && (
+            <div
+              role="note"
+              aria-label="Cascade warning"
+              className="rounded-md border border-amber-300/60 bg-amber-50 p-3 text-xs text-amber-950 dark:bg-amber-950/30 dark:text-amber-200"
+            >
+              <span className="font-medium">Heads up:</span> #
+              {selected.channel_name} is assigned to{" "}
+              <code>team:{selected.team_slug}</code>. Any agent you add here becomes
+              callable in this channel by <em>every</em> member of{" "}
+              <code>team:{selected.team_slug}</code> — including members who have no
+              direct grant on the agent. To restrict access, share the agent with a
+              narrower team or with specific users instead of using this channel.
+            </div>
+          )}
           <div className="grid gap-3 md:grid-cols-4">
             <div className="space-y-2 md:col-span-2">
               <Label htmlFor="slack-route-agent-id">Dynamic Agent</Label>
