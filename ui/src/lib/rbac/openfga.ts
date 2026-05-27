@@ -8,6 +8,7 @@ import {
   type UniversalRebacTupleDiffInput,
 } from "./tuple-builders";
 import { getCurrentTraceparent, withAuthzSpan } from "./authz-tracing";
+import { isUnsafeRbacBypassEnabled, warnUnsafeRbacBypassEnabled } from "./bypass";
 
 export interface OpenFgaTupleKey {
   user: string;
@@ -228,6 +229,10 @@ export async function checkOpenFgaTuple(tuple: OpenFgaTupleKey): Promise<OpenFga
       "authz.user_ref": tuple.user.replace(/user:[^#]+/, "user:<redacted>"),
     },
     async () => {
+      if (isUnsafeRbacBypassEnabled()) {
+        warnUnsafeRbacBypassEnabled("openfga.check");
+        return { allowed: true };
+      }
       const baseUrl = openFgaHttpUrl();
       if (!baseUrl) {
         throw new Error("OPENFGA_HTTP is not set");

@@ -280,6 +280,10 @@ export function AppHeader() {
   // sessions never trigger the underlying Keycloak Admin round-trip.
   const keycloakHealth = useKeycloakHealthSummary({ enabled: isAdmin });
   const { toast } = useToast();
+  const noAuthConfigured = !config.ssoEnabled || config.unsafeRbacBypassEnabled;
+  const noAuthStatusText = config.unsafeRbacBypassEnabled
+    ? "RBAC bypass is enabled. UI authorization checks allow every operation."
+    : "SSO is disabled. This deployment is not enforcing browser sign-in.";
 
   React.useEffect(() => {
     if (!session || !releasePrompt.toastNotification) return;
@@ -942,6 +946,33 @@ export function AppHeader() {
               </div>
             </PopoverContent>
           </Popover>
+          {noAuthConfigured && (
+            <Popover>
+              <PopoverTrigger asChild>
+                <button
+                  aria-label="No auth configured"
+                  className={cn(
+                    "flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-amber-500/30 bg-amber-500/15 text-xs font-medium text-amber-500 transition-all hover:bg-amber-500/20 hover:scale-105",
+                    headerNavCollapsed && "h-8 w-8 justify-center px-0",
+                  )}
+                >
+                  <AlertTriangle className="h-3 w-3" />
+                  <span className={headerNavCollapsed ? "sr-only" : ""}>No Auth</span>
+                </button>
+              </PopoverTrigger>
+              <PopoverContent side="bottom" align="end" className="w-80 p-3">
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 text-sm font-semibold text-amber-500">
+                    <AlertTriangle className="h-4 w-4" />
+                    No Auth Configured
+                  </div>
+                  <p className="text-xs leading-relaxed text-muted-foreground">
+                    {noAuthStatusText} All operations should be treated as admin-capable. Do not use this mode in production.
+                  </p>
+                </div>
+              </PopoverContent>
+            </Popover>
+          )}
           {/*
             Unified admin alerts pill. Replaces four previously separate
             chips (Migrations required, Version metadata needed,

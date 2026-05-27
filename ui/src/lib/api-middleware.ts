@@ -543,6 +543,7 @@ import { deniedApiResponse } from '@/lib/rbac/error-responses';
 import { checkPermission } from '@/lib/rbac/keycloak-authz';
 import { checkOpenFgaTuple } from '@/lib/rbac/openfga';
 import { organizationObjectId } from '@/lib/rbac/organization';
+import { isUnsafeRbacBypassEnabled, warnUnsafeRbacBypassEnabled } from '@/lib/rbac/bypass';
 import type { RbacResource, RbacScope } from '@/lib/rbac/types';
 
 function organizationRelationFor(resource: RbacResource, scope: RbacScope): string {
@@ -617,6 +618,21 @@ export async function requireRbacPermission(
   const accessToken = session.accessToken;
   const email = session.user?.email;
   const subject = session.sub;
+
+  if (isUnsafeRbacBypassEnabled()) {
+    warnUnsafeRbacBypassEnabled(`${resource}#${scope}`);
+    logAuthzDecision({
+      tenantId: session.org ?? 'unknown',
+      sub: subject ?? email ?? 'unsafe-rbac-bypass',
+      resource,
+      scope,
+      outcome: 'allow',
+      reasonCode: 'OK_ROLE_FALLBACK',
+      pdp: 'local',
+      email,
+    });
+    return;
+  }
 
   if (!accessToken && !subject) {
     logAuthzDecision({
