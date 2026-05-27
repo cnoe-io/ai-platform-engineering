@@ -429,11 +429,15 @@ describe('POST /api/admin/teams', () => {
     expect(body.data.message).toBe('Team created successfully');
     expect(teamsCol.insertOne).toHaveBeenCalledTimes(1);
 
-    // Verify the inserted team has the creator as owner
+    // Commit 6/8 of the canonical-team-membership refactor (spec
+    // 2026-05-26-canonical-team-membership): the team document no
+    // longer carries an embedded `members[]` array. Membership lives
+    // exclusively in team_membership_sources (the upsert loop in the
+    // route is covered by team-creation-openfga-sync.test.ts).
     const insertedTeam = teamsCol.insertOne.mock.calls[0][0];
     expect(insertedTeam.name).toBe('New Team');
-    expect(insertedTeam.members).toHaveLength(2); // user1 + creator
-    expect(insertedTeam.members.some((m: any) => m.role === 'owner' && m.user_id === 'admin@example.com')).toBe(true);
+    expect(insertedTeam.members).toBeUndefined();
+    expect(insertedTeam.owner_id).toBe('admin@example.com');
   });
 
   it('rejects duplicate team name', async () => {
@@ -781,6 +785,14 @@ describe('POST /api/admin/teams/[id]/members', () => {
       .mockResolvedValueOnce(TEST_TEAM);
     mockCollections['teams'] = teamsCol;
 
+    // Capture the canonical-store upsert so we can pin the resolved role.
+    // Commit 6/8 of the canonical-team-membership refactor (spec
+    // 2026-05-26-canonical-team-membership): role is now persisted onto
+    // `team_membership_sources.relationship`, not into a $push on
+    // teams.members[].
+    const sourcesCol = createMockCollection();
+    mockCollections['team_membership_sources'] = sourcesCol;
+
     const req = makeRequest(`/api/admin/teams/${TEST_TEAM_ID}/members`, {
       method: 'POST',
       body: JSON.stringify({ user_id: 'new@example.com' }), // No role specified
@@ -788,10 +800,15 @@ describe('POST /api/admin/teams/[id]/members', () => {
     const res = await POST(req, makeContext(TEST_TEAM_ID.toString()));
 
     expect(res.status).toBe(201);
-    // Check the $push call contains role: 'member'
     const updateCall = teamsCol.updateOne.mock.calls[0];
-    const pushOp = updateCall[1].$push;
-    expect(pushOp.members.role).toBe('member');
+    expect(updateCall[1].$push).toBeUndefined();
+    // The canonical upsert is the role-of-truth; verify the source row
+    // was created with relationship: "member" (the default).
+    const relationshipValues = sourcesCol.updateOne.mock.calls.map((call: unknown[]) => {
+      const update = call[1] as { $set?: { relationship?: string } };
+      return update?.$set?.relationship;
+    });
+    expect(relationshipValues).toContain('member');
   });
 });
 

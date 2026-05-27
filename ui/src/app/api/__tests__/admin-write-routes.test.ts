@@ -533,10 +533,18 @@ describe('POST /api/admin/teams/[id]/members', () => {
     expect(res.status).toBe(201);
     expect(body.success).toBe(true);
     expect(body.data.team).toBeDefined();
+    // Commit 6/8 of the canonical-team-membership refactor (spec
+    // 2026-05-26-canonical-team-membership): the POST /members route
+    // no longer $push'es into teams.members[]. It only refreshes the
+    // mutation timestamps on the team doc; the new member lives in
+    // team_membership_sources (covered by membership-sources.test.ts).
     expect(teamsCol.updateOne).toHaveBeenCalledTimes(1);
     const updateCall = teamsCol.updateOne.mock.calls[0];
-    expect(updateCall[1].$push.members.user_id).toBe('new@example.com');
-    expect(updateCall[1].$push.members.role).toBe('admin');
+    expect(updateCall[1].$push).toBeUndefined();
+    expect(updateCall[1].$set).toMatchObject({
+      updated_by: 'admin@example.com',
+    });
+    expect(updateCall[1].$set.updated_at).toBeInstanceOf(Date);
   });
 });
 
