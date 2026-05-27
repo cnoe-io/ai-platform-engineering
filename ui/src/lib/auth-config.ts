@@ -24,6 +24,11 @@ import { decodeJwt } from "jose";
  * - OIDC_IDP_HINT: Keycloak IdP alias to auto-redirect (e.g., "duo-sso"). Omit to show login form.
  * - IDENTITY_SYNC_LOGIN_CLAIMS_ENABLED: Set to "false" to disable signed-in user's OIDC group claim reconciliation
  * - IDENTITY_SYNC_OIDC_CLAIM_PROVIDER_ID: Provider id for claim-derived sync rules (default: "oidc-claims")
+ * - IDENTITY_SYNC_LOGIN_AUTO_CREATE_TEAMS: Set to "true" to allow login-time reconciliation to CREATE
+ *     new teams from unmatched OIDC group claims. Defaults to "false" — even with this enabled,
+ *     team creation still requires `auto_create_team: true` on the matching identity-group-sync rule
+ *     (defense in depth). Off by default because silent team creation from raw IdP claims expands
+ *     the auth-data surface; admins should typically curate teams via the Admin UI instead.
  */
 
 // Check if refresh token support should be enabled
@@ -152,6 +157,10 @@ async function reconcileLoginGroupsFromClaims(input: {
     await reconcileOidcClaimGroupsForUser({
       ...input,
       providerId: process.env.IDENTITY_SYNC_OIDC_CLAIM_PROVIDER_ID || "oidc-claims",
+      // Strict opt-in: env must be exactly "true" to enable. Even then the
+      // planner still requires the matched rule to have auto_create_team=true
+      // (see identity-group-sync-planner.ts) — that's the policy gate.
+      allowTeamCreation: process.env.IDENTITY_SYNC_LOGIN_AUTO_CREATE_TEAMS === "true",
     });
   } catch (error) {
     console.warn("[Auth] OIDC claim identity sync reconciliation failed:", error);
