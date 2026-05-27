@@ -223,11 +223,10 @@ describe("skill hub team grant migration", () => {
 
 // assisted-by Cursor Claude:claude-opus-4-7
 //
-// PR 1 of the fine-grained KB ReBAC plan: backfill
-// `user:<sub> manager admin_surface:rag_datasources` for every org
-// admin so the org-admin super-grant on KB / Search / Data Sources /
-// Graph / MCP Tools no longer relies solely on OpenFGA model
-// inheritance from `organization#admin`.
+// Backfill `user:<sub> manager admin_surface:rag_datasources` for every
+// org admin so the org-admin super-grant on KB / Search / Data Sources /
+// Graph / MCP Tools no longer relies solely on OpenFGA model inheritance
+// from `organization#admin`.
 describe("admin_surface:rag_datasources admin grant migration", () => {
   it("writes manager tuples for every org admin and dedupes repeated subjects", () => {
     const plan = deriveAdminSurfaceRagDatasourcesAdminGrantPlan([

@@ -15,8 +15,7 @@ export const PRIVILEGED_ADMIN_SURFACES = [
   "action_audit",
   "openfga",
   "migrations",
-  // RAG / Knowledge Bases admin surface. Added 2026-05-27 (PR 1 of the
-  // fine-grained KB ReBAC plan). The `rag` short-circuit in
+  // RAG / Knowledge Bases admin surface. The `rag` short-circuit in
   // `api-middleware.ts` already maps `rag` + `admin` →
   // `admin_surface:rag_datasources#can_manage`; seeding it explicitly via
   // the admin baseline grants makes the org-admin super-grant on KB /

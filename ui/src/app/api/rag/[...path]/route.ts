@@ -250,10 +250,9 @@ async function getAuthorizedRagContext(
   if (session.org) {
     headers['X-Tenant-Id'] = session.org;
   }
-  // Phase 3 of spec 2026-05-24-derive-team-from-channel removed the
-  // X-Team-Id header AND the `active_team` JWT claim. RAG derives the
-  // user's team membership from OpenFGA at request time using the
-  // bearer-token subject (see `_kb_cel_context` on the server side).
+  // RAG derives the user's team membership from OpenFGA at request time
+  // using the bearer-token subject (see `_kb_cel_context` on the server
+  // side), so this proxy does not forward X-Team-Id or active_team.
   return { headers, session, pendingKnowledgeBaseOwnership, pendingMcpToolOwnership };
 }
 

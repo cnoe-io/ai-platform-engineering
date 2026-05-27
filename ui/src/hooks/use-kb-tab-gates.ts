@@ -35,9 +35,8 @@ interface KbTabGatesState {
  * render a control the API would 403. After authentication completes the
  * hook fetches once per access-token change and caches the result.
  *
- * See PR 2 of the 2026-05-27 fine-grained KB ReBAC plan
- * ([plan](.cursor/plans/caipe-fine-grained-rbac-kb-graph-mcp_b6961a8b.plan.md))
- * for the route contract and the org-admin super-grant invariant.
+ * The route contract preserves the org-admin super-grant invariant while
+ * failing closed for non-admin users until the BFF confirms visibility.
  */
 export function useKbTabGates(): KbTabGatesState {
   const { data: session, status } = useSession();

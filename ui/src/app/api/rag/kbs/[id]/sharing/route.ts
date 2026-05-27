@@ -10,9 +10,7 @@
  *
  * PUT /api/rag/kbs/[id]/sharing — accepts `{ team_slugs: string[] }` and
  * calls `reconcileKnowledgeBaseRelationships` so unchecking a team in the UI
- * genuinely revokes its grant (instead of leaving a dangling tuple — the
- * long-standing bug that motivated PR 3 of the 2026-05-27 fine-grained KB
- * ReBAC plan).
+ * genuinely revokes its grant instead of leaving a dangling tuple.
  *
  * Gate: `requireResourcePermission` on `knowledge_base:<id>#admin` with
  * `bypassForOrgAdmin: true` so org admins always retain access; team admins

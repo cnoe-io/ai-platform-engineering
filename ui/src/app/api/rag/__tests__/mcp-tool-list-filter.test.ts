@@ -2,8 +2,7 @@
  * @jest-environment node
  */
 /**
- * Integration tests for the BFF-side `GET /v1/mcp/custom-tools` filter
- * added in PR 4 of the 2026-05-27 fine-grained KB ReBAC plan.
+ * Integration tests for the BFF-side `GET /v1/mcp/custom-tools` filter.
  *
  * The RAG server returns every custom MCP tool today; the BFF filters
  * the response down to the rows the caller has `mcp_tool:<tool_id>#can_read`

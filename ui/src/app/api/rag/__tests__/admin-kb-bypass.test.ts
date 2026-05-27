@@ -2,11 +2,11 @@
  * @jest-environment node
  */
 
-// PR 1 of the fine-grained KB ReBAC plan. The RAG proxy now passes
-// `bypassForOrgAdmin: true` to `filterResourcesByPermission` and
-// `requireResourcePermission` so org admins are not silently denied on
-// `GET /v1/datasources` and per-KB requests even when they hold no
-// per-KB tuples. This test asserts the option is always forwarded.
+// The RAG proxy passes `bypassForOrgAdmin: true` to
+// `filterResourcesByPermission` and `requireResourcePermission` so org
+// admins are not silently denied on `GET /v1/datasources` and per-KB
+// requests even when they hold no per-KB tuples. This test asserts the
+// option is always forwarded.
 
 jest.mock('next-auth', () => ({
   getServerSession: jest.fn(),

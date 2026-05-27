@@ -1,9 +1,8 @@
 /**
  * Tests for `buildKnowledgeBaseRelationshipTupleDiff` shared-team handling.
  *
- * Mirrors the agent editor's shared-team test plan (PR 3 of the
- * 2026-05-27 fine-grained KB ReBAC plan): adding a team writes the
- * reader+ingestor+manager set, removing a team emits matching deletes,
+ * Mirrors the agent editor's shared-team semantics: adding a team writes
+ * the reader+ingestor+manager set, removing a team emits matching deletes,
  * the owner team is always treated as "wanted" so duplicating it in the
  * shared list is a no-op, and invalid slugs are silently dropped.
  */

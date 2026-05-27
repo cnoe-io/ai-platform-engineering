@@ -4,7 +4,7 @@
 /**
  * Integration tests for /api/rag/kbs/[id]/sharing.
  *
- * Covers PR 3 of the 2026-05-27 fine-grained KB ReBAC plan:
+ * Covers the KB sharing route contract:
  * - GET requires `knowledge_base#read` and returns the canonical team slugs.
  * - PUT requires `knowledge_base#admin` and calls the reconciler with the
  *   previous + next shared slugs so unchecking a team genuinely deletes

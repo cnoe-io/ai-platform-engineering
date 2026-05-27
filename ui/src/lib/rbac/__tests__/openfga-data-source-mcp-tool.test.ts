@@ -1,6 +1,5 @@
 /**
- * Tests for the new `data_source` and `mcp_tool` OpenFGA tuple
- * builders added in PR 4 of the 2026-05-27 fine-grained KB ReBAC plan.
+ * Tests for the `data_source` and `mcp_tool` OpenFGA tuple builders.
  *
  * The builders share the same shared-teams semantics as
  * `buildKnowledgeBaseRelationshipTupleDiff` so users get consistent

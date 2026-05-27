@@ -17,8 +17,7 @@ import type { KbTabGatesMap } from "@/lib/rbac/types";
  *   1. Org admin (`organization#admin` via `can_manage organization:<key>`)
  *      or `BOOTSTRAP_ADMIN_EMAILS` → all tabs visible, `kb_count: -1` ("admin
  *      bypass, unknown count"), `has_any_kb: true`. This is the documented
- *      super-grant established by PR 1 of the 2026-05-27 fine-grained KB
- *      ReBAC plan.
+ *      org-admin super-grant.
  *   2. Non-admin → count the readable knowledge bases by listing
  *      `/v1/datasources` from the RAG server (proxied with the session's
  *      bearer token) and filtering via `filterResourcesByPermission` on
@@ -200,10 +199,9 @@ export async function GET() {
     search: hasAnyKb,
     data_sources: hasAnyKb,
     graph: hasAnyKb,
-    // PR 2 keeps `mcp_tools` true when the user has any readable KB. PR 4
-    // will replace this with a per-`mcp_tool` check once the model type
-    // exists; the existing baseline reader on the RAG server still returns
-    // an empty list if nothing matches, so this is no worse than today.
+    // Keep `mcp_tools` true when the user has any readable KB. The existing
+    // baseline reader on the RAG server still returns an empty list if
+    // nothing matches, so this is no worse than today.
     mcp_tools: hasAnyKb,
     has_any_kb: hasAnyKb,
     kb_count: kbCount,

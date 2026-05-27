@@ -65,7 +65,7 @@ export interface ConfigDrivenLlmModelRelationshipInput {
  * RAG server uses the same `<datasource_id>` for both. The separate
  * OpenFGA type was added in [deploy/openfga/model.fga] so future
  * ingest-only roles can be granted without leaking read access on the
- * KB content. See PR 4 of the 2026-05-27 fine-grained KB ReBAC plan.
+ * KB content.
  */
 export interface DataSourceRelationshipInput extends OwnedResourceInput {
   dataSourceId: string;
@@ -103,9 +103,8 @@ export interface KnowledgeBaseRelationshipInput extends OwnedResourceInput {
    * Previous set of shared team slugs persisted with this KB before this
    * reconcile call. Any slug in here that is NOT in `nextSharedTeamSlugs`
    * (and is also not the new owner team) is emitted as a delete so
-   * unchecking a team in the UI genuinely revokes access — instead of
-   * leaving a dangling tuple, the bug pattern that motivated PR 3 of the
-   * 2026-05-27 fine-grained KB ReBAC plan.
+   * unchecking a team in the UI genuinely revokes access instead of leaving
+   * a dangling tuple.
    */
   previousSharedTeamSlugs?: readonly string[] | null;
   /**

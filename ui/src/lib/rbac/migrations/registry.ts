@@ -57,7 +57,6 @@ export const AGENT_ORG_ADMIN_MIGRATION_ID = "agent_org_admin_inheritance_v1";
 // Idempotent — re-running it is safe and a no-op when nothing changed.
 export const AGENT_SHARED_TEAM_GRANTS_MIGRATION_ID = "agent_shared_team_grants_backfill_v1";
 // assisted-by Cursor Claude:claude-opus-4-7
-// PR 1 of the fine-grained KB ReBAC plan (2026-05-27).
 // Adds `rag_datasources` to PRIVILEGED_ADMIN_SURFACES, but every
 // previously-bootstrapped org-admin in OpenFGA still lacks the matching
 // `user:<sub> manager admin_surface:rag_datasources` tuple. The `rag` +
@@ -68,22 +67,21 @@ export const AGENT_SHARED_TEAM_GRANTS_MIGRATION_ID = "agent_shared_team_grants_b
 // it writes the same tuples and OpenFGA no-ops on identical writes.
 export const ADMIN_SURFACE_RAG_DATASOURCES_ADMIN_GRANT_MIGRATION_ID =
   "admin_surface_rag_datasources_admin_grant_v1";
-// PR 3 of the 2026-05-27 fine-grained KB ReBAC plan. Walks every existing
-// `team_kb_ownership` doc and writes the canonical `team:<slug>#member
-// reader`, `team:<slug>#member ingestor`, and `team:<slug>#admin manager
-// knowledge_base:<id>` tuples for every (team, kb) row. Catches up KBs that
-// were granted to a team via the Settings → Knowledge Bases UI before
-// PR 3 wired explicit Share-with-Teams. Idempotent.
+// Walks every existing `team_kb_ownership` doc and writes the canonical
+// `team:<slug>#member reader`, `team:<slug>#member ingestor`, and
+// `team:<slug>#admin manager knowledge_base:<id>` tuples for every
+// (team, kb) row. Catches up KBs that were granted to a team via the
+// Settings → Knowledge Bases UI before explicit Share-with-Teams
+// reconciliation existed. Idempotent.
 export const KNOWLEDGE_BASE_SHARED_TEAM_GRANTS_MIGRATION_ID =
   "knowledge_base_shared_team_grants_backfill_v1";
 // `data_source_grants_backfill_v1` mirrors every existing
 // `knowledge_base:<id>` tuple in OpenFGA as a `data_source:<id>`
 // tuple, so day-zero behavior of "if you can read the KB you can read
-// its data source" is preserved when PR 4 introduces the new type.
+// its data source" is preserved when the new type is introduced.
 // Strictly additive — no deletes are ever planned by this migration.
 // See [docs/docs/security/rbac/architecture.md] for the policy and
-// PR 4 of the 2026-05-27 fine-grained KB ReBAC plan for the rollout
-// sequence.
+// rollout sequence.
 // assisted-by Cursor claude-opus-4-7
 export const DATA_SOURCE_GRANTS_BACKFILL_MIGRATION_ID =
   "data_source_grants_backfill_v1";
@@ -257,7 +255,7 @@ export const MIGRATION_DEFINITIONS: MigrationDefinition[] = [
     kind: "explicit",
     title: "Knowledge Base team-share grants backfill",
     description:
-      "Walks every `team_kb_ownership` Mongo doc and writes the canonical `team:<slug>#member reader knowledge_base:<id>`, `team:<slug>#member ingestor knowledge_base:<id>`, and `team:<slug>#admin manager knowledge_base:<id>` tuples so any KB granted to a team via Settings → Knowledge Bases before PR 3 of the 2026-05-27 fine-grained KB ReBAC plan keeps its access after the new explicit Share-with-Teams panel ships. Idempotent.",
+      "Walks every `team_kb_ownership` Mongo doc and writes the canonical `team:<slug>#member reader knowledge_base:<id>`, `team:<slug>#member ingestor knowledge_base:<id>`, and `team:<slug>#admin manager knowledge_base:<id>` tuples so any KB granted to a team via Settings → Knowledge Bases keeps its access after the explicit Share-with-Teams panel ships. Idempotent.",
     confirmation: "MIGRATE team_kb_ownership TO v2",
     required: true,
     implemented: true,
@@ -271,7 +269,7 @@ export const MIGRATION_DEFINITIONS: MigrationDefinition[] = [
     kind: "explicit",
     title: "data_source grants backfill",
     description:
-      "Mirrors every existing `knowledge_base:<id>` tuple in OpenFGA as a parallel `data_source:<id>` tuple. Preserves day-zero behavior — anyone who can read the KB can read its data source — without requiring users to re-share their KBs after PR 4 of the 2026-05-27 fine-grained KB ReBAC plan introduces the new `data_source` type. Strictly additive.",
+      "Mirrors every existing `knowledge_base:<id>` tuple in OpenFGA as a parallel `data_source:<id>` tuple. Preserves day-zero behavior — anyone who can read the KB can read its data source — without requiring users to re-share their KBs after the new `data_source` type is introduced. Strictly additive.",
     confirmation: "MIGRATE openfga_tuples TO data_source_v1",
     required: true,
     implemented: true,
@@ -285,7 +283,7 @@ export const MIGRATION_DEFINITIONS: MigrationDefinition[] = [
     kind: "explicit",
     title: "mcp_tool grants backfill",
     description:
-      "Walks Mongo `team_rag_tools` and writes the canonical `team:<slug>#member reader mcp_tool:<tool_id>` + `team:<slug>#member user mcp_tool:<tool_id>` + `team:<slug>#admin manager mcp_tool:<tool_id>` tuples so every team that already owned a RAG custom MCP tool keeps access through the BFF's per-tool filter introduced in PR 4 of the 2026-05-27 fine-grained KB ReBAC plan. Idempotent.",
+      "Walks Mongo `team_rag_tools` and writes the canonical `team:<slug>#member reader mcp_tool:<tool_id>` + `team:<slug>#member user mcp_tool:<tool_id>` + `team:<slug>#admin manager mcp_tool:<tool_id>` tuples so every team that already owned a RAG custom MCP tool keeps access through the BFF's per-tool filter. Idempotent.",
     confirmation: "MIGRATE team_rag_tools TO mcp_tool_v1",
     required: true,
     implemented: true,
@@ -1008,7 +1006,7 @@ export function deriveAgentSharedTeamGrantsPlan(
 
 /**
  * Backfill the `user:<sub> manager admin_surface:rag_datasources` tuple
- * for every existing org admin. PR 1 of the fine-grained KB ReBAC plan.
+ * for every existing org admin.
  *
  * Inputs:
  *  - `adminSubjects`: list of OpenFGA user subjects (no `user:` prefix)
@@ -1080,10 +1078,10 @@ export function deriveAdminSurfaceRagDatasourcesAdminGrantPlan(
  *    are skipped with a warning so the migration is safe to re-run after
  *    a team rename.
  *
- * The migration emits the same canonical pair the runtime reconciler
- * writes (`reader` + `manager`) for every (team, kb_id) row, so PR 3
- * doesn't have to special-case "first-time install vs. existing
- * deployment" — both converge on the same OpenFGA state.
+ * The migration emits the same canonical tuple set the runtime reconciler
+ * writes (`reader` + `ingestor` + `manager`) for every (team, kb_id) row,
+ * so first-time installs and existing deployments converge on the same
+ * OpenFGA state.
  */
 export function deriveKnowledgeBaseSharedTeamGrantsPlan(
   ownershipDocs: Array<Record<string, unknown>>,
@@ -1172,8 +1170,8 @@ export function deriveKnowledgeBaseSharedTeamGrantsPlan(
 /**
  * Mirror existing `knowledge_base:<id>` tuples as `data_source:<id>`
  * tuples so day-zero behavior of "if you can read the KB you can read
- * its data source" is preserved when PR 4 introduces the new
- * `data_source` type.
+ * its data source" is preserved when the new `data_source` type is
+ * introduced.
  *
  * Input: every OpenFGA tuple whose `object` starts with
  * `knowledge_base:`. The deriver does not deduplicate against existing
@@ -1843,10 +1841,9 @@ async function loadAgentSharedTeamGrantInputs() {
 }
 
 // assisted-by Cursor Claude:claude-opus-4-7
-// PR 1 of the fine-grained KB ReBAC plan: walk the existing OpenFGA
-// `user:<sub> admin organization:<key>` tuples to discover every
-// previously-bootstrapped org admin subject. Pages through the store
-// because some deployments have thousands of users.
+// Walk the existing OpenFGA `user:<sub> admin organization:<key>` tuples
+// to discover every previously-bootstrapped org admin subject. Pages
+// through the store because some deployments have thousands of users.
 /**
  * Load every `team_kb_ownership` Mongo doc plus a `teamId → slug` map for
  * the KB shared-team grants backfill. Skips teams whose Mongo `_id` is
