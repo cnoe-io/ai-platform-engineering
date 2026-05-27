@@ -87,6 +87,11 @@ beforeEach(async () => {
   // Reset the route's in-process cache so each test starts clean.
   const route = await import("../route");
   route.__resetAvailableChannelsCacheForTests();
+  // Also reset the discovery-cache TTL memo so a previous test's env
+  // toggling can't bleed into the next test.
+  const cfg = await import("@/lib/rbac/discovery-cache-config");
+  cfg.__resetDiscoveryCacheConfigForTests();
+  delete process.env.DISCOVERY_CACHE_TTL_MINUTES;
 });
 
 describe("GET /api/admin/slack/available-channels", () => {
@@ -171,6 +176,24 @@ describe("GET /api/admin/slack/available-channels", () => {
 
       expect(slackCalls).toHaveLength(2);
       expect(slackCalls.every((c) => c.endpoint === "users.conversations")).toBe(true);
+    });
+
+    it("skips the cache entirely when the admin TTL is 0 minutes", async () => {
+      // Admin set the discovery cache TTL to 0 (= caching disabled) via
+      // Admin → Platform Settings. Every request should re-fetch from
+      // Slack — this is the debug knob for the `#test-0525` scenario
+      // where the bot was just added to a new channel.
+      process.env.DISCOVERY_CACHE_TTL_MINUTES = "0";
+      const cfg = await import("@/lib/rbac/discovery-cache-config");
+      cfg.__resetDiscoveryCacheConfigForTests();
+
+      mockSlackFetch(() => ({ ok: true, channels: [{ id: "C100", name: "incidents" }] }));
+
+      await makeRequest("member_only=1");
+      await makeRequest("member_only=1");
+      await makeRequest("member_only=1");
+
+      expect(slackCalls).toHaveLength(3);
     });
 
     it("splits the cache by scope so member_only and full-list don't poison each other", async () => {
@@ -270,6 +293,61 @@ describe("GET /api/admin/slack/available-channels", () => {
         )
       );
       expect(response.status).toBe(503);
+    });
+
+    // Regression: previously a network failure surfaced as the opaque
+    // "fetch failed" string from Node's undici, which left admins with no
+    // way to tell whether Slack was down, DNS was broken, or egress was
+    // blocked. The route now unwraps `error.cause` so the underlying
+    // reason makes it back to the UI and the server logs.
+    it("returns 502 with the underlying cause when fetch() rejects (DNS/TLS/connect)", async () => {
+      const causeError = Object.assign(new Error("getaddrinfo ENOTFOUND slack.com"), {
+        name: "Error",
+      });
+      const fetchError = new TypeError("fetch failed");
+      (fetchError as { cause?: unknown }).cause = causeError;
+      (global.fetch as jest.Mock).mockRejectedValue(fetchError);
+
+      const { GET } = await import("../route");
+      const response = await GET(
+        new NextRequest(
+          "http://localhost:3000/api/admin/slack/available-channels?member_only=1",
+          { headers: { Authorization: "Bearer test-token" } }
+        )
+      );
+      expect(response.status).toBe(502);
+      const body = (await response.json()) as { success: boolean; error: string };
+      expect(body.success).toBe(false);
+      expect(body.error).toContain("Slack discovery network failure");
+      expect(body.error).toContain("users.conversations");
+      expect(body.error).toContain("ENOTFOUND slack.com");
+      // Must NOT contain the bearer token in the user-facing message.
+      expect(body.error).not.toContain("Bearer");
+      expect(body.error).not.toContain(process.env.SLACK_BOT_TOKEN ?? "xoxb-test");
+    });
+
+    it("returns 502 when Slack returns a non-JSON body (e.g. HTML during incident)", async () => {
+      (global.fetch as jest.Mock).mockResolvedValue({
+        ok: false,
+        status: 503,
+        headers: new Map<string, string>(),
+        json: async () => {
+          throw new SyntaxError("Unexpected token < in JSON at position 0");
+        },
+        text: async () => "<html>Service Unavailable</html>",
+      });
+
+      const { GET } = await import("../route");
+      const response = await GET(
+        new NextRequest(
+          "http://localhost:3000/api/admin/slack/available-channels?member_only=1",
+          { headers: { Authorization: "Bearer test-token" } }
+        )
+      );
+      expect(response.status).toBe(502);
+      const body = (await response.json()) as { success: boolean; error: string };
+      expect(body.error).toContain("non-JSON response");
+      expect(body.error).toContain("users.conversations");
     });
   });
 });

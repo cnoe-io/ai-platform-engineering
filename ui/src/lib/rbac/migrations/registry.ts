@@ -7,6 +7,10 @@ import {
 } from "@/lib/rbac/keycloak-rbac-reconciliation";
 import { writeOpenFgaTuples, type OpenFgaTupleKey } from "@/lib/rbac/openfga";
 import { caipeOrgKey } from "@/lib/rbac/organization";
+import { slackChannelTeamVisibilityRelationships } from "@/lib/rbac/slack-channel-rebac";
+import { webexSpaceTeamVisibilityRelationships } from "@/lib/rbac/webex-space-rebac";
+import { buildUniversalRebacTupleDiff } from "@/lib/rbac/tuple-builders";
+import type { UniversalRebacRelationship } from "@/types/rbac-universal";
 
 import {
   applyConversationOwnerIdentityMigration,
@@ -45,6 +49,17 @@ const SLACK_CHANNEL_REBAC_MIGRATION_ID = "slack_channel_rebac_backfill_v1";
 const WEBEX_SPACE_REBAC_MIGRATION_ID = "webex_space_rebac_backfill_v1";
 const MESSAGING_TEAM_MAPPING_MIGRATION_ID = "messaging_team_mapping_reconciliation_v1";
 const MESSAGING_REBAC_INDEXES_MIGRATION_ID = "messaging_rebac_indexes_v1";
+// assisted-by Cursor Claude:claude-opus-4-7
+// Issue: previously-onboarded Slack channels / Webex spaces stayed invisible in
+// the admin panels because no inbound team→channel (or team→space) tuples were
+// ever written. The /api/admin/{slack,webex}/{channels,spaces} list routes
+// filter rows by user `can_read` on the channel/space object, so with no
+// inbound tuples every row got dropped. This migration backfills the missing
+// `team#admin → manage → slack_channel|webex_space` and
+// `team#member → read → slack_channel|webex_space` tuples derived from
+// existing `channel_team_mappings` / `webex_space_team_mappings` rows. It is
+// fully idempotent because writeOpenFgaTuples no-ops on identical writes.
+const MESSAGING_TEAM_VISIBILITY_MIGRATION_ID = "messaging_team_visibility_v1";
 const OPENFGA_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._~@|*+=,/-]{0,191}$/;
 
 const ACTION_TO_BASE_RELATION: Record<string, string> = {
@@ -214,6 +229,20 @@ export const MIGRATION_DEFINITIONS: MigrationDefinition[] = [
     title: "Messaging ReBAC indexes",
     description: "Ensure Webex messaging ReBAC collections have lookup and TTL indexes matching Slack coverage.",
     confirmation: "MIGRATE messaging_rebac_indexes TO v2",
+    required: true,
+    implemented: true,
+  },
+  {
+    id: MESSAGING_TEAM_VISIBILITY_MIGRATION_ID,
+    release: RELEASE_051,
+    schema_area: "messaging_team_visibility",
+    from_version: 1,
+    to_version: 2,
+    kind: "explicit",
+    title: "Messaging team→channel/space visibility",
+    description:
+      "Backfill team#admin→manage and team#member→read tuples onto previously-onboarded Slack channels and Webex spaces so admins can actually see them in the listing endpoints.",
+    confirmation: "MIGRATE messaging_team_visibility TO v2",
     required: true,
     implemented: true,
   },
@@ -961,6 +990,137 @@ export function deriveMessagingTeamMappingPlan(input: {
   };
 }
 
+// assisted-by Cursor Claude:claude-opus-4-7
+//
+// Derives team→channel/space visibility tuples from already-onboarded Slack
+// channel and Webex space mappings. Without these tuples, the admin listing
+// endpoints filter every row out via their `can_read` check, which is why
+// previously-set-up channels appear as "Needs setup" in the panel.
+//
+// Tuple shape (per onboarded channel/space with a resolvable team_slug):
+//   team:<slug>#admin  → manage → slack_channel|webex_space:<workspace>--<id>
+//   team:<slug>#member → read   → slack_channel|webex_space:<workspace>--<id>
+//
+// Idempotent: writeOpenFgaTuples no-ops on identical writes.
+export function deriveMessagingTeamVisibilityPlan(input: {
+  teams: Array<Record<string, any>>;
+  slackMappings: Array<Record<string, any>>;
+  webexMappings: Array<Record<string, any>>;
+}): MigrationRuntimePlan {
+  const warnings: string[] = [];
+  const teamIds = new Set(input.teams.map((team) => normalizeString(team._id)).filter(Boolean));
+  const teamSlugsById = new Map(
+    input.teams
+      .map((team) => [normalizeString(team._id), normalizeString(team.slug)] as const)
+      .filter(([id, slug]) => Boolean(id && slug)),
+  );
+  const teamIdsBySlug = new Map(
+    input.teams
+      .map((team) => [normalizeString(team.slug), normalizeString(team._id)] as const)
+      .filter(([slug, id]) => Boolean(slug && id)),
+  );
+
+  const resolveTeamSlug = (mapping: Record<string, any>): string | null => {
+    const directSlug = normalizeString(mapping.team_slug);
+    if (directSlug && teamIdsBySlug.has(directSlug)) return directSlug;
+    const teamId = normalizeString(mapping.team_id);
+    if (teamId && teamIds.has(teamId)) return teamSlugsById.get(teamId) ?? null;
+    return null;
+  };
+
+  // Strongly-typed local array so the helpers' narrow union types are not
+  // lost when widened to MigrationRuntimePlan["relationships"] later.
+  const typedRelationships: UniversalRebacRelationship[] = [];
+  let slackChannelsScanned = 0;
+  let webexSpacesScanned = 0;
+  let missingTeams = 0;
+  let invalidIdentifiers = 0;
+
+  for (const mapping of input.slackMappings) {
+    if (mapping.active === false) continue;
+    if (mapping.status && mapping.status !== "active") continue;
+    slackChannelsScanned += 1;
+    const workspaceId = normalizeString(mapping.slack_workspace_id) ?? normalizeString(mapping.workspace_id);
+    const channelId = normalizeString(mapping.slack_channel_id) ?? normalizeString(mapping.channel_id);
+    if (!workspaceId || !channelId) {
+      invalidIdentifiers += 1;
+      warnings.push("Skipping Slack channel mapping with missing workspace or channel id.");
+      continue;
+    }
+    const teamSlug = resolveTeamSlug(mapping);
+    if (!teamSlug) {
+      missingTeams += 1;
+      warnings.push(
+        `Skipping Slack channel ${channelId}: no resolvable team_slug for visibility tuples.`,
+      );
+      continue;
+    }
+    typedRelationships.push(
+      ...slackChannelTeamVisibilityRelationships(workspaceId, channelId, teamSlug),
+    );
+  }
+
+  for (const mapping of input.webexMappings) {
+    if (mapping.active === false) continue;
+    if (mapping.status && mapping.status !== "active") continue;
+    webexSpacesScanned += 1;
+    const workspaceId = normalizeString(mapping.workspace_id);
+    const spaceId = normalizeString(mapping.space_id) ?? normalizeString(mapping.webex_space_id);
+    if (!workspaceId || !spaceId) {
+      invalidIdentifiers += 1;
+      warnings.push("Skipping Webex space mapping with missing workspace or space id.");
+      continue;
+    }
+    const teamSlug = resolveTeamSlug(mapping);
+    if (!teamSlug) {
+      missingTeams += 1;
+      warnings.push(
+        `Skipping Webex space ${spaceId}: no resolvable team_slug for visibility tuples.`,
+      );
+      continue;
+    }
+    typedRelationships.push(
+      ...webexSpaceTeamVisibilityRelationships(workspaceId, spaceId, teamSlug),
+    );
+  }
+
+  // Hand the relationships through the same builder the rest of the registry
+  // uses so the OpenFGA tuples emitted here are 1:1 with what an onboarding
+  // call would write. This keeps the deduplication / validation rules in one
+  // place.
+  const { writes } = buildUniversalRebacTupleDiff({ writes: typedRelationships, deletes: [] });
+  const unique = uniqueTuples(writes);
+
+  return {
+    migration_id: MESSAGING_TEAM_VISIBILITY_MIGRATION_ID,
+    release: RELEASE_051,
+    schema_area: "messaging_team_visibility",
+    kind: "explicit",
+    from_version: 1,
+    to_version: 2,
+    counts: {
+      slack_channels_scanned: slackChannelsScanned,
+      webex_spaces_scanned: webexSpacesScanned,
+      relationships_planned: typedRelationships.length,
+      tuples_planned: unique.length,
+      missing_teams: missingTeams,
+      invalid_identifiers: invalidIdentifiers,
+      tuple_writes_planned: unique.length,
+    },
+    warnings,
+    sample_diffs: unique.slice(0, 10).map((tuple, index) => ({
+      collection: "openfga_tuples",
+      id: `${MESSAGING_TEAM_VISIBILITY_MIGRATION_ID}:${index}`,
+      before: {},
+      after: { ...tuple },
+    })),
+    tuple_writes_planned: unique.length,
+    confirmation: "MIGRATE messaging_team_visibility TO v2",
+    tuples: unique,
+    relationships: typedRelationships,
+  };
+}
+
 const RBAC_INDEX_SPECS: NonNullable<MigrationRuntimePlan["indexes"]> = [
   { collection: "schema_migrations", keys: { release: 1, status: 1 } },
   { collection: "rebac_relationships", keys: { "resource.type": 1, "resource.id": 1, action: 1, status: 1 } },
@@ -1596,6 +1756,14 @@ export async function planMigration(migrationId: string, now = new Date().toISOS
   }
   if (migrationId === MESSAGING_REBAC_INDEXES_MIGRATION_ID) {
     return deriveMessagingIndexPlan();
+  }
+  if (migrationId === MESSAGING_TEAM_VISIBILITY_MIGRATION_ID) {
+    const { teamDocs, slackDocs, webexDocs } = await loadMessagingTeamMappingInputs();
+    return deriveMessagingTeamVisibilityPlan({
+      teams: teamDocs as Array<Record<string, any>>,
+      slackMappings: slackDocs as Array<Record<string, any>>,
+      webexMappings: webexDocs as Array<Record<string, any>>,
+    });
   }
   if (migrationId === KEYCLOAK_RBAC_RECONCILIATION_MIGRATION_ID) {
     return planKeycloakRbacReconciliationMigration(now);

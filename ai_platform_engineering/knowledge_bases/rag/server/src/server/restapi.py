@@ -55,6 +55,7 @@ from server.rbac import (
   get_auth_manager,
   _authenticate_from_token,
   check_kb_datasource_access,
+  derive_team_for_request,
   get_accessible_kb_ids,
   inject_kb_filter,
   RBAC_TEAM_SCOPE_ENABLED,
@@ -815,10 +816,8 @@ async def list_datasources(
         )
 
     if RBAC_TEAM_SCOPE_ENABLED and user.is_authenticated:
-      # Spec 104: prefer signed `active_team` claim; legacy header is fallback.
-      team_id = user.active_team or request.headers.get("X-Team-Id")
-      if team_id == "__personal__":
-        team_id = None
+      # Phase 1 (spec 2026-05-24): centralised team derivation.
+      team_id = await derive_team_for_request(request, user)
       tenant_id = request.headers.get("X-Tenant-Id") or "default"
       accessible = await get_accessible_kb_ids(
         user, "read", tenant_id, team_id=team_id, request=request,

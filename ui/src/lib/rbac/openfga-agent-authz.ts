@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { logOpenFgaRebacAuditEvent } from "./audit";
 import { withAuthzSpan } from "./authz-tracing";
 import { checkOpenFgaTuple } from "./openfga";
+import { listUserTeamSlugs } from "./openfga-team-membership";
 
 export interface AgentUsePermissionInput {
   subject?: string;
@@ -87,6 +88,8 @@ export async function requireAgentUsePermission({
           userCandidates.push(`user:${emailPrincipal}`);
         }
         let allowed = false;
+        let reasonCode: "ALLOW_DIRECT" | "ALLOW_TEAM_UNION" = "ALLOW_DIRECT";
+        let matchedTeamSlug: string | undefined;
         for (const user of userCandidates) {
           const decision = await checkOpenFgaTuple({
             user,
@@ -98,6 +101,30 @@ export async function requireAgentUsePermission({
             break;
           }
         }
+        // Phase 2.7 of spec 2026-05-24-derive-team-from-channel
+        // (FR-038): if no direct grant exists, fall back to a
+        // team-union probe. Today the Web UI only honors direct
+        // grants; this broadening lets team-mediated agent access
+        // flow through the same code path the bots use via
+        // evaluateAgentAccess(). We only run this when the cheap
+        // direct paths have already failed so the common allow
+        // case is unchanged in latency.
+        if (!allowed) {
+          const teamSlugs = await listUserTeamSlugs({ subject: String(subject) });
+          for (const slug of teamSlugs) {
+            const teamDecision = await checkOpenFgaTuple({
+              user: `team:${slug}#member`,
+              relation: "can_use",
+              object: `agent:${agentId}`,
+            });
+            if (teamDecision.allowed) {
+              allowed = true;
+              reasonCode = "ALLOW_TEAM_UNION";
+              matchedTeamSlug = slug;
+              break;
+            }
+          }
+        }
         if (allowed) {
           logOpenFgaRebacAuditEvent({
             tenantId,
@@ -106,9 +133,12 @@ export async function requireAgentUsePermission({
             resource: "dynamic_agent",
             scope: "use",
             outcome: "allow",
-            reasonCode: "OK",
+            reasonCode: reasonCode === "ALLOW_TEAM_UNION" ? "ALLOW_TEAM_UNION" : "OK",
             pdp: "openfga",
-            resourceRef,
+            resourceRef:
+              matchedTeamSlug !== undefined
+                ? `team:${matchedTeamSlug}#member can_use agent:${agentId}`
+                : resourceRef,
             email,
             correlationId,
           });

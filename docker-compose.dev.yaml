@@ -1273,8 +1273,15 @@ services:
       context: .
       dockerfile: build/Dockerfile.caipe-ui
       # docker-compose.dev.yaml defaults to the `dev` stage so UI source edits
-      # hot-reload through `next dev`. Set CAIPE_UI_BUILD_TARGET=runner and
-      # CAIPE_UI_COMMAND=/app/entrypoint.sh when you need prod-parity runtime.
+      # hot-reload through `next dev`. Two ways to switch between hot-reload
+      # and prod-parity runtime — both are first-class, persistent, and live
+      # side-by-side on disk via separate IMAGE_SUFFIXes:
+      #   - make caipe-ui-hot   (hot reload via next dev, default)
+      #   - make caipe-ui-prod  (prod parity via next build + next start)
+      # Or set the underlying compose vars manually:
+      #   CAIPE_UI_BUILD_TARGET=runner CAIPE_UI_NODE_ENV=production \
+      #   CAIPE_UI_COMMAND=/app/entrypoint.sh CAIPE_UI_IMAGE_SUFFIX=-prod \
+      #   docker compose -f docker-compose.dev.yaml --profile caipe-ui up -d --build caipe-ui
       target: ${CAIPE_UI_BUILD_TARGET:-dev}
       args:
         - IMAGE_TAG=${IMAGE_TAG:-localtag}
@@ -1459,7 +1466,10 @@ services:
       # Do not mount /app/node_modules or /app/.next here: this compose file
       # bind-mounts only selected source/config files, so the dev image's
       # installed dependencies and generated Next cache stay intact.
-    # Dev default runs Next.js hot reload. Override with /app/entrypoint.sh for runner.
+    # Dev default runs Next.js hot reload (`next dev`). Override with
+    # CAIPE_UI_COMMAND=/app/entrypoint.sh for the prod runner. See the
+    # `target:` block above for the full set of compose vars and the
+    # `make caipe-ui-hot` / `make caipe-ui-prod` switch.
     command: ${CAIPE_UI_COMMAND:-npm run dev}
     depends_on:
       caipe-supervisor:
@@ -2957,9 +2967,16 @@ services:
       - SKILL_SCANNER_LLM_MODEL=${SKILL_SCANNER_LLM_MODEL:-}
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request,sys;sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health',timeout=2).status==200 else 1)\""]
-      interval: 15s
+      # Long interval (5m) is intentional: skill-scanner-api is a thin Uvicorn
+      # process with no background workers — once `start_period` passes it
+      # effectively never goes unhealthy on its own. The 15s default was
+      # spamming `INFO ... "GET /health HTTP/1.1" 200 OK` into `docker compose`
+      # logs every interval. 5m is enough to catch a crashed/looping pod for
+      # local dev without drowning the console; production uses the Helm chart
+      # which sets its own probe cadence.
+      interval: 5m
       timeout: 5s
-      retries: 5
+      retries: 3
       start_period: 10s
     restart: unless-stopped
     profiles:

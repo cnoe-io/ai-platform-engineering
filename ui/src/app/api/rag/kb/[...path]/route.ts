@@ -121,8 +121,10 @@ async function proxyToRag(
   if (session.org) {
     headers["X-Tenant-Id"] = session.org;
   }
-  // Spec 104: team scope is now in the `active_team` JWT claim, read by
-  // RAG's JwtAuthMiddleware. The legacy X-Team-Id header has been removed.
+  // Phase 3 of spec 2026-05-24-derive-team-from-channel removed both
+  // the X-Team-Id header AND the `active_team` JWT claim. RAG derives
+  // the user's team list from OpenFGA at request time using the
+  // bearer-token subject.
 
   const fetchOptions: RequestInit = { method, headers };
 

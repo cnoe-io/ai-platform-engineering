@@ -50,15 +50,6 @@ jobs:
     if: ${{ !inputs.new_commit }}
 
     steps:
-      - name: 🔑 Generate GitHub App token
-        id: app-token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
-        with:
-          app-id: ${{ secrets.CI_BUILD_APP_ID }}
-          private-key: ${{ secrets.CI_BUILD_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-          repositories: ${{ github.event.repository.name }}
-
       - name: 📋 Set PR info from inputs
         id: bump-status
         run: |
@@ -201,7 +192,7 @@ jobs:
       - name: 🔐 Login to GHCR
         if: steps.version-check.outputs.skip != 'true'
         run: |
-          echo "${{ steps.app-token.outputs.token }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
+          echo "${{ github.token }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
 
       - name: 🔍 Detect Changed Charts
         if: steps.version-check.outputs.skip != 'true'

@@ -58,6 +58,14 @@ jest.mock('@/lib/rbac/audit', () => ({
   logAuthzDecision: jest.fn(),
 }));
 
+// OpenFGA-backed `requireAdminSurfaceManage` / `requireBaselineAdminSurfaceRead`
+// (added with 098-enterprise-rbac) calls `checkOpenFgaTuple`. Default
+// allow-for-admin-sub matches `admin-teams.test.ts`.
+const mockCheckOpenFgaTuple = jest.fn();
+jest.mock('@/lib/rbac/openfga', () => ({
+  checkOpenFgaTuple: (...args: unknown[]) => mockCheckOpenFgaTuple(...args),
+}));
+
 const mockCheckPermission = jest.requireMock<{ checkPermission: jest.Mock }>(
   '@/lib/rbac/keycloak-authz'
 ).checkPermission;
@@ -161,6 +169,11 @@ function resetMocks() {
     allowed: false,
     reason: 'DENY_NO_CAPABILITY',
   });
+  // OpenFGA: only `user:admin-sub` passes by default.
+  mockCheckOpenFgaTuple.mockReset();
+  mockCheckOpenFgaTuple.mockImplementation(async (tuple: { user?: string }) => ({
+    allowed: tuple.user === 'user:admin-sub',
+  }));
   Object.keys(mockCollections).forEach((key) => delete mockCollections[key]);
 }
 
@@ -237,12 +250,15 @@ describe('GET /api/admin/users/stats — Auth (Keycloak-only)', () => {
     const res = await GET(req);
     expect(res.status).toBe(403);
     const body = await res.json();
-    expect(body.error).toContain('You do not have permission to perform this action');
+    expect(body.error).toContain('You do not have permission');
   });
 
-  it('returns 200 when Keycloak Authorization Services grants admin_ui#view', async () => {
-    // PDP allows the call regardless of realm roles.
+  it('returns 200 when the OpenFGA PDP grants admin_surface:users#can_read', async () => {
+    // 098-enterprise-rbac moved baseline admin surface reads to OpenFGA.
+    // A regular user session is granted access once the PDP allows the
+    // derived tuple `user:user-sub#can_read@admin_surface:users`.
     mockCheckPermission.mockResolvedValue({ allowed: true });
+    mockCheckOpenFgaTuple.mockResolvedValue({ allowed: true });
     mockGetServerSession.mockResolvedValue(userSession());
 
     setupUsersCol([]);
@@ -282,7 +298,7 @@ describe('GET /api/admin/users/stats — Auth (Keycloak-only)', () => {
     const res = await GET(req);
     expect(res.status).toBe(403);
     const body = await res.json();
-    expect(body.error).toContain('You do not have permission to perform this action');
+    expect(body.error).toContain('You do not have permission');
   });
 
   it('returns 403 for legacy MongoDB metadata.role=admin signal (Keycloak-only contract)', async () => {
@@ -298,7 +314,7 @@ describe('GET /api/admin/users/stats — Auth (Keycloak-only)', () => {
     const res = await GET(req);
     expect(res.status).toBe(403);
     const body = await res.json();
-    expect(body.error).toContain('You do not have permission to perform this action');
+    expect(body.error).toContain('You do not have permission');
   });
 
   it('returns 503 when MongoDB is not configured', async () => {

@@ -74,6 +74,11 @@ export const SCHEMA_AREA_CLASSIFICATIONS: Record<string, SchemaAreaClassificatio
     classification: "migration",
     description: "Slack/Webex team mapping reconciliation target.",
   },
+  messaging_team_visibility: {
+    classification: "migration",
+    description:
+      "Slack/Webex team→channel|space OpenFGA visibility-tuple backfill target.",
+  },
   migration_manifest: {
     classification: "metadata",
     description: "DB-managed runtime migration manifest.",

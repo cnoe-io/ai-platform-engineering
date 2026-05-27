@@ -27,6 +27,13 @@ jest.mock('@/lib/mongodb', () => ({
   getCollection: (...args: any[]) => mockGetCollection(...args),
   isMongoDBConfigured: true,
 }));
+
+// 098-enterprise-rbac introduced an OpenFGA PDP gate on the chat read
+// route via `requireConversationResourcePermission`. Mock it so admin
+// auditors can access non-owned conversations without a live OpenFGA.
+jest.mock('@/lib/rbac/openfga', () => ({
+  checkOpenFgaTuple: jest.fn().mockResolvedValue({ allowed: true }),
+}));
 jest.spyOn(console, 'error').mockImplementation(() => {});
 jest.spyOn(console, 'log').mockImplementation(() => {});
 jest.spyOn(console, 'warn').mockImplementation(() => {});
@@ -310,6 +317,8 @@ describe('GET /api/chat/conversations/[id] — access_level in response', () => 
     mockGetServerSession.mockResolvedValue({
       user: { email: 'admin@example.com', name: 'Admin' },
       role: 'admin',
+      // 098-enterprise-rbac: OpenFGA gates require a stable subject id.
+      sub: 'admin-sub',
     });
 
     const convsCol = createMockCollection();

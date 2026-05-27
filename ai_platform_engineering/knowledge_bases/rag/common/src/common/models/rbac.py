@@ -60,12 +60,6 @@ class UserContext(BaseModel):
   is_authenticated: bool
   kb_permissions: List[KbPermission] = Field(default_factory=list)
   realm_roles: List[str] = Field(default_factory=list)
-  # Spec 104: signed `active_team` JWT claim used as the team scope for
-  # this request. ``None`` when the token has no claim (e.g. legacy
-  # service-account or BFF-issued login token before the per-team scope
-  # rollout). The literal ``"__personal__"`` means "DM / personal mode"
-  # and short-circuits team-scope checks.
-  active_team: Optional[str] = None
 
   class Config:
     frozen = True  # Immutable for security

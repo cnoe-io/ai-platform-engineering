@@ -79,6 +79,34 @@ jest.mock("@/lib/rbac/keycloak-authz", () => ({
   checkPermission: (...args: unknown[]) => mockCheckPermission(...args),
 }));
 
+// See admin-scan-override.test.ts for rationale: the route added a
+// `requireResourcePermission` gate that rejects sessions without `sub`.
+// Stub it to defer to the same `role === 'admin'` shortcut the
+// surrounding `requireRbacPermission` mock uses.
+jest.mock("@/lib/rbac/resource-authz", () => {
+  const actual =
+    jest.requireActual<typeof import("@/lib/rbac/resource-authz")>(
+      "@/lib/rbac/resource-authz",
+    );
+  return {
+    ...actual,
+    requireResourcePermission: jest.fn(async (session: { role?: string }) => {
+      if (session.role !== "admin") {
+        const { ApiError } = jest.requireActual<typeof import("@/lib/api-error")>(
+          "@/lib/api-error",
+        );
+        throw new ApiError(
+          "You do not have permission to access this resource.",
+          403,
+          "skill#admin",
+          "pdp_denied",
+          "contact_admin",
+        );
+      }
+    }),
+  };
+});
+
 let mockIsMongoDBConfigured = true;
 const mockCollections: Record<string, ReturnType<typeof createMockCollection>> = {};
 const mockGetCollection = jest.fn((name: string) => {

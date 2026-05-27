@@ -2,16 +2,15 @@ import type { Document } from "mongodb";
 
 import { ApiError } from "@/lib/api-error";
 import { getCollection } from "@/lib/mongodb";
-import {
-  ensureTeamClientScope,
-  ensureWebexBotOboPermissions,
-  selectAgentGatewayActiveTeamScope,
-} from "@/lib/rbac/keycloak-admin";
+import { ensureWebexBotOboPermissions } from "@/lib/rbac/keycloak-admin";
 import { getRbacCollection } from "@/lib/rbac/mongo-collections";
 import { writeOpenFgaTuples } from "@/lib/rbac/openfga";
 import { buildUniversalRebacTupleDiff } from "@/lib/rbac/tuple-builders";
 import { webexWorkspaceRef } from "@/lib/rbac/webex-space-grant-store";
-import { webexSpaceGrantRelationship } from "@/lib/rbac/webex-space-rebac";
+import {
+  webexSpaceGrantRelationship,
+  webexSpaceTeamVisibilityRelationships,
+} from "@/lib/rbac/webex-space-rebac";
 import { callWebexBotAdmin } from "@/lib/webex-bot-admin";
 import type { UniversalRebacRelationship } from "@/types/rbac-universal";
 import type { WebexRouteListenMode } from "@/types/webex-rebac";
@@ -195,11 +194,11 @@ export async function onboardWebexSpace(
     };
   }
 
-  await ensureTeamClientScope(teamSlug);
-  await Promise.all([
-    ensureWebexBotOboPermissions(),
-    selectAgentGatewayActiveTeamScope(teamSlug),
-  ]);
+  // Phase 3 (spec 2026-05-24-derive-team-from-channel): Webex space onboarding
+  // no longer needs per-team Keycloak client scopes. Team identity is derived
+  // from the space→team mapping at message time. We still ensure the Webex bot
+  // has general OBO permissions in place so token exchange works.
+  await ensureWebexBotOboPermissions();
 
   const [mappings, grants, routes] = await Promise.all([
     getRbacCollection<WebexSpaceTeamMappingDoc>("webexSpaceTeamMappings"),
@@ -323,6 +322,11 @@ export async function onboardWebexSpace(
       action: "use",
       resource: { type: "agent", id: agentId },
     },
+    // Inbound team→space visibility. Without these, the admin
+    // /api/admin/webex/spaces listing route filters this space out because
+    // no user can `can_read` the space object in OpenFGA. Mirrors the Slack
+    // channel onboarding fix in defaults/route.ts.
+    ...webexSpaceTeamVisibilityRelationships(workspaceId, canonicalSpaceId, teamSlug),
   ];
   const openfga = await writeOpenFgaTuples(buildUniversalRebacTupleDiff({ writes, deletes: [] }));
   if (!openfga.enabled) {

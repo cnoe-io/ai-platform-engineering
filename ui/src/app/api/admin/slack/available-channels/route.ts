@@ -55,6 +55,7 @@ import {
   requireRbacPermission,
   ApiError,
 } from "@/lib/api-middleware";
+import { getDiscoveryCacheTtlMs } from "@/lib/rbac/discovery-cache-config";
 
 interface SlackConversation {
   id: string;
@@ -88,9 +89,13 @@ interface CacheEntry {
   endpoint: "users.conversations" | "conversations.list";
 }
 
-// Channel lists rarely change between admin actions; 10 min keeps us well
-// inside Slack's rate limits even when several admins are active.
-const CACHE_TTL_MS = 10 * 60_000;
+// Channel lists rarely change between admin actions. The TTL is admin-
+// configurable in Admin → Platform Settings → Discovery cache TTL and is
+// read live from `platform_config` via getDiscoveryCacheTtlMs(); the
+// default is 60 minutes. A value of 0 disables caching entirely (every
+// request hits Slack), which is useful when an admin just added the bot
+// to a brand-new channel and wants the picker to reflect that without
+// clicking "Force refresh".
 // Slack max page size is 1000 for conversations.list / 999 for
 // users.conversations, but Slack recommends <=200 for stability. We pull at
 // 200 internally regardless of the UI page size (which is just a slice on top
@@ -148,10 +153,38 @@ async function walkSlackConversations(
     url.searchParams.set("types", "public_channel,private_channel");
     if (cursor) url.searchParams.set("cursor", cursor);
 
-    const res = await fetch(url.toString(), {
-      headers: { Authorization: `Bearer ${token}` },
-      cache: "no-store",
-    });
+    // Wrap the network call so we can surface the underlying reason (DNS,
+    // TLS, ECONNREFUSED, proxy refusal, …) instead of Node's opaque
+    // top-level "fetch failed". undici stashes the real error on `cause`,
+    // and without this the admin UI just shows {"error":"fetch failed"}
+    // and operators have no way to tell whether Slack is down, egress is
+    // blocked, or the token is malformed.
+    let res: Response;
+    try {
+      res = await fetch(url.toString(), {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: "no-store",
+      });
+    } catch (err) {
+      const cause = (err as { cause?: unknown }).cause;
+      const causeMessage =
+        cause instanceof Error
+          ? `${cause.name}: ${cause.message}`
+          : cause != null
+            ? String(cause)
+            : (err instanceof Error ? err.message : String(err));
+      // The Slack token is sensitive, so don't include the URL's
+      // Authorization header in any log/response. The path + endpoint
+      // identifier is enough to triage the failure.
+      console.error(
+        `[Admin SlackChannels] network failure calling ${endpoint} (page=${page}): ${causeMessage}`,
+        cause
+      );
+      throw new ApiError(
+        `Slack discovery network failure (${endpoint}): ${causeMessage}`,
+        502
+      );
+    }
 
     // Honor Slack rate-limit responses. Even on Tier 3 this can happen if
     // multiple admins click Refresh simultaneously across UI replicas.
@@ -165,7 +198,22 @@ async function walkSlackConversations(
       continue; // retry same cursor
     }
 
-    const data = (await res.json()) as SlackListResponse;
+    // During Slack incidents the gateway sometimes returns HTML (Cloudflare
+    // 5xx page) with a JSON content-type lie. Catching the parse error
+    // gives operators a clearer signal than a generic 500.
+    let data: SlackListResponse;
+    try {
+      data = (await res.json()) as SlackListResponse;
+    } catch (err) {
+      const parseMessage = err instanceof Error ? err.message : String(err);
+      console.error(
+        `[Admin SlackChannels] failed to parse Slack response from ${endpoint} (status=${res.status}, page=${page}): ${parseMessage}`
+      );
+      throw new ApiError(
+        `Slack discovery returned a non-JSON response from ${endpoint} (status ${res.status}): ${parseMessage}`,
+        502
+      );
+    }
     if (!data.ok) {
       throw new ApiError(
         `Slack API error: ${data.error ?? "unknown"} (status ${res.status})`,
@@ -248,12 +296,14 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   // part of the key so the two endpoints don't poison each other's snapshot.
   const cacheKey = `${scope}:${token.slice(-12)}`;
   const cached = cache.get(cacheKey);
+  const cacheTtlMs = await getDiscoveryCacheTtlMs();
 
   let snapshot: NormalizedChannel[];
   let cacheHit = false;
   let fetchedAt: number;
 
-  if (!refresh && cached && now - cached.fetched_at < CACHE_TTL_MS) {
+  // ttl=0 disables caching entirely (admin-controlled debug knob).
+  if (!refresh && cacheTtlMs > 0 && cached && now - cached.fetched_at < cacheTtlMs) {
     snapshot = cached.channels;
     fetchedAt = cached.fetched_at;
     cacheHit = true;
@@ -263,7 +313,13 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       defaultIsMember: memberOnly,
     });
     fetchedAt = now;
-    cache.set(cacheKey, { channels: snapshot, fetched_at: fetchedAt, endpoint });
+    if (cacheTtlMs > 0) {
+      cache.set(cacheKey, { channels: snapshot, fetched_at: fetchedAt, endpoint });
+    } else {
+      // Caching disabled — drop any stale entry so a future TTL increase
+      // can't be served from a snapshot fetched while caching was off.
+      cache.delete(cacheKey);
+    }
   }
 
   // Filter pipeline runs in-process against the cached snapshot.

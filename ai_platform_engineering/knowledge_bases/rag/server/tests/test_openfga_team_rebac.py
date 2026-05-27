@@ -25,7 +25,6 @@ def _user(subject: str = "alice-sub", role: str = Role.ANONYMOUS) -> UserContext
         is_authenticated=True,
         kb_permissions=[],
         realm_roles=[],
-        active_team="platform",
     )
 
 

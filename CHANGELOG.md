@@ -1,3 +1,149 @@
+## 0.5.0 (2026-05-26)
+
+### BREAKING CHANGE
+
+- The exported helpers `ensureTeamClientScope`,
+`ensurePersonalTeamClientScope`, `deleteOrphanTeamClientScopes`,
+`selectAgentGatewayActiveTeamScope`, `deleteTeamClientScope`, and
+the `PERSONAL_TEAM_*` / `isPersonalTeam*` symbols have been
+removed from `@/lib/rbac/keycloak-admin`. Any out-of-tree
+consumer relying on those imports must migrate to the new
+data-layer derived team model and use
+`scripts/cleanup-team-keycloak-scopes.sh` for one-time legacy
+realm cleanup.
+
+### Feat
+
+- new tool get_file_line_count and ask agent to use that before read_file
+- **dynamic-agents**: blocker hint on editor + protect platform default agent
+- **rbac**: persisted onboarding defaults in `platform_config` (UI + BFF)
+- **rbac**: wire up DM personal commands in Slack + Webex bots
+- **rbac**: phase 2 — team-agnostic OBO + personal DM commands + UI broadening
+- **rbac**: phase 1 — channel-context envelope + RAG team derivation
+- **rbac**: phase 1 — BFF PDP helpers + user DM preference (additive)
+- **rbac**: admin-configurable discovery cache TTL for Slack/Webex onboarding
+- **rbac**: openfga admin-implies-member + auto-provision Super Admins team
+- **setup-caipe**: expand embeddings menu to all 7 EmbeddingsFactory providers + Voyage AI
+
+### Fix
+
+- **chart/caipe-ui**: include workflow_configs in app-configmap
+- **rbac**: scoped team admins can edit/delete/configure their own team (#1509)
+- **docs**: escape pipes inside table-cell code spans (file-map.md)
+- **docs**: unbreak MDX build of file-map.md (nested backtick → bare <slug>)
+- **rbac**: silence github-code-quality findings on bot Protocol bodies
+- **rbac**: detect & heal non-deterministic active_team in OBO tokens
+- **rbac**: drop _id from TeamDoc so insertOne typechecks
+- **deps**: add missing cachetools dep used by keycloak_authz
+- **deps**: refresh stale MCP uv.lock files (jira, aws, litellm)
+- **deps**: pin aiohttp, websockets, and @aws-sdk/client-kms to exact versions
+- **deps**: bump fastmcp constraint to 3.3.1 in victorops agent and regenerate lock files
+- **ci**: use github.token for GHCR login across all workflows
+- **setup-caipe**: pull Ollama embedding model
+- **ci**: use org-scoped token with explicit repo constraint for GHCR pushes
+- **ci**: use org-scoped token for GHCR pushes
+- **ui**: use users.conversations for Slack channel discovery to dodge rate limits
+- **ui/slack**: drop stale env-provided Slack default agent/team and surface a warning
+
+### Refactor
+
+- **rbac**: demolish team-scope diagnostics and legacy cleanup script
+- **rbac**: drop active_team_slug_unset warning explainer
+- **rbac**: tighten stale active_team references in reconciler + slug validator
+- **rbac**: simplify legacy team-scope invariants to manual_keycloak
+- **rbac**: scrub stale active_team comments in BFF non-test code
+- **rbac**: delete team-scope keycloak helpers + refit tests (spec 2026-05-24, T201, T204)
+- **rbac**: remove active-team scope heal UI + dead invariants (spec 2026-05-24, T202, T203, T205)
+- **rbac**: drop production callsites of team-scope keycloak helpers (spec 2026-05-24, T206)
+- **rbac**: demolish active_team JWT claim in bots + RAG (Phase 3 §3.2, §3.3)
+
+### Perf
+
+- **rbac-ui**: lazy-load users + drop N+1 role lookup on admin list
+
+## 0.4.18-dev.9 (2026-05-23)
+
+### Fix
+
+- **ci**: reduce prebuild status dispatch volume
+- **ci**: make prebuild status dispatch best effort
+- **containers**: remove fixable grype findings
+
+### Refactor
+
+- **agents**: remove unused strands backend
+
+## 0.4.18-dev.8 (2026-05-23)
+
+## 0.4.18-dev.7 (2026-05-23)
+
+### Feat
+
+- **keycloak**: harden client-secret bootstrap with reconcile + strict mode
+
+### Fix
+
+- **rbac**: kill BFF admin/admin fallback, auto-wire Keycloak Admin client, add MongoDB+NEXTAUTH strict-mode gates
+
+## 0.4.18-dev.6 (2026-05-23)
+
+### Feat
+
+- **dynamic-agents**: add MCP endpoint normalizer, self-heal, and OpenFGA PDP gate
+
+### Fix
+
+- **dynamic-agents**: wire KEYCLOAK_URL/OIDC_ISSUER env, randomize setup-caipe MongoDB/Langfuse passwords
+
+## 0.4.18-dev.5 (2026-05-23)
+
+### Feat
+
+- **rbac-wiring**: umbrella chart deps + compose + Makefile + docs + utils/auth
+- **rbac**: OpenFGA ReBAC core library + admin BFF + admin UI
+
+### Refactor
+
+- **utils**: resolve github-code-quality findings on PR #1527
+
+## 0.4.18-dev.4 (2026-05-23)
+
+### Feat
+
+- **rag**: RAG ReBAC + per-document ACL + userinfo cache
+
+### Refactor
+
+- **rag**: remove unreachable branch in check_kb_datasource_access
+
+## 0.4.18-dev.3 (2026-05-23)
+
+### Feat
+
+- **mcp-auth**: shared mcp-agent-auth library + per-agent middleware
+
+## 0.4.18-dev.2 (2026-05-23)
+
+### Feat
+
+- **bots**: Webex bot integration + Slack ReBAC additions
+- **credentials**: introduce envelope-encrypted credential store and OAuth platform
+- **infra**: introduce Keycloak, OpenFGA, AgentGateway and OpenFGA bridge charts
+- **dynamic-agents**: add MCP endpoint normalizer, self-heal, and OpenFGA PDP gate
+
+### Refactor
+
+- **bots**: resolve github-code-quality findings on bot integrations
+
+## 0.4.18-dev.1 (2026-05-22)
+
+### Fix
+
+- **infra**: isolate dockerignore hardening and litellm runtime fix
+- **rbac**: raise instead of sys.exit in validate_rbac_docs helpers
+
+## 0.4.18 (2026-05-22)
+
 ## 0.4.17-dev.2 (2026-05-22)
 
 ### Fix
@@ -7,6 +153,7 @@
 - **ui**: revert interrupt_on default to undefined, consistent with other fields
 - **dynamic-agents**: strip None values from MongoDB doc before pydantic validation
 - **ui**: default interrupt_on to empty object instead of undefined in seed config
+- **docs**: add missing RBAC/Webex architecture docs and drop dead sidebar entry
 
 ## 0.4.17 (2026-05-22)
 

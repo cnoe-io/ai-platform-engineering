@@ -149,7 +149,7 @@ unittest = [
 
 [package.metadata]
 requires-dist = [
-    { name = "aiohttp", specifier = ">=3.13.5" },
+    { name = "aiohttp", specifier = "==3.13.5" },
     { name = "httpx", specifier = "==0.28.1" },
     { name = "loguru", specifier = "==0.7.3" },
     { name = "pydantic", specifier = "==2.12.5" },
@@ -158,7 +158,7 @@ requires-dist = [
     { name = "pyyaml", specifier = "==6.0.3" },
     { name = "requests", specifier = "==2.33.0" },
     { name = "setuptools", specifier = "==82.0.1" },
-    { name = "websockets", specifier = ">=16.0" },
+    { name = "websockets", specifier = "==16.0" },
 ]
 
 [package.metadata.requires-dev]

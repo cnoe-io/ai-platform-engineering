@@ -5,6 +5,10 @@ import { AlertCircle, CheckCircle2, CircleDashed, Search } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import {
+  DiscoveryCacheControls,
+  type DiscoveryCacheProvider,
+} from "@/components/admin/rebac/DiscoveryCacheControls";
 
 export interface ConnectorOnboardingOption {
   value: string;
@@ -26,6 +30,18 @@ export interface ConnectorOnboardingRow {
 
 interface ConnectorOnboardingWizardProps {
   connectorName: string;
+  /**
+   * Machine-readable connector id used to scope the inline discovery
+   * cache controls. Drives which `/api/admin/<provider>/available-...`
+   * route the "Force refresh" button invalidates. Optional so existing
+   * callers (and tests) that don't render the cache controls keep
+   * working; callers that pass it get the inline popover next to the
+   * Find button.
+   */
+  provider?: DiscoveryCacheProvider;
+  /** Whether the current viewer can edit platform config. Falls back to
+   * read-only mode in the popover when false. */
+  isAdmin?: boolean;
   itemSingular: string;
   itemPlural: string;
   discoveredLabel: string;
@@ -70,8 +86,10 @@ function readinessFor(row: ConnectorOnboardingRow): {
   if (row.isExisting) {
     return {
       state: "ready",
-      label: "Already managed",
-      detail: row.selected ? "Will be verified and refreshed if selected." : "Already in CAIPE; select to refresh setup.",
+      label: "Setup completed",
+      detail: row.selected
+        ? "Will be verified and refreshed if selected."
+        : "Setup completed in CAIPE; select to refresh.",
     };
   }
   if (!row.selected) {
@@ -102,6 +120,8 @@ function ReadinessIcon({ state }: { state: ReadinessState }) {
 
 export function ConnectorOnboardingWizard({
   connectorName,
+  provider,
+  isAdmin = false,
   itemSingular,
   itemPlural,
   discoveredLabel,
@@ -178,6 +198,16 @@ export function ConnectorOnboardingWizard({
           <Search className="h-4 w-4" aria-hidden="true" />
           {discovering ? loadingLabel : discoveredCount > 0 ? refreshLabel : findLabel}
         </Button>
+        {provider && (
+          <DiscoveryCacheControls
+            provider={provider}
+            isAdmin={isAdmin}
+            // After a force-refresh, kick off another discovery query so
+            // the wizard reflects the fresh server-side snapshot without
+            // the admin having to click "Find ..." again.
+            onAfterRefresh={onDiscover}
+          />
+        )}
         <span
           role="status"
           aria-label={discoveryStatusText}

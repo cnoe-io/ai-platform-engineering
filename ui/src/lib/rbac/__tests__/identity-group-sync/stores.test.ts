@@ -26,7 +26,8 @@ describe("identity group sync stores", () => {
 
   it("upserts membership sources by source identity", async () => {
     const updateOne = jest.fn().mockResolvedValue({ upsertedCount: 1 });
-    getRbacCollection.mockResolvedValue({ updateOne });
+    const deleteMany = jest.fn().mockResolvedValue({ deletedCount: 0 });
+    getRbacCollection.mockResolvedValue({ updateOne, deleteMany });
 
     const { upsertTeamMembershipSource } = await import("../../team-membership-source-store");
     await upsertTeamMembershipSource({
@@ -56,6 +57,19 @@ describe("identity group sync stores", () => {
       },
       expect.objectContaining({ $set: expect.objectContaining({ status: "active" }) }),
       { upsert: true }
+    );
+    // The new orphan-collapse path in #1555 also calls `deleteMany` to drop
+    // stale `status:"removed"` rows when a user re-appears under a different
+    // relationship. We assert that the mock is invoked with the same logical
+    // identity but a different status filter so it cannot collide with active
+    // rows.
+    expect(deleteMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        team_slug: "platform",
+        user_subject: "user-sub",
+        source_type: "oidc_claim",
+        status: "removed",
+      })
     );
   });
 });

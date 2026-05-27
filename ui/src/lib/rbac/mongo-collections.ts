@@ -23,6 +23,7 @@ export const RBAC_COLLECTION_NAMES = {
   webexUserMetrics: "webex_user_metrics",
   rebacEnforcementStatus: "rebac_enforcement_status",
   rebacDriftFindings: "rebac_drift_findings",
+  userPreferences: "user_preferences",
 } as const;
 
 export type RbacCollectionKey = keyof typeof RBAC_COLLECTION_NAMES;

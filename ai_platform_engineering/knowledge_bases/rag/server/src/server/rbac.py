@@ -254,21 +254,6 @@ def extract_realm_roles_from_claims(claims: Dict[str, Any]) -> List[str]:
   return out
 
 
-def extract_active_team_from_claims(claims: Dict[str, Any]) -> Optional[str]:
-  """Spec 104: read the signed `active_team` JWT claim, if present.
-
-  Returns the literal sentinel ``"__personal__"`` for DM/personal mode,
-  a team slug like ``"platform-eng"`` for mapped channels, or ``None``
-  when the token has no claim (legacy SA tokens, BFF-issued login tokens
-  before the per-team scope rollout, etc.). Callers decide whether
-  ``None`` is a hard reject or a soft fallback to legacy behavior.
-  """
-  value = claims.get("active_team")
-  if isinstance(value, str) and value.strip():
-    return value.strip()
-  return None
-
-
 def kb_scope_satisfies(perm_scope: str, required: str) -> bool:
   """Return True if a KB permission scope meets the required access level."""
   return _KB_SCOPE_RANK.get(perm_scope, 0) >= _KB_SCOPE_RANK.get(required, 0)
@@ -439,7 +424,7 @@ async def _authenticate_from_token(request: Request, auth_manager: AuthManager) 
   Flow:
   1. Validate access_token (signature, expiry, audience, issuer)
   2. Check if client credentials token (machine-to-machine) → return immediately
-  3. Extract 'sub', email, realm roles, and active_team from access_token
+  3. Extract 'sub', email, and realm roles from access_token
   4. Determine coarse RAG service role from Keycloak realm roles
 
   Returns:
@@ -482,7 +467,6 @@ async def _authenticate_from_token(request: Request, auth_manager: AuthManager) 
         is_authenticated=True,
         kb_permissions=[],
         realm_roles=extract_realm_roles_from_claims(access_claims),
-        active_team=extract_active_team_from_claims(access_claims),
       )
 
       logger.debug(f"Client authenticated: {email}, role: {RBAC_CLIENT_CREDENTIALS_ROLE}")
@@ -529,7 +513,6 @@ async def _authenticate_from_token(request: Request, auth_manager: AuthManager) 
       role = Role.ANONYMOUS
       logger.info(f"Role denied: no Keycloak realm roles for email={email}")
 
-    active_team = extract_active_team_from_claims(access_claims)
     user_context = UserContext(
       subject=sub if sub != "unknown" else None,
       email=email,
@@ -538,12 +521,10 @@ async def _authenticate_from_token(request: Request, auth_manager: AuthManager) 
       is_authenticated=True,
       kb_permissions=kb_permissions,
       realm_roles=jwt_roles,
-      active_team=active_team,
     )
 
     logger.info(
-      f"User authenticated successfully: email={email}, role={role}, "
-      f"active_team={active_team}, source=access_token"
+      f"User authenticated successfully: email={email}, role={role}, source=access_token"
     )
     return user_context
 
@@ -848,6 +829,96 @@ def _strip_openfga_object_prefix(value: str, object_type: str) -> str:
   return value[len(prefix):] if value.startswith(prefix) else value
 
 
+async def _resolve_team_slug_from_channel(channel_id: str) -> Optional[str]:
+  """Spec 2026-05-24 Phase 1: derive a team slug from an originating channel.
+
+  Looks up the ``channel_team_mappings`` MongoDB collection (written by the
+  BFF admin UI / migration scripts) by ``slack_channel_id`` (the same column
+  is also reused for Webex space IDs — the column name predates the
+  generalization) and returns the joined ``teams.slug``.
+
+  Returns ``None`` when:
+  - Mongo is not configured
+  - No active mapping exists for ``channel_id``
+  - The mapping points to a team that is missing or has no slug
+  - Mongo errors (we degrade rather than 503 — caller treats no-team as
+    "fall back to user grants only", which is safe for read-side queries)
+
+  This helper is intentionally minimal: identifier resolution lives in the
+  BFF; the RAG server only needs the slug.
+  """
+  if not channel_id or not RBAC_MONGODB_URI or not RBAC_MONGODB_DATABASE:
+    return None
+  try:
+    from motor.motor_asyncio import AsyncIOMotorClient
+
+    client: AsyncIOMotorClient = AsyncIOMotorClient(
+      RBAC_MONGODB_URI, serverSelectionTimeoutMS=5000
+    )
+    db = client[RBAC_MONGODB_DATABASE]
+    mapping = await db["channel_team_mappings"].find_one(
+      {"slack_channel_id": channel_id, "active": {"$ne": False}},
+    )
+    if not mapping:
+      return None
+    team_id = mapping.get("team_id")
+    if not team_id:
+      return None
+    team = await db["teams"].find_one({"_id": team_id})
+    if not team:
+      return None
+    slug = team.get("slug")
+    return slug.strip() if isinstance(slug, str) and slug.strip() else None
+  except Exception as exc:  # noqa: BLE001 — never break the request on Mongo glitches
+    logger.warning(
+      "Channel→team lookup failed (channel_id=%s): %s", channel_id, exc
+    )
+    return None
+
+
+async def derive_team_for_request(
+  request: Optional[Request],
+  user_context: Any,  # noqa: ARG001 — kept for backward-compatible call sites
+) -> Optional[str]:
+  """Spec 2026-05-24 Phase 3: data-layer-only team derivation.
+
+  Resolution order (no JWT claim — that path is deleted):
+
+  1. ``X-Team-Id`` request header — explicit team scope (used by Web UI BFF
+     and bot envelopes that have already resolved a team from a channel
+     mapping).
+  2. ``X-Channel-Id`` header → ``channel_team_mappings`` → ``teams.slug``.
+  3. ``None`` — caller interprets as "no team scope" (personal / DM).
+
+  ``"__personal__"`` in the header is normalized to ``None``; it is the
+  caller's explicit "DM / no team" signal.
+
+  ``request`` may be ``None`` (MCP tool path doesn't always have one);
+  in that case the function returns ``None``.
+  """
+  if request is None:
+    return None
+
+  header_team = request.headers.get("X-Team-Id") if request.headers else None
+  if isinstance(header_team, str) and header_team.strip():
+    stripped = header_team.strip()
+    return None if stripped == "__personal__" else stripped
+
+  channel_id = request.headers.get("X-Channel-Id") if request.headers else None
+  if isinstance(channel_id, str) and channel_id.strip():
+    try:
+      return await _resolve_team_slug_from_channel(channel_id.strip())
+    except Exception as exc:  # noqa: BLE001 — defense in depth
+      logger.warning(
+        "derive_team_for_request: channel resolver raised (channel_id=%s): %s",
+        channel_id,
+        exc,
+      )
+      return None
+
+  return None
+
+
 async def _get_team_kb_ownership_from_mongo(
   team_id: str,
   tenant_id: str,
@@ -974,12 +1045,9 @@ async def check_kb_datasource_access(
         return
     raise HTTPException(status_code=403, detail="Access denied for this datasource")
 
-  # Spec 104: `active_team` JWT claim is the single source of truth.
-  # Fall back to the legacy `X-Team-Id` header only when the token has no
-  # claim (e.g. legacy SA tokens) so mid-rollout traffic doesn't 403.
-  team_id = user_context.active_team or request.headers.get("X-Team-Id")
-  if team_id == "__personal__":
-    team_id = None
+  # Phase 1 (spec 2026-05-24): centralised team derivation. Claim wins;
+  # falls back to X-Team-Id legacy header, then channel→team mapping.
+  team_id = await derive_team_for_request(request, user_context)
   accessible = await get_accessible_kb_ids(user_context, scope, tenant_id, team_id=team_id, request=request)
   if "*" in accessible:
     return
@@ -1042,10 +1110,9 @@ async def inject_kb_filter(
   if user_context.email.startswith("client:"):
     return False
 
-  # Spec 104: prefer signed `active_team` claim; fall back to legacy header.
-  team_id = user_context.active_team or request.headers.get("X-Team-Id")
-  if team_id == "__personal__":
-    team_id = None
+  # Phase 1 (spec 2026-05-24): centralised team derivation. Claim wins;
+  # falls back to X-Team-Id legacy header, then channel→team mapping.
+  team_id = await derive_team_for_request(request, user_context)
   accessible = await get_accessible_kb_ids(user_context, "read", tenant_id, team_id=team_id, request=request)
   if "*" in accessible:
     return False
