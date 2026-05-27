@@ -44,6 +44,18 @@ const ORGANIZATION_MEMBERSHIP_MIGRATION_ID = "organization_membership_backfill_v
 const SKILL_HUB_TEAM_GRANTS_MIGRATION_ID = "skill_hub_team_grants_backfill_v1";
 const AGENT_TOOL_MIGRATION_ID = "agent_tool_openfga_backfill_v1";
 export const AGENT_ORG_ADMIN_MIGRATION_ID = "agent_org_admin_inheritance_v1";
+// assisted-by Cursor Claude:claude-opus-4-7
+// Backfills the OpenFGA tuples implied by every existing agent's
+// `shared_with_teams` field. Until 2026-05-27 the Agent editor stored
+// shared teams in Mongo only — no `team:<slug>#member can_use agent:<id>`
+// tuples were ever written — so the multi-select silently denied access in
+// DMs (which evaluate `user:<sub> can_use agent:<id>` and only fall back
+// to a team-union check against EXISTING tuples). This migration walks
+// the dynamic_agents collection, resolves each shared entry (legacy
+// Mongo `_id` OR slug) against the teams collection, and writes the
+// canonical team-member/team-admin tuple pair for every resolved slug.
+// Idempotent — re-running it is safe and a no-op when nothing changed.
+export const AGENT_SHARED_TEAM_GRANTS_MIGRATION_ID = "agent_shared_team_grants_backfill_v1";
 const RBAC_INDEXES_MIGRATION_ID = "rbac_indexes_v1";
 const SLACK_CHANNEL_REBAC_MIGRATION_ID = "slack_channel_rebac_backfill_v1";
 const WEBEX_SPACE_REBAC_MIGRATION_ID = "webex_space_rebac_backfill_v1";
@@ -166,6 +178,21 @@ export const MIGRATION_DEFINITIONS: MigrationDefinition[] = [
     required: true,
     implemented: true,
     dependencies: [AGENT_TOOL_MIGRATION_ID],
+  },
+  {
+    id: AGENT_SHARED_TEAM_GRANTS_MIGRATION_ID,
+    release: RELEASE_051,
+    schema_area: "dynamic_agents",
+    from_version: 3,
+    to_version: 4,
+    kind: "explicit",
+    title: "Dynamic Agent shared-team grants",
+    description:
+      "Backfill OpenFGA team#member→can_use and team#admin→can_manage tuples for every dynamic agent's shared_with_teams field. Before 2026-05-27 the Agent editor wrote shared teams to Mongo only, so the multi-select silently denied DM access.",
+    confirmation: "MIGRATE dynamic_agents TO v4",
+    required: true,
+    implemented: true,
+    dependencies: [AGENT_ORG_ADMIN_MIGRATION_ID],
   },
   {
     id: "rbac_indexes_v1",
@@ -764,6 +791,119 @@ export function deriveAgentOrganizationInheritancePlan(
   };
 }
 
+/**
+ * Derive `team:<slug>#member can_use agent:<id>` and
+ * `team:<slug>#admin can_manage agent:<id>` tuples for every shared
+ * team on every existing dynamic agent.
+ *
+ * Inputs:
+ *  - `agents`: full dynamic_agents collection. Reads `shared_with_teams`
+ *    (legacy: array of Mongo `_id` strings; modern: array of canonical
+ *    slugs) and `owner_team_slug`. The owner team's tuples are
+ *    intentionally *not* written here — `agent_org_admin_inheritance_v1`
+ *    and the original `agent_tool_openfga_backfill_v1` already cover
+ *    that — so this migration is strictly additive for the shared
+ *    multi-select.
+ *  - `teams`: full teams collection (id + slug). Used to translate any
+ *    legacy `_id` references back to the canonical slug.
+ *
+ * Idempotent: re-running this migration writes the same tuples a second
+ * time and OpenFGA's tuple store no-ops on identical writes.
+ */
+export function deriveAgentSharedTeamGrantsPlan(
+  agents: Array<Record<string, any>>,
+  teams: Array<Record<string, any>>,
+): MigrationRuntimePlan {
+  const slugById = new Map<string, string>();
+  const knownSlugs = new Set<string>();
+  for (const team of teams) {
+    const slug = normalizeString(team.slug);
+    if (!slug || !isOpenFgaId(slug)) continue;
+    knownSlugs.add(slug);
+    const idHex = mongoId(team);
+    if (idHex) slugById.set(idHex, slug);
+  }
+
+  const tuples: OpenFgaTupleKey[] = [];
+  const warnings: string[] = [];
+  let agentsScanned = 0;
+  let agentsWithSharedTeams = 0;
+  let sharedSlugsResolved = 0;
+  let unresolvedEntries = 0;
+
+  for (const agent of agents) {
+    agentsScanned += 1;
+    const agentId = normalizeString(agent.id) ?? normalizeString(agent._id);
+    if (!agentId || !isOpenFgaId(agentId)) {
+      warnings.push(`Skipping dynamic agent with invalid id: ${String(agent.id ?? agent._id)}`);
+      continue;
+    }
+    const rawShared = normalizeStringArray(agent.shared_with_teams);
+    if (rawShared.length === 0) continue;
+    agentsWithSharedTeams += 1;
+
+    const ownerSlug = normalizeString(agent.owner_team_slug);
+    const seen = new Set<string>();
+    for (const entry of rawShared) {
+      // Resolve legacy `_id` → slug, or accept a slug directly.
+      const resolvedSlug =
+        slugById.get(entry) ??
+        (knownSlugs.has(entry) ? entry : null);
+      if (!resolvedSlug || !isOpenFgaId(resolvedSlug)) {
+        unresolvedEntries += 1;
+        warnings.push(`Agent ${agentId}: shared_with_teams entry has no matching team: ${entry}`);
+        continue;
+      }
+      // Don't double-count the owner team — the owner-team tuples are
+      // written by the earlier agent_tool / agent_org_admin migrations
+      // and by every live POST/PUT reconcile.
+      if (ownerSlug && resolvedSlug === ownerSlug) continue;
+      if (seen.has(resolvedSlug)) continue;
+      seen.add(resolvedSlug);
+      sharedSlugsResolved += 1;
+
+      tuples.push({
+        user: `team:${resolvedSlug}#member`,
+        relation: "user",
+        object: `agent:${agentId}`,
+      });
+      tuples.push({
+        user: `team:${resolvedSlug}#admin`,
+        relation: "manager",
+        object: `agent:${agentId}`,
+      });
+    }
+  }
+
+  const unique = uniqueTuples(tuples);
+  return {
+    migration_id: AGENT_SHARED_TEAM_GRANTS_MIGRATION_ID,
+    release: RELEASE_051,
+    schema_area: "dynamic_agents",
+    kind: "explicit",
+    from_version: 3,
+    to_version: 4,
+    counts: {
+      agents_scanned: agentsScanned,
+      agents_with_shared_teams: agentsWithSharedTeams,
+      shared_slugs_resolved: sharedSlugsResolved,
+      unresolved_entries: unresolvedEntries,
+      teams_scanned: teams.length,
+      tuples_planned: unique.length,
+    },
+    warnings,
+    sample_diffs: unique.slice(0, 10).map((tuple, index) => ({
+      collection: "openfga_tuples",
+      id: `${AGENT_SHARED_TEAM_GRANTS_MIGRATION_ID}:${index}`,
+      before: {},
+      after: { ...tuple },
+    })),
+    tuple_writes_planned: unique.length,
+    confirmation: "MIGRATE dynamic_agents TO v4",
+    tuples: unique,
+  };
+}
+
 type MessagingGrantSurface = {
   migrationId: string;
   schemaArea: string;
@@ -1261,6 +1401,18 @@ async function loadAgentToolMigrationInputs() {
   return dynamicAgents.find({}).toArray();
 }
 
+async function loadAgentSharedTeamGrantInputs() {
+  const [agents, teams] = await Promise.all([
+    getCollection("dynamic_agents"),
+    getCollection("teams"),
+  ]);
+  const [agentDocs, teamDocs] = await Promise.all([
+    agents.find({}).toArray(),
+    teams.find({}).project({ _id: 1, slug: 1 }).toArray(),
+  ]);
+  return { agentDocs, teamDocs };
+}
+
 async function loadMessagingRebacInputs(surface: "slack" | "webex") {
   if (surface === "slack") {
     const [grants, routes] = await Promise.all([
@@ -1712,6 +1864,13 @@ export async function planMigration(migrationId: string, now = new Date().toISOS
   if (migrationId === AGENT_ORG_ADMIN_MIGRATION_ID) {
     const agentDocs = await loadAgentToolMigrationInputs();
     return deriveAgentOrganizationInheritancePlan(agentDocs as Array<Record<string, any>>);
+  }
+  if (migrationId === AGENT_SHARED_TEAM_GRANTS_MIGRATION_ID) {
+    const { agentDocs, teamDocs } = await loadAgentSharedTeamGrantInputs();
+    return deriveAgentSharedTeamGrantsPlan(
+      agentDocs as Array<Record<string, any>>,
+      teamDocs as Array<Record<string, any>>,
+    );
   }
   if (migrationId === RBAC_INDEXES_MIGRATION_ID) {
     return deriveIndexPlan();

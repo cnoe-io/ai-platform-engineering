@@ -42,6 +42,32 @@ export interface AgentToolTupleDiffInput {
    */
   previousOwnerTeamSlug?: string | null;
   /**
+   * Additional team slugs the agent is explicitly shared with (the
+   * "Share with Teams" multi-select on the Agent editor — distinct from
+   * the single owner team). Each entry produces the same two-tuple
+   * inheritance pair as the owner team:
+   *
+   *   team:<slug>#member user agent:<id>     (can_use → can DM and use in any channel mapped to this team)
+   *   team:<slug>#admin  manager agent:<id>  (can_manage → can edit/disable/delete the agent)
+   *
+   * Empty array or `undefined` means "no additional shared teams"; the
+   * owner-team tuples are still written. Slugs that match the owner team
+   * are deduplicated. Invalid slugs are silently skipped.
+   */
+  nextSharedTeamSlugs?: readonly string[] | null;
+  /**
+   * Optional: the previous shared-team slugs recorded on the agent before
+   * this reconcile call. Slugs that appear here but NOT in
+   * `nextSharedTeamSlugs` are emitted as deletes so removing a team from
+   * the multi-select genuinely revokes access (instead of the current
+   * silent Mongo-only behaviour where the team kept its grant forever).
+   *
+   * Pass `undefined` (or `[]`) for fresh creates. Pass the previously
+   * persisted set on updates so the diff is symmetric with
+   * `previousOwnerTeamSlug`.
+   */
+  previousSharedTeamSlugs?: readonly string[] | null;
+  /**
    * When `true` we write `user:* user agent:<id>` so every authenticated
    * user has `can_use` on this agent. Used for `visibility === 'global'`.
    */
@@ -72,6 +98,23 @@ function uniqueTuples(tuples: OpenFgaTupleKey[]): OpenFgaTupleKey[] {
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(tuple);
+  }
+  return out;
+}
+
+function normalizeTeamSlugs(
+  raw: readonly string[] | null | undefined,
+): string[] {
+  if (!raw || raw.length === 0) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const candidate of raw) {
+    const trimmed = typeof candidate === "string" ? candidate.trim() : "";
+    if (!trimmed) continue;
+    if (!isValidOpenFgaId(trimmed)) continue;
+    if (seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    out.push(trimmed);
   }
   return out;
 }
@@ -140,35 +183,54 @@ export function buildAgentRelationshipTupleDiff(input: AgentToolTupleDiffInput):
       ? input.previousOwnerTeamSlug
       : null;
 
-  if (nextTeamSlug) {
+  const nextSharedSlugs = normalizeTeamSlugs(input.nextSharedTeamSlugs);
+  const previousSharedSlugs = normalizeTeamSlugs(input.previousSharedTeamSlugs);
+
+  // Effective desired team slugs (the union of owner + shared) — these
+  // are the tuples we WANT in OpenFGA after this reconcile. Tracking the
+  // set lets us be conservative when emitting deletes for retired teams:
+  // we only delete a previous slug's tuples when that slug is *not* still
+  // wanted via the owner team or the new shared list.
+  const nextEffectiveSlugs = new Set<string>();
+  if (nextTeamSlug) nextEffectiveSlugs.add(nextTeamSlug);
+  for (const slug of nextSharedSlugs) nextEffectiveSlugs.add(slug);
+
+  for (const slug of nextEffectiveSlugs) {
     writes.push(
       {
-        user: `team:${nextTeamSlug}#member`,
+        user: `team:${slug}#member`,
         relation: "user",
         object: `agent:${input.agentId}`,
       },
       {
-        user: `team:${nextTeamSlug}#admin`,
+        user: `team:${slug}#admin`,
         relation: "manager",
         object: `agent:${input.agentId}`,
       },
     );
   }
 
-  // If the agent's owner team changed (or was removed entirely — e.g. a
-  // migration from the pre-private-removal era), retire the previous
-  // team's tuples so the old team's members do not retain `can_use` and
-  // the old team's admins do not retain `can_manage`. We skip this when
-  // the previous and next slugs match (idempotent re-reconcile case).
-  if (previousTeamSlug && previousTeamSlug !== nextTeamSlug) {
+  // Union the previous teams so we emit a delete for any slug that used
+  // to grant the agent (owner OR shared) and no longer does. Owner-team
+  // transitions previously handled `previousOwnerTeamSlug` on its own;
+  // we now extend that to cover shared-team removals so unchecking a
+  // team in the editor genuinely revokes its grant instead of leaving
+  // a dangling tuple (the long-standing bug behind the "shared with
+  // teams" multi-select being decorative).
+  const previousEffectiveSlugs = new Set<string>();
+  if (previousTeamSlug) previousEffectiveSlugs.add(previousTeamSlug);
+  for (const slug of previousSharedSlugs) previousEffectiveSlugs.add(slug);
+
+  for (const slug of previousEffectiveSlugs) {
+    if (nextEffectiveSlugs.has(slug)) continue;
     deletes.push(
       {
-        user: `team:${previousTeamSlug}#member`,
+        user: `team:${slug}#member`,
         relation: "user",
         object: `agent:${input.agentId}`,
       },
       {
-        user: `team:${previousTeamSlug}#admin`,
+        user: `team:${slug}#admin`,
         relation: "manager",
         object: `agent:${input.agentId}`,
       },
