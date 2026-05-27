@@ -2501,6 +2501,12 @@ services:
     env_file: [.env]
     ports: ["8030:3000"]  # Only used in HTTP mode (SLACK_INTEGRATION_BOT_MODE=http)
     environment:
+      # Force unbuffered stdio so loguru/print output reaches `docker logs`
+      # in real time. Without this, Python block-buffers stderr when the fd
+      # is a pipe (docker captures aren't a TTY), which means INFO lines
+      # like "RBAC denied request for slack_user=..." don't appear until a
+      # buffer fills — making live debugging of denials nearly impossible.
+      - PYTHONUNBUFFERED=1
       - DEV_HOT_RELOAD=${DEV_HOT_RELOAD:-false}
       - SLACK_INTEGRATION_APP_NAME=${SLACK_INTEGRATION_APP_NAME:-CAIPE}
       - SLACK_INTEGRATION_BOT_TOKEN=${SLACK_INTEGRATION_BOT_TOKEN:-${SLACK_BOT_TOKEN}}
