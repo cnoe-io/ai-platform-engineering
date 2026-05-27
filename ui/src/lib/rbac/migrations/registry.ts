@@ -1888,11 +1888,11 @@ async function loadKnowledgeBaseSharedTeamGrantsInputs(): Promise<{
 }
 
 /**
- * Read every existing `knowledge_base:*` tuple from OpenFGA. Used by
- * `deriveDataSourceGrantsBackfillPlan` so the data_source mirror set
- * is computed from the source of truth instead of Mongo. Iterates
- * the OpenFGA `read` API in pages until `continuationToken` is empty
- * so we don't blow up memory on large stores.
+ * Read existing `knowledge_base:*` tuples from OpenFGA. Used by
+ * `deriveDataSourceGrantsBackfillPlan` so the data_source mirror set is
+ * computed from the source of truth instead of Mongo. OpenFGA does not
+ * accept `knowledge_base:` as a tuple-key prefix filter, so this iterates
+ * the valid paginated read API and filters object type client-side.
  *
  * Failures (OpenFGA unreachable, model not loaded) bubble up so the
  * migration runner can surface the underlying error rather than
@@ -1903,11 +1903,13 @@ async function loadKnowledgeBaseTuples(): Promise<OpenFgaTupleKey[]> {
   let continuationToken: string | undefined;
   do {
     const page = await readOpenFgaTuples({
-      tuple: { user: "", relation: "", object: "knowledge_base:" },
       continuationToken,
+      pageSize: 100,
     });
     for (const entry of page.tuples) {
-      collected.push(entry.key);
+      if (entry.key.object.startsWith("knowledge_base:")) {
+        collected.push(entry.key);
+      }
     }
     continuationToken = page.continuationToken;
   } while (continuationToken);
