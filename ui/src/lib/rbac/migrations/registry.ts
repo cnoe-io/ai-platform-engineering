@@ -70,7 +70,7 @@ export const ADMIN_SURFACE_RAG_DATASOURCES_ADMIN_GRANT_MIGRATION_ID =
   "admin_surface_rag_datasources_admin_grant_v1";
 // PR 3 of the 2026-05-27 fine-grained KB ReBAC plan. Walks every existing
 // `team_kb_ownership` doc and writes the canonical `team:<slug>#member
-// reader knowledge_base:<id>` and `team:<slug>#admin manager
+// reader`, `team:<slug>#member ingestor`, and `team:<slug>#admin manager
 // knowledge_base:<id>` tuples for every (team, kb) row. Catches up KBs that
 // were granted to a team via the Settings → Knowledge Bases UI before
 // PR 3 wired explicit Share-with-Teams. Idempotent.
@@ -257,7 +257,7 @@ export const MIGRATION_DEFINITIONS: MigrationDefinition[] = [
     kind: "explicit",
     title: "Knowledge Base team-share grants backfill",
     description:
-      "Walks every `team_kb_ownership` Mongo doc and writes the canonical `team:<slug>#member reader knowledge_base:<id>` and `team:<slug>#admin manager knowledge_base:<id>` tuples so any KB granted to a team via Settings → Knowledge Bases before PR 3 of the 2026-05-27 fine-grained KB ReBAC plan keeps its access after the new explicit Share-with-Teams panel ships. Idempotent.",
+      "Walks every `team_kb_ownership` Mongo doc and writes the canonical `team:<slug>#member reader knowledge_base:<id>`, `team:<slug>#member ingestor knowledge_base:<id>`, and `team:<slug>#admin manager knowledge_base:<id>` tuples so any KB granted to a team via Settings → Knowledge Bases before PR 3 of the 2026-05-27 fine-grained KB ReBAC plan keeps its access after the new explicit Share-with-Teams panel ships. Idempotent.",
     confirmation: "MIGRATE team_kb_ownership TO v2",
     required: true,
     implemented: true,
@@ -1120,6 +1120,11 @@ export function deriveKnowledgeBaseSharedTeamGrantsPlan(
       tuples.push({
         user: `team:${slug}#member`,
         relation: "reader",
+        object: `knowledge_base:${kbId}`,
+      });
+      tuples.push({
+        user: `team:${slug}#member`,
+        relation: "ingestor",
         object: `knowledge_base:${kbId}`,
       });
       tuples.push({

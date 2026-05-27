@@ -254,6 +254,7 @@ export function buildKnowledgeBaseRelationshipTupleDiff(
   for (const slug of nextEffective) {
     writes.push(
       { user: `team:${slug}#member`, relation: "reader", object },
+      { user: `team:${slug}#member`, relation: "ingestor", object },
       { user: `team:${slug}#admin`, relation: "manager", object },
     );
   }
@@ -266,6 +267,7 @@ export function buildKnowledgeBaseRelationshipTupleDiff(
     if (nextEffective.has(slug)) continue;
     deletes.push(
       { user: `team:${slug}#member`, relation: "reader", object },
+      { user: `team:${slug}#member`, relation: "ingestor", object },
       { user: `team:${slug}#admin`, relation: "manager", object },
     );
   }

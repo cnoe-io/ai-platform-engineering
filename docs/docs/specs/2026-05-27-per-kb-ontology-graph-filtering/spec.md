@@ -3,7 +3,6 @@
 **Branch**: TBD &middot; **Date**: 2026-05-27 &middot; **Status**: Draft
 
 **Origin**: Phase 5 of the 2026-05-27 fine-grained KB ReBAC plan
-([Cursor plan](../../../../../.cursor/plans/caipe-fine-grained-rbac-kb-graph-mcp_b6961a8b.plan.md))
 deliberately deferred per-entity ontology-graph filtering. That phase
 gates the Knowledge Bases &rarr; Graph tab on "the caller can read at
 least one KB" (or is `organization#admin`) and shows an info banner

@@ -170,6 +170,7 @@ user:<sub> member team:<slug>
 team:<slug>#member user agent:<agent_id>
 team:<slug>#member caller tool:<server>_*
 team:<slug>#member reader knowledge_base:<id>
+team:<slug>#member ingestor knowledge_base:<id>
 slack_channel:<channel> user agent:<agent_id>
 ```
 
