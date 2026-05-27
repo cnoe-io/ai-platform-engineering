@@ -328,7 +328,8 @@ jobs:
       - name: 🚀 Push Prebuild Charts to GHCR
         if: steps.version-check.outputs.skip != 'true'
         run: |
-          REGISTRY="oci://ghcr.io/${{ github.repository_owner }}/prebuild-helm-charts"
+          OWNER="${GITHUB_REPOSITORY_OWNER,,}"
+          REGISTRY="oci://ghcr.io/${OWNER}/prebuild-helm-charts"
 
           echo "📦 Pushing prebuild charts to $REGISTRY"
 
@@ -348,7 +349,7 @@ jobs:
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
-            const registry = `ghcr.io/${{ github.repository_owner }}/prebuild-helm-charts`;
+            const registry = `ghcr.io/${context.repo.owner.toLowerCase()}/prebuild-helm-charts`;
             const ragStackChanged = '${{ steps.detect.outputs.rag-stack-changed }}' === 'true';
             const aiPlatformChanged = '${{ steps.detect.outputs.ai-platform-changed }}' === 'true';
             const headRepo = '${{ steps.pr-info.outputs.head_repo_full_name }}';
