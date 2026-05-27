@@ -6,6 +6,11 @@ export interface SchemaAreaClassificationEntry {
 }
 
 export const SCHEMA_AREA_CLASSIFICATIONS: Record<string, SchemaAreaClassificationEntry> = {
+  admin_surfaces: {
+    classification: "migration",
+    description:
+      "Org-admin manager grants on admin_surface:* objects (e.g. admin_surface:rag_datasources). PR 1 of the 2026-05-27 fine-grained KB ReBAC plan registers the `admin_surface_rag_datasources_admin_grant_v1` migration to backfill these tuples for every existing org admin.",
+  },
   agent_skills: {
     classification: "baseline_v1",
     description: "Skill catalog/config records; start at v1 unless a future data migration is registered.",
