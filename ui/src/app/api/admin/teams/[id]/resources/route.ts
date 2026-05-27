@@ -26,6 +26,7 @@ import {
   requireRbacPermission,
   ApiError,
 } from "@/lib/api-middleware";
+import { requireTeamMembershipManagementPermission } from "@/lib/rbac/team-admin-guards";
 import {
   findUserIdByEmail,
 } from "@/lib/rbac/keycloak-admin";
@@ -271,7 +272,6 @@ export const PUT = withErrorHandler(
     if (mongoCheck) return mongoCheck;
 
     const { user, session } = await getAuthFromBearerOrSession(request);
-    await requireRbacPermission(session, "team", "manage");
 
       const { id } = await context.params;
       const teamId = parseTeamId(id);
@@ -291,6 +291,10 @@ export const PUT = withErrorHandler(
       const teamsCol = await getCollection<Team>("teams");
       const team = await teamsCol.findOne({ _id: teamId } as never);
       if (!team) throw new ApiError("Team not found", 404);
+
+      // Issue #1509: scoped team admins can manage resources on their own
+      // team without platform-wide `organization:<org>#admin`.
+      await requireTeamMembershipManagementPermission(session, user.email, team);
 
       const prevAgents = team.resources?.agents ?? [];
       const prevAgentAdmins = team.resources?.agent_admins ?? [];
