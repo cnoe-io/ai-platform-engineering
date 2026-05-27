@@ -4,8 +4,9 @@
  * GET /api/rag/kbs/[id]/sharing — returns the canonical set of team slugs
  * that currently have read access to `knowledge_base:<id>`, derived from
  * OpenFGA (`team:<slug>#member reader knowledge_base:<id>` is the canonical
- * marker; the matching `team:<slug>#admin manager knowledge_base:<id>` is
- * always written alongside it by the reconciler).
+ * marker; the matching `team:<slug>#member ingestor ...` and
+ * `team:<slug>#admin manager ...` tuples are always written alongside it by
+ * the reconciler).
  *
  * PUT /api/rag/kbs/[id]/sharing — accepts `{ team_slugs: string[] }` and
  * calls `reconcileKnowledgeBaseRelationships` so unchecking a team in the UI

@@ -313,16 +313,19 @@ describe("knowledge_base shared-team grants migration", () => {
       ownership_rows_scanned: 2,
       ownership_rows_resolved: 2,
       teams_touched: 2,
-      tuples_planned: 6,
+      tuples_planned: 9,
     });
-    expect(plan.tuple_writes_planned).toBe(6);
+    expect(plan.tuple_writes_planned).toBe(9);
     expect(plan.tuples).toEqual(
       expect.arrayContaining([
         { user: "team:platform#member", relation: "reader", object: "knowledge_base:kb-alpha" },
+        { user: "team:platform#member", relation: "ingestor", object: "knowledge_base:kb-alpha" },
         { user: "team:platform#admin", relation: "manager", object: "knowledge_base:kb-alpha" },
         { user: "team:platform#member", relation: "reader", object: "knowledge_base:kb-beta" },
+        { user: "team:platform#member", relation: "ingestor", object: "knowledge_base:kb-beta" },
         { user: "team:platform#admin", relation: "manager", object: "knowledge_base:kb-beta" },
         { user: "team:data-eng#member", relation: "reader", object: "knowledge_base:kb-alpha" },
+        { user: "team:data-eng#member", relation: "ingestor", object: "knowledge_base:kb-alpha" },
         { user: "team:data-eng#admin", relation: "manager", object: "knowledge_base:kb-alpha" },
       ]),
     );
@@ -336,7 +339,7 @@ describe("knowledge_base shared-team grants migration", () => {
       ],
       new Map([["team-1", "platform"]]),
     );
-    expect(plan.tuple_writes_planned).toBe(2);
+    expect(plan.tuple_writes_planned).toBe(3);
   });
 
   it("warns and skips rows whose team_id cannot be resolved to a slug", () => {
@@ -365,7 +368,7 @@ describe("knowledge_base shared-team grants migration", () => {
     expect(plan.counts).toMatchObject({
       ownership_rows_resolved: 1,
       invalid_kb_ids: 1,
-      tuples_planned: 2,
+      tuples_planned: 3,
     });
     expect(plan.warnings.some((w: string) => w.includes("bad id with spaces"))).toBe(true);
   });
