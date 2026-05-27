@@ -272,6 +272,8 @@ Two authorization paths:
 
 Routes that have not yet been rewritten inline no longer remain session-only: the deprecated `withAuth()` compatibility wrapper now uses `getAuthFromBearerOrSession()`, resolves the route family to a least-privilege RBAC policy, and calls `requireRbacPermission()` before invoking the handler.
 
+For a route-by-route breakdown of which BFF `/api/*` endpoints use resource-scoped PDP, which still rely on the legacy `withAuth` umbrella, and which have a `user.role === 'admin'` bypass, see the [PDP Coverage Audit](./pdp-coverage-audit.md). The audit also documents how to read `audit_event_id` rows and how to add new routes without falling back to the `supervisor#invoke` catch-all.
+
 ### Dynamic Agent Execution Gate
 
 Dynamic Agent execution is a data-plane ReBAC decision, not a Keycloak UMA
