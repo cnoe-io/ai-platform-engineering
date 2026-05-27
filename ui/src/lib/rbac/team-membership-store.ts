@@ -273,10 +273,15 @@ export async function findUserRoleInTeam(
     $or: identityClauses,
   });
 
+  // toArray() (vs for-await) keeps the implementation portable across
+  // Mongo driver versions and trivially mockable in unit tests. Per-user
+  // matching rows are typically 1–2, so the early-exit optimization
+  // doesn't matter in practice.
+  const rows = await cursor.toArray();
   let resolved: TeamRelationshipRole | null = null;
-  for await (const row of cursor) {
+  for (const row of rows) {
     resolved = escalate(resolved, row.relationship);
-    if (resolved === "admin") break;
+    if (resolved === "admin") return "admin";
   }
   return resolved;
 }

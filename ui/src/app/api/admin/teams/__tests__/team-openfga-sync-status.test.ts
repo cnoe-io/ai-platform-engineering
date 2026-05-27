@@ -78,9 +78,14 @@ jest.mock("@/lib/mongodb", () => ({
 }));
 
 function createMockCollection() {
+  // Note: the cursor must support BOTH `find().toArray()` and
+  // `find().sort().toArray()` because newer auth-gate readers (e.g.
+  // team-membership-store helpers, post 2026-05-26 canonical-membership
+  // refactor) call toArray() directly without a sort.
   return {
     find: jest.fn().mockReturnValue({
       sort: jest.fn().mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) }),
+      toArray: jest.fn().mockResolvedValue([]),
     }),
     findOne: jest.fn().mockResolvedValue(null),
     insertOne: jest.fn().mockResolvedValue({
