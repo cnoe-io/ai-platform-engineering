@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 const mockToast = jest.fn();
 jest.mock("@/components/ui/toast", () => ({
@@ -6,6 +6,7 @@ jest.mock("@/components/ui/toast", () => ({
 }));
 
 import { WebexSpaceRebacPanel } from "../WebexSpaceRebacPanel";
+import { pickTeam } from "@/__test-utils__/team-picker";
 
 const fetchMock = jest.fn();
 
@@ -87,6 +88,19 @@ function setupFetchMock(
             spaces_manual: body.manual_spaces?.length ?? 0,
             spaces_onboarded: body.manual_spaces?.length ?? 0,
             routes_preserved: 0,
+          },
+        },
+      });
+    }
+    if (url === "/api/admin/webex/spaces/defaults" && init?.method === "PUT") {
+      const body = JSON.parse(String(init.body ?? "{}"));
+      return response({
+        data: {
+          defaults: {
+            ...body,
+            source: "db",
+            updated_at: "2026-05-27T08:00:00.000Z",
+            updated_by: "admin@example.com",
           },
         },
       });
@@ -317,9 +331,9 @@ it("lays out Webex setup without the manual route priority section", async () =>
 it("discovers Webex bot spaces and imports selected spaces with per-space defaults", async () => {
   render(<WebexSpaceRebacPanel />);
 
-  fireEvent.change(await screen.findByRole("combobox", { name: "Preselected Team" }), {
-    target: { value: "platform-engineering" },
-  });
+  // Preselected Team is now a searchable TeamPicker (2026-05-27).
+  await screen.findByLabelText("Preselected Team");
+  await pickTeam("Preselected Team", "platform-engineering");
   fireEvent.change(await screen.findByRole("combobox", { name: "Preselected Dynamic Agent" }), {
     target: { value: "incident-agent" },
   });
@@ -370,9 +384,8 @@ it("discovers Webex bot spaces and imports selected spaces with per-space defaul
 it("shows discovered Webex space setup feedback as a toast without shifting the action row", async () => {
   render(<WebexSpaceRebacPanel />);
 
-  fireEvent.change(await screen.findByRole("combobox", { name: "Preselected Team" }), {
-    target: { value: "platform-engineering" },
-  });
+  await screen.findByLabelText("Preselected Team");
+  await pickTeam("Preselected Team", "platform-engineering");
   fireEvent.change(await screen.findByRole("combobox", { name: "Preselected Dynamic Agent" }), {
     target: { value: "incident-agent" },
   });
@@ -548,9 +561,8 @@ it("keeps Webex onboarding defaults simple without bulk apply or manual add cont
   render(<WebexSpaceRebacPanel />);
 
   await screen.findByText("Onboarding Default Selection");
-  fireEvent.change(await screen.findByRole("combobox", { name: "Preselected Team" }), {
-    target: { value: "platform-engineering" },
-  });
+  await screen.findByLabelText("Preselected Team");
+  await pickTeam("Preselected Team", "platform-engineering");
   fireEvent.change(await screen.findByRole("combobox", { name: "Preselected Dynamic Agent" }), {
     target: { value: "incident-agent" },
   });
@@ -568,10 +580,24 @@ it("labels Webex onboarding default selection and shows current configured value
 
   expect(await screen.findByText("Onboarding Default Selection")).toBeInTheDocument();
   expect(screen.queryByText("Migration Defaults")).not.toBeInTheDocument();
-  expect(screen.getByText("Saved onboarding team")).toBeInTheDocument();
-  expect(await screen.findByText("team:platform-engineering")).toBeInTheDocument();
-  expect(screen.getByText("Saved onboarding Dynamic Agent")).toBeInTheDocument();
+  // The "Last saved" panel was refactored on 2026-05-27 to a single
+  // row with "Onboarding team" / "Onboarding Dynamic Agent" sub-labels
+  // and a dedicated "Save defaults" button. Scope to that row so the
+  // TeamPicker trigger (which also renders `team:<slug>` text) doesn't
+  // collide with these assertions.
+  expect(await screen.findByText("Onboarding team")).toBeInTheDocument();
+  await waitFor(() => {
+    const savedTeamLabel = screen.getByText("Onboarding team");
+    const savedDefaultsRow = savedTeamLabel.closest("div")?.parentElement;
+    expect(savedDefaultsRow).toBeTruthy();
+    expect(within(savedDefaultsRow!).getByText("team:platform-engineering")).toBeInTheDocument();
+  });
+  expect(screen.getByText("Onboarding Dynamic Agent")).toBeInTheDocument();
   expect(await screen.findByText("agent:incident-agent")).toBeInTheDocument();
+  // Save button starts disabled because form picks match saved values.
+  expect(
+    screen.getByRole("button", { name: "Save Webex onboarding defaults" }),
+  ).toBeDisabled();
   expect(screen.queryByText("[Optional] Global Space Defaults")).not.toBeInTheDocument();
   expect(screen.getByText(/Only changes what is preselected when you onboard spaces/i)).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Apply Selection to Managed Webex Spaces" })).not.toBeInTheDocument();
@@ -657,4 +683,66 @@ it("opens a runtime sync modal with preview progress and apply results", async (
   expect(await screen.findByText("Apply complete")).toBeInTheDocument();
   expect(screen.getByText("1 route upserted")).toBeInTheDocument();
   expect(screen.getByText("1 OpenFGA tuple written")).toBeInTheDocument();
+});
+
+// Save defaults flow (2026-05-27): admins picked a team/agent in the
+// UI but the choice never persisted — the GET only returned env vars
+// and the migration POST didn't write the saved defaults anywhere.
+// The new PUT /api/admin/webex/spaces/defaults route writes to
+// `platform_config` and the panel exposes a dedicated "Save defaults"
+// button that lights up only when the form diverges from the saved
+// values. This test pins that contract.
+it("persists Webex onboarding defaults via PUT when the admin clicks Save defaults", async () => {
+  // Override the GET so the form starts empty — that way picking a
+  // team and an agent produces a dirty diff and enables the button.
+  const baseFetch = fetchMock.getMockImplementation();
+  fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+    if (url === "/api/admin/webex/spaces/defaults" && (!init?.method || init.method === "GET")) {
+      return response({ data: { defaults: { team_slug: "", agent_id: "", source: "unset" } } });
+    }
+    return baseFetch?.(url, init) ?? response({});
+  });
+
+  render(<WebexSpaceRebacPanel />);
+
+  const saveButton = await screen.findByRole("button", {
+    name: "Save Webex onboarding defaults",
+  });
+  expect(saveButton).toBeDisabled();
+  expect(screen.queryByText("Unsaved changes")).not.toBeInTheDocument();
+
+  await pickTeam("Preselected Team", "platform-engineering");
+  fireEvent.change(
+    await screen.findByRole("combobox", { name: "Preselected Dynamic Agent" }),
+    { target: { value: "incident-agent" } },
+  );
+
+  await waitFor(() => expect(saveButton).toBeEnabled());
+  expect(screen.getByText("Unsaved changes")).toBeInTheDocument();
+
+  fireEvent.click(saveButton);
+
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/admin/webex/spaces/defaults",
+      expect.objectContaining({
+        method: "PUT",
+        body: expect.stringContaining('"team_slug":"platform-engineering"'),
+      }),
+    ),
+  );
+  expect(fetchMock).toHaveBeenCalledWith(
+    "/api/admin/webex/spaces/defaults",
+    expect.objectContaining({
+      method: "PUT",
+      body: expect.stringContaining('"agent_id":"incident-agent"'),
+    }),
+  );
+
+  await waitFor(() => expect(saveButton).toBeDisabled());
+  expect(screen.queryByText("Unsaved changes")).not.toBeInTheDocument();
+  expect(screen.getByText(/admin@example.com/)).toBeInTheDocument();
+  await waitFor(() =>
+    expect(mockToast).toHaveBeenCalledWith("Onboarding defaults saved.", "success"),
+  );
 });
