@@ -2,6 +2,7 @@
 
 **Branch**: `prebuild/feat-canonical-team-membership` | **Date**: 2026-05-26 | **Spec**: [spec.md](./spec.md)
 **Input**: Feature specification from `docs/docs/specs/2026-05-26-canonical-team-membership/spec.md`
+**Status**: SHIPPED (commits 1–8 of 8). See [`mongodb-migration.md`](./mongodb-migration.md) for the operator runbook and [tasks.md commit 8](./tasks.md#commit-8--schema-cleanup--eslint-guard-phase-3b) for the deferred ESLint guard and type-removal work.
 
 ## Summary
 

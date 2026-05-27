@@ -1,6 +1,7 @@
 # Tasks: Canonical Team Membership Store
 
 **Branch**: `prebuild/feat-canonical-team-membership` | **Spec**: [spec.md](./spec.md) | **Plan**: [plan.md](./plan.md)
+**Status**: SHIPPED (commits 1–8 merged on `prebuild/feat-canonical-team-membership`). Commit 8 ships conservatively — the ESLint guard and TypeScript `members?` removal are deferred to a follow-up that fires after the [`migrate-canonical-team-membership` runbook](./mongodb-migration.md) has been applied in every environment (per the gating note in the Dependencies section).
 
 Each numbered task is one commit. Tasks are sequential — never reorder. Each commit must be green (`npm test` + `npm run lint` in `ui/`) before moving to the next.
 
