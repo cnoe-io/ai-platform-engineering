@@ -27,7 +27,6 @@ model
 
 type user
 type service_account
-type anonymous
 
 type user_profile
   relations

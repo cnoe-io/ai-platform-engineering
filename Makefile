@@ -15,7 +15,7 @@ APP_NAME ?= ai-platform-engineering
 # or unset to restore unlimited parallelism. Used by every target below that
 # invokes `docker compose ... up --build`.
 COMPOSE_PARALLEL_LIMIT ?= 4
-DOCKER_COMPOSE_BUILD_ENV := COMPOSE_PARALLEL_LIMIT=$(COMPOSE_PARALLEL_LIMIT) BUILDKIT_MAX_PARALLELISM=$(COMPOSE_PARALLEL_LIMIT)
+DOCKER_COMPOSE_BUILD_ENV := DOCKER_BUILDKIT=1 COMPOSE_PARALLEL_LIMIT=$(COMPOSE_PARALLEL_LIMIT) BUILDKIT_MAX_PARALLELISM=$(COMPOSE_PARALLEL_LIMIT)
 
 ## -------------------------------------------------
 .PHONY: \

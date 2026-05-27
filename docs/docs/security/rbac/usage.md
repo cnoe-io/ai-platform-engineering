@@ -55,28 +55,29 @@ backend enforces OpenFGA for KB/Data Sources/RAG MCP screens, and then
 `caipe-ui` forwards the Keycloak bearer token to RAG. RAG validates the token
 against Keycloak and repeats OpenFGA checks for direct API/MCP requests. Non-admin
 datasource lists and search/MCP invocations are constrained to the caller's
-readable `knowledge_base:<id>` relationships before the proxy call and again in
+readable `data_source:<id>` relationships before the proxy call and again in
 RAG. Grant Data Sources tab administration through **Settings → Knowledge Bases**, which writes
 `team:<slug>#member manager admin_surface:rag_datasources`. Configure individual
 datasource read/ingest/admin grants through **Settings → Knowledge Bases** or the
 Team Knowledge Base assignment UI; both write
-`team:<slug>#member reader|ingestor|manager knowledge_base:<datasource_id>`.
+`team:<slug>#member reader|ingestor|manager data_source:<datasource_id>`.
 Team owners/admins may update grants for their own team. Platform admins still
-need the concrete OpenFGA `knowledge_base:<id>#can_ingest` or
+need the concrete OpenFGA `data_source:<id>#can_ingest` or
 `#can_manage` decision for datasource operations such as re-ingest; session
 `role=admin` is not a bypass.
 `RBAC_DEFAULT_AUTHENTICATED_ROLE` is deprecated and does not grant broad RAG
 access by itself.
 
-### Emergency UI RBAC Bypass
+### Emergency RBAC Bypass
 
 `CAIPE_UNSAFE_RBAC_BYPASS=true` is a dev/emergency escape hatch for temporarily
-running the Web UI while OpenFGA or identity wiring is being repaired. When it is
-enabled, `requireRbacPermission()` and direct Web UI OpenFGA tuple checks allow
-requests without consulting the PDP. The server logs a prominent one-time warning,
-and the top bar shows a compact **No Auth** indicator so operators can see the UI
-is not enforcing normal authorization. Treat all UI operations in this mode as
-admin-capable, and never enable it in staging or production.
+running CAIPE while OpenFGA or identity wiring is being repaired. When it is
+enabled, `requireRbacPermission()`, direct Web UI OpenFGA tuple checks, and RAG
+KB checks allow requests without consulting the PDP. The server logs a prominent
+one-time warning, and the top bar shows a compact **No Auth** indicator so
+operators can see the UI is not enforcing normal authorization. Treat all UI and
+RAG operations in this mode as admin-capable, and never enable it in staging or
+production.
 
 > **Heads-up: `caipe-ui` host port is hard-pinned to `3000`.** Keycloak's `caipe-ui` client only allow-lists `http://localhost:3000/*` as a redirect URI (see `deploy/keycloak/realm-config.json`). Remapping the UI breaks the OIDC redirect dance and login fails with `Invalid redirect_uri`. The spec-102 e2e lane (`make test-rbac-up`) honours this — it remaps Mongo (`28017`) and supervisor (`28000`) to a `28xxx` band, but leaves `caipe-ui:3000` and Keycloak (`7080/7443`) untouched. See [spec 102 quickstart › E2E port band](../../specs/102-comprehensive-rbac-tests-and-completion/quickstart.md#e2e-port-band) for the full table and env-var contract.
 

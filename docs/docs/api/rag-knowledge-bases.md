@@ -4,9 +4,9 @@ sidebar_position: 5
 
 # RAG & Knowledge Bases API
 
-Reference for the **CAIPE RAG server** (FastAPI) and the **Next.js UI Backend API** routes that proxy or extend RAG functionality. The RAG server validates **Bearer JWT** access tokens (OIDC / Keycloak) via JWKS, resolves roles from realm roles and/or OIDC userinfo (with Redis caching), and optionally enforces team/KB datasource scoping when enterprise RBAC is enabled.
+Reference for the **CAIPE RAG server** (FastAPI) and the **Next.js UI Backend API** routes that proxy or extend RAG functionality. The RAG server validates **Bearer JWT** access tokens (OIDC / Keycloak) via JWKS, uses human tokens as identity-only inputs, and enforces KB/datasource authorization through OpenFGA when enterprise RBAC is enabled.
 
-**Role model (RAG server):** `readonly` → `ingestonly` → `admin` (each step adds privileges). Unauthenticated callers are `anonymous` unless trusted-network access is enabled (`ALLOW_TRUSTED_NETWORK` and related env vars).
+**Role model (RAG server):** human users get an authenticated `readonly` baseline and resource access comes from OpenFGA. `ingestonly` and `admin` remain service-client roles for client-credentials callers. Trusted-network detection is telemetry only and does not authenticate requests.
 
 **Common error shapes (RAG server):**
 
@@ -166,9 +166,9 @@ Lists team-scoped RAG tool documents from collection `team_rag_tools`, filtered 
 
 ### GET `/v1/user/info`
 
-**Auth:** Optional Bearer JWT or trusted network; **no auth required** (anonymous context returned if absent). **Service:** RAG server.
+**Auth:** Bearer JWT required. **Service:** RAG server.
 
-Returns resolved role, groups, and permission strings for UI gating.
+Returns resolved identity baseline role and permission strings for UI gating.
 
 **Response `200`:**
 
@@ -177,9 +177,7 @@ Returns resolved role, groups, and permission strings for UI gating.
   "email": "user@example.com",
   "role": "readonly",
   "is_authenticated": true,
-  "groups": ["engineering"],
-  "permissions": ["read"],
-  "in_trusted_network": false
+  "permissions": ["read"]
 }
 ```
 
@@ -1022,10 +1020,10 @@ When dependencies are not initialized, `status` may be `unhealthy` with `details
 
 ## MCP HTTP transport (reference)
 
-When enabled, FastMCP exposes **`/mcp`** on the same server. If `MCP_AUTH_ENABLED=true`, requests must include `Authorization: Bearer <token>` (or trusted network), enforced by middleware. This is the **Model Context Protocol** streamable HTTP surface for agents, not the REST JSON API above.
+When enabled, FastMCP exposes **`/mcp`** on the same server. If `MCP_AUTH_ENABLED=true`, requests must include `Authorization: Bearer <token>`, enforced by middleware. This is the **Model Context Protocol** streamable HTTP surface for agents, not the REST JSON API above.
 
 ---
 
 ## JWT validation (direct clients)
 
-The RAG server’s `auth` module validates access tokens against configured OIDC providers (`OIDC_ISSUER` / `OIDC_DISCOVERY_URL` + `OIDC_AUDIENCE`, optional second ingestor issuer). Tokens must include a JWKS `kid`; signature algorithms RS/ES families are supported. User tokens trigger userinfo fetch (cached) for email and groups when resolving legacy group-based roles.
+The RAG server’s `auth` module validates access tokens against configured OIDC providers (`OIDC_ISSUER` / `OIDC_DISCOVERY_URL` + `OIDC_AUDIENCE`, optional second ingestor issuer). Tokens must include a JWKS `kid`; signature algorithms RS/ES families are supported. Human tokens are identity-only: the token `sub` becomes the OpenFGA subject, and AD/OIDC groups or Keycloak realm roles are not consumed by RAG authorization.

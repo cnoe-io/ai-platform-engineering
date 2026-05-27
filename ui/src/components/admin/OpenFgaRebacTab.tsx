@@ -634,11 +634,7 @@ function relationshipFromTuple(tuple: TupleKey): UniversalRebacRelationship | nu
   const [resourceType, resourceId = ""] = tuple.object.split(":", 2);
   const action = RELATION_TO_ACTION[tuple.relation];
   if (!subjectType || !subjectId || !resourceType || !resourceId || !action) return null;
-  if (
-    !["user", "team", "slack_channel", "webex_space", "external_group", "service_account", "anonymous"].includes(
-      subjectType
-    )
-  ) {
+  if (!["user", "team", "slack_channel", "webex_space", "external_group", "service_account"].includes(subjectType)) {
     return null;
   }
   return {

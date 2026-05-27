@@ -24,13 +24,12 @@ When using the UI BFF, omit the leading slash from the RAG path after `/api/rag/
 
 ## Authentication and RBAC
 
-RAG supports OIDC bearer tokens, trusted network access, ingestor credentials, and anonymous read of selected identity metadata. The UI BFF forwards the current NextAuth `accessToken` to the RAG server as a bearer token when available.
+RAG supports OIDC bearer tokens and ingestor credentials. The UI BFF forwards the current NextAuth `accessToken` to the RAG server as a bearer token.
 
 Role levels are hierarchical:
 
 | Role | Can do |
 |------|--------|
-| `anonymous` | Read identity metadata from `/v1/user/info`; no protected API access. |
 | `readonly` | Query and view data, graph metadata, MCP tool schemas, and invoke MCP tools. |
 | `ingestonly` | Everything `readonly` can do, plus datasource upserts, ingestor heartbeats, document ingestion, and job updates. |
 | `admin` | Everything `ingestonly` can do, plus deletion, cleanup, ontology-agent writes, MCP tool config writes, and bulk reload/cleanup operations. |
@@ -49,9 +48,7 @@ Response:
   "email": "user@example.com",
   "role": "readonly",
   "is_authenticated": true,
-  "groups": ["engineering", "platform-team"],
-  "permissions": ["read"],
-  "in_trusted_network": false
+  "permissions": ["read"]
 }
 ```
 
@@ -67,7 +64,7 @@ curl http://localhost:3000/api/rag/v1/user/info
 
 | Method | Route | Role | Purpose |
 |--------|-------|------|---------|
-| `GET` | `/v1/user/info` | Public | Return current identity, role, groups, permissions, and trusted-network state. |
+| `GET` | `/v1/user/info` | Public | Return current identity status, role, and permission strings. |
 | `GET` | `/healthz` | Public | Return service health and key runtime configuration. |
 
 ### Ingestors and Datasources

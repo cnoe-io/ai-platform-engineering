@@ -1,9 +1,7 @@
-"""Tests for ``derive_team_for_request`` (Spec 2026-05-24-derive-team-from-channel).
+"""Tests for ``derive_team_for_request``.
 
-Phase 3 of spec 2026-05-24-derive-team-from-channel is complete: the
-signed team-scope JWT claim is gone. The RAG server picks the team
-scope purely from request headers, with the channel-to-team mapping as
-the canonical data-layer source.
+The RAG server resolves team scope from request headers, with the
+channel-to-team mapping as the canonical data-layer source.
 
 Order of preference (deterministic for audit):
 
@@ -11,13 +9,12 @@ Order of preference (deterministic for audit):
    bot envelopes once a channel→team mapping has been resolved upstream.
 2. ``X-Channel-Id`` request header → ``channel_team_mappings`` →
    ``teams.slug`` — used when the caller hasn't pre-resolved a team.
-3. ``None`` — caller (e.g. ``get_accessible_kb_ids``) interprets as "no
+3. ``None`` — caller interprets as "no
    team scope" and falls back to user / OpenFGA grants only.
 
 The literal sentinel ``"__personal__"`` in ``X-Team-Id`` is normalized to
 ``None`` so downstream code stays simple. A missing or malformed
-``user_context`` is also tolerated (some MCP / trusted-network paths pass
-duck-typed stubs).
+``user_context`` is also tolerated (some MCP paths pass duck-typed stubs).
 """
 
 from __future__ import annotations

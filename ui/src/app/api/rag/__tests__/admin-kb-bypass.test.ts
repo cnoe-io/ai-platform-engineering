@@ -115,7 +115,7 @@ describe('RAG org-admin bypass', () => {
     expect(mockFilterResourcesByPermission).toHaveBeenCalledWith(
       expect.objectContaining({ sub: 'admin-sub' }),
       expect.any(Array),
-      expect.objectContaining({ type: 'knowledge_base', action: 'read' }),
+      expect.objectContaining({ type: 'data_source', action: 'read' }),
       expect.objectContaining({ bypassForOrgAdmin: true }),
     );
   });
@@ -138,7 +138,7 @@ describe('RAG org-admin bypass', () => {
 
     expect(mockRequireResourcePermission).toHaveBeenCalledWith(
       expect.objectContaining({ sub: 'admin-sub' }),
-      expect.objectContaining({ type: 'knowledge_base', id: 'kb-x' }),
+      expect.objectContaining({ type: 'data_source', id: 'kb-x' }),
       expect.objectContaining({ bypassForOrgAdmin: true }),
     );
   });

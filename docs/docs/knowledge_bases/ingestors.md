@@ -138,13 +138,7 @@ All ingestors share common configuration options:
 
 ## Authentication
 
-Ingestors authenticate with the RAG server using one of two methods:
-
-### Development: Trusted Network
-
-When `ALLOW_TRUSTED_NETWORK=true` on the server, ingestors from localhost or configured CIDRs connect without authentication.
-
-### Production: OAuth2 Client Credentials
+Ingestors authenticate with the RAG server using OAuth2 client credentials.
 
 Ingestors obtain access tokens via OAuth2 client credentials flow:
 
@@ -158,6 +152,8 @@ The ingestor client automatically:
 - Fetches tokens via client credentials grant
 - Caches tokens and refreshes before expiry
 - Includes Bearer token in all API calls
+
+Trusted-network detection is telemetry only and does not authenticate ingestors.
 
 ## Creating Custom Ingestors
 

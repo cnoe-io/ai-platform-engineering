@@ -65,66 +65,41 @@ The server will be available at `http://localhost:9446`
 OIDC_ISSUER=https://your-keycloak.com/realms/production
 OIDC_CLIENT_ID=rag-ui
 
-# Optional: specify which claims to check for groups (comma-separated)
-# If not set, auto-detects from: members, memberOf, groups, group, roles, cognito:groups
-# All specified claims are checked and groups are combined (deduplicated)
-OIDC_GROUP_CLAIM=groups,members,roles
-
 # OIDC configuration for ingestor token validation
 INGESTOR_OIDC_ISSUER=https://your-keycloak.com/realms/production
 INGESTOR_OIDC_CLIENT_ID=rag-ingestor
 ```
 
-**User Claims via UserInfo Endpoint:**
+**JWT Identity plus OpenFGA Authorization:**
 
-The RAG server fetches user claims (email, groups) from the OIDC provider's `/userinfo` endpoint using the access token. This is the standards-compliant approach where:
+The RAG server validates the access token and uses it as identity input for OpenFGA. This is the standards-compliant approach where:
 - Only the access token is sent to the RAG server
-- Email and groups are fetched server-side from the authoritative OIDC source
-- Results are cached in Redis to reduce load on the OIDC provider
-
-```bash
-# Userinfo cache TTL in seconds (default: 30 minutes)
-USERINFO_CACHE_TTL_SECONDS=1800
-```
+- `sub` becomes the OpenFGA subject (`user:<sub>`)
+- Email is extracted for display and audit context
+- Human RAG permissions come from OpenFGA relationships
 
 The server will:
 1. Validate the **access token** for authentication (signature, expiry, audience, issuer)
 2. Extract the user's `sub` (subject) from the access token
-3. Check Redis cache for the user's info (email + groups)
-4. On cache miss, call the OIDC provider's `/userinfo` endpoint
-5. Cache the userinfo for future requests (configurable TTL)
-6. Determine role from cached groups
+3. Extract display email from token claims
+4. Check OpenFGA for KB/datasource read, ingest, and manage relationships
 
 This approach:
 - Eliminates the need for ID tokens to be passed downstream
-- Ensures groups come from the authoritative source (OIDC provider)
-- Handles short-lived ID tokens gracefully (groups are cached independently)
+- Keeps Keycloak focused on identity
+- Makes OpenFGA the source of truth for RAG authorization
 - Is the OAuth 2.0 recommended pattern for resource servers
 
-**Trusted Network (Development):**
+**RBAC (Service Role Assignment):**
 ```bash
-# Enable IP-based trust for localhost/internal networks
-ALLOW_TRUSTED_NETWORK=true
-TRUSTED_NETWORK_CIDRS=127.0.0.0/8,172.16.0.0/12
-TRUSTED_NETWORK_DEFAULT_ROLE=admin
-TRUSTED_NETWORK_TOKEN=optional-shared-secret  # Alternative to IP check
-```
-
-**RBAC (Role Assignment):**
-```bash
-# Default role for authenticated users without group match
-RBAC_DEFAULT_AUTHENTICATED_ROLE=readonly
-
-# Map groups to roles (comma-separated)
-RBAC_READONLY_GROUPS=viewers,analysts
-RBAC_INGESTONLY_GROUPS=data-engineers,etl
-RBAC_ADMIN_GROUPS=admins,platform-team
+# Default role for client-credentials tokens
+RBAC_CLIENT_CREDENTIALS_ROLE=ingestonly
 ```
 
 **Role Permissions:**
-- `readonly`: View and query data
-- `ingestonly`: readonly + ingest data and manage jobs
-- `admin`: ingestonly + delete resources and bulk operations
+- `readonly`: Authenticated human baseline; KB access still requires OpenFGA
+- `ingestonly`: Service clients that ingest data and manage jobs
+- `admin`: Administrative service clients
 
 ### Authentication Methods & Role Assignment
 
@@ -132,19 +107,15 @@ This table shows how different authentication methods map to roles and which env
 
 | Auth Method | Actor Type | Default Role | Role Controlled By | Required Env Vars | Optional Env Vars |
 |-------------|------------|--------------|-------------------|-------------------|-------------------|
-| **OAuth2 (UI)** | User | Based on groups | `RBAC_*_GROUPS` mappings, falls back to `RBAC_DEFAULT_AUTHENTICATED_ROLE` | `OIDC_ISSUER`<br>`OIDC_CLIENT_ID` | `OIDC_DISCOVERY_URL`<br>`OIDC_GROUP_CLAIM`<br>`USERINFO_CACHE_TTL_SECONDS` |
+| **OAuth2 (UI)** | User | `readonly` baseline | OpenFGA relationships | `OIDC_ISSUER`<br>`OIDC_CLIENT_ID`<br>`OPENFGA_HTTP` | `OIDC_DISCOVERY_URL` |
 | **OAuth2 (Ingestor)** | Ingestor | `ingestonly` | `RBAC_CLIENT_CREDENTIALS_ROLE` | `INGESTOR_OIDC_ISSUER` or `INGESTOR_OIDC_DISCOVERY_URL`<br>`INGESTOR_OIDC_CLIENT_ID` | `INGESTOR_OIDC_SCOPE` |
-| **Trusted Network** | User or Ingestor | `admin` (dev default) | `TRUSTED_NETWORK_DEFAULT_ROLE` | `ALLOW_TRUSTED_NETWORK=true` | `TRUSTED_NETWORK_CIDRS`<br>`TRUSTED_NETWORK_TOKEN` |
-| **Anonymous** | Public | `anonymous` | N/A (fixed) | None | None |
 
 **Key Points:**
 
 1. **OAuth2 for UI (User Tokens)**
    - Regular user authentication with JWT access tokens
-   - Groups fetched from OIDC userinfo endpoint (cached in Redis)
-   - Falls back to `RBAC_DEFAULT_AUTHENTICATED_ROLE` (default: `readonly`) if no group match
-   - Group-to-role mapping: `RBAC_READONLY_GROUPS`, `RBAC_INGESTONLY_GROUPS`, `RBAC_ADMIN_GROUPS`
-   - Cache TTL controlled by `USERINFO_CACHE_TTL_SECONDS` (default: 1800 = 30 minutes)
+   - Token `sub` is used as the OpenFGA subject (`user:<sub>`)
+   - KB access is checked through OpenFGA `knowledge_base:<id>#can_*` relationships
 
 2. **OAuth2 for Ingestors (Client Credentials)**
    - Machine-to-machine authentication using client credentials flow
@@ -152,19 +123,6 @@ This table shows how different authentication methods map to roles and which env
    - Role controlled by `RBAC_CLIENT_CREDENTIALS_ROLE` (default: `ingestonly`)
    - Token validated against `INGESTOR_OIDC_ISSUER` or `INGESTOR_OIDC_DISCOVERY_URL`
    - Can send `X-Ingestor-Type` and `X-Ingestor-Name` headers for better logging
-
-3. **Trusted Network (Development)**
-   - IP-based or token-based trust for localhost/internal networks
-   - Useful for development, testing, or private deployments
-   - Role controlled by `TRUSTED_NETWORK_DEFAULT_ROLE` (default: `admin`)
-   - Can restrict to specific CIDRs via `TRUSTED_NETWORK_CIDRS`
-   - Can send `X-Ingestor-Type` and `X-Ingestor-Name` headers for better logging
-
-4. **Anonymous (Public)**
-   - No authentication required for public endpoints
-   - Fixed `anonymous` role with minimal permissions
-   - Used for health checks and public documentation
-
 
 ### Core Connection Settings
 
@@ -392,18 +350,8 @@ For settings not yet in the Helm chart, use the `env` section:
 
 ```yaml
 # values-production.yaml
-rbac:
-  allowUnauthenticated: false
-  adminGroups: "sre_admin"
-  ingestonlyGroups: "rag-access"
-  defaultRole: "readonly"
-
 env:
-  RBAC_DEFAULT_AUTHENTICATED_ROLE: "readonly"
-  RBAC_ADMIN_EMAILS: "admin@example.com"
-  OIDC_EMAIL_CLAIM: "email"
-  OIDC_GROUP_CLAIM: "groups"
-  ALLOW_TRUSTED_NETWORK: "false"
+  CAIPE_UNSAFE_RBAC_BYPASS: "false"
 ```
 
 Deploy with custom values:
@@ -437,20 +385,16 @@ docker logs rag_server | grep "Token claims keys:"
 
 #### "readonly" role instead of expected role
 
-**Symptom:** User gets readonly role despite being in admin group
+**Symptom:** Human user info shows `readonly`.
 
-**Diagnosis:**
-```bash
-# Check if groups are in the token
-docker logs rag_server | grep "No group claims found"
-
-# Check RBAC configuration
-docker logs rag_server | grep "RBAC Configuration:" -A 10
-```
+**Cause:** `readonly` is the authenticated identity baseline for human users.
+It does not grant KB access by itself.
 
 **Solution:**
-- If "No group claims found": Groups not in access token, use email-based RBAC or configure provider
-- Verify `RBAC_ADMIN_GROUPS` matches your actual group names (case-sensitive)
+- Grant the user or their CAIPE team the required OpenFGA relationship on the
+  target `knowledge_base`, `data_source`, or `mcp_tool`.
+- Do not use static AD/OIDC group variables for RAG authorization; they are not
+  consumed by the RAG server.
 
 #### "Invalid email format" warning
 
