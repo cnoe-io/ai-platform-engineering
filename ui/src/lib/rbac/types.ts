@@ -169,6 +169,35 @@ export type AdminTabKey =
 /** Per-tab visibility gates returned by GET /api/rbac/admin-tab-gates */
 export type AdminTabGatesMap = Record<AdminTabKey, boolean>;
 
+/**
+ * Knowledge sidebar tab keys for RBAC-based visibility.
+ *
+ * Returned by GET /api/rbac/kb-tab-gates (PR 2 of the 2026-05-27 fine-grained
+ * KB ReBAC plan). Org admins (`organization#admin`) always see every tab;
+ * non-admins see a tab only if they have at least one readable resource on
+ * that surface (or a readable KB for `graph` / `search` / `data_sources`).
+ */
+export type KbTabKey =
+  | "search"
+  | "data_sources"
+  | "graph"
+  | "mcp_tools";
+
+/**
+ * Per-tab visibility gates returned by GET /api/rbac/kb-tab-gates.
+ * Includes counts the sidebar uses for empty-state banners.
+ */
+export interface KbTabGatesMap {
+  search: boolean;
+  data_sources: boolean;
+  graph: boolean;
+  mcp_tools: boolean;
+  /** True iff `kb_count > 0` OR the user is an org admin. */
+  has_any_kb: boolean;
+  /** Number of `knowledge_base:<id>` objects the user can `can_read`. -1 means "unknown / admin bypass". */
+  kb_count: number;
+}
+
 /** Per-KB permission level for team-KB ownership (FR-038) */
 export type KbPermission = 'read' | 'ingest' | 'admin';
 
