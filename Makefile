@@ -189,6 +189,21 @@ caipe-ui-tests: ## Run CAIPE UI Jest tests
 	@echo "Running CAIPE UI tests..."
 	@cd ui && npm test
 
+migrate-canonical-team-membership: ## Backfill team_membership_sources from legacy teams.members[] and $$unset the field. Dry-run by default; APPLY=1 to apply.
+	@# One-shot migration for spec 2026-05-26-canonical-team-membership.
+	@# See docs/docs/specs/2026-05-26-canonical-team-membership/mongodb-migration.md
+	@# for the operator runbook (dry-run, apply, verify, roll back).
+	@APPLY_FLAG="$${APPLY:-false}"; \
+	if [ "$$APPLY_FLAG" = "1" ] || [ "$$APPLY_FLAG" = "true" ]; then \
+		APPLY=true npx ts-node --compiler-options '{"module":"CommonJS"}' scripts/migrate-canonical-team-membership.ts; \
+	else \
+		echo "[dry-run] Set APPLY=1 to apply. Use MONGODB_URI / MONGODB_DATABASE to point at the target database."; \
+		APPLY=false npx ts-node --compiler-options '{"module":"CommonJS"}' scripts/migrate-canonical-team-membership.ts; \
+	fi
+
+migrate-canonical-team-membership-tests: ## Run unit tests for the canonical-team-membership migration planner.
+	@npx ts-node --compiler-options '{"module":"CommonJS"}' scripts/__tests__/migrate-canonical-team-membership.test.ts
+
 # Docker targets for CAIPE UI
 CAIPE_UI_IMAGE ?= caipe-ui
 CAIPE_UI_TAG ?= local
