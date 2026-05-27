@@ -208,20 +208,18 @@ export const POST = withErrorHandler(async (
     }
 
     const now = new Date();
-    const newMember = {
-      user_id: email,
-      role,
-      added_at: now,
-      added_by: user.email,
-    };
 
+    // Commit 6/8 of the canonical-team-membership refactor (spec
+    // 2026-05-26-canonical-team-membership): we no longer $push onto
+    // team.members[]. The team_membership_sources upsert below is the
+    // sole record of "this user is on this team". We still touch the
+    // team document so updated_at/updated_by reflect the mutation —
+    // the Admin UI relies on that timestamp for the "last modified"
+    // chip on the team card.
     if (!existingMember) {
       await teams.updateOne(
         { _id: teamId },
-        {
-          $push: { members: newMember } as any,
-          $set: { updated_at: now, updated_by: user.email },
-        }
+        { $set: { updated_at: now, updated_by: user.email } },
       );
     }
 
@@ -342,13 +340,16 @@ export const DELETE = withErrorHandler(async (
       : [];
     const stillGranted = otherActiveSources.some((source) => source.source_type !== 'manual');
 
+    // Commit 6/8 of the canonical-team-membership refactor (spec
+    // 2026-05-26-canonical-team-membership): we no longer $pull from
+    // team.members[]. The membership-source rows above are the single
+    // source of truth — when every non-manual source agrees this user
+    // is gone, the canonical store reflects that and the team document
+    // only needs its mutation timestamps refreshed.
     if (!stillGranted) {
       await teams.updateOne(
         { _id: teamId },
-        {
-          $pull: { members: { user_id: { $regex: new RegExp(`^${email}$`, 'i') } } } as any,
-          $set: { updated_at: now, updated_by: user.email },
-        }
+        { $set: { updated_at: now, updated_by: user.email } },
       );
     }
 

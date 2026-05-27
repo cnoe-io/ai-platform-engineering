@@ -96,28 +96,18 @@ export async function applyIdentityGroupSyncPlan(
         last_applied_at: input.now,
       };
       await upsertTeamMembershipSource(resolved);
-      // Mirror the upsert into `teams.members[]` so the Admin UI's
-      // member-count badge (which reads the denormalized array) matches
-      // the source-of-truth `team_membership_sources` collection.
-      // Idempotent via `$addToSet` keyed on `user_id`.
-      await syncTeamEmbeddedMember({
-        team_slug: resolved.team_slug,
-        user_email: resolved.user_email,
-        relationship: resolved.relationship,
-        actor: input.actor,
-        now: input.now,
-      });
+      // Commit 6/8 of the canonical-team-membership refactor (spec
+      // 2026-05-26-canonical-team-membership): we removed the
+      // syncTeamEmbeddedMember() denormalization step. The Admin UI
+      // now reads its member-count badge from `team.member_count`
+      // (aggregated server-side from team_membership_sources, see
+      // commit 4/8), so there is no consumer of `teams.members[]`
+      // left to keep in sync.
       upsertedSources.push(resolved);
     }
     for (const source of input.plan.membership_sources_to_remove) {
       await markTeamMembershipSourceRemoved(source, input.actor, input.now);
-      // Symmetric removal from `teams.members[]`.
-      await unsyncTeamEmbeddedMember({
-        team_slug: source.team_slug,
-        user_email: source.user_email,
-        actor: input.actor,
-        now: input.now,
-      });
+      // See above — no longer mirror the removal into teams.members[].
       removedSources.push(source);
     }
 
@@ -215,7 +205,10 @@ async function ensureIdentitySyncTeams(
         updated_by: input.actor,
         created_at: new Date(input.now),
         updated_at: new Date(input.now),
-        members: [],
+        // Commit 6/8 of the canonical-team-membership refactor (spec
+        // 2026-05-26-canonical-team-membership): we no longer seed
+        // an empty `members: []` array. team_membership_sources is
+        // the only store of truth for who belongs to this team.
       });
       teamIdsBySlug.set(team.slug, String(result.insertedId));
       createdTeamSlugsThisCall.add(team.slug);
@@ -255,13 +248,6 @@ async function rollbackPhase2(input: {
   const rollbackActor = `${input.actor}-rollback`;
   for (const source of input.upsertedSources) {
     await markTeamMembershipSourceRemoved(source, rollbackActor, input.now);
-    // Symmetric: pull the member entry we added.
-    await unsyncTeamEmbeddedMember({
-      team_slug: source.team_slug,
-      user_email: source.user_email,
-      actor: rollbackActor,
-      now: input.now,
-    });
   }
   for (const source of input.removedSources) {
     // Re-upserting a previously-removed source flips it back to active.
@@ -271,107 +257,13 @@ async function rollbackPhase2(input: {
       status: "active",
       last_applied_at: input.now,
     });
-    // Symmetric: re-add the member entry we pulled.
-    await syncTeamEmbeddedMember({
-      team_slug: source.team_slug,
-      user_email: source.user_email,
-      relationship: source.relationship,
-      actor: rollbackActor,
-      now: input.now,
-    });
   }
-}
-
-/**
- * Mirror an identity-group-sync membership upsert into the
- * `teams.members[]` denormalized array.
- *
- * Why this exists: CAIPE has two membership stores —
- *   1. `team_membership_sources` (audit/source-of-truth, populated by
- *      the reconciler), and
- *   2. `teams.members[]` (denormalized cache the Admin UI reads for
- *      member-count badges, populated by the manual `POST
- *      /api/admin/teams/[id]/members` route).
- *
- * Historically the reconciler only wrote to (1), which meant any team
- * created via OIDC group sync showed `0 MEMBERS` in the Admin UI even
- * though the user really was a member per OpenFGA + (1). This helper
- * keeps the two in sync.
- *
- * The shape of each `members[]` entry mirrors what the manual route
- * inserts (see `app/api/admin/teams/[id]/members/route.ts`):
- *   `{ user_id: email, role, added_at, added_by }`
- *
- * `$addToSet` makes the upsert idempotent: re-running reconciliation
- * for the same (team, user) pair won't produce duplicates. The match
- * is on `user_id` only — if a user's role changes (member → admin)
- * we'd need a separate update path, but the reconciler currently only
- * deals in `member` for OIDC-claim sources, so this is safe today.
- *
- * No-op when `user_email` is unset (defense in depth — the planner
- * resolves emails from Keycloak so this should always be populated for
- * `oidc_claim` sources, but we'd rather skip than write a bad row).
- */
-async function syncTeamEmbeddedMember(input: {
-  team_slug: string;
-  user_email?: string;
-  relationship: string;
-  actor: string;
-  now: string;
-}): Promise<void> {
-  if (!input.user_email) return;
-  const teams = await getCollection<IdentitySyncTeam & Record<string, unknown>>("teams");
-  const role = input.relationship === "admin" ? "admin" : "member";
-  // The narrow `IdentitySyncTeam & Record<string, unknown>` shape
-  // doesn't declare `members[]` (it's a denormalized cache, not part of
-  // the identity-sync model), so the strict-typed `UpdateFilter`
-  // resolves `$push.members` to `never`. The same `as any` escape hatch
-  // is used by `app/api/admin/teams/[id]/members/route.ts:217` — see
-  // that file for why we don't widen the team type globally.
-  const newMember = {
-    user_id: input.user_email,
-    role,
-    added_at: new Date(input.now),
-    added_by: input.actor,
-  };
-  await teams.updateOne(
-    { slug: input.team_slug, "members.user_id": { $ne: input.user_email } },
-    {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      $push: { members: newMember } as any,
-      $set: {
-        updated_at: new Date(input.now),
-        updated_by: input.actor,
-      },
-    },
-  );
-}
-
-/**
- * Inverse of {@link syncTeamEmbeddedMember}: remove the user's entry
- * from `teams.members[]`. Idempotent — `$pull` against a missing entry
- * is a no-op.
- */
-async function unsyncTeamEmbeddedMember(input: {
-  team_slug: string;
-  user_email?: string;
-  actor: string;
-  now: string;
-}): Promise<void> {
-  if (!input.user_email) return;
-  const teams = await getCollection<IdentitySyncTeam & Record<string, unknown>>("teams");
-  // See comment in syncTeamEmbeddedMember above for why $pull is cast.
-  await teams.updateOne(
-    { slug: input.team_slug },
-    {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      $pull: { members: { user_id: input.user_email } } as any,
-      $set: {
-        updated_at: new Date(input.now),
-        updated_by: input.actor,
-      },
-    },
-  );
+  // Commit 6/8 of the canonical-team-membership refactor (spec
+  // 2026-05-26-canonical-team-membership): the matching
+  // syncTeamEmbeddedMember()/unsyncTeamEmbeddedMember() rollback
+  // branches were removed along with the helpers themselves; with
+  // teams.members[] gone there is nothing to revert outside of the
+  // canonical store.
 }
 
 /**

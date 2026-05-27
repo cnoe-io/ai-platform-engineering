@@ -192,19 +192,14 @@ describe("POST /api/admin/teams — OpenFGA team-membership tuple sync", () => {
 
     expect(response.status).toBe(201);
     const inserted = teamsCol.insertOne.mock.calls[0][0];
-    // The creator must appear exactly once, with role: 'owner'.
-    const creatorRows = inserted.members.filter(
-      (m: { user_id: string }) => m.user_id === "admin@example.com",
-    );
-    expect(creatorRows).toHaveLength(1);
-    expect(creatorRows[0].role).toBe("owner");
-    // And the invitee remains as a 'member' row.
-    expect(inserted.members).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ user_id: "admin@example.com", role: "owner" }),
-        expect.objectContaining({ user_id: "member@example.com", role: "member" }),
-      ]),
-    );
+    // Commit 6/8 of the canonical-team-membership refactor (spec
+    // 2026-05-26-canonical-team-membership): the team doc no longer
+    // carries an embedded members[] array. The creator-dedup contract
+    // is now enforced through the canonical-store upserts below
+    // (one row per identity per team, dedupe keyed on email).
+    expect(inserted.members).toBeUndefined();
+    expect(inserted.name).toBe("Platform");
+    expect(inserted.owner_id).toBe("admin@example.com");
     // And we don't write a duplicate `member` tuple for the creator either —
     // they get one `admin` and one `member` tuple, full stop.
     const adminCreatorWrites = mockWriteOpenFgaTuples.mock.calls

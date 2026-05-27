@@ -143,11 +143,16 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       );
     }
 
-    // Build the Mongo `members` array. The creator is ALWAYS the owner —
-    // even if their own email also appears in `body.members` (which the UI
-    // sometimes does by mistake). Dedupe silently so the Members tab does
-    // not render two rows for the same user (the original bug behind the
-    // duplicate "owner + member" badges).
+    // Compute the initial roster for OpenFGA + team_membership_sources
+    // writes below. The creator is ALWAYS the owner — even if their own
+    // email also appears in `body.members` (which the UI sometimes does
+    // by mistake). Dedupe silently so we don't issue duplicate tuple
+    // writes for the same identity.
+    //
+    // Commit 6/8 of the canonical-team-membership refactor (spec
+    // 2026-05-26-canonical-team-membership): this roster is now a
+    // local-only iteration helper. It is NOT persisted onto the team
+    // document — `team_membership_sources` is the only store of truth.
     const now = new Date();
     const creatorEmail = user.email.trim().toLowerCase();
     const inviteeEmails = (body.members ?? [])
@@ -179,7 +184,6 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       updated_by: user.email,
       created_at: now,
       updated_at: now,
-      members,
     };
 
     const result = await teams.insertOne(team);

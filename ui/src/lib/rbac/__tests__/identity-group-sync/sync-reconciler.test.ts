@@ -156,12 +156,15 @@ describe("identity group sync apply reconciler", () => {
     );
   });
 
-  it("denormalizes member into teams.members[] so the Admin UI member-count badge is accurate", async () => {
-    // Regression: the Admin Teams page reads `team.members.length` off
-    // the embedded-array cache; the reconciler historically only wrote
-    // to `team_membership_sources`. After the fix, every upserted
-    // source mirrors into `teams.members[]` via $addToSet ($push +
-    // negative match) so the badge reflects reality.
+  it("does NOT touch teams.members[] when upserting membership sources (post commit 6/8)", async () => {
+    // Commit 6/8 of the canonical-team-membership refactor (spec
+    // 2026-05-26-canonical-team-membership) removed the
+    // syncTeamEmbeddedMember() denormalization step. The reconciler
+    // now writes only to team_membership_sources + OpenFGA; the Admin
+    // UI's member-count badge reads `team.member_count` (aggregated
+    // server-side from the canonical store, see commit 4/8). This
+    // regression test pins that contract: the legacy embedded array
+    // must not see any $push, $pull, or $addToSet.
     const { applyIdentityGroupSyncPlan } = await import(
       "../../identity-group-sync-reconciler"
     );
@@ -194,24 +197,15 @@ describe("identity group sync apply reconciler", () => {
       now: "2026-05-12T01:00:00.000Z",
     });
 
-    expect(teamsUpdateOne).toHaveBeenCalledWith(
-      // Filter: target the slug, AND only when the member entry doesn't
-      // already exist (idempotent re-runs leave the array unchanged).
-      { slug: "platform", "members.user_id": { $ne: "bob@example.test" } },
-      expect.objectContaining({
-        $push: {
-          members: expect.objectContaining({
-            user_id: "bob@example.test",
-            role: "member",
-          }),
-        },
-      }),
-    );
+    // Negative assertion: no embedded-member writes. The canonical
+    // upsert and OpenFGA tuple write are validated in other tests.
+    expect(teamsUpdateOne).not.toHaveBeenCalled();
+    expect(upsertTeamMembershipSource).toHaveBeenCalledTimes(1);
   });
 
-  it("removes member from teams.members[] when a membership source is removed", async () => {
-    // Symmetric to the upsert case: when the planner emits a remove,
-    // the embedded array must shrink to match.
+  it("does NOT touch teams.members[] when removing membership sources (post commit 6/8)", async () => {
+    // Symmetric to the upsert case above — the reconciler must not
+    // $pull from the legacy embedded array on removal either.
     const { applyIdentityGroupSyncPlan } = await import(
       "../../identity-group-sync-reconciler"
     );
@@ -244,18 +238,15 @@ describe("identity group sync apply reconciler", () => {
       now: "2026-05-12T01:00:00.000Z",
     });
 
-    expect(teamsUpdateOne).toHaveBeenCalledWith(
-      { slug: "platform" },
-      expect.objectContaining({
-        $pull: { members: { user_id: "carol@example.test" } },
-      }),
-    );
+    expect(teamsUpdateOne).not.toHaveBeenCalled();
   });
 
   it("skips embedded-member sync when user_email is missing (defense in depth)", async () => {
-    // Synthetic / partially-resolved membership rows can lack
-    // user_email; the helpers must no-op rather than write a row with
-    // user_id: undefined.
+    // Pre-commit-6 this test guarded `syncTeamEmbeddedMember`'s early
+    // return for synthetic / partial source rows. With the helper
+    // removed the surface still has to behave: no team-doc writes, but
+    // the canonical-source upsert must still record the membership
+    // (audit-trail invariant). The test is unchanged in intent.
     const { applyIdentityGroupSyncPlan } = await import(
       "../../identity-group-sync-reconciler"
     );
@@ -289,8 +280,6 @@ describe("identity group sync apply reconciler", () => {
     });
 
     expect(teamsUpdateOne).not.toHaveBeenCalled();
-    // Source still upserted — the audit trail records the membership
-    // even when we can't denormalize the cache.
     expect(upsertTeamMembershipSource).toHaveBeenCalledTimes(1);
   });
 
