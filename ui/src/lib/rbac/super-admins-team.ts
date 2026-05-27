@@ -25,6 +25,7 @@ import {
   mongoRoleToOpenFgaRelations,
 } from "@/lib/rbac/team-membership-sync";
 import { upsertTeamMembershipSource } from "@/lib/rbac/team-membership-source-store";
+import { loadActiveTeamMembers } from "@/lib/rbac/team-membership-store";
 import type { TeamMembershipSource } from "@/types/identity-group-sync";
 
 export const SUPER_ADMINS_TEAM_SLUG = "super-admins";
@@ -148,12 +149,11 @@ export async function ensureSuperAdminsTeam(
   const existing = await teams.findOne({ slug: SUPER_ADMINS_TEAM_SLUG });
 
   if (!existing) {
-    const memberDocs: TeamMemberDoc[] = resolvedMembers.map((member, index) => ({
-      user_id: member.email,
-      role: index === 0 ? "owner" : "admin",
-      added_at: now,
-      added_by: actor,
-    }));
+    // Commit 6/8 of the canonical-team-membership refactor (spec
+    // 2026-05-26-canonical-team-membership): we no longer seed
+    // `members: [...]` onto the new super-admins team document. The
+    // upsertTeamMembershipSource loop below is the sole record of
+    // who's on this team.
     const team: TeamDoc = {
       name: SUPER_ADMINS_TEAM_NAME,
       slug: SUPER_ADMINS_TEAM_SLUG,
@@ -168,7 +168,6 @@ export async function ensureSuperAdminsTeam(
       updated_by: actor,
       created_at: now,
       updated_at: now,
-      members: memberDocs,
     };
     const insertResult = await teams.insertOne(team);
     const teamId = String(insertResult.insertedId);
@@ -232,8 +231,16 @@ export async function ensureSuperAdminsTeam(
 
   // Team already exists. Top up missing bootstrap admins; never demote or
   // remove anyone -- this preserves manual edits an admin may have made.
+  //
+  // Commit 6/8 of the canonical-team-membership refactor (spec
+  // 2026-05-26-canonical-team-membership): "who's already on the team"
+  // comes from the canonical `team_membership_sources` store, NOT from
+  // the now-defunct `existing.members[]` array.
+  const existingMembers = await loadActiveTeamMembers(SUPER_ADMINS_TEAM_SLUG);
   const existingMemberEmails = new Set(
-    (existing.members ?? []).map((member) => member.user_id.toLowerCase()),
+    existingMembers
+      .map((m) => (typeof m.user_email === "string" ? m.user_email.toLowerCase() : ""))
+      .filter((email): email is string => email.length > 0),
   );
   const teamId = existing._id ? String(existing._id) : SUPER_ADMINS_TEAM_SLUG;
   const createdAt = (existing.created_at ?? now).toISOString();
@@ -249,18 +256,17 @@ export async function ensureSuperAdminsTeam(
     last_seen_at: now.toISOString(),
     last_applied_at: now.toISOString(),
   };
-  const newMemberDocs: TeamMemberDoc[] = [];
+  // Commit 6/8 of the canonical-team-membership refactor: the old
+  // `newMemberDocs[]` collector existed only to build the $push payload
+  // into teams.members[]. With that write gone we just need a count so
+  // we can report status: "updated" vs "noop" to the caller.
+  let newMemberCount = 0;
   for (const member of resolvedMembers) {
     if (existingMemberEmails.has(member.email)) {
       membersAlreadyPresent += 1;
       continue;
     }
-    newMemberDocs.push({
-      user_id: member.email,
-      role: "admin",
-      added_at: now,
-      added_by: actor,
-    });
+    newMemberCount += 1;
     if (!member.userSubject) {
       membersUnresolved += 1;
       warnings.push(
@@ -296,20 +302,22 @@ export async function ensureSuperAdminsTeam(
 
   // Always make sure the system-managed marker is set on the team doc --
   // upgrades from a hand-created `super-admins` team should inherit it.
+  //
+  // Commit 6/8 of the canonical-team-membership refactor (spec
+  // 2026-05-26-canonical-team-membership): we no longer $push into
+  // teams.members[]. Membership lives exclusively in
+  // team_membership_sources (the upsert loop above), so we only need
+  // to refresh the system-managed marker and mutation timestamps here.
   const setOps: Record<string, unknown> = {
     is_system_managed: true,
     source: existing.source ?? "system",
     updated_at: now,
     updated_by: actor,
   };
-  const updateDoc: Record<string, unknown> = { $set: setOps };
-  if (newMemberDocs.length > 0) {
-    updateDoc.$push = { members: { $each: newMemberDocs } };
-  }
-  await teams.updateOne({ slug: SUPER_ADMINS_TEAM_SLUG }, updateDoc);
+  await teams.updateOne({ slug: SUPER_ADMINS_TEAM_SLUG }, { $set: setOps });
 
   return {
-    status: newMemberDocs.length > 0 ? "updated" : "noop",
+    status: newMemberCount > 0 ? "updated" : "noop",
     team_slug: SUPER_ADMINS_TEAM_SLUG,
     members_added: membersAdded,
     members_already_present: membersAlreadyPresent,

@@ -88,15 +88,76 @@ describe('PlatformSettingsTab', () => {
     expect(screen.queryByTestId('default-agent-save')).not.toBeInTheDocument();
   });
 
-  it('warns when the saved default agent is no longer available', async () => {
+  it('warns when the saved default agent is not in the viewer accessible list (admin variant)', async () => {
     mockFetch({ config: { success: true, data: { default_agent_id: 'deleted-agent' } } });
 
     render(<PlatformSettingsTab isAdmin />);
 
-    await waitFor(() => {
-      expect(screen.getByText(/previously configured default agent is no longer available/i))
-        .toBeInTheDocument();
+    const banner = await screen.findByTestId('default-agent-missing-banner');
+    expect(banner).toHaveTextContent(/platform default agent/i);
+    expect(banner).toHaveTextContent(/deleted-agent/);
+    expect(banner).toHaveTextContent(/deleted, disabled, or you don.?t have permission/i);
+    // Admins don't get the "read-only" hint.
+    expect(banner).not.toHaveTextContent(/read-only mode/i);
+  });
+
+  it('warns AND surfaces the read-only hint when a non-admin viewer sees a non-accessible default', async () => {
+    mockFetch({ config: { success: true, data: { default_agent_id: 'hello-world' } } });
+
+    render(<PlatformSettingsTab isAdmin={false} />);
+
+    const banner = await screen.findByTestId('default-agent-missing-banner');
+    expect(banner).toHaveTextContent(/hello-world/);
+    expect(banner).toHaveTextContent(/read-only mode/i);
+    expect(banner).toHaveTextContent(/ask a full admin/i);
+  });
+
+  it('injects a synthetic <option> so the <select> binds to the configured agent even when it is not in the agents list', async () => {
+    // This is the bug we keep regressing: the supervisor placeholder is the
+    // first <option>, so when value="hello-world" matches NO option in the
+    // dropdown, the browser silently falls through to "Default CAIPE
+    // Supervisor" — making it look like the platform default is the
+    // supervisor when it really isn't. The fix injects a synthetic option
+    // for the missing id so binding still works.
+    mockFetch({ config: { success: true, data: { default_agent_id: 'hello-world' } } });
+
+    render(<PlatformSettingsTab isAdmin={false} />);
+
+    const select = (await screen.findByRole('combobox')) as HTMLSelectElement;
+    // Bound value must reflect the configured agent, NOT the empty supervisor placeholder.
+    expect(select.value).toBe('hello-world');
+    // And the synthetic option must be in the DOM with a clear label.
+    const synthetic = screen.getByTestId('default-agent-missing-option');
+    expect(synthetic).toHaveTextContent(/hello-world.*not visible to you/i);
+  });
+
+  it('sequences /api/dynamic-agents/available BEFORE /api/admin/platform-config so the user:* OpenFGA grant is reconciled before the default is read', async () => {
+    const calls: string[] = [];
+    const agents = [{ _id: 'sre', name: 'Basic SRE' }];
+    global.fetch = jest.fn((url: RequestInfo | URL) => {
+      const href = String(url);
+      calls.push(href);
+      if (href.includes('/api/dynamic-agents/available')) {
+        return Promise.resolve({ json: () => Promise.resolve({ data: agents }) } as Response);
+      }
+      if (href.includes('/api/admin/platform-config')) {
+        return Promise.resolve({
+          json: () =>
+            Promise.resolve({ success: true, data: { default_agent_id: 'sre' } }),
+        } as Response);
+      }
+      return Promise.reject(new Error(`Unexpected fetch: ${href}`));
     });
+
+    render(<PlatformSettingsTab isAdmin />);
+
+    await screen.findByRole('combobox');
+
+    const availableIdx = calls.findIndex((c) => c.includes('/api/dynamic-agents/available'));
+    const configIdx = calls.findIndex((c) => c.includes('/api/admin/platform-config'));
+    expect(availableIdx).toBeGreaterThan(-1);
+    expect(configIdx).toBeGreaterThan(-1);
+    expect(availableIdx).toBeLessThan(configIdx);
   });
 
   it('shows when the default came from the DEFAULT_AGENT_ID environment value', async () => {

@@ -73,11 +73,15 @@ function setDefaultPermissionMock(allow: boolean) {
 }
 
 function createMockCollection() {
+  // Cursor supports BOTH `find().toArray()` and `find().sort().toArray()`.
+  // Post 2026-05-26 canonical-membership refactor, route handlers query
+  // team_membership_sources via toArray() directly.
   return {
     find: jest.fn().mockReturnValue({
       sort: jest.fn().mockReturnValue({
         toArray: jest.fn().mockResolvedValue([]),
       }),
+      toArray: jest.fn().mockResolvedValue([]),
     }),
     findOne: jest.fn().mockResolvedValue(null),
     insertOne: jest.fn().mockResolvedValue({ insertedId: new ObjectId() }),
@@ -119,11 +123,19 @@ function userSession() {
 }
 
 const TEAM_ID = new ObjectId();
+const TEAM_SLUG = "demo-team";
+
 function teamWith(resources: { agents: string[]; tools: string[] } | undefined) {
   return {
     _id: TEAM_ID,
     name: "Demo Team",
+    slug: TEAM_SLUG,
     owner_id: "admin@example.com",
+    // Note (2026-05-26): `members[]` is preserved here for tests that
+    // still inspect it. The route reads from `team_membership_sources`
+    // via the canonical helper; tests that exercise the read path must
+    // seed `mockCollections.team_membership_sources` via
+    // `seedCanonicalMembers()`.
     members: [
       { user_id: "alice@example.com", role: "owner", added_at: new Date(), added_by: "admin@example.com" },
       { user_id: "bob@example.com", role: "member", added_at: new Date(), added_by: "admin@example.com" },
@@ -132,6 +144,43 @@ function teamWith(resources: { agents: string[]; tools: string[] } | undefined) 
     updated_at: new Date(),
     ...(resources ? { resources } : {}),
   };
+}
+
+/**
+ * Seed the canonical team_membership_sources mock with the standard
+ * Demo Team roster (alice as admin, bob as member). Use this in tests
+ * that exercise the route's membership read path so the route can
+ * resolve email→Keycloak subject for OpenFGA tuple generation.
+ */
+function seedCanonicalMembers(
+  rows: Array<{ user_email: string; relationship: "member" | "admin" }>,
+  teamSlug = TEAM_SLUG
+) {
+  const sourcesCol = createMockCollection();
+  const fixtureRows = rows.map((r) => ({
+    team_id: TEAM_ID.toString(),
+    team_slug: teamSlug,
+    user_email: r.user_email,
+    relationship: r.relationship,
+    source_type: "manual",
+    status: "active",
+  }));
+  sourcesCol.find = jest.fn((filter: Record<string, unknown> = {}) => {
+    const filteredRows = fixtureRows.filter((row) => {
+      if (filter.team_slug && row.team_slug !== filter.team_slug) return false;
+      if (filter.status && row.status !== filter.status) return false;
+      const clauses = Array.isArray(filter.$or) ? (filter.$or as Array<Record<string, unknown>>) : [];
+      if (clauses.length === 0) return true;
+      return clauses.some((clause) =>
+        Object.entries(clause).every(([key, value]) => row[key as keyof typeof row] === value)
+      );
+    });
+    return {
+      sort: jest.fn().mockReturnThis(),
+      toArray: jest.fn().mockResolvedValue(filteredRows),
+    };
+  });
+  mockCollections["team_membership_sources"] = sourcesCol;
 }
 
 beforeEach(() => {
@@ -143,11 +192,17 @@ beforeEach(() => {
   mockFindUserIdByEmail.mockImplementation(async (email: string) => `kc-${email}`);
   mockBuildTeamResourceTupleDiff.mockReturnValue({ writes: [], deletes: [] });
   mockWriteOpenFgaTupleDiff.mockResolvedValue({ enabled: false, writes: 0, deletes: 0 });
+  // Default canonical roster matches teamWith()'s legacy `members[]` so
+  // tests don't have to opt in. Tests that need a different roster
+  // (e.g. empty team, single user) call seedCanonicalMembers([...]).
+  seedCanonicalMembers([
+    { user_email: "alice@example.com", relationship: "admin" },
+    { user_email: "bob@example.com", relationship: "member" },
+  ]);
 });
 
 async function loadRoute() {
   jest.resetModules();
-  setDefaultPermissionMock(true);
   // Re-bind keycloak admin mocks after resetModules.
   jest.doMock("@/lib/rbac/keycloak-admin", () => ({
     findUserIdByEmail: (...a: unknown[]) => mockFindUserIdByEmail(...a),
@@ -328,6 +383,10 @@ describe("PUT /api/admin/teams/[id]/resources — reconciliation", () => {
       slug: "platform-engineering",
     });
     mockCollections["teams"] = teamsCol;
+    seedCanonicalMembers([
+      { user_email: "alice@example.com", relationship: "admin" },
+      { user_email: "bob@example.com", relationship: "member" },
+    ], "platform-engineering");
     const tupleDiff = {
       writes: [
         { user: "team:platform-engineering#member", relation: "user", object: "agent:agent-new" },

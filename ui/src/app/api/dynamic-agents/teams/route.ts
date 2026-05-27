@@ -12,23 +12,18 @@ import {
 } from "@/lib/api-middleware";
 import { caipeOrgKey } from "@/lib/rbac/organization";
 import { requireResourcePermission } from "@/lib/rbac/resource-authz";
+import { getRbacCollection } from "@/lib/rbac/mongo-collections";
+import type { TeamMembershipSource } from "@/types/identity-group-sync";
 
 interface Team {
   _id: unknown;
   name: string;
   slug?: string;
   description?: string;
-  members?: Array<{ user_id?: string; email?: string; role?: string }>;
 }
 
 function normalizeEmail(value: unknown): string {
   return typeof value === "string" ? value.trim().toLowerCase() : "";
-}
-
-function userTeamRole(team: Team, userEmail: string): string | null {
-  const email = normalizeEmail(userEmail);
-  const member = team.members?.find((entry) => normalizeEmail(entry.user_id ?? entry.email) === email);
-  return member?.role ?? null;
 }
 
 async function canManageOrganization(session: Parameters<typeof requireResourcePermission>[0]): Promise<boolean> {
@@ -43,30 +38,80 @@ async function canManageOrganization(session: Parameters<typeof requireResourceP
 /**
  * GET /api/dynamic-agents/teams
  * List teams the current user is a member of.
+ *
+ * Source of truth: `team_membership_sources` (post 2026-05-26
+ * canonical-membership refactor). Pre-2026-05-26 this filtered the
+ * teams collection by `members.user_id` and read `team.members[]`
+ * inline; that field is no longer authoritative.
  */
 export const GET = withErrorHandler(async (request: NextRequest) => {
   const { user, session } = await getAuthFromBearerOrSession(request);
 
     const teamsCollection = await getCollection<Team>("teams");
-
-    // Organization admins can see all teams; team-scoped users see memberships only.
     const isAdmin = await canManageOrganization(session);
-    const query = isAdmin ? {} : { "members.user_id": user.email };
+    const normalizedEmail = normalizeEmail(user.email);
+
+    if (isAdmin) {
+      // Admins see every team; role is always "admin" so dropdowns let
+      // them pick any team.
+      const teams = (await teamsCollection
+        .find({})
+        .project({ _id: 1, name: 1, slug: 1, description: 1 })
+        .sort({ name: 1 })
+        .toArray()) as Team[];
+      return successResponse(
+        teams.map((team) => ({
+          _id: String(team._id),
+          name: team.name,
+          slug: team.slug,
+          description: team.description,
+          user_role: "admin",
+          can_own_agents: true,
+        })),
+      );
+    }
+
+    if (!normalizedEmail) {
+      // Defensive: a session without an email cannot be in any team.
+      return successResponse([]);
+    }
+
+    // Non-admin path: one query against team_membership_sources to learn
+    // which teams the user belongs to and at what role, then a single
+    // {$in} lookup against teams to fetch display metadata. Active rows
+    // only; role is escalated to "admin" if any active row is admin.
+    const sources = await getRbacCollection<TeamMembershipSource>("teamMembershipSources");
+    const rows = await sources
+      .find({ status: "active", user_email: normalizedEmail })
+      .toArray();
+    if (rows.length === 0) return successResponse([]);
+
+    const roleBySlug = new Map<string, "member" | "admin">();
+    for (const row of rows) {
+      if (!row.team_slug) continue;
+      const current = roleBySlug.get(row.team_slug);
+      if (current === "admin") continue;
+      roleBySlug.set(row.team_slug, row.relationship === "admin" ? "admin" : "member");
+    }
+    if (roleBySlug.size === 0) return successResponse([]);
 
     const teams = (await teamsCollection
-      .find(query)
-      .project({ _id: 1, name: 1, slug: 1, description: 1, members: 1 })
+      .find({ slug: { $in: Array.from(roleBySlug.keys()) } })
+      .project({ _id: 1, name: 1, slug: 1, description: 1 })
       .sort({ name: 1 })
       .toArray()) as Team[];
 
     return successResponse(
-      teams.map((team) => ({
-        _id: String(team._id),
-        name: team.name,
-        slug: team.slug,
-        description: team.description,
-        user_role: isAdmin ? "admin" : userTeamRole(team, user.email),
-        can_own_agents: isAdmin || ["admin", "owner"].includes(userTeamRole(team, user.email) ?? ""),
-      })),
+      teams.map((team) => {
+        const role = team.slug ? roleBySlug.get(team.slug) ?? null : null;
+        return {
+          _id: String(team._id),
+          name: team.name,
+          slug: team.slug,
+          description: team.description,
+          user_role: role,
+          can_own_agents: role === "admin",
+        };
+      }),
     );
 });

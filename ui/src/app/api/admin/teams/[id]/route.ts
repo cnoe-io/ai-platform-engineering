@@ -3,7 +3,7 @@
 // DELETE /api/admin/teams/[id] - Delete a team
 
 import { NextRequest, NextResponse } from 'next/server';
-import { ObjectId } from 'mongodb';
+import { ObjectId, type Document } from 'mongodb';
 import { getCollection, isMongoDBConfigured } from '@/lib/mongodb';
 import {
   getAuthFromBearerOrSession,
@@ -19,6 +19,11 @@ import {
   readTeamOpenFgaTuples,
 } from '@/lib/rbac/team-openfga-sync-status';
 import type { UpdateTeamRequest } from '@/types/teams';
+
+interface TeamDocument extends Document {
+  slug?: string;
+  name?: string;
+}
 
 function requireMongoDB() {
   if (!isMongoDBConfigured) {
@@ -54,7 +59,7 @@ export const GET = withErrorHandler(async (
 
   const params = await context.params;
   const teamId = parseTeamId(params.id);
-  const teams = await getCollection('teams');
+  const teams = await getCollection<TeamDocument>('teams');
   const team = await teams.findOne({ _id: teamId });
 
   if (!team) {
@@ -98,7 +103,7 @@ export const PATCH = withErrorHandler(async (
   const teamId = parseTeamId(params.id);
   const body: UpdateTeamRequest = await request.json();
 
-    const teams = await getCollection('teams');
+    const teams = await getCollection<TeamDocument>('teams');
     const team = await teams.findOne({ _id: teamId });
 
     if (!team) {
@@ -110,7 +115,7 @@ export const PATCH = withErrorHandler(async (
     // update their own team without holding the platform-wide
     // `organization:<org>#admin` tuple. Platform admins still bypass via
     // `admin_ui#admin`.
-    await requireTeamMembershipManagementPermission(session, user.email, team as { members?: Array<{ user_id?: string; role?: string }> });
+    await requireTeamMembershipManagementPermission(session, user.email, team);
 
     const update: Record<string, any> = { updated_at: new Date() };
 
@@ -153,7 +158,7 @@ export const DELETE = withErrorHandler(async (
 
   const params = await context.params;
   const teamId = parseTeamId(params.id);
-  const teams = await getCollection('teams');
+  const teams = await getCollection<TeamDocument>('teams');
   const team = await teams.findOne({ _id: teamId });
 
     if (!team) {
@@ -162,7 +167,7 @@ export const DELETE = withErrorHandler(async (
 
     // Issue #1509: scoped team admins can delete their own team. Platform
     // admins still bypass via `admin_ui#admin`.
-    await requireTeamMembershipManagementPermission(session, user.email, team as { members?: Array<{ user_id?: string; role?: string }> });
+    await requireTeamMembershipManagementPermission(session, user.email, team);
 
     // Remove team references from conversations shared_with_teams
     try {

@@ -269,12 +269,34 @@ interface RouteRbacPolicy {
   scope: RbacScope;
 }
 
+// LEGACY: this function maps every `/api/*` URL that goes through
+// `withAuth(...)` (i.e. doesn't call a fine-grained `require*Permission`
+// helper itself) to a single `{ resource, scope }` PDP pair. Many of the
+// returned pairs are too coarse — most notably the `supervisor#invoke`
+// fallback, which conflates "talk to the chat supervisor" with "read your
+// own profile" and "submit feedback".
+//
+// See `docs/docs/specs/2026-05-27-fine-grained-rbac-for-withauth-routes/plan.md`
+// for the migration plan that replaces this resolver with a per-route
+// capability map and adds dedicated OpenFGA relations
+// (`self_profile#read`, `chat_supervisor#invoke`, `feedback#submit`, etc.).
+// New routes should call the appropriate `require*Permission` helper
+// directly rather than relying on this legacy gate.
 function resolveLegacyWithAuthRbacPolicy(request: NextRequest): RouteRbacPolicy {
   const pathname = new URL(request.url).pathname;
   const method = request.method.toUpperCase();
 
   if (pathname.startsWith('/api/users/debug')) {
     return { resource: 'admin_ui', scope: 'view' };
+  }
+  // Read-only admin endpoints that any signed-in user is allowed to read
+  // (so the Settings panel can render the configured default agent for
+  // read-only viewers). Each route still enforces its own fine-grained
+  // resource permission in the handler — e.g. platform-config requires
+  // `system_config:platform_settings#read` and PATCH still requires
+  // `admin_ui#manage` plus `system_config#admin`.
+  if (pathname === '/api/admin/platform-config' && method === 'GET') {
+    return { resource: 'supervisor', scope: 'invoke' };
   }
   if (pathname.startsWith('/api/admin')) {
     return method === 'GET'

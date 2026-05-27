@@ -45,6 +45,17 @@ jest.mock('@/lib/rbac/keycloak-authz', () => ({
 }));
 jest.mock('@/lib/rbac/openfga', () => ({
   checkOpenFgaTuple: (...args: unknown[]) => mockCheckOpenFgaTuple(...args),
+  // Post 2026-05-26 canonical-membership refactor: GET
+  // /api/admin/teams/[id] now decorates the response with an OpenFGA
+  // sync report (`computeTeamMembershipSyncReport`) and therefore calls
+  // `readTeamOpenFgaTuples` -> `isOpenFgaConfigured`/`readOpenFgaTuples`.
+  // We treat OpenFGA as unconfigured in this admin-CRUD suite so the
+  // route returns a null sync report instead of crashing on undefined
+  // helpers. The dedicated team-openfga-sync-status.test.ts suite
+  // exercises the configured path.
+  isOpenFgaConfigured: jest.fn(() => false),
+  readOpenFgaTuples: jest.fn(async () => ({ tuples: [], continuationToken: undefined })),
+  writeOpenFgaTuples: jest.fn(async () => ({ enabled: false, writes: 0, deletes: 0 })),
 }));
 jest.mock('@/lib/rbac/audit', () => ({
   logAuthzDecision: jest.fn(),
@@ -97,11 +108,15 @@ jest.mock('@/lib/mongodb', () => ({
 // ============================================================================
 
 function createMockCollection() {
+  // Cursor supports BOTH `find().toArray()` and `find().sort().toArray()`.
+  // Post 2026-05-26 canonical-membership refactor, route handlers
+  // query team_membership_sources via toArray() directly.
   return {
     find: jest.fn().mockReturnValue({
       sort: jest.fn().mockReturnValue({
         toArray: jest.fn().mockResolvedValue([]),
       }),
+      toArray: jest.fn().mockResolvedValue([]),
     }),
     findOne: jest.fn().mockResolvedValue(null),
     insertOne: jest.fn().mockResolvedValue({ insertedId: new ObjectId() }),
@@ -117,6 +132,7 @@ function createMockCollection() {
     // or the POST route fails with HTTP 500.
     deleteMany: jest.fn().mockResolvedValue({ deletedCount: 0 }),
     countDocuments: jest.fn().mockResolvedValue(0),
+    aggregate: jest.fn().mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) }),
   };
 }
 
@@ -151,9 +167,14 @@ function userSession() {
 }
 
 const TEST_TEAM_ID = new ObjectId();
+const TEST_TEAM_SLUG = 'platform-engineering';
 const TEST_TEAM = {
   _id: TEST_TEAM_ID,
   name: 'Platform Engineering',
+  // Required by the canonical-membership readers (post 2026-05-26
+  // refactor). Older tests didn't need a slug because the route read
+  // team.members[] directly.
+  slug: TEST_TEAM_SLUG,
   description: 'The platform team',
   owner_id: 'admin@example.com',
   created_at: new Date(),
@@ -163,6 +184,59 @@ const TEST_TEAM = {
     { user_id: 'member@example.com', role: 'member', added_at: new Date(), added_by: 'admin@example.com' },
   ],
 };
+
+/**
+ * Seed `team_membership_sources` to mirror TEST_TEAM.members so route
+ * handlers gating on canonical membership find the same identities.
+ * Pre 2026-05-26 the routes read team.members[] directly.
+ */
+function seedTestTeamCanonicalMembers() {
+  const sourcesCol = createMockCollection();
+  const rows = [
+    {
+      team_slug: TEST_TEAM_SLUG,
+      user_email: 'admin@example.com',
+      user_subject: 'kc-admin',
+      relationship: 'admin',
+      source_type: 'manual',
+      status: 'active',
+    },
+    {
+      team_slug: TEST_TEAM_SLUG,
+      user_email: 'member@example.com',
+      user_subject: 'kc-member',
+      relationship: 'member',
+      source_type: 'manual',
+      status: 'active',
+    },
+  ];
+  function rowMatches(filter: Record<string, unknown>, row: Record<string, unknown>): boolean {
+    for (const [key, value] of Object.entries(filter)) {
+      if (key === '$or' && Array.isArray(value)) {
+        if (!value.some((c: Record<string, unknown>) => rowMatches(c, row))) return false;
+        continue;
+      }
+      if (value && typeof value === 'object' && !Array.isArray(value)) {
+        if ('$ne' in (value as object) && row[key] === (value as { $ne: unknown }).$ne) return false;
+        if ('$in' in (value as object)) {
+          const arr = ((value as { $in: unknown[] }).$in) ?? [];
+          if (!arr.includes(row[key])) return false;
+        }
+        continue;
+      }
+      if (row[key] !== value) return false;
+    }
+    return true;
+  }
+  sourcesCol.find = jest.fn((filter: Record<string, unknown> = {}) => {
+    const matched = rows.filter((r) => rowMatches(filter, r));
+    return {
+      sort: jest.fn().mockReturnValue({ toArray: jest.fn().mockResolvedValue(matched) }),
+      toArray: jest.fn().mockResolvedValue(matched),
+    };
+  });
+  mockCollections['team_membership_sources'] = sourcesCol;
+}
 
 // ============================================================================
 // Test Setup
@@ -175,6 +249,10 @@ beforeEach(() => {
     allowed: tuple.user === 'user:admin-user-sub',
   }));
   setDefaultCheckPermissionMock();
+  // Default canonical seed mirrors TEST_TEAM.members; tests that need
+  // a different roster override mockCollections.team_membership_sources
+  // afterwards.
+  seedTestTeamCanonicalMembers();
 });
 
 // ============================================================================
@@ -233,6 +311,56 @@ describe('GET /api/admin/teams', () => {
     const res = await GET(req);
 
     expect(res.headers.get('Cache-Control')).toBe('no-store, max-age=0');
+  });
+
+  it('decorates each team with member_count derived from team_membership_sources, ignoring stale team.members[]', async () => {
+    // Commit 4/8 of the canonical-team-membership refactor: the list
+    // endpoint now reports `member_count` aggregated from the canonical
+    // store. A team with a phantom legacy `team.members[]` array but
+    // ZERO canonical rows must report `member_count: 0` — that's what
+    // catches drift between the two stores in the Admin UI badge.
+    mockGetServerSession.mockResolvedValue(adminSession());
+
+    const ghostTeamSlug = 'ghost-team';
+    const ghostTeam = {
+      _id: new ObjectId(),
+      name: 'Ghost Team',
+      slug: ghostTeamSlug,
+      members: [
+        // Stale embedded array — UI used to read .length here.
+        { user_id: 'phantom@example.com', role: 'member', added_at: new Date(), added_by: 'admin@example.com' },
+        { user_id: 'phantom2@example.com', role: 'member', added_at: new Date(), added_by: 'admin@example.com' },
+      ],
+      created_at: new Date(),
+      updated_at: new Date(),
+    };
+
+    const teamsCol = createMockCollection();
+    teamsCol.find.mockReturnValue({
+      sort: jest.fn().mockReturnValue({
+        toArray: jest.fn().mockResolvedValue([TEST_TEAM, ghostTeam]),
+      }),
+    });
+    mockCollections['teams'] = teamsCol;
+
+    // Wire the canonical store's aggregate() to return TEST_TEAM_SLUG=2,
+    // ghost-team absent (=> defaults to 0). loadTeamMemberCounts seeds
+    // counts to 0 for every requested slug before consulting the cursor.
+    const sourcesCol = mockCollections['team_membership_sources'];
+    sourcesCol.aggregate = jest.fn().mockReturnValue({
+      toArray: jest.fn().mockResolvedValue([{ _id: TEST_TEAM_SLUG, count: 2 }]),
+    });
+
+    const req = makeRequest('/api/admin/teams');
+    const res = await GET(req);
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    const byName = Object.fromEntries(
+      body.data.teams.map((t: { name: string; member_count: number }) => [t.name, t.member_count]),
+    );
+    expect(byName['Platform Engineering']).toBe(2);
+    expect(byName['Ghost Team']).toBe(0);
   });
 });
 
@@ -301,11 +429,15 @@ describe('POST /api/admin/teams', () => {
     expect(body.data.message).toBe('Team created successfully');
     expect(teamsCol.insertOne).toHaveBeenCalledTimes(1);
 
-    // Verify the inserted team has the creator as owner
+    // Commit 6/8 of the canonical-team-membership refactor (spec
+    // 2026-05-26-canonical-team-membership): the team document no
+    // longer carries an embedded `members[]` array. Membership lives
+    // exclusively in team_membership_sources (the upsert loop in the
+    // route is covered by team-creation-openfga-sync.test.ts).
     const insertedTeam = teamsCol.insertOne.mock.calls[0][0];
     expect(insertedTeam.name).toBe('New Team');
-    expect(insertedTeam.members).toHaveLength(2); // user1 + creator
-    expect(insertedTeam.members.some((m: any) => m.role === 'owner' && m.user_id === 'admin@example.com')).toBe(true);
+    expect(insertedTeam.members).toBeUndefined();
+    expect(insertedTeam.owner_id).toBe('admin@example.com');
   });
 
   it('rejects duplicate team name', async () => {
@@ -653,6 +785,14 @@ describe('POST /api/admin/teams/[id]/members', () => {
       .mockResolvedValueOnce(TEST_TEAM);
     mockCollections['teams'] = teamsCol;
 
+    // Capture the canonical-store upsert so we can pin the resolved role.
+    // Commit 6/8 of the canonical-team-membership refactor (spec
+    // 2026-05-26-canonical-team-membership): role is now persisted onto
+    // `team_membership_sources.relationship`, not into a $push on
+    // teams.members[].
+    const sourcesCol = createMockCollection();
+    mockCollections['team_membership_sources'] = sourcesCol;
+
     const req = makeRequest(`/api/admin/teams/${TEST_TEAM_ID}/members`, {
       method: 'POST',
       body: JSON.stringify({ user_id: 'new@example.com' }), // No role specified
@@ -660,10 +800,15 @@ describe('POST /api/admin/teams/[id]/members', () => {
     const res = await POST(req, makeContext(TEST_TEAM_ID.toString()));
 
     expect(res.status).toBe(201);
-    // Check the $push call contains role: 'member'
     const updateCall = teamsCol.updateOne.mock.calls[0];
-    const pushOp = updateCall[1].$push;
-    expect(pushOp.members.role).toBe('member');
+    expect(updateCall[1].$push).toBeUndefined();
+    // The canonical upsert is the role-of-truth; verify the source row
+    // was created with relationship: "member" (the default).
+    const relationshipValues = sourcesCol.updateOne.mock.calls.map((call: unknown[]) => {
+      const update = call[1] as { $set?: { relationship?: string } };
+      return update?.$set?.relationship;
+    });
+    expect(relationshipValues).toContain('member');
   });
 });
 

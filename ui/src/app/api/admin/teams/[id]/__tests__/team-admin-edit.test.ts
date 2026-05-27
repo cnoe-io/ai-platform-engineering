@@ -84,6 +84,34 @@ const TEAM_DOC = {
   resources: { agents: [], agent_admins: [], tools: [], tool_wildcard: false },
 };
 
+function seedCanonicalMembers(rows: Array<{ user_email: string; relationship: "member" | "admin" }>) {
+  const fixtureRows = rows.map((row) => ({
+    team_id: TEAM_ID,
+    team_slug: TEAM_DOC.slug,
+    user_email: row.user_email,
+    relationship: row.relationship,
+    source_type: "manual",
+    status: "active",
+  }));
+  const collection = createMockCollection(fixtureRows);
+  collection.find = jest.fn((filter: Record<string, unknown> = {}) => {
+    const filteredRows = fixtureRows.filter((row) => {
+      if (filter.team_slug && row.team_slug !== filter.team_slug) return false;
+      if (filter.status && row.status !== filter.status) return false;
+      const clauses = Array.isArray(filter.$or) ? (filter.$or as Array<Record<string, unknown>>) : [];
+      if (clauses.length === 0) return true;
+      return clauses.some((clause) =>
+        Object.entries(clause).every(([key, value]) => row[key as keyof typeof row] === value)
+      );
+    });
+    return {
+      sort: jest.fn().mockReturnThis(),
+      toArray: jest.fn().mockResolvedValue(filteredRows),
+    };
+  });
+  mockCollections.team_membership_sources = collection;
+}
+
 function createMockCollection(rows: Array<Record<string, unknown>>) {
   return {
     rows,
@@ -130,6 +158,11 @@ beforeEach(() => {
   // Fresh deep-cloned team doc so PATCH/updateOne side effects don't leak.
   mockCollections.teams = createMockCollection([{ ...TEAM_DOC }]);
   mockCollections.conversations = createMockCollection([]);
+  seedCanonicalMembers([
+    { user_email: "owner@example.com", relationship: "admin" },
+    { user_email: "team-admin@example.com", relationship: "admin" },
+    { user_email: "regular-member@example.com", relationship: "member" },
+  ]);
   // Default: platform-admin path denies. Scoped team admins must reach the
   // route purely through `isScopedTeamAdmin` inside team-admin-guards.
   mockCheckPermission.mockResolvedValue({ allowed: false, reason: "DENY_NO_CAPABILITY" });
