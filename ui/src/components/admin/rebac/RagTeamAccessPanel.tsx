@@ -11,6 +11,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
+import { TeamPicker, type TeamPickerOption } from "@/components/ui/team-picker";
 
 interface CatalogTeam {
   id: string;
@@ -181,19 +182,26 @@ export function RagTeamAccessPanel({ isAdmin }: { isAdmin: boolean }) {
 
         <div className="grid gap-2 md:max-w-sm">
           <Label htmlFor="rag-team-access-team">Team</Label>
-          <select
+          {/* Switched from native <select> to TeamPicker on
+              2026-05-27 — environments with hundreds of teams made
+              the dropdown unusable. The KB-assignment routes address
+              teams by the catalog `id`, so we map `slug → team.id`
+              and pass `hideSlugSuffix` to suppress the noisy
+              `team:<uuid>` annotation. */}
+          <TeamPicker
             id="rag-team-access-team"
-            className="rounded-md border border-input bg-background px-3 py-2 text-sm"
             value={teamAccessTeamId}
+            onChange={setTeamAccessTeamId}
             disabled={!isAdmin || teamAccessLoading}
-            onChange={(event) => setTeamAccessTeamId(event.target.value)}
-          >
-            {teams.map((team) => (
-              <option key={team.id} value={team.id}>
-                {team.name || team.slug}
-              </option>
-            ))}
-          </select>
+            placeholder={teams.length === 0 ? "No teams configured" : "Select a team"}
+            searchPlaceholder="Search teams..."
+            hideSlugSuffix
+            options={teams.map<TeamPickerOption>((team) => ({
+              slug: team.id,
+              name: team.name || team.slug,
+              id: team.id,
+            }))}
+          />
         </div>
 
         <div className="rounded-md border p-4">
