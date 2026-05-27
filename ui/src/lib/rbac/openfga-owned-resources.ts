@@ -60,6 +60,43 @@ export interface ConfigDrivenLlmModelRelationshipInput {
 
 export interface KnowledgeBaseRelationshipInput extends OwnedResourceInput {
   knowledgeBaseId: string;
+  /**
+   * Desired set of team slugs that should have read+manage on this KB in
+   * addition to the owner team. Mirrors the Agent editor's "Share with
+   * Teams" multi-select (`reconcileAgentRelationships`). Invalid slugs are
+   * silently dropped; duplicates are deduped. When omitted, only the owner
+   * team is granted.
+   */
+  nextSharedTeamSlugs?: readonly string[] | null;
+  /**
+   * Previous set of shared team slugs persisted with this KB before this
+   * reconcile call. Any slug in here that is NOT in `nextSharedTeamSlugs`
+   * (and is also not the new owner team) is emitted as a delete so
+   * unchecking a team in the UI genuinely revokes access — instead of
+   * leaving a dangling tuple, the bug pattern that motivated PR 3 of the
+   * 2026-05-27 fine-grained KB ReBAC plan.
+   */
+  previousSharedTeamSlugs?: readonly string[] | null;
+  /**
+   * Previous owner-team slug, if it differed from the new owner. Allows
+   * deleting the old owner-team grant when the KB is transferred to a
+   * different owning team (a future feature; today the route never sets
+   * this). Treated symmetrically with shared-team removals.
+   */
+  previousOwnerTeamSlug?: string | null;
+}
+
+function normalizeTeamSlugs(raw: readonly string[] | null | undefined): string[] {
+  if (!raw || raw.length === 0) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const candidate of raw) {
+    const trimmed = typeof candidate === "string" ? candidate.trim() : "";
+    if (!trimmed || !isValidOpenFgaId(trimmed) || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    out.push(trimmed);
+  }
+  return out;
 }
 
 export function buildMcpServerRelationshipTupleDiff(
@@ -156,17 +193,53 @@ export function buildKnowledgeBaseRelationshipTupleDiff(
     throw new Error(`Invalid OpenFGA knowledge base id: ${input.knowledgeBaseId}`);
   }
   const writes: OpenFgaTupleKey[] = [];
+  const deletes: OpenFgaTupleKey[] = [];
   const object = `knowledge_base:${input.knowledgeBaseId}`;
+
   if (input.ownerSubject && isValidOpenFgaId(input.ownerSubject)) {
     writes.push({ user: `user:${input.ownerSubject}`, relation: "owner", object });
   }
-  if (input.ownerTeamSlug && isValidOpenFgaId(input.ownerTeamSlug)) {
+
+  const nextOwnerSlug =
+    input.ownerTeamSlug && isValidOpenFgaId(input.ownerTeamSlug)
+      ? input.ownerTeamSlug
+      : null;
+  const previousOwnerSlug =
+    input.previousOwnerTeamSlug && isValidOpenFgaId(input.previousOwnerTeamSlug)
+      ? input.previousOwnerTeamSlug
+      : null;
+
+  const nextSharedSlugs = normalizeTeamSlugs(input.nextSharedTeamSlugs);
+  const previousSharedSlugs = normalizeTeamSlugs(input.previousSharedTeamSlugs);
+
+  // Effective desired team slugs = owner ∪ shared. The union semantics
+  // mirror `reconcileAgentRelationships` so an owner team that's also
+  // listed in the shared-teams picker doesn't double-write OR get its
+  // grant deleted on subsequent reconciles.
+  const nextEffective = new Set<string>();
+  if (nextOwnerSlug) nextEffective.add(nextOwnerSlug);
+  for (const slug of nextSharedSlugs) nextEffective.add(slug);
+
+  for (const slug of nextEffective) {
     writes.push(
-      { user: `team:${input.ownerTeamSlug}#member`, relation: "reader", object },
-      { user: `team:${input.ownerTeamSlug}#admin`, relation: "manager", object },
+      { user: `team:${slug}#member`, relation: "reader", object },
+      { user: `team:${slug}#admin`, relation: "manager", object },
     );
   }
-  return { writes: uniqueTuples(writes), deletes: [] };
+
+  const previousEffective = new Set<string>();
+  if (previousOwnerSlug) previousEffective.add(previousOwnerSlug);
+  for (const slug of previousSharedSlugs) previousEffective.add(slug);
+
+  for (const slug of previousEffective) {
+    if (nextEffective.has(slug)) continue;
+    deletes.push(
+      { user: `team:${slug}#member`, relation: "reader", object },
+      { user: `team:${slug}#admin`, relation: "manager", object },
+    );
+  }
+
+  return { writes: uniqueTuples(writes), deletes: uniqueTuples(deletes) };
 }
 
 export async function reconcileMcpServerRelationships(

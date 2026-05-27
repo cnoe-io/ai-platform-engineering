@@ -149,8 +149,9 @@ export const SCHEMA_AREA_CLASSIFICATIONS: Record<string, SchemaAreaClassificatio
     description: "Slack user linkage metrics.",
   },
   team_kb_ownership: {
-    classification: "baseline_v1",
-    description: "Team knowledge base ownership records.",
+    classification: "migration",
+    description:
+      "Team knowledge base ownership records. PR 3 of the 2026-05-27 fine-grained KB ReBAC plan registers the `knowledge_base_shared_team_grants_backfill_v1` migration to write the canonical OpenFGA team↔KB tuples for every existing row.",
   },
   team_membership_sources: {
     classification: "baseline_v1",
