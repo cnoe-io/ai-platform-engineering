@@ -35,13 +35,27 @@ export function PlatformSettingsTab({ isAdmin }: PlatformSettingsTabProps) {
   const [confirmAction, setConfirmAction] = useState<PendingAction | null>(null);
 
   useEffect(() => {
-    Promise.all([
-      fetch('/api/dynamic-agents/available').then((r) => r.json()).catch(() => ({ data: [] })),
-      fetch('/api/admin/platform-config').then((r) => r.json()).catch(() => ({ success: false })),
-    ]).then(([agentsRes, configRes]) => {
+    // Sequence: hit /api/dynamic-agents/available FIRST so its side-effect
+    // (auto-granting `user:*` `user` on every visibility:"global" agent in
+    // OpenFGA) runs before we read the platform default. Otherwise a fresh
+    // viewer can race: platform-config returns default_agent_id="hello-world",
+    // but their agents list doesn't include it yet, the <select> can't bind
+    // to a non-existent option and silently falls through to the "Default
+    // CAIPE Supervisor" placeholder option — making it look like the
+    // platform default is the supervisor when it really isn't.
+    let cancelled = false;
+    (async () => {
+      const agentsRes = await fetch('/api/dynamic-agents/available')
+        .then((r) => r.json())
+        .catch(() => ({ data: [] }));
+      if (cancelled) return;
       setAgents(agentsRes.data || []);
       setLoadingAgents(false);
 
+      const configRes = await fetch('/api/admin/platform-config')
+        .then((r) => r.json())
+        .catch(() => ({ success: false }));
+      if (cancelled) return;
       if (configRes.success) {
         const id = configRes.data.default_agent_id ?? null;
         setSelectedAgentId(id);
@@ -49,7 +63,10 @@ export function PlatformSettingsTab({ isAdmin }: PlatformSettingsTabProps) {
         setConfigSource(configRes.data.source || 'fallback');
       }
       setLoadingConfig(false);
-    });
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const handleSaveClick = () => {
@@ -93,7 +110,19 @@ export function PlatformSettingsTab({ isAdmin }: PlatformSettingsTabProps) {
   };
 
   const selectedAgent = agents.find((a) => a._id === selectedAgentId);
-  const savedAgentMissing = savedAgentId && !agents.find((a) => a._id === savedAgentId);
+  const savedAgentMissing = Boolean(savedAgentId) && !agents.find((a) => a._id === savedAgentId);
+  // When the saved/selected agent isn't in the viewer's `available` list,
+  // we still inject a synthetic <option> for it so:
+  //   1. <select> binds correctly (otherwise it silently falls through to
+  //      the first option — the "Default CAIPE Supervisor" placeholder — and
+  //      misleads the viewer into thinking the supervisor is the default).
+  //   2. The viewer sees the actual configured agent id, even if they don't
+  //      have `agent#use` on it (e.g. read-only admins, federated SSO users
+  //      whose OpenFGA bootstrap hasn't fully reconciled yet).
+  const missingSelectedOption =
+    selectedAgentId && !agents.find((a) => a._id === selectedAgentId)
+      ? { _id: selectedAgentId, label: `${selectedAgentId} (not visible to you)` }
+      : null;
   const selectedAgentName = selectedAgent?.name ?? selectedAgentId ?? "this agent";
 
   if (loadingConfig || loadingAgents) {
@@ -134,9 +163,27 @@ export function PlatformSettingsTab({ isAdmin }: PlatformSettingsTabProps) {
           </div>
 
           {savedAgentMissing && (
-            <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400 text-sm">
-              <AlertTriangle className="h-4 w-4 shrink-0" />
-              The previously configured default agent is no longer available. New chats will fall back to the supervisor.
+            <div
+              className="flex items-start gap-2 px-3 py-2 rounded-md bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400 text-sm"
+              data-testid="default-agent-missing-banner"
+            >
+              <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <p>
+                  The platform default agent (<code>{savedAgentId}</code>) is not
+                  in your accessible agent list. This usually means it was
+                  deleted, disabled, or you don&apos;t have permission to use
+                  it.
+                </p>
+                {!isAdmin && (
+                  <p className="text-xs">
+                    You&apos;re viewing this in read-only mode, so the dropdown
+                    above shows the configured agent id even though you can&apos;t
+                    chat with it. Ask a full admin to verify or change the
+                    default.
+                  </p>
+                )}
+              </div>
             </div>
           )}
 
@@ -160,6 +207,15 @@ export function PlatformSettingsTab({ isAdmin }: PlatformSettingsTabProps) {
                   {a.name}
                 </option>
               ))}
+              {missingSelectedOption && (
+                <option
+                  key={missingSelectedOption._id}
+                  value={missingSelectedOption._id}
+                  data-testid="default-agent-missing-option"
+                >
+                  {missingSelectedOption.label}
+                </option>
+              )}
             </select>
             {selectedAgent && (
               <p className="text-xs text-muted-foreground">{selectedAgent.description}</p>
