@@ -27,6 +27,8 @@ const mockRequireRbacPermission = jest.fn();
 const mockRequireResourcePermission = jest.fn();
 const mockFilterResourcesByPermission = jest.fn();
 const mockReconcileKnowledgeBaseRelationships = jest.fn();
+const mockReconcileDataSourceRelationships = jest.fn();
+const mockReconcileMcpToolRelationships = jest.fn();
 
 jest.mock('@/lib/api-middleware', () => {
   class ApiError extends Error {
@@ -60,6 +62,8 @@ jest.mock('@/lib/rbac/resource-authz', () => ({
 
 jest.mock('@/lib/rbac/openfga-owned-resources', () => ({
   reconcileKnowledgeBaseRelationships: (...args: unknown[]) => mockReconcileKnowledgeBaseRelationships(...args),
+  reconcileDataSourceRelationships: (...args: unknown[]) => mockReconcileDataSourceRelationships(...args),
+  reconcileMcpToolRelationships: (...args: unknown[]) => mockReconcileMcpToolRelationships(...args),
 }));
 
 function ragRequest(path: string, init?: RequestInit): NextRequest {
@@ -73,6 +77,8 @@ describe('RAG RBAC Integration', () => {
     mockRequireResourcePermission.mockResolvedValue(undefined);
     mockFilterResourcesByPermission.mockImplementation(async (_session, resources) => resources);
     mockReconcileKnowledgeBaseRelationships.mockResolvedValue({ enabled: true, writes: 3, deletes: 0 });
+    mockReconcileDataSourceRelationships.mockResolvedValue({ enabled: true, writes: 3, deletes: 0 });
+    mockReconcileMcpToolRelationships.mockResolvedValue({ enabled: true, writes: 3, deletes: 0 });
     // Reset env vars
     process.env.RBAC_READONLY_GROUPS = 'readers';
     process.env.RBAC_INGESTONLY_GROUPS = 'ingestors';
