@@ -8,13 +8,11 @@ import GraphView from "@/components/rag/GraphView";
 import { useKbTabGates } from "@/hooks/use-kb-tab-gates";
 
 /**
- * Phase-4 follow-up note: the ontology graph is currently a global
- * Neo4j store keyed by `_datasource_id`. Per-KB filtering is on the
- * roadmap (see `docs/docs/specs/2026-05-27-per-kb-ontology-graph-filtering/`
- * once that spec lands). Today the tab is hidden when the caller has
- * zero readable KBs (PR 2 / PR 5 of the 2026-05-27 fine-grained KB
- * ReBAC plan), and a one-line banner reminds users that the entities
- * shown below are the global set.
+ * The ontology graph is currently a global Neo4j store keyed by
+ * `_datasource_id`. Per-KB filtering is on the roadmap (see
+ * `docs/docs/specs/2026-05-27-per-kb-ontology-graph-filtering/`). Today
+ * the tab is hidden when the caller has zero readable KBs, and a one-line
+ * banner reminds users that the entities shown below are the global set.
  *
  * assisted-by Cursor claude-opus-4-7
  */

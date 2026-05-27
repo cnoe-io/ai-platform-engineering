@@ -4,7 +4,7 @@
 /**
  * Tests for GET /api/rbac/kb-tab-gates.
  *
- * Covers PR 2 of the 2026-05-27 fine-grained KB ReBAC plan:
+ * Covers the Knowledge sidebar tab-gating contract:
  * - Org admins short-circuit and see every tab.
  * - Non-admins with at least one readable KB see Search / Data Sources /
  *   Graph / MCP Tools.

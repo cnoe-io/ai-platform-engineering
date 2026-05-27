@@ -1,8 +1,7 @@
 /**
  * KnowledgeSidebar render-time RBAC gate tests.
  *
- * Verifies the behaviour added in PR 2 of the 2026-05-27 fine-grained KB
- * ReBAC plan:
+ * Verifies the Knowledge sidebar RBAC behavior:
  * - Org admins (org_admin_bypass=true) see every tab as a clickable Link.
  * - Non-admins with zero readable KBs see every tab rendered as the
  *   disabled-with-tooltip variant AND see the empty-state banner.

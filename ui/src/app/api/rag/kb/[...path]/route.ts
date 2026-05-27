@@ -122,10 +122,9 @@ async function proxyToRag(
   if (session.org) {
     headers["X-Tenant-Id"] = session.org;
   }
-  // Phase 3 of spec 2026-05-24-derive-team-from-channel removed both
-  // the X-Team-Id header AND the `active_team` JWT claim. RAG derives
-  // the user's team list from OpenFGA at request time using the
-  // bearer-token subject.
+  // RAG derives the user's team list from OpenFGA at request time using
+  // the bearer-token subject, so this proxy does not forward X-Team-Id or
+  // active_team.
 
   const fetchOptions: RequestInit = { method, headers };
 

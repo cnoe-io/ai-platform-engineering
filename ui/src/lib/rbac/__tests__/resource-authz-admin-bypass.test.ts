@@ -9,8 +9,7 @@ import {
   requireResourcePermission,
 } from "../resource-authz";
 
-// PR 1 of the fine-grained KB ReBAC plan. The new
-// `bypassForOrgAdmin: true` option lets the resource-permission helpers
+// The `bypassForOrgAdmin: true` option lets the resource-permission helpers
 // short-circuit to allow when the caller holds
 // `user:<sub> can_manage organization:<key>` in OpenFGA. Default is off.
 // Setting the env var `RAG_ADMIN_BYPASS_DISABLED=true` forces the bypass

@@ -1,6 +1,5 @@
 /**
- * Tests for the Knowledge Bases &rarr; Graph page banner introduced in
- * PR 5 of the 2026-05-27 fine-grained KB ReBAC plan.
+ * Tests for the Knowledge Bases &rarr; Graph page banner.
  *
  * The banner must render when:
  *   - the caller has at least one readable KB (`has_any_kb=true`), or

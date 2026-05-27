@@ -15,8 +15,8 @@ interface NoKbAccessEmptyProps {
  * MCP Tools) when the BFF would 403 because the user is not org-admin and has
  * no readable `knowledge_base:<id>`.
  *
- * This replaces the silent "no results" or raw `403` error the user used to
- * see before PR 2 of the 2026-05-27 fine-grained KB ReBAC plan.
+ * This replaces the silent "no results" or raw `403` error the user would
+ * otherwise see.
  */
 export function NoKbAccessEmpty({ surface, secondary }: NoKbAccessEmptyProps) {
   const headline = `You don't have access to any knowledge bases yet.`;

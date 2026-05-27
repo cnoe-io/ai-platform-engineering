@@ -29,10 +29,9 @@ interface TeamRow {
  * + Effective-Access callout) so operators have one mental model for
  * sharing across both resource types.
  *
- * Backed by `GET/PUT /api/rag/kbs/[id]/sharing` introduced in PR 3 of
- * the 2026-05-27 fine-grained KB ReBAC plan; the panel computes the
- * effective access summary client-side so the admin can see exactly
- * which team grants the upcoming save will write or revoke.
+ * Backed by `GET/PUT /api/rag/kbs/[id]/sharing`; the panel computes the
+ * effective access summary client-side so the admin can see exactly which
+ * team grants the upcoming save will write or revoke.
  */
 export function KbSharingPanel({ knowledgeBaseId }: KbSharingPanelProps) {
   const [availableTeams, setAvailableTeams] = React.useState<TeamRow[]>([]);

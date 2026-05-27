@@ -46,9 +46,8 @@ export interface ResourcePermissionOptions {
    * caller holds `user:<sub> can_manage organization:<caipeOrgKey>` in OpenFGA.
    *
    * This is the documented super-grant for org admins on the KB / Search /
-   * Data Sources / Graph / MCP Tools surfaces (PR 1 of the fine-grained RAG
-   * ReBAC plan). It is OFF by default; call sites must explicitly opt in so
-   * the bypass is auditable in code review.
+   * Data Sources / Graph / MCP Tools surfaces. It is OFF by default; call
+   * sites must explicitly opt in so the bypass is auditable in code review.
    *
    * Set the env var `RAG_ADMIN_BYPASS_DISABLED=true` to force the bypass off
    * everywhere as a kill switch (the helper falls back to pure per-resource

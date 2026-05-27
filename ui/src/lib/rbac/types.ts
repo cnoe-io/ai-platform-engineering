@@ -172,10 +172,10 @@ export type AdminTabGatesMap = Record<AdminTabKey, boolean>;
 /**
  * Knowledge sidebar tab keys for RBAC-based visibility.
  *
- * Returned by GET /api/rbac/kb-tab-gates (PR 2 of the 2026-05-27 fine-grained
- * KB ReBAC plan). Org admins (`organization#admin`) always see every tab;
- * non-admins see a tab only if they have at least one readable resource on
- * that surface (or a readable KB for `graph` / `search` / `data_sources`).
+ * Returned by GET /api/rbac/kb-tab-gates. Org admins (`organization#admin`)
+ * always see every tab; non-admins see a tab only if they have at least one
+ * readable resource on that surface (or a readable KB for `graph` / `search`
+ * / `data_sources`).
  */
 export type KbTabKey =
   | "search"

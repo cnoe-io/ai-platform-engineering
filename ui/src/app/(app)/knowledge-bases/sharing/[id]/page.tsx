@@ -9,11 +9,10 @@ interface KbSharingPageProps {
 /**
  * Per-Knowledge-Base sharing page.
  *
- * Wraps the `KbSharingPanel` introduced in PR 3 of the 2026-05-27
- * fine-grained KB ReBAC plan. The page itself does not enforce RBAC
- * (the BFF route does that on every read/write) so admins linking
- * directly from external tools land on a useful "you need access" empty
- * state via the existing `requireResourcePermission` 403 → BFF handler.
+ * Wraps `KbSharingPanel`. The page itself does not enforce RBAC (the BFF
+ * route does that on every read/write) so admins linking directly from
+ * external tools land on a useful "you need access" empty state via the
+ * existing `requireResourcePermission` 403 → BFF handler.
  */
 export default async function KnowledgeBaseSharingPage({ params }: KbSharingPageProps) {
   const { id } = await params;
