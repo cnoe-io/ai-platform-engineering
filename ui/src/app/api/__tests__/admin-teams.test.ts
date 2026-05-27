@@ -312,6 +312,56 @@ describe('GET /api/admin/teams', () => {
 
     expect(res.headers.get('Cache-Control')).toBe('no-store, max-age=0');
   });
+
+  it('decorates each team with member_count derived from team_membership_sources, ignoring stale team.members[]', async () => {
+    // Commit 4/8 of the canonical-team-membership refactor: the list
+    // endpoint now reports `member_count` aggregated from the canonical
+    // store. A team with a phantom legacy `team.members[]` array but
+    // ZERO canonical rows must report `member_count: 0` — that's what
+    // catches drift between the two stores in the Admin UI badge.
+    mockGetServerSession.mockResolvedValue(adminSession());
+
+    const ghostTeamSlug = 'ghost-team';
+    const ghostTeam = {
+      _id: new ObjectId(),
+      name: 'Ghost Team',
+      slug: ghostTeamSlug,
+      members: [
+        // Stale embedded array — UI used to read .length here.
+        { user_id: 'phantom@example.com', role: 'member', added_at: new Date(), added_by: 'admin@example.com' },
+        { user_id: 'phantom2@example.com', role: 'member', added_at: new Date(), added_by: 'admin@example.com' },
+      ],
+      created_at: new Date(),
+      updated_at: new Date(),
+    };
+
+    const teamsCol = createMockCollection();
+    teamsCol.find.mockReturnValue({
+      sort: jest.fn().mockReturnValue({
+        toArray: jest.fn().mockResolvedValue([TEST_TEAM, ghostTeam]),
+      }),
+    });
+    mockCollections['teams'] = teamsCol;
+
+    // Wire the canonical store's aggregate() to return TEST_TEAM_SLUG=2,
+    // ghost-team absent (=> defaults to 0). loadTeamMemberCounts seeds
+    // counts to 0 for every requested slug before consulting the cursor.
+    const sourcesCol = mockCollections['team_membership_sources'];
+    sourcesCol.aggregate = jest.fn().mockReturnValue({
+      toArray: jest.fn().mockResolvedValue([{ _id: TEST_TEAM_SLUG, count: 2 }]),
+    });
+
+    const req = makeRequest('/api/admin/teams');
+    const res = await GET(req);
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    const byName = Object.fromEntries(
+      body.data.teams.map((t: { name: string; member_count: number }) => [t.name, t.member_count]),
+    );
+    expect(byName['Platform Engineering']).toBe(2);
+    expect(byName['Ghost Team']).toBe(0);
+  });
 });
 
 // ============================================================================
