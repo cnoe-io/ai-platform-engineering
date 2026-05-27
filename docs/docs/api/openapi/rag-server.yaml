@@ -30,11 +30,12 @@ paths:
       operationId: getUserInfo
       summary: Get current user information
       description: |
-        Returns resolved role, groups, and permission strings for UI gating.
-        No authentication required; anonymous and trusted-network contexts are supported.
+        Returns resolved identity baseline role and permission strings for UI gating.
+        Requires a valid bearer token.
       tags:
         - query
-      security: []
+      security:
+        - bearerAuth: []
       parameters: []
       responses:
         "200":
@@ -1557,7 +1558,7 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
-      description: OIDC / Keycloak access token (optional on some routes; trusted network may apply per server config)
+      description: OIDC / Keycloak access token. Trusted-network detection is telemetry only and does not authenticate protected routes.
 
   parameters:
     XTenantId:
@@ -1619,28 +1620,20 @@ components:
         - email
         - role
         - is_authenticated
-        - groups
         - permissions
-        - in_trusted_network
       properties:
         email:
           type: string
         role:
           type: string
-          description: anonymous | readonly | ingestonly | admin
+          description: readonly | ingestonly | admin
         is_authenticated:
           type: boolean
-        groups:
-          type: array
-          items:
-            type: string
         permissions:
           type: array
           items:
             type: string
           description: e.g. read, ingest, delete
-        in_trusted_network:
-          type: boolean
 
     DataSourceInfo:
       type: object

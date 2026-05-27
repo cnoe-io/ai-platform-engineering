@@ -16,4 +16,14 @@ describe("IngestView re-ingest error UX", () => {
     expect(source).toContain("Re-ingest failed");
     expect(source).toContain("<Dialog");
   });
+
+  it("uses in-app notifications instead of blocking browser alerts", () => {
+    const source = readFileSync(
+      path.join(process.cwd(), "src/components/rag/IngestView.tsx"),
+      "utf8",
+    );
+
+    expect(source).not.toContain("alert(");
+    expect(source).toContain("useToast");
+  });
 });

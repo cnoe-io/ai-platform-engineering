@@ -27,7 +27,6 @@ model
 
 type user
 type service_account
-type anonymous
 
 type user_profile
   relations
@@ -183,7 +182,7 @@ type knowledge_base
     define owner: [user, service_account]
     define reader: [user, service_account, team#member, team#admin, external_group#member, slack_channel, webex_space]
     define ingestor: [user, service_account, team#member, team#admin, external_group#member]
-    define manager: [user, service_account, team#admin]
+    define manager: [user, service_account, team#admin, organization#admin]
     define auditor: [user, service_account, team#admin]
     define can_discover: can_read
     define can_read: reader or can_ingest or can_manage or owner
@@ -191,6 +190,48 @@ type knowledge_base
     define can_write: can_ingest
     define can_ingest: ingestor or can_manage or owner
     define can_admin: can_manage
+    define can_manage: manager or owner
+    define can_audit: auditor or can_manage
+
+# data_source represents a data source inside the knowledge-base feature.
+# It has its own read and ingest/write relationship graph so access can be
+# granted independently per datasource component.
+# assisted-by Cursor claude-opus-4-7
+type data_source
+  relations
+    define owner: [user, service_account]
+    define reader: [user, service_account, team#member, team#admin, external_group#member]
+    define ingestor: [user, service_account, team#member, team#admin, external_group#member]
+    define manager: [user, service_account, team#admin, organization#admin]
+    define auditor: [user, service_account, team#admin]
+    define can_discover: can_read
+    define can_read: reader or can_manage or owner
+    define can_use: can_read
+    define can_write: can_ingest
+    define can_ingest: ingestor or can_manage or owner
+    define can_delete: can_manage
+    define can_manage: manager or owner
+    define can_audit: auditor or can_manage
+
+# mcp_tool represents a RAG custom MCP tool (created via
+# `PUT /v1/mcp/custom-tools/<tool_id>`). This is intentionally distinct
+# from the existing `tool` type, which is used by the agent → MCP
+# wiring at AgentGateway. The two have different lifecycles and
+# different owners, so they share no tuples.
+# assisted-by Cursor claude-opus-4-7
+type mcp_tool
+  relations
+    define owner: [user, service_account]
+    define reader: [user, service_account, team#member, team#admin, external_group#member]
+    define user: [user, service_account, team#member, team#admin, external_group#member]
+    define caller: [user, service_account, team#member, team#admin, external_group#member, agent]
+    define manager: [user, service_account, team#admin, organization#admin]
+    define auditor: [user, service_account, team#admin]
+    define can_discover: can_read
+    define can_read: reader or can_use or can_manage or owner
+    define can_use: user or can_call or can_manage or owner
+    define can_call: caller or can_manage or owner
+    define can_delete: can_manage
     define can_manage: manager or owner
     define can_audit: auditor or can_manage
 

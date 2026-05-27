@@ -73,6 +73,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
+import { useToast } from "@/components/ui/toast"
 import {
   Dialog,
   DialogContent,
@@ -207,6 +208,7 @@ export default function IngestView() {
   const { hasPermission } = useRagPermissions()
   const canIngest = hasPermission(Permission.INGEST)
   const canDelete = hasPermission(Permission.DELETE)
+  const { toast } = useToast()
   const { getTeamsForKb, reload: reloadTeamKb } = useTeamKbOwnership()
 
   // Ingestion state
@@ -916,7 +918,7 @@ export default function IngestView() {
       setIngestTeamPermission('ingest')
     } catch (error: any) {
       console.error('Error ingesting data:', error)
-      alert(`❌ Ingestion failed: ${error?.message || 'unknown error'}`)
+      toast(`Ingestion failed: ${error?.message || 'unknown error'}`, 'error')
     }
   }
 
@@ -927,7 +929,7 @@ export default function IngestView() {
       fetchDataSources()
     } catch (error: any) {
       console.error('Error deleting data source:', error)
-      alert(`Failed to delete data source: ${error?.message || 'unknown error'}`)
+      toast(`Failed to delete data source: ${error?.message || 'unknown error'}`, 'error')
     } finally {
       setIsDeletingDataSource(false)
       setShowDeleteDataSourceConfirm(null)
@@ -938,10 +940,10 @@ export default function IngestView() {
     try {
       await deleteIngestor(ingestorId)
       fetchIngestors()
-      alert('✅ Ingestor deleted successfully')
+      toast('Ingestor deleted successfully', 'success')
     } catch (error: any) {
       console.error('Error deleting ingestor:', error)
-      alert(`❌ Failed to delete ingestor: ${error?.message || 'unknown error'}`)
+      toast(`Failed to delete ingestor: ${error?.message || 'unknown error'}`, 'error')
     }
     setShowDeleteIngestorConfirm(null)
   }
@@ -968,10 +970,10 @@ export default function IngestView() {
       const result = await cleanupDataSource(datasourceId)
       // Clear documents state since cleanup may have removed chunks
       clearDocumentsState(datasourceId)
-      alert(`✅ ${result.message}`)
+      toast(result.message, 'success')
     } catch (error: any) {
       console.error('Error cleaning up data source:', error)
-      alert(`❌ Cleanup failed: ${error?.message || 'unknown error'}`)
+      toast(`Cleanup failed: ${error?.message || 'unknown error'}`, 'error')
     } finally {
       setIsCleaningUp(false)
       setShowCleanupConfirm(null)
@@ -982,10 +984,10 @@ export default function IngestView() {
     try {
       await terminateJob(jobId)
       await pollJob(datasourceId, jobId)
-      alert('⏹️ Job termination requested...')
+      toast('Job termination requested...', 'info')
     } catch (error: any) {
       console.error('Error terminating job:', error)
-      alert(`❌ Termination failed: ${error?.message || 'unknown error'}`)
+      toast(`Termination failed: ${error?.message || 'unknown error'}`, 'error')
     }
   }
 

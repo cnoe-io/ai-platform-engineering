@@ -23,7 +23,6 @@ const VALID_WEBEX_GRANT_SUBJECT_TYPES = new Set<UniversalRebacSubjectType>([
   "webex_space",
   "external_group",
   "service_account",
-  "anonymous",
 ]);
 
 const VALID_WEBEX_GRANT_SUBJECT_RELATIONS = new Set<NonNullable<UniversalRebacSubjectRef["relation"]>>([

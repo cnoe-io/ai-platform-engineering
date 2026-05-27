@@ -14,7 +14,7 @@ from common.constants import KV_ONTOLOGY_VERSION_ID_KEY, PROP_DELIMITER, ONTOLOG
 from common.models.rag import valid_metadata_keys, MCPToolConfig, MCPBuiltinToolsConfig, ParallelSearch, StructuredEntity, StructuredEntityId
 import traceback
 from server.query_service import VectorDBQueryService
-from server.rbac import derive_team_for_request, get_accessible_kb_ids, RBAC_TEAM_SCOPE_ENABLED
+from server.rbac import derive_team_for_request, get_accessible_datasource_ids, RBAC_TEAM_SCOPE_ENABLED
 from fastmcp import FastMCP
 from common.utils import json_encode
 from server.snippet_utils import format_search_result
@@ -45,21 +45,12 @@ class AgentTools:
     except Exception:
       return None
 
-  @staticmethod
-  def _extract_team_id(user_context: UserContext) -> Optional[str]:
-    """Parse ``team_member(<id>)`` from realm roles to find the user's team."""
-    for role in (user_context.realm_roles or []):
-      m = re.match(r"^team_member\((.+)\)$", str(role).strip())
-      if m:
-        return m.group(1)
-    return None
-
-  async def _resolve_accessible_kb_ids(
+  async def _resolve_accessible_datasource_ids(
     self,
     scope: str = "read",
   ) -> Optional[List[str]]:
     """
-    Resolve accessible KB IDs for the current MCP request user.
+    Resolve accessible datasource IDs for the current MCP request user.
 
     Returns None when RBAC is inactive or the user has unrestricted access
     (so the caller should skip filtering).  Returns a list of datasource IDs
@@ -70,22 +61,11 @@ class AgentTools:
     user = self._get_mcp_user_context()
     if user is None:
       return None
-    if user.email == "trusted-network" or user.email.startswith("trusted:"):
-      return None
     if user.email.startswith("client:"):
       return None
 
-    # Phase 3 (spec 2026-05-24): centralised derivation is now data-layer-only.
-    # The MCP tool path doesn't have a Request, so `derive_team_for_request(
-    # None, ...)` always returns None here — we fall back to the legacy
-    # ``team_member(<id>)`` realm-role pattern used by service-account tokens
-    # that pre-date OBO and don't carry channel/team headers.
     team_id = await derive_team_for_request(None, user)
-    if team_id is None:
-      legacy = self._extract_team_id(user)
-      if legacy and legacy != "__personal__":
-        team_id = legacy
-    accessible = await get_accessible_kb_ids(
+    accessible = await get_accessible_datasource_ids(
       user, scope, "default", team_id=team_id,
     )
     if "*" in accessible:

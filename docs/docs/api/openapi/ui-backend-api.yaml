@@ -3622,13 +3622,9 @@ components:
         email: { type: string }
         role: { type: string }
         is_authenticated: { type: boolean }
-        groups:
-          type: array
-          items: { type: string }
         permissions:
           type: array
           items: { type: string }
-        in_trusted_network: { type: boolean }
 
     HealthResponse:
       type: object

@@ -1,176 +1,104 @@
-import { renderHook, waitFor } from '@testing-library/react';
+import { renderHook } from '@testing-library/react';
 import { useRagPermissions } from '../useRagPermissions';
 
-const mockGetUserInfo = jest.fn();
-const mockHasPermission = jest.fn();
+const mockUseKbTabGates = jest.fn();
 jest.mock('@/lib/rag-api', () => ({
-  getUserInfo: (...args: unknown[]) => mockGetUserInfo(...args),
-  hasPermission: (userInfo: unknown, permission: unknown) =>
-    mockHasPermission(userInfo, permission),
   Permission: { READ: 'read', INGEST: 'ingest', DELETE: 'delete' },
+}));
+
+jest.mock('../use-kb-tab-gates', () => ({
+  useKbTabGates: () => mockUseKbTabGates(),
 }));
 
 describe('useRagPermissions', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockGetUserInfo.mockImplementation(() => new Promise(() => {}));
-    mockHasPermission.mockImplementation((userInfo: { permissions?: string[] } | null, permission: string) => {
-      if (!userInfo) return false;
-      return userInfo.permissions?.includes(permission) ?? false;
+    mockUseKbTabGates.mockReturnValue({
+      gates: { search: false, data_sources: false, graph: false, mcp_tools: false, has_any_kb: false, kb_count: 0 },
+      loading: false,
+      error: null,
+      orgAdminBypass: false,
+      visibleTabs: [],
+      refresh: jest.fn(),
     });
   });
 
   it('initially loading=true', () => {
-    mockGetUserInfo.mockImplementation(() => new Promise(() => {}));
+    mockUseKbTabGates.mockReturnValue({
+      gates: { search: false, data_sources: false, graph: false, mcp_tools: false, has_any_kb: false, kb_count: 0 },
+      loading: true,
+      error: null,
+      orgAdminBypass: false,
+      visibleTabs: [],
+      refresh: jest.fn(),
+    });
 
     const { result } = renderHook(() => useRagPermissions());
 
     expect(result.current.isLoading).toBe(true);
   });
 
-  it('successful fetch → sets userInfo with permissions', async () => {
-    const userInfo = {
-      email: 'user@test.com',
-      role: 'user',
-      is_authenticated: true,
-      groups: [],
-      permissions: ['read', 'ingest'],
-      in_trusted_network: false,
-    };
-    mockGetUserInfo.mockResolvedValue(userInfo);
+  it('org-admin bypass grants all UI permissions without RAG user-info', async () => {
+    mockUseKbTabGates.mockReturnValue({
+      gates: { search: true, data_sources: true, graph: true, mcp_tools: true, has_any_kb: true, kb_count: -1 },
+      loading: false,
+      error: null,
+      orgAdminBypass: true,
+      visibleTabs: ['search', 'data_sources', 'graph', 'mcp_tools'],
+      refresh: jest.fn(),
+    });
 
     const { result } = renderHook(() => useRagPermissions());
 
-    await waitFor(() => {
-      expect(result.current.isLoading).toBe(false);
+    expect(result.current.userInfo).toEqual({
+      email: 'authenticated-user',
+      role: 'ADMIN',
+      is_authenticated: true,
+      permissions: ['read', 'ingest', 'delete'],
     });
-
-    expect(result.current.userInfo).toEqual(userInfo);
+    expect(result.current.hasPermission('read')).toBe(true);
+    expect(result.current.hasPermission('ingest')).toBe(true);
+    expect(result.current.hasPermission('delete')).toBe(true);
     expect(result.current.error).toBeNull();
   });
 
-  it('error → sets error, userInfo null', async () => {
-    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
-    mockGetUserInfo.mockRejectedValue(new Error('Fetch failed'));
+  it('readable KB gates grant read but not global write permissions', async () => {
+    mockUseKbTabGates.mockReturnValue({
+      gates: { search: true, data_sources: true, graph: true, mcp_tools: true, has_any_kb: true, kb_count: 1 },
+      loading: false,
+      error: null,
+      orgAdminBypass: false,
+      visibleTabs: ['search', 'data_sources', 'graph', 'mcp_tools'],
+      refresh: jest.fn(),
+    });
 
     const { result } = renderHook(() => useRagPermissions());
 
-    await waitFor(() => {
-      expect(result.current.isLoading).toBe(false);
-    });
-
-    expect(result.current.error).toEqual(new Error('Fetch failed'));
-    expect(result.current.userInfo).toBeNull();
-    consoleSpy.mockRestore();
-  });
-
-  it('hasPermission returns true for granted permission', async () => {
-    const userInfo = {
-      email: 'user@test.com',
-      role: 'admin',
-      is_authenticated: true,
-      groups: [],
-      permissions: ['read', 'delete'],
-      in_trusted_network: false,
-    };
-    mockGetUserInfo.mockResolvedValue(userInfo);
-    mockHasPermission.mockReturnValue(true);
-
-    const { result } = renderHook(() => useRagPermissions());
-
-    await waitFor(() => {
-      expect(result.current.userInfo).not.toBeNull();
-    });
-
-    expect(result.current.hasPermission('delete')).toBe(true);
-  });
-
-  it('hasPermission returns false for denied permission', async () => {
-    const userInfo = {
-      email: 'user@test.com',
-      role: 'user',
-      is_authenticated: true,
-      groups: [],
-      permissions: ['read'],
-      in_trusted_network: false,
-    };
-    mockGetUserInfo.mockResolvedValue(userInfo);
-    mockHasPermission.mockReturnValue(false);
-
-    const { result } = renderHook(() => useRagPermissions());
-
-    await waitFor(() => {
-      expect(result.current.userInfo).not.toBeNull();
-    });
-
+    expect(result.current.permissions).toEqual(['read']);
+    expect(result.current.hasPermission('read')).toBe(true);
+    expect(result.current.hasPermission('ingest')).toBe(false);
     expect(result.current.hasPermission('delete')).toBe(false);
   });
 
-  it('hasPermission returns false when userInfo is null', async () => {
-    mockGetUserInfo.mockRejectedValue(new Error('Failed'));
-
+  it('no readable KB gates grant no permissions', async () => {
     const { result } = renderHook(() => useRagPermissions());
 
-    await waitFor(() => {
-      expect(result.current.isLoading).toBe(false);
-    });
-
+    expect(result.current.permissions).toEqual([]);
     expect(result.current.hasPermission('read')).toBe(false);
   });
 
-  it('permissions array from userInfo', async () => {
-    const userInfo = {
-      email: 'user@test.com',
-      role: 'user',
-      is_authenticated: true,
-      groups: [],
-      permissions: ['read', 'ingest'],
-      in_trusted_network: false,
-    };
-    mockGetUserInfo.mockResolvedValue(userInfo);
+  it('surfaces gate fetch errors', async () => {
+    mockUseKbTabGates.mockReturnValue({
+      gates: { search: false, data_sources: false, graph: false, mcp_tools: false, has_any_kb: false, kb_count: 0 },
+      loading: false,
+      error: 'Failed to fetch KB tab gates: 503',
+      orgAdminBypass: false,
+      visibleTabs: [],
+      refresh: jest.fn(),
+    });
 
     const { result } = renderHook(() => useRagPermissions());
 
-    await waitFor(() => {
-      expect(result.current.userInfo).not.toBeNull();
-    });
-
-    expect(result.current.permissions).toEqual(['read', 'ingest']);
-  });
-
-  it('permissions empty array when userInfo has no permissions', async () => {
-    const userInfo = {
-      email: 'user@test.com',
-      role: 'user',
-      is_authenticated: true,
-      groups: [],
-      in_trusted_network: false,
-    };
-    mockGetUserInfo.mockResolvedValue(userInfo);
-
-    const { result } = renderHook(() => useRagPermissions());
-
-    await waitFor(() => {
-      expect(result.current.userInfo).not.toBeNull();
-    });
-
-    expect(result.current.permissions).toEqual([]);
-  });
-
-  it('cleanup on unmount does not update state', async () => {
-    let resolvePromise: (value: unknown) => void;
-    const delayedPromise = new Promise((resolve) => {
-      resolvePromise = resolve;
-    });
-    mockGetUserInfo.mockReturnValue(delayedPromise);
-
-    const { result, unmount } = renderHook(() => useRagPermissions());
-
-    unmount();
-    resolvePromise!({ email: 'a@b.com', role: 'user', is_authenticated: true, groups: [], in_trusted_network: false });
-
-    await Promise.resolve();
-
-    expect(result.current.userInfo).toBeNull();
+    expect(result.current.error).toEqual(new Error('Failed to fetch KB tab gates: 503'));
   });
 });

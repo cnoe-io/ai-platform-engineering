@@ -46,20 +46,17 @@ from common.models.rag import DataSourceInfo, IngestorInfo, valid_metadata_keys,
 from common.models.rbac import Role, UserContext, UserInfoResponse
 from contextvars import ContextVar
 from server.rbac import (
-  get_user_or_anonymous,
   require_authenticated_user,
   require_role,
   has_permission,
   get_permissions,
-  is_trusted_request,
   get_auth_manager,
   _authenticate_from_token,
-  check_kb_datasource_access,
+  check_datasource_access,
   derive_team_for_request,
-  get_accessible_kb_ids,
+  get_accessible_datasource_ids,
   inject_kb_filter,
   RBAC_TEAM_SCOPE_ENABLED,
-  TRUSTED_NETWORK_DEFAULT_ROLE,
 )
 from common.graph_db.neo4j.graph_db import Neo4jDB
 from common.graph_db.base import GraphDB
@@ -414,8 +411,7 @@ class MCPAuthMiddleware(BaseHTTPMiddleware):
   so they cannot use Depends()-based auth guards. This middleware intercepts
   requests to /mcp* paths and applies the same auth logic as require_authenticated_user():
     1. Valid Bearer JWT -> allowed through
-    2. Trusted network (CIDR / X-Trust-Token) -> allowed through
-    3. Anything else -> 401
+    2. Anything else -> 401
 
   Non-MCP routes are unaffected and continue to use their own Depends() guards.
   """
@@ -441,18 +437,6 @@ class MCPAuthMiddleware(BaseHTTPMiddleware):
         finally:
           mcp_user_context_var.reset(token)
       return self._unauthorized("Invalid or expired token.", request)
-
-    if is_trusted_request(request):
-      trusted_user = UserContext(
-        email="trusted-network", groups=[], role=TRUSTED_NETWORK_DEFAULT_ROLE,
-        is_authenticated=False, kb_permissions=[], realm_roles=[],
-      )
-      request.state.user = trusted_user
-      token = mcp_user_context_var.set(trusted_user)
-      try:
-        return await call_next(request)
-      finally:
-        mcp_user_context_var.reset(token)
 
     return self._unauthorized("Missing or malformed Authorization header.", request)
 
@@ -508,10 +492,8 @@ def generate_ingestor_id(ingestor_name: str, ingestor_type: str) -> str:
     - Show/hide features based on role-based permissions
     - Enable/disable action buttons based on what the user can do
     
-    **No authentication required** - this endpoint is accessible to all users.
-    - Authenticated users will see their email, role, and groups
-    - Unauthenticated users will see email as "anonymous" with no permissions
-    - Trusted network users will see email as "trusted-network"
+    **Authentication required** - callers must provide a valid bearer token.
+    Authenticated users will see their email and baseline role.
     
     **Permissions list:**
     - `read`: Can query and view data (READONLY, INGESTONLY, ADMIN)
@@ -524,21 +506,16 @@ def generate_ingestor_id(ingestor_name: str, ingestor_type: str) -> str:
       "content": {
         "application/json": {
           "examples": {
-            "authenticated": {"summary": "Authenticated user", "value": {"email": "user@example.com", "role": "readonly", "is_authenticated": True, "groups": ["engineering", "platform-team"], "permissions": ["read"], "in_trusted_network": False}},
-            "anonymous": {"summary": "Anonymous user", "value": {"email": "anonymous", "role": "anonymous", "is_authenticated": False, "groups": [], "permissions": [], "in_trusted_network": False}},
-            "trusted_network": {"summary": "Trusted network user", "value": {"email": "trusted-network", "role": "admin", "is_authenticated": False, "groups": [], "permissions": ["read", "ingest", "delete"], "in_trusted_network": True}},
+            "authenticated": {"summary": "Authenticated user", "value": {"email": "user@example.com", "role": "readonly", "is_authenticated": True, "permissions": ["read"]}},
           }
         }
       },
     }
   },
 )
-async def get_user_info(request: Request, user: UserContext = Depends(get_user_or_anonymous)):
+async def get_user_info(request: Request, user: UserContext = Depends(require_authenticated_user)):
   """Get current user's authentication and role information."""
-  # Determine if request is from trusted network
-  trusted = is_trusted_request(request)
-
-  return UserInfoResponse(email=user.email, role=user.role, is_authenticated=user.is_authenticated, groups=user.groups, permissions=get_permissions(user.role), in_trusted_network=trusted)
+  return UserInfoResponse(email=user.email, role=user.role, is_authenticated=user.is_authenticated, permissions=get_permissions(user.role))
 
 
 # ============================================================================
@@ -607,7 +584,7 @@ async def upsert_datasource(
   if not metadata_storage:
     raise HTTPException(status_code=500, detail="Server not initialized")
 
-  await check_kb_datasource_access(request, user, datasource_info.datasource_id, "ingest")
+  await check_datasource_access(request, user, datasource_info.datasource_id, "ingest")
   await metadata_storage.store_datasource_info(datasource_info)
 
   return status.HTTP_202_ACCEPTED
@@ -638,7 +615,7 @@ async def rename_datasource(
     raise HTTPException(status_code=500, detail="Server not initialized")
 
   # Authz: must have admin scope on this specific datasource
-  await check_kb_datasource_access(request, user, datasource_id, "admin")
+  await check_datasource_access(request, user, datasource_id, "admin")
 
   existing = await metadata_storage.get_datasource_info(datasource_id)
   if not existing:
@@ -671,7 +648,7 @@ async def delete_datasource(
   if graph_rag_enabled and not data_graph_db:
     raise HTTPException(status_code=500, detail="Server not initialized")
 
-  await check_kb_datasource_access(request, user, datasource_id, "admin")
+  await check_datasource_access(request, user, datasource_id, "admin")
 
   # Fetch datasource info
   datasource_info = await metadata_storage.get_datasource_info(datasource_id)
@@ -795,10 +772,9 @@ async def list_datasources(
     if ingestor_id:
       datasources = [ds for ds in datasources if ds.ingestor_id == ingestor_id]
 
-    # Lazy backfill: derive a friendly `name` for legacy datasources that
-    # were created before the `name` field existed. We do NOT persist —
-    # `datasource_id` remains the immutable storage/RBAC key. Admins can
-    # rename via PATCH /v1/datasource/{id} which then persists.
+    # Derive a display name for records that do not store one. We do not persist
+    # this here because `datasource_id` remains the immutable storage/RBAC key;
+    # admins can rename via PATCH /v1/datasource/{id}.
     for ds in datasources:
       if not getattr(ds, "name", None):
         meta = ds.metadata or {}
@@ -816,10 +792,9 @@ async def list_datasources(
         )
 
     if RBAC_TEAM_SCOPE_ENABLED and user.is_authenticated:
-      # Phase 1 (spec 2026-05-24): centralised team derivation.
       team_id = await derive_team_for_request(request, user)
       tenant_id = request.headers.get("X-Tenant-Id") or "default"
-      accessible = await get_accessible_kb_ids(
+      accessible = await get_accessible_datasource_ids(
         user, "read", tenant_id, team_id=team_id, request=request,
       )
       if "*" not in accessible:
@@ -1190,7 +1165,11 @@ async def query_documents(
 
 
 @app.post("/v1/ingest/webloader/url", status_code=status.HTTP_202_ACCEPTED)
-async def ingest_url(url_request: UrlIngestRequest, user: UserContext = Depends(require_role(Role.INGESTONLY))):
+async def ingest_url(
+  url_request: UrlIngestRequest,
+  request: Request,
+  user: UserContext = Depends(require_authenticated_user),
+):
   """Queue a URL for ingestion by the webloader ingestor."""
   if not metadata_storage or not jobmanager:
     raise HTTPException(status_code=500, detail="Server not initialized")
@@ -1203,6 +1182,7 @@ async def ingest_url(url_request: UrlIngestRequest, user: UserContext = Depends(
 
   # Generate datasource ID and create datasource
   datasource_id = utils.generate_datasource_id_from_url(url_request.url)
+  await check_datasource_access(request, user, datasource_id, "ingest")
 
   # Check if datasource already exists (for web, each URL is unique)
   existing_datasource = await metadata_storage.get_datasource_info(datasource_id)
@@ -1267,7 +1247,11 @@ async def ingest_url(url_request: UrlIngestRequest, user: UserContext = Depends(
 
 
 @app.post("/v1/ingest/webloader/reload", status_code=status.HTTP_202_ACCEPTED)
-async def reload_url(reload_request: UrlReloadRequest, user: UserContext = Depends(require_role(Role.INGESTONLY))):
+async def reload_url(
+  reload_request: UrlReloadRequest,
+  request: Request,
+  user: UserContext = Depends(require_authenticated_user),
+):
   """Reloads a previously ingested URL by re-queuing it for ingestion."""
   if not metadata_storage or not jobmanager:
     raise HTTPException(status_code=500, detail="Server not initialized")
@@ -1276,6 +1260,7 @@ async def reload_url(reload_request: UrlReloadRequest, user: UserContext = Depen
   datasource_info = await metadata_storage.get_datasource_info(reload_request.datasource_id)
   if not datasource_info:
     raise HTTPException(status_code=404, detail="Datasource not found")
+  await check_datasource_access(request, user, reload_request.datasource_id, "ingest")
 
   # Queue the request for the ingestor
   ingestor_request = IngestorRequest(ingestor_id=datasource_info.ingestor_id, command=WebIngestorCommand.RELOAD_DATASOURCE, payload=reload_request.model_dump())
@@ -1303,7 +1288,11 @@ async def reload_all_urls(user: UserContext = Depends(require_role(Role.ADMIN)))
 
 
 @app.post("/v1/ingest/confluence/page", status_code=status.HTTP_202_ACCEPTED)
-async def ingest_confluence_page(confluence_request: ConfluenceIngestRequest, user: UserContext = Depends(require_role(Role.INGESTONLY))):
+async def ingest_confluence_page(
+  confluence_request: ConfluenceIngestRequest,
+  request: Request,
+  user: UserContext = Depends(require_authenticated_user),
+):
   """Queue a Confluence page for ingestion by the confluence ingestor."""
   if not metadata_storage or not jobmanager:
     raise HTTPException(status_code=500, detail="Server not initialized")
@@ -1331,6 +1320,7 @@ async def ingest_confluence_page(confluence_request: ConfluenceIngestRequest, us
   # Generate space-level datasource ID
   domain = urlparse(confluence_request.url).netloc.replace(".", "_").replace("-", "_")
   datasource_id = f"src_confluence___{domain}__{space_key}"
+  await check_datasource_access(request, user, datasource_id, "ingest")
 
   # Build page config for this ingestion
   page_config = {"page_id": page_id, "source": confluence_request.url, "get_child_pages": confluence_request.get_child_pages}
@@ -1426,7 +1416,11 @@ async def ingest_confluence_page(confluence_request: ConfluenceIngestRequest, us
 
 
 @app.post("/v1/ingest/confluence/reload", status_code=status.HTTP_202_ACCEPTED)
-async def reload_confluence_page(reload_request: ConfluenceReloadRequest, user: UserContext = Depends(require_role(Role.INGESTONLY))):
+async def reload_confluence_page(
+  reload_request: ConfluenceReloadRequest,
+  request: Request,
+  user: UserContext = Depends(require_authenticated_user),
+):
   """Reloads a previously ingested Confluence page by re-queuing it for ingestion."""
   if not metadata_storage or not jobmanager:
     raise HTTPException(status_code=500, detail="Server not initialized")
@@ -1435,6 +1429,7 @@ async def reload_confluence_page(reload_request: ConfluenceReloadRequest, user: 
   datasource_info = await metadata_storage.get_datasource_info(reload_request.datasource_id)
   if not datasource_info:
     raise HTTPException(status_code=404, detail="Datasource not found")
+  await check_datasource_access(request, user, reload_request.datasource_id, "ingest")
 
   # Queue the request for the ingestor
   ingestor_request = IngestorRequest(ingestor_id=datasource_info.ingestor_id, command=ConfluenceIngestorCommand.RELOAD_DATASOURCE, payload=reload_request.model_dump())
@@ -1465,13 +1460,13 @@ async def reload_all_confluence_pages(user: UserContext = Depends(require_role(R
 async def ingest_documents(
   ingest_request: DocumentIngestRequest,
   request: Request,
-  user: UserContext = Depends(require_role(Role.INGESTONLY)),
+  user: UserContext = Depends(require_authenticated_user),
 ):
   """Updates/Ingests text and graph data to the appropriate databases"""
 
   if not vector_db or not metadata_storage or not ingestor or not jobmanager:
     raise HTTPException(status_code=500, detail="Server not initialized")
-  await check_kb_datasource_access(request, user, ingest_request.datasource_id, "ingest")
+  await check_datasource_access(request, user, ingest_request.datasource_id, "ingest")
   logger.info(f"Starting data ingestion for datasource: {ingest_request.datasource_id}")
 
   # Check if datasource exists
@@ -1762,7 +1757,7 @@ async def _reverse_proxy(request: Request):
   # Manually invoke the RBAC check since app.add_route doesn't support Depends()
   # We must manually resolve the auth_manager since Depends() doesn't work here
   auth_manager = get_auth_manager()
-  user = await get_user_or_anonymous(request, auth_manager)
+  user = await require_authenticated_user(request, auth_manager)
 
   # Determine required role based on method and path
   # GET /status endpoints are read-only, allow READONLY access

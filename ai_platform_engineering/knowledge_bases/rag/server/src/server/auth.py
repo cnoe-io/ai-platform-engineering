@@ -230,12 +230,13 @@ class OIDCProvider:
     """
     Validate ID token with relaxed checks (signature and expiry only).
 
-    ID tokens are used for identity claims extraction (email, groups), not authorization.
+    ID tokens are used for identity claims extraction, not authorization.
     We validate the signature to ensure authenticity but skip audience/issuer
     checks since ID tokens have different semantics than access tokens.
 
-    Note: User identity now comes from the validated Keycloak access token.
-    This method is kept for backward compatibility with older callers.
+    Resource-server authorization uses validated access tokens. ID token
+    validation is available for callers that still need to inspect ID-token
+    identity claims.
 
     Args:
         token: JWT ID token string
@@ -339,10 +340,10 @@ class AuthManager:
       )
       logger.info("Ingestor OIDC provider configured")
     else:
-      logger.info("Ingestor OIDC provider not configured (using trusted network or UI-only auth)")
+      logger.info("Ingestor OIDC provider not configured (UI-only auth unless another provider is configured)")
 
     if not self.providers:
-      logger.warning("No OIDC providers configured! Either configure OIDC providers or enable trusted network access (ALLOW_TRUSTED_NETWORK=true)")
+      logger.warning("No OIDC providers configured! Configure at least one OIDC provider for protected RAG routes.")
 
   async def validate_token(self, token: str) -> Tuple[OIDCProvider, Dict[str, Any]]:
     """

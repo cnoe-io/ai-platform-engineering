@@ -15,6 +15,14 @@ export const PRIVILEGED_ADMIN_SURFACES = [
   "action_audit",
   "openfga",
   "migrations",
+  // RAG / Knowledge Bases admin surface. The `rag` short-circuit in
+  // `api-middleware.ts` already maps `rag` + `admin` →
+  // `admin_surface:rag_datasources#can_manage`; seeding it explicitly via
+  // the admin baseline grants makes the org-admin super-grant on KB /
+  // Search / Data Sources / Graph / MCP Tools fail-safe instead of
+  // relying on the (otherwise reliable) model inheritance from
+  // `organization#admin`.
+  "rag_datasources",
 ] as const;
 
 export type BaselineAdminSurface = (typeof BASELINE_ADMIN_SURFACES)[number];

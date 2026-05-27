@@ -27,6 +27,8 @@ const mockRequireRbacPermission = jest.fn();
 const mockRequireResourcePermission = jest.fn();
 const mockFilterResourcesByPermission = jest.fn();
 const mockReconcileKnowledgeBaseRelationships = jest.fn();
+const mockReconcileDataSourceRelationships = jest.fn();
+const mockReconcileMcpToolRelationships = jest.fn();
 
 jest.mock('@/lib/api-middleware', () => {
   class ApiError extends Error {
@@ -60,6 +62,8 @@ jest.mock('@/lib/rbac/resource-authz', () => ({
 
 jest.mock('@/lib/rbac/openfga-owned-resources', () => ({
   reconcileKnowledgeBaseRelationships: (...args: unknown[]) => mockReconcileKnowledgeBaseRelationships(...args),
+  reconcileDataSourceRelationships: (...args: unknown[]) => mockReconcileDataSourceRelationships(...args),
+  reconcileMcpToolRelationships: (...args: unknown[]) => mockReconcileMcpToolRelationships(...args),
 }));
 
 function ragRequest(path: string, init?: RequestInit): NextRequest {
@@ -73,6 +77,8 @@ describe('RAG RBAC Integration', () => {
     mockRequireResourcePermission.mockResolvedValue(undefined);
     mockFilterResourcesByPermission.mockImplementation(async (_session, resources) => resources);
     mockReconcileKnowledgeBaseRelationships.mockResolvedValue({ enabled: true, writes: 3, deletes: 0 });
+    mockReconcileDataSourceRelationships.mockResolvedValue({ enabled: true, writes: 3, deletes: 0 });
+    mockReconcileMcpToolRelationships.mockResolvedValue({ enabled: true, writes: 3, deletes: 0 });
     // Reset env vars
     process.env.RBAC_READONLY_GROUPS = 'readers';
     process.env.RBAC_INGESTONLY_GROUPS = 'ingestors';
@@ -91,12 +97,7 @@ describe('RAG RBAC Integration', () => {
   describe('User Info API', () => {
     it('should return unauthenticated for no session', async () => {
       jest.mocked(getServerSession).mockResolvedValue(null);
-      (global.fetch as jest.Mock).mockResolvedValueOnce({
-        ok: false,
-        status: 401,
-        json: async () => ({ is_authenticated: false, email: 'unauthenticated' }),
-      } as Response);
-
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
       const { GET } = await import('@/app/api/user/info/route');
       const response = await GET();
       const data = await response.json();
@@ -104,11 +105,17 @@ describe('RAG RBAC Integration', () => {
       expect(response.status).toBe(401);
       expect(data.is_authenticated).toBe(false);
       expect(data.email).toBe('unauthenticated');
+      expect(global.fetch).not.toHaveBeenCalled();
+      expect(warnSpy).not.toHaveBeenCalledWith(
+        expect.stringContaining('trusted network'),
+      );
+      warnSpy.mockRestore();
     });
 
     it('should determine READONLY role for user with no groups', async () => {
       jest.mocked(getServerSession).mockResolvedValue({
         user: { email: 'test@example.com' },
+        accessToken: 'access-token',
         groups: [],
       } as any);
       (global.fetch as jest.Mock).mockResolvedValueOnce({
@@ -136,6 +143,7 @@ describe('RAG RBAC Integration', () => {
     it('should determine INGESTONLY role for ingestor group', async () => {
       jest.mocked(getServerSession).mockResolvedValue({
         user: { email: 'ingestor@example.com' },
+        accessToken: 'access-token',
         groups: ['ingestors'],
       } as any);
       (global.fetch as jest.Mock).mockResolvedValueOnce({
@@ -160,6 +168,7 @@ describe('RAG RBAC Integration', () => {
     it('should determine ADMIN role for admin group', async () => {
       jest.mocked(getServerSession).mockResolvedValue({
         user: { email: 'admin@example.com' },
+        accessToken: 'access-token',
         groups: ['admins'],
       } as any);
       (global.fetch as jest.Mock).mockResolvedValueOnce({
@@ -184,6 +193,7 @@ describe('RAG RBAC Integration', () => {
     it('should use most permissive role when user has multiple groups', async () => {
       jest.mocked(getServerSession).mockResolvedValue({
         user: { email: 'multi@example.com' },
+        accessToken: 'access-token',
         groups: ['readers', 'ingestors', 'admins'],
       } as any);
       (global.fetch as jest.Mock).mockResolvedValueOnce({
@@ -283,6 +293,7 @@ describe('RAG RBAC Integration', () => {
       it(`should assign ${expectedRole} role for groups: ${groups.join(', ')}`, async () => {
         jest.mocked(getServerSession).mockResolvedValue({
           user: { email: 'test@example.com' },
+          accessToken: 'access-token',
           groups,
         } as any);
         const permissions = [...(canRead ? ['read'] : []), ...(canIngest ? ['ingest'] : []), ...(canDelete ? ['delete'] : [])];
@@ -310,6 +321,7 @@ describe('RAG RBAC Integration', () => {
 
       jest.mocked(getServerSession).mockResolvedValue({
         user: { email: 'test@example.com' },
+        accessToken: 'access-token',
         groups: ['unknown-group'],
       } as any);
       (global.fetch as jest.Mock).mockResolvedValueOnce({
@@ -323,7 +335,6 @@ describe('RAG RBAC Integration', () => {
         }),
       } as Response);
 
-      jest.resetModules();
       const { GET } = await import('@/app/api/user/info/route');
       const response = await GET();
       const data = await response.json();
@@ -336,6 +347,7 @@ describe('RAG RBAC Integration', () => {
 
       jest.mocked(getServerSession).mockResolvedValue({
         user: { email: 'test@example.com' },
+        accessToken: 'access-token',
         groups: ['caipe-admins'],
       } as any);
       (global.fetch as jest.Mock).mockResolvedValueOnce({
@@ -349,7 +361,6 @@ describe('RAG RBAC Integration', () => {
         }),
       } as Response);
 
-      jest.resetModules();
       const { GET } = await import('@/app/api/user/info/route');
       const response = await GET();
       const data = await response.json();
@@ -375,7 +386,7 @@ describe('RAG RBAC Integration', () => {
       } as Response);
     });
 
-    it('requires knowledge_base discover when listing generic datasource details from query params', async () => {
+    it('requires data_source discover when listing generic datasource details from query params', async () => {
       const { GET } = await import('@/app/api/rag/[...path]/route');
 
       const response = await GET(
@@ -391,7 +402,8 @@ describe('RAG RBAC Integration', () => {
       );
       expect(mockRequireResourcePermission).toHaveBeenCalledWith(
         expect.objectContaining({ sub: 'alice-sub', role: 'kb_admin' }),
-        { type: 'knowledge_base', id: 'kb-alpha', action: 'discover' },
+        { type: 'data_source', id: 'kb-alpha', action: 'discover' },
+        { bypassForOrgAdmin: true },
       );
       expect(global.fetch).toHaveBeenCalledWith(
         'http://localhost:9446/v1/datasources?datasource_id=kb-alpha',
@@ -455,8 +467,8 @@ describe('RAG RBAC Integration', () => {
       expect(mockFilterResourcesByPermission).toHaveBeenCalledWith(
         expect.objectContaining({ sub: 'alice-sub', role: 'user' }),
         expect.any(Array),
-        expect.objectContaining({ type: 'knowledge_base', action: 'read' }),
-        expect.objectContaining({ allowAdminBypass: true }),
+        expect.objectContaining({ type: 'data_source', action: 'read' }),
+        expect.objectContaining({ bypassForOrgAdmin: true }),
       );
     });
 
@@ -646,7 +658,7 @@ describe('RAG RBAC Integration', () => {
       );
     });
 
-    it('requires knowledge_base ingest for existing datasource writes from request body', async () => {
+    it('requires data_source ingest for existing datasource writes from request body', async () => {
       const { POST } = await import('@/app/api/rag/[...path]/route');
       const body = { datasource_id: 'kb-beta', reload: true };
 
@@ -665,7 +677,8 @@ describe('RAG RBAC Integration', () => {
       expect(response.status).toBe(200);
       expect(mockRequireResourcePermission).toHaveBeenCalledWith(
         expect.objectContaining({ sub: 'alice-sub' }),
-        { type: 'knowledge_base', id: 'kb-beta', action: 'ingest' },
+        { type: 'data_source', id: 'kb-beta', action: 'ingest' },
+        { bypassForOrgAdmin: true },
       );
       expect(global.fetch).toHaveBeenCalledWith(
         'http://localhost:9446/v1/ingest/webloader/reload',
@@ -676,7 +689,7 @@ describe('RAG RBAC Integration', () => {
       );
     });
 
-    it('requires OpenFGA knowledge-base ingest access for admin re-ingest requests', async () => {
+    it('requires OpenFGA data-source ingest access for admin re-ingest requests', async () => {
       const nextAuth = await import('next-auth');
       const { ApiError } = await import('@/lib/api-middleware');
       jest.mocked(nextAuth.getServerSession).mockResolvedValue({
@@ -687,7 +700,7 @@ describe('RAG RBAC Integration', () => {
         user: { email: 'admin@example.com' },
       } as any);
       mockRequireResourcePermission.mockImplementation(async () => {
-        throw new ApiError('no ingest', 403, 'knowledge_base#ingest');
+        throw new ApiError('no ingest', 403, 'data_source#ingest');
       });
       const { POST } = await import('@/app/api/rag/[...path]/route');
       const body = { datasource_id: 'kb-reload' };
@@ -707,7 +720,8 @@ describe('RAG RBAC Integration', () => {
       expect(response.status).toBe(403);
       expect(mockRequireResourcePermission).toHaveBeenCalledWith(
         expect.objectContaining({ sub: 'admin-sub', role: 'admin' }),
-        { type: 'knowledge_base', id: 'kb-reload', action: 'ingest' },
+        { type: 'data_source', id: 'kb-reload', action: 'ingest' },
+        { bypassForOrgAdmin: true },
       );
       expect(global.fetch).not.toHaveBeenCalledWith(
         'http://localhost:9446/v1/ingest/webloader/reload',
@@ -715,7 +729,7 @@ describe('RAG RBAC Integration', () => {
       );
     });
 
-    it('requires knowledge_base admin for generic PATCH updates using path ids', async () => {
+    it('requires data_source admin for generic PATCH updates using path ids', async () => {
       const { PATCH } = await import('@/app/api/rag/[...path]/route');
       const body = { display_name: 'Renamed KB' };
 
@@ -739,7 +753,8 @@ describe('RAG RBAC Integration', () => {
       );
       expect(mockRequireResourcePermission).toHaveBeenCalledWith(
         expect.objectContaining({ sub: 'alice-sub' }),
-        { type: 'knowledge_base', id: 'kb-gamma', action: 'admin' },
+        { type: 'data_source', id: 'kb-gamma', action: 'admin' },
+        { bypassForOrgAdmin: true },
       );
     });
 
@@ -768,6 +783,7 @@ describe('RAG RBAC Integration', () => {
       expect(mockRequireResourcePermission).toHaveBeenCalledWith(
         expect.objectContaining({ sub: 'alice-sub' }),
         { type: 'knowledge_base', id: 'kb-delta', action: 'read' },
+        { bypassForOrgAdmin: true },
       );
     });
 
@@ -791,6 +807,7 @@ describe('RAG RBAC Integration', () => {
       expect(mockRequireResourcePermission).toHaveBeenCalledWith(
         expect.objectContaining({ sub: 'alice-sub' }),
         { type: 'knowledge_base', id: 'kb-epsilon', action: 'admin' },
+        { bypassForOrgAdmin: true },
       );
     });
 

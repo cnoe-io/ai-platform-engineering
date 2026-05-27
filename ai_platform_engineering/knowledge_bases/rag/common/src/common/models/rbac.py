@@ -1,36 +1,7 @@
-"""
-Shared RBAC models for the RAG system.
-
-Includes legacy role-based models (Role, UserContext) and 098 Enterprise RBAC
-models (TeamKbOwnership, TeamRagToolConfig) for team-scoped RAG tool management.
-"""
+"""Shared RBAC models for the RAG system."""
 from datetime import datetime
 from typing import List, Optional
 from pydantic import BaseModel, Field
-
-
-class KeycloakRole:
-    """Realm role name constants used in Keycloak JWT ``roles`` claim (098 Enterprise RBAC)."""
-
-    ADMIN = "admin"
-    KB_ADMIN = "kb_admin"
-    TEAM_MEMBER = "team_member"
-    CHAT_USER = "chat_user"
-    DENIED = "denied"
-    # Spec 104 — platform-wide admin (assigned to BOOTSTRAP_ADMIN_EMAILS users
-    # by init-idp.sh). Treated as a synonym for ADMIN by the RAG mapper so a
-    # single Keycloak role grants both AgentGateway admin and RAG admin.
-    ADMIN_USER = "admin_user"
-
-
-class KbPermission(BaseModel):
-    """Per-knowledge-base permission parsed from realm roles such as ``kb_reader:my-kb``."""
-
-    kb_id: str
-    scope: str
-
-    class Config:
-        frozen = True
 
 
 class Role:
@@ -38,28 +9,28 @@ class Role:
   Role definitions with hierarchical permissions.
 
   Hierarchy (higher level inherits lower level permissions):
-  0. ANONYMOUS - No access (unauthenticated users)
   1. READONLY - Read-only access (GET, query, explore)
   2. INGESTONLY - Read + ingest data (POST ingest, manage jobs)
   3. ADMIN - Full access including deletions and bulk operations
   """
 
-  ANONYMOUS = "anonymous"
   READONLY = "readonly"
   INGESTONLY = "ingestonly"
   ADMIN = "admin"
 
 
 class UserContext(BaseModel):
-  """User authentication and authorization context"""
+  """Authenticated identity context.
+
+  Human resource authorization is resolved through OpenFGA using ``subject``.
+  Static IdP groups, AD groups, and Keycloak realm roles are intentionally not
+  carried in this model.
+  """
 
   subject: Optional[str] = None
   email: str
-  groups: List[str]
   role: str
   is_authenticated: bool
-  kb_permissions: List[KbPermission] = Field(default_factory=list)
-  realm_roles: List[str] = Field(default_factory=list)
 
   class Config:
     frozen = True  # Immutable for security
@@ -71,35 +42,25 @@ class UserInfoResponse(BaseModel):
   email: str
   role: str
   is_authenticated: bool
-  groups: List[str]
   permissions: List[str]  # List of permissions: ["read", "ingest", "delete"]
-  in_trusted_network: bool
-
-
-# ============================================================================
-# 098 Enterprise RBAC — Team-scoped RAG models (data-model.md)
-# ============================================================================
 
 
 class TeamKbOwnership(BaseModel):
     """
-    Team/KB ownership assignment stored in MongoDB (FR-009, FR-015).
+    Team/KB ownership metadata stored in MongoDB.
 
-    Defines which knowledge bases and datasources a team is permitted to access.
-    The ``keycloak_role`` field links this assignment to the Keycloak realm role
-    that gates access (e.g. ``team_member(team-a)``).
+    Runtime RAG authorization decisions are made through OpenFGA relationships.
     """
     team_id: str
     tenant_id: str
     kb_ids: List[str] = Field(default_factory=list)
     allowed_datasource_ids: List[str] = Field(default_factory=list)
-    keycloak_role: str
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
 class TeamRagToolConfig(BaseModel):
     """
-    Team-scoped RAG tool configuration stored in MongoDB (FR-009).
+    Team-scoped RAG tool configuration stored in MongoDB.
 
     Validation rules:
     - ``datasource_ids`` must be a subset of the owning team's
