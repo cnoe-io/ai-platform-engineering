@@ -12,7 +12,11 @@ import {
   requireResourcePermission,
   type ResourcePermissionAction,
 } from '@/lib/rbac/resource-authz';
-import { reconcileKnowledgeBaseRelationships } from '@/lib/rbac/openfga-owned-resources';
+import {
+  reconcileDataSourceRelationships,
+  reconcileKnowledgeBaseRelationships,
+  reconcileMcpToolRelationships,
+} from '@/lib/rbac/openfga-owned-resources';
 import { checkOpenFgaTuple } from '@/lib/rbac/openfga';
 import { organizationObjectId } from '@/lib/rbac/organization';
 
@@ -120,6 +124,17 @@ interface AuthorizedRagContext {
     ownerSubject: string | null;
     ownerTeamSlug: string | null;
   };
+  /**
+   * Populated for `PUT /v1/mcp/custom-tools/<tool_id>`. The proxy
+   * writes the `mcp_tool:<tool_id>` tuples after a successful upstream
+   * response so the new tool is visible to the owner team's members in
+   * the filtered list endpoint.
+   */
+  pendingMcpToolOwnership?: {
+    toolId: string;
+    ownerSubject: string | null;
+    ownerTeamSlug: string | null;
+  };
 }
 
 function normalizeString(value: unknown): string | null {
@@ -129,6 +144,38 @@ function normalizeString(value: unknown): string | null {
 function isDatasourceCreateRequest(method: string, pathSegments: string[]): boolean {
   const path = pathSegments.join('/').toLowerCase();
   return method === 'POST' && (path === 'v1/datasource' || path === 'v1/datasources');
+}
+
+/**
+ * Detect `PUT /v1/mcp/custom-tools/<tool_id>` — the RAG server's upsert
+ * endpoint for custom MCP tools. The path's last segment is the
+ * tool id when this returns true, mirroring `extractMcpToolId`.
+ */
+function isMcpToolUpsertRequest(method: string, pathSegments: string[]): boolean {
+  const path = pathSegments.join('/').toLowerCase();
+  return (
+    method === 'PUT' &&
+    path.startsWith('v1/mcp/custom-tools/') &&
+    pathSegments.length === 4
+  );
+}
+
+/**
+ * Return the `tool_id` for an MCP-tool upsert path
+ * (`v1/mcp/custom-tools/<tool_id>`). Returns null when the path doesn't
+ * match the upsert pattern.
+ */
+function extractMcpToolId(pathSegments: string[]): string | null {
+  if (
+    pathSegments.length === 4 &&
+    pathSegments[0] === 'v1' &&
+    pathSegments[1] === 'mcp' &&
+    pathSegments[2] === 'custom-tools'
+  ) {
+    const candidate = pathSegments[3]?.trim();
+    return candidate && candidate.length > 0 ? candidate : null;
+  }
+  return null;
 }
 
 async function getAuthorizedRagContext(
@@ -173,11 +220,27 @@ async function getAuthorizedRagContext(
   } else if (kbId) {
     const authzSession = { sub: session.sub, role: session.role, user: session.user };
     const target = { type: 'knowledge_base' as const, id: kbId, action: actionForRagRequest(method, pathSegments) };
-    // PR 1 of the 2026-05-27 fine-grained KB ReBAC plan — org admins
-    // (`organization#admin`) are always allowed on the KB sidebar
-    // surfaces. The kill switch `RAG_ADMIN_BYPASS_DISABLED=true`
-    // reverts to pure per-resource checks.
     await requireResourcePermission(authzSession, target, { bypassForOrgAdmin: true });
+  }
+
+  let pendingMcpToolOwnership: AuthorizedRagContext['pendingMcpToolOwnership'];
+  if (isMcpToolUpsertRequest(method, pathSegments)) {
+    const toolId = extractMcpToolId(pathSegments);
+    if (toolId) {
+      const ownerTeamSlug = isRecord(body) ? normalizeString(body.owner_team_slug) : null;
+      if (ownerTeamSlug) {
+        await requireResourcePermission(
+          { sub: session.sub, role: session.role, user: session.user },
+          { type: 'team', id: ownerTeamSlug, action: 'use' },
+        );
+      }
+      const ownerSubject = normalizeString(session.sub);
+      pendingMcpToolOwnership = {
+        toolId,
+        ownerSubject,
+        ownerTeamSlug,
+      };
+    }
   }
 
   const headers: Record<string, string> = {
@@ -191,7 +254,7 @@ async function getAuthorizedRagContext(
   // X-Team-Id header AND the `active_team` JWT claim. RAG derives the
   // user's team membership from OpenFGA at request time using the
   // bearer-token subject (see `_kb_cel_context` on the server side).
-  return { headers, session, pendingKnowledgeBaseOwnership };
+  return { headers, session, pendingKnowledgeBaseOwnership, pendingMcpToolOwnership };
 }
 
 function isDatasourceListRequest(method: string, pathSegments: string[]): boolean {
@@ -200,6 +263,21 @@ function isDatasourceListRequest(method: string, pathSegments: string[]): boolea
 
 function datasourceId(resource: Record<string, unknown>): string {
   const value = resource.datasource_id ?? resource.id;
+  return typeof value === 'string' ? value : '';
+}
+
+/**
+ * Detect `GET /v1/mcp/custom-tools`. Used by `filterMcpToolListResponse`
+ * to gate the BFF response on `mcp_tool#can_read` per row, with
+ * org-admin bypass enabled. The RAG server doesn't yet enforce per-tool
+ * ReBAC, so the filtering is BFF-side until PR4-server.
+ */
+function isMcpToolListRequest(method: string, pathSegments: string[]): boolean {
+  return method === 'GET' && pathSegments.join('/') === 'v1/mcp/custom-tools';
+}
+
+function mcpToolIdOf(resource: Record<string, unknown>): string {
+  const value = resource.tool_id ?? resource.id;
   return typeof value === 'string' ? value : '';
 }
 
@@ -231,12 +309,47 @@ async function filterDatasourceListResponse(
       action: 'read',
       id: datasourceId,
     },
-    // PR 1 of the 2026-05-27 fine-grained KB ReBAC plan — org admins
-    // see every datasource without needing per-KB tuples.
     { bypassForOrgAdmin: true },
   );
 
   return { ...envelope, datasources, count: datasources.length };
+}
+
+/**
+ * Filter the `GET /v1/mcp/custom-tools` response to only the tools a
+ * non-admin caller has `mcp_tool#can_read` on. Org admins see every
+ * row (via `bypassForOrgAdmin: true`). RAG server returns a bare JSON
+ * array of `MCPToolConfig`, so we filter the array in place and pass
+ * through the array (rather than wrapping it in an envelope) to avoid
+ * a breaking schema change for the UI.
+ *
+ * If the kill switch `RAG_ADMIN_BYPASS_DISABLED` is on, admins go
+ * through the same per-tool filter as everyone else.
+ * assisted-by Cursor claude-opus-4-7
+ */
+async function filterMcpToolListResponse(
+  session: AuthorizedRagContext['session'],
+  pathSegments: string[],
+  data: unknown,
+): Promise<unknown> {
+  if (!isMcpToolListRequest('GET', pathSegments) || !Array.isArray(data)) {
+    return data;
+  }
+  const candidates = (data as Array<Record<string, unknown>>).filter(
+    (resource) => isRecord(resource) && mcpToolIdOf(resource).length > 0,
+  );
+  if (candidates.length === 0) return data;
+
+  return await filterResourcesByPermission(
+    session,
+    candidates,
+    {
+      type: 'mcp_tool',
+      action: 'read',
+      id: mcpToolIdOf,
+    },
+    { bypassForOrgAdmin: true },
+  );
 }
 
 async function loadReadableDatasourceIds(
@@ -263,37 +376,10 @@ async function loadReadableDatasourceIds(
       action: 'read',
       id: datasourceId,
     },
-    // PR 1 of the 2026-05-27 fine-grained KB ReBAC plan.
     { bypassForOrgAdmin: true },
   );
 
   return datasources.map(datasourceId).filter(Boolean);
-}
-
-/**
- * Org-admin OpenFGA short-circuit for the search/MCP-invoke filter
- * injection path. Mirrors the `bypassForOrgAdmin` option threaded
- * through `requireResourcePermission`. Honours
- * `RAG_ADMIN_BYPASS_DISABLED=true` as a kill switch.
- *
- * assisted-by Cursor claude-opus-4-7
- */
-async function isOrgAdminForRagBypass(subject: string | null | undefined): Promise<boolean> {
-  if (!subject) return false;
-  const killSwitch = process.env.RAG_ADMIN_BYPASS_DISABLED;
-  if (killSwitch === '1' || killSwitch?.trim().toLowerCase() === 'true') {
-    return false;
-  }
-  try {
-    const result = await checkOpenFgaTuple({
-      user: `user:${subject}`,
-      relation: 'can_manage',
-      object: organizationObjectId(),
-    });
-    return result.allowed === true;
-  } catch {
-    return false;
-  }
 }
 
 function constrainDatasourceFilter(
@@ -330,13 +416,35 @@ function constrainDatasourceFilter(
   return { ...rest, filters };
 }
 
+function isOrgAdminBypassKillSwitchEnabled(): boolean {
+  const raw = process.env.RAG_ADMIN_BYPASS_DISABLED;
+  if (!raw) return false;
+  return raw === '1' || raw.trim().toLowerCase() === 'true';
+}
+
+async function isOrgAdminSession(session: AuthorizedRagContext['session']): Promise<boolean> {
+  if (isOrgAdminBypassKillSwitchEnabled()) return false;
+  const subject = typeof session.sub === 'string' && session.sub.trim() ? session.sub.trim() : null;
+  if (!subject) return false;
+  try {
+    const result = await checkOpenFgaTuple({
+      user: `user:${subject}`,
+      relation: 'can_manage',
+      object: organizationObjectId(),
+    });
+    return result.allowed === true;
+  } catch {
+    return false;
+  }
+}
+
 async function constrainSearchBody(
   session: AuthorizedRagContext['session'],
   headers: Record<string, string>,
   pathSegments: string[],
   body: unknown,
 ): Promise<unknown> {
-  if (!isRecord(body)) {
+  if (session.role === 'admin' || !isRecord(body)) {
     return body;
   }
 
@@ -345,13 +453,10 @@ async function constrainSearchBody(
     return body;
   }
 
-  // PR 1 of the 2026-05-27 fine-grained KB ReBAC plan — org admins
-  // (resolved via OpenFGA, not session.role) skip filter injection so
-  // they search across every datasource. `session.role === 'admin'`
-  // alone is not sufficient because some installs disable the JWT-side
-  // role assignment.
-  const subject = typeof session.sub === 'string' ? session.sub : null;
-  if (await isOrgAdminForRagBypass(subject)) {
+  // Org admins (per OpenFGA `organization#admin`) skip the per-KB filter
+  // injection on KB-aware search. The kill-switch env var disables this
+  // bypass. See `bypassForOrgAdmin` in resource-authz.ts.
+  if (await isOrgAdminSession(session)) {
     return body;
   }
 
@@ -393,7 +498,8 @@ export async function GET(
     });
 
     const data = await response.json();
-    const filteredData = await filterDatasourceListResponse(session, path, data);
+    let filteredData = await filterDatasourceListResponse(session, path, data);
+    filteredData = await filterMcpToolListResponse(session, path, filteredData);
     return NextResponse.json(filteredData, { status: response.status });
   } catch (error) {
     if (error instanceof ApiError) {
@@ -446,7 +552,18 @@ export async function POST(
 
     const data = await response.json();
     if (response.ok && pendingKnowledgeBaseOwnership) {
+      // Day-zero behavior: data_source:<id> mirrors knowledge_base:<id>.
+      // Because they share the same id today, granting one without the
+      // other would leave the new `data_source` type empty for the
+      // owner team; reconciling both keeps the BFF's `mcp_tool#can_read`
+      // filter consistent with the legacy `knowledge_base#can_read` check.
+      // assisted-by Cursor claude-opus-4-7
       await reconcileKnowledgeBaseRelationships(pendingKnowledgeBaseOwnership);
+      await reconcileDataSourceRelationships({
+        dataSourceId: pendingKnowledgeBaseOwnership.knowledgeBaseId,
+        ownerSubject: pendingKnowledgeBaseOwnership.ownerSubject,
+        ownerTeamSlug: pendingKnowledgeBaseOwnership.ownerTeamSlug,
+      });
     }
     return NextResponse.json(data, { status: response.status });
   } catch (error) {
@@ -481,7 +598,7 @@ export async function PUT(
       }
     }
 
-    const { headers } = await getAuthorizedRagContext('PUT', path, request, body);
+    const { headers, pendingMcpToolOwnership } = await getAuthorizedRagContext('PUT', path, request, body);
     const fetchOptions: RequestInit = {
       method: 'PUT',
       headers,
@@ -494,10 +611,16 @@ export async function PUT(
     const response = await fetch(targetUrl, fetchOptions);
 
     if (response.status === 204) {
+      if (pendingMcpToolOwnership) {
+        await reconcileMcpToolRelationships(pendingMcpToolOwnership);
+      }
       return new NextResponse(null, { status: 204 });
     }
 
     const data = await response.json();
+    if (response.ok && pendingMcpToolOwnership) {
+      await reconcileMcpToolRelationships(pendingMcpToolOwnership);
+    }
     return NextResponse.json(data, { status: response.status });
   } catch (error) {
     if (error instanceof ApiError) {

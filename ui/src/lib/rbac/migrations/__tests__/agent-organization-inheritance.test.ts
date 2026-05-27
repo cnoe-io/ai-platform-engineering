@@ -6,7 +6,9 @@ import {
   deriveAdminSurfaceRagDatasourcesAdminGrantPlan,
   deriveAgentOrganizationInheritancePlan,
   deriveAgentSharedTeamGrantsPlan,
+  deriveDataSourceGrantsBackfillPlan,
   deriveKnowledgeBaseSharedTeamGrantsPlan,
+  deriveMcpToolGrantsBackfillPlan,
   deriveOrganizationMembershipPlan,
   deriveSkillHubTeamGrantPlan,
 } from "../registry";
@@ -219,6 +221,13 @@ describe("skill hub team grant migration", () => {
   });
 });
 
+// assisted-by Cursor Claude:claude-opus-4-7
+//
+// PR 1 of the fine-grained KB ReBAC plan: backfill
+// `user:<sub> manager admin_surface:rag_datasources` for every org
+// admin so the org-admin super-grant on KB / Search / Data Sources /
+// Graph / MCP Tools no longer relies solely on OpenFGA model
+// inheritance from `organization#admin`.
 describe("admin_surface:rag_datasources admin grant migration", () => {
   it("writes manager tuples for every org admin and dedupes repeated subjects", () => {
     const plan = deriveAdminSurfaceRagDatasourcesAdminGrantPlan([
@@ -363,6 +372,130 @@ describe("knowledge_base shared-team grants migration", () => {
 
   it("emits an empty plan when no rows exist", () => {
     const plan = deriveKnowledgeBaseSharedTeamGrantsPlan([], new Map());
+    expect(plan.tuple_writes_planned).toBe(0);
+    expect(plan.tuples).toEqual([]);
+  });
+});
+
+describe("data_source grants backfill migration", () => {
+  it("mirrors every knowledge_base tuple as a data_source tuple", () => {
+    const plan = deriveDataSourceGrantsBackfillPlan([
+      { user: "team:platform#member", relation: "reader", object: "knowledge_base:kb-alpha" },
+      { user: "team:platform#admin", relation: "manager", object: "knowledge_base:kb-alpha" },
+      { user: "team:data-eng#member", relation: "ingestor", object: "knowledge_base:kb-beta" },
+    ]);
+
+    expect(plan.counts).toMatchObject({
+      tuples_scanned: 3,
+      tuples_mirrored: 3,
+      tuples_planned: 3,
+    });
+    expect(plan.tuples).toEqual([
+      { user: "team:platform#member", relation: "reader", object: "data_source:kb-alpha" },
+      { user: "team:platform#admin", relation: "manager", object: "data_source:kb-alpha" },
+      { user: "team:data-eng#member", relation: "ingestor", object: "data_source:kb-beta" },
+    ]);
+  });
+
+  it("skips tuples whose relation is not in the mirrorable allow-list", () => {
+    const plan = deriveDataSourceGrantsBackfillPlan([
+      { user: "team:foo#member", relation: "reader", object: "knowledge_base:kb-1" },
+      { user: "team:foo#member", relation: "can_read", object: "knowledge_base:kb-1" },
+      { user: "team:foo#member", relation: "auditor", object: "knowledge_base:kb-1" },
+    ]);
+    expect(plan.counts).toMatchObject({
+      tuples_scanned: 3,
+      tuples_mirrored: 1,
+    });
+  });
+
+  it("ignores tuples on other object types", () => {
+    const plan = deriveDataSourceGrantsBackfillPlan([
+      { user: "team:foo#member", relation: "reader", object: "agent:agent-1" },
+      { user: "team:foo#member", relation: "reader", object: "knowledge_base:kb-1" },
+    ]);
+    expect(plan.counts).toMatchObject({ tuples_mirrored: 1 });
+    expect(plan.tuples).toEqual([
+      { user: "team:foo#member", relation: "reader", object: "data_source:kb-1" },
+    ]);
+  });
+
+  it("warns on knowledge_base ids that are not OpenFGA-safe", () => {
+    const plan = deriveDataSourceGrantsBackfillPlan([
+      { user: "team:foo#member", relation: "reader", object: "knowledge_base:bad id" },
+    ]);
+    expect(plan.counts).toMatchObject({ tuples_mirrored: 0 });
+    expect(plan.warnings.some((w: string) => w.includes("bad id"))).toBe(true);
+  });
+
+  it("dedupes identical tuples (idempotent re-runs)", () => {
+    const plan = deriveDataSourceGrantsBackfillPlan([
+      { user: "team:foo#member", relation: "reader", object: "knowledge_base:kb-1" },
+      { user: "team:foo#member", relation: "reader", object: "knowledge_base:kb-1" },
+    ]);
+    expect(plan.tuple_writes_planned).toBe(1);
+  });
+});
+
+describe("mcp_tool grants backfill migration", () => {
+  it("emits reader, user, AND manager tuples per (team, tool_id) row", () => {
+    const plan = deriveMcpToolGrantsBackfillPlan(
+      [
+        { team_id: "team-1", tool_ids: ["search", "infra-search"] },
+        { team_id: "team-2", tool_ids: ["custom-tool"] },
+      ],
+      new Map([
+        ["team-1", "platform"],
+        ["team-2", "data-eng"],
+      ]),
+    );
+
+    expect(plan.counts).toMatchObject({
+      ownership_rows_scanned: 2,
+      ownership_rows_resolved: 2,
+      teams_touched: 2,
+      tuples_planned: 9, // 3 tools × 3 relations each
+    });
+    expect(plan.tuples).toEqual(
+      expect.arrayContaining([
+        { user: "team:platform#member", relation: "reader", object: "mcp_tool:search" },
+        { user: "team:platform#member", relation: "user", object: "mcp_tool:search" },
+        { user: "team:platform#admin", relation: "manager", object: "mcp_tool:search" },
+        { user: "team:platform#member", relation: "reader", object: "mcp_tool:infra-search" },
+        { user: "team:data-eng#member", relation: "user", object: "mcp_tool:custom-tool" },
+      ]),
+    );
+  });
+
+  it("warns and skips rows whose team_id cannot be resolved to a slug", () => {
+    const plan = deriveMcpToolGrantsBackfillPlan(
+      [
+        { team_id: "team-1", tool_ids: ["search"] },
+        { team_id: "ghost", tool_ids: ["custom"] },
+      ],
+      new Map([["team-1", "platform"]]),
+    );
+    expect(plan.counts).toMatchObject({
+      ownership_rows_resolved: 1,
+      unresolved_teams: 1,
+    });
+    expect(plan.warnings.some((w: string) => w.includes("ghost"))).toBe(true);
+  });
+
+  it("skips invalid tool_ids with a warning", () => {
+    const plan = deriveMcpToolGrantsBackfillPlan(
+      [{ team_id: "team-1", tool_ids: ["good", "bad id with spaces"] }],
+      new Map([["team-1", "platform"]]),
+    );
+    expect(plan.counts).toMatchObject({
+      invalid_tool_ids: 1,
+      tuples_planned: 3,
+    });
+    expect(plan.warnings.some((w: string) => w.includes("bad id with spaces"))).toBe(true);
+  });
+
+  it("emits an empty plan when no rows exist", () => {
+    const plan = deriveMcpToolGrantsBackfillPlan([], new Map());
     expect(plan.tuple_writes_planned).toBe(0);
     expect(plan.tuples).toEqual([]);
   });

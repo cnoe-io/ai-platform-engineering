@@ -3,15 +3,18 @@
   "type_definitions": [
     {
       "type": "user",
-      "relations": {}
+      "relations": {},
+      "metadata": null
     },
     {
       "type": "service_account",
-      "relations": {}
+      "relations": {},
+      "metadata": null
     },
     {
       "type": "anonymous",
-      "relations": {}
+      "relations": {},
+      "metadata": null
     },
     {
       "type": "user_profile",
@@ -101,6 +104,15 @@
                 "relation": "admin"
               }
             ]
+          },
+          "can_discover": {
+            "directly_related_user_types": []
+          },
+          "can_read": {
+            "directly_related_user_types": []
+          },
+          "can_manage": {
+            "directly_related_user_types": []
           }
         }
       }
@@ -205,6 +217,15 @@
                 "relation": "member"
               }
             ]
+          },
+          "can_read": {
+            "directly_related_user_types": []
+          },
+          "can_use": {
+            "directly_related_user_types": []
+          },
+          "can_manage": {
+            "directly_related_user_types": []
           }
         }
       }
@@ -318,6 +339,15 @@
                 "relation": "member"
               }
             ]
+          },
+          "can_use": {
+            "directly_related_user_types": []
+          },
+          "can_manage": {
+            "directly_related_user_types": []
+          },
+          "can_audit": {
+            "directly_related_user_types": []
           }
         }
       }
@@ -428,6 +458,277 @@
                 "relation": "admin"
               }
             ]
+          },
+          "can_discover": {
+            "directly_related_user_types": []
+          },
+          "can_read": {
+            "directly_related_user_types": []
+          },
+          "can_manage": {
+            "directly_related_user_types": []
+          },
+          "can_audit": {
+            "directly_related_user_types": []
+          }
+        }
+      }
+    },
+    {
+      "type": "slack_channel",
+      "relations": {
+        "owner": {
+          "this": {}
+        },
+        "reader": {
+          "this": {}
+        },
+        "user": {
+          "this": {}
+        },
+        "writer": {
+          "this": {}
+        },
+        "manager": {
+          "this": {}
+        },
+        "auditor": {
+          "this": {}
+        },
+        "can_discover": {
+          "computedUserset": {
+            "relation": "can_read"
+          }
+        },
+        "can_read": {
+          "union": {
+            "child": [
+              {
+                "computedUserset": {
+                  "relation": "reader"
+                }
+              },
+              {
+                "computedUserset": {
+                  "relation": "can_use"
+                }
+              },
+              {
+                "computedUserset": {
+                  "relation": "can_manage"
+                }
+              },
+              {
+                "computedUserset": {
+                  "relation": "owner"
+                }
+              }
+            ]
+          }
+        },
+        "can_use": {
+          "union": {
+            "child": [
+              {
+                "computedUserset": {
+                  "relation": "user"
+                }
+              },
+              {
+                "computedUserset": {
+                  "relation": "can_write"
+                }
+              },
+              {
+                "computedUserset": {
+                  "relation": "can_manage"
+                }
+              },
+              {
+                "computedUserset": {
+                  "relation": "owner"
+                }
+              }
+            ]
+          }
+        },
+        "can_write": {
+          "union": {
+            "child": [
+              {
+                "computedUserset": {
+                  "relation": "writer"
+                }
+              },
+              {
+                "computedUserset": {
+                  "relation": "can_manage"
+                }
+              },
+              {
+                "computedUserset": {
+                  "relation": "owner"
+                }
+              }
+            ]
+          }
+        },
+        "can_manage": {
+          "union": {
+            "child": [
+              {
+                "computedUserset": {
+                  "relation": "manager"
+                }
+              },
+              {
+                "computedUserset": {
+                  "relation": "owner"
+                }
+              }
+            ]
+          }
+        },
+        "can_audit": {
+          "union": {
+            "child": [
+              {
+                "computedUserset": {
+                  "relation": "auditor"
+                }
+              },
+              {
+                "computedUserset": {
+                  "relation": "can_manage"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "metadata": {
+        "relations": {
+          "owner": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              }
+            ]
+          },
+          "reader": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "member"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              },
+              {
+                "type": "external_group",
+                "relation": "member"
+              }
+            ]
+          },
+          "user": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "member"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              },
+              {
+                "type": "external_group",
+                "relation": "member"
+              }
+            ]
+          },
+          "writer": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "member"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              },
+              {
+                "type": "external_group",
+                "relation": "member"
+              }
+            ]
+          },
+          "manager": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              }
+            ]
+          },
+          "auditor": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              }
+            ]
+          },
+          "can_discover": {
+            "directly_related_user_types": []
+          },
+          "can_read": {
+            "directly_related_user_types": []
+          },
+          "can_use": {
+            "directly_related_user_types": []
+          },
+          "can_write": {
+            "directly_related_user_types": []
+          },
+          "can_manage": {
+            "directly_related_user_types": []
+          },
+          "can_audit": {
+            "directly_related_user_types": []
           }
         }
       }
@@ -538,247 +839,18 @@
                 "relation": "admin"
               }
             ]
-          }
-        }
-      }
-    },
-    {
-      "type": "slack_channel",
-      "relations": {
-        "reader": {
-          "this": {}
-        },
-        "user": {
-          "this": {}
-        },
-        "writer": {
-          "this": {}
-        },
-        "manager": {
-          "this": {}
-        },
-        "auditor": {
-          "this": {}
-        },
-        "can_discover": {
-          "computedUserset": {
-            "relation": "can_read"
-          }
-        },
-        "can_read": {
-          "union": {
-            "child": [
-              {
-                "computedUserset": {
-                  "relation": "reader"
-                }
-              },
-              {
-                "computedUserset": {
-                  "relation": "can_use"
-                }
-              },
-              {
-                "computedUserset": {
-                  "relation": "can_manage"
-                }
-              },
-              {
-                "computedUserset": {
-                  "relation": "owner"
-                }
-              }
-            ]
-          }
-        },
-        "can_use": {
-          "union": {
-            "child": [
-              {
-                "computedUserset": {
-                  "relation": "user"
-                }
-              },
-              {
-                "computedUserset": {
-                  "relation": "can_write"
-                }
-              },
-              {
-                "computedUserset": {
-                  "relation": "can_manage"
-                }
-              },
-              {
-                "computedUserset": {
-                  "relation": "owner"
-                }
-              }
-            ]
-          }
-        },
-        "can_write": {
-          "union": {
-            "child": [
-              {
-                "computedUserset": {
-                  "relation": "writer"
-                }
-              },
-              {
-                "computedUserset": {
-                  "relation": "can_manage"
-                }
-              },
-              {
-                "computedUserset": {
-                  "relation": "owner"
-                }
-              }
-            ]
-          }
-        },
-        "can_manage": {
-          "union": {
-            "child": [
-              {
-                "computedUserset": {
-                  "relation": "manager"
-                }
-              },
-              {
-                "computedUserset": {
-                  "relation": "owner"
-                }
-              }
-            ]
-          }
-        },
-        "can_audit": {
-          "union": {
-            "child": [
-              {
-                "computedUserset": {
-                  "relation": "auditor"
-                }
-              },
-              {
-                "computedUserset": {
-                  "relation": "can_manage"
-                }
-              }
-            ]
-          }
-        },
-        "owner": {
-          "this": {}
-        }
-      },
-      "metadata": {
-        "relations": {
-          "reader": {
-            "directly_related_user_types": [
-              {
-                "type": "user"
-              },
-              {
-                "type": "service_account"
-              },
-              {
-                "type": "team",
-                "relation": "member"
-              },
-              {
-                "type": "team",
-                "relation": "admin"
-              },
-              {
-                "type": "external_group",
-                "relation": "member"
-              }
-            ]
           },
-          "user": {
-            "directly_related_user_types": [
-              {
-                "type": "user"
-              },
-              {
-                "type": "service_account"
-              },
-              {
-                "type": "team",
-                "relation": "member"
-              },
-              {
-                "type": "team",
-                "relation": "admin"
-              },
-              {
-                "type": "external_group",
-                "relation": "member"
-              }
-            ]
+          "can_discover": {
+            "directly_related_user_types": []
           },
-          "writer": {
-            "directly_related_user_types": [
-              {
-                "type": "user"
-              },
-              {
-                "type": "service_account"
-              },
-              {
-                "type": "team",
-                "relation": "member"
-              },
-              {
-                "type": "team",
-                "relation": "admin"
-              },
-              {
-                "type": "external_group",
-                "relation": "member"
-              }
-            ]
+          "can_read": {
+            "directly_related_user_types": []
           },
-          "manager": {
-            "directly_related_user_types": [
-              {
-                "type": "user"
-              },
-              {
-                "type": "service_account"
-              },
-              {
-                "type": "team",
-                "relation": "admin"
-              }
-            ]
+          "can_manage": {
+            "directly_related_user_types": []
           },
-          "auditor": {
-            "directly_related_user_types": [
-              {
-                "type": "user"
-              },
-              {
-                "type": "service_account"
-              },
-              {
-                "type": "team",
-                "relation": "admin"
-              }
-            ]
-          },
-          "owner": {
-            "directly_related_user_types": [
-              {
-                "type": "user"
-              },
-              {
-                "type": "service_account"
-              }
-            ]
+          "can_audit": {
+            "directly_related_user_types": []
           }
         }
       }
@@ -786,6 +858,9 @@
     {
       "type": "webex_space",
       "relations": {
+        "owner": {
+          "this": {}
+        },
         "reader": {
           "this": {}
         },
@@ -910,13 +985,20 @@
               }
             ]
           }
-        },
-        "owner": {
-          "this": {}
         }
       },
       "metadata": {
         "relations": {
+          "owner": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              }
+            ]
+          },
           "reader": {
             "directly_related_user_types": [
               {
@@ -1011,15 +1093,23 @@
               }
             ]
           },
-          "owner": {
-            "directly_related_user_types": [
-              {
-                "type": "user"
-              },
-              {
-                "type": "service_account"
-              }
-            ]
+          "can_discover": {
+            "directly_related_user_types": []
+          },
+          "can_read": {
+            "directly_related_user_types": []
+          },
+          "can_use": {
+            "directly_related_user_types": []
+          },
+          "can_write": {
+            "directly_related_user_types": []
+          },
+          "can_manage": {
+            "directly_related_user_types": []
+          },
+          "can_audit": {
+            "directly_related_user_types": []
           }
         }
       }
@@ -1282,6 +1372,27 @@
                 "relation": "admin"
               }
             ]
+          },
+          "can_discover": {
+            "directly_related_user_types": []
+          },
+          "can_read": {
+            "directly_related_user_types": []
+          },
+          "can_use": {
+            "directly_related_user_types": []
+          },
+          "can_write": {
+            "directly_related_user_types": []
+          },
+          "can_delete": {
+            "directly_related_user_types": []
+          },
+          "can_manage": {
+            "directly_related_user_types": []
+          },
+          "can_audit": {
+            "directly_related_user_types": []
           }
         }
       }
@@ -1289,6 +1400,9 @@
     {
       "type": "mcp_server",
       "relations": {
+        "owner": {
+          "this": {}
+        },
         "reader": {
           "this": {}
         },
@@ -1382,6 +1496,11 @@
             ]
           }
         },
+        "can_delete": {
+          "computedUserset": {
+            "relation": "can_manage"
+          }
+        },
         "can_manage": {
           "union": {
             "child": [
@@ -1413,18 +1532,20 @@
               }
             ]
           }
-        },
-        "owner": {
-          "this": {}
-        },
-        "can_delete": {
-          "computedUserset": {
-            "relation": "can_manage"
-          }
         }
       },
       "metadata": {
         "relations": {
+          "owner": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              }
+            ]
+          },
           "reader": {
             "directly_related_user_types": [
               {
@@ -1553,15 +1674,26 @@
               }
             ]
           },
-          "owner": {
-            "directly_related_user_types": [
-              {
-                "type": "user"
-              },
-              {
-                "type": "service_account"
-              }
-            ]
+          "can_discover": {
+            "directly_related_user_types": []
+          },
+          "can_read": {
+            "directly_related_user_types": []
+          },
+          "can_use": {
+            "directly_related_user_types": []
+          },
+          "can_invoke": {
+            "directly_related_user_types": []
+          },
+          "can_delete": {
+            "directly_related_user_types": []
+          },
+          "can_manage": {
+            "directly_related_user_types": []
+          },
+          "can_audit": {
+            "directly_related_user_types": []
           }
         }
       }
@@ -1734,6 +1866,24 @@
                 "relation": "admin"
               }
             ]
+          },
+          "can_discover": {
+            "directly_related_user_types": []
+          },
+          "can_read": {
+            "directly_related_user_types": []
+          },
+          "can_write": {
+            "directly_related_user_types": []
+          },
+          "can_delete": {
+            "directly_related_user_types": []
+          },
+          "can_manage": {
+            "directly_related_user_types": []
+          },
+          "can_audit": {
+            "directly_related_user_types": []
           }
         }
       }
@@ -1758,6 +1908,9 @@
                 "type": "user"
               }
             ]
+          },
+          "can_call": {
+            "directly_related_user_types": []
           }
         }
       }
@@ -1981,6 +2134,24 @@
                 "relation": "admin"
               }
             ]
+          },
+          "can_discover": {
+            "directly_related_user_types": []
+          },
+          "can_read": {
+            "directly_related_user_types": []
+          },
+          "can_use": {
+            "directly_related_user_types": []
+          },
+          "can_call": {
+            "directly_related_user_types": []
+          },
+          "can_manage": {
+            "directly_related_user_types": []
+          },
+          "can_audit": {
+            "directly_related_user_types": []
           }
         }
       }
@@ -2176,6 +2347,10 @@
               {
                 "type": "team",
                 "relation": "admin"
+              },
+              {
+                "type": "organization",
+                "relation": "admin"
               }
             ]
           },
@@ -2192,6 +2367,537 @@
                 "relation": "admin"
               }
             ]
+          },
+          "can_discover": {
+            "directly_related_user_types": []
+          },
+          "can_read": {
+            "directly_related_user_types": []
+          },
+          "can_use": {
+            "directly_related_user_types": []
+          },
+          "can_write": {
+            "directly_related_user_types": []
+          },
+          "can_ingest": {
+            "directly_related_user_types": []
+          },
+          "can_admin": {
+            "directly_related_user_types": []
+          },
+          "can_manage": {
+            "directly_related_user_types": []
+          },
+          "can_audit": {
+            "directly_related_user_types": []
+          }
+        }
+      }
+    },
+    {
+      "type": "data_source",
+      "relations": {
+        "owner": {
+          "this": {}
+        },
+        "reader": {
+          "this": {}
+        },
+        "ingestor": {
+          "this": {}
+        },
+        "manager": {
+          "this": {}
+        },
+        "auditor": {
+          "this": {}
+        },
+        "can_discover": {
+          "computedUserset": {
+            "relation": "can_read"
+          }
+        },
+        "can_read": {
+          "union": {
+            "child": [
+              {
+                "computedUserset": {
+                  "relation": "reader"
+                }
+              },
+              {
+                "computedUserset": {
+                  "relation": "can_ingest"
+                }
+              },
+              {
+                "computedUserset": {
+                  "relation": "can_manage"
+                }
+              },
+              {
+                "computedUserset": {
+                  "relation": "owner"
+                }
+              }
+            ]
+          }
+        },
+        "can_use": {
+          "computedUserset": {
+            "relation": "can_read"
+          }
+        },
+        "can_write": {
+          "computedUserset": {
+            "relation": "can_ingest"
+          }
+        },
+        "can_ingest": {
+          "union": {
+            "child": [
+              {
+                "computedUserset": {
+                  "relation": "ingestor"
+                }
+              },
+              {
+                "computedUserset": {
+                  "relation": "can_manage"
+                }
+              },
+              {
+                "computedUserset": {
+                  "relation": "owner"
+                }
+              }
+            ]
+          }
+        },
+        "can_delete": {
+          "computedUserset": {
+            "relation": "can_manage"
+          }
+        },
+        "can_manage": {
+          "union": {
+            "child": [
+              {
+                "computedUserset": {
+                  "relation": "manager"
+                }
+              },
+              {
+                "computedUserset": {
+                  "relation": "owner"
+                }
+              }
+            ]
+          }
+        },
+        "can_audit": {
+          "union": {
+            "child": [
+              {
+                "computedUserset": {
+                  "relation": "auditor"
+                }
+              },
+              {
+                "computedUserset": {
+                  "relation": "can_manage"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "metadata": {
+        "relations": {
+          "owner": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              }
+            ]
+          },
+          "reader": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "member"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              },
+              {
+                "type": "external_group",
+                "relation": "member"
+              }
+            ]
+          },
+          "ingestor": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "member"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              },
+              {
+                "type": "external_group",
+                "relation": "member"
+              }
+            ]
+          },
+          "manager": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              },
+              {
+                "type": "organization",
+                "relation": "admin"
+              }
+            ]
+          },
+          "auditor": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              }
+            ]
+          },
+          "can_discover": {
+            "directly_related_user_types": []
+          },
+          "can_read": {
+            "directly_related_user_types": []
+          },
+          "can_use": {
+            "directly_related_user_types": []
+          },
+          "can_write": {
+            "directly_related_user_types": []
+          },
+          "can_ingest": {
+            "directly_related_user_types": []
+          },
+          "can_delete": {
+            "directly_related_user_types": []
+          },
+          "can_manage": {
+            "directly_related_user_types": []
+          },
+          "can_audit": {
+            "directly_related_user_types": []
+          }
+        }
+      }
+    },
+    {
+      "type": "mcp_tool",
+      "relations": {
+        "owner": {
+          "this": {}
+        },
+        "reader": {
+          "this": {}
+        },
+        "user": {
+          "this": {}
+        },
+        "caller": {
+          "this": {}
+        },
+        "manager": {
+          "this": {}
+        },
+        "auditor": {
+          "this": {}
+        },
+        "can_discover": {
+          "computedUserset": {
+            "relation": "can_read"
+          }
+        },
+        "can_read": {
+          "union": {
+            "child": [
+              {
+                "computedUserset": {
+                  "relation": "reader"
+                }
+              },
+              {
+                "computedUserset": {
+                  "relation": "can_use"
+                }
+              },
+              {
+                "computedUserset": {
+                  "relation": "can_manage"
+                }
+              },
+              {
+                "computedUserset": {
+                  "relation": "owner"
+                }
+              }
+            ]
+          }
+        },
+        "can_use": {
+          "union": {
+            "child": [
+              {
+                "computedUserset": {
+                  "relation": "user"
+                }
+              },
+              {
+                "computedUserset": {
+                  "relation": "can_call"
+                }
+              },
+              {
+                "computedUserset": {
+                  "relation": "can_manage"
+                }
+              },
+              {
+                "computedUserset": {
+                  "relation": "owner"
+                }
+              }
+            ]
+          }
+        },
+        "can_call": {
+          "union": {
+            "child": [
+              {
+                "computedUserset": {
+                  "relation": "caller"
+                }
+              },
+              {
+                "computedUserset": {
+                  "relation": "can_manage"
+                }
+              },
+              {
+                "computedUserset": {
+                  "relation": "owner"
+                }
+              }
+            ]
+          }
+        },
+        "can_delete": {
+          "computedUserset": {
+            "relation": "can_manage"
+          }
+        },
+        "can_manage": {
+          "union": {
+            "child": [
+              {
+                "computedUserset": {
+                  "relation": "manager"
+                }
+              },
+              {
+                "computedUserset": {
+                  "relation": "owner"
+                }
+              }
+            ]
+          }
+        },
+        "can_audit": {
+          "union": {
+            "child": [
+              {
+                "computedUserset": {
+                  "relation": "auditor"
+                }
+              },
+              {
+                "computedUserset": {
+                  "relation": "can_manage"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "metadata": {
+        "relations": {
+          "owner": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              }
+            ]
+          },
+          "reader": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "member"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              },
+              {
+                "type": "external_group",
+                "relation": "member"
+              }
+            ]
+          },
+          "user": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "member"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              },
+              {
+                "type": "external_group",
+                "relation": "member"
+              }
+            ]
+          },
+          "caller": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "member"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              },
+              {
+                "type": "external_group",
+                "relation": "member"
+              },
+              {
+                "type": "agent"
+              }
+            ]
+          },
+          "manager": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              },
+              {
+                "type": "organization",
+                "relation": "admin"
+              }
+            ]
+          },
+          "auditor": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              }
+            ]
+          },
+          "can_discover": {
+            "directly_related_user_types": []
+          },
+          "can_read": {
+            "directly_related_user_types": []
+          },
+          "can_use": {
+            "directly_related_user_types": []
+          },
+          "can_call": {
+            "directly_related_user_types": []
+          },
+          "can_delete": {
+            "directly_related_user_types": []
+          },
+          "can_manage": {
+            "directly_related_user_types": []
+          },
+          "can_audit": {
+            "directly_related_user_types": []
           }
         }
       }
@@ -2426,6 +3132,24 @@
                 "relation": "admin"
               }
             ]
+          },
+          "can_discover": {
+            "directly_related_user_types": []
+          },
+          "can_read": {
+            "directly_related_user_types": []
+          },
+          "can_write": {
+            "directly_related_user_types": []
+          },
+          "can_delete": {
+            "directly_related_user_types": []
+          },
+          "can_share": {
+            "directly_related_user_types": []
+          },
+          "can_audit": {
+            "directly_related_user_types": []
           }
         }
       }
@@ -2675,6 +3399,24 @@
                 "relation": "admin"
               }
             ]
+          },
+          "can_discover": {
+            "directly_related_user_types": []
+          },
+          "can_read": {
+            "directly_related_user_types": []
+          },
+          "can_use": {
+            "directly_related_user_types": []
+          },
+          "can_write": {
+            "directly_related_user_types": []
+          },
+          "can_manage": {
+            "directly_related_user_types": []
+          },
+          "can_audit": {
+            "directly_related_user_types": []
           }
         }
       }
@@ -2912,6 +3654,24 @@
                 "relation": "admin"
               }
             ]
+          },
+          "can_discover": {
+            "directly_related_user_types": []
+          },
+          "can_read": {
+            "directly_related_user_types": []
+          },
+          "can_use": {
+            "directly_related_user_types": []
+          },
+          "can_write": {
+            "directly_related_user_types": []
+          },
+          "can_manage": {
+            "directly_related_user_types": []
+          },
+          "can_audit": {
+            "directly_related_user_types": []
           }
         }
       }
@@ -3136,6 +3896,24 @@
                 "relation": "admin"
               }
             ]
+          },
+          "can_discover": {
+            "directly_related_user_types": []
+          },
+          "can_read": {
+            "directly_related_user_types": []
+          },
+          "can_write": {
+            "directly_related_user_types": []
+          },
+          "can_share": {
+            "directly_related_user_types": []
+          },
+          "can_delete": {
+            "directly_related_user_types": []
+          },
+          "can_audit": {
+            "directly_related_user_types": []
           }
         }
       }
@@ -3284,6 +4062,21 @@
                 "relation": "admin"
               }
             ]
+          },
+          "can_discover": {
+            "directly_related_user_types": []
+          },
+          "can_read": {
+            "directly_related_user_types": []
+          },
+          "can_write": {
+            "directly_related_user_types": []
+          },
+          "can_manage": {
+            "directly_related_user_types": []
+          },
+          "can_audit": {
+            "directly_related_user_types": []
           }
         }
       }
@@ -3457,6 +4250,24 @@
                 "relation": "admin"
               }
             ]
+          },
+          "can_discover": {
+            "directly_related_user_types": []
+          },
+          "can_read": {
+            "directly_related_user_types": []
+          },
+          "can_write": {
+            "directly_related_user_types": []
+          },
+          "can_approve": {
+            "directly_related_user_types": []
+          },
+          "can_manage": {
+            "directly_related_user_types": []
+          },
+          "can_audit": {
+            "directly_related_user_types": []
           }
         }
       }
@@ -3526,6 +4337,15 @@
                 "relation": "admin"
               }
             ]
+          },
+          "can_discover": {
+            "directly_related_user_types": []
+          },
+          "can_read": {
+            "directly_related_user_types": []
+          },
+          "can_audit": {
+            "directly_related_user_types": []
           }
         }
       }
@@ -3665,6 +4485,21 @@
                 "relation": "admin"
               }
             ]
+          },
+          "can_discover": {
+            "directly_related_user_types": []
+          },
+          "can_read_metadata": {
+            "directly_related_user_types": []
+          },
+          "can_use": {
+            "directly_related_user_types": []
+          },
+          "can_manage": {
+            "directly_related_user_types": []
+          },
+          "can_audit": {
+            "directly_related_user_types": []
           }
         }
       }
@@ -3805,6 +4640,21 @@
                 "relation": "admin"
               }
             ]
+          },
+          "can_discover": {
+            "directly_related_user_types": []
+          },
+          "can_read": {
+            "directly_related_user_types": []
+          },
+          "can_write": {
+            "directly_related_user_types": []
+          },
+          "can_manage": {
+            "directly_related_user_types": []
+          },
+          "can_audit": {
+            "directly_related_user_types": []
           }
         }
       }
