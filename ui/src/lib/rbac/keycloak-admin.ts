@@ -735,6 +735,7 @@ interface KeycloakClient {
 }
 
 interface KeycloakManagementPermissions {
+  enabled?: boolean;
   scopePermissions?: Record<string, string | undefined>;
 }
 
