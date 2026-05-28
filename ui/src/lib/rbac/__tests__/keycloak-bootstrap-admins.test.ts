@@ -61,6 +61,7 @@ describe("bootstrap admin reconciliation", () => {
         { user: "user:sub-admin", relation: "member", object: "organization:grid" },
         { user: "user:sub-admin", relation: "reader", object: "system_config:platform_settings" },
         { user: "user:sub-admin", relation: "owner", object: "user_profile:sub-admin" },
+        { user: "user:sub-admin", relation: "caller", object: "mcp_gateway:list" },
         { user: "user:sub-admin", relation: "reader", object: "admin_surface:users" },
         { user: "user:sub-admin", relation: "reader", object: "admin_surface:teams" },
         { user: "user:sub-admin", relation: "reader", object: "admin_surface:skills" },
