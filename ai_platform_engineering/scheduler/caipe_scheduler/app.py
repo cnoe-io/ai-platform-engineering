@@ -110,8 +110,10 @@ def create_schedule(
         "schedule_id": schedule_id,
         "owner_user_id": body.owner_user_id,
         "agent_id": body.agent_id,
+        "title": body.title,
         "message_template": body.message_template,
         "pod_id": body.pod_id,
+        "attributes": body.attributes,
         "cron": body.cron,
         "tz": body.tz,
         "enabled": True,
@@ -184,6 +186,10 @@ def patch_schedule(
         validate_tz(patch["tz"])
     if "message_template" in patch and patch["message_template"] is not None:
         validate_message(patch["message_template"], settings.max_message_chars)
+    if "title" in patch and patch["title"] is None:
+        raise HTTPException(422, "title must be a non-empty string.")
+    if "attributes" in patch and patch["attributes"] is None:
+        raise HTTPException(422, "attributes must be a JSON object.")
     if "agent_id" in patch and patch["agent_id"] is not None:
         if not store.agent_exists(patch["agent_id"]):
             raise HTTPException(404, f"agent_id {patch['agent_id']!r} not found.")

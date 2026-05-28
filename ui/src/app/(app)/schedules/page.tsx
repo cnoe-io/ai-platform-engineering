@@ -47,9 +47,11 @@ interface ScheduleVersion {
   version: number;
   superseded_at: string | null;
   changed_fields: string[];
+  title: string | null;
   agent_id: string;
   message_template: string;
   pod_id: string | null;
+  attributes: Record<string, unknown>;
   cron: string;
   tz: string;
   enabled: boolean;
@@ -62,8 +64,10 @@ interface ScheduleItem {
   schedule_id: string;
   agent_id: string;
   agent_name: string;
+  title: string | null;
   message_template: string;
   pod_id: string | null;
+  attributes: Record<string, unknown>;
   cron: string;
   tz: string;
   enabled: boolean;
@@ -116,6 +120,38 @@ function changedFieldsLabel(version: ScheduleVersion): string {
     : "settings";
 }
 
+function scheduleTitle(schedule: ScheduleItem): string {
+  return schedule.title?.trim() || schedule.agent_name || schedule.schedule_id;
+}
+
+function formatAttributeLabel(key: string): string {
+  return key.replace(/[_-]+/g, " ");
+}
+
+function formatAttributeValue(value: unknown): string | null {
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function scheduleAttributeEntries(schedule: ScheduleItem): [string, string][] {
+  const attributes =
+    schedule.attributes && Object.keys(schedule.attributes).length > 0
+      ? schedule.attributes
+      : schedule.pod_id
+        ? { pod_id: schedule.pod_id }
+        : {};
+
+  return Object.entries(attributes)
+    .map(([key, value]) => [key, formatAttributeValue(value)] as [string, string | null])
+    .filter((entry): entry is [string, string] => Boolean(entry[1]));
+}
+
 export default function SchedulesPage() {
   const router = useRouter();
   const createConversation = useChatStore((state) => state.createConversation);
@@ -127,6 +163,7 @@ export default function SchedulesPage() {
   const [chattingId, setChattingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editingItem, setEditingItem] = useState<ScheduleItem | null>(null);
+  const [editTitle, setEditTitle] = useState("");
   const [editCron, setEditCron] = useState("");
   const [editTz, setEditTz] = useState("");
   const [editMessage, setEditMessage] = useState("");
@@ -155,6 +192,7 @@ export default function SchedulesPage() {
 
   const openEditor = useCallback((item: ScheduleItem) => {
     setEditingItem(item);
+    setEditTitle(scheduleTitle(item));
     setEditCron(item.cron);
     setEditTz(item.tz);
     setEditMessage(item.message_template);
@@ -169,6 +207,7 @@ export default function SchedulesPage() {
     setEditingItem((current) =>
       current?.schedule_id === updated.schedule_id ? updated : current
     );
+    setEditTitle(scheduleTitle(updated));
     setEditCron(updated.cron);
     setEditTz(updated.tz);
     setEditMessage(updated.message_template);
@@ -209,6 +248,8 @@ export default function SchedulesPage() {
         tz?: string;
         message_template?: string;
         enabled?: boolean;
+        title?: string;
+        attributes?: Record<string, unknown>;
       },
       failureMessage: string
     ) => {
@@ -242,13 +283,14 @@ export default function SchedulesPage() {
     await patchSchedule(
       editingItem,
       {
+        title: editTitle,
         cron: editCron,
         tz: editTz,
         message_template: editMessage,
       },
       "Failed to update schedule"
     );
-  }, [editCron, editMessage, editTz, editingItem, patchSchedule]);
+  }, [editCron, editMessage, editTitle, editTz, editingItem, patchSchedule]);
 
   const rollbackToVersion = useCallback(
     async (version: ScheduleVersion) => {
@@ -256,6 +298,8 @@ export default function SchedulesPage() {
       await patchSchedule(
         editingItem,
         {
+          ...(version.title ? { title: version.title } : {}),
+          attributes: version.attributes,
           cron: version.cron,
           tz: version.tz,
           message_template: version.message_template,
@@ -278,9 +322,11 @@ export default function SchedulesPage() {
           [
             "Help me modify this scheduled job.",
             "",
+            `title: ${scheduleTitle(item)}`,
             `schedule_id: ${item.schedule_id}`,
             `agent_id: ${item.agent_id}`,
             `pod_id: ${item.pod_id || "none"}`,
+            `attributes: ${JSON.stringify(item.attributes || {})}`,
             `cron: ${item.cron}`,
             `timezone: ${item.tz}`,
             `enabled: ${item.enabled}`,
@@ -393,6 +439,15 @@ export default function SchedulesPage() {
 
                     <ScrollArea className="max-h-[68vh] pr-4">
                       <div className="space-y-5">
+                        <div className="space-y-2">
+                          <Label htmlFor="schedule-title">Title</Label>
+                          <Input
+                            id="schedule-title"
+                            value={editTitle}
+                            onChange={(event) => setEditTitle(event.target.value)}
+                          />
+                        </div>
+
                         <div className="grid gap-4 sm:grid-cols-[1fr_1fr_auto]">
                           <div className="space-y-2">
                             <Label htmlFor="schedule-cron">Cron</Label>
@@ -559,110 +614,118 @@ export default function SchedulesPage() {
                         </td>
                       </tr>
                     ) : (
-                      items.map((item) => (
-                        <tr key={item.schedule_id} className="border-b last:border-b-0">
-                          <td className="px-4 py-3 align-top">
-                            <div className="space-y-1">
-                              <div className="font-medium">{item.agent_name}</div>
-                              <div className="font-mono text-xs text-muted-foreground">
-                                {item.schedule_id}
-                              </div>
-                              {item.cronjob_name && (
-                                <div className="font-mono text-xs text-muted-foreground">
-                                  {item.cronjob_name}
-                                </div>
-                              )}
-                              {item.pod_id && (
-                                <Badge variant="outline" className="mt-1">
-                                  {item.pod_id}
-                                </Badge>
-                              )}
-                            </div>
-                          </td>
-                          <td className="px-4 py-3 align-top">
-                            <div className="space-y-1">
-                              <div className="font-mono">{item.cron}</div>
-                              <div className="text-xs text-muted-foreground">{item.tz}</div>
-                              <div className="text-xs text-muted-foreground">
-                                Version {item.version || 1}
-                              </div>
-                              <div className="text-xs text-muted-foreground">
-                                Created {formatRelative(item.created_at)}
-                              </div>
-                            </div>
-                          </td>
-                          <td className="max-w-md px-4 py-3 align-top">
-                            <code className="block max-h-24 overflow-hidden whitespace-pre-wrap break-words rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">
-                              {item.message_template}
-                            </code>
-                          </td>
-                          <td className="px-4 py-3 align-top">
-                            <div className="space-y-1">
-                              <div>{lastRunLabel(item)}</div>
-                              {item.last_run?.ts && (
+                      items.map((item) => {
+                        const attributeEntries = scheduleAttributeEntries(item);
+
+                        return (
+                          <tr key={item.schedule_id} className="border-b last:border-b-0">
+                            <td className="px-4 py-3 align-top">
+                              <div className="space-y-1">
+                                <div className="font-medium">{scheduleTitle(item)}</div>
                                 <div className="text-xs text-muted-foreground">
-                                  {formatDateTime(item.last_run.ts)}
+                                  agent: {item.agent_name}
                                 </div>
-                              )}
-                              {item.last_run?.error && (
-                                <div className="max-w-xs break-words text-xs text-red-300">
-                                  {item.last_run.error}
+                                <div className="font-mono text-xs text-muted-foreground">
+                                  schedule_id: {item.schedule_id}
                                 </div>
-                              )}
-                            </div>
-                          </td>
-                          <td className="px-4 py-3 align-top">
-                            <Badge
-                              variant={item.enabled ? "status" : "secondary"}
-                              className={item.enabled ? "" : "text-muted-foreground"}
-                            >
-                              {item.enabled ? "Enabled" : "Paused"}
-                            </Badge>
-                          </td>
-                          <td className="px-4 py-3 text-right align-top">
-                            <div className="flex justify-end gap-2">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="min-w-24"
-                                onClick={() => openEditor(item)}
-                                disabled={mutatingId === item.schedule_id}
-                                title="Modify schedule"
-                                aria-label={`Modify ${item.schedule_id}`}
-                              >
-                                <Pencil />
-                                Modify
-                              </Button>
-                              <Button
-                                variant={item.enabled ? "outline" : "default"}
-                                size="sm"
-                                className="min-w-28"
-                                onClick={() => void toggleSchedule(item)}
-                                disabled={mutatingId === item.schedule_id}
-                                title={
-                                  item.enabled
-                                    ? "Pause scheduled runs"
-                                    : "Restart scheduled runs"
-                                }
-                                aria-label={
-                                  item.enabled
-                                    ? `Pause ${item.schedule_id}`
-                                    : `Restart ${item.schedule_id}`
-                                }
-                              >
-                                {mutatingId === item.schedule_id ? (
-                                  <RefreshCw className="animate-spin" />
-                                ) : item.enabled ? (
-                                  <Pause />
-                                ) : (
-                                  <Play />
+                                {attributeEntries.map(([key, value]) => (
+                                  <div
+                                    key={key}
+                                    className="break-words text-xs text-muted-foreground"
+                                  >
+                                    <span className="font-medium">
+                                      {formatAttributeLabel(key)}:
+                                    </span>{" "}
+                                    <span className="font-mono">{value}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 align-top">
+                              <div className="space-y-1">
+                                <div className="font-mono">{item.cron}</div>
+                                <div className="text-xs text-muted-foreground">{item.tz}</div>
+                                <div className="text-xs text-muted-foreground">
+                                  Version {item.version || 1}
+                                </div>
+                                <div className="text-xs text-muted-foreground">
+                                  Created {formatRelative(item.created_at)}
+                                </div>
+                              </div>
+                            </td>
+                            <td className="max-w-md px-4 py-3 align-top">
+                              <code className="block max-h-24 overflow-hidden whitespace-pre-wrap break-words rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">
+                                {item.message_template}
+                              </code>
+                            </td>
+                            <td className="px-4 py-3 align-top">
+                              <div className="space-y-1">
+                                <div>{lastRunLabel(item)}</div>
+                                {item.last_run?.ts && (
+                                  <div className="text-xs text-muted-foreground">
+                                    {formatDateTime(item.last_run.ts)}
+                                  </div>
                                 )}
-                                {item.enabled ? "Pause" : "Restart"}
-                              </Button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))
+                                {item.last_run?.error && (
+                                  <div className="max-w-xs break-words text-xs text-red-300">
+                                    {item.last_run.error}
+                                  </div>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 align-top">
+                              <Badge
+                                variant={item.enabled ? "status" : "secondary"}
+                                className={item.enabled ? "" : "text-muted-foreground"}
+                              >
+                                {item.enabled ? "Enabled" : "Paused"}
+                              </Badge>
+                            </td>
+                            <td className="px-4 py-3 text-right align-top">
+                              <div className="flex justify-end gap-2">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="min-w-24"
+                                  onClick={() => openEditor(item)}
+                                  disabled={mutatingId === item.schedule_id}
+                                  title="Modify schedule"
+                                  aria-label={`Modify ${item.schedule_id}`}
+                                >
+                                  <Pencil />
+                                  Modify
+                                </Button>
+                                <Button
+                                  variant={item.enabled ? "outline" : "default"}
+                                  size="sm"
+                                  className="min-w-28"
+                                  onClick={() => void toggleSchedule(item)}
+                                  disabled={mutatingId === item.schedule_id}
+                                  title={
+                                    item.enabled
+                                      ? "Pause scheduled runs"
+                                      : "Restart scheduled runs"
+                                  }
+                                  aria-label={
+                                    item.enabled
+                                      ? `Pause ${item.schedule_id}`
+                                      : `Restart ${item.schedule_id}`
+                                  }
+                                >
+                                  {mutatingId === item.schedule_id ? (
+                                    <RefreshCw className="animate-spin" />
+                                  ) : item.enabled ? (
+                                    <Pause />
+                                  ) : (
+                                    <Play />
+                                  )}
+                                  {item.enabled ? "Pause" : "Restart"}
+                                </Button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })
                     )}
                   </tbody>
                 </table>

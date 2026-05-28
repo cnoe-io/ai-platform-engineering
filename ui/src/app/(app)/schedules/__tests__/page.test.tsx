@@ -7,7 +7,7 @@
  */
 
 import React from "react";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 jest.mock("next/navigation", () => ({
   useRouter: () => ({ push: jest.fn() }),
@@ -104,12 +104,17 @@ describe("SchedulesPage", () => {
               schedule_id: "schedule-1",
               agent_id: "agent-1",
               agent_name: "Agent One",
+              title: "Important Team 2 Meeting Prep",
               message_template: "Run the job",
-              pod_id: null,
+              pod_id: "important-team-2",
+              attributes: {
+                pod_id: "important-team-2",
+                workflow: "prep",
+              },
               cron: "*/5 * * * *",
               tz: "UTC",
               enabled: true,
-              cronjob_name: null,
+              cronjob_name: "caipe-sched-schedule-1",
               version: 1,
               versions: [],
               created_at: "2026-05-25T00:00:00Z",
@@ -125,9 +130,105 @@ describe("SchedulesPage", () => {
   it("renders the Status column whenever the page renders", async () => {
     render(<SchedulesPage />);
 
-    await waitFor(() => expect(screen.getByText("Agent One")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText("Important Team 2 Meeting Prep")).toBeInTheDocument()
+    );
 
     expect(screen.getByRole("columnheader", { name: "Status" })).toBeInTheDocument();
     expect(screen.getByText("Enabled")).toBeInTheDocument();
+  });
+
+  it("renders the job title, agent, schedule id, and display attributes", async () => {
+    render(<SchedulesPage />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Important Team 2 Meeting Prep")).toBeInTheDocument()
+    );
+
+    expect(screen.getByText("agent: Agent One")).toBeInTheDocument();
+    expect(screen.getByText("schedule_id: schedule-1")).toBeInTheDocument();
+    expect(screen.getByText("pod id:")).toBeInTheDocument();
+    expect(screen.getByText("important-team-2")).toBeInTheDocument();
+    expect(screen.getByText("workflow:")).toBeInTheDocument();
+    expect(screen.getByText("prep")).toBeInTheDocument();
+    expect(screen.queryByText("caipe-sched-schedule-1")).not.toBeInTheDocument();
+  });
+
+  it("lets users edit the schedule title", async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        success: true,
+        data: {
+          total: 1,
+          items: [
+            {
+              schedule_id: "schedule-1",
+              agent_id: "agent-1",
+              agent_name: "Agent One",
+              title: "Important Team 2 Meeting Prep",
+              message_template: "Run the job",
+              pod_id: "important-team-2",
+              attributes: {},
+              cron: "*/5 * * * *",
+              tz: "UTC",
+              enabled: true,
+              cronjob_name: null,
+              version: 1,
+              versions: [],
+              created_at: "2026-05-25T00:00:00Z",
+              updated_at: null,
+              last_run: null,
+            },
+          ],
+        },
+      }),
+    });
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        success: true,
+        data: {
+          schedule_id: "schedule-1",
+          agent_id: "agent-1",
+          agent_name: "Agent One",
+          title: "Renamed Meeting Prep",
+          message_template: "Run the job",
+          pod_id: "important-team-2",
+          attributes: {},
+          cron: "*/5 * * * *",
+          tz: "UTC",
+          enabled: true,
+          cronjob_name: null,
+          version: 2,
+          versions: [],
+          created_at: "2026-05-25T00:00:00Z",
+          updated_at: "2026-05-28T00:00:00Z",
+          last_run: null,
+        },
+      }),
+    });
+
+    render(<SchedulesPage />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Important Team 2 Meeting Prep")).toBeInTheDocument()
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /modify schedule-1/i }));
+    fireEvent.change(screen.getByLabelText("Title"), {
+      target: { value: "Renamed Meeting Prep" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(global.fetch).toHaveBeenLastCalledWith(
+        "/api/schedules/schedule-1",
+        expect.objectContaining({
+          method: "PATCH",
+          body: expect.stringContaining('"title":"Renamed Meeting Prep"'),
+        })
+      )
+    );
   });
 });

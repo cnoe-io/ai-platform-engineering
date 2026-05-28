@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 RunStatus = Literal["ok", "error"]
@@ -26,9 +26,11 @@ class ScheduleVersion(BaseModel):
     version: int = 1
     superseded_at: datetime
     changed_fields: list[str] = Field(default_factory=list)
+    title: str | None = None
     agent_id: str
     message_template: str
     pod_id: str | None = None
+    attributes: dict[str, Any] = Field(default_factory=dict)
     cron: str
     tz: str
     enabled: bool = True
@@ -45,6 +47,12 @@ class ScheduleCreate(BaseModel):
     agent_id: str = Field(
         ...,
         description="Dynamic agent _id (e.g. 'agent-sunny-webex-meeting-test'). Must exist in dynamic_agents collection.",
+    )
+    title: str = Field(
+        ...,
+        min_length=1,
+        max_length=200,
+        description="Human-readable job title shown in schedule UIs.",
     )
     message_template: str = Field(
         ...,
@@ -64,6 +72,21 @@ class ScheduleCreate(BaseModel):
         default=None,
         description="Optional pod context (Pam-specific). Stored for listing/UI; not used by scheduler.",
     )
+    attributes: dict[str, Any] = Field(
+        default_factory=dict,
+        description=(
+            "Optional JSON object with small display attributes for UIs "
+            "(for example {'pod_id': 'important-team-2'})."
+        ),
+    )
+
+    @field_validator("title")
+    @classmethod
+    def title_must_not_be_blank(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("title must be a non-empty string")
+        return value
 
 
 class SchedulePatch(BaseModel):
@@ -76,6 +99,18 @@ class SchedulePatch(BaseModel):
     cron: str | None = None
     tz: str | None = None
     message_template: str | None = None
+    title: str | None = None
+    attributes: dict[str, Any] | None = None
+
+    @field_validator("title")
+    @classmethod
+    def patch_title_must_not_be_blank(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        value = value.strip()
+        if not value:
+            raise ValueError("title must be a non-empty string")
+        return value
 
 
 class Schedule(BaseModel):
@@ -86,8 +121,10 @@ class Schedule(BaseModel):
     schedule_id: str
     owner_user_id: str
     agent_id: str
+    title: str | None = None
     message_template: str
     pod_id: str | None = None
+    attributes: dict[str, Any] = Field(default_factory=dict)
     cron: str
     tz: str
     enabled: bool = True

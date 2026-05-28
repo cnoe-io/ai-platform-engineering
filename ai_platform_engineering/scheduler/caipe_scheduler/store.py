@@ -69,8 +69,10 @@ class ScheduleStore:
         now = datetime.now(timezone.utc)
         versioned_fields = {
             "agent_id",
+            "title",
             "message_template",
             "pod_id",
+            "attributes",
             "cron",
             "tz",
             "enabled",
@@ -89,9 +91,11 @@ class ScheduleStore:
                 "version": int(existing.get("version") or 1),
                 "superseded_at": now,
                 "changed_fields": changed_fields,
+                "title": existing.get("title"),
                 "agent_id": existing.get("agent_id"),
                 "message_template": existing.get("message_template"),
                 "pod_id": existing.get("pod_id"),
+                "attributes": existing.get("attributes") or {},
                 "cron": existing.get("cron"),
                 "tz": existing.get("tz"),
                 "enabled": existing.get("enabled", True),

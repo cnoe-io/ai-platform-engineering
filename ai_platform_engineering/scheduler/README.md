@@ -28,6 +28,11 @@ POST   /v1/schedules/{id}/runs        — runner reports status (status/error/ht
 GET    /healthz
 ```
 
+New schedules require a human-readable `title`. They may also include an
+`attributes` JSON object for small UI display labels. `pod_id` remains a
+first-class filter field for Pam-style pod schedules, but generic callers should
+use `attributes` for display-only context.
+
 All but `/healthz` require header `X-Scheduler-Token: <SCHEDULER_SERVICE_TOKEN>`.
 
 `PATCH /v1/schedules/{id}` with `{"enabled": false}` pauses a schedule by

@@ -100,6 +100,16 @@ class CreateScheduleArgs(BaseModel):
             )
         ),
     ]
+    title: Annotated[
+        str,
+        Field(
+            description=(
+                "Human-readable job title shown in schedule UIs. "
+                "Choose it at schedule creation time, e.g. "
+                "'Important Team 2 Meeting Prep'."
+            )
+        ),
+    ]
     message_template: Annotated[
         str,
         Field(
@@ -141,6 +151,13 @@ class CreateScheduleArgs(BaseModel):
             ),
         ),
     ] = None
+    attributes: dict[str, Any] = Field(
+        default_factory=dict,
+        description=(
+            "Optional JSON object of small display attributes for UIs. "
+            "Use this for generic labels such as pod_id, meeting_series, or workflow."
+        ),
+    )
 
 
 class ListSchedulesArgs(BaseModel):
@@ -181,6 +198,13 @@ class PatchScheduleArgs(BaseModel):
     message_template: Annotated[
         str | None, Field(default=None, description="New chat message body.")
     ] = None
+    title: Annotated[
+        str | None, Field(default=None, description="New human-readable job title.")
+    ] = None
+    attributes: dict[str, Any] | None = Field(
+        default=None,
+        description="Replacement display attributes JSON object.",
+    )
 
 
 class DeleteScheduleArgs(BaseModel):
@@ -211,7 +235,8 @@ def register_tools(server) -> None:
         description=(
             "Register a cron schedule. The named agent will receive `message_template` "
             "as a chat message every time the cron fires, attributed to `owner_user_id`. "
-            "Returns {schedule_id, cronjob_name}."
+            "`title` is the required human-readable UI title; `attributes` is an "
+            "optional display metadata object. Returns {schedule_id, cronjob_name}."
         ),
     )
     @_handle_errors
