@@ -35,7 +35,7 @@ interface PaginatedResult {
 }
 
 const TYPE_OPTIONS: { value: string; label: string }[] = [
-  { value: "", label: "Default view" },
+  { value: "", label: "All" },
   { value: "auth", label: "Authorization" },
   { value: "openfga_rebac", label: "OpenFGA ReBAC" },
   { value: "tool_action", label: "Tool Action" },
@@ -300,12 +300,6 @@ export function UnifiedAuditTab({ isAdmin }: UnifiedAuditTabProps) {
             Search
           </Button>
         </div>
-        {!typeFilter && (
-          <p className="text-xs text-muted-foreground mb-3">
-            Default view hides routine admin page-view checks. Select Authorization to include them.
-          </p>
-        )}
-
         {/* Error */}
         {error && (
           <div className="text-sm text-destructive bg-destructive/10 rounded-md p-3 mb-4">
