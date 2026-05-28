@@ -53,7 +53,7 @@ describe("bootstrap admin reconciliation", () => {
     expect(result.configured_emails).toEqual(["admin@cisco.com", "second@cisco.com"]);
     expect(result.resolved_count).toBe(2);
     expect(result.created_count).toBe(1);
-    expect(result.tuple_write_count).toBe(60);
+    expect(result.tuple_write_count).toBe(62);
     expect(mockEnsureUserByEmail).toHaveBeenCalledWith("admin@cisco.com");
     expect(mockEnsureUserByEmail).toHaveBeenCalledWith("second@cisco.com");
     expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
@@ -67,6 +67,7 @@ describe("bootstrap admin reconciliation", () => {
         { user: "user:sub-admin", relation: "reader", object: "admin_surface:skills" },
         { user: "user:sub-admin", relation: "reader", object: "admin_surface:metrics" },
         { user: "user:sub-admin", relation: "reader", object: "admin_surface:health" },
+        { user: "user:sub-admin", relation: "reader", object: "admin_surface:credentials" },
         { user: "user:sub-admin", relation: "admin", object: "organization:grid" },
         { user: "user:sub-admin", relation: "manager", object: "system_config:platform_settings" },
         { user: "user:sub-admin", relation: "manager", object: "mcp_server:agentgateway" },
@@ -88,13 +89,13 @@ describe("bootstrap admin reconciliation", () => {
           email: "admin@cisco.com",
           user_id: "sub-admin",
           status: "existing",
-          tuple_write_count: 30,
+          tuple_write_count: 31,
         }),
         expect.objectContaining({
           email: "second@cisco.com",
           user_id: "sub-second",
           status: "created",
-          tuple_write_count: 30,
+          tuple_write_count: 31,
         }),
       ]),
     );
