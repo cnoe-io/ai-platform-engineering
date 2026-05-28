@@ -107,6 +107,13 @@ binds:
           targets:
           - name: rag
             mcp: { host: http://rag-server:9446/mcp }
+    - matches: [{ path: { pathPrefix: /mcp/knowledge-base } }]
+      policies: *mcpAuthzPolicy
+      backends:
+      - mcp:
+          targets:
+          - name: knowledge-base
+            mcp: { host: http://rag-server:9446/mcp }
     - matches: [{ path: { pathPrefix: /mcp/slack } }]
       policies: *mcpAuthzPolicy
       backends:
