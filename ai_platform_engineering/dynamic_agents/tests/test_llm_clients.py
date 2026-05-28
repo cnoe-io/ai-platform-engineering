@@ -1,9 +1,8 @@
 """Tests for Dynamic Agents shared LLM client selection."""
 
-import sys
-import types
 from typing import Any
 
+import cnoe_agent_utils
 import pytest
 
 from dynamic_agents.services import llm_clients
@@ -25,7 +24,7 @@ def llm_factory_calls(monkeypatch):
             calls.append((self.provider, kwargs))
             return "llm"
 
-    monkeypatch.setitem(sys.modules, "cnoe_agent_utils", types.SimpleNamespace(LLMFactory=DummyFactory))
+    monkeypatch.setattr(cnoe_agent_utils, "LLMFactory", DummyFactory)
     return calls
 
 

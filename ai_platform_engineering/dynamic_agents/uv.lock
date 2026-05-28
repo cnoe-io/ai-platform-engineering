@@ -275,7 +275,7 @@ wheels = [
 [[package]]
 name = "cnoe-agent-utils"
 version = "0.4.0"
-source = { url = "https://github.com/cnoe-io/cnoe-agent-utils/archive/508aa2bd75a37450f2a3ae0b1fdf9142bbea5ebf.zip" }
+source = { url = "https://github.com/cnoe-io/cnoe-agent-utils/archive/c93828c2c761089ac691dc84609522d1c45347b6.zip" }
 dependencies = [
     { name = "boto3" },
     { name = "botocore" },
@@ -296,7 +296,7 @@ dependencies = [
     { name = "tiktoken" },
     { name = "typing-extensions" },
 ]
-sdist = { hash = "sha256:8979b006cfb216e3de2bd1543cdf93c185cbf2f0d5369399534b50e56210c34c" }
+sdist = { hash = "sha256:a54dd4e42bed27486fa2bd214f4258287c046dc0e80cc5a6ce73d9bd56491d76" }
 
 [package.metadata]
 requires-dist = [
@@ -571,7 +571,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "beautifulsoup4", specifier = "==4.13.4" },
-    { name = "cnoe-agent-utils", url = "https://github.com/cnoe-io/cnoe-agent-utils/archive/508aa2bd75a37450f2a3ae0b1fdf9142bbea5ebf.zip" },
+    { name = "cnoe-agent-utils", url = "https://github.com/cnoe-io/cnoe-agent-utils/archive/c93828c2c761089ac691dc84609522d1c45347b6.zip" },
     { name = "deepagents", specifier = "==0.6.4" },
     { name = "fastapi", specifier = "==0.135.3" },
     { name = "jinja2", specifier = "==3.1.6" },

@@ -19,22 +19,6 @@ logger = logging.getLogger(__name__)
 
 SHARE_CLIENTS = os.getenv("LLM_CLIENT_SHARING", "true").lower() != "false"
 
-_BEDROCK_CLIENT_ALIASES = {
-    "auto": "auto",
-    "anthropic": "anthropic",
-    "anthropic-bedrock": "anthropic",
-    "chat-anthropic-bedrock": "anthropic",
-    "chatanthropicbedrock": "anthropic",
-    "converse": "converse",
-    "bedrock-converse": "converse",
-    "chat-bedrock-converse": "converse",
-    "chatbedrockconverse": "converse",
-    "legacy": "legacy",
-    "bedrock": "legacy",
-    "chat-bedrock": "legacy",
-    "chatbedrock": "legacy",
-}
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Transport client creation and caching
@@ -100,16 +84,6 @@ def _is_bedrock_provider(provider: str) -> bool:
     return "bedrock" in normalized or "aws" in normalized
 
 
-def _uses_anthropic_bedrock_client(model_id: str) -> bool:
-    configured = os.getenv("AWS_BEDROCK_CLIENT", "auto").strip().lower()
-    selected = _BEDROCK_CLIENT_ALIASES.get(configured)
-    if selected == "anthropic":
-        return True
-    if selected in {"converse", "legacy"}:
-        return False
-    return selected == "auto" and "anthropic" in model_id.lower()
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Public API
 # ─────────────────────────────────────────────────────────────────────────────
@@ -124,14 +98,14 @@ def get_llm(provider: str, model_id: str) -> BaseChatModel:
     For Google (Gemini/Vertex AI), no shared client is needed — the SDK
     manages its own transport internally.
     """
-    from cnoe_agent_utils import LLMFactory
+    from cnoe_agent_utils import LLMFactory, uses_anthropic_bedrock_client
 
     kwargs: dict[str, Any] = {"model": model_id}
 
     if SHARE_CLIENTS:
         p = provider.lower().replace("-", "_")
         if _is_bedrock_provider(provider):
-            if _uses_anthropic_bedrock_client(model_id):
+            if uses_anthropic_bedrock_client(model_id):
                 kwargs["config"] = _build_bedrock_config()
                 logger.info("[llm] Skipping shared boto clients for Anthropic Bedrock model=%s", model_id)
             else:
