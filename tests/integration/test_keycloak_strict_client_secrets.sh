@@ -33,9 +33,9 @@
 #   5. **Caipe-platform Admin REST runtime contract (May 2026).** After
 #      the rotation in Step 3, mint a `client_credentials` token using
 #      the rotated `caipe-platform` secret and call the real Keycloak
-#      Admin REST endpoints the BFF uses (`GET /users`, `POST /users`).
-#      Assert 200 / 201 — proving the realm config still binds
-#      `realm-management/{view-users, query-users, manage-users}` to
+#      Admin REST endpoints the BFF uses (`GET /users`, `GET /clients`,
+#      `POST /users`). Assert 200 / 201 — proving the realm config still
+#      binds the required realm-management user/client/authz roles to
 #      `service-account-caipe-platform`. Also audits the realm-side
 #      role mappings as belt-and-braces (Keycloak resolves these
 #      server-side at the Admin API gate; they're NOT embedded in the
@@ -391,7 +391,7 @@ done
 # calls the BFF makes. This is the runtime contract: "the rotated
 # secret + the env-var names the BFF reads + the realm's
 # service-account role mappings together let the BFF do
-# `view-users`, `query-users`, AND `manage-users`."
+# user and client/admin-authz role set needed by the BFF migration."
 step "Step 5: caipe-platform token actually works for the Admin REST endpoints the BFF calls"
 BFF_TOKEN_RESP="$(curl -s -X POST "${KC_URL}/realms/${KC_REALM}/protocol/openid-connect/token" \
   -d "grant_type=client_credentials" \
@@ -436,7 +436,22 @@ else
   fail "BFF GET /users returned HTTP ${USERS_STATUS} — expected 200; realm-management/view-users not bound to service-account-caipe-platform"
 fi
 
-# (ii) manage-users — POST a throwaway user (the role required for
+# (ii) query/view clients — this is the exact Keycloak Admin REST lookup
+# used by the BFF Keycloak RBAC migration before it repairs bot OBO
+# permissions. A role-filtered token can return HTTP 200 with [] even when
+# the client exists, so assert the body too.
+CLIENTS_BODY="$(curl -sf \
+  -H "Authorization: Bearer ${BFF_TOKEN}" \
+  "${KC_URL}/admin/realms/${KC_REALM}/clients?clientId=caipe-slack-bot")"
+CLIENTS_COUNT="$(echo "${CLIENTS_BODY}" | jq 'length')"
+if [ "${CLIENTS_COUNT}" = "1" ]; then
+  pass "BFF can call GET /admin/realms/${KC_REALM}/clients?clientId=caipe-slack-bot (query/view-clients active)"
+else
+  echo "${CLIENTS_BODY}"
+  fail "BFF client lookup returned ${CLIENTS_COUNT} row(s) — expected 1; realm-management query/view-clients not bound to service-account-caipe-platform"
+fi
+
+# (iii) manage-users — POST a throwaway user (the role required for
 # creating users in the Admin UI). 201 Created proves the role binds
 # end-to-end. We don't bother deleting it: the Keycloak container is
 # torn down at the next `docker rm -f` (and `KEEP=1` is for inspection,
@@ -470,7 +485,7 @@ SA_RM_ROLES="$(curl -sf -H "Authorization: Bearer $(get_admin_token)" \
   "${KC_URL}/admin/realms/${KC_REALM}/users/${SA_UID}/role-mappings/clients/${RM_UID}" \
   | jq -r '[.[] | .name] | join(",")')"
 info "  service-account-caipe-platform realm-management roles: ${SA_RM_ROLES:-<none>}"
-for role in view-users query-users manage-users; do
+for role in view-users query-users manage-users query-clients view-clients manage-clients view-authorization manage-authorization; do
   if echo "${SA_RM_ROLES}" | tr ',' '\n' | grep -qx "${role}"; then
     pass "realm config still binds realm-management:${role} to service-account-caipe-platform"
   else

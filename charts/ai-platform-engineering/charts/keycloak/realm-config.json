@@ -724,7 +724,12 @@
         "realm-management": [
           "view-users",
           "query-users",
-          "manage-users"
+          "manage-users",
+          "query-clients",
+          "view-clients",
+          "manage-clients",
+          "view-authorization",
+          "manage-authorization"
         ]
       }
     }
