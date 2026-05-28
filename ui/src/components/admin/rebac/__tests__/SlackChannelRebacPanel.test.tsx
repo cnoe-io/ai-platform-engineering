@@ -407,7 +407,7 @@ it("discovers bot-member channels and applies defaults after admin consent", asy
   expect(screen.getByRole("checkbox", { name: /Import #new-alerts/i })).not.toBeChecked();
   expect(
     screen.getByRole("status", {
-      name: /2 bot-visible found .* 1 new .* 1 in CAIPE .* 1 missing team/i,
+      name: /2 bot-member found .* 1 new .* 1 in CAIPE .* 1 missing team/i,
     })
   ).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Refresh channels" })).toBeInTheDocument();

@@ -38,6 +38,9 @@ function validateTeamId(id: string): void {
 interface TeamDoc {
   _id: ObjectId;
   slug?: string;
+  resources?: {
+    knowledge_bases?: string[];
+  };
 }
 
 function normalizeEmail(value: unknown): string {
@@ -75,6 +78,12 @@ const KB_PERMISSION_TO_OPENFGA_RELATION: Record<KbPermission, string> = {
   admin: 'manager',
 };
 
+function teamUsersetForPermission(teamSlug: string, permission: KbPermission): string {
+  return permission === 'admin'
+    ? `team:${teamSlug}#admin`
+    : `team:${teamSlug}#member`;
+}
+
 function uniqueTupleKeys(tuples: OpenFgaTupleKey[]): OpenFgaTupleKey[] {
   const seen = new Set<string>();
   const unique: OpenFgaTupleKey[] = [];
@@ -89,7 +98,7 @@ function uniqueTupleKeys(tuples: OpenFgaTupleKey[]): OpenFgaTupleKey[] {
 
 function kbTuple(teamSlug: string, datasourceId: string, permission: KbPermission): OpenFgaTupleKey {
   return {
-    user: `team:${teamSlug}#member`,
+    user: teamUsersetForPermission(teamSlug, permission),
     relation: KB_PERMISSION_TO_OPENFGA_RELATION[permission],
     object: `knowledge_base:${datasourceId}`,
   };
@@ -146,6 +155,7 @@ export const GET = withErrorHandler(
 
       const params = await context.params;
       validateTeamId(params.id);
+      let team: TeamDoc | null = null;
 
       if (params.id === GLOBAL_PSEUDO_TEAM) {
         if (user.role !== 'admin') {
@@ -157,7 +167,7 @@ export const GET = withErrorHandler(
           () => false
         );
         const teams = await getCollection('teams');
-        const team = await teams.findOne({ _id: new ObjectId(params.id) }) as TeamDoc | null;
+        team = await teams.findOne({ _id: new ObjectId(params.id) }) as TeamDoc | null;
         if (!team) {
           throw new ApiError('Team not found', 404);
         }
@@ -168,12 +178,25 @@ export const GET = withErrorHandler(
 
       const ownership = await getCollection<TeamKbOwnership>('team_kb_ownership');
       const record = await ownership.findOne({ team_id: params.id });
+      const legacyKbIds =
+        !record && params.id !== GLOBAL_PSEUDO_TEAM && team?.resources?.knowledge_bases
+          ? Array.from(
+              new Set(
+                team.resources.knowledge_bases
+                  .map((id) => id.trim())
+                  .filter((id) => id.length > 0)
+              )
+            )
+          : [];
+      const legacyPermissions = Object.fromEntries(
+        legacyKbIds.map((id) => [id, 'read' as KbPermission])
+      );
 
       return successResponse({
         team_id: params.id,
-        kb_ids: record?.kb_ids ?? [],
-        kb_permissions: record?.kb_permissions ?? {},
-        allowed_datasource_ids: record?.allowed_datasource_ids ?? [],
+        kb_ids: record?.kb_ids ?? legacyKbIds,
+        kb_permissions: record?.kb_permissions ?? legacyPermissions,
+        allowed_datasource_ids: record?.allowed_datasource_ids ?? legacyKbIds,
         updated_at: record?.updated_at ?? null,
         updated_by: record?.updated_by ?? null,
       });

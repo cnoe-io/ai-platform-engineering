@@ -10,7 +10,7 @@
  *   Forcing them to navigate to a separate Platform Settings tab just to
  *   drop a stale snapshot is the wrong UX — that's why we moved the
  *   single editing surface here. The TTL is platform-wide (one value
- *   governs both Slack and Webex), but the "Force refresh now" action is
+ *   governs both Slack and Webex), but the "Refresh from <provider> now" action is
  *   provider-scoped so we only invalidate what the admin is looking at.
  *
  * Persistence:
@@ -200,16 +200,16 @@ export function DiscoveryCacheControls({
           data-testid={`discovery-cache-controls-trigger-${provider}`}
         >
           <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
-          Cache
+          Discovery cache
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-80 space-y-4 p-4" align="end">
         <div className="space-y-1">
           <div className="text-sm font-medium">Discovery cache</div>
           <p className="text-xs text-muted-foreground">
-            Snapshot of {providerLabel} {provider === "slack" ? "channels" : "spaces"} kept in memory
-            so the picker scrolls instantly without hammering {providerLabel}&apos;s rate limits.
-            The TTL is shared between Slack and Webex.
+            Snapshot of {providerLabel} {provider === "slack" ? "bot-member channels" : "spaces"} kept
+            in memory so the picker scrolls instantly without hammering {providerLabel}&apos;s rate
+            limits. The TTL is shared between Slack and Webex.
           </p>
         </div>
 
@@ -277,8 +277,8 @@ export function DiscoveryCacheControls({
           <div className="space-y-2 border-t border-border/40 pt-3">
             <p className="text-xs text-muted-foreground">
               Just invited the bot to a new {provider === "slack" ? "channel" : "space"} and the
-              picker still doesn&apos;t list it? Drop the snapshot now and the next discovery call
-              will fetch a fresh list.
+              picker still doesn&apos;t list it? Refresh from {providerLabel} now to ignore CAIPE&apos;s
+              cached snapshot and fetch a fresh list.
             </p>
             <div className="flex items-center gap-2">
               <Button
@@ -295,7 +295,7 @@ export function DiscoveryCacheControls({
                 ) : (
                   <RefreshCw className="h-3.5 w-3.5" />
                 )}
-                Force refresh now
+                Refresh from {providerLabel} now
               </Button>
               {refreshResult === "success" && (
                 <span className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400">

@@ -17,6 +17,22 @@ describe("IdentityGroupSyncTab", () => {
           json: async () => ({
             success: true,
             data: {
+              groups: [
+                {
+                  provider_id: "oidc-claims",
+                  external_group_id: "caipe-users",
+                  display_name: "caipe-users",
+                  normalized_name: "caipe-users",
+                  status: "active",
+                },
+                {
+                  provider_id: "oidc-claims",
+                  external_group_id: "caipe-admins",
+                  display_name: "caipe-admins",
+                  normalized_name: "caipe-admins",
+                  status: "active",
+                },
+              ],
               suggestions: [
                 {
                   source_group_id: "caipe-users",
@@ -134,6 +150,52 @@ describe("IdentityGroupSyncTab", () => {
 
     expect(screen.getByLabelText(/resolved member email/i)).toBeInTheDocument();
     expect(screen.getByText(/test a specific upstream group/i)).toBeInTheDocument();
+  });
+
+  it("runs manual dry-run against backend-enabled rules instead of a hardcoded frontend preview rule", async () => {
+    render(<IdentityGroupSyncTab isAdmin />);
+
+    await screen.findByText("1 provider configured");
+    fireEvent.click(screen.getByRole("button", { name: /manual dry-run/i }));
+    fireEvent.change(screen.getByLabelText(/external group name/i), {
+      target: { value: "foo-access" },
+    });
+    fireEvent.change(screen.getByLabelText(/resolved member email/i), {
+      target: { value: "sraradhy@cisco.com" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /run dry-run/i }));
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/admin/identity-group-sync/dry-run",
+        expect.objectContaining({
+          method: "POST",
+          body: expect.stringContaining('"provider_id":"oidc-claims"'),
+        })
+      );
+    });
+
+    const dryRunCall = (global.fetch as jest.Mock).mock.calls.find(
+      ([url]) => url === "/api/admin/identity-group-sync/dry-run"
+    );
+    const body = JSON.parse(dryRunCall[1].body);
+    expect(body.rules).toBeUndefined();
+    expect(body.existing_teams).toBeUndefined();
+    expect(body.existing_membership_sources).toBeUndefined();
+    expect(body.groups[0]).toEqual(
+      expect.objectContaining({
+        external_group_id: "foo-access",
+        display_name: "foo-access",
+        normalized_name: "foo-access",
+      })
+    );
+    expect(body.groups[0].members).toEqual([
+      expect.objectContaining({
+        email: "sraradhy@cisco.com",
+        display_name: "sraradhy@cisco.com",
+        active: true,
+      }),
+    ]);
   });
 
   it("shows a re-auth notice when session claim groups are not cached", async () => {

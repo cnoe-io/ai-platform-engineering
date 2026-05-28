@@ -119,6 +119,32 @@ beforeEach(() => {
 });
 
 describe("/api/admin/teams/[id]/kb-assignments", () => {
+  it("falls back to legacy team resource KB assignments when ownership rows are missing", async () => {
+    mockCollections.teams = createMockCollection([
+      {
+        _id: teamId,
+        slug: "platform",
+        name: "Platform",
+        resources: {
+          knowledge_bases: ["legacy-ds"],
+        },
+      },
+    ]);
+    mockCollections.team_kb_ownership = createMockCollection([]);
+    const { GET } = await import("../route");
+
+    const response = await GET(
+      request(`/api/admin/teams/${teamId}/kb-assignments`),
+      { params: Promise.resolve({ id: String(teamId) }) }
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.kb_ids).toEqual(["legacy-ds"]);
+    expect(body.data.kb_permissions).toEqual({ "legacy-ds": "read" });
+    expect(body.data.allowed_datasource_ids).toEqual(["legacy-ds"]);
+  });
+
   it("reconciles knowledge-base tuples before saving assignments", async () => {
     mockCollections.team_kb_ownership = createMockCollection([
       {
@@ -150,7 +176,7 @@ describe("/api/admin/teams/[id]/kb-assignments", () => {
       writes: [
         { user: "team:platform#member", relation: "reader", object: "knowledge_base:new-read-ds" },
         { user: "team:platform#member", relation: "ingestor", object: "knowledge_base:new-ingest-ds" },
-        { user: "team:platform#member", relation: "manager", object: "knowledge_base:new-admin-ds" },
+        { user: "team:platform#admin", relation: "manager", object: "knowledge_base:new-admin-ds" },
       ],
       deletes: [
         { user: "team:platform#member", relation: "reader", object: "knowledge_base:old-ds" },
@@ -263,7 +289,7 @@ describe("/api/admin/teams/[id]/kb-assignments", () => {
     expect(response.status).toBe(200);
     expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
       writes: [
-        { user: "team:platform#member", relation: "manager", object: "knowledge_base:team-ds" },
+        { user: "team:platform#admin", relation: "manager", object: "knowledge_base:team-ds" },
       ],
       deletes: [],
     });
