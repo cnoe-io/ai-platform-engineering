@@ -50,6 +50,19 @@ DEFAULT_MCP_ROUTE_POLICIES: dict[str, Any] = {
     },
 }
 
+DEFAULT_MCP_TARGET_POLICIES: dict[str, dict[str, Any]] = {
+    "github": {
+        "backendAuth": {
+            "key": "$GITHUB_PERSONAL_ACCESS_TOKEN",
+        },
+    },
+    "gitlab": {
+        "backendAuth": {
+            "key": "$GITLAB_PERSONAL_ACCESS_TOKEN",
+        },
+    },
+}
+
 
 @dataclass(frozen=True)
 class McpGatewayTarget:
@@ -150,19 +163,45 @@ def _route_path(route: dict[str, Any]) -> str | None:
     return None
 
 
-def _mcp_route(target: McpGatewayTarget, policies: dict[str, Any]) -> dict[str, Any]:
+def _target_policies(route: dict[str, Any]) -> dict[str, Any] | None:
+    backends = route.get("backends")
+    if not isinstance(backends, list) or not backends:
+        return None
+    backend = backends[0]
+    if not isinstance(backend, dict):
+        return None
+    mcp_backend = backend.get("mcp")
+    if not isinstance(mcp_backend, dict):
+        return None
+    targets = mcp_backend.get("targets")
+    if not isinstance(targets, list) or not targets:
+        return None
+    target = targets[0]
+    if not isinstance(target, dict):
+        return None
+    policies = target.get("policies")
+    return copy.deepcopy(policies) if isinstance(policies, dict) else None
+
+
+def _mcp_route(
+    target: McpGatewayTarget,
+    policies: dict[str, Any],
+    *,
+    target_policies: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    mcp_target = {
+        "name": target.id,
+        "mcp": {"host": target.upstream_url},
+    }
+    if target_policies:
+        mcp_target["policies"] = copy.deepcopy(target_policies)
     return {
         "matches": [{"path": {"pathPrefix": f"/mcp/{target.id}"}}],
         "policies": copy.deepcopy(policies),
         "backends": [
             {
                 "mcp": {
-                    "targets": [
-                        {
-                            "name": target.id,
-                            "mcp": {"host": target.upstream_url},
-                        },
-                    ],
+                    "targets": [mcp_target],
                 },
             },
         ],
@@ -186,13 +225,27 @@ def merge_agentgateway_mcp_routes(
 
     policies = route_policies or DEFAULT_MCP_ROUTE_POLICIES
     desired_by_path = {f"/mcp/{target.id}": target for target in targets}
+    target_policies_by_path = {
+        path: target_policies
+        for route in routes
+        if isinstance(route, dict)
+        for path in [_route_path(route)]
+        for target_policies in [_target_policies(route)]
+        if path in desired_by_path and target_policies
+    }
     retained_routes = [
         route
         for route in routes
         if not (isinstance(route, dict) and _route_path(route) in desired_by_path)
     ]
     retained_routes.extend(
-        _mcp_route(target, policies) for target in sorted(desired_by_path.values(), key=lambda t: t.id)
+        _mcp_route(
+            target,
+            policies,
+            target_policies=target_policies_by_path.get(f"/mcp/{target.id}")
+            or DEFAULT_MCP_TARGET_POLICIES.get(target.id),
+        )
+        for target in sorted(desired_by_path.values(), key=lambda t: t.id)
     )
     listener["routes"] = retained_routes
     return rendered
@@ -302,12 +355,18 @@ def _minimal_config() -> dict[str, Any]:
     }
 
 
-def load_baseline_config(admin_config_url: str) -> dict[str, Any]:
+def load_baseline_config(
+    admin_config_url: str,
+    *,
+    allow_minimal_fallback: bool = True,
+) -> dict[str, Any]:
     """Load live config, falling back to a minimal bootstrap config."""
 
     try:
         return fetch_agentgateway_config(admin_config_url)
     except (OSError, urllib.error.URLError, json.JSONDecodeError, ValueError) as exc:
+        if not allow_minimal_fallback:
+            raise
         LOGGER.warning("Falling back to minimal AgentGateway config: %s", exc)
         return _minimal_config()
 
@@ -331,7 +390,10 @@ def reconcile_once(
     """Render and write one AgentGateway config generation."""
 
     targets = _load_targets_from_mongo()
-    baseline = load_baseline_config(admin_config_url)
+    baseline = load_baseline_config(
+        admin_config_url,
+        allow_minimal_fallback=not config_path.exists(),
+    )
     rendered = merge_agentgateway_mcp_routes(baseline, targets)
     changed = write_config_atomically(config_path, rendered)
     result = {

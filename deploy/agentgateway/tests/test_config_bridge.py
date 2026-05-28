@@ -8,6 +8,7 @@ import copy
 import importlib.util
 import stat
 import sys
+import urllib.error
 from pathlib import Path
 
 
@@ -177,6 +178,74 @@ def test_merge_agentgateway_mcp_routes_replaces_stale_route_target() -> None:
     )
 
 
+def test_merge_agentgateway_mcp_routes_preserves_existing_target_policies() -> None:
+    baseline = _baseline_config()
+    baseline["binds"][0]["listeners"][0]["routes"].append(
+        {
+            "matches": [{"path": {"pathPrefix": "/mcp/github"}}],
+            "policies": bridge.DEFAULT_MCP_ROUTE_POLICIES,
+            "backends": [
+                {
+                    "mcp": {
+                        "targets": [
+                            {
+                                "name": "github",
+                                "mcp": {"host": "http://old-github:8082/mcp"},
+                                "policies": {
+                                    "backendAuth": {
+                                        "key": "$GITHUB_PERSONAL_ACCESS_TOKEN",
+                                    },
+                                },
+                            }
+                        ]
+                    }
+                }
+            ],
+        }
+    )
+
+    rendered = bridge.merge_agentgateway_mcp_routes(
+        baseline,
+        [
+            bridge.McpGatewayTarget(
+                id="github",
+                upstream_url="http://github-mcp-server:8082/mcp",
+            )
+        ],
+    )
+
+    route = next(
+        route
+        for route in rendered["binds"][0]["listeners"][0]["routes"]
+        if route["matches"][0]["path"]["pathPrefix"] == "/mcp/github"
+    )
+    target = route["backends"][0]["mcp"]["targets"][0]
+    assert target["mcp"]["host"] == "http://github-mcp-server:8082/mcp"
+    assert target["policies"]["backendAuth"]["key"] == "$GITHUB_PERSONAL_ACCESS_TOKEN"
+
+
+def test_merge_agentgateway_mcp_routes_applies_default_provider_target_policies() -> None:
+    baseline = _baseline_config()
+
+    rendered = bridge.merge_agentgateway_mcp_routes(
+        baseline,
+        [
+            bridge.McpGatewayTarget(
+                id="gitlab",
+                upstream_url="http://mcp-gitlab:8000/mcp",
+            )
+        ],
+    )
+
+    route = next(
+        route
+        for route in rendered["binds"][0]["listeners"][0]["routes"]
+        if route["matches"][0]["path"]["pathPrefix"] == "/mcp/gitlab"
+    )
+    target = route["backends"][0]["mcp"]["targets"][0]
+    assert target["policies"]["backendAuth"]["key"] == "$GITLAB_PERSONAL_ACCESS_TOKEN"
+
+
 def test_write_config_atomically_publishes_agentgateway_readable_file(tmp_path: Path) -> None:
     config_path = tmp_path / "config.yaml"
 
@@ -224,3 +293,28 @@ def test_seed_config_from_bootstrap_publishes_agentgateway_readable_file(tmp_pat
     mode = stat.S_IMODE(config_path.stat().st_mode)
     assert changed is True
     assert mode == 0o644
+
+
+def test_reconcile_keeps_existing_config_when_admin_config_is_unavailable(
+    tmp_path: Path, monkeypatch
+) -> None:
+    config_path = tmp_path / "generated" / "config.yaml"
+    config_path.parent.mkdir()
+    existing_config = '{"binds":[{"listeners":[{"routes":[{"matches":[{"path":{"pathPrefix":"/mcp/github"}}],"backends":[{"mcp":{"targets":[{"name":"github","policies":{"backendAuth":{"key":"$GITHUB_PERSONAL_ACCESS_TOKEN"}}}]}}]}]}]}]}\n'
+    config_path.write_text(existing_config, encoding="utf-8")
+
+    monkeypatch.setattr(bridge, "_load_targets_from_mongo", lambda: [])
+
+    def fail_fetch(_admin_config_url: str) -> dict:
+        raise urllib.error.URLError("agentgateway admin unavailable")
+
+    monkeypatch.setattr(bridge, "fetch_agentgateway_config", fail_fetch)
+
+    try:
+        bridge.reconcile_once(config_path=config_path, admin_config_url="http://agentgateway:15000/config")
+    except urllib.error.URLError:
+        pass
+    else:
+        raise AssertionError("reconcile should wait for the live config instead of overwriting")
+
+    assert config_path.read_text(encoding="utf-8") == existing_config

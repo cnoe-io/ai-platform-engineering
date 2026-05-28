@@ -65,6 +65,9 @@ binds:
           targets:
           - name: github
             mcp: { host: http://github-mcp-server:8082/mcp }
+            policies:
+              backendAuth:
+                key: "$GITHUB_PERSONAL_ACCESS_TOKEN"
     - matches: [{ path: { pathPrefix: /mcp/gitlab } }]
       policies: *mcpAuthzPolicy
       backends:
@@ -72,6 +75,9 @@ binds:
           targets:
           - name: gitlab
             mcp: { host: http://mcp-gitlab:8000/mcp }
+            policies:
+              backendAuth:
+                key: "$GITLAB_PERSONAL_ACCESS_TOKEN"
     - matches: [{ path: { pathPrefix: /mcp/jira } }]
       policies: *mcpAuthzPolicy
       backends:

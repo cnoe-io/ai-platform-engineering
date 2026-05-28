@@ -3042,6 +3042,9 @@ services:
     container_name: agentgateway
     restart: unless-stopped
     command: ["--file", "/etc/agentgateway/config.yaml"]
+    environment:
+      GITHUB_PERSONAL_ACCESS_TOKEN: ${GITHUB_PERSONAL_ACCESS_TOKEN:-}
+      GITLAB_PERSONAL_ACCESS_TOKEN: ${GITLAB_PERSONAL_ACCESS_TOKEN:-${GITLAB_TOKEN:-}}
     read_only: true
     security_opt:
       - no-new-privileges:true

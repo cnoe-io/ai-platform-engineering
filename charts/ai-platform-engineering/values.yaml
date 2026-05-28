@@ -167,6 +167,23 @@ agentgateway:
     repository: cr.agentgateway.dev/agentgateway
     tag: v1.1.0
     pullPolicy: IfNotPresent
+  # Secret-backed environment for backend auth placeholders used by the
+  # standalone AgentGateway config, for example:
+  #   backendAuth:
+  #     key: "$GITHUB_PERSONAL_ACCESS_TOKEN"
+  #     key: "$GITLAB_PERSONAL_ACCESS_TOKEN"
+  extraEnv: []
+  # - name: GITHUB_PERSONAL_ACCESS_TOKEN
+  #   valueFrom:
+  #     secretKeyRef:
+  #       name: github-mcp-secret
+  #       key: GITHUB_PERSONAL_ACCESS_TOKEN
+  # - name: GITLAB_PERSONAL_ACCESS_TOKEN
+  #   valueFrom:
+  #     secretKeyRef:
+  #       name: gitlab-mcp-secret
+  #       key: GITLAB_PERSONAL_ACCESS_TOKEN
+  extraEnvFrom: []
 
   # LangGraph Redis for checkpoint and cross-thread store persistence.
   # Two deployment options:
