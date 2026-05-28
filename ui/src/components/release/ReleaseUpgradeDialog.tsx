@@ -1,6 +1,8 @@
 "use client";
 
 import { ArrowRight, CheckCircle2, Clock3, Sparkles } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -93,6 +95,30 @@ function userVisibleSections(sections: ReleaseNote["sections"], isAdmin: boolean
     .filter((section) => section.items.length > 0);
 }
 
+function ReleaseNoteItemMarkdown({ text }: { text: string }) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        p: ({ children }) => <>{children}</>,
+        strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
+        a: ({ children, href }) => (
+          <a
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-medium text-primary underline-offset-2 hover:underline"
+          >
+            {children}
+          </a>
+        ),
+      }}
+    >
+      {text}
+    </ReactMarkdown>
+  );
+}
+
 export function ReleaseUpgradeDialog({
   open,
   isAdmin,
@@ -139,7 +165,9 @@ export function ReleaseUpgradeDialog({
                 {section.items.map((item, index) => (
                   <li key={`${section.type}-${index}`} className="flex gap-2">
                     <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
-                    <span>{item.text}</span>
+                    <span className="min-w-0">
+                      <ReleaseNoteItemMarkdown text={item.text} />
+                    </span>
                   </li>
                 ))}
               </ul>

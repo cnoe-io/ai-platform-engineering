@@ -891,6 +891,18 @@ async function enableUsersManagementPermissions(): Promise<KeycloakManagementPer
     method: "PUT",
     body: JSON.stringify({ enabled: true }),
   });
+  if (response.status === 403) {
+    // Production BFF tokens intentionally do not need broad realm-admin
+    // privilege when the Helm init hooks have already enabled this realm-level
+    // feature. If the privileged PUT is forbidden, fall back to a read-only
+    // check and continue only when the impersonate permission is present.
+    const readOnlyResponse = await adminFetch("/users-management-permissions", { method: "GET" });
+    await assertOk(readOnlyResponse, "readUsersManagementPermissionsAfterForbiddenEnable");
+    const existing = (await readOnlyResponse.json()) as KeycloakManagementPermissions;
+    if (existing.enabled && existing.scopePermissions?.impersonate) {
+      return existing;
+    }
+  }
   await assertOk(response, "enableUsersManagementPermissions");
   const readResponse = await adminFetch("/users-management-permissions", { method: "GET" });
   await assertOk(readResponse, "readUsersManagementPermissions");
