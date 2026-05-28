@@ -158,6 +158,16 @@ class CreateScheduleArgs(BaseModel):
             "Use this for generic labels such as pod_id, meeting_series, or workflow."
         ),
     )
+    edit_agent_id: Annotated[
+        str | None,
+        Field(
+            default=None,
+            description=(
+                "Optional Dynamic Agent _id to open for future user-initiated edits. "
+                "If omitted, UIs fall back to the generic schedule editor."
+            ),
+        ),
+    ] = None
 
 
 class ListSchedulesArgs(BaseModel):
@@ -185,6 +195,9 @@ class PatchScheduleArgs(BaseModel):
     schedule_id: Annotated[str, Field(description="The schedule to patch.")]
     agent_id: Annotated[
         str | None, Field(default=None, description="New Dynamic Agent id.")
+    ] = None
+    edit_agent_id: Annotated[
+        str | None, Field(default=None, description="New schedule editor agent id.")
     ] = None
     enabled: Annotated[
         bool | None, Field(default=None, description="Toggle on/off.")
@@ -236,7 +249,8 @@ def register_tools(server) -> None:
             "Register a cron schedule. The named agent will receive `message_template` "
             "as a chat message every time the cron fires, attributed to `owner_user_id`. "
             "`title` is the required human-readable UI title; `attributes` is an "
-            "optional display metadata object. Returns {schedule_id, cronjob_name}."
+            "optional display metadata object; `edit_agent_id` optionally selects "
+            "which agent UIs open for later edits. Returns {schedule_id, cronjob_name}."
         ),
     )
     @_handle_errors

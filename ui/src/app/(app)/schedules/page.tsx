@@ -32,6 +32,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
+import { humanizeCron } from "@/lib/cron-humanize";
 import { getConfig } from "@/lib/config";
 import { formatRelativeTime } from "@/lib/utils";
 import { useChatStore } from "@/store/chat-store";
@@ -49,6 +50,7 @@ interface ScheduleVersion {
   changed_fields: string[];
   title: string | null;
   agent_id: string;
+  edit_agent_id: string | null;
   message_template: string;
   pod_id: string | null;
   attributes: Record<string, unknown>;
@@ -63,6 +65,7 @@ interface ScheduleVersion {
 interface ScheduleItem {
   schedule_id: string;
   agent_id: string;
+  edit_agent_id: string | null;
   agent_name: string;
   title: string | null;
   message_template: string;
@@ -250,6 +253,7 @@ export default function SchedulesPage() {
         enabled?: boolean;
         title?: string;
         attributes?: Record<string, unknown>;
+        edit_agent_id?: string | null;
       },
       failureMessage: string
     ) => {
@@ -299,6 +303,7 @@ export default function SchedulesPage() {
         editingItem,
         {
           ...(version.title ? { title: version.title } : {}),
+          edit_agent_id: version.edit_agent_id,
           attributes: version.attributes,
           cron: version.cron,
           tz: version.tz,
@@ -316,7 +321,10 @@ export default function SchedulesPage() {
       setError(null);
       setChattingId(item.schedule_id);
       try {
-        const scheduleEditorAgentId = getConfig("scheduleEditorAgentId")?.trim() || undefined;
+        const scheduleEditorAgentId =
+          item.edit_agent_id?.trim() ||
+          getConfig("scheduleEditorAgentId")?.trim() ||
+          undefined;
         const conversationId = await createConversation(scheduleEditorAgentId);
         setPendingMessage(
           [
@@ -325,6 +333,7 @@ export default function SchedulesPage() {
             `title: ${scheduleTitle(item)}`,
             `schedule_id: ${item.schedule_id}`,
             `agent_id: ${item.agent_id}`,
+            `edit_agent_id: ${item.edit_agent_id || "default"}`,
             `pod_id: ${item.pod_id || "none"}`,
             `attributes: ${JSON.stringify(item.attributes || {})}`,
             `cron: ${item.cron}`,
@@ -616,6 +625,7 @@ export default function SchedulesPage() {
                     ) : (
                       items.map((item) => {
                         const attributeEntries = scheduleAttributeEntries(item);
+                        const scheduleDescription = humanizeCron(item.cron);
 
                         return (
                           <tr key={item.schedule_id} className="border-b last:border-b-0">
@@ -644,7 +654,14 @@ export default function SchedulesPage() {
                             <td className="px-4 py-3 align-top">
                               <div className="space-y-1">
                                 <div className="font-mono">{item.cron}</div>
-                                <div className="text-xs text-muted-foreground">{item.tz}</div>
+                                {scheduleDescription && (
+                                  <div className="text-xs text-muted-foreground">
+                                    {scheduleDescription}
+                                  </div>
+                                )}
+                                <div className="text-xs text-muted-foreground">
+                                  Timezone: {item.tz}
+                                </div>
                                 <div className="text-xs text-muted-foreground">
                                   Version {item.version || 1}
                                 </div>

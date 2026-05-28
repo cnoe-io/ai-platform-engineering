@@ -14,6 +14,7 @@ interface RawSchedule {
   schedule_id: string;
   owner_user_id: string;
   agent_id: string;
+  edit_agent_id?: string | null;
   title?: string | null;
   message_template: string;
   pod_id?: string | null;
@@ -40,6 +41,7 @@ interface RawScheduleVersion {
   changed_fields?: string[];
   title?: string | null;
   agent_id?: string;
+  edit_agent_id?: string | null;
   message_template?: string;
   pod_id?: string | null;
   attributes?: Record<string, unknown> | null;
@@ -87,6 +89,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         schedule_id: doc.schedule_id,
         owner_user_id: doc.owner_user_id,
         agent_id: doc.agent_id,
+        edit_agent_id: doc.edit_agent_id || null,
         agent_name: agentNames.get(doc.agent_id) || doc.agent_id,
         title: doc.title || null,
         message_template: doc.message_template,
@@ -106,6 +109,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
             changed_fields: version.changed_fields || [],
             title: version.title || null,
             agent_id: version.agent_id || doc.agent_id,
+            edit_agent_id: version.edit_agent_id || null,
             message_template: version.message_template || "",
             pod_id: version.pod_id || null,
             attributes: version.attributes || {},

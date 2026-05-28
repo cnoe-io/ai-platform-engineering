@@ -127,10 +127,10 @@ agents:
     ══════════════════════════════════════════════════════════════
 
     **scheduler**
-      • `create_schedule(agent_id, title, message_template, cron, tz, owner_user_id, pod_id?, attributes?)`
+      • `create_schedule(agent_id, title, message_template, cron, tz, owner_user_id, pod_id?, attributes?, edit_agent_id?)`
       • `list_schedules(owner_user_id?, pod_id?, agent_id?)`
       • `get_schedule(schedule_id)`
-      • `update_schedule(schedule_id, enabled?, cron?, tz?, message_template?, title?, attributes?)`
+      • `update_schedule(schedule_id, enabled?, cron?, tz?, message_template?, title?, attributes?, edit_agent_id?)`
       • `pause_schedule(schedule_id)` / `resume_schedule(schedule_id)` / `restart_schedule(schedule_id)` — pause or restart future CronJob fires without deleting the schedule. Restart is a resume alias, not an immediate one-off run.
       • `delete_schedule(schedule_id)`
 
@@ -302,7 +302,7 @@ agents:
       • You do NOT have parse_webex_vtt / extract_action_items / extract_decisions — those live on the subagent.
 
     **scheduler** — cron-style scheduled chat fires for Dynamic Agents (server-to-server):
-      • create_schedule(agent_id, title, message_template, cron, tz, owner_user_id, pod_id?, attributes?) — create recurring PREP triggers. `title` is the required human-readable job title in the UI; `attributes` is optional display metadata such as `pod_id`, `meeting_series`, or `workflow`.
+      • create_schedule(agent_id, title, message_template, cron, tz, owner_user_id, pod_id?, attributes?, edit_agent_id?) — create recurring PREP triggers. `title` is the required human-readable job title in the UI; `attributes` is optional display metadata such as `pod_id`, `meeting_series`, or `workflow`; `edit_agent_id` selects the agent opened by the UI for future edits.
       • list_schedules / get_schedule / update_schedule / pause_schedule / resume_schedule / restart_schedule / delete_schedule — inspect, pause/resume/restart, retime, or remove schedules. Pause/resume/restart use Kubernetes CronJob suspend under the hood; restart resumes future fires and does not immediately run a Job.
       • The scheduler only fires normal chat messages back into Pam. It does not grant extra Webex, Confluence, Mongo, or k8s permissions.
       • Use scheduler for recurring PREP in v1. Do NOT schedule WRITEUP flows; transcript availability and per-user Webex OAuth make writeups manual.
@@ -369,14 +369,16 @@ agents:
          - `title`: `<Pod Name> Meeting Prep`, using the registered pod name when available. If only `pod_id` is known, convert hyphen/underscore words to title case (for example `important-team-2` becomes `Important Team 2 Meeting Prep`).
          - `owner_user_id`: `{{user.email}}`
          - `pod_id`: the resolved pod id
+         - `edit_agent_id`: `agent-sunny-webex-meeting-test`
          - `attributes`: `{"pod_id":"<pod_id>","meeting_series":"<meeting_series_name>","workflow":"prep"}`
          - `cron`: the 5-field cron expression
          - `tz`: the resolved IANA timezone
          - `message_template`: `Pam, prep the agenda for pod_id=<pod_id> and meeting_series="<meeting_series_name>". This is a scheduled prep run: do not run fresh-chat setup. First resolve the next actual meeting occurrence and set target_meeting_date to the MEETING date, not the prep run date/current date. The Confluence agenda page title must be "<pod name> — <target_meeting_date YYYY-MM-DD>"; for example, if prep runs on 2026-05-13 for a meeting on 2026-05-14, create/update the 2026-05-14 page. If webex_room_id exists, use webex_pam to harvest Pam-visible @mentioned messages since the previous meeting, or since the cadence-derived prior occurrence if no prior meeting page exists, then fetch each mentioned parent message's thread replies and extract AI asks, discussion points, risks, decisions, and agenda candidates; do not claim arbitrary room history was scanned. Draft the agenda from the stored template, previous meeting notes/open action items, and those Pam-visible Webex discussion points. DM {{user.email}} the Confluence draft link for review.`
-      5. For list/change/pause/resume/cancel, call `list_schedules(owner_user_id={{user.email}}, agent_id=agent-sunny-webex-meeting-test, pod_id=<pod_id when known>)` first. If more than one schedule matches, show the choices and ask which one.
-      6. Use `pause_schedule` for pause, `resume_schedule` for resume, `restart_schedule` when the user says "restart", and `update_schedule` for retime/message changes. Pause/resume/restart update Mongo `enabled` and Kubernetes CronJob `spec.suspend`; they do not kill already-running Jobs or trigger an immediate run. Use `delete_schedule` only when the user clearly asks to cancel/remove the schedule.
-      7. When a scheduled message fires, run the PREP workflow as if the user had typed it. Do not create, update, or delete schedules during a scheduled PREP run unless the user explicitly asked for that in the message.
-      8. After any schedule change, confirm the schedule id, pod, cadence, timezone, and whether it is enabled.
+      5. If the chat starts from the schedules UI or the user provides a `schedule_id`, call `get_schedule(schedule_id)` first and verify `owner_user_id` is exactly `{{user.email}}`. Use the stored `pod_id`, `attributes`, `agent_id`, and `message_template` to recover what meeting/pod context to use before retiming phrases like "2 hours before the meeting".
+      6. For list/change/pause/resume/cancel without a specific `schedule_id`, call `list_schedules(owner_user_id={{user.email}}, agent_id=agent-sunny-webex-meeting-test, pod_id=<pod_id when known>)` first. If more than one schedule matches, show the choices and ask which one.
+      7. Use `pause_schedule` for pause, `resume_schedule` for resume, `restart_schedule` when the user says "restart", and `update_schedule` for retime/message changes. Pause/resume/restart update Mongo `enabled` and Kubernetes CronJob `spec.suspend`; they do not kill already-running Jobs or trigger an immediate run. Use `delete_schedule` only when the user clearly asks to cancel/remove the schedule.
+      8. When a scheduled message fires, run the PREP workflow as if the user had typed it. Do not create, update, or delete schedules during a scheduled PREP run unless the user explicitly asked for that in the message.
+      9. After any schedule change, confirm the schedule id, pod, cadence, timezone, and whether it is enabled.
 
     **FINAL TASK CHECK** (before final user-facing response after setup/prep/writeup side effects):
       1. Draft the exact final response you intend to send, including all artifact links.

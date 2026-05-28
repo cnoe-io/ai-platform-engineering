@@ -28,6 +28,7 @@ class ScheduleVersion(BaseModel):
     changed_fields: list[str] = Field(default_factory=list)
     title: str | None = None
     agent_id: str
+    edit_agent_id: str | None = None
     message_template: str
     pod_id: str | None = None
     attributes: dict[str, Any] = Field(default_factory=dict)
@@ -79,6 +80,13 @@ class ScheduleCreate(BaseModel):
             "(for example {'pod_id': 'important-team-2'})."
         ),
     )
+    edit_agent_id: str | None = Field(
+        default=None,
+        description=(
+            "Optional Dynamic Agent _id to use when a user wants to edit this schedule. "
+            "When unset, UIs use their default schedule editor agent."
+        ),
+    )
 
     @field_validator("title")
     @classmethod
@@ -88,6 +96,16 @@ class ScheduleCreate(BaseModel):
             raise ValueError("title must be a non-empty string")
         return value
 
+    @field_validator("edit_agent_id")
+    @classmethod
+    def edit_agent_id_must_not_be_blank(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        value = value.strip()
+        if not value:
+            raise ValueError("edit_agent_id must be a non-empty string")
+        return value
+
 
 class SchedulePatch(BaseModel):
     """Body of PATCH /v1/schedules/{id}. All fields optional."""
@@ -95,6 +113,7 @@ class SchedulePatch(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     agent_id: str | None = None
+    edit_agent_id: str | None = None
     enabled: bool | None = None
     cron: str | None = None
     tz: str | None = None
@@ -112,6 +131,18 @@ class SchedulePatch(BaseModel):
             raise ValueError("title must be a non-empty string")
         return value
 
+    @field_validator("edit_agent_id")
+    @classmethod
+    def patch_edit_agent_id_must_not_be_blank(
+        cls, value: str | None
+    ) -> str | None:
+        if value is None:
+            return value
+        value = value.strip()
+        if not value:
+            raise ValueError("edit_agent_id must be a non-empty string")
+        return value
+
 
 class Schedule(BaseModel):
     """Full schedule doc as stored in Mongo + returned by API."""
@@ -121,6 +152,7 @@ class Schedule(BaseModel):
     schedule_id: str
     owner_user_id: str
     agent_id: str
+    edit_agent_id: str | None = None
     title: str | None = None
     message_template: str
     pod_id: str | None = None

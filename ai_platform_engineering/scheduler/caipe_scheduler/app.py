@@ -96,6 +96,8 @@ def create_schedule(
 
     if not store.agent_exists(body.agent_id):
         raise HTTPException(404, f"agent_id {body.agent_id!r} not found.")
+    if body.edit_agent_id and not store.agent_exists(body.edit_agent_id):
+        raise HTTPException(404, f"edit_agent_id {body.edit_agent_id!r} not found.")
 
     if store.count_for_owner(body.owner_user_id) >= settings.max_schedules_per_owner:
         raise HTTPException(
@@ -110,6 +112,7 @@ def create_schedule(
         "schedule_id": schedule_id,
         "owner_user_id": body.owner_user_id,
         "agent_id": body.agent_id,
+        "edit_agent_id": body.edit_agent_id,
         "title": body.title,
         "message_template": body.message_template,
         "pod_id": body.pod_id,
@@ -193,6 +196,11 @@ def patch_schedule(
     if "agent_id" in patch and patch["agent_id"] is not None:
         if not store.agent_exists(patch["agent_id"]):
             raise HTTPException(404, f"agent_id {patch['agent_id']!r} not found.")
+    if "edit_agent_id" in patch and patch["edit_agent_id"] is not None:
+        if not store.agent_exists(patch["edit_agent_id"]):
+            raise HTTPException(
+                404, f"edit_agent_id {patch['edit_agent_id']!r} not found."
+            )
 
     updated = store.patch(schedule_id, patch)
     if updated is None:
