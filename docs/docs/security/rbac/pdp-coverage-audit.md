@@ -43,9 +43,16 @@ return withAuth(request, async (req, user, session) => { ... });
 | `/api/admin/platform-config` (`GET`, exception)       | `supervisor#invoke`            |
 | `/api/admin/*` (other `GET`)                          | `admin_ui#view`                |
 | `/api/admin/*` (non-`GET`)                            | `admin_ui#manage`              |
-| `/api/users/me`, `/api/users/search`                  | `supervisor#invoke`            |
-| `/api/settings`, `/api/nps`                           | `supervisor#invoke`            |
-| `/api/chat`                                           | `supervisor#invoke`            |
+| `/api/users/me`                                       | `self_profile#read/write`      |
+| `/api/users/search`                                   | `user_directory#read`          |
+| `/api/auth/my-roles`, `/api/auth/role`                | `self_profile#read`            |
+| `/api/auth/slack-link`, `/api/auth/webex-link`        | `self_profile#write`           |
+| `/api/settings`                                       | `user_settings#read/write`     |
+| `/api/nps`, `/api/feedback`                           | `feedback#submit`              |
+| `/api/chat`, `/api/a2a`, `/api/dynamic-agents/models`, `/api/dynamic-agents/available` | `chat_supervisor#invoke` |
+| `/api/files`                                          | `user_files#read/write`        |
+| `/api/ai`                                             | `ai_assist#invoke`             |
+| `/api/credentials`                                    | `credential_vault#use` plus concrete `secret_ref` checks |
 | `/api/task-configs` (`GET` / non-`GET`)               | `dynamic_agent#view` / `manage` |
 | `/api/workflow-runs` (`GET` / non-`GET`)              | `dynamic_agent#view` / `invoke` |
 | `/api/catalog-api-keys`                               | `skill#configure`              |
@@ -60,11 +67,19 @@ The OpenFGA relation each pair maps to is computed by `organizationRelationFor()
 |------------|------------------------|-------------------------------------------|
 | `admin_ui` | `view` / `audit.view`  | `can_audit`                               |
 | `admin_ui` | any other              | `can_manage`                              |
+| `self_profile` | `read` / `write`  | `can_read_self` / `can_manage_self`       |
+| `user_directory` | any             | `can_search_directory`                    |
+| `chat_supervisor` | any            | `can_chat`                                |
+| `feedback` | any                    | `can_submit_feedback`                     |
+| `user_settings` | any              | `can_manage_self`                         |
+| `user_files` | any                 | `can_use_files`                           |
+| `ai_assist` | any                  | `can_use_ai_assist`                       |
+| `credential_vault` | any           | `can_use_credentials`                     |
 | any        | `view` / `read` / `query` / `invoke` | `can_use`                       |
 | any        | `audit.view`           | `can_audit`                               |
 | any        | anything else          | `can_manage`                              |
 
-So `withAuth` on `/api/users/me` becomes an OpenFGA `check` for `user:<sub> can_use organization:caipe`. That tuple is what every signed-in member has by default.
+So `withAuth` on `GET /api/users/me` becomes an OpenFGA `check` for `user:<sub> can_read_self organization:caipe`, while `PATCH /api/users/me` checks `can_manage_self`. Those relations are derived from organization membership/admin in the model, so existing signed-in members keep baseline self-service access after upgrade.
 
 ---
 
@@ -94,31 +109,31 @@ The bypass is **not** Mongo-derived, but it is invisible to OpenFGA and produces
 
 ### Category 2 — `withAuth`-only routes (PDP via the legacy umbrella)
 
-These routes look ungated at first glance — the only auth line in the file is `return withAuth(request, async (req, user, session) => { ... })` — but they ARE PDP-gated. `withAuth` runs the URL through `resolveLegacyWithAuthRbacPolicy()` and then calls `requireRbacPermission()`, which hits OpenFGA. The capability they end up enforcing is in the table at the top of this doc; almost all of them fall through to **`supervisor#invoke`** (i.e. `organization:caipe#can_use`).
+These routes look ungated at first glance — the only auth line in the file is `return withAuth(request, async (req, user, session) => { ... })` — but they ARE PDP-gated. `withAuth` runs the URL through `resolveLegacyWithAuthRbacPolicy()` and then calls `requireRbacPermission()`, which hits OpenFGA. The capability they end up enforcing is in the table at the top of this doc. The long tail that used to fall through to **`supervisor#invoke`** is now split into purpose-specific route capabilities.
 
 | Route | File | Effective PDP capability |
 |---|---|---|
-| `/api/users/me` (GET / PATCH) | `ui/src/app/api/users/me/route.ts` | `supervisor#invoke` (self-scoped Mongo query is keyed on the caller's verified email — no IDOR surface) |
-| `/api/users/me/insights`, `/api/users/me/favorites`, `/api/users/me/agent-*` | `ui/src/app/api/users/me/...` | `supervisor#invoke` (self-scoped) |
-| `/api/users/search` | `ui/src/app/api/users/search/route.ts` | `supervisor#invoke` — returns public profile fields only (`email`, `name`, `avatar_url`); design intent is that any signed-in user can email-search the directory for sharing UIs |
-| `/api/chat/conversations/[id]/messages` | `ui/src/app/api/chat/conversations/[id]/messages/route.ts` | `supervisor#invoke` at the BFF + an inline `requireRbacPermission(session, "supervisor", "invoke")` on `PATCH` |
-| `/api/chat/conversations/[id]/share` | `ui/src/app/api/chat/conversations/[id]/share/route.ts` | `supervisor#invoke` at the BFF + `requireConversationResourcePermission(session, user.email, conversation, "share")` inline (real resource-scoped check) |
-| `/api/settings/*`, `/api/nps/*` | `ui/src/app/api/{settings,nps}/...` | `supervisor#invoke` |
-| `/api/feedback` | `ui/src/app/api/feedback/route.ts` | `supervisor#invoke` (writes the caller's own feedback row) |
-| `/api/files/list`, `/api/files/content` | `ui/src/app/api/files/...` | `supervisor#invoke` (session-scoped upload tree) |
-| `/api/ai/review`, `/api/ai/assist` | `ui/src/app/api/ai/...` | `supervisor#invoke` |
-| `/api/credentials/{retrieve,audit,health}` | `ui/src/app/api/credentials/...` | `supervisor#invoke` at the BFF; per-credential `secret_ref#read/write` enforced inside the credential services in `ui/src/lib/credentials/` |
-| `/api/credentials/connections/*`, `/api/credentials/oauth/*`, `/api/credentials/inject/*` | `ui/src/app/api/credentials/...` | Same pattern — coarse gate at BFF, resource-scoped check inside service |
-| `/api/integrations/slack/.../access-check`, `/api/integrations/webex/.../access-check` | `ui/src/app/api/integrations/...` | `supervisor#invoke` — the route itself runs a delegated PDP check via `checkSlackChannelAccess` / equivalent |
-| `/api/auth/role`, `/api/auth/my-roles`, `/api/auth/slack-link`, `/api/auth/webex-link` | `ui/src/app/api/auth/...` | `supervisor#invoke`; `/api/auth/role` also does an OpenFGA `checkOpenFgaTuple` on `organization:caipe#can_manage` to elevate to admin |
-| `/api/dynamic-agents/models` | `ui/src/app/api/dynamic-agents/models/route.ts` | `supervisor#invoke` |
-| `/api/dynamic-agents/available` | `ui/src/app/api/dynamic-agents/available/route.ts` | `supervisor#invoke` at the BFF + `filterResourcesByPermission(session, agents, { type: "agent", action: "use" })` inline |
-| `/api/a2a/[[...path]]` | `ui/src/app/api/a2a/...` | `supervisor#invoke` at the BFF; A2A path runs its own JWKS validation downstream |
+| `/api/users/me` (GET / PATCH) | `ui/src/app/api/users/me/route.ts` | `self_profile#read/write` (self-scoped Mongo query is keyed on the caller's verified email — no IDOR surface) |
+| `/api/users/me/insights`, `/api/users/me/favorites`, `/api/users/me/agent-*` | `ui/src/app/api/users/me/...` | `self_profile#read` (self-scoped) |
+| `/api/users/search` | `ui/src/app/api/users/search/route.ts` | `user_directory#read` — returns public profile fields only (`email`, `name`, `avatar_url`) |
+| `/api/chat/conversations/[id]/messages` | `ui/src/app/api/chat/conversations/[id]/messages/route.ts` | `chat_supervisor#invoke` at the BFF + an inline supervisor invoke check on `PATCH` until that route is fully migrated |
+| `/api/chat/conversations/[id]/share` | `ui/src/app/api/chat/conversations/[id]/share/route.ts` | `chat_supervisor#invoke` at the BFF + `requireConversationResourcePermission(session, user.email, conversation, "share")` inline |
+| `/api/settings/*` | `ui/src/app/api/settings/...` | `user_settings#read/write` |
+| `/api/nps/*`, `/api/feedback` | `ui/src/app/api/{nps,feedback}/...` | `feedback#submit` |
+| `/api/files/list`, `/api/files/content` | `ui/src/app/api/files/...` | `user_files#read/write` (session-scoped upload tree) |
+| `/api/ai/review`, `/api/ai/assist` | `ui/src/app/api/ai/...` | `ai_assist#invoke` |
+| `/api/credentials/{retrieve,audit,health}` | `ui/src/app/api/credentials/...` | `credential_vault#use` at the BFF; per-credential `secret_ref` checks enforced inside the credential services in `ui/src/lib/credentials/` |
+| `/api/credentials/connections/*`, `/api/credentials/oauth/*`, `/api/credentials/inject/*` | `ui/src/app/api/credentials/...` | Same pattern — credential-vault route gate plus resource-scoped checks inside service |
+| `/api/integrations/slack/.../access-check`, `/api/integrations/webex/.../access-check` | `ui/src/app/api/integrations/...` | Concrete `slack_channel#read` / `webex_space#read` before delegated access checks |
+| `/api/auth/role`, `/api/auth/my-roles`, `/api/auth/slack-link`, `/api/auth/webex-link` | `ui/src/app/api/auth/...` | `self_profile#read/write`; `/api/auth/role` also checks `organization:caipe#can_manage` to elevate to admin |
+| `/api/dynamic-agents/models` | `ui/src/app/api/dynamic-agents/models/route.ts` | `chat_supervisor#invoke` |
+| `/api/dynamic-agents/available` | `ui/src/app/api/dynamic-agents/available/route.ts` | `chat_supervisor#invoke` at the BFF + `filterResourcesByPermission(session, agents, { type: "agent", action: "use" })` inline |
+| `/api/a2a/[[...path]]` | `ui/src/app/api/a2a/...` | `chat_supervisor#invoke`; A2A path runs its own JWKS validation downstream |
 | `/api/version` | `ui/src/app/api/version/route.ts` | `supervisor#invoke` (read-only build metadata) |
 
-**Severity:** Low for security, medium for hygiene. Every route IS PDP-gated; the issue is that the gate is semantically wrong for most of them. Revoking `organization:caipe#can_use` for a user disables their chat AND their ability to read their own profile, search the directory, and submit feedback — three things that have nothing to do with the supervisor.
+**Severity:** Reduced. Every route IS PDP-gated, and the high-traffic basic surfaces now emit capability names that match the surface being used. Any remaining `supervisor#invoke` events should be treated as deprecated fallback noise and migrated to explicit mappings.
 
-**Remediation:** [`2026-05-27-fine-grained-rbac-for-withauth-routes`](../../specs/2026-05-27-fine-grained-rbac-for-withauth-routes/plan.md) tracks the migration to per-capability relations (`self_profile#read`, `chat_supervisor#invoke`, `user_directory#read`, `feedback#submit`, etc.). No route in this category needs an emergency fix.
+**Remediation:** Continue shrinking this category by replacing wrapper-level gates with inline resource checks where concrete resource ids are available. New `withAuth` routes should add an explicit mapping instead of relying on the deprecated fallback.
 
 ### Category 3 — Properly resource-scoped PDP
 

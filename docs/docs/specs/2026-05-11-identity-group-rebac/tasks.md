@@ -44,7 +44,7 @@
 - [X] T016 Implement relationship-to-OpenFGA tuple conversion helpers in `ui/src/lib/rbac/tuple-builders.ts`
 - [X] T017 Extend OpenFGA read/write/check helpers for universal resource relations in `ui/src/lib/rbac/openfga.ts`
 - [X] T018 Add OpenFGA model support for universal resource types and Slack channel relations in `deploy/openfga/model.fga`
-- [X] T019 Mirror the OpenFGA authorization model changes in `deploy/openfga/init/authorization-model.json`
+- [X] T019 Mirror the OpenFGA authorization model changes in `charts/ai-platform-engineering/charts/openfga/authorization-model.json`
 - [X] T020 Implement ReBAC admin API authorization helpers in `ui/src/app/api/admin/rebac/_lib.ts`
 - [X] T021 Implement Identity Group Sync API authorization helpers in `ui/src/app/api/admin/identity-group-sync/_lib.ts`
 - [X] T022 Implement Slack ReBAC API authorization helpers in `ui/src/app/api/admin/slack/channels/_lib.ts`
