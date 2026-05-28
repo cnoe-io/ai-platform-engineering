@@ -48,9 +48,20 @@ spec:
           {{- $hasKcBotSecret := ne $kcBotSecretName "" }}
           {{- $hasKcAdminSecret := and .Values.keycloakAdmin .Values.keycloakAdmin.clientSecretFromSecret .Values.keycloakAdmin.clientSecretFromSecret.name }}
           {{- $hasKcAdminClientId := and .Values.keycloakAdmin .Values.keycloakAdmin.clientId }}
-          {{- $needEnv := or .Values.botConfig $hasKcBotSecret $hasKcAdminSecret $hasKcAdminClientId }}
-          {{- if $needEnv }}
+          {{- /* Service URL defaults (always rendered): env: takes precedence over
+                 envFrom (ConfigMap), so these provide release-name-derived defaults
+                 while still allowing operators to override via .Values.config. */ -}}
           env:
+            - name: CAIPE_API_URL
+              value: {{ index .Values.config "CAIPE_API_URL" | default (printf "http://%s-caipe-ui:3000" .Release.Name) | quote }}
+            - name: KEYCLOAK_URL
+              value: {{ index .Values.config "KEYCLOAK_URL" | default (printf "http://%s-keycloak:8080" .Release.Name) | quote }}
+            - name: OPENFGA_HTTP
+              value: {{ index .Values.config "OPENFGA_HTTP" | default (printf "http://%s-openfga:8080" .Release.Name) | quote }}
+            - name: WEBEX_ADMIN_JWT_ISSUER
+              value: {{ index .Values.config "WEBEX_ADMIN_JWT_ISSUER" | default (printf "http://%s-keycloak:8080/realms/caipe" .Release.Name) | quote }}
+            - name: WEBEX_ADMIN_JWKS_URL
+              value: {{ index .Values.config "WEBEX_ADMIN_JWKS_URL" | default (printf "http://%s-keycloak:8080/realms/caipe/protocol/openid-connect/certs" .Release.Name) | quote }}
             {{- if .Values.botConfig }}
             - name: WEBEX_INTEGRATION_BOT_CONFIG
               value: "/etc/caipe/bot-config.yaml"
@@ -73,7 +84,6 @@ spec:
                   name: {{ .Values.keycloakAdmin.clientSecretFromSecret.name | quote }}
                   key: {{ .Values.keycloakAdmin.clientSecretFromSecret.key | default "KC_PLATFORM_CLIENT_SECRET" | quote }}
             {{- end }}
-          {{- end }}
           envFrom:
             - configMapRef:
                 name: {{ include "webex-bot.fullname" . }}-config

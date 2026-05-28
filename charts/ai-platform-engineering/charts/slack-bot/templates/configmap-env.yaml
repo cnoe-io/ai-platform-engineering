@@ -6,5 +6,5 @@ metadata:
     {{- include "slack-bot.labels" . | nindent 4 }}
 data:
   {{- range $key, $value := .Values.config }}
-  {{ $key }}: {{ tpl ($value | toString) $ | quote }}
+  {{ $key }}: {{ $value | quote }}
   {{- end }}

@@ -15,6 +15,6 @@ data:
     to a single space instead.
   */ -}}
   {{- if not (eq (toString $value) "") }}
-  {{ $key }}: {{ tpl ($value | toString) $ | quote }}
+  {{ $key }}: {{ $value | quote }}
   {{- end }}
   {{- end }}
