@@ -52,6 +52,8 @@ interface TestAuditDoc {
   outcome: string;
   correlation_id: string;
   source: string;
+  agent_name?: string;
+  tool_name?: string;
 }
 
 const docs: TestAuditDoc[] = [
@@ -79,10 +81,43 @@ const docs: TestAuditDoc[] = [
     ts: new Date("2026-05-17T16:59:25.000Z"),
     type: "auth",
     tenant_id: "default",
-    subject_hash: "hash-supervisor",
-    action: "supervisor#invoke",
+    subject_hash: "hash-system-config",
+    action: "system_config#read",
     outcome: "allow",
-    correlation_id: "supervisor-correlation",
+    correlation_id: "system-config-correlation",
+    source: "webui_backend",
+  },
+  {
+    ts: new Date("2026-05-17T16:59:26.000Z"),
+    type: "tool_action",
+    tenant_id: "default",
+    subject_hash: "hash-tool",
+    action: "argocd_list_applications",
+    outcome: "success",
+    correlation_id: "tool-correlation",
+    source: "supervisor",
+    agent_name: "argocd",
+    tool_name: "argocd_list_applications",
+  },
+  {
+    ts: new Date("2026-05-17T16:59:27.000Z"),
+    type: "agent_delegation",
+    tenant_id: "default",
+    subject_hash: "hash-delegation",
+    action: "delegate_to_argocd",
+    outcome: "success",
+    correlation_id: "delegation-correlation",
+    source: "supervisor",
+    agent_name: "argocd",
+  },
+  {
+    ts: new Date("2026-05-17T16:59:28.000Z"),
+    type: "openfga_rebac",
+    tenant_id: "default",
+    subject_hash: "hash-openfga",
+    action: "agent#use",
+    outcome: "allow",
+    correlation_id: "openfga-correlation",
     source: "webui_backend",
   },
 ];
@@ -130,7 +165,7 @@ beforeEach(() => {
 });
 
 describe("GET /api/admin/audit-events", () => {
-  it("hides admin UI view authorization rows by default", async () => {
+  it("returns all audit event rows by default", async () => {
     const { GET } = await import("../route");
 
     const response = await GET(request("/api/admin/audit-events"));
@@ -138,7 +173,20 @@ describe("GET /api/admin/audit-events", () => {
 
     expect(response.status).toBe(200);
     expect(body.records.map((record: TestAuditDoc) => record.action)).toEqual([
-      "supervisor#invoke",
+      "admin_ui#view",
+      "admin_ui#audit.view",
+      "system_config#read",
+      "argocd_list_applications",
+      "delegate_to_argocd",
+      "agent#use",
+    ]);
+    expect(body.records.map((record: TestAuditDoc) => record.type)).toEqual([
+      "auth",
+      "auth",
+      "auth",
+      "tool_action",
+      "agent_delegation",
+      "openfga_rebac",
     ]);
   });
 
@@ -152,7 +200,7 @@ describe("GET /api/admin/audit-events", () => {
     expect(body.records.map((record: TestAuditDoc) => record.action)).toEqual([
       "admin_ui#view",
       "admin_ui#audit.view",
-      "supervisor#invoke",
+      "system_config#read",
     ]);
   });
 });

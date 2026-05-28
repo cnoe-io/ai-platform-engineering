@@ -56,7 +56,8 @@ describe('UnifiedAuditTab', () => {
     });
 
     expect(await screen.findByText(/RBAC Audit Log/i)).toBeInTheDocument();
-    expect(screen.getByRole('option', { name: /Default view/i })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: /^All$/i })).toBeInTheDocument();
+    expect(screen.queryByText(/Default view hides routine admin page-view checks/i)).not.toBeInTheDocument();
     expect(screen.queryByRole('option', { name: /^All types$/i })).not.toBeInTheDocument();
     expect(screen.getByText(/admin_ui#view/i)).toBeInTheDocument();
     expect(screen.getByText(/webui_backend/i)).toBeInTheDocument();
