@@ -743,6 +743,7 @@ describe('Admin Dashboard Page', () => {
         'Default Agent',
         'Release notes',
         'AI Review',
+        'Credentials',
         'Knowledge Bases',
         'Skills',
       ]);
