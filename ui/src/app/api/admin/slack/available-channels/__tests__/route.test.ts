@@ -5,14 +5,12 @@
  * discovery returning irrelevant results + no caching.
  *
  * Verifies that the `available-channels` route:
- *   - Uses `users.conversations` (Tier 3) when member_only=1 (default), so
+ *   - Uses `users.conversations` (Tier 3) for every request, so
  *     workspaces with thousands of channels don't trip Slack's Tier-2 rate
  *     limit on `conversations.list`.
- *   - Falls back to `conversations.list` when member_only=0.
- *   - Caches results per (scope, token) and serves repeat requests from cache
+ *   - Ignores legacy `member_only=0` callers instead of using `conversations.list`.
+ *   - Caches results per bot token and serves repeat requests from cache
  *     without calling Slack again.
- *   - Splits the cache key per scope so the two endpoints don't poison each
- *     other's snapshot.
  *   - Honors `refresh=1` to force a re-fetch.
  *   - Defaults `is_member=true` for rows from `users.conversations` (which
  *     omits the field per Slack's docs).
@@ -131,22 +129,21 @@ describe("GET /api/admin/slack/available-channels", () => {
       expect(slackCalls[0].endpoint).toBe("users.conversations");
     });
 
-    it("falls back to conversations.list when member_only=0", async () => {
+    it("ignores legacy member_only=0 and still uses users.conversations", async () => {
       mockSlackFetch(() => ({
         ok: true,
         channels: [
-          { id: "C200", name: "general", is_private: false, is_member: true, num_members: 100 },
-          { id: "C201", name: "random", is_private: false, is_member: false, num_members: 200 },
+          { id: "C200", name: "general", is_private: false, num_members: 100 },
         ],
       }));
 
       const body = await makeRequest("member_only=0");
 
       expect(slackCalls).toHaveLength(1);
-      expect(slackCalls[0].endpoint).toBe("conversations.list");
+      expect(slackCalls[0].endpoint).toBe("users.conversations");
       expect(body).toMatchObject({
         success: true,
-        data: { scope: "all", endpoint: "conversations.list" },
+        data: { scope: "member_only", endpoint: "users.conversations" },
       });
     });
   });
@@ -196,44 +193,25 @@ describe("GET /api/admin/slack/available-channels", () => {
       expect(slackCalls).toHaveLength(3);
     });
 
-    it("splits the cache by scope so member_only and full-list don't poison each other", async () => {
-      mockSlackFetch((call) => {
-        if (call.endpoint === "users.conversations") {
-          return { ok: true, channels: [{ id: "C100", name: "members-only-channel" }] };
-        }
-        return {
-          ok: true,
-          channels: [
-            { id: "C100", name: "members-only-channel", is_member: true },
-            { id: "C999", name: "non-member-channel", is_member: false },
-          ],
-        };
-      });
+    it("uses one bot-member cache even for legacy member_only=0 callers", async () => {
+      mockSlackFetch(() => ({
+        ok: true,
+        channels: [{ id: "C100", name: "members-only-channel" }],
+      }));
 
       const memberOnly = (await makeRequest("member_only=1")) as {
-        data: { channels: Array<{ id: string }> };
+        data: { channels: Array<{ id: string }>; cached: boolean };
       };
-      const all = (await makeRequest("member_only=0")) as {
-        data: { channels: Array<{ id: string }>; total_visible: number };
+      const legacyAll = (await makeRequest("member_only=0")) as {
+        data: { channels: Array<{ id: string }>; cached: boolean };
       };
 
-      // Two distinct Slack calls (one per endpoint), each cached separately.
-      expect(slackCalls).toHaveLength(2);
-      expect(slackCalls.map((c) => c.endpoint).sort()).toEqual([
-        "conversations.list",
-        "users.conversations",
-      ]);
+      expect(slackCalls).toHaveLength(1);
+      expect(slackCalls[0].endpoint).toBe("users.conversations");
+      expect(memberOnly.data.cached).toBe(false);
+      expect(legacyAll.data.cached).toBe(true);
       expect(memberOnly.data.channels.map((c) => c.id)).toEqual(["C100"]);
-      expect(all.data.channels.map((c) => c.id)).toEqual(["C100", "C999"]);
-
-      // And a second member_only request should still come from cache, not
-      // contaminated by the all-list fetch.
-      const repeat = (await makeRequest("member_only=1")) as {
-        data: { cached: boolean; channels: Array<{ id: string }> };
-      };
-      expect(slackCalls).toHaveLength(2);
-      expect(repeat.data.cached).toBe(true);
-      expect(repeat.data.channels.map((c) => c.id)).toEqual(["C100"]);
+      expect(legacyAll.data.channels.map((c) => c.id)).toEqual(["C100"]);
     });
   });
 
