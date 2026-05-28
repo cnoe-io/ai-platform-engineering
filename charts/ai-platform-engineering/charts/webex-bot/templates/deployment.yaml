@@ -50,7 +50,7 @@ spec:
           {{- $hasKcAdminClientId := and .Values.keycloakAdmin .Values.keycloakAdmin.clientId }}
           {{- /* Service URL defaults (always rendered): env: takes precedence over
                  envFrom (ConfigMap), so these provide release-name-derived defaults
-                 while still allowing operators to override via .Values.config. */ -}}
+                 while still allowing operators to override via .Values.config. */}}
           env:
             - name: CAIPE_API_URL
               value: {{ index .Values.config "CAIPE_API_URL" | default (printf "http://%s-caipe-ui:3000" .Release.Name) | quote }}

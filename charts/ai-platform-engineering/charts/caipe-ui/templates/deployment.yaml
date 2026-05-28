@@ -91,7 +91,7 @@ spec:
             {{- end }}
             {{- /* Service URL defaults: env: takes precedence over envFrom (ConfigMap),
                    so these entries provide release-name-derived defaults while still
-                   allowing operators to override via .Values.config. */ -}}
+                   allowing operators to override via .Values.config. */}}
             - name: KEYCLOAK_URL
               value: {{ index .Values.config "KEYCLOAK_URL" | default (printf "http://%s-keycloak:8080" .Release.Name) | quote }}
             - name: OIDC_DISCOVERY_URL
