@@ -62,6 +62,14 @@ type organization
     define can_use: member or admin
     define can_manage: admin
     define can_audit: auditor or admin
+    define can_read_self: member or admin
+    define can_manage_self: member or admin
+    define can_search_directory: member or admin
+    define can_chat: member or admin
+    define can_submit_feedback: member or admin
+    define can_use_files: member or admin
+    define can_use_ai_assist: member or admin
+    define can_use_credentials: member or admin
 
 type slack_workspace
   relations

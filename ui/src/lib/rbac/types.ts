@@ -27,7 +27,10 @@ export type RbacResource =
   | "user_files"
   | "user_settings"
   | "mcp_server"
-  | "dynamic_agent";
+  | "dynamic_agent"
+  | "user_directory"
+  | "user_files"
+  | "user_settings";
 
 /** Common capability scopes from the permission matrix */
 export type RbacScope =

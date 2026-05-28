@@ -17,6 +17,7 @@ working unchanged.
 
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 from pathlib import Path
@@ -28,6 +29,19 @@ import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CHART_PATH = REPO_ROOT / "charts" / "ai-platform-engineering" / "charts" / "keycloak"
+REALM_CONFIG_PATH = CHART_PATH / "realm-config.json"
+INIT_IDP_PATH = CHART_PATH / "scripts" / "init-idp.sh"
+INIT_TOKEN_EXCHANGE_PATH = CHART_PATH / "scripts" / "init-token-exchange.sh"
+CAIPE_PLATFORM_ADMIN_ROLES = {
+    "view-users",
+    "query-users",
+    "manage-users",
+    "query-clients",
+    "view-clients",
+    "manage-clients",
+    "view-authorization",
+    "manage-authorization",
+}
 
 
 def _helm_template(*extra_set_args: str) -> list[dict[str, Any]]:
@@ -120,3 +134,33 @@ def test_strict_mode_explicit_false_omits_env_var() -> None:
             f"job {suffix!r} must NOT inject KEYCLOAK_STRICT_CLIENT_SECRETS "
             "when strictClientSecrets=false"
         )
+
+
+def test_realm_config_grants_caipe_platform_admin_client_roles() -> None:
+    """Fresh realms must let the BFF migration inspect and repair clients."""
+    realm = json.loads(REALM_CONFIG_PATH.read_text())
+    service_account = next(
+        user
+        for user in realm["users"]
+        if user.get("serviceAccountClientId") == "caipe-platform"
+    )
+
+    roles = set(service_account["clientRoles"]["realm-management"])
+
+    assert CAIPE_PLATFORM_ADMIN_ROLES <= roles
+
+
+def test_init_idp_reconciles_caipe_platform_admin_client_roles() -> None:
+    """Existing realms must be upgraded, not only fresh-imported."""
+    script = INIT_IDP_PATH.read_text()
+
+    missing = [role for role in CAIPE_PLATFORM_ADMIN_ROLES if role not in script]
+
+    assert missing == []
+
+
+def test_init_token_exchange_reconciles_webex_impersonation_role() -> None:
+    """The privileged init hook must repair Webex before the BFF migration runs."""
+    script = INIT_TOKEN_EXCHANGE_PATH.read_text()
+
+    assert 'ensure_service_account_impersonation_role "${WEBEX_BOT_CLIENT_ID}"' in script
