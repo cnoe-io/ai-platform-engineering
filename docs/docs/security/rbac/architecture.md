@@ -61,6 +61,8 @@ Relationships are created and assigned by:
 
 `BOOTSTRAP_ADMIN_EMAILS` is an explicit break-glass/initial-admin list and the source for durable email-based bootstrap seeding. The Web UI BFF resolves each email to a Keycloak `sub` during `keycloak_rbac_mapping_reconciliation_v1`; existing SSO users are left untouched, while missing users get a passwordless verified Keycloak placeholder that the IdP broker can auto-link on first login. For each resolved subject, the BFF writes the default member baseline tuples, `admin` on `organization:<org_key>`, `manager` on `system_config:platform_settings`, `manager` on `mcp_server:agentgateway`, and `manager` tuples for the built-in admin surfaces, including baseline surfaces such as `admin_surface:teams` and `admin_surface:credentials`. Keep the list small, audit it in Admin → Security & Policy → Keycloak, and replace it with team/group-mediated admin relationships when steady-state Identity Group Sync is configured.
 
+Local no-SSO development uses a dedicated dev auth provider rather than route-local bypass checks. When `SSO_ENABLED=false`, `ALLOW_DEV_ADMIN_WHEN_SSO_DISABLED=true`, and `CAIPE_UNSAFE_RBAC_BYPASS=true` outside production, `ui/src/lib/auth/dev-auth-provider.ts` supplies the stable `anonymous@local` / `anonymous-local-dev` admin principal to API middleware, admin tab gates, RAG proxy calls, and admin-surface checks. This keeps local development on the same auth-context contract as real OIDC sessions while making the insecure mode visible through logs and the UI **No Auth** indicator.
+
 #### When Authorization Relationships Are Created
 
 Keycloak realm roles are **not created for CAIPE permissions**. New deployments keep Keycloak focused on identity and login:

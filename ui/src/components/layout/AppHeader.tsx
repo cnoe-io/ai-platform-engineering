@@ -440,7 +440,7 @@ export function AppHeader() {
       Icon: KeyRound,
       activeClassName: "bg-primary text-primary-foreground shadow-sm",
     },
-    session && {
+    (session || isAdmin) && {
       key: "admin",
       href: "/admin",
       label: "Admin",

@@ -11,6 +11,11 @@ import { validateBearerJWT, validateLocalSkillsJWT } from '@/lib/jwt-validation'
 import { ApiError } from '@/lib/api-error';
 import type { AuthFailureAction, AuthFailureReason } from '@/lib/auth-error';
 import { CredentialError } from '@/lib/credentials/errors';
+import {
+  getDevAnonymousSession,
+  getDevAnonymousUser,
+  isDevAnonymousAuthEnabled,
+} from '@/lib/auth/dev-auth-provider';
 
 // Re-export so existing `import { ApiError } from "@/lib/api-middleware"`
 // call sites keep working — see ./api-error.ts for why the class lives
@@ -204,14 +209,11 @@ export async function getAuthenticatedUser(
 
   if (!session || !session.user?.email) {
     const { allowAnonymous = false } = options;
-    if (allowAnonymous && !getConfig('ssoEnabled')) {
-      const allowAnonAdmin = process.env.ALLOW_ANONYMOUS_ADMIN === 'true';
-      if (!allowAnonAdmin) {
-        console.warn('[Auth] SSO is disabled and ALLOW_ANONYMOUS_ADMIN is not set — anonymous user gets role "user" only');
-      }
-      const role = allowAnonAdmin ? 'admin' : 'user';
-      const fallbackUser = { email: 'anonymous@local', name: 'Anonymous', role };
-      return { user: fallbackUser, session: { role, canViewAdmin: allowAnonAdmin } };
+    if (allowAnonymous && isDevAnonymousAuthEnabled()) {
+      return {
+        user: getDevAnonymousUser(),
+        session: getDevAnonymousSession(),
+      };
     }
     throw new ApiError(
       'You are not signed in. Please sign in to continue.',

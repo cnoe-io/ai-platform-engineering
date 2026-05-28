@@ -3,6 +3,7 @@
 import { useSession } from "next-auth/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AdminTabGatesMap, AdminTabKey } from "@/lib/rbac/types";
+import { allAdminTabGates, isDevAnonymousAuthEnabled } from "@/lib/auth/dev-auth-provider";
 
 const EMPTY_GATES: AdminTabGatesMap = {
   users: false,
@@ -23,6 +24,8 @@ const EMPTY_GATES: AdminTabGatesMap = {
   openfga: false,
   migrations: false,
 };
+
+const ALL_GATES = allAdminTabGates(EMPTY_GATES);
 
 interface AdminTabGatesState {
   gates: AdminTabGatesMap;
@@ -85,8 +88,17 @@ export function useAdminTabGates(
   const simulationKey = simulationTarget?.type && simulationTarget.id
     ? `${simulationTarget.type}:${simulationTarget.id}:${simulationTarget.relation ?? ""}`
     : "";
+  const devAuthEnabled = isDevAnonymousAuthEnabled();
 
   const fetchGates = useCallback(async () => {
+    if (devAuthEnabled && !simulationTarget) {
+      setGates(ALL_GATES);
+      setSimulation(null);
+      setError(null);
+      setLoading(false);
+      return;
+    }
+
     if (status !== "authenticated") {
       setLoading(false);
       return;
@@ -112,13 +124,19 @@ export function useAdminTabGates(
     } finally {
       setLoading(false);
     }
-  }, [simulationTarget, status]);
+  }, [devAuthEnabled, simulationTarget, status]);
 
   useEffect(() => {
     if (status === "loading") {
       return;
     }
     if (status === "unauthenticated") {
+      if (devAuthEnabled && !simulationTarget) {
+        setGates(ALL_GATES);
+        setSimulation(null);
+        setLoading(false);
+        return;
+      }
       setGates(EMPTY_GATES);
       setSimulation(null);
       setLoading(false);
@@ -138,7 +156,7 @@ export function useAdminTabGates(
       lastTokenRef.current = cacheKey;
       fetchGates();
     }
-  }, [session, status, fetchGates, simulationKey]);
+  }, [session, status, fetchGates, simulationKey, devAuthEnabled, simulationTarget]);
 
   const visibleTabs = (Object.entries(gates) as [AdminTabKey, boolean][])
     .filter(([, v]) => v)

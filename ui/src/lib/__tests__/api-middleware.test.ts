@@ -730,8 +730,14 @@ describe('getAuthenticatedUser', () => {
     });
   });
 
-  it('returns a non-admin anonymous fallback only when explicitly allowed and SSO is disabled', async () => {
-    mockGetConfig.mockImplementation((key: string) => (key === 'ssoEnabled' ? false : undefined));
+  it('returns the local dev auth principal only when dev anonymous auth is enabled', async () => {
+    process.env.CAIPE_UNSAFE_RBAC_BYPASS = 'true';
+    mockGetConfig.mockImplementation((key: string) => {
+      if (key === 'ssoEnabled') return false;
+      if (key === 'allowDevAdminWhenSsoDisabled') return true;
+      if (key === 'unsafeRbacBypassEnabled') return true;
+      return undefined;
+    });
     mockGetServerSession.mockResolvedValue(null);
 
     const req = new Request('http://test.com') as unknown as NextRequest;
@@ -739,31 +745,36 @@ describe('getAuthenticatedUser', () => {
 
     expect(result.user).toEqual({
       email: 'anonymous@local',
-      name: 'Anonymous',
-      role: 'user',
+      name: 'Anonymous Local Admin',
+      role: 'admin',
     });
     expect(result.session).toEqual({
-      role: 'user',
-      canViewAdmin: false,
+      sub: 'anonymous-local-dev',
+      org: 'caipe',
+      role: 'admin',
+      user: {
+        email: 'anonymous@local',
+        name: 'Anonymous Local Admin',
+        role: 'admin',
+      },
+      canViewAdmin: true,
+      canAccessDynamicAgents: true,
     });
   });
 
-  it('can promote the anonymous fallback only behind the local dev admin flag', async () => {
-    const previous = process.env.ALLOW_ANONYMOUS_ADMIN;
-    process.env.ALLOW_ANONYMOUS_ADMIN = 'true';
-    mockGetConfig.mockImplementation((key: string) => (key === 'ssoEnabled' ? false : undefined));
+  it('does not provide an anonymous fallback when the unsafe bypass is disabled', async () => {
+    mockGetConfig.mockImplementation((key: string) => {
+      if (key === 'ssoEnabled') return false;
+      if (key === 'allowDevAdminWhenSsoDisabled') return true;
+      return undefined;
+    });
     mockGetServerSession.mockResolvedValue(null);
 
-    try {
-      const req = new Request('http://test.com') as unknown as NextRequest;
-      const result = await getAuthenticatedUser(req, { allowAnonymous: true });
-
-      expect(result.user.role).toBe('admin');
-      expect(result.session.canViewAdmin).toBe(true);
-    } finally {
-      if (previous === undefined) delete process.env.ALLOW_ANONYMOUS_ADMIN;
-      else process.env.ALLOW_ANONYMOUS_ADMIN = previous;
-    }
+    const req = new Request('http://test.com') as unknown as NextRequest;
+    await expect(getAuthenticatedUser(req, { allowAnonymous: true })).rejects.toMatchObject({
+      statusCode: 401,
+      reason: 'not_signed_in',
+    });
   });
 
   it('throws 403 when the session failed the Web UI admission group check', async () => {
