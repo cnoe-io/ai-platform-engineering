@@ -47,7 +47,13 @@ spec:
             - name: http
               containerPort: {{ .Values.service.port }}
               protocol: TCP
-          env: []
+          env:
+            - name: KEYCLOAK_URL
+              value: {{ index .Values.config "KEYCLOAK_URL" | default (printf "http://%s-keycloak:8080" .Release.Name) | quote }}
+            - name: OPENFGA_HTTP
+              value: {{ index .Values.config "OPENFGA_HTTP" | default (printf "http://%s-openfga:8080" .Release.Name) | quote }}
+            - name: CREDENTIAL_API_URL
+              value: {{ index .Values.config "CREDENTIAL_API_URL" | default (printf "http://%s-caipe-ui:3000/api/credentials" .Release.Name) | quote }}
           envFrom:
             - configMapRef:
                 name: {{ include "dynamic-agents.fullname" . }}-config

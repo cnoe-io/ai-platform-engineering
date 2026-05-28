@@ -35,7 +35,7 @@ agentContext:
 tokenValidation:
   # The bridge validates bearer JWTs itself before calling OpenFGA. Keep this
   # pointing at an internal JWKS endpoint when Keycloak runs in-cluster.
-  jwksUrl: "http://{{ .Release.Name }}-keycloak:8080/realms/caipe/protocol/openid-connect/certs"
+  jwksUrl: ""
   issuer: ""
   audiences: []
   algorithms:

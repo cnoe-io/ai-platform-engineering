@@ -36,21 +36,18 @@ spec:
           securityContext:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-          {{- /* Build env: block conditionally. Three independent sources may
-                 contribute entries:
-                   1. botConfig          → SLACK_INTEGRATION_BOT_CONFIG path
-                   2. oauth2.*           → OAUTH2_CLIENT_SECRET (OBO flow)
-                   3. keycloakBot.*      → KEYCLOAK_BOT_CLIENT_SECRET
-                   4. keycloakAdmin.*    → KEYCLOAK_SLACK_BOT_ADMIN_CLIENT_ID/_SECRET
-                                            (slack-bot Admin-API user lookup)
-                 At least one must be present for the YAML key to be valid. */ -}}
+          {{- /* Service URL defaults (always rendered): env: takes precedence over
+                 envFrom (ConfigMap), so these provide release-name-derived defaults
+                 while still allowing operators to override via .Values.config. */ -}}
           {{- $hasOauth2Secret := and .Values.oauth2 .Values.oauth2.clientSecretFromSecret .Values.oauth2.clientSecretFromSecret.name }}
           {{- $hasKcBotSecret := and .Values.keycloakBot .Values.keycloakBot.clientSecretFromSecret .Values.keycloakBot.clientSecretFromSecret.name }}
           {{- $hasKcAdminSecret := and .Values.keycloakAdmin .Values.keycloakAdmin.clientSecretFromSecret .Values.keycloakAdmin.clientSecretFromSecret.name }}
           {{- $hasKcAdminClientId := and .Values.keycloakAdmin .Values.keycloakAdmin.clientId }}
-          {{- $needEnv := or .Values.botConfig $hasOauth2Secret $hasKcBotSecret $hasKcAdminSecret $hasKcAdminClientId }}
-          {{- if $needEnv }}
           env:
+            - name: CAIPE_API_URL
+              value: {{ index .Values.config "CAIPE_API_URL" | default (printf "http://%s-caipe-ui:3000" .Release.Name) | quote }}
+            - name: KEYCLOAK_URL
+              value: {{ index .Values.config "KEYCLOAK_URL" | default (printf "http://%s-keycloak:8080" .Release.Name) | quote }}
             {{- if .Values.botConfig }}
             - name: SLACK_INTEGRATION_BOT_CONFIG
               value: "/etc/caipe/bot-config.yaml"
@@ -92,7 +89,6 @@ spec:
                   name: {{ .Values.keycloakAdmin.clientSecretFromSecret.name | quote }}
                   key: {{ .Values.keycloakAdmin.clientSecretFromSecret.key | default "KC_PLATFORM_CLIENT_SECRET" | quote }}
             {{- end }}
-          {{- end }}
           envFrom:
             # Flat config → ConfigMap (non-sensitive env vars)
             - configMapRef:
