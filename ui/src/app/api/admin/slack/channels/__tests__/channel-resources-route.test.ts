@@ -637,9 +637,11 @@ describe("Slack channel ReBAC APIs", () => {
     });
     expect(body.data.warnings).toEqual(
       expect.arrayContaining([
-        expect.stringMatching(/Plain channel messages will be ignored/i),
         expect.stringMatching(/stale-mongo-agent.*OpenFGA tuple is missing/i),
       ])
+    );
+    expect(body.data.warnings).not.toEqual(
+      expect.arrayContaining([expect.stringMatching(/Plain channel messages will be ignored/i)])
     );
   });
 
