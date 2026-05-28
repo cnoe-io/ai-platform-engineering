@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hmac
 import json
 import logging
 import os
@@ -67,6 +68,24 @@ class SlackAdminTokenValidator:
         ]
         self._jwks_client = PyJWKClient(self.jwks_url) if self.jwks_url else None
 
+    def _validate_dev_token(self, token: str, *, required_scope: str | None = None) -> SlackAdminAuthResult | None:
+        """Accept an explicit local-dev token when Keycloak is intentionally disabled."""
+
+        if os.environ.get("SLACK_ADMIN_DEV_AUTH_ENABLED", "false").lower() != "true":
+            return None
+        expected = os.environ.get("SLACK_ADMIN_DEV_TOKEN", "").strip()
+        if not expected:
+            raise SlackAdminAuthError("Slack admin dev auth is enabled but SLACK_ADMIN_DEV_TOKEN is not set")
+        if not hmac.compare_digest(token, expected):
+            return None
+        scopes = [required_scope] if required_scope else []
+        return SlackAdminAuthResult(
+            client_id="local-dev",
+            subject="anonymous-local-dev",
+            scopes=scopes,
+            claims={"dev_auth": True},
+        )
+
     def _discover_jwks_url(self) -> str | None:
         issuer = self.issuer
         if not issuer:
@@ -81,6 +100,10 @@ class SlackAdminTokenValidator:
         return str(jwks_url) if jwks_url else None
 
     def validate(self, token: str, *, required_scope: str | None = None) -> SlackAdminAuthResult:
+        dev_result = self._validate_dev_token(token, required_scope=required_scope)
+        if dev_result is not None:
+            return dev_result
+
         if not self.issuer or not self.audience or not self._jwks_client:
             raise SlackAdminAuthError("Slack admin JWT validation is not configured")
         try:

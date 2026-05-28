@@ -2322,6 +2322,21 @@ def handle_reaction_removed(event, logger):
   pass
 
 
+@app.event("assistant_thread_context_changed")
+def handle_assistant_thread_context_changed(event, logger):
+  pass
+
+
+@app.event("assistant_thread_started")
+def handle_assistant_thread_started(event, logger):
+  pass
+
+
+@app.event("app_home_opened")
+def handle_app_home_opened(event, logger):
+  pass
+
+
 @app.error
 def custom_error_handler(error, body, logger):
   logger.exception(f"Error: {error}, Request body: {body}")

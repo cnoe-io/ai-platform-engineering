@@ -8,7 +8,10 @@ from ai_platform_engineering.integrations.slack_bot.utils.config_models import (
     Config,
     UsersConfig,
 )
-from ai_platform_engineering.integrations.slack_bot.utils.slack_admin_api import SlackBotAdminService
+from ai_platform_engineering.integrations.slack_bot.utils.slack_admin_api import (
+    SlackAdminTokenValidator,
+    SlackBotAdminService,
+)
 
 
 class _RoutesCollection:
@@ -75,6 +78,19 @@ def _legacy_config() -> Config:
         ],
     )
     return base
+
+
+def test_dev_auth_token_accepts_explicit_local_token(monkeypatch) -> None:
+    monkeypatch.setenv("SLACK_ADMIN_DEV_AUTH_ENABLED", "true")
+    monkeypatch.setenv("SLACK_ADMIN_DEV_TOKEN", "local-dev-token")
+    validator = SlackAdminTokenValidator(issuer=None, audience=None, jwks_url=None)
+
+    result = validator.validate("local-dev-token", required_scope="routes:read")
+
+    assert result.client_id == "local-dev"
+    assert result.subject == "anonymous-local-dev"
+    assert result.scopes == ["routes:read"]
+    assert result.claims == {"dev_auth": True}
 
 
 def test_status_reports_route_cache_and_static_config() -> None:

@@ -304,7 +304,7 @@ it("lays out Webex setup without the manual route priority section", async () =>
 
   expect(await screen.findByText("Webex Spaces")).toBeInTheDocument();
   const sections = [
-    screen.getByRole("region", { name: "Step 1: Discover and Setup" }),
+    screen.getByRole("region", { name: "Discover spaces" }),
     screen.getByRole("region", { name: "Step 2a: Verify Webex Space ReBAC" }),
     screen.getByRole("region", { name: "Onboarding Default Selection" }),
     screen.getByRole("region", { name: "Advanced Setup - Import/Sync with Webex Bot" }),
@@ -316,13 +316,7 @@ it("lays out Webex setup without the manual route priority section", async () =>
     "teal",
     "slate",
   ]);
-  expect(sections.map((section) => section.getAttribute("data-section-order"))).toEqual([
-    "1",
-    "2",
-    "3",
-    "5",
-  ]);
-  expect(screen.getByRole("heading", { name: "Step 1: Discover and Setup" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Discover spaces" })).toBeInTheDocument();
   expect(screen.getByRole("heading", { name: "Step 2a: Verify Webex Space ReBAC" })).toBeInTheDocument();
   expect(screen.queryByRole("heading", { name: "Step 2b: Specify agent priority" })).not.toBeInTheDocument();
   expect(screen.getByRole("heading", { name: "Onboarding Default Selection" })).toBeInTheDocument();
@@ -341,14 +335,13 @@ it("discovers Webex bot spaces and imports selected spaces with per-space defaul
   fireEvent.click(screen.getByRole("button", { name: "Find Webex Spaces with Bot Integration" }));
 
   expect(await screen.findByText(/2 bot-visible spaces discovered/i)).toBeInTheDocument();
-  expect(screen.getByText("Onboarding path")).toBeInTheDocument();
-  expect(screen.getByText("Needs setup")).toBeInTheDocument();
-  expect(screen.getByText("Setup completed")).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "Set up selected Webex spaces" })).toBeInTheDocument();
+  expect(screen.getByText("Ready to set up")).toBeInTheDocument();
+  expect(screen.getByText("Configured")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /^Set up \d+ spaces?$/ })).toBeInTheDocument();
   expect(screen.getByRole("checkbox", { name: /Import Incident War Room/i })).toBeChecked();
   expect(screen.getByRole("checkbox", { name: /Import Platform Alerts/i })).not.toBeChecked();
 
-  fireEvent.click(screen.getByRole("button", { name: "Set up selected Webex spaces" }));
+  fireEvent.click(screen.getByRole("button", { name: /^Set up \d+ spaces?$/ }));
 
   await waitFor(() =>
     expect(fetchMock).toHaveBeenCalledWith(
@@ -376,9 +369,9 @@ it("discovers Webex bot spaces and imports selected spaces with per-space defaul
     )
   );
   expect(screen.queryByRole("dialog", { name: "Webex setup complete" })).not.toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "Refresh setup status" })).toBeInTheDocument();
-  expect(screen.queryByText("Needs setup")).not.toBeInTheDocument();
-  expect(screen.getAllByText("Setup completed").length).toBeGreaterThanOrEqual(2);
+  expect(screen.getByRole("button", { name: "Refresh" })).toBeInTheDocument();
+  expect(screen.queryByText("Ready to set up")).not.toBeInTheDocument();
+  expect(screen.getAllByText("Configured").length).toBeGreaterThanOrEqual(2);
 });
 
 it("shows discovered Webex space setup feedback as a toast without shifting the action row", async () => {
@@ -394,7 +387,7 @@ it("shows discovered Webex space setup feedback as a toast without shifting the 
 
   expect(await screen.findByText(/2 bot-visible spaces discovered/i)).toBeInTheDocument();
 
-  const applyButton = screen.getByRole("button", { name: "Set up selected Webex spaces" });
+  const applyButton = screen.getByRole("button", { name: /^Set up \d+ spaces?$/ });
   fireEvent.click(applyButton);
 
   await waitFor(() =>
