@@ -7,8 +7,8 @@
 
 /** Protected components from the 098 permission matrix (FR-008, FR-014) */
 export type RbacResource =
-  | "admin_ui"
   | "ai_assist"
+  | "admin_ui"
   | "chat_supervisor"
   | "credential_vault"
   | "feedback"
@@ -17,11 +17,15 @@ export type RbacResource =
   | "rag"
   | "self_profile"
   | "sub_agent"
+  | "system_config"
   | "tool"
   | "skill"
   | "a2a"
   | "mcp"
   | "team"
+  | "user_directory"
+  | "user_files"
+  | "user_settings"
   | "mcp_server"
   | "dynamic_agent"
   | "user_directory"
@@ -48,10 +52,10 @@ export type RbacScope =
   | "kb.ingest"
   | "kb.query"
   | "read"
+  | "manage"
   | "submit"
   | "use"
-  | "write"
-  | "manage";
+  | "write";
 
 /** Legacy transition label; CAIPE authorization now comes from OpenFGA relationships. */
 export type RbacRole = "denied";

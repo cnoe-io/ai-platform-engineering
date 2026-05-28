@@ -6,7 +6,9 @@ import {
   successResponse,
   withErrorHandler,
 } from "@/lib/api-middleware";
+import { requireResourcePermission } from "@/lib/rbac/resource-authz";
 import { checkSlackChannelAccess } from "@/lib/rbac/slack-channel-rebac";
+import { slackChannelSubjectId } from "@/lib/rbac/slack-channel-grant-store";
 import type { UniversalRebacResourceAction, UniversalRebacResourceRef } from "@/types/rbac-universal";
 
 interface RouteContext {
@@ -27,9 +29,15 @@ function parseResource(value: unknown): UniversalRebacResourceRef {
 }
 
 export const POST = withErrorHandler(async (request: NextRequest, context: RouteContext) => {
-  await getAuthFromBearerOrSession(request);
+  const { session } = await getAuthFromBearerOrSession(request);
 
   const { workspaceId, channelId } = await context.params;
+  await requireResourcePermission(session, {
+    type: "slack_channel",
+    id: slackChannelSubjectId(workspaceId, channelId),
+    action: "read",
+  }, { bypassForOrgAdmin: true });
+
   const body = (await request.json()) as Record<string, unknown>;
   const action =
     typeof body.action === "string" && body.action.trim()

@@ -963,12 +963,23 @@ describe('withAuth', () => {
       });
     }
 
-    it('lets a non-admin signed-in user reach GET /api/admin/platform-config (route enforces system_config:read itself)', async () => {
+    function loggedCapabilities(): string[] {
+      return (console.log as jest.Mock).mock.calls
+        .map((call) => {
+          try {
+            return JSON.parse(String(call[0])) as { capability?: string };
+          } catch {
+            return {};
+          }
+        })
+        .map((event) => event.capability)
+        .filter((capability): capability is string => typeof capability === 'string');
+    }
+
+    it('lets a non-admin signed-in user reach GET /api/admin/platform-config with an explicit system_config read audit row', async () => {
       viewerSession();
-      // OpenFGA says the viewer has the organization tuple that maps to
-      // `supervisor#invoke` (i.e. is signed in). The BFF must check that
-      // and NOT `admin_ui#view` for this read-only admin endpoint.
       mockCheckOpenFgaTuple.mockResolvedValue({ allowed: true });
+      (console.log as jest.Mock).mockClear();
 
       const handler = jest.fn().mockResolvedValue('config-payload');
       const req = new Request('http://test.com/api/admin/platform-config', {
@@ -979,16 +990,53 @@ describe('withAuth', () => {
 
       expect(result).toBe('config-payload');
       expect(handler).toHaveBeenCalledTimes(1);
-      // Confirm the BFF asked OpenFGA for `can_use` (the relation that the
-      // `supervisor#invoke` RBAC pair maps to), proving the admin_ui#view
-      // gate was bypassed and the narrower in-route system_config check is
-      // free to run.
+      // Confirm the BFF asked OpenFGA for baseline org access, proving the
+      // admin_ui#view gate was bypassed and the narrower in-route
+      // system_config check is free to run.
       const calls = mockCheckOpenFgaTuple.mock.calls as Array<[
         { user: string; relation: string; object: string },
       ]>;
       const relations = calls.map((c) => c[0]?.relation);
       expect(relations).toContain('can_use');
       expect(relations).not.toContain('can_audit'); // admin_ui#view → can_audit
+      expect(loggedCapabilities()).toContain('system_config#read');
+      expect(loggedCapabilities()).not.toContain('supervisor#invoke');
+    });
+
+    it.each([
+      ['/api/users/me', 'GET', 'can_read_self'],
+      ['/api/users/me', 'PATCH', 'can_manage_self'],
+      ['/api/users/search?q=alice', 'GET', 'can_search_directory'],
+      ['/api/auth/my-roles', 'GET', 'can_read_self'],
+      ['/api/auth/slack-link', 'POST', 'can_manage_self'],
+      ['/api/settings/preferences', 'GET', 'can_manage_self'],
+      ['/api/settings/preferences', 'PATCH', 'can_manage_self'],
+      ['/api/nps/active', 'GET', 'can_submit_feedback'],
+      ['/api/feedback', 'POST', 'can_submit_feedback'],
+      ['/api/chat/conversations', 'GET', 'can_chat'],
+      ['/api/a2a/tasks', 'POST', 'can_chat'],
+      ['/api/dynamic-agents/models', 'GET', 'can_chat'],
+      ['/api/dynamic-agents/available', 'GET', 'can_chat'],
+      ['/api/files/list', 'GET', 'can_use_files'],
+      ['/api/files/content', 'POST', 'can_use_files'],
+      ['/api/ai/review', 'POST', 'can_use_ai_assist'],
+      ['/api/credentials/retrieve', 'POST', 'can_use_credentials'],
+    ])('maps %s %s to explicit OpenFGA relation %s', async (path, method, expectedRelation) => {
+      viewerSession();
+      mockCheckOpenFgaTuple.mockResolvedValue({ allowed: true });
+      mockCheckOpenFgaTuple.mockClear();
+
+      const handler = jest.fn().mockResolvedValue('ok');
+      const req = new Request(`http://test.com${path}`, { method }) as unknown as NextRequest;
+
+      await expect(withAuth(req, handler)).resolves.toBe('ok');
+
+      const calls = mockCheckOpenFgaTuple.mock.calls as Array<[
+        { user: string; relation: string; object: string },
+      ]>;
+      const relations = calls.map((c) => c[0]?.relation);
+      expect(relations).toContain(expectedRelation);
+      expect(relations).not.toContain('can_use');
     });
 
     it('still gates PATCH /api/admin/platform-config behind admin_ui#manage', async () => {
@@ -1047,6 +1095,34 @@ describe('withAuth', () => {
       ]>;
       const relations = calls.map((c) => c[0]?.relation);
       expect(relations).toContain('can_audit');
+    });
+
+    it.each([
+      ['/api/unclassified-feature', 'GET', 'can_audit', 'admin_ui#view'],
+      ['/api/unclassified-feature', 'POST', 'can_manage', 'admin_ui#manage'],
+    ])('maps fallback route %s %s to explicit %s capability', async (
+      path,
+      method,
+      expectedRelation,
+      expectedCapability
+    ) => {
+      viewerSession();
+      mockCheckOpenFgaTuple.mockResolvedValue({ allowed: true });
+      mockCheckOpenFgaTuple.mockClear();
+      (console.log as jest.Mock).mockClear();
+
+      const handler = jest.fn().mockResolvedValue('ok');
+      const req = new Request(`http://test.com${path}`, { method }) as unknown as NextRequest;
+
+      await expect(withAuth(req, handler)).resolves.toBe('ok');
+
+      const calls = mockCheckOpenFgaTuple.mock.calls as Array<[
+        { user: string; relation: string; object: string },
+      ]>;
+      const relations = calls.map((c) => c[0]?.relation);
+      expect(relations).toContain(expectedRelation);
+      expect(loggedCapabilities()).toContain(expectedCapability);
+      expect(loggedCapabilities()).not.toContain('supervisor#invoke');
     });
   });
 });
