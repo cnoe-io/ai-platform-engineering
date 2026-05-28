@@ -74,6 +74,7 @@ jest.mock("lucide-react", () => ({
   RefreshCw: (props: any) => <svg {...props} />,
   RotateCcw: (props: any) => <svg {...props} />,
   Save: (props: any) => <svg {...props} />,
+  Trash2: (props: any) => <svg {...props} />,
 }));
 
 jest.mock("@/lib/config", () => ({
@@ -261,5 +262,35 @@ describe("SchedulesPage", () => {
       expect.stringContaining("edit_agent_id: agent-sunny-webex-meeting-test")
     );
     expect(mockRouterPush).toHaveBeenCalledWith("/chat/conversation-1");
+  });
+
+  it("asks for confirmation before deleting a schedule", async () => {
+    render(<SchedulesPage />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Important Team 2 Meeting Prep")).toBeInTheDocument()
+    );
+
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        success: true,
+        data: { deleted: "schedule-1" },
+      }),
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /delete schedule-1/i }));
+
+    expect(screen.getByText("Delete Scheduled Job?")).toBeInTheDocument();
+    expect(screen.getByText(/Are you sure/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete scheduled job" }));
+
+    await waitFor(() =>
+      expect(global.fetch).toHaveBeenLastCalledWith("/api/schedules/schedule-1", {
+        method: "DELETE",
+      })
+    );
+    expect(screen.getByText("No scheduled jobs yet.")).toBeInTheDocument();
   });
 });

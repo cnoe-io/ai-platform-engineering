@@ -15,6 +15,7 @@ import {
   RefreshCw,
   RotateCcw,
   Save,
+  Trash2,
 } from "lucide-react";
 import { AuthGuard } from "@/components/auth-guard";
 import { Badge } from "@/components/ui/badge";
@@ -97,6 +98,14 @@ interface ScheduleMutationResponse {
   error?: string;
 }
 
+interface ScheduleDeleteResponse {
+  success: boolean;
+  data?: {
+    deleted: string;
+  };
+  error?: string;
+}
+
 function formatDateTime(value: string | null): string {
   if (!value) return "Never";
   const date = new Date(value);
@@ -166,6 +175,7 @@ export default function SchedulesPage() {
   const [chattingId, setChattingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editingItem, setEditingItem] = useState<ScheduleItem | null>(null);
+  const [deleteItem, setDeleteItem] = useState<ScheduleItem | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const [editCron, setEditCron] = useState("");
   const [editTz, setEditTz] = useState("");
@@ -242,6 +252,35 @@ export default function SchedulesPage() {
       setMutatingId(null);
     }
   }, [applyUpdatedSchedule]);
+
+  const deleteSchedule = useCallback(async () => {
+    if (!deleteItem) return;
+
+    setError(null);
+    setMutatingId(deleteItem.schedule_id);
+    try {
+      const response = await fetch(
+        `/api/schedules/${encodeURIComponent(deleteItem.schedule_id)}`,
+        { method: "DELETE" }
+      );
+      const body = (await response.json()) as ScheduleDeleteResponse;
+      if (!response.ok || !body.success || !body.data) {
+        throw new Error(body.error || "Failed to delete schedule");
+      }
+
+      setItems((current) =>
+        current.filter((item) => item.schedule_id !== deleteItem.schedule_id)
+      );
+      setEditingItem((current) =>
+        current?.schedule_id === deleteItem.schedule_id ? null : current
+      );
+      setDeleteItem(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setMutatingId(null);
+    }
+  }, [deleteItem]);
 
   const patchSchedule = useCallback(
     async (
@@ -596,6 +635,60 @@ export default function SchedulesPage() {
               </DialogContent>
             </Dialog>
 
+            <Dialog
+              open={Boolean(deleteItem)}
+              onOpenChange={(open) => {
+                if (!open) setDeleteItem(null);
+              }}
+            >
+              <DialogContent className="max-w-md">
+                {deleteItem && (
+                  <>
+                    <DialogHeader>
+                      <DialogTitle>Delete Scheduled Job?</DialogTitle>
+                      <DialogDescription>
+                        Are you sure? This removes the schedule and its Kubernetes CronJob.
+                        This cannot be undone.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-2 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm">
+                      <div className="flex items-start gap-2 text-destructive">
+                        <AlertTriangle className="mt-0.5 h-4 w-4" />
+                        <div className="font-medium">{scheduleTitle(deleteItem)}</div>
+                      </div>
+                      <div className="font-mono text-xs text-muted-foreground">
+                        schedule_id: {deleteItem.schedule_id}
+                      </div>
+                      <div className="font-mono text-xs text-muted-foreground">
+                        {deleteItem.cron} - {deleteItem.tz}
+                      </div>
+                    </div>
+                    <DialogFooter>
+                      <Button
+                        variant="outline"
+                        onClick={() => setDeleteItem(null)}
+                        disabled={mutatingId === deleteItem.schedule_id}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        variant="destructive"
+                        onClick={() => void deleteSchedule()}
+                        disabled={mutatingId === deleteItem.schedule_id}
+                      >
+                        {mutatingId === deleteItem.schedule_id ? (
+                          <RefreshCw className="animate-spin" />
+                        ) : (
+                          <Trash2 />
+                        )}
+                        Delete scheduled job
+                      </Button>
+                    </DialogFooter>
+                  </>
+                )}
+              </DialogContent>
+            </Dialog>
+
             <div className="overflow-hidden rounded-lg border bg-card">
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[1160px] text-sm">
@@ -699,11 +792,11 @@ export default function SchedulesPage() {
                               </Badge>
                             </td>
                             <td className="px-4 py-3 text-right align-top">
-                              <div className="flex justify-end gap-2">
+                              <div className="flex flex-col items-end gap-2">
                                 <Button
                                   variant="outline"
                                   size="sm"
-                                  className="min-w-24"
+                                  className="w-28"
                                   onClick={() => openEditor(item)}
                                   disabled={mutatingId === item.schedule_id}
                                   title="Modify schedule"
@@ -715,7 +808,7 @@ export default function SchedulesPage() {
                                 <Button
                                   variant={item.enabled ? "outline" : "default"}
                                   size="sm"
-                                  className="min-w-28"
+                                  className="w-28"
                                   onClick={() => void toggleSchedule(item)}
                                   disabled={mutatingId === item.schedule_id}
                                   title={
@@ -737,6 +830,18 @@ export default function SchedulesPage() {
                                     <Play />
                                   )}
                                   {item.enabled ? "Pause" : "Restart"}
+                                </Button>
+                                <Button
+                                  variant="destructive"
+                                  size="sm"
+                                  className="w-28"
+                                  onClick={() => setDeleteItem(item)}
+                                  disabled={mutatingId === item.schedule_id}
+                                  title="Delete schedule"
+                                  aria-label={`Delete ${item.schedule_id}`}
+                                >
+                                  <Trash2 />
+                                  Delete
                                 </Button>
                               </div>
                             </td>

@@ -1,4 +1,5 @@
 // PATCH /api/schedules/[id] - Edit or pause/restart a scheduler job owned by the current user.
+// DELETE /api/schedules/[id] - Delete a scheduler job owned by the current user.
 
 import { NextRequest } from "next/server";
 import { getCollection } from "@/lib/mongodb";
@@ -291,6 +292,50 @@ async function patchScheduler(
   return body as RawSchedule;
 }
 
+async function deleteScheduler(scheduleId: string): Promise<{ deleted: string }> {
+  const headers: Record<string, string> = {};
+  const token = schedulerToken();
+  if (token) {
+    headers["X-Scheduler-Token"] = token;
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(
+      `${schedulerBaseUrl()}/v1/schedules/${encodeURIComponent(scheduleId)}`,
+      {
+        method: "DELETE",
+        headers,
+        cache: "no-store",
+      }
+    );
+  } catch (error) {
+    throw new ApiError(
+      error instanceof Error
+        ? `Scheduler service is unavailable: ${error.message}`
+        : "Scheduler service is unavailable",
+      502
+    );
+  }
+
+  const text = await response.text();
+  let body: unknown = null;
+  if (text) {
+    try {
+      body = JSON.parse(text);
+    } catch {
+      body = text;
+    }
+  }
+
+  if (!response.ok) {
+    const message = schedulerErrorMessage(body, response.status);
+    throw new ApiError(String(message), response.status < 500 ? response.status : 502);
+  }
+
+  return body as { deleted: string };
+}
+
 export const PATCH = withErrorHandler(
   async (
     request: NextRequest,
@@ -323,6 +368,33 @@ export const PATCH = withErrorHandler(
       );
 
       return successResponse(mapSchedule(updated, agent?.name || existing.agent_id));
+    });
+  }
+);
+
+export const DELETE = withErrorHandler(
+  async (
+    request: NextRequest,
+    context: { params: Promise<{ id: string }> }
+  ) => {
+    const { id: scheduleId } = await context.params;
+    if (!scheduleId) {
+      throw new ApiError("Schedule ID is required", 400);
+    }
+
+    return withAuth(request, async (_req, user) => {
+      const schedules = await getCollection<RawSchedule>("schedules");
+      const existing = await schedules.findOne({
+        schedule_id: scheduleId,
+        owner_user_id: user.email,
+      });
+
+      if (!existing) {
+        throw new ApiError("Schedule not found", 404);
+      }
+
+      const deleted = await deleteScheduler(scheduleId);
+      return successResponse(deleted);
     });
   }
 );
