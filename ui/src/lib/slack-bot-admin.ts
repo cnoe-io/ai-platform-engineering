@@ -21,7 +21,23 @@ function slackBotAdminTokenUrl(): string {
   return `${issuer}/protocol/openid-connect/token`;
 }
 
+function getSlackBotAdminDevToken(): string | null {
+  if (process.env.SLACK_BOT_ADMIN_DEV_AUTH_ENABLED !== "true") {
+    return null;
+  }
+  const token = process.env.SLACK_BOT_ADMIN_DEV_TOKEN?.trim();
+  if (!token) {
+    throw new ApiError("SLACK_BOT_ADMIN_DEV_TOKEN is required when dev Slack admin auth is enabled", 503);
+  }
+  return token;
+}
+
 async function getSlackBotAdminToken(): Promise<string> {
+  const devToken = getSlackBotAdminDevToken();
+  if (devToken) {
+    return devToken;
+  }
+
   const now = Math.floor(Date.now() / 1000);
   if (tokenCache && tokenCache.expiresAt > now + 30) {
     return tokenCache.accessToken;
