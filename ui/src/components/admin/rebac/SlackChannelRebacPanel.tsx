@@ -278,7 +278,7 @@ export function SlackChannelRebacPanel({
   );
   const discoveryStatusText =
     discoveredBotChannels.length > 0
-      ? `${discoveredBotChannels.length} bot-visible found · ${discoveredNewChannelCount} new · ${channels.length} in CAIPE · ${unassignedChannelCount} missing team`
+      ? `${discoveredBotChannels.length} bot-member found · ${discoveredNewChannelCount} new · ${channels.length} in CAIPE · ${unassignedChannelCount} missing team`
       : `${channels.length} in CAIPE · ${unassignedChannelCount} missing team`;
 
   const loadChannels = useCallback(async () => {
@@ -632,12 +632,9 @@ export function SlackChannelRebacPanel({
   };
 
   const fetchBotMemberChannels = async (): Promise<DiscoveredSlackChannel[]> => {
-    // Issue #1506: previously this set `refresh=1` on the first page of every
-    // Discover click, which defeated the server-side cache entirely and
-    // tripped Slack's per-tenant rate limits on workspaces with thousands of
-    // channels. The cache TTL (10 min, server-side) is short enough for human
-    // admin workflows; a hard refresh button can be added separately if/when
-    // operators actually need it.
+    // Discovery intentionally uses Slack users.conversations only: the picker
+    // should show channels where the bot is already a member and can operate.
+    // Use the adjacent Discovery cache control to force a refresh from Slack.
     const discovered: DiscoveredSlackChannel[] = [];
     let cursor: string | null | undefined;
     do {
@@ -1474,11 +1471,11 @@ export function SlackChannelRebacPanel({
           itemSingular="channel"
           itemPlural="channels"
           discoveredLabel="bot-member channel"
-          findLabel="Find Slack Channels with Bot Integration"
-          refreshLabel="Refresh Slack Channels with Bot Integration"
-          loadingLabel="Finding Slack channels..."
+          findLabel="Find Bot-Member Slack Channels"
+          refreshLabel="Refresh Bot-Member Slack Channels"
+          loadingLabel="Finding bot-member Slack channels..."
           emptyLabel="No bot-member channels were discovered."
-          description="Find Slack channels where the bot is already installed, then choose what to import."
+          description="Find Slack channels where the bot is already installed. Channels the bot has not joined will not appear."
           discoveryStatusText={discoveryStatusText}
           discoveredCount={discoveredBotChannels.length}
           newCount={discoveredNewChannelCount}
