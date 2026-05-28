@@ -11,7 +11,7 @@
 3. Three patterns coexist today, in decreasing order of how cleanly they map to user intent:
    - **Resource-scoped PDP** (`requireResourcePermission(..., { type, id, action })`) — best.
    - **Capability-scoped PDP** (`requireRbacPermission(..., resource, scope)` or `requireAdminSurfaceManage`/etc.) — good.
-   - **Catch-all `withAuth(...)`** that resolves to `supervisor#invoke` via `ui/src/lib/api-middleware.ts` — works (still PDP) but coarse. Tracked for cleanup by [`2026-05-27-fine-grained-rbac-for-withauth-routes`](../../specs/2026-05-27-fine-grained-rbac-for-withauth-routes/plan.md).
+   - **Compatibility `withAuth(...)`** that resolves route prefixes to explicit capabilities via `ui/src/lib/api-middleware.ts`. Tracked for continued cleanup by [`2026-05-27-fine-grained-rbac-for-withauth-routes`](../../specs/2026-05-27-fine-grained-rbac-for-withauth-routes/plan.md).
 4. A handful of routes still have an `if (user.role === 'admin') { skip PDP }` short-circuit. These are **not** Mongo-based — `session.role === 'admin'` comes from the JWT (`BOOTSTRAP_ADMIN_EMAILS` or `OIDC_REQUIRED_ADMIN_GROUP`) — but they are a parallel decision path with no OpenFGA audit trail. Listed in [Category 1](#category-1--legacy-admin-bypass-no-pdp-on-the-bypass-branch).
 
 If you are here because something denied unexpectedly, jump straight to [How to read an `audit_event_id` row](#how-to-read-an-audit_event_id-row).
@@ -40,7 +40,7 @@ return withAuth(request, async (req, user, session) => { ... });
 | URL prefix                                            | PDP capability the BFF enforces |
 |-------------------------------------------------------|--------------------------------|
 | `/api/users/debug`                                    | `admin_ui#view`                |
-| `/api/admin/platform-config` (`GET`, exception)       | `supervisor#invoke`            |
+| `/api/admin/platform-config` (`GET`, exception)       | `system_config#read`           |
 | `/api/admin/*` (other `GET`)                          | `admin_ui#view`                |
 | `/api/admin/*` (non-`GET`)                            | `admin_ui#manage`              |
 | `/api/users/me`                                       | `self_profile#read/write`      |
@@ -59,7 +59,7 @@ return withAuth(request, async (req, user, session) => { ... });
 | `/api/skills/seed`                                    | `admin_ui#admin`               |
 | `/api/skills/token`                                   | `skill#invoke`                 |
 | `/api/skills` / `/api/skill-templates` (everything else) | `skill#view` / `delete` / `configure` |
-| **fallback**                                          | `supervisor#invoke`            |
+| **fallback** (`GET` / non-`GET`)                      | `admin_ui#view` / `manage`     |
 
 The OpenFGA relation each pair maps to is computed by `organizationRelationFor()` in the same file:
 
@@ -109,7 +109,7 @@ The bypass is **not** Mongo-derived, but it is invisible to OpenFGA and produces
 
 ### Category 2 — `withAuth`-only routes (PDP via the legacy umbrella)
 
-These routes look ungated at first glance — the only auth line in the file is `return withAuth(request, async (req, user, session) => { ... })` — but they ARE PDP-gated. `withAuth` runs the URL through `resolveLegacyWithAuthRbacPolicy()` and then calls `requireRbacPermission()`, which hits OpenFGA. The capability they end up enforcing is in the table at the top of this doc. The long tail that used to fall through to **`supervisor#invoke`** is now split into purpose-specific route capabilities.
+These routes look ungated at first glance — the only auth line in the file is `return withAuth(request, async (req, user, session) => { ... })` — but they ARE PDP-gated. `withAuth` runs the URL through `resolveLegacyWithAuthRbacPolicy()` and then calls `requireRbacPermission()`, which hits OpenFGA. The capability they end up enforcing is in the table at the top of this doc. The long tail that used to fall through to a generic supervisor capability is now split into purpose-specific route capabilities.
 
 | Route | File | Effective PDP capability |
 |---|---|---|
@@ -129,9 +129,9 @@ These routes look ungated at first glance — the only auth line in the file is 
 | `/api/dynamic-agents/models` | `ui/src/app/api/dynamic-agents/models/route.ts` | `chat_supervisor#invoke` |
 | `/api/dynamic-agents/available` | `ui/src/app/api/dynamic-agents/available/route.ts` | `chat_supervisor#invoke` at the BFF + `filterResourcesByPermission(session, agents, { type: "agent", action: "use" })` inline |
 | `/api/a2a/[[...path]]` | `ui/src/app/api/a2a/...` | `chat_supervisor#invoke`; A2A path runs its own JWKS validation downstream |
-| `/api/version` | `ui/src/app/api/version/route.ts` | `supervisor#invoke` (read-only build metadata) |
+| `/api/version` | `ui/src/app/api/version/route.ts` | Public read-only build metadata; no `withAuth` wrapper |
 
-**Severity:** Reduced. Every route IS PDP-gated, and the high-traffic basic surfaces now emit capability names that match the surface being used. Any remaining `supervisor#invoke` events should be treated as deprecated fallback noise and migrated to explicit mappings.
+**Severity:** Reduced. Every route IS PDP-gated, and the high-traffic basic surfaces now emit capability names that match the surface being used. Any newly added `withAuth` route that does not fit the table should be given an explicit capability mapping before merge.
 
 **Remediation:** Continue shrinking this category by replacing wrapper-level gates with inline resource checks where concrete resource ids are available. New `withAuth` routes should add an explicit mapping instead of relying on the deprecated fallback.
 
@@ -200,7 +200,7 @@ A typical allow row looks like:
 
 Useful filters when troubleshooting:
 
-- **`capability: supervisor#invoke`** is noisy by design — it covers most Category 2 routes today. Once `2026-05-27-fine-grained-rbac-for-withauth-routes` lands, this string will fragment into `self_profile#read`, `chat_supervisor#invoke`, `feedback#submit`, etc., and the noise floor drops.
+- **Route-specific capabilities** such as `self_profile#read`, `chat_supervisor#invoke`, and `feedback#submit` identify the surface that performed the check. If an audit row is too generic, add a route-specific entry to `resolveLegacyWithAuthRbacPolicy()`.
 - **`pdp: openfga` vs `pdp: keycloak`** — `keycloak` only appears as a fallback when OpenFGA returned `DENY_NO_CAPABILITY` and the route still wants to consult Keycloak Authorization Services. If you see a route consistently using `keycloak`, its target relation is missing from the OpenFGA model.
 - **`reason_code: DENY_PDP_UNAVAILABLE`** means OpenFGA returned an error. The user gets a 503, not a 403. Treat it like an SLO incident, not a policy bug.
 
@@ -229,7 +229,7 @@ done
 When you add a new `/api/*` route:
 
 1. Pick the smallest `require*Permission` helper that matches user intent. Resource-scoped is best.
-2. If the route falls back to `withAuth`, add an explicit entry in `resolveLegacyWithAuthRbacPolicy` rather than relying on the `supervisor#invoke` catch-all.
+2. If the route falls back to `withAuth`, add an explicit entry in `resolveLegacyWithAuthRbacPolicy` rather than relying on the admin UI fallback.
 3. Add a route test that mocks `checkOpenFgaTuple` and asserts the relation that was requested. The pattern is in `ui/src/lib/__tests__/api-middleware.test.ts` under `withAuth › legacy RBAC policy resolution`.
 4. Append a row to the right table in this audit doc.
 
