@@ -12,8 +12,7 @@ import {
 } from "../../tuple-builders";
 
 const AUTHORIZATION_MODEL_PATHS = [
-  path.join(process.cwd(), "../deploy/openfga/init/authorization-model.json"),
-  path.join(process.cwd(), "../deploy/openfga-experiment/init/authorization-model.json"),
+  path.join(process.cwd(), "../charts/ai-platform-engineering/charts/openfga/authorization-model.json"),
 ];
 
 type AuthorizationModel = {
