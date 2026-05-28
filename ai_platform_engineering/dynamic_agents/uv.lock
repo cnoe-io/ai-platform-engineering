@@ -275,7 +275,7 @@ wheels = [
 [[package]]
 name = "cnoe-agent-utils"
 version = "0.4.0"
-source = { git = "https://github.com/cnoe-io/cnoe-agent-utils.git?rev=codex%2Fbedrock-anthropic-client#508aa2bd75a37450f2a3ae0b1fdf9142bbea5ebf" }
+source = { url = "https://github.com/cnoe-io/cnoe-agent-utils/archive/508aa2bd75a37450f2a3ae0b1fdf9142bbea5ebf.zip" }
 dependencies = [
     { name = "boto3" },
     { name = "botocore" },
@@ -296,6 +296,68 @@ dependencies = [
     { name = "tiktoken" },
     { name = "typing-extensions" },
 ]
+sdist = { hash = "sha256:8979b006cfb216e3de2bd1543cdf93c185cbf2f0d5369399534b50e56210c34c" }
+
+[package.metadata]
+requires-dist = [
+    { name = "a2a-sdk", marker = "extra == 'a2a'", specifier = "==1.0.3" },
+    { name = "a2a-sdk", marker = "extra == 'agents-all'", specifier = "==1.0.3" },
+    { name = "boto3", specifier = "==1.43.16" },
+    { name = "boto3", marker = "extra == 'aws'", specifier = "==1.43.16" },
+    { name = "botocore", specifier = "==1.43.16" },
+    { name = "botocore", marker = "extra == 'aws'", specifier = "==1.43.16" },
+    { name = "commitizen", marker = "extra == 'dev'", specifier = "==4.13.9" },
+    { name = "google-auth", specifier = "==2.53.0" },
+    { name = "google-auth", marker = "extra == 'gcp'", specifier = "==2.53.0" },
+    { name = "google-cloud-aiplatform", specifier = "==1.154.0" },
+    { name = "google-cloud-aiplatform", marker = "extra == 'gcp'", specifier = "==1.154.0" },
+    { name = "langchain-anthropic", specifier = "==1.4.3" },
+    { name = "langchain-anthropic", marker = "extra == 'anthropic'", specifier = "==1.4.3" },
+    { name = "langchain-aws", specifier = "==1.5.0" },
+    { name = "langchain-aws", marker = "extra == 'aws'", specifier = "==1.5.0" },
+    { name = "langchain-core", marker = "extra == 'agents-all'", specifier = "==1.4.0" },
+    { name = "langchain-core", marker = "extra == 'langgraph'", specifier = "==1.4.0" },
+    { name = "langchain-google-genai", specifier = "==4.2.3" },
+    { name = "langchain-google-genai", marker = "extra == 'gcp'", specifier = "==4.2.3" },
+    { name = "langchain-google-vertexai", specifier = "==3.2.3" },
+    { name = "langchain-google-vertexai", marker = "extra == 'gcp'", specifier = "==3.2.3" },
+    { name = "langchain-groq", specifier = "==1.1.2" },
+    { name = "langchain-groq", marker = "extra == 'groq'", specifier = "==1.1.2" },
+    { name = "langchain-mcp-adapters", marker = "extra == 'agents-all'", specifier = "==0.2.2" },
+    { name = "langchain-mcp-adapters", marker = "extra == 'langgraph'", specifier = "==0.2.2" },
+    { name = "langchain-openai", specifier = "==1.2.2" },
+    { name = "langchain-openai", marker = "extra == 'azure'", specifier = "==1.2.2" },
+    { name = "langchain-openai", marker = "extra == 'openai'", specifier = "==1.2.2" },
+    { name = "langfuse", specifier = "==3.15.0" },
+    { name = "langfuse", marker = "extra == 'tracing'", specifier = "==3.15.0" },
+    { name = "langgraph", marker = "extra == 'agents-all'", specifier = "==1.2.2" },
+    { name = "langgraph", marker = "extra == 'langgraph'", specifier = "==1.2.2" },
+    { name = "mypy", marker = "extra == 'dev'", specifier = "==2.1.0" },
+    { name = "opentelemetry-api", specifier = "==1.42.1" },
+    { name = "opentelemetry-api", marker = "extra == 'tracing'", specifier = "==1.42.1" },
+    { name = "opentelemetry-exporter-otlp", specifier = "==1.42.1" },
+    { name = "opentelemetry-exporter-otlp", marker = "extra == 'tracing'", specifier = "==1.42.1" },
+    { name = "opentelemetry-sdk", specifier = "==1.42.1" },
+    { name = "opentelemetry-sdk", marker = "extra == 'tracing'", specifier = "==1.42.1" },
+    { name = "pip", marker = "extra == 'dev'", specifier = "==26.1.1" },
+    { name = "pydantic", specifier = "==2.13.4" },
+    { name = "pydantic", marker = "extra == 'agents'", specifier = "==2.13.4" },
+    { name = "pydantic", marker = "extra == 'agents-all'", specifier = "==2.13.4" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = "==9.0.3" },
+    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = "==1.4.0" },
+    { name = "pytest-cov", marker = "extra == 'dev'", specifier = "==7.1.0" },
+    { name = "python-dotenv", specifier = "==1.2.2" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = "==0.15.14" },
+    { name = "strands", marker = "extra == 'agents-all'", specifier = "==0.1.0" },
+    { name = "strands", marker = "extra == 'strands'", specifier = "==0.1.0" },
+    { name = "tiktoken", specifier = "==0.13.0" },
+    { name = "tiktoken", marker = "extra == 'agents'", specifier = "==0.13.0" },
+    { name = "tiktoken", marker = "extra == 'agents-all'", specifier = "==0.13.0" },
+    { name = "typing-extensions", specifier = "==4.15.0" },
+    { name = "typing-extensions", marker = "extra == 'agents'", specifier = "==4.15.0" },
+    { name = "typing-extensions", marker = "extra == 'agents-all'", specifier = "==4.15.0" },
+]
+provides-extras = ["anthropic", "dev", "openai", "azure", "aws", "tracing", "gcp", "agents", "langgraph", "strands", "a2a", "agents-all", "groq"]
 
 [[package]]
 name = "colorama"
@@ -509,7 +571,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "beautifulsoup4", specifier = "==4.13.4" },
-    { name = "cnoe-agent-utils", git = "https://github.com/cnoe-io/cnoe-agent-utils.git?rev=codex%2Fbedrock-anthropic-client" },
+    { name = "cnoe-agent-utils", url = "https://github.com/cnoe-io/cnoe-agent-utils/archive/508aa2bd75a37450f2a3ae0b1fdf9142bbea5ebf.zip" },
     { name = "deepagents", specifier = "==0.6.4" },
     { name = "fastapi", specifier = "==0.135.3" },
     { name = "jinja2", specifier = "==3.1.6" },
