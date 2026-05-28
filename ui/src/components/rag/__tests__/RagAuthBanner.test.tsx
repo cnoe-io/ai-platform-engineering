@@ -36,7 +36,7 @@ describe("RagAuthIndicator", () => {
     expect(screen.queryByText("Trusted network")).not.toBeInTheDocument();
   });
 
-  it("does not render the RAG role label", () => {
+  it("shows non-admin status for normal KB access", () => {
     mockUseRagPermissions.mockReturnValue({
       userInfo: {
         email: "authenticated-user",
@@ -50,8 +50,27 @@ describe("RagAuthIndicator", () => {
 
     render(<RagAuthIndicator />);
 
-    expect(screen.getByText("authenticated-user")).toBeInTheDocument();
+    expect(screen.getByText("Non-admin")).toBeInTheDocument();
+    expect(screen.queryByText("authenticated-user")).not.toBeInTheDocument();
     expect(screen.queryByText("Role:")).not.toBeInTheDocument();
     expect(screen.queryByText("OPENFGA")).not.toBeInTheDocument();
+  });
+
+  it("shows admin status for org-admin RAG access", () => {
+    mockUseRagPermissions.mockReturnValue({
+      userInfo: {
+        email: "authenticated-user",
+        role: "ADMIN",
+        is_authenticated: true,
+        permissions: ["read", "ingest", "delete"],
+      },
+      hasPermission: () => true,
+      isLoading: false,
+    });
+
+    render(<RagAuthIndicator />);
+
+    expect(screen.getByText("Admin")).toBeInTheDocument();
+    expect(screen.queryByText("authenticated-user")).not.toBeInTheDocument();
   });
 });

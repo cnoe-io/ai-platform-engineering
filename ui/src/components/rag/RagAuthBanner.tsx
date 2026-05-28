@@ -59,6 +59,8 @@ export function RagAuthIndicator({ compact = false }: RagAuthIndicatorProps) {
     return null;
   }
 
+  const ragStatusLabel = userInfo.role === "ADMIN" ? "Admin" : "Non-admin";
+
   // Compact mode for collapsed sidebar - just show icon with tooltip
   if (compact) {
     const isAuthenticated = userInfo.is_authenticated;
@@ -83,7 +85,7 @@ export function RagAuthIndicator({ compact = false }: RagAuthIndicatorProps) {
             <div className="space-y-2">
               <div className="flex items-center gap-2">
                 <span className="text-xs font-medium">
-                  {isAuthenticated ? userInfo.email : "Unauthenticated"}
+                  {isAuthenticated ? ragStatusLabel : "Unauthenticated"}
                 </span>
               </div>
               <div className="border-t border-border pt-2">
@@ -125,7 +127,7 @@ export function RagAuthIndicator({ compact = false }: RagAuthIndicatorProps) {
           <div className="flex flex-col items-center gap-1 cursor-help">
             <div className="flex items-center gap-1">
               <User className="h-3 w-3 text-muted-foreground shrink-0" />
-              <span className="text-[10px] text-muted-foreground truncate">{userInfo.email}</span>
+              <span className="text-[10px] text-muted-foreground truncate">{ragStatusLabel}</span>
             </div>
           </div>
         </TooltipTrigger>

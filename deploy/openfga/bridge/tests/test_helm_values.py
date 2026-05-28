@@ -152,11 +152,11 @@ def test_webex_bot_configmap_includes_in_cluster_service_urls() -> None:
     assert "http://ai-platform-engineering-openfga:8080" in rendered
 
 
-def test_openfga_helm_model_matches_deploy_canonical_bytes() -> None:
+def test_openfga_helm_model_is_the_single_json_artifact() -> None:
     root = _repo_root()
-    deploy_model = root / "deploy/openfga/init/authorization-model.json"
     helm_model = root / "charts/ai-platform-engineering/charts/openfga/authorization-model.json"
-    assert deploy_model.read_bytes() == helm_model.read_bytes()
+    assert helm_model.exists()
+    assert not (root / "deploy/openfga/init/authorization-model.json").exists()
 
 
 def test_keycloak_renders_webex_bot_client_secret_when_enabled() -> None:
