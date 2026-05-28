@@ -991,6 +991,42 @@ describe('withAuth', () => {
       expect(relations).not.toContain('can_audit'); // admin_ui#view → can_audit
     });
 
+    it.each([
+      ['/api/users/me', 'GET', 'can_read_self'],
+      ['/api/users/me', 'PATCH', 'can_manage_self'],
+      ['/api/users/search?q=alice', 'GET', 'can_search_directory'],
+      ['/api/auth/my-roles', 'GET', 'can_read_self'],
+      ['/api/auth/slack-link', 'POST', 'can_manage_self'],
+      ['/api/settings/preferences', 'GET', 'can_manage_self'],
+      ['/api/settings/preferences', 'PATCH', 'can_manage_self'],
+      ['/api/nps/active', 'GET', 'can_submit_feedback'],
+      ['/api/feedback', 'POST', 'can_submit_feedback'],
+      ['/api/chat/conversations', 'GET', 'can_chat'],
+      ['/api/a2a/tasks', 'POST', 'can_chat'],
+      ['/api/dynamic-agents/models', 'GET', 'can_chat'],
+      ['/api/dynamic-agents/available', 'GET', 'can_chat'],
+      ['/api/files/list', 'GET', 'can_use_files'],
+      ['/api/files/content', 'POST', 'can_use_files'],
+      ['/api/ai/review', 'POST', 'can_use_ai_assist'],
+      ['/api/credentials/retrieve', 'POST', 'can_use_credentials'],
+    ])('maps %s %s to explicit OpenFGA relation %s', async (path, method, expectedRelation) => {
+      viewerSession();
+      mockCheckOpenFgaTuple.mockResolvedValue({ allowed: true });
+      mockCheckOpenFgaTuple.mockClear();
+
+      const handler = jest.fn().mockResolvedValue('ok');
+      const req = new Request(`http://test.com${path}`, { method }) as unknown as NextRequest;
+
+      await expect(withAuth(req, handler)).resolves.toBe('ok');
+
+      const calls = mockCheckOpenFgaTuple.mock.calls as Array<[
+        { user: string; relation: string; object: string },
+      ]>;
+      const relations = calls.map((c) => c[0]?.relation);
+      expect(relations).toContain(expectedRelation);
+      expect(relations).not.toContain('can_use');
+    });
+
     it('still gates PATCH /api/admin/platform-config behind admin_ui#manage', async () => {
       viewerSession();
       // The viewer is signed in but has no admin tuple — OpenFGA denies.

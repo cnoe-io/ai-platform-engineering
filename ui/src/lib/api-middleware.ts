@@ -271,10 +271,9 @@ interface RouteRbacPolicy {
 
 // LEGACY: this function maps every `/api/*` URL that goes through
 // `withAuth(...)` (i.e. doesn't call a fine-grained `require*Permission`
-// helper itself) to a single `{ resource, scope }` PDP pair. Many of the
-// returned pairs are too coarse — most notably the `supervisor#invoke`
-// fallback, which conflates "talk to the chat supervisor" with "read your
-// own profile" and "submit feedback".
+// helper itself) to a `{ resource, scope }` PDP pair. Keep adding explicit
+// capability mappings here while older routes are migrated off the wrapper;
+// the final `supervisor#invoke` fallback remains only for compatibility.
 //
 // See `docs/docs/specs/2026-05-27-fine-grained-rbac-for-withauth-routes/plan.md`
 // for the migration plan that replaces this resolver with a per-route
@@ -303,14 +302,46 @@ function resolveLegacyWithAuthRbacPolicy(request: NextRequest): RouteRbacPolicy 
       ? { resource: 'admin_ui', scope: 'view' }
       : { resource: 'admin_ui', scope: 'manage' };
   }
-  if (pathname.startsWith('/api/users/me') || pathname.startsWith('/api/users/search')) {
-    return { resource: 'supervisor', scope: 'invoke' };
+  if (pathname.startsWith('/api/users/search')) {
+    return { resource: 'user_directory', scope: 'read' };
   }
-  if (pathname.startsWith('/api/settings') || pathname.startsWith('/api/nps')) {
-    return { resource: 'supervisor', scope: 'invoke' };
+  if (pathname.startsWith('/api/users/me')) {
+    return method === 'GET'
+      ? { resource: 'self_profile', scope: 'read' }
+      : { resource: 'self_profile', scope: 'write' };
   }
-  if (pathname.startsWith('/api/chat')) {
-    return { resource: 'supervisor', scope: 'invoke' };
+  if (pathname === '/api/auth/my-roles' || pathname === '/api/auth/role') {
+    return { resource: 'self_profile', scope: 'read' };
+  }
+  if (pathname === '/api/auth/slack-link' || pathname === '/api/auth/webex-link') {
+    return { resource: 'self_profile', scope: 'write' };
+  }
+  if (pathname.startsWith('/api/settings')) {
+    return method === 'GET'
+      ? { resource: 'user_settings', scope: 'read' }
+      : { resource: 'user_settings', scope: 'write' };
+  }
+  if (pathname.startsWith('/api/nps') || pathname.startsWith('/api/feedback')) {
+    return { resource: 'feedback', scope: 'submit' };
+  }
+  if (
+    pathname.startsWith('/api/chat') ||
+    pathname.startsWith('/api/a2a') ||
+    pathname === '/api/dynamic-agents/models' ||
+    pathname === '/api/dynamic-agents/available'
+  ) {
+    return { resource: 'chat_supervisor', scope: 'invoke' };
+  }
+  if (pathname.startsWith('/api/files')) {
+    return method === 'GET'
+      ? { resource: 'user_files', scope: 'read' }
+      : { resource: 'user_files', scope: 'write' };
+  }
+  if (pathname.startsWith('/api/ai')) {
+    return { resource: 'ai_assist', scope: 'invoke' };
+  }
+  if (pathname.startsWith('/api/credentials')) {
+    return { resource: 'credential_vault', scope: 'use' };
   }
 
   if (pathname.startsWith('/api/task-configs')) {
@@ -547,6 +578,30 @@ import { isUnsafeRbacBypassEnabled, warnUnsafeRbacBypassEnabled } from '@/lib/rb
 import type { RbacResource, RbacScope } from '@/lib/rbac/types';
 
 function organizationRelationFor(resource: RbacResource, scope: RbacScope): string {
+  if (resource === 'self_profile') {
+    return scope === 'write' ? 'can_manage_self' : 'can_read_self';
+  }
+  if (resource === 'user_directory') {
+    return 'can_search_directory';
+  }
+  if (resource === 'chat_supervisor') {
+    return 'can_chat';
+  }
+  if (resource === 'feedback') {
+    return 'can_submit_feedback';
+  }
+  if (resource === 'user_settings') {
+    return 'can_manage_self';
+  }
+  if (resource === 'user_files') {
+    return 'can_use_files';
+  }
+  if (resource === 'ai_assist') {
+    return 'can_use_ai_assist';
+  }
+  if (resource === 'credential_vault') {
+    return 'can_use_credentials';
+  }
   if (resource === 'admin_ui') {
     return scope === 'view' || scope === 'audit.view' ? 'can_audit' : 'can_manage';
   }
