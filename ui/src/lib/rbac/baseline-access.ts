@@ -132,6 +132,12 @@ export function memberBaselineGrantDefinitions(): BaselineFgaGrantDefinition[] {
       description: "Allows users to read and manage their own profile object.",
       tuple: (subject) => ({ user: `user:${subject}`, relation: "owner", object: userProfileObject(subject) }),
     },
+    {
+      id: "mcp-gateway-call",
+      label: "Call MCP gateway",
+      description: "Allows admitted users to pass AgentGateway's coarse MCP ext_authz gate.",
+      tuple: (subject) => ({ user: `user:${subject}`, relation: "caller", object: "mcp_gateway:list" }),
+    },
     ...BASELINE_ADMIN_SURFACES.map((surface) => ({
       id: `admin-surface:${surface}:read`,
       label: `Read ${surface.replaceAll("_", " ")} admin surface`,

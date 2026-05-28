@@ -72,6 +72,7 @@ describe("login OpenFGA bootstrap", () => {
         { user: "user:sub-user", relation: "member", object: "organization:grid" },
         { user: "user:sub-user", relation: "reader", object: "system_config:platform_settings" },
         { user: "user:sub-user", relation: "owner", object: "user_profile:sub-user" },
+        { user: "user:sub-user", relation: "caller", object: "mcp_gateway:list" },
         { user: "user:sub-user", relation: "reader", object: "admin_surface:users" },
         { user: "user:sub-user", relation: "reader", object: "admin_surface:teams" },
         { user: "user:sub-user", relation: "reader", object: "admin_surface:skills" },

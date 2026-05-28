@@ -63,6 +63,69 @@ def test_parent_chart_renders_bridge_token_validation_env() -> None:
     assert 'key: "MONGODB_URI"' in rendered
 
 
+def test_agentgateway_chart_can_mount_provider_backend_auth_secret_env() -> None:
+    if shutil.which("helm") is None:
+        pytest.skip("helm is required for chart render assertions")
+
+    chart = _repo_root() / "charts" / "ai-platform-engineering"
+    result = subprocess.run(
+        [
+            "helm",
+            "template",
+            "caipe",
+            str(chart),
+            "--namespace",
+            "caipe",
+            "--set",
+            "agentgateway.enabled=true",
+            "--set",
+            "agentgateway.extraEnv[0].name=GITHUB_PERSONAL_ACCESS_TOKEN",
+            "--set",
+            "agentgateway.extraEnv[0].valueFrom.secretKeyRef.name=github-mcp-secret",
+            "--set",
+            "agentgateway.extraEnv[0].valueFrom.secretKeyRef.key=GITHUB_PERSONAL_ACCESS_TOKEN",
+            "--set",
+            "agentgateway.extraEnv[1].name=GITLAB_PERSONAL_ACCESS_TOKEN",
+            "--set",
+            "agentgateway.extraEnv[1].valueFrom.secretKeyRef.name=gitlab-mcp-secret",
+            "--set",
+            "agentgateway.extraEnv[1].valueFrom.secretKeyRef.key=GITLAB_PERSONAL_ACCESS_TOKEN",
+            "--set",
+            "agentgateway.config.binds[0].listeners[0].routes[0].matches[0].path.pathPrefix=/mcp/github",
+            "--set",
+            "agentgateway.config.binds[0].listeners[0].routes[0].backends[0].mcp.targets[0].name=github",
+            "--set",
+            "agentgateway.config.binds[0].listeners[0].routes[0].backends[0].mcp.targets[0].mcp.host=http://github-mcp-server:8082/mcp",
+            "--set",
+            "agentgateway.config.binds[0].listeners[0].routes[0].backends[0].mcp.targets[0].policies.backendAuth.key=\\$GITHUB_PERSONAL_ACCESS_TOKEN",
+            "--set",
+            "agentgateway.config.binds[0].listeners[0].routes[1].matches[0].path.pathPrefix=/mcp/gitlab",
+            "--set",
+            "agentgateway.config.binds[0].listeners[0].routes[1].backends[0].mcp.targets[0].name=gitlab",
+            "--set",
+            "agentgateway.config.binds[0].listeners[0].routes[1].backends[0].mcp.targets[0].mcp.host=http://mcp-gitlab:8000/mcp",
+            "--set",
+            "agentgateway.config.binds[0].listeners[0].routes[1].backends[0].mcp.targets[0].policies.backendAuth.key=\\$GITLAB_PERSONAL_ACCESS_TOKEN",
+        ],
+        check=True,
+        cwd=_repo_root(),
+        text=True,
+        capture_output=True,
+    )
+
+    rendered = result.stdout
+    assert "name: GITHUB_PERSONAL_ACCESS_TOKEN" in rendered
+    assert "secretKeyRef:" in rendered
+    assert "name: github-mcp-secret" in rendered
+    assert "key: GITHUB_PERSONAL_ACCESS_TOKEN" in rendered
+    assert "name: GITLAB_PERSONAL_ACCESS_TOKEN" in rendered
+    assert "name: gitlab-mcp-secret" in rendered
+    assert "key: GITLAB_PERSONAL_ACCESS_TOKEN" in rendered
+    assert "backendAuth:" in rendered
+    assert "key: $GITHUB_PERSONAL_ACCESS_TOKEN" in rendered
+    assert "key: $GITLAB_PERSONAL_ACCESS_TOKEN" in rendered
+
+
 def test_umbrella_values_define_webex_bot_section() -> None:
     root = _repo_root()
     values = yaml.safe_load((root / "charts/ai-platform-engineering/values.yaml").read_text())
