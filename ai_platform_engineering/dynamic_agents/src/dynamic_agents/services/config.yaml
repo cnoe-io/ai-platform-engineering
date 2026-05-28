@@ -21,11 +21,6 @@ models:
     name: Claude Sonnet 4.5 (Bedrock)
     provider: aws-bedrock
 
-  - description: Claude 3.5 Sonnet v2 via AWS Bedrock
-    model_id: global.anthropic.claude-3-5-sonnet-20241022-v2:0
-    name: Claude 3.5 Sonnet v2 (Bedrock)
-    provider: aws-bedrock
-
   - description: GPT-4o via Azure OpenAI
     model_id: gpt-4o
     name: GPT-4o (Azure)

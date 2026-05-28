@@ -52,7 +52,7 @@ const MAX_CONTEXT_BYTES = 64 * 1024;
 const MAX_CRITERIA = 30;
 
 /** Bedrock-friendly default that matches /api/ai/assist's fallback. */
-const GLOBAL_DEFAULT_MODEL_ID = "global.anthropic.claude-sonnet-4-6";
+const GLOBAL_DEFAULT_MODEL_ID = "global.anthropic.claude-haiku-4-5-20251001-v1:0";
 const GLOBAL_DEFAULT_PROVIDER = "aws-bedrock";
 
 // ---------------------------------------------------------------------------
