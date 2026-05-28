@@ -1,3 +1,52 @@
+## 0.5.1 (2026-05-27)
+
+### Feat
+
+- **rbac/ui**: gate Graph tab on any-KB-readable + add follow-up spec
+- **rbac**: add data_source and mcp_tool OpenFGA types + BFF list filter
+- **rbac**: share knowledge bases with teams via OpenFGA reconciler
+- **rbac/ui**: per-tab OpenFGA gates and empty states for Knowledge sidebar
+
+### Fix
+
+- **rbac**: complete RAG OpenFGA access model
+- **rbac**: read KB tuples with valid OpenFGA query
+- **rbac**: grant ingestor on shared knowledge bases
+- **rbac**: classify admin_surfaces schema area for registry guardrails
+- **rbac**: explicit org-admin super-grant on KB / Search / Data Sources / Graph / MCP Tools
+
+## 0.5.0-dev.2 (2026-05-27)
+
+## 0.5.0-dev.1 (2026-05-27)
+
+### Feat
+
+- **admin/rebac**: persist onboarding defaults with Save UX and team picker
+- **rbac**: persist agent "Share with Teams" in OpenFGA with backfill
+- **ui**: searchable TeamPicker and TeamMultiPicker components
+- **rbac**: GET /api/admin/teams returns canonical member_count
+- **rbac**: add canonical team-membership reader helper
+- **seed**: bootstrap a default Hello-World agent and an auto-create-teams sync rule on a fresh install
+- **rbac**: opt-in login-time team auto-creation via IDENTITY_SYNC_LOGIN_AUTO_CREATE_TEAMS
+- **ui**: add unsafe RBAC bypass flag
+
+### Fix
+
+- **rbac**: align team admin CI with canonical membership
+- **slack-bot**: surface RBAC denials and stop silent retries
+- **dynamic-agents**: surface LLM config errors instead of generic chat failure
+- **rbac/ui**: let read-only viewers load default platform agent
+- **scripts**: coerce team _id to ObjectId in canonical-team-membership $unset
+- **rbac**: chunk OpenFGA writes and make identity-group-sync apply transactional
+
+### Refactor
+
+- **admin/rebac**: swap native team <select>s for searchable TeamPicker
+- **rbac**: drop teams.members[] writes from all paths
+- **ui**: consume team.member_count on Admin Teams page
+- **rbac**: migrate read-only API consumers to canonical team-membership store
+- **rbac**: migrate auth gates to canonical team-membership store
+
 ## 0.5.0 (2026-05-26)
 
 ### BREAKING CHANGE
