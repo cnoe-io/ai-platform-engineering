@@ -1,24 +1,6 @@
 """Tests for Dynamic Agents LLM construction helpers."""
 
-import importlib
-import sys
-import types
-
-
-class PlaceholderFactory:
-    def __init__(self, provider):
-        self.provider = provider
-
-    def get_llm(self, **kwargs):
-        return kwargs
-
-
-sys.modules.setdefault(
-    "cnoe_agent_utils",
-    types.SimpleNamespace(LLMFactory=PlaceholderFactory),
-)
-
-llm_module = importlib.import_module("dynamic_agents.services.llm")
+from dynamic_agents.services import llm as llm_module
 
 
 def test_get_configured_llm_does_not_pass_botocore_config_to_openai(monkeypatch):
