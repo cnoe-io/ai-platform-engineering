@@ -211,7 +211,7 @@ helm show values oci://ghcr.io/cnoe-io/charts/ai-platform-engineering --version 
 | caipe-ui.config.SHOW_POWERED_BY | string | `"false"` |  |
 | caipe-ui.config.SSO_ENABLED | string | `"false"` |  |
 | caipe-ui.config.TAGLINE | string | `"Multi-Agent Workflow Automation"` |  |
-| caipe-ui.env.A2A_BASE_URL | string | `"http://ai-platform-engineering-supervisor-agent:8000"` |  |
+| caipe-ui.env.A2A_BASE_URL | string | `"http://{{ .Release.Name }}-supervisor-agent:8000"` |  |
 | caipe-ui.env.SKILLS_DIR | string | `"/app/data/skills"` |  |
 | caipe-ui.existingSecret | string | `""` |  |
 | caipe-ui.externalSecrets.apiVersion | string | `"v1beta1"` |  |
@@ -277,7 +277,7 @@ helm show values oci://ghcr.io/cnoe-io/charts/ai-platform-engineering --version 
 | global.metrics.enabled | bool | `false` |  |
 | global.rag.enableGraphRag | bool | `true` |  |
 | global.slim.enabled | bool | `false` |  |
-| global.slim.endpoint | string | `"http://ai-platform-engineering-slim:46357"` |  |
+| global.slim.endpoint | string | `"http://{{ .Release.Name }}-slim:46357"` |  |
 | global.slim.transport | string | `"slim"` |  |
 | metrics.grafanaDashboard.enabled | bool | `true` |  |
 | metrics.grafanaDashboard.labels.grafana_dashboard | string | `"1"` |  |
@@ -317,7 +317,7 @@ helm show values oci://ghcr.io/cnoe-io/charts/ai-platform-engineering --version 
 | slack-bot.auth.tokenUrl | string | `""` |  |
 | slack-bot.botConfig | object | `{}` |  |
 | slack-bot.botMode | string | `"socket"` |  |
-| slack-bot.env.CAIPE_URL | string | `"http://ai-platform-engineering-supervisor-agent:8000"` |  |
+| slack-bot.env.CAIPE_URL | string | `"http://{{ .Release.Name }}-supervisor-agent:8000"` |  |
 | slack-bot.externalSecrets.apiVersion | string | `"v1beta1"` |  |
 | slack-bot.externalSecrets.data | list | `[]` |  |
 | slack-bot.externalSecrets.enabled | bool | `false` |  |

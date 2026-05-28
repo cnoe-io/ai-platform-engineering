@@ -33,7 +33,7 @@ dynamic-agents installed.
 
       dynamic-agents:
         config:
-          KEYCLOAK_URL: "http://ai-platform-engineering-keycloak:8080"
+          KEYCLOAK_URL: "http://{{ .Release.Name }}-keycloak:8080"
           OIDC_ISSUER:  "https://idp.example.com/realms/caipe"
 
     This warning is non-blocking. If you are running Keycloak on
@@ -67,6 +67,6 @@ dynamic-agents installed.
 
       dynamic-agents:
         config:
-          KEYCLOAK_URL: "http://ai-platform-engineering-keycloak:8080"
+          KEYCLOAK_URL: "http://{{ .Release.Name }}-keycloak:8080"
 
 {{- end }}
