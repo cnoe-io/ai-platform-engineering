@@ -272,8 +272,9 @@ interface RouteRbacPolicy {
 // LEGACY: this function maps every `/api/*` URL that goes through
 // `withAuth(...)` (i.e. doesn't call a fine-grained `require*Permission`
 // helper itself) to a `{ resource, scope }` PDP pair. Keep adding explicit
-// capability mappings here while older routes are migrated off the wrapper;
-// the final `supervisor#invoke` fallback remains only for compatibility.
+// capability mappings here while older routes are migrated off the wrapper.
+// Unknown routes fail toward admin UI capabilities instead of the old generic
+// supervisor umbrella so audit rows stay explicit.
 //
 // See `docs/docs/specs/2026-05-27-fine-grained-rbac-for-withauth-routes/plan.md`
 // for the migration plan that replaces this resolver with a per-route
@@ -295,7 +296,7 @@ function resolveLegacyWithAuthRbacPolicy(request: NextRequest): RouteRbacPolicy 
   // `system_config:platform_settings#read` and PATCH still requires
   // `admin_ui#manage` plus `system_config#admin`.
   if (pathname === '/api/admin/platform-config' && method === 'GET') {
-    return { resource: 'supervisor', scope: 'invoke' };
+    return { resource: 'system_config', scope: 'read' };
   }
   if (pathname.startsWith('/api/admin')) {
     return method === 'GET'
@@ -386,7 +387,9 @@ function resolveLegacyWithAuthRbacPolicy(request: NextRequest): RouteRbacPolicy 
     return { resource: 'skill', scope: 'configure' };
   }
 
-  return { resource: 'supervisor', scope: 'invoke' };
+  return method === 'GET'
+    ? { resource: 'admin_ui', scope: 'view' }
+    : { resource: 'admin_ui', scope: 'manage' };
 }
 
 export async function withAuth<T>(

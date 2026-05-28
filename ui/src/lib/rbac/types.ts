@@ -12,6 +12,7 @@ export type RbacResource =
   | "supervisor"
   | "rag"
   | "sub_agent"
+  | "system_config"
   | "tool"
   | "skill"
   | "a2a"

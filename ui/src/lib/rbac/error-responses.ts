@@ -52,7 +52,7 @@ function humanReadableAction(resource: RbacResource, scope: string): string {
     "feedback#submit": "submit feedback",
     "self_profile#read": "read your profile",
     "self_profile#write": "update your profile",
-    "supervisor#invoke": "use the assistant",
+    "system_config#read": "read system configuration",
     "user_directory#read": "search the user directory",
     "user_files#read": "read your files",
     "user_files#write": "update your files",
