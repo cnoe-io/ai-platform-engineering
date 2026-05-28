@@ -127,7 +127,7 @@ config:
   # production topology):
   #
   #   KEYCLOAK_URL  — in-cluster service URL the pod uses for JWKS fetch
-  #                   (e.g. http://ai-platform-engineering-keycloak:8080).
+  #                   (e.g. http://{{ .Release.Name }}-keycloak:8080).
   #                   When unset, the code falls back to
   #                   http://localhost:7080 which is a CONNECTION-REFUSED
   #                   trap inside a Kubernetes pod.
@@ -144,11 +144,14 @@ config:
   # empty — see templates/NOTES.txt.
   KEYCLOAK_URL: ""
   OIDC_ISSUER: ""
+  # OpenFGA authorization service URL (in-cluster default matches umbrella chart release name)
+  OPENFGA_HTTP: "http://{{ .Release.Name }}-openfga:8080"
+  OPENFGA_STORE_NAME: "caipe-openfga"
   # MongoDB database name (uses same DB as CAIPE UI)
   MONGODB_DATABASE: "caipe"
   # Connections & Secrets credential exchange client. Disabled by default.
   CAIPE_CREDENTIALS_ENABLED: "false"
-  CREDENTIAL_API_URL: "http://ai-platform-engineering-caipe-ui:3000/api/credentials"
+  CREDENTIAL_API_URL: "http://{{ .Release.Name }}-caipe-ui:3000/api/credentials"
   CREDENTIAL_SERVICE_AUDIENCE: "caipe-credential-service"
   USE_IMPERSONATION_TOKENS: "false"
   # Agent runtime TTL in seconds (purged after this much inactivity)

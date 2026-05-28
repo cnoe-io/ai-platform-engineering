@@ -19,7 +19,7 @@ serviceAccount:
 # or externalSecrets (WEBEX_INTEGRATION_BOT_ACCESS_TOKEN, KEYCLOAK_* secrets, WEBEX_LINK_HMAC_SECRET, …).
 config:
   APP_NAME: "CAIPE"
-  CAIPE_API_URL: "http://ai-platform-engineering-caipe-ui:3000"
+  CAIPE_API_URL: "http://{{ .Release.Name }}-caipe-ui:3000"
   MONGODB_DATABASE: "caipe"
   WEBEX_WORKSPACE_ALIAS: "CAIPE-WEBEX"
   WEBEX_AGENT_ROUTES_MODE: "db_prefer"
@@ -32,14 +32,14 @@ config:
   WEBEX_ADMIN_API_ENABLED: "false"
   WEBEX_ADMIN_API_HOST: "0.0.0.0"
   WEBEX_ADMIN_API_PORT: "3002"
-  WEBEX_ADMIN_JWT_ISSUER: "http://ai-platform-engineering-keycloak:8080/realms/caipe"
-  WEBEX_ADMIN_JWKS_URL: "http://ai-platform-engineering-keycloak:8080/realms/caipe/protocol/openid-connect/certs"
+  WEBEX_ADMIN_JWT_ISSUER: "http://{{ .Release.Name }}-keycloak:8080/realms/caipe"
+  WEBEX_ADMIN_JWKS_URL: "http://{{ .Release.Name }}-keycloak:8080/realms/caipe/protocol/openid-connect/certs"
   WEBEX_ADMIN_JWT_AUDIENCE: "caipe-webex-bot-admin"
   WEBEX_ADMIN_ALLOWED_CLIENT_IDS: "caipe-ui"
   CAIPE_PLATFORM_AUDIENCE: "caipe-platform"
-  KEYCLOAK_URL: "http://ai-platform-engineering-keycloak:8080"
+  KEYCLOAK_URL: "http://{{ .Release.Name }}-keycloak:8080"
   KEYCLOAK_REALM: "caipe"
-  OPENFGA_HTTP: "http://ai-platform-engineering-openfga:8080"
+  OPENFGA_HTTP: "http://{{ .Release.Name }}-openfga:8080"
   OPENFGA_STORE_NAME: "caipe-openfga"
 
 # -- OBO client secret for caipe-webex-bot (Keycloak-managed; prefer keycloakBot below).
