@@ -19,6 +19,7 @@ import {
 } from '@/lib/rbac/openfga-owned-resources';
 import { checkOpenFgaTuple } from '@/lib/rbac/openfga';
 import { organizationObjectId } from '@/lib/rbac/organization';
+import { getDevAnonymousSession, isDevAnonymousAuthEnabled } from '@/lib/auth/dev-auth-provider';
 
 /**
  * RAG API Proxy with JWT Bearer Token Authentication
@@ -199,11 +200,13 @@ async function getAuthorizedRagContext(
   request: NextRequest,
   body?: unknown,
 ): Promise<AuthorizedRagContext> {
-  const session = await getServerSession(authOptions);
+  const session = await getServerSession(authOptions) ?? (
+    isDevAnonymousAuthEnabled() ? getDevAnonymousSession() : null
+  );
   if (!session?.user?.email) {
     throw new ApiError('Unauthorized', 401);
   }
-  if (!session.accessToken) {
+  if (!session.accessToken && !isDevAnonymousAuthEnabled()) {
     throw new ApiError('A Keycloak access token is required for RAG access.', 401, 'NOT_SIGNED_IN');
   }
 
@@ -265,7 +268,9 @@ async function getAuthorizedRagContext(
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   };
-  headers['Authorization'] = `Bearer ${session.accessToken}`;
+  if (session.accessToken) {
+    headers['Authorization'] = `Bearer ${session.accessToken}`;
+  }
   if (session.org) {
     headers['X-Tenant-Id'] = session.org;
   }

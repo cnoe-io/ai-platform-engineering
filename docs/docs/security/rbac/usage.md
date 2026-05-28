@@ -68,16 +68,28 @@ need the concrete OpenFGA `data_source:<id>#can_ingest` or
 `RBAC_DEFAULT_AUTHENTICATED_ROLE` is deprecated and does not grant broad RAG
 access by itself.
 
-### Emergency RBAC Bypass
+### Local Dev Auth Provider
 
-`CAIPE_UNSAFE_RBAC_BYPASS=true` is a dev/emergency escape hatch for temporarily
-running CAIPE while OpenFGA or identity wiring is being repaired. When it is
-enabled, `requireRbacPermission()`, direct Web UI OpenFGA tuple checks, and RAG
-KB checks allow requests without consulting the PDP. The server logs a prominent
-one-time warning, and the top bar shows a compact **No Auth** indicator so
-operators can see the UI is not enforcing normal authorization. Treat all UI and
-RAG operations in this mode as admin-capable, and never enable it in staging or
-production.
+For local development without Keycloak/SSO, the Web UI uses a dedicated dev auth
+provider instead of scattering one-off bypass checks through route handlers. The
+provider is enabled only outside production when all of these are true:
+
+```bash
+SSO_ENABLED=false
+ALLOW_DEV_ADMIN_WHEN_SSO_DISABLED=true
+CAIPE_UNSAFE_RBAC_BYPASS=true
+```
+
+When enabled, `ui/src/lib/auth/dev-auth-provider.ts` supplies a stable local
+admin principal (`anonymous@local`, `sub=anonymous-local-dev`) to Web UI API
+middleware, admin tab gates, and RAG proxy calls. Authorization helpers still
+emit the prominent **No Auth** warning, and the top bar shows the **No Auth**
+indicator. Treat all UI and RAG operations in this mode as admin-capable, and
+never enable it in staging or production.
+
+`CAIPE_UNSAFE_RBAC_BYPASS=true` remains an emergency PDP bypass for development,
+but new UI auth paths should consume the dev auth provider rather than checking
+the env var directly.
 
 > **Heads-up: `caipe-ui` host port is hard-pinned to `3000`.** Keycloak's `caipe-ui` client only allow-lists `http://localhost:3000/*` as a redirect URI (see `deploy/keycloak/realm-config.json`). Remapping the UI breaks the OIDC redirect dance and login fails with `Invalid redirect_uri`. The spec-102 e2e lane (`make test-rbac-up`) honours this — it remaps Mongo (`28017`) and supervisor (`28000`) to a `28xxx` band, but leaves `caipe-ui:3000` and Keycloak (`7080/7443`) untouched. See [spec 102 quickstart › E2E port band](../../specs/102-comprehensive-rbac-tests-and-completion/quickstart.md#e2e-port-band) for the full table and env-var contract.
 

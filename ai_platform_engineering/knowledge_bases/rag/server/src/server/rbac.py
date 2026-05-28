@@ -52,6 +52,10 @@ logger.info("  Human coarse roles: authenticated identity only")
 logger.info("  RAG authorization: OpenFGA ReBAC")
 logger.info(f"  RBAC_CLIENT_CREDENTIALS_ROLE: {RBAC_CLIENT_CREDENTIALS_ROLE}")
 
+
+def _unsafe_rbac_bypass_enabled() -> bool:
+  return os.getenv("CAIPE_UNSAFE_RBAC_BYPASS", "").strip().lower() in ("1", "true", "yes", "on")
+
 # ============================================================================
 # Role Hierarchy and Permission Logic
 # ============================================================================
@@ -360,6 +364,15 @@ async def require_authenticated_user(request: Request, auth_manager: AuthManager
       return user
 
     raise HTTPException(status_code=401, detail="Invalid or expired token.")
+
+  if _unsafe_rbac_bypass_enabled():
+    logger.warning("CAIPE_UNSAFE_RBAC_BYPASS=true: allowing unauthenticated RAG request as local admin")
+    return UserContext(
+      subject="anonymous-local-dev",
+      email="anonymous@local",
+      role=Role.ADMIN,
+      is_authenticated=True,
+    )
 
   # No token
   raise HTTPException(status_code=401, detail="Missing Authorization header. Please provide a valid Bearer token.")
