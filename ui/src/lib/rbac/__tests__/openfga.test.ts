@@ -256,7 +256,7 @@ describe("OpenFGA team resource tuple reconciliation", () => {
     }
   });
 
-  it("builds owner and team-manager tuples for self-service resources", () => {
+  it("builds owner and team grant tuples for self-service resources", () => {
     expect(
       buildMcpServerRelationshipTupleDiff({
         serverId: "mcp-team-tools",
@@ -317,6 +317,7 @@ describe("OpenFGA team resource tuple reconciliation", () => {
     ).toEqual([
       { user: "user:alice-sub", relation: "owner", object: "knowledge_base:kb-team" },
       { user: "team:platform#member", relation: "reader", object: "knowledge_base:kb-team" },
+      { user: "team:platform#member", relation: "ingestor", object: "knowledge_base:kb-team" },
       { user: "team:platform#admin", relation: "manager", object: "knowledge_base:kb-team" },
     ]);
   });
