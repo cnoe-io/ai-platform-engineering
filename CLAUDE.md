@@ -11,24 +11,10 @@
 
 Every commit must use [Conventional Commits](https://www.conventionalcommits.org/) format and include a **DCO sign-off** (`git commit -s`).
 
-For AI-assisted commits:
-- Default rule: AI must **never** add `Signed-off-by` — only the human author can certify the DCO
-- Always append `Assisted-by: Claude:<model-version>` when code was materially AI-assisted
-- See `AGENTS.md` for the canonical DCO + AI attribution policy used by AI coding agents
-
-### Explicit-authorization carve-out for this repository
-
-For this repository (`ai-platform-engineering-feat-comprehensive-rbac`), the maintainer
-**Sri Aradhyula `<sraradhy@cisco.com>`** has granted a session-scoped explicit
-authorization for AI agents to run `git commit -s` on his behalf when (and only when)
-he has stated so in the current chat session. Under that delegation:
-
-- The agent uses Sri's configured git identity (`git config user.name` /
-  `git config user.email`) — never a fictitious identity.
-- The `Assisted-by: Claude:<model-version>` trailer is still mandatory.
-- The delegation is recorded in the chat transcript (the message granting it).
-- The carve-out is revocable mid-session; once revoked the agent reverts to
-  the default rule.
+For AI-assisted commits in this repository:
+- Always run `git commit -s` so the sign-off is appended from the configured `git config user.name` / `user.email` (the human author's identity).
+- Always append `Assisted-by: Claude:<model-version>` when code was materially AI-assisted.
+- Never invent an identity, override `user.name` / `user.email`, or skip the sign-off.
 
 See `AGENTS.md` for the full DCO + AI attribution policy.
 
