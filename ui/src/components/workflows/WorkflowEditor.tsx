@@ -13,6 +13,7 @@ import {
   Code,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { AgentPicker, type AgentPickerOption } from "@/components/ui/agent-picker";
 import { cn } from "@/lib/utils";
 import type {
   WorkflowConfig,
@@ -50,9 +51,9 @@ function useDynamicAgents() {
           : [];
         if (!cancelled) {
           setAgents(
-            list.map((a: any) => ({
-              value: a._id || a.id,
-              label: a.name || a._id || a.id,
+            list.map((a: Record<string, unknown>) => ({
+              value: String(a._id ?? a.id ?? ""),
+              label: String(a.name ?? a._id ?? a.id ?? ""),
             }))
           );
         }
@@ -208,26 +209,13 @@ function StepRow({
               <div className="text-xs text-muted-foreground h-8 flex items-center">
                 Loading agents...
               </div>
-            ) : agents.length > 0 ? (
-              <select
-                value={step.agent_id}
-                onChange={(e) => update({ agent_id: e.target.value })}
-                className="flex h-8 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              >
-                <option value="">Select an agent...</option>
-                {agents.map((a) => (
-                  <option key={a.value} value={a.value}>
-                    {a.label}
-                  </option>
-                ))}
-              </select>
             ) : (
-              <input
-                type="text"
+              <AgentPicker
                 value={step.agent_id}
-                onChange={(e) => update({ agent_id: e.target.value })}
-                placeholder="e.g. agent-abc123"
-                className="flex h-8 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                onChange={(v) => update({ agent_id: v })}
+                placeholder="Select an agent..."
+                options={agents.map<AgentPickerOption>((a) => ({ value: a.value, label: a.label }))}
+                hideIdSuffix
               />
             )}
           </div>
