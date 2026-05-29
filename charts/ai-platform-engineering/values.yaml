@@ -122,11 +122,39 @@ global:
 
   agentgateway:
     enabled: false
+    # How AgentGateway MCP routing is provisioned. This controls whether the
+    # umbrella chart renders Gateway API / AgentGateway custom resources.
+    #
+    #   gateway-api (default): render Gateway, HTTPRoute, AgentgatewayBackend and
+    #     AgentgatewayPolicy custom resources. Requires these CRDs + an
+    #     AgentGateway/Gateway API controller to be installed in the cluster:
+    #       gateways.gateway.networking.k8s.io
+    #       httproutes.gateway.networking.k8s.io
+    #       agentgatewaybackends.agentgateway.dev
+    #       agentgatewaypolicies.agentgateway.dev
+    #
+    #   static: render NO custom resources. MCP routes are written into the
+    #     standalone AgentGateway proxy's static config instead (the
+    #     `agentgateway` subchart must be enabled). This requires no CRDs and no
+    #     cluster-admin controller install, so it is safe on clusters you do not
+    #     own. MCP endpoints are still discoverable via the proxy admin /config
+    #     endpoint (the CAIPE UI discover/sync flow reads from there).
+    routingMode: gateway-api
     # Set to true only if Istio CRDs are NOT already present in the cluster.
     # If Istio is already installed (any version), leave this false to avoid conflicts.
     installIstioCrds: false
     # Port for the agentgateway proxy listener (Gateway resource)
     proxyPort: 8080
+    # Static routing mode only: listener-level JWT validation for the standalone
+    # proxy. Disabled by default so plain (non-RBAC) installs route MCP traffic
+    # without requiring an IdP. When enabled, mirrors the Gateway API jwtAuth
+    # listener policy.
+    static:
+      jwtAuth:
+        enabled: false
+        issuer: ""
+        jwksUrl: ""
+        audiences: []
     extAuth:
       enabled: false
       serviceName: ""

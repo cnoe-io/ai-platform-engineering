@@ -14,7 +14,12 @@ spec:
       labels:
         {{- include "agentgateway.selectorLabels" . | nindent 8 }}
       annotations:
+        {{- $agwGlobal := ((.Values.global).agentgateway) | default dict }}
+        {{- if eq ($agwGlobal.routingMode | default "gateway-api") "static" }}
+        checksum/config: {{ $agwGlobal | toYaml | sha256sum }}
+        {{- else }}
         checksum/config: {{ toYaml .Values.config | sha256sum }}
+        {{- end }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -63,7 +68,13 @@ spec:
       volumes:
         - name: config
           configMap:
+            {{- $agwGlobal := ((.Values.global).agentgateway) | default dict }}
+            {{- if and $agwGlobal.enabled (eq ($agwGlobal.routingMode | default "gateway-api") "static") }}
+            # Static (CRD-free) routing: mount the umbrella-rendered static config.
+            name: {{ printf "%s-agentgateway-static-config" .Release.Name }}
+            {{- else }}
             name: {{ include "agentgateway.fullname" . }}-config
+            {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

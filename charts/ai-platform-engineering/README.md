@@ -267,6 +267,7 @@ helm show values oci://ghcr.io/cnoe-io/charts/ai-platform-engineering --version 
 | dynamic-agents.service.port | int | `8001` |  |
 | extraDeploy | list | `[]` |  |
 | global.agentgateway.enabled | bool | `false` |  |
+| global.agentgateway.routingMode | string | `"gateway-api"` | How chart-managed MCP routing is provisioned. `gateway-api` renders Gateway API/AgentGateway custom resources (requires those CRDs + a controller); `static` renders no custom resources and writes routes into the standalone proxy config (no CRDs needed). |
 | global.createLlmSecret | bool | `false` |  |
 | global.deploymentMode | string | `"multi-node"` |  |
 | global.externalSecrets.apiVersion | string | `"v1beta1"` |  |

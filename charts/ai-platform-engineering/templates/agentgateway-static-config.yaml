@@ -1,0 +1,90 @@
+{{- /*
+CRD-free AgentGateway routing.
+
+When global.agentgateway.routingMode == "static", the umbrella chart does NOT
+render any Gateway API / AgentGateway custom resources (see
+agentgateway-mcp.yaml). Instead it renders the standalone AgentGateway proxy's
+static config here, with one /mcp/<id> route + MCP backend per target. The
+`agentgateway` subchart deployment mounts this ConfigMap as
+/etc/agentgateway/config.yaml.
+
+This requires no Gateway API / AgentGateway CRDs and no cluster-admin controller
+install, so it works on clusters the operator does not own. MCP endpoints stay
+discoverable via the proxy admin /config endpoint, which the CAIPE UI
+discover/sync flow already consumes.
+*/ -}}
+{{- $agw := .Values.global.agentgateway | default dict }}
+{{- $routingMode := ($agw.routingMode | default "gateway-api") }}
+{{- if and $agw.enabled (eq $routingMode "static") }}
+{{- $sub := .Values.agentgateway | default dict }}
+{{- $svc := $sub.service | default dict }}
+{{- $listenPort := $svc.port | default 4000 }}
+{{- $adminPort := $svc.adminPort | default 15000 }}
+{{- $static := $agw.static | default dict }}
+{{- $jwt := $static.jwtAuth | default dict }}
+{{- $extAuth := $agw.extAuth | default dict }}
+{{- $extAuthHost := printf "%s:%v" ($extAuth.serviceName | default (printf "%s-openfga-authz-bridge" .Release.Name)) ($extAuth.port | default 9100) }}
+{{- $targets := include "ai-platform-engineering.agentgatewayMcpTargets" . | fromYamlArray }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ printf "%s-agentgateway-static-config" .Release.Name }}
+  labels:
+    {{- include "ai-platform-engineering.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agentgateway
+data:
+  config.yaml: |
+    binds:
+      - port: {{ $listenPort }}
+        listeners:
+          - protocol: HTTP
+            {{- if $jwt.enabled }}
+            policies:
+              jwtAuth:
+                mode: strict
+                issuer: {{ required "global.agentgateway.static.jwtAuth.issuer is required when jwtAuth.enabled is true" $jwt.issuer | quote }}
+                audiences: {{ toJson ($jwt.audiences | default list) }}
+                jwks:
+                  url: {{ required "global.agentgateway.static.jwtAuth.jwksUrl is required when jwtAuth.enabled is true" $jwt.jwksUrl | quote }}
+            {{- end }}
+            {{- if not $targets }}
+            routes: []
+            {{- else }}
+            routes:
+            {{- range $t := $targets }}
+              - matches:
+                  - path:
+                      pathPrefix: {{ $t.pathPrefix | quote }}
+                {{- if $extAuth.enabled }}
+                policies:
+                  extAuthz:
+                    host: {{ $extAuthHost | quote }}
+                    failureMode:
+                      denyWithStatus: 403
+                    protocol:
+                      grpc:
+                        metadata:
+                          caipe.auth: '{"sub": jwt.sub}'
+                  authorization:
+                    rules:
+                      - allow: 'true'
+                {{- end }}
+                backends:
+                  - mcp:
+                      targets:
+                        - name: {{ $t.id | quote }}
+                          mcp:
+                            host: {{ printf "http://%s:%v/mcp" $t.host $t.port | quote }}
+                          {{- if $t.backendAuthKey }}
+                          policies:
+                            backendAuth:
+                              key: {{ $t.backendAuthKey | quote }}
+                          {{- end }}
+            {{- end }}
+            {{- end }}
+    config:
+      adminAddr: {{ printf "0.0.0.0:%v" $adminPort | quote }}
+      logging:
+        level: info
+        format: json
+{{- end }}
