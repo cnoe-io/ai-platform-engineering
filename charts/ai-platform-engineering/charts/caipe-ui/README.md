@@ -74,7 +74,7 @@ helm show values oci://ghcr.io/cnoe-io/charts/caipe-ui --version 0.2.38
 | config.SUPPORT_EMAIL | string | `"support@example.com"` |  |
 | config.TAGLINE | string | `"Multi-Agent Workflow Automation"` |  |
 | config.WORKFLOW_RUNNER_ENABLED | string | `"false"` |  |
-| env.A2A_BASE_URL | string | `"http://ai-platform-engineering-supervisor-agent:8000"` |  |
+| env.A2A_BASE_URL | string | `"http://{{ .Release.Name }}-supervisor-agent:8000"` |  |
 | existingSecret | string | `""` |  |
 | externalSecrets.apiVersion | string | `"v1beta1"` |  |
 | externalSecrets.data | list | `[]` |  |

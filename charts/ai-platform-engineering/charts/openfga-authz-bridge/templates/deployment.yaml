@@ -27,7 +27,7 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           env:
             - name: OPENFGA_HTTP
-              value: {{ tpl .Values.openfga.httpUrl . | quote }}
+              value: {{ tpl (.Values.openfga.httpUrl | default (printf "http://%s-openfga:8080" .Release.Name)) . | quote }}
             - name: OPENFGA_STORE_NAME
               value: {{ .Values.openfga.storeName | quote }}
             {{- if .Values.openfga.storeId }}
@@ -50,7 +50,7 @@ spec:
                   key: {{ .Values.agentContext.existingSecret.key | quote }}
             {{- end }}
             - name: JWT_JWKS_URL
-              value: {{ tpl .Values.tokenValidation.jwksUrl . | quote }}
+              value: {{ tpl (.Values.tokenValidation.jwksUrl | default (printf "http://%s-keycloak:8080/realms/caipe/protocol/openid-connect/certs" .Release.Name)) . | quote }}
             {{- if .Values.tokenValidation.issuer }}
             - name: JWT_ISSUER
               value: {{ tpl .Values.tokenValidation.issuer . | quote }}

@@ -146,7 +146,7 @@ caipe-ui:
           property: OIDC_CLIENT_SECRET
 
       # MongoDB connection URI
-      # Format: mongodb://username:password@ai-platform-engineering-mongodb:27017
+      # Format: mongodb://username:password@{{ .Release.Name }}-mongodb:27017
       - secretKey: MONGODB_URI
         remoteRef:
           key: dev/caipe-ui
@@ -171,12 +171,12 @@ caipe-ui:
 #
 # 1. Create a Kubernetes secret manually:
 #
-# kubectl create secret generic ai-platform-engineering-caipe-ui-secret \
+# kubectl create secret generic {{ .Release.Name }}-caipe-ui-secret \
 #   --from-literal=NEXTAUTH_SECRET="$(openssl rand -base64 32)" \
 #   --from-literal=OIDC_ISSUER="https://your-oidc-provider" \
 #   --from-literal=OIDC_CLIENT_ID="your-client-id" \
 #   --from-literal=OIDC_CLIENT_SECRET="your-client-secret" \
-#   --from-literal=MONGODB_URI="mongodb://admin:changeme@ai-platform-engineering-mongodb:27017" \
+#   --from-literal=MONGODB_URI="mongodb://admin:changeme@{{ .Release.Name }}-mongodb:27017" \
 #   -n your-namespace
 #
 # 2. The deployment will automatically mount this secret
