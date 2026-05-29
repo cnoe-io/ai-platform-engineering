@@ -65,6 +65,25 @@ def _namespace_key(namespace: tuple[str, ...]) -> str:
     return namespace[0] if namespace else ""
 
 
+def _memory_update_payload(content: Any, namespace: tuple[str, ...]) -> dict[str, Any] | None:
+    if not isinstance(content, str):
+        return None
+    try:
+        payload = json.loads(content)
+    except json.JSONDecodeError:
+        return None
+    if payload.get("memory_event") != "updated":
+        return None
+    memory_ids = payload.get("memory_ids")
+    if not isinstance(memory_ids, list) or not memory_ids:
+        return None
+    return {
+        "memory_ids": [str(memory_id) for memory_id in memory_ids],
+        "action": payload.get("action"),
+        "namespace": list(namespace),
+    }
+
+
 # ═══════════════════════════════════════════════════════════════
 # AGUIStreamEncoder
 # ═══════════════════════════════════════════════════════════════
@@ -170,6 +189,21 @@ class AGUIStreamEncoder(StreamEncoder):
                     "type": "CUSTOM",
                     "name": "WARNING",
                     "value": {"message": message, "namespace": []},
+                    "timestamp": _ts(),
+                },
+            )
+        ]
+
+    def on_memory_injected(self, memory_ids: list[str]) -> list[str]:
+        if not memory_ids:
+            return []
+        return [
+            _sse_frame(
+                "CUSTOM",
+                {
+                    "type": "CUSTOM",
+                    "name": "MEMORY_INJECTED",
+                    "value": {"memory_ids": memory_ids, "namespace": []},
                     "timestamp": _ts(),
                 },
             )
@@ -406,6 +440,19 @@ class AGUIStreamEncoder(StreamEncoder):
 
                     logger.debug(f"[sse:TOOL_CALL_END] id={tool_call_id[:8]}... ns={namespace} error={bool(error)}")
                     results.extend(self._emit_namespace_if_changed(namespace))
+                    memory_update = _memory_update_payload(content, namespace)
+                    if memory_update:
+                        results.append(
+                            _sse_frame(
+                                "CUSTOM",
+                                {
+                                    "type": "CUSTOM",
+                                    "name": "MEMORY_UPDATED",
+                                    "value": memory_update,
+                                    "timestamp": _ts(),
+                                },
+                            )
+                        )
                     if error:
                         results.append(
                             _sse_frame(

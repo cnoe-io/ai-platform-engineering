@@ -46,6 +46,8 @@ const AGUI = {
 const CUSTOM_NAMESPACE_CONTEXT = "NAMESPACE_CONTEXT";
 const CUSTOM_WARNING = "WARNING";
 const CUSTOM_TOOL_ERROR = "TOOL_ERROR";
+const CUSTOM_MEMORY_INJECTED = "MEMORY_INJECTED";
+const CUSTOM_MEMORY_UPDATED = "MEMORY_UPDATED";
 // Supervisor legacy HITL format (fallback)
 const CUSTOM_INPUT_REQUIRED = "INPUT_REQUIRED";
 
@@ -112,6 +114,7 @@ export class AGUIStreamAdapter implements StreamAdapter {
       conversation_id: params.conversationId,
       agent_id: params.agentId,
       protocol: "agui",
+      memory_enabled: params.memoryEnabled ?? true,
       ...(params.clientContext && { client_context: params.clientContext }),
     });
 
@@ -125,6 +128,7 @@ export class AGUIStreamAdapter implements StreamAdapter {
       agent_id: params.agentId,
       form_data: params.formData,
       protocol: "agui",
+      memory_enabled: params.memoryEnabled ?? true,
       ...(params.clientContext && { client_context: params.clientContext }),
     });
 
@@ -361,6 +365,21 @@ export class AGUIStreamAdapter implements StreamAdapter {
         );
         return false;
       }
+
+      case CUSTOM_MEMORY_INJECTED:
+        callbacks.onMemoryInjected?.(
+          (value?.memory_ids as string[]) || [],
+          (value?.namespace as string[]) || this.currentNamespace,
+        );
+        return false;
+
+      case CUSTOM_MEMORY_UPDATED:
+        callbacks.onMemoryUpdate?.(
+          (value?.memory_ids as string[]) || [],
+          value?.action as string | undefined,
+          (value?.namespace as string[]) || this.currentNamespace,
+        );
+        return false;
 
       case CUSTOM_INPUT_REQUIRED: {
         // Supervisor legacy HITL format — CUSTOM("INPUT_REQUIRED")

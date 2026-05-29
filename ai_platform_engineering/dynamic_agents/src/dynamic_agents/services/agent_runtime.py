@@ -10,6 +10,7 @@ skill-loading, and caching logic live in sibling modules:
 - ``pool.py``       — ``AgentRuntimeCache`` / ``get_runtime_cache()``
 """
 
+import json
 import logging
 import re
 import time
@@ -39,6 +40,7 @@ from dynamic_agents.models import (
 from dynamic_agents.services.builtin_tools import (
     create_current_datetime_tool,
     create_fetch_url_tool,
+    create_memory_tools,
     create_request_user_input_tool,
     create_self_identity_tool,
     create_user_info_tool,
@@ -50,6 +52,7 @@ from dynamic_agents.services.mcp_client import (
     get_tools_with_resilience,
     wrap_tools_with_error_handling,
 )
+from dynamic_agents.services.memory import UserMemoryService
 from dynamic_agents.services.middleware import build_middleware
 from dynamic_agents.services.skills import build_skills_files, load_skills
 from dynamic_agents.services.streaming import StreamingMixin
@@ -170,6 +173,13 @@ class AgentRuntime(StreamingMixin):
             checkpoint_collection_name="checkpoints_conversation",
             writes_collection_name="checkpoint_writes_conversation",
         )
+        self._memory_service = UserMemoryService(self._mongo_client[self.settings.mongodb_database])
+        try:
+            self._memory_service.ensure_indexes()
+        except Exception as exc:  # noqa: BLE001 - index setup should not block runtime creation
+            logger.warning("Failed to ensure user memory indexes: %s", exc)
+        self._memory_enabled_for_run = True
+        self._last_injected_memory_ids: list[str] = []
         self._mcp_client: MultiServerMCPClient | None = None
         self._initialized = False
         self._is_streaming = False  # guards LRU eviction — never evict mid-stream
@@ -256,6 +266,7 @@ class AgentRuntime(StreamingMixin):
 
                 # 3. Filter tools based on allowed_tools in the agent config
                 tools, missing = filter_tools_by_allowed(all_tools, self.config.allowed_tools)
+                tools = self._wrap_context_provider_tools(tools)
 
                 # Only report missing tools for servers that connected successfully
                 # (tools from failed servers are expected to be missing)
@@ -501,10 +512,231 @@ class AgentRuntime(StreamingMixin):
             )
             config_summary["self_identity"] = {}
 
+        # memory tool group (disabled by default). Keep it root-agent only so
+        # subagents do not receive user memory unless we intentionally add a
+        # subagent memory handoff later.
+        memory_config = config.builtin_tools.memory
+        if memory_config and memory_config.enabled and config.id == self.config.id:
+            if user:
+                tools.extend(
+                    create_memory_tools(
+                        memory_service=self._memory_service,
+                        user=user,
+                        agent_id=config.id,
+                        session_id=self._session_id,
+                        is_enabled=self._memory_enabled,
+                    )
+                )
+                config_summary["memory"] = {
+                    "context_providers": len(memory_config.context_providers or []),
+                }
+            else:
+                logger.warning(f"Agent '{config.name}': memory enabled but no user context available")
+
         if tools:
             logger.info(f"Agent '{config.name}': added built-in tools: {config_summary}")
 
         return tools
+
+    def _memory_enabled(self) -> bool:
+        return bool(getattr(self, "_memory_enabled_for_run", True))
+
+    def _wrap_context_provider_tools(self, tools: list) -> list:
+        """Wrap configured MCP tools so their calls activate context memory.
+
+        The agent still calls the normal MCP tool. After a successful call, the
+        runtime records the current context using trusted user/session identity
+        and appends any matching context memory to the tool result for the model.
+        """
+        memory_config = self.config.builtin_tools.memory if self.config.builtin_tools else None
+        if not memory_config or not memory_config.enabled or not memory_config.context_providers:
+            return tools
+        if not self._user or not self._session_id:
+            return tools
+
+        provider_by_tool = {
+            f"{provider.server}_{provider.tool}": provider
+            for provider in memory_config.context_providers
+        }
+        if not provider_by_tool:
+            return tools
+
+        from langchain_core.tools import StructuredTool
+
+        wrapped: list = []
+        for tool in tools:
+            provider = provider_by_tool.get(getattr(tool, "name", ""))
+            original_coro = getattr(tool, "coroutine", None)
+            if not provider or original_coro is None:
+                wrapped.append(tool)
+                continue
+
+            resp_fmt = getattr(tool, "response_format", "content")
+
+            async def _memory_context_coro(
+                *args: Any,
+                _orig: Any = original_coro,
+                _provider: Any = provider,
+                _resp_fmt: str = resp_fmt,
+                _tool_name: str = tool.name,
+                **kwargs: Any,
+            ) -> Any:
+                result = await _orig(*args, **kwargs)
+                if not self._memory_enabled() or not self._user or not self._session_id:
+                    return result
+
+                tool_args = self._extract_tool_args(args, kwargs)
+                context_id = str(tool_args.get(_provider.context_id_arg) or "").strip()
+                if not context_id:
+                    context_id = str(
+                        self._extract_display_name(
+                            result,
+                            getattr(_provider, "context_id_result_path", None) or "_id",
+                        )
+                        or ""
+                    ).strip()
+                if not context_id:
+                    return result
+
+                display_name = self._extract_display_name(result, _provider.display_name_result_path)
+                try:
+                    self._memory_service.set_active_context(
+                        owner_user_id=self._user.email,
+                        agent_id=self.config.id,
+                        conversation_id=self._session_id,
+                        context_namespace=_provider.context_namespace,
+                        context_type=_provider.context_type,
+                        context_id=context_id,
+                        display_name=display_name,
+                    )
+                    memories = self._memory_service.get_layered_memories(
+                        owner_user_id=self._user.email,
+                        agent_id=self.config.id,
+                        contexts=[
+                            {
+                                "context_namespace": _provider.context_namespace,
+                                "context_type": _provider.context_type,
+                                "context_id": context_id,
+                            }
+                        ],
+                    )
+                    memory_text = self._memory_service.format_context_tool_memory(memories)
+                    return self._append_tool_memory(result, memory_text, _resp_fmt)
+                except Exception as exc:  # noqa: BLE001 - memory must not break the domain tool
+                    logger.warning(
+                        "Failed to attach context memory for tool '%s': %s",
+                        _tool_name,
+                        exc,
+                    )
+                    return result
+
+            wrapped.append(
+                StructuredTool(
+                    name=tool.name,
+                    description=tool.description or "",
+                    args_schema=tool.args_schema,
+                    coroutine=_memory_context_coro,
+                    response_format=resp_fmt,
+                    metadata=getattr(tool, "metadata", None),
+                )
+            )
+
+        return wrapped
+
+    def _extract_tool_args(self, args: tuple[Any, ...], kwargs: dict[str, Any]) -> dict[str, Any]:
+        if kwargs:
+            return dict(kwargs)
+        if not args:
+            return {}
+        first = args[0]
+        if isinstance(first, dict):
+            return first
+        model_dump = getattr(first, "model_dump", None)
+        if callable(model_dump):
+            try:
+                return dict(model_dump())
+            except Exception:  # noqa: BLE001
+                return {}
+        return {}
+
+    def _decode_tool_result_content(self, result: Any) -> Any:
+        content = result[0] if isinstance(result, tuple) and result else result
+        if isinstance(content, str):
+            try:
+                return json.loads(content)
+            except Exception:  # noqa: BLE001
+                return content
+        if isinstance(content, list) and len(content) == 1 and isinstance(content[0], dict):
+            text = content[0].get("text")
+            if isinstance(text, str):
+                try:
+                    return json.loads(text)
+                except Exception:  # noqa: BLE001
+                    return text
+        return content
+
+    def _extract_display_name(self, result: Any, path: str | None) -> str | None:
+        if not path:
+            return None
+        current = self._decode_tool_result_content(result)
+        for part in path.split("."):
+            if isinstance(current, dict):
+                current = current.get(part)
+            elif isinstance(current, list) and part.isdigit():
+                index = int(part)
+                current = current[index] if 0 <= index < len(current) else None
+            else:
+                return None
+            if current is None:
+                return None
+        if isinstance(current, (str, int, float)):
+            return str(current)
+        return None
+
+    def _append_tool_memory(self, result: Any, memory_text: str, response_format: str) -> Any:
+        if not memory_text:
+            return result
+
+        block = f"\n\n{memory_text}"
+        if response_format == "content_and_artifact" and isinstance(result, tuple) and len(result) == 2:
+            content, artifact = result
+            if isinstance(content, str):
+                return (content + block, artifact)
+            if isinstance(content, list):
+                return (content + [{"type": "text", "text": memory_text}], artifact)
+            return (f"{content}{block}", artifact)
+
+        if isinstance(result, str):
+            return result + block
+        return f"{result}{block}"
+
+    def build_memory_prompt_message(self, session_id: str) -> dict[str, str] | None:
+        """Build the initial memory message injected before the first user request."""
+        self._last_injected_memory_ids = []
+        memory_config = self.config.builtin_tools.memory if self.config.builtin_tools else None
+        if not memory_config or not memory_config.enabled:
+            return None
+        if not self._memory_enabled() or not self._user:
+            return None
+
+        memories = self._memory_service.get_layered_memories(
+            owner_user_id=self._user.email,
+            agent_id=self.config.id,
+            conversation_id=session_id,
+        )
+        block = self._memory_service.format_prompt_block(memories)
+        if not block:
+            return None
+        self._last_injected_memory_ids = list(
+            dict.fromkeys(
+                str(memory.get("memory_id") or "")
+                for memory in memories
+                if memory.get("memory_id")
+                and str(memory.get("value") or "").strip()
+                and f"- {str(memory.get('value') or '').strip()}" in block
+            )
+        )
+        return {"role": "system", "content": block}
 
     async def _resolve_subagents(
         self,

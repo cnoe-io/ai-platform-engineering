@@ -282,6 +282,39 @@ class SelfIdentityToolConfig(BaseModel):
     enabled: bool = Field(True, description="Whether the tool is enabled")
 
 
+class MemoryContextProviderConfig(BaseModel):
+    """Tool call that establishes a context-scoped memory target.
+
+    Example: server=pod_meeting, tool=get_pod, context_id_arg=pod_id maps a
+    successful ``pod_meeting_get_pod(pod_id=...)`` call to
+    ``pod_meeting/pod/<pod_id>`` memory.
+    """
+
+    server: str = Field(..., description="MCP server id, such as pod_meeting")
+    tool: str = Field(..., description="Tool name without server prefix, such as get_pod")
+    context_namespace: str = Field(..., description="Memory namespace, such as pod_meeting")
+    context_type: str = Field(..., description="Context object type, such as pod")
+    context_id_arg: str = Field(..., description="Tool argument that contains the context id")
+    context_id_result_path: str | None = Field(
+        None,
+        description="Optional dotted path in the tool result used as a fallback context id",
+    )
+    display_name_result_path: str | None = Field(
+        None,
+        description="Optional dotted path in the tool result used as a friendly display name",
+    )
+
+
+class MemoryToolConfig(BaseModel):
+    """Configuration for the memory built-in tool group."""
+
+    enabled: bool = Field(False, description="Whether memory tools and injection are enabled")
+    context_providers: list[MemoryContextProviderConfig] = Field(
+        default_factory=list,
+        description="Configured tool calls that activate context-scoped memory",
+    )
+
+
 class BuiltinToolsConfig(BaseModel):
     """Configuration for built-in tools available to dynamic agents."""
 
@@ -311,6 +344,10 @@ class BuiltinToolsConfig(BaseModel):
         None,
         alias="agent_info",
         description="Configuration for the self_identity tool (returns this agent's identity)",
+    )
+    memory: MemoryToolConfig | None = Field(
+        None,
+        description="Configuration for the memory built-in tool group",
     )
 
     @model_validator(mode="before")
@@ -542,6 +579,7 @@ class ChatRequest(BaseModel):
     protocol: str = Field("custom", pattern=r"^(custom|agui)$", description="Wire protocol: 'custom' or 'agui'")
     trace_id: str | None = Field(None, description="Optional trace ID for Langfuse tracing")
     client_context: ClientContext | None = Field(None, description="Opaque client context for system prompt rendering")
+    memory_enabled: bool = Field(True, description="Whether memory retrieval/tools are enabled for this run")
 
 
 # =============================================================================

@@ -44,6 +44,8 @@ class Settings(BaseSettings):
     dynamic_agents_collection: str = "dynamic_agents"
     mcp_servers_collection: str = "mcp_servers"
     vendor_connections_collection: str = "vendor_connections"
+    user_memories_collection: str = "user_memories"
+    user_memory_contexts_collection: str = "user_memory_contexts"
 
     # Webex OAuth (per-user) — used by MCP servers with auth.type=user_oauth, provider=webex.
     # Refresh tokens are written by the UI on initial /api/integrations/webex/callback;

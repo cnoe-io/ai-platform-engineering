@@ -155,6 +155,20 @@ export interface SleepToolConfig {
   max_seconds?: number;  // Maximum sleep duration in seconds (default: 300)
 }
 
+export interface MemoryContextProviderConfig {
+  server: string;
+  tool: string;
+  context_namespace: string;
+  context_type: string;
+  context_id_arg: string;
+  display_name_result_path?: string;
+}
+
+export interface MemoryToolConfig {
+  enabled: boolean;
+  context_providers?: MemoryContextProviderConfig[];
+}
+
 /**
  * Configuration for all built-in tools available to dynamic agents.
  * Each tool config is optional - if not present, tool uses defaults.
@@ -164,6 +178,11 @@ export interface BuiltinToolsConfig {
   current_datetime?: CurrentDatetimeToolConfig;
   user_info?: UserInfoToolConfig;
   sleep?: SleepToolConfig;
+  wait?: SleepToolConfig;
+  request_user_input?: { enabled: boolean };
+  self_identity?: { enabled: boolean };
+  agent_info?: { enabled: boolean };
+  memory?: MemoryToolConfig;
   // Allow dynamic tool configs for future extensibility
   // Using Record type to avoid index signature conflicts with specific tool types
 }
@@ -365,6 +384,7 @@ export interface ChatRequest {
   message: string;
   conversation_id: string;
   agent_id: string;
+  memory_enabled?: boolean;
 }
 
 export interface ChatEvent {

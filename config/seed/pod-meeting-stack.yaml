@@ -485,6 +485,15 @@ agents:
       enabled: true
     self_identity:
       enabled: true
+    memory:
+      enabled: true
+      context_providers:
+      - server: pod_meeting
+        tool: get_pod
+        context_namespace: pod_meeting
+        context_type: pod
+        context_id_arg: pod_id
+        display_name_result_path: name
   enabled: true
 - id: agent-webex-transcript-summarizer
   name: Webex Transcript Miner

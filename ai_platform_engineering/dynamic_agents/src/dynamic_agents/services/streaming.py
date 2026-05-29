@@ -47,10 +47,35 @@ class StreamingMixin:
     _client_context: Any
     tracing: Any
     _current_trace_id: str | None
+    _last_injected_memory_ids: list[str]
 
     # forward declarations so the mixin can call them
     async def initialize(self) -> None:
         raise NotImplementedError
+
+    def build_memory_prompt_message(self, session_id: str) -> dict[str, str] | None:
+        raise NotImplementedError
+
+    async def _has_prior_conversation_messages(self, session_id: str) -> bool:
+        """Return whether this LangGraph thread already has chat history."""
+        if not self._graph:
+            return True
+
+        try:
+            state = await self._graph.aget_state({"configurable": {"thread_id": session_id}})
+        except Exception as exc:  # noqa: BLE001 - avoid repeated memory injection if state lookup fails
+            logger.warning(
+                "[stream] Failed to check conversation history before memory injection: %s",
+                exc,
+            )
+            return True
+
+        values = getattr(state, "values", None) or {}
+        getter = getattr(values, "get", None)
+        messages = getter("messages") if callable(getter) else None
+        if messages is not None:
+            return bool(messages)
+        return bool(values)
 
     # ─────────────────────────── stream config ───────────────────────────
 
@@ -100,11 +125,13 @@ class StreamingMixin:
         user_id: str,
         trace_id: str | None = None,
         encoder: "StreamEncoder | None" = None,
+        memory_enabled: bool = True,
     ) -> AsyncGenerator[str, None]:
         """Stream agent response for a user message.
 
         Yields SSE frame strings produced by the encoder.
         """
+        self._memory_enabled_for_run = memory_enabled
         if not self._initialized:
             await self.initialize()
 
@@ -143,7 +170,17 @@ class StreamingMixin:
                 yield frame
 
         # ── Core lifecycle: chunks ──
-        state_input: dict[str, Any] = {"messages": [{"role": "user", "content": message}]}
+        messages: list[dict[str, str]] = []
+        if not await self._has_prior_conversation_messages(session_id):
+            memory_message = self.build_memory_prompt_message(session_id)
+            if memory_message:
+                messages.append(memory_message)
+                memory_ids = getattr(self, "_last_injected_memory_ids", [])
+                if memory_ids:
+                    for frame in encoder.on_memory_injected(memory_ids):
+                        yield frame
+        messages.append({"role": "user", "content": message})
+        state_input: dict[str, Any] = {"messages": messages}
         # Inject skills files for SkillsMiddleware / StateBackend
         if getattr(self, "_skills_files", None):
             state_input["files"] = dict(self._skills_files)
@@ -278,8 +315,10 @@ class StreamingMixin:
         form_data: str,
         trace_id: str | None = None,
         encoder: "StreamEncoder | None" = None,
+        memory_enabled: bool = True,
     ) -> AsyncGenerator[str, None]:
         """Resume agent execution after user provides form input."""
+        self._memory_enabled_for_run = memory_enabled
         if not self._initialized:
             await self.initialize()
 
