@@ -7,10 +7,15 @@ through the agentgateway proxy instead of connecting directly to the MCP sidecar
 
 Prerequisites:
   - global.agentgateway.enabled must be true (renders Gateway API route resources)
+  - global.agentgateway.routingMode must be "gateway-api" (the default). When set
+    to "static", NO custom resources are rendered here; MCP routes are written
+    into the standalone proxy's static config (agentgateway-static-config.yaml)
+    so the chart installs on clusters without the Gateway API / AgentGateway CRDs.
   - an AgentGateway GatewayClass/controller must exist when using the Gateway API path
   - Gateway API CRDs must be installed in the cluster
 */ -}}
-{{- if .Values.global.agentgateway.enabled }}
+{{- $routingMode := (.Values.global.agentgateway.routingMode | default "static") }}
+{{- if and .Values.global.agentgateway.enabled (eq $routingMode "gateway-api") }}
 {{- $gatewayName := printf "%s-agentgateway-proxy" .Release.Name }}
 {{- $gatewayPort := .Values.global.agentgateway.proxyPort | default 8080 }}
 {{- $hasAgentgatewayAgent := false }}
