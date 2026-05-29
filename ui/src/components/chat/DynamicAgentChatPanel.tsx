@@ -131,6 +131,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
   const accessToken = ssoEnabled ? session?.accessToken : undefined;
 
   const conversation = getActiveConversation();
+  const memoryToggleLocked = Boolean(conversation?.messages?.some((message) => message.role === "user"));
 
   // Ref to track which conversations we've checked for HITL interrupt state
   const interruptCheckedRef = useRef<Set<string>>(new Set());
@@ -1680,23 +1681,33 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      aria-pressed={memoryEnabled}
-                      onClick={() => setMemoryEnabled((enabled) => !enabled)}
-                      className={cn(
-                        "inline-flex h-9 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition-colors",
-                        memoryEnabled
-                          ? "border-sky-500/30 bg-sky-500/10 text-sky-300 hover:bg-sky-500/20"
-                          : "border-border bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground"
-                      )}
-                    >
-                      <Brain className="h-3.5 w-3.5" />
-                      <span>Memory</span>
-                    </button>
+                    <span className="inline-flex">
+                      <button
+                        type="button"
+                        aria-pressed={memoryEnabled}
+                        disabled={memoryToggleLocked}
+                        onClick={() => {
+                          if (memoryToggleLocked) return;
+                          setMemoryEnabled((enabled) => !enabled);
+                        }}
+                        className={cn(
+                          "inline-flex h-9 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60",
+                          memoryEnabled
+                            ? "border-sky-500/30 bg-sky-500/10 text-sky-300 hover:bg-sky-500/20"
+                            : "border-border bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground"
+                        )}
+                      >
+                        <Brain className="h-3.5 w-3.5" />
+                        <span>Memory</span>
+                      </button>
+                    </span>
                   </TooltipTrigger>
                   <TooltipContent>
-                    {memoryEnabled ? "Memory is on for this chat" : "Memory is off for this chat"}
+                    {memoryToggleLocked
+                      ? "Memory cannot be changed after the first message in this chat"
+                      : memoryEnabled
+                        ? "Memory is on for this chat"
+                        : "Memory is off for this chat"}
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>

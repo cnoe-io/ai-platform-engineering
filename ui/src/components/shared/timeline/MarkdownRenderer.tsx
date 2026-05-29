@@ -87,6 +87,7 @@ function escapeHtml(text: string) {
 
 const purifyConfig = {
   USE_PROFILES: { html: true },
+  ADD_ATTR: ["target", "rel"] as string[],
   FORBID_TAGS: ["style"] as string[],
   FORBID_CONTENTS: ["style", "script"] as string[],
 };
@@ -132,6 +133,14 @@ function decorateCopyButtons(root: HTMLDivElement) {
     pre.parentNode!.replaceChild(wrapper, pre);
     wrapper.appendChild(header);
     wrapper.appendChild(pre);
+  }
+}
+
+function decorateLinks(root: HTMLDivElement) {
+  const links = root.querySelectorAll("a[href]");
+  for (const link of links) {
+    link.setAttribute("target", "_blank");
+    link.setAttribute("rel", "noopener noreferrer");
   }
 }
 
@@ -243,6 +252,7 @@ export function MarkdownRenderer({
     // Build temp element, decorate, then morph
     const temp = document.createElement("div");
     temp.innerHTML = html;
+    decorateLinks(temp);
     decorateCopyButtons(temp);
 
     morphdom(container, temp, {
