@@ -1472,6 +1472,8 @@ services:
       - SLACK_BOT_ADMIN_URL=${SLACK_BOT_ADMIN_URL:-http://slack-bot:3001}
       - SLACK_BOT_ADMIN_AUDIENCE=${SLACK_BOT_ADMIN_AUDIENCE:-caipe-slack-bot-admin}
       - SLACK_BOT_ADMIN_TOKEN_URL=${SLACK_BOT_ADMIN_TOKEN_URL:-http://keycloak:7080/realms/caipe/protocol/openid-connect/token}
+      - SLACK_BOT_ADMIN_DEV_AUTH_ENABLED=${SLACK_BOT_ADMIN_DEV_AUTH_ENABLED:-false}
+      - SLACK_BOT_ADMIN_DEV_TOKEN=${SLACK_BOT_ADMIN_DEV_TOKEN:-}
       - WEBEX_INTEGRATION_BOT_ACCESS_TOKEN=${WEBEX_INTEGRATION_BOT_ACCESS_TOKEN:-}
       - WEBEX_WORKSPACE_ALIAS=${WEBEX_WORKSPACE_ALIAS:-CAIPE-WEBEX}
       - WEBEX_LINK_HMAC_SECRET=${WEBEX_LINK_HMAC_SECRET:-${WEBEX_SIGNING_SECRET:-}}
@@ -1650,6 +1652,8 @@ services:
       - SLACK_BOT_ADMIN_URL=${SLACK_BOT_ADMIN_URL:-http://slack-bot:3001}
       - SLACK_BOT_ADMIN_AUDIENCE=${SLACK_BOT_ADMIN_AUDIENCE:-caipe-slack-bot-admin}
       - SLACK_BOT_ADMIN_TOKEN_URL=${SLACK_BOT_ADMIN_TOKEN_URL:-http://keycloak:7080/realms/caipe/protocol/openid-connect/token}
+      - SLACK_BOT_ADMIN_DEV_AUTH_ENABLED=${SLACK_BOT_ADMIN_DEV_AUTH_ENABLED:-false}
+      - SLACK_BOT_ADMIN_DEV_TOKEN=${SLACK_BOT_ADMIN_DEV_TOKEN:-}
       - WEBEX_INTEGRATION_BOT_ACCESS_TOKEN=${WEBEX_INTEGRATION_BOT_ACCESS_TOKEN:-}
       - WEBEX_WORKSPACE_ALIAS=${WEBEX_WORKSPACE_ALIAS:-CAIPE-WEBEX}
       - WEBEX_LINK_HMAC_SECRET=${WEBEX_LINK_HMAC_SECRET:-${WEBEX_SIGNING_SECRET:-}}
@@ -2571,6 +2575,8 @@ services:
       - SLACK_ADMIN_API_ENABLED=${SLACK_ADMIN_API_ENABLED:-false}
       - SLACK_ADMIN_API_HOST=${SLACK_ADMIN_API_HOST:-0.0.0.0}
       - SLACK_ADMIN_API_PORT=${SLACK_ADMIN_API_PORT:-3001}
+      - SLACK_ADMIN_DEV_AUTH_ENABLED=${SLACK_ADMIN_DEV_AUTH_ENABLED:-false}
+      - SLACK_ADMIN_DEV_TOKEN=${SLACK_ADMIN_DEV_TOKEN:-}
       - SLACK_ADMIN_JWT_ISSUER=${SLACK_ADMIN_JWT_ISSUER:-http://localhost:7080/realms/caipe}
       - SLACK_ADMIN_JWKS_URL=${SLACK_ADMIN_JWKS_URL:-http://keycloak:7080/realms/caipe/protocol/openid-connect/certs}
       - SLACK_ADMIN_JWT_AUDIENCE=${SLACK_ADMIN_JWT_AUDIENCE:-caipe-slack-bot-admin}
@@ -2829,6 +2835,7 @@ services:
       IDP_ADMIN_GROUP: ${IDP_ADMIN_GROUP:-}
       KEYCLOAK_FORCE_IDP_REDIRECT: ${KEYCLOAK_FORCE_IDP_REDIRECT:-false}
       KEYCLOAK_ADMIN_FRONTEND_URL: ${KEYCLOAK_ADMIN_FRONTEND_URL:-}
+      CAIPE_UNSAFE_RBAC_BYPASS: ${CAIPE_UNSAFE_RBAC_BYPASS:-false}
       SLACK_BOT_ADMIN_AUDIENCE: ${SLACK_BOT_ADMIN_AUDIENCE:-caipe-slack-bot-admin}
       KC_REALM: caipe
       # Spec 104: comma-separated emails that get the admin_user role and the
@@ -2951,6 +2958,8 @@ services:
     container_name: openfga-init
     profiles:
       - rbac
+    volumes:
+      - ./charts/ai-platform-engineering/charts/openfga/authorization-model.json:/app/authorization-model.json:ro
     environment:
       OPENFGA_HTTP: http://openfga:8080
       OPENFGA_STORE_NAME: caipe-openfga

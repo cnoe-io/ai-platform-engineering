@@ -87,6 +87,10 @@ interface CommonPickerProps {
   id?: string;
   /** ARIA: alternative label when the picker has no visible <Label>. */
   ariaLabel?: string;
+  /** ARIA: marks the combobox trigger invalid for required/error states. */
+  ariaInvalid?: boolean;
+  /** ARIA: links the trigger to help or error text. */
+  ariaDescribedBy?: string;
   /** Hide the `team:<slug>` code suffix on rows and trigger. Useful
    *  for callers that pass opaque identifiers (e.g. Mongo `_id` for
    *  KB team assignments) where rendering `team:<objectid>` is just
@@ -122,6 +126,8 @@ export function TeamPicker({
   contentClassName,
   id,
   ariaLabel,
+  ariaInvalid,
+  ariaDescribedBy,
   hideSlugSuffix = false,
   toggleOnReselect = false,
   helperText,
@@ -180,6 +186,8 @@ export function TeamPicker({
           type="button"
           id={id}
           aria-label={ariaLabel}
+          aria-invalid={ariaInvalid || undefined}
+          aria-describedby={ariaDescribedBy}
           disabled={disabled}
           className={cn(
             "inline-flex w-full items-center gap-2 rounded-md border border-input bg-background px-3 py-2 text-sm text-left",

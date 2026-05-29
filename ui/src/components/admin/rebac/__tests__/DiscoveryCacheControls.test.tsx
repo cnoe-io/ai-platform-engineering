@@ -1,14 +1,14 @@
 /**
  * @jest-environment jsdom
  *
- * Inline discovery-cache popover that lives next to the "Find ... with
- * Bot Integration" button on the Slack and Webex onboarding wizards.
+ * Inline discovery-cache popover that lives next to the connector discovery
+ * button on the Slack and Webex onboarding wizards.
  * Tests cover:
  *   - Lazy GET only fires when the popover is opened (no popup = no
  *     extra round-trip on the integrations page)
  *   - TTL input is pre-filled from platform_config
  *   - Save PATCHes the right field; client-side validates the range
- *   - "Force refresh now" hits the right per-provider route with
+ *   - "Refresh from <provider> now" hits the right per-provider route with
  *     refresh=1 and fires onAfterRefresh
  *   - Read-only viewers see the TTL but no Save/refresh controls
  *
@@ -75,6 +75,7 @@ describe("DiscoveryCacheControls", () => {
 
     // The trigger is rendered; nothing was fetched yet.
     expect(screen.getByTestId("discovery-cache-controls-trigger-slack")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Slack discovery cache settings" })).toHaveTextContent("Discovery cache");
     expect(global.fetch).not.toHaveBeenCalled();
   });
 
@@ -150,6 +151,7 @@ describe("DiscoveryCacheControls", () => {
     );
     fireEvent.click(screen.getByTestId("discovery-cache-controls-trigger-slack"));
     await screen.findByTestId("discovery-cache-ttl-input-slack");
+    expect(screen.getByRole("button", { name: "Refresh from Slack now" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId("discovery-cache-refresh-slack"));
 

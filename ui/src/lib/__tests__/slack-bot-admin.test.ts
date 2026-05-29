@@ -20,6 +20,8 @@ afterEach(() => {
   delete process.env.SLACK_BOT_ADMIN_URL;
   delete process.env.SLACK_BOT_ADMIN_AUDIENCE;
   delete process.env.SLACK_BOT_ADMIN_TOKEN_URL;
+  delete process.env.SLACK_BOT_ADMIN_DEV_AUTH_ENABLED;
+  delete process.env.SLACK_BOT_ADMIN_DEV_TOKEN;
 });
 
 it("calls Slack bot admin API with a Keycloak client-credentials bearer token", async () => {
@@ -44,6 +46,23 @@ it("calls Slack bot admin API with a Keycloak client-credentials bearer token", 
     "http://slack-bot:3001/admin/slack/routes/status",
     expect.objectContaining({
       headers: expect.objectContaining({ Authorization: "Bearer service-token" }),
+    })
+  );
+});
+
+it("calls Slack bot admin API with a local dev bearer token when enabled", async () => {
+  process.env.SLACK_BOT_ADMIN_DEV_AUTH_ENABLED = "true";
+  process.env.SLACK_BOT_ADMIN_DEV_TOKEN = "local-dev-token";
+  fetchMock.mockResolvedValueOnce(response({ route_mode: "db_prefer" }));
+
+  const result = await callSlackBotAdmin<{ route_mode: string }>("/admin/slack/routes/status");
+
+  expect(result.route_mode).toBe("db_prefer");
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  expect(fetchMock).toHaveBeenCalledWith(
+    "http://slack-bot:3001/admin/slack/routes/status",
+    expect.objectContaining({
+      headers: expect.objectContaining({ Authorization: "Bearer local-dev-token" }),
     })
   );
 });

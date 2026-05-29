@@ -724,6 +724,16 @@ print(json.dumps(realm))
   fi
 fi
 
+UNSAFE_RBAC_BYPASS="$(printf '%s' "${CAIPE_UNSAFE_RBAC_BYPASS:-false}" | tr '[:upper:]' '[:lower:]')"
+if [ -z "${IDP_ISSUER:-}" ] && [ -z "${IDP_CLIENT_ID:-}" ] && [ -z "${IDP_CLIENT_SECRET:-}" ]; then
+  if [ "${UNSAFE_RBAC_BYPASS}" = "true" ] || [ "${UNSAFE_RBAC_BYPASS}" = "1" ] || [ "${UNSAFE_RBAC_BYPASS}" = "yes" ]; then
+    echo "[init-idp] CAIPE_UNSAFE_RBAC_BYPASS=true and no upstream IdP broker configured; skipping IdP setup after local realm reconciliation."
+    exit 0
+  fi
+  echo "[init-idp] ERROR: IDP_ISSUER, IDP_CLIENT_ID, and IDP_CLIENT_SECRET are required unless CAIPE_UNSAFE_RBAC_BYPASS=true." >&2
+  exit 1
+fi
+
 MISSING_IDP_ENV=0
 if [ -z "${IDP_ISSUER:-}" ]; then
   echo "[init-idp] ERROR: IDP_ISSUER is required when IdP broker setup is enabled." >&2

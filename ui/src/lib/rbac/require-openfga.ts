@@ -1,4 +1,5 @@
 import { ApiError } from "@/lib/api-error";
+import { isDevAnonymousAuthEnabled } from "@/lib/auth/dev-auth-provider";
 import { checkOpenFgaTuple } from "@/lib/rbac/openfga";
 import {
   adminSurfaceObject,
@@ -17,6 +18,10 @@ async function requireDerivedTuple(
   object: string,
   capability: string
 ): Promise<void> {
+  if (isDevAnonymousAuthEnabled()) {
+    return;
+  }
+
   const subject = session.sub?.trim();
   if (!subject) {
     throw new ApiError("Your session has expired. Please sign in again.", 401, "NO_TOKEN", "session_expired", "sign_in");

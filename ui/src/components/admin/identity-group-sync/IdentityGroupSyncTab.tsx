@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import type { IdentityGroupSyncDryRunResult } from "@/types/identity-group-sync";
+import type { ExternalGroup, IdentityGroupSyncDryRunResult } from "@/types/identity-group-sync";
 
 import { DryRunPreview } from "./DryRunPreview";
 import { MappingClusterEditor } from "./MappingClusterEditor";
@@ -33,6 +33,7 @@ export function IdentityGroupSyncTab({ isAdmin }: IdentityGroupSyncTabProps) {
   const [groupName, setGroupName] = useState("Engineering Platform Users");
   const [userEmail, setUserEmail] = useState("bob@example.test");
   const [dryRun, setDryRun] = useState<IdentityGroupSyncDryRunResult | null>(null);
+  const [detectedGroups, setDetectedGroups] = useState<ExternalGroup[]>([]);
   const [suggestions, setSuggestions] = useState<ClaimSuggestion[]>([]);
   const [suggestionFilter, setSuggestionFilter] = useState("");
   const [selectedSuggestionIds, setSelectedSuggestionIds] = useState<Set<string>>(new Set());
@@ -66,53 +67,34 @@ export function IdentityGroupSyncTab({ isAdmin }: IdentityGroupSyncTabProps) {
     setError(null);
     setSuggestionNotice(null);
     try {
+      const externalGroup: ExternalGroup & {
+        members: Array<{ subject?: string; email: string; display_name: string; active: boolean }>;
+      } = {
+        provider_id: "oidc-claims",
+        external_group_id: groupName.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
+        display_name: groupName,
+        normalized_name: groupName.toLowerCase(),
+        status: "active",
+        members: [
+          {
+            subject: userEmail ? userEmail.replace(/[^a-z0-9]+/gi, "-").toLowerCase() : undefined,
+            email: userEmail,
+            display_name: userEmail,
+            active: true,
+          },
+        ],
+      };
       const res = await fetch("/api/admin/identity-group-sync/dry-run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          groups: [
-            {
-              provider_id: "oidc-claims",
-              external_group_id: groupName.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
-              display_name: groupName,
-              normalized_name: groupName.toLowerCase(),
-              status: "active",
-              members: [
-                {
-                  subject: userEmail ? userEmail.replace(/[^a-z0-9]+/gi, "-").toLowerCase() : undefined,
-                  email: userEmail,
-                  display_name: userEmail,
-                  active: true,
-                },
-              ],
-            },
-          ],
-          rules: [
-            {
-              id: "preview-caipe-users",
-              provider_id: "oidc-claims",
-              name: "Preview platform users",
-              priority: 10,
-              enabled: true,
-              review_status: "enabled",
-              include_patterns: ["^Engineering (?<team>Platform) (?<role>Users)$"],
-              exclude_patterns: [],
-              team_name_template: "{{team}}",
-              team_slug_template: "{{team}}",
-              role_map: { Users: "member" },
-              auto_create_team: true,
-              created_by: "ui",
-              created_at: new Date().toISOString(),
-              updated_by: "ui",
-              updated_at: new Date().toISOString(),
-            },
-          ],
-          existing_teams: [],
-          existing_membership_sources: [],
+          provider_id: "oidc-claims",
+          groups: [externalGroup],
         }),
       });
       const json = await res.json();
       if (!json.success) throw new Error(json.error || "Dry-run failed");
+      setDetectedGroups([externalGroup]);
       setDryRun(json.data?.dry_run ?? null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Dry-run failed");
@@ -129,10 +111,12 @@ export function IdentityGroupSyncTab({ isAdmin }: IdentityGroupSyncTabProps) {
       const res = await fetch("/api/admin/identity-group-sync/claim-suggestions");
       const json = await res.json();
       if (!json.success) throw new Error(json.error || "Suggestion lookup failed");
+      setDetectedGroups((json.data?.groups as ExternalGroup[] | undefined) ?? []);
       setSuggestions((json.data?.suggestions as ClaimSuggestion[] | undefined) ?? []);
       setSelectedSuggestionIds(new Set());
       setDryRun((json.data?.dry_run as IdentityGroupSyncDryRunResult | null | undefined) ?? null);
       if (json.data?.reason === "missing_session_group_claims") {
+        setDetectedGroups([]);
         setSuggestionNotice("Sign out and sign back in to refresh cached OIDC claim groups before using suggestions.");
       }
     } catch (err) {
@@ -403,7 +387,7 @@ export function IdentityGroupSyncTab({ isAdmin }: IdentityGroupSyncTabProps) {
         />
       )}
 
-      <DryRunPreview result={dryRun} applying={applying} onApply={applyDryRun} />
+      <DryRunPreview result={dryRun} detectedGroups={detectedGroups} applying={applying} onApply={applyDryRun} />
     </div>
   );
 }

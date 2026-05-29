@@ -6,7 +6,7 @@ import {
   writeOpenFgaTuples,
   type OpenFgaTupleKey,
 } from "@/lib/rbac/openfga";
-import { validateTupleKey, withOpenFgaAdminAuth, withOpenFgaViewAuth } from "../_lib";
+import { ALLOWED_RELATIONS, validateTupleKey, withOpenFgaAdminAuth, withOpenFgaViewAuth } from "../_lib";
 
 function limitFromQuery(request: NextRequest): number {
   const raw = request.nextUrl.searchParams.get("limit");
@@ -20,16 +20,33 @@ function matchesFilter(value: string, filter: string | undefined): boolean {
   return value.toLowerCase().includes(filter.toLowerCase());
 }
 
+const EXACT_TUPLE_FIELD = /^[A-Za-z0-9._:@#*+=,/-]+$/;
+
+function exactTupleField(value: string | undefined): string | undefined {
+  if (!value || !EXACT_TUPLE_FIELD.test(value)) return undefined;
+  if (!value.includes(":") || value.endsWith(":")) return undefined;
+  return value;
+}
+
+function exactRelationFilter(value: string | undefined): string | undefined {
+  if (!value || !EXACT_TUPLE_FIELD.test(value)) return undefined;
+  return ALLOWED_RELATIONS.has(value) ? value : undefined;
+}
+
 export const GET = withErrorHandler(async (request: NextRequest) =>
   withOpenFgaViewAuth(request, async ({ user: actor, session }) => {
     const params = request.nextUrl.searchParams;
-    const tuple: Partial<OpenFgaTupleKey> = {};
     const user = params.get("user")?.trim();
     const relation = params.get("relation")?.trim();
     const object = params.get("object")?.trim();
+    const tuple: Partial<OpenFgaTupleKey> = {
+      ...(exactTupleField(user) ? { user: exactTupleField(user) } : {}),
+      ...(exactRelationFilter(relation) ? { relation: exactRelationFilter(relation) } : {}),
+      ...(exactTupleField(object) ? { object: exactTupleField(object) } : {}),
+    };
 
     const result = await readOpenFgaTuples({
-      tuple,
+      ...(Object.keys(tuple).length > 0 ? { tuple } : {}),
       pageSize: limitFromQuery(request),
       continuationToken: params.get("continuation_token") || undefined,
     });

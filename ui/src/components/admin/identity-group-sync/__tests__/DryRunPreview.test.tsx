@@ -2,7 +2,7 @@ import React from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
 
 import { DryRunPreview } from "../DryRunPreview";
-import type { IdentityGroupSyncDryRunResult } from "@/types/identity-group-sync";
+import type { ExternalGroup, IdentityGroupSyncDryRunResult } from "@/types/identity-group-sync";
 
 const emptyResult: IdentityGroupSyncDryRunResult = {
   matched_groups: [],
@@ -24,6 +24,48 @@ describe("DryRunPreview", () => {
     expect(screen.getByText(/The detected groups did not produce team, membership, or tuple changes/i)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /apply reviewed sync/i })).not.toBeInTheDocument();
     expect(screen.queryByText("Teams to create")).not.toBeInTheDocument();
+  });
+
+  it("explains detected groups that are already represented or unmatched when no changes are needed", () => {
+    const detectedGroups: ExternalGroup[] = [
+      {
+        provider_id: "oidc-claims",
+        external_group_id: "backstage-access",
+        display_name: "backstage-access",
+        normalized_name: "backstage-access",
+        status: "active",
+      },
+      {
+        provider_id: "oidc-claims",
+        external_group_id: "foo-access",
+        display_name: "foo-access",
+        normalized_name: "foo-access",
+        status: "active",
+      },
+    ];
+
+    render(
+      <DryRunPreview
+        result={{
+          ...emptyResult,
+          matched_groups: [detectedGroups[0]],
+          ignored_groups: [detectedGroups[1]],
+        }}
+        detectedGroups={detectedGroups}
+        applying={false}
+        onApply={jest.fn()}
+      />
+    );
+
+    expect(screen.getByText("Detected groups are already represented")).toBeInTheDocument();
+    expect(screen.getByText("detected")).toBeInTheDocument();
+    expect(screen.getByText("already represented")).toBeInTheDocument();
+    expect(screen.getByText("unmatched")).toBeInTheDocument();
+    expect(screen.getAllByText("backstage-access").length).toBeGreaterThan(0);
+    expect(screen.getByText("Already represented")).toBeInTheDocument();
+    expect(screen.getAllByText("foo-access").length).toBeGreaterThan(0);
+    expect(screen.getByText("No enabled sync rule matched")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /apply reviewed sync/i })).not.toBeInTheDocument();
   });
 
   it("requires acknowledgement before applying risky member removals", () => {
