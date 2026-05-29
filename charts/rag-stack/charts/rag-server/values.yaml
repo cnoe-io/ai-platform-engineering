@@ -163,8 +163,30 @@ imagePullSecrets: []
 llmSecrets:
   secretName: "llm-secret"
 
-livenessProbe: {}
-readinessProbe: {}
+startupProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 30
+
+livenessProbe:
+  httpGet:
+    path: /health
+    port: http
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 3
 
 # VPA configuration. Requires VPA to be installed in the cluster.
 # Inherits global.vpa defaults; override any field here to customise for rag-server.

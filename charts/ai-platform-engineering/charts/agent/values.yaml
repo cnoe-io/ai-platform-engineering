@@ -109,17 +109,25 @@ resources: {}
   #   memory: 128Mi
 
 # This is to setup the liveness and readiness probes more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/
-livenessProbe:
-  tcpSocket:
+startupProbe:
+  httpGet:
+    path: /health
     port: http
-  initialDelaySeconds: 30
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 30
+livenessProbe:
+  httpGet:
+    path: /health
+    port: http
   periodSeconds: 10
   timeoutSeconds: 5
   failureThreshold: 3
 readinessProbe:
-  tcpSocket:
+  httpGet:
+    path: /ready
     port: http
-  initialDelaySeconds: 5
   periodSeconds: 5
   timeoutSeconds: 3
   failureThreshold: 3
@@ -244,19 +252,25 @@ mcp:
     #   memory: 256Mi
 
   # Health check probes for MCP container
-  livenessProbe: {}
-    # httpGet:
-    #   path: /health
-    #   port: 8000
-    # initialDelaySeconds: 30
-    # periodSeconds: 10
-
-  readinessProbe: {}
-    # httpGet:
-    #   path: /ready
-    #   port: 8000
-    # initialDelaySeconds: 5
-    # periodSeconds: 5
+  startupProbe:
+    tcpSocket:
+      port: http
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 30
+  livenessProbe:
+    tcpSocket:
+      port: http
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  readinessProbe:
+    tcpSocket:
+      port: http
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
 
   # Volume mounts for MCP container
   volumeMounts: []
