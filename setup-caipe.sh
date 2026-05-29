@@ -81,6 +81,15 @@ ENABLE_RBAC_RUNTIME="${ENABLE_RBAC_RUNTIME:-true}"
 # Keycloak persists the bootstrap admin in its database. Resolved/persisted by
 # _resolve_keycloak_admin_password (idempotent, mirrors the MongoDB pattern).
 KEYCLOAK_ADMIN_PASSWORD="${KEYCLOAK_ADMIN_PASSWORD:-}"
+# GitHub social login (Keycloak "github" broker). Lets anyone with a GitHub
+# account sign in alongside local Keycloak users. Empty = ask interactively
+# when a public domain + RBAC runtime are in play; set to true/false to force.
+# Requires a DEDICATED GitHub OAuth App whose Authorization callback URL is
+# https://<domain>/realms/caipe/broker/github/endpoint — do NOT reuse the
+# GITHUB_CLIENT_* connector credentials (different callback/purpose).
+ENABLE_GITHUB_SOCIAL="${ENABLE_GITHUB_SOCIAL:-}"
+GITHUB_SOCIAL_CLIENT_ID="${GITHUB_SOCIAL_CLIENT_ID:-}"
+GITHUB_SOCIAL_CLIENT_SECRET="${GITHUB_SOCIAL_CLIENT_SECRET:-}"
 VLLM_MODEL="${VLLM_MODEL:-openai/gpt-oss-20b}"
 VLLM_GPU_COUNT="${VLLM_GPU_COUNT:-1}"
 OLLAMA_MODEL="${OLLAMA_MODEL:-llama2}"
@@ -2773,6 +2782,10 @@ choose_features() {
           done
         fi
       fi
+
+      # Offer GitHub social login now that the public domain is known (in-chart
+      # Keycloak only). Declining keeps local Keycloak username/password.
+      prompt_github_social
     else
       ENABLE_INGRESS=false
       log "Ingress skipped"
@@ -2934,10 +2947,25 @@ provision_ui_secret() {
     _patches+=("{\"op\":\"add\",\"path\":\"/data/NEXTAUTH_URL\",\"value\":\"$(echo -n "https://${CAIPE_DOMAIN}" | base64 -w0)\"}")
     # RAG BFF: Next.js server-side calls use the in-cluster service, not localhost
     _patches+=("{\"op\":\"add\",\"path\":\"/data/RAG_SERVER_URL\",\"value\":\"$(echo -n "http://rag-server:${RAG_SERVER_PORT}" | base64 -w0)\"}")
+    # In-chart Keycloak SSO over a public DNS domain: the dev env file points
+    # OIDC at localhost:7080, which is unreachable from the pod (ECONNREFUSED at
+    # signin). Rewrite to the public issuer (browser + token `iss`) while server
+    # discovery uses the in-cluster service (OIDC_DISCOVERY_URL is the issuer
+    # BASE; the app appends /.well-known/openid-configuration). Also clear the
+    # Cisco-specific OIDC_REQUIRED_GROUP=backstage-access copied from the dev env
+    # file so any authenticated Keycloak user is admitted (chart default = empty).
+    if $ENABLE_RBAC_RUNTIME && [[ ! "$CAIPE_DOMAIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+      _patches+=("{\"op\":\"add\",\"path\":\"/data/OIDC_ISSUER\",\"value\":\"$(echo -n "https://${CAIPE_DOMAIN}/realms/caipe" | base64 -w0)\"}")
+      _patches+=("{\"op\":\"add\",\"path\":\"/data/OIDC_DISCOVERY_URL\",\"value\":\"$(echo -n "http://caipe-keycloak:8080/realms/caipe" | base64 -w0)\"}")
+      _patches+=("{\"op\":\"add\",\"path\":\"/data/OIDC_REQUIRED_GROUP\",\"value\":\"$(echo -n "" | base64 -w0)\"}")
+    fi
     kubectl patch secret caipe-ui-secret -n caipe --type='json' \
       -p="[$(IFS=,; echo "${_patches[*]}")]" 2>/dev/null || true
     log "NEXTAUTH_URL overridden to https://${CAIPE_DOMAIN}"
     log "RAG_SERVER_URL overridden to http://rag-server:${RAG_SERVER_PORT} (cluster service)"
+    if $ENABLE_RBAC_RUNTIME && [[ ! "$CAIPE_DOMAIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+      log "OIDC issuer -> https://${CAIPE_DOMAIN}/realms/caipe (discovery via in-cluster caipe-keycloak; group gate cleared)"
+    fi
   fi
 
   log "UI secret 'caipe-ui-secret' ready"
@@ -4128,6 +4156,119 @@ SUPERVISOR_INGRESS_EOF
         EXTERNAL_URL="$supervisor_url" &>/dev/null \
         && log "supervisor: EXTERNAL_URL set to ${supervisor_url}"
     fi
+
+    # In-chart Keycloak SSO over a public DNS domain: NextAuth's server-side
+    # callback (token exchange + JWKS) hits the PUBLIC Keycloak endpoints
+    # (KC_HOSTNAME). The UI pod resolves the public host to the public IP and
+    # usually cannot hairpin back to its own ingress (OAuthCallback failure).
+    # Pin the public host to the in-cluster ingress ClusterIP via hostAliases so
+    # server-side calls route internally (TLS SNI/cert still match the host).
+    if $ENABLE_RBAC_RUNTIME && [[ ! "$CAIPE_DOMAIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+      local _ningx_ip
+      _ningx_ip=$(kubectl get svc ingress-nginx-controller -n ingress-nginx \
+        -o jsonpath='{.spec.clusterIP}' 2>/dev/null || true)
+      if [[ -n "$_ningx_ip" ]]; then
+        kubectl patch deploy caipe-caipe-ui -n caipe --type=merge \
+          -p "{\"spec\":{\"template\":{\"spec\":{\"hostAliases\":[{\"ip\":\"${_ningx_ip}\",\"hostnames\":[\"${CAIPE_DOMAIN}\"]}]}}}}" &>/dev/null \
+          && log "caipe-ui hostAliases: ${CAIPE_DOMAIN} -> ${_ningx_ip} (in-cluster ingress; fixes SSO callback)"
+      fi
+    fi
+
+    # Optional GitHub social login broker (configured only when requested).
+    configure_github_idp
+  fi
+}
+
+# Ask the operator whether to enable GitHub social login (Keycloak "github"
+# broker) for public users. Only relevant for an in-chart Keycloak exposed on a
+# public DNS domain. Non-interactive runs honour ENABLE_GITHUB_SOCIAL + the
+# GITHUB_SOCIAL_CLIENT_ID/SECRET env vars and never prompt. If declined or
+# unconfigured, the deployment falls back to local Keycloak username/password.
+# assisted-by Claude:claude-opus-4-8
+prompt_github_social() {
+  $ENABLE_RBAC_RUNTIME || return 0
+  [[ -n "$CAIPE_DOMAIN" ]] || return 0
+  [[ "$CAIPE_DOMAIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] && return 0
+  [[ "$ENABLE_GITHUB_SOCIAL" == "false" ]] && return 0
+  if [[ "$ENABLE_GITHUB_SOCIAL" != "true" ]]; then
+    $NON_INTERACTIVE && return 0
+    local cb="https://${CAIPE_DOMAIN}/realms/caipe/broker/github/endpoint"
+    header "Optional: GitHub social login (public users)"
+    echo -e "  ${DIM}Lets anyone with a GitHub account sign in, in addition to local Keycloak users.${NC}"
+    echo -e "  ${DIM}Requires a DEDICATED GitHub OAuth App with this Authorization callback URL:${NC}"
+    echo -e "  ${BOLD}${cb}${NC}"
+    if ! ask_yn "Set up GitHub social login now?" "n"; then
+      log "GitHub social login: skipped (local Keycloak username/password only)"
+      ENABLE_GITHUB_SOCIAL=false
+      return 0
+    fi
+    ENABLE_GITHUB_SOCIAL=true
+  fi
+  if [[ -z "$GITHUB_SOCIAL_CLIENT_ID" ]]; then
+    prompt "GitHub OAuth App Client ID: "; tty_read -r GITHUB_SOCIAL_CLIENT_ID
+  fi
+  if [[ -z "$GITHUB_SOCIAL_CLIENT_SECRET" ]]; then
+    prompt "GitHub OAuth App Client Secret: "; tty_read -rs GITHUB_SOCIAL_CLIENT_SECRET; echo
+  fi
+  if [[ -z "$GITHUB_SOCIAL_CLIENT_ID" || -z "$GITHUB_SOCIAL_CLIENT_SECRET" ]]; then
+    warn "GitHub social login: missing client id/secret — falling back to local Keycloak"
+    ENABLE_GITHUB_SOCIAL=false
+  fi
+}
+
+# Upsert the Keycloak "github" identity-provider broker via the admin REST API.
+# Runs only when GitHub social login was requested. The admin API is NOT exposed
+# publicly, so we reach it over a temporary port-forward and authenticate with
+# the caipe-platform service account (client_credentials). Idempotent: updates
+# the broker in place when it already exists. assisted-by Claude:claude-opus-4-8
+configure_github_idp() {
+  $ENABLE_GITHUB_SOCIAL || return 0
+  $ENABLE_RBAC_RUNTIME || { warn "GitHub social login requires the in-chart Keycloak (RBAC runtime); skipping"; return 0; }
+  if [[ -z "$GITHUB_SOCIAL_CLIENT_ID" || -z "$GITHUB_SOCIAL_CLIENT_SECRET" ]]; then
+    warn "GitHub social login: client id/secret not set; skipping broker config"
+    return 0
+  fi
+  step "Configuring GitHub social login (Keycloak broker)"
+  local _pf_port=17081
+  kubectl port-forward svc/caipe-keycloak -n caipe ${_pf_port}:8080 >/dev/null 2>&1 &
+  local _pf=$!
+  sleep 4
+  local kc="http://localhost:${_pf_port}"
+  local cs="${KEYCLOAK_CLIENT_SECRET:-}"
+  [[ -z "$cs" && -n "${ENV_FILE:-}" && -f "${ENV_FILE:-}" ]] && cs=$(_env_get "$ENV_FILE" KEYCLOAK_CLIENT_SECRET)
+  [[ -z "$cs" ]] && cs="caipe-platform-dev-secret"
+  local tok
+  tok=$(curl -s "$kc/realms/caipe/protocol/openid-connect/token" \
+    -d grant_type=client_credentials -d client_id=caipe-platform -d client_secret="$cs" \
+    | sed -n 's/.*"access_token":"\([^"]*\)".*/\1/p')
+  if [[ -z "$tok" ]]; then
+    warn "GitHub social login: could not obtain a Keycloak admin token; skipping"
+    kill "$_pf" 2>/dev/null || true
+    return 0
+  fi
+  local body
+  body=$(cat <<JSON
+{"alias":"github","providerId":"github","enabled":true,"trustEmail":true,"storeToken":false,"config":{"clientId":"${GITHUB_SOCIAL_CLIENT_ID}","clientSecret":"${GITHUB_SOCIAL_CLIENT_SECRET}","defaultScope":"read:user user:email"}}
+JSON
+)
+  local exists code
+  exists=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $tok" \
+    "$kc/admin/realms/caipe/identity-provider/instances/github")
+  if [[ "$exists" == "200" ]]; then
+    code=$(curl -s -o /dev/null -w '%{http_code}' -X PUT \
+      -H "Authorization: Bearer $tok" -H "Content-Type: application/json" \
+      "$kc/admin/realms/caipe/identity-provider/instances/github" -d "$body")
+  else
+    code=$(curl -s -o /dev/null -w '%{http_code}' -X POST \
+      -H "Authorization: Bearer $tok" -H "Content-Type: application/json" \
+      "$kc/admin/realms/caipe/identity-provider/instances" -d "$body")
+  fi
+  kill "$_pf" 2>/dev/null || true
+  if [[ "$code" =~ ^20[0-9]$ ]]; then
+    log "GitHub social login enabled (Keycloak 'github' broker)"
+    log "Verify the GitHub OAuth App callback URL is: https://${CAIPE_DOMAIN}/realms/caipe/broker/github/endpoint"
+  else
+    warn "GitHub social login: Keycloak IdP upsert returned HTTP ${code} (check client id/secret)"
   fi
 }
 
@@ -4669,6 +4810,43 @@ _write_rbac_runtime_values() {
     keycloak_ssl_required="none"
   fi
 
+  # When a public DNS domain is set, make Keycloak browser-reachable and emit a
+  # stable public issuer: expose /realms/caipe + /resources via ingress, force
+  # KC_HOSTNAME so discovery/issuer/endpoints are the public URL (server-side
+  # discovery via the in-cluster service still resolves to public endpoints),
+  # and register the public NextAuth callback on the caipe-ui client. Skipped
+  # for IP domains (Ingress host must be a DNS name) and local installs.
+  local _kc_public_yaml=""
+  if [[ -n "$CAIPE_DOMAIN" && ! "$CAIPE_DOMAIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    _kc_public_yaml=$(cat <<KCPUB
+  env:
+    KC_HOSTNAME: "https://${CAIPE_DOMAIN}"
+    KC_PROXY_HEADERS: "xforwarded"
+    KC_HOSTNAME_STRICT: "false"
+  ingress:
+    enabled: true
+    className: "nginx"
+    hosts:
+      - host: "${CAIPE_DOMAIN}"
+        paths:
+          - path: /realms/caipe
+            pathType: Prefix
+          - path: /resources
+            pathType: Prefix
+    tls:
+      - secretName: caipe-tls
+        hosts:
+          - "${CAIPE_DOMAIN}"
+  uiClient:
+    redirectUris:
+      - "https://${CAIPE_DOMAIN}/*"
+      - "http://localhost:3000/*"
+    webOrigins:
+      - "https://${CAIPE_DOMAIN}"
+KCPUB
+)
+  fi
+
   cat > "$values_file" <<RBACEOF
 tags:
   keycloak: true
@@ -4692,6 +4870,7 @@ keycloak:
     password: "${KEYCLOAK_ADMIN_PASSWORD}"
   realm:
     sslRequired: "${keycloak_ssl_required}"
+${_kc_public_yaml}
 
 openfga:
   enabled: true
@@ -4727,6 +4906,12 @@ RBACEOF
   if [[ -n "$UI_ENV_FILE" ]]; then
     local oidc_issuer
     oidc_issuer=$(_env_get "$UI_ENV_FILE" "OIDC_ISSUER")
+    # With a public DNS domain the token `iss` is the public Keycloak URL
+    # (KC_HOSTNAME above), so the authz-bridge must validate against that —
+    # not the localhost:7080 default copied from the dev env file.
+    if [[ -n "$CAIPE_DOMAIN" && ! "$CAIPE_DOMAIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+      oidc_issuer="https://${CAIPE_DOMAIN}/realms/caipe"
+    fi
     if [[ -n "$oidc_issuer" ]]; then
       cat >> "$values_file" <<RBACEOF
     SSO_ENABLED: "true"
@@ -7013,6 +7198,13 @@ Options:
                      Default when ingress is enabled and --domain is omitted: ${CAIPE_DOMAIN_DEFAULT}
   --tls-cert=FILE    Path to TLS certificate PEM file (default: auto-generate self-signed)
   --tls-key=FILE     Path to TLS private key PEM file (paired with --tls-cert)
+  --github-social    Enable GitHub social login (Keycloak broker) for public users.
+                     Needs a dedicated GitHub OAuth App; callback URL must be
+                     https://<domain>/realms/caipe/broker/github/endpoint
+                     (interactive runs prompt for this; do NOT reuse GITHUB_CLIENT_*).
+  --no-github-social Skip GitHub social login (local Keycloak login only)
+  --github-social-id=ID         GitHub OAuth App client ID (login broker)
+  --github-social-secret=SECRET GitHub OAuth App client secret (login broker)
   --env-file=FILE    Path to .env file with agent credentials (ENABLE_ARGOCD=true, ARGOCD_TOKEN=..., etc.)
                      Creates per-agent k8s secrets and enables corresponding agents in Helm.
                      Also honors feature toggles to mirror docker-compose.dev.yaml:
@@ -7159,6 +7351,10 @@ for arg in "$@"; do
     --ingress)         ENABLE_INGRESS=true; ENABLE_METALLB=true ;;
     --no-ingress)      ENABLE_INGRESS=false ;;
     --domain=*)        CAIPE_DOMAIN="${arg#--domain=}" ;;
+    --github-social)            ENABLE_GITHUB_SOCIAL=true ;;
+    --no-github-social)         ENABLE_GITHUB_SOCIAL=false ;;
+    --github-social-id=*)       GITHUB_SOCIAL_CLIENT_ID="${arg#--github-social-id=}" ;;
+    --github-social-secret=*)   GITHUB_SOCIAL_CLIENT_SECRET="${arg#--github-social-secret=}" ;;
     --tls-cert=*)      TLS_CERT_FILE="${arg#--tls-cert=}" ;;
     --tls-key=*)       TLS_KEY_FILE="${arg#--tls-key=}" ;;
     --env-file=*)      ENV_FILE="${arg#--env-file=}" ;;
