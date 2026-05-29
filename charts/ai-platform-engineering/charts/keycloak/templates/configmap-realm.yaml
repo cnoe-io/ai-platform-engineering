@@ -7,6 +7,25 @@ metadata:
 data:
   realm-config.json: |-
     {{- $realm := .Files.Get "realm-config.json" | fromJson -}}
+    {{- $realmName := .Values.realm.name | default "caipe" -}}
+    {{- $_ := set $realm "realm" $realmName -}}
+    {{- $defaultRole := $realm.defaultRole | default dict -}}
+    {{- if $defaultRole -}}
+      {{- $_ := set $defaultRole "name" (printf "default-roles-%s" $realmName) -}}
+      {{- $_ := set $realm "defaultRole" $defaultRole -}}
+    {{- end -}}
+    {{- $roles := $realm.roles | default dict -}}
+    {{- $realmRoles := list -}}
+    {{- range $role := ($roles.realm | default list) -}}
+      {{- if hasKey $role "containerId" -}}
+        {{- $_ := set $role "containerId" $realmName -}}
+      {{- end -}}
+      {{- $realmRoles = append $realmRoles $role -}}
+    {{- end -}}
+    {{- if $roles -}}
+      {{- $_ := set $roles "realm" $realmRoles -}}
+      {{- $_ := set $realm "roles" $roles -}}
+    {{- end -}}
     {{- $clients := list -}}
     {{- range $client := $realm.clients -}}
       {{- if eq $client.clientId "caipe-ui" -}}

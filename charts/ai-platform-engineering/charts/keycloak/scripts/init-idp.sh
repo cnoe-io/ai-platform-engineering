@@ -904,20 +904,21 @@ if [ -z "${TOKEN_EP}" ] || [ -z "${AUTHZ_EP}" ]; then
   exit 1
 fi
 
-# --- ensure offline_access is in default-roles-caipe composite ---
+# --- ensure offline_access is in the realm default-role composite ---
 # Keycloak realm import does not reliably set composite memberships,
 # so we patch it at runtime to guarantee all users (including SSO-
 # brokered users) receive the offline_access role automatically.
-echo "[init-idp] Ensuring offline_access is in default-roles-caipe ..."
+DEFAULT_REALM_ROLE="default-roles-${REALM}"
+echo "[init-idp] Ensuring offline_access is in ${DEFAULT_REALM_ROLE} ..."
 DEFAULT_ROLE_ID=$(curl -sf -H "${AUTH}" \
   "${KC_URL}/admin/realms/${REALM}/roles" 2>/dev/null \
-  | grep -B1 '"default-roles-caipe"' | grep -o '"id" *: *"[^"]*"' | sed 's/.*"\([^"]*\)"/\1/' | head -1)
+  | grep -B1 "\"${DEFAULT_REALM_ROLE}\"" | grep -o '"id" *: *"[^"]*"' | sed 's/.*"\([^"]*\)"/\1/' | head -1)
 
 if [ -n "${DEFAULT_ROLE_ID}" ]; then
   COMPOSITES=$(curl -sf -H "${AUTH}" \
     "${KC_URL}/admin/realms/${REALM}/roles-by-id/${DEFAULT_ROLE_ID}/composites" 2>/dev/null || echo "[]")
   if echo "${COMPOSITES}" | grep -q '"offline_access"'; then
-    echo "[init-idp]   offline_access already in default-roles-caipe."
+    echo "[init-idp]   offline_access already in ${DEFAULT_REALM_ROLE}."
   else
     OFFLINE_ROLE_ID=$(curl -sf -H "${AUTH}" \
       "${KC_URL}/admin/realms/${REALM}/roles" 2>/dev/null \
@@ -926,18 +927,18 @@ if [ -n "${DEFAULT_ROLE_ID}" ]; then
       curl -sf -X POST -H "${AUTH}" -H "Content-Type: application/json" \
         "${KC_URL}/admin/realms/${REALM}/roles-by-id/${DEFAULT_ROLE_ID}/composites" \
         -d "[{\"id\":\"${OFFLINE_ROLE_ID}\",\"name\":\"offline_access\"}]" && \
-        echo "[init-idp]   Added offline_access to default-roles-caipe." || \
-        echo "[init-idp]   WARNING: failed to add offline_access to default-roles-caipe."
+        echo "[init-idp]   Added offline_access to ${DEFAULT_REALM_ROLE}." || \
+        echo "[init-idp]   WARNING: failed to add offline_access to ${DEFAULT_REALM_ROLE}."
     else
       echo "[init-idp]   WARNING: offline_access role not found in realm."
     fi
   fi
 else
-  echo "[init-idp]   WARNING: default-roles-caipe role not found."
+  echo "[init-idp]   WARNING: ${DEFAULT_REALM_ROLE} role not found."
 fi
 
 # CAIPE business authorization is OpenFGA-backed. Do not add application roles
-# such as chat_user/admin/team_member to default-roles-caipe.
+# such as chat_user/admin/team_member to the realm default role.
 
 # --- configure user profile: allow slack_user_id / webex_user_id and avoid profile prompts ---
 # Keycloak 26+ silently drops custom attributes not in the user profile schema.
