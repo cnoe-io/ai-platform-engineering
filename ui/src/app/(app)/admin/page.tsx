@@ -34,6 +34,7 @@ import { CrawlConsoleDialog } from "@/components/admin/CrawlConsoleDialog";
 import { CrawlConsoleHeaderPill } from "@/components/admin/CrawlConsoleHeaderPill";
 import { UserDetailPanel } from "@/components/admin/UserDetailPanel";
 import { SupervisorSkillsStatusSection } from "@/components/admin/SupervisorSkillsStatusSection";
+import { SchedulerAdminTab } from "@/components/admin/SchedulerAdminTab";
 import { useAdminRole } from "@/hooks/use-admin-role";
 import { getConfig } from "@/lib/config";
 import { apiClient } from "@/lib/api-client";
@@ -196,7 +197,7 @@ interface Team {
   }>;
 }
 
-const VALID_TABS = ['users', 'teams', 'stats', 'skills', 'feedback', 'nps', 'metrics', 'health', 'policy', 'audit-logs'];
+const VALID_TABS = ['users', 'teams', 'stats', 'skills', 'feedback', 'nps', 'metrics', 'health', 'scheduler', 'policy', 'audit-logs'];
 
 function AdminPage() {
   const { status } = useSession();
@@ -821,8 +822,9 @@ function AdminPage() {
                   + (getConfig('feedbackEnabled') ? 1 : 0)
                   + (getConfig('npsEnabled') ? 1 : 0)
                   + (auditLogsEnabled && isAdmin ? 1 : 0)
+                  + (isAdmin ? 1 : 0)
                   + (isAdmin ? 1 : 0);
-                const cols: Record<number, string> = { 6: 'grid-cols-6', 7: 'grid-cols-7', 8: 'grid-cols-8', 9: 'grid-cols-9', 10: 'grid-cols-10' };
+                const cols: Record<number, string> = { 6: 'grid-cols-6', 7: 'grid-cols-7', 8: 'grid-cols-8', 9: 'grid-cols-9', 10: 'grid-cols-10', 11: 'grid-cols-11' };
                 return cols[n] ?? 'grid-cols-6';
               })()}`}>
                 <TabsTrigger value="users" className="gap-2">
@@ -861,6 +863,12 @@ function AdminPage() {
                   <Database className="h-4 w-4" />
                   Health
                 </TabsTrigger>
+                {isAdmin && (
+                  <TabsTrigger value="scheduler" className="gap-2">
+                    <Calendar className="h-4 w-4" />
+                    Scheduler
+                  </TabsTrigger>
+                )}
                 {auditLogsEnabled && isAdmin && (
                   <TabsTrigger value="audit-logs" className="gap-2">
                     <FileText className="h-4 w-4" />
@@ -2503,6 +2511,13 @@ function AdminPage() {
               <TabsContent value="health" className="space-y-4">
                 <HealthTab />
               </TabsContent>
+
+              {/* Scheduler Tab (admin only) */}
+              {isAdmin && (
+                <TabsContent value="scheduler" className="space-y-4">
+                  <SchedulerAdminTab isAdmin={isAdmin} />
+                </TabsContent>
+              )}
 
               {/* Audit Logs Tab (optional, gated by AUDIT_LOGS_ENABLED + full admin role) */}
               {auditLogsEnabled && isAdmin && (

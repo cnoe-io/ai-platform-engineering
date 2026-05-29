@@ -11,6 +11,7 @@ from __future__ import annotations
 import copy
 import logging
 import re
+from typing import Any
 
 from kubernetes import client, config
 from kubernetes.client.exceptions import ApiException
@@ -51,7 +52,6 @@ class CronJobOps:
                     "OK for unit tests with mocked client."
                 )
         self._batch = client.BatchV1Api()
-        self._api_client = client.ApiClient()
 
     # ── public ──────────────────────────────────────────────────────────
     def create(
@@ -108,34 +108,63 @@ class CronJobOps:
                 return
             raise
 
-    def refresh_runner_template(self, *, cronjob_name: str) -> None:
-        """Patch an existing CronJob to use the scheduler's current runner image."""
+    def reconcile_runner_template(
+        self, *, cronjob_name: str, dry_run: bool = True
+    ) -> dict[str, Any]:
+        """Optionally patch an existing CronJob to the current runner image."""
         s = self._settings
         cronjob = self._batch.read_namespaced_cron_job(
             name=cronjob_name,
             namespace=s.namespace,
         )
-        job_template = copy.deepcopy(cronjob.spec.job_template)
-        job_template.spec.backoff_limit = 2
-        job_template.spec.ttl_seconds_after_finished = 86400
 
-        containers = job_template.spec.template.spec.containers or []
+        containers = cronjob.spec.job_template.spec.template.spec.containers or []
+        if not containers:
+            raise ValueError(f"CronJob {cronjob_name} has no containers.")
+
         runner = next((c for c in containers if c.name == "runner"), containers[0])
-        runner.image = s.cron_runner_image
-        runner.image_pull_policy = s.cron_runner_image_pull_policy
-
-        body = {
-            "spec": {
-                "jobTemplate": self._api_client.sanitize_for_serialization(
-                    job_template
-                )
-            }
-        }
-        self._batch.patch_namespaced_cron_job(
-            name=cronjob_name,
-            namespace=s.namespace,
-            body=body,
+        current_image = runner.image
+        current_pull_policy = runner.image_pull_policy
+        desired_image = s.cron_runner_image
+        desired_pull_policy = s.cron_runner_image_pull_policy
+        changed = (
+            current_image != desired_image
+            or current_pull_policy != desired_pull_policy
         )
+
+        if changed and not dry_run:
+            body = {
+                "spec": {
+                    "jobTemplate": {
+                        "spec": {
+                            "template": {
+                                "spec": {
+                                    "containers": [
+                                        {
+                                            "name": runner.name,
+                                            "image": desired_image,
+                                            "imagePullPolicy": desired_pull_policy,
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            self._batch.patch_namespaced_cron_job(
+                name=cronjob_name,
+                namespace=s.namespace,
+                body=body,
+            )
+
+        return {
+            "current_image": current_image,
+            "desired_image": desired_image,
+            "current_image_pull_policy": current_pull_policy,
+            "desired_image_pull_policy": desired_pull_policy,
+            "changed": changed,
+        }
 
     def create_one_off_job_from_cronjob(
         self,

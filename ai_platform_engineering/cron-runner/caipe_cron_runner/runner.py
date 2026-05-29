@@ -115,6 +115,7 @@ def main() -> int:
             "client_context": {
                 "source": "scheduler",
                 "schedule_id": schedule_id,
+                "schedule_title": schedule.get("title"),
                 "pod_id": schedule.get("pod_id"),
                 "run_type": "one_off" if one_off_run_id else "recurring",
                 "one_off_run_id": one_off_run_id,

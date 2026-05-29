@@ -27,6 +27,7 @@ DELETE /v1/schedules/{id}             — remove (Mongo + CronJob)
 POST   /v1/schedules/{id}/one-off-runs — create delayed one-off fire
 GET    /v1/schedules/{id}/one-off-runs — list delayed one-off fires
 POST   /v1/schedules/{id}/runs        — runner reports status (status/error/http_status)
+POST   /v1/admin/reconcile-cronjobs   — dry-run/apply runner image refresh for existing CronJobs
 GET    /healthz
 ```
 
@@ -51,6 +52,13 @@ pending one-offs atomically, and creates a normal Kubernetes `Job` by copying
 the parent CronJob's `jobTemplate`. This is meant for domain retries like
 "transcript not ready; try again in 10 minutes" and does not modify the
 recurring schedule.
+
+`POST /v1/admin/reconcile-cronjobs` is an explicit admin/operator action used
+after changing `CRON_RUNNER_IMAGE`. It checks existing schedule CronJobs and can
+patch only the runner container image and pull policy in their future
+`jobTemplate`s. Use `{"dry_run": true}` first to inspect the report, then
+`{"dry_run": false}` to apply. Reconciliation is not performed automatically on
+scheduler startup.
 
 ## Run locally
 

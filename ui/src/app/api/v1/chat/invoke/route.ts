@@ -75,6 +75,7 @@ async function ensureScheduledConversation(
 
   const clientContext = objectValue(body.client_context);
   const scheduleId = stringValue(clientContext.schedule_id);
+  const scheduleTitle = stringValue(clientContext.schedule_title);
   const podId = stringValue(clientContext.pod_id);
   const traceId = stringValue(body.trace_id) || requestedConversationId;
   const now = new Date();
@@ -100,6 +101,7 @@ async function ensureScheduledConversation(
   const schedulerMetadata = {
     source: "scheduler",
     schedule_id: scheduleId,
+    schedule_title: scheduleTitle,
     pod_id: podId,
     requested_conversation_id: requestedConversationId,
     trace_id: traceId,
@@ -166,6 +168,7 @@ async function persistScheduledInvokeMessages(
     stringValue(request.headers.get("X-CAIPE-User"));
   const clientContext = objectValue(body.client_context);
   const scheduleId = stringValue(clientContext.schedule_id);
+  const scheduleTitle = stringValue(clientContext.schedule_title);
   const traceId = stringValue(body.trace_id) || conversationId;
   const turnId = `turn-${traceId}`;
   const succeeded = result.success !== false && response.ok;
@@ -182,6 +185,7 @@ async function persistScheduledInvokeMessages(
     turn_id: turnId,
     source: "scheduler",
     schedule_id: scheduleId,
+    schedule_title: scheduleTitle,
     trace_id: traceId,
     agent_id: agentId,
   };

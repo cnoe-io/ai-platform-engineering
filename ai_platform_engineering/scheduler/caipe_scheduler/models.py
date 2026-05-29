@@ -185,6 +185,42 @@ class ScheduleList(BaseModel):
     items: list[Schedule]
 
 
+class CronJobReconcileRequest(BaseModel):
+    """Body of POST /v1/admin/reconcile-cronjobs."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    dry_run: bool = True
+    schedule_id: str | None = Field(
+        default=None,
+        description="Optional single schedule to reconcile. When omitted, all schedules are checked.",
+    )
+
+
+class CronJobReconcileItem(BaseModel):
+    schedule_id: str
+    cronjob_name: str
+    status: Literal["current", "would_patch", "patched", "missing", "error"]
+    current_image: str | None = None
+    desired_image: str | None = None
+    current_image_pull_policy: str | None = None
+    desired_image_pull_policy: str | None = None
+    error: str | None = None
+
+
+class CronJobReconcileResponse(BaseModel):
+    dry_run: bool
+    desired_image: str
+    desired_image_pull_policy: str
+    total: int
+    current: int
+    would_patch: int
+    patched: int
+    missing: int
+    failed: int
+    items: list[CronJobReconcileItem]
+
+
 class ScheduleOneOffCreate(BaseModel):
     """Body of POST /v1/schedules/{id}/one-off-runs."""
 
