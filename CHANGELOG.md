@@ -1,3 +1,22 @@
+## 0.5.4 (2026-05-29)
+
+### Fix
+
+- **admin**: show KB/agent/tool counts on team cards
+- **admin**: point team KB tab create links to /knowledge-bases
+
+### Refactor
+
+- **ui**: replace native agent/team selects with shared picker components
+- **ui**: DRY up SlackChannelRebacPanel and WebexSpaceRebacPanel into shared ConnectorAdminPanel
+
+## 0.5.3-dev.1 (2026-05-29)
+
+### Fix
+
+- **keycloak**: render configured realm name
+- **compose**: remove duplicate volumes key in openfga-init service
+
 ## 0.5.3 (2026-05-29)
 
 ### Feat
