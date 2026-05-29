@@ -1,0 +1,43 @@
+---
+description: Never do branch/PR work on the user's live working tree; use an isolated worktree
+alwaysApply: true
+---
+
+# Safe Git: Protect the User's Working Tree
+
+The user's checked-out branch and working tree are sacred. NEVER switch branches,
+reset, or rewrite history on it to do PR/experiment work. Do that work in an
+**isolated git worktree** instead.
+
+## Required workflow for any PR / multi-commit / experiment work
+
+```bash
+# 1. Make a throwaway worktree off the REMOTE main (never the stale local one)
+git fetch origin main
+git worktree add /tmp/caipe-<task> origin/main -b <feat-branch>
+cd /tmp/caipe-<task>          # do ALL edits, commits, pushes here
+
+# 2. When done
+cd -                          # back to the user's repo, untouched
+git worktree remove /tmp/caipe-<task>
+```
+
+The user's repo is never `checkout`-ed, `reset`, or `stash`-ed.
+
+## Hard rules (in the user's repo)
+
+- NEVER `git checkout <branch>` / `git checkout -B` / `git switch` to do feature work.
+- NEVER `git reset` (any mode) to move the checked-out branch pointer.
+- NEVER `git stash` the user's edits as a substitute for isolation.
+- NEVER assume local `main` is current — it is often many commits behind
+  `origin/main`. Switching across that gap churns thousands of files (e.g. `docs/`).
+- ALWAYS run `git status` before any git command and preserve uncommitted edits.
+- ALWAYS push only to feature branches; never to `origin/main`.
+
+## If you only need to read another branch/commit
+
+Use `git show <ref>:<path>`, `git diff <ref>`, or `git log <ref>` — these never
+touch the working tree. Reach for a worktree the moment you need to *build*, *edit*,
+or *commit*.
+
+See the `using-git-worktrees` skill for the full isolation procedure.
