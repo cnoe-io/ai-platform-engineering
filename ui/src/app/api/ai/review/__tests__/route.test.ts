@@ -96,6 +96,45 @@ afterEach(() => {
 });
 
 describe("/api/ai/review POST — header forwarding to dynamic-agents", () => {
+  it("falls back to Claude Haiku 4.5 when no env, review config, or Mongo model is available", async () => {
+    delete process.env.AI_ASSIST_MODEL_ID;
+    delete process.env.AI_ASSIST_MODEL_PROVIDER;
+    delete process.env.SKILL_AI_MODEL_ID;
+    delete process.env.SKILL_AI_MODEL_PROVIDER;
+    mockAuthenticateRequest.mockResolvedValueOnce({
+      subject: "admin@example.com",
+      email: "admin@example.com",
+      role: "admin",
+      tenantId: "default",
+      userContextHeader: "BASE64_USER_CTX",
+      bearerToken: "ADMIN_JWT_TOKEN",
+    });
+    mockGetCollection.mockRejectedValueOnce(new Error("mongo unavailable"));
+    mockFetchAssistantSuggest.mockResolvedValueOnce({
+      ok: true,
+      content: JSON.stringify({ pass: true, comment: "ok" }),
+    });
+
+    const content = "You review infra changes.";
+    const req = makeRequest({
+      target: "agent-system-prompt",
+      content,
+      content_hash: hashContent(content),
+    });
+
+    const res = await POST(req);
+    expect(res.status).toBe(200);
+
+    const [, body] = mockFetchAssistantSuggest.mock.calls[0] as [
+      Record<string, string>,
+      { model: { id: string; provider: string } },
+    ];
+    expect(body.model).toEqual({
+      id: "global.anthropic.claude-haiku-4-5-20251001-v1:0",
+      provider: "aws-bedrock",
+    });
+  });
+
   it("forwards the caller's bearer token AND X-User-Context so dynamic-agents JwtAuthMiddleware accepts the call", async () => {
     mockAuthenticateRequest.mockResolvedValueOnce({
       subject: "admin@example.com",

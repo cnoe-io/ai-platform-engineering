@@ -42,7 +42,7 @@ LITELLM_API_KEY="${LITELLM_API_KEY:-}"
 LITELLM_MODEL_NAME="${LITELLM_MODEL_NAME:-gpt-oss-20B}"
 ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}"
 ANTHROPIC_MODEL_NAME="claude-haiku-4-5-20251001"
-AWS_BEDROCK_MODEL_ID="${AWS_BEDROCK_MODEL_ID:-global.anthropic.claude-sonnet-4-6}"
+AWS_BEDROCK_MODEL_ID="${AWS_BEDROCK_MODEL_ID:-global.anthropic.claude-haiku-4-5-20251001-v1:0}"
 AWS_BEDROCK_PROVIDER="${AWS_BEDROCK_PROVIDER:-anthropic}"
 AWS_REGION="${AWS_REGION:-us-east-2}"
 AWS_PROFILE="${AWS_PROFILE:-}"
@@ -1230,8 +1230,8 @@ _collect_bedrock_credentials() {
     echo ""
     echo -e "  ${DIM}Bedrock model:${NC}"
     echo -e "    ${BOLD}0)${NC} ${DIM}← Back to provider selection${NC}"
-    echo -e "    ${BOLD}1)${NC} global.anthropic.claude-sonnet-4-6           ${DIM}(recommended)${NC}"
-    echo -e "    ${BOLD}2)${NC} global.anthropic.claude-haiku-4-5            ${DIM}(fast, low cost)${NC}"
+    echo -e "    ${BOLD}1)${NC} global.anthropic.claude-haiku-4-5-20251001-v1:0 ${DIM}(default, fast, low cost)${NC}"
+    echo -e "    ${BOLD}2)${NC} global.anthropic.claude-sonnet-4-6           ${DIM}(balanced)${NC}"
     echo -e "    ${BOLD}3)${NC} global.anthropic.claude-3-5-sonnet"
     echo -e "    ${BOLD}4)${NC} Custom"
     echo ""
@@ -1240,8 +1240,8 @@ _collect_bedrock_credentials() {
     model_choice="${model_choice:-1}"
     if _is_back "$model_choice"; then AWS_ACCESS_KEY_ID=""; AWS_SECRET_ACCESS_KEY=""; return 1; fi
     case "$model_choice" in
-      1) AWS_BEDROCK_MODEL_ID="global.anthropic.claude-sonnet-4-6" ;;
-      2) AWS_BEDROCK_MODEL_ID="global.anthropic.claude-haiku-4-5" ;;
+      1) AWS_BEDROCK_MODEL_ID="global.anthropic.claude-haiku-4-5-20251001-v1:0" ;;
+      2) AWS_BEDROCK_MODEL_ID="global.anthropic.claude-sonnet-4-6" ;;
       3) AWS_BEDROCK_MODEL_ID="global.anthropic.claude-3-5-sonnet" ;;
       4)
         prompt "Enter Bedrock model ID: "
@@ -6725,7 +6725,7 @@ Environment variables (all optional):
   AWS_SECRET_ACCESS_KEY   AWS secret key for Bedrock
   AWS_PROFILE             AWS profile name (keys resolved from ~/.aws/credentials)
   AWS_REGION              AWS region (default: us-east-2)
-  AWS_BEDROCK_MODEL_ID    Bedrock model (default: global.anthropic.claude-sonnet-4-6)
+  AWS_BEDROCK_MODEL_ID    Bedrock model (default: global.anthropic.claude-haiku-4-5-20251001-v1:0)
   CAIPE_CHART_VERSION     Pre-set chart version (skips version picker)
   EMBEDDINGS_MODEL        Embedding model (default: text-embedding-3-large)
   EMBEDDINGS_PROVIDER     Embedding provider (default: openai)
