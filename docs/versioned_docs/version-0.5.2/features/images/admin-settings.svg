@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="594" height="330" viewBox="0 0 594 330" role="img" aria-labelledby="title desc">
+  <title id="title">Admin Dashboard Settings Layout</title>
+  <desc id="desc">Illustration of the Admin Dashboard with grouped category tabs and the Default Agent settings panel.</desc>
+  <defs>
+    <linearGradient id="page" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b0f1a" />
+      <stop offset="1" stop-color="#05070d" />
+    </linearGradient>
+    <linearGradient id="card" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#12162a" />
+      <stop offset="1" stop-color="#090b16" />
+    </linearGradient>
+    <linearGradient id="active" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#15c3b0" />
+      <stop offset="1" stop-color="#0ea68f" />
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="16" stdDeviation="18" flood-color="#000000" flood-opacity="0.35" />
+    </filter>
+  </defs>
+
+  <rect width="594" height="330" rx="10" fill="url(#page)" />
+
+  <text x="8" y="20" fill="#f5f7fb" font-family="Inter, Arial, sans-serif" font-size="15" font-weight="700">Admin Dashboard</text>
+  <text x="8" y="39" fill="#8f98ad" font-family="Inter, Arial, sans-serif" font-size="8">Manage users, teams, monitor usage, and track platform metrics</text>
+
+  <g filter="url(#shadow)">
+    <rect x="8" y="58" width="130" height="70" rx="8" fill="url(#card)" stroke="#262b42" />
+    <text x="19" y="84" fill="#dce2ef" font-family="Inter, Arial, sans-serif" font-size="7" font-weight="600">Total Users</text>
+    <text x="19" y="106" fill="#ffffff" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="700">1</text>
+    <text x="19" y="120" fill="#8290a8" font-family="Inter, Arial, sans-serif" font-size="7">DAU: 1 | MAU: 1</text>
+
+    <rect x="151" y="58" width="130" height="70" rx="8" fill="url(#card)" stroke="#262b42" />
+    <text x="162" y="84" fill="#dce2ef" font-family="Inter, Arial, sans-serif" font-size="7" font-weight="600">Conversations</text>
+    <text x="162" y="106" fill="#ffffff" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="700">6</text>
+    <text x="162" y="120" fill="#8290a8" font-family="Inter, Arial, sans-serif" font-size="7">Today: +6</text>
+
+    <rect x="294" y="58" width="130" height="70" rx="8" fill="url(#card)" stroke="#262b42" />
+    <text x="305" y="84" fill="#dce2ef" font-family="Inter, Arial, sans-serif" font-size="7" font-weight="600">Messages</text>
+    <text x="305" y="106" fill="#ffffff" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="700">4</text>
+    <text x="305" y="120" fill="#8290a8" font-family="Inter, Arial, sans-serif" font-size="7">Today: +4</text>
+
+    <rect x="437" y="58" width="130" height="70" rx="8" fill="url(#card)" stroke="#262b42" />
+    <text x="448" y="84" fill="#dce2ef" font-family="Inter, Arial, sans-serif" font-size="7" font-weight="600">Shared (Web)</text>
+    <text x="448" y="106" fill="#ffffff" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="700">0</text>
+    <text x="448" y="120" fill="#8290a8" font-family="Inter, Arial, sans-serif" font-size="7">0.0% of all conversations</text>
+  </g>
+
+  <g font-family="Inter, Arial, sans-serif" font-size="7.5" font-weight="600">
+    <rect x="8" y="146" width="55" height="18" rx="9" fill="url(#active)" />
+    <text x="25" y="158" fill="#ffffff">System</text>
+    <circle cx="18" cy="155" r="3" fill="none" stroke="#ffffff" stroke-width="1" />
+
+    <rect x="70" y="146" width="76" height="18" rx="9" fill="#1d2233" />
+    <text x="89" y="158" fill="#8f98ad">Users &amp; Teams</text>
+
+    <rect x="153" y="146" width="58" height="18" rx="9" fill="#1d2233" />
+    <text x="173" y="158" fill="#8f98ad">Insights</text>
+
+    <rect x="218" y="146" width="84" height="18" rx="9" fill="#1d2233" />
+    <text x="235" y="158" fill="#8f98ad">Metrics &amp; Health</text>
+
+    <rect x="309" y="146" width="96" height="18" rx="9" fill="#1d2233" />
+    <text x="326" y="158" fill="#8f98ad">Security &amp; Policy</text>
+  </g>
+
+  <rect x="8" y="173" width="559" height="18" rx="5" fill="#202638" />
+  <g font-family="Inter, Arial, sans-serif" font-size="8" font-weight="600">
+    <rect x="16" y="176" width="88" height="12" rx="4" fill="#0b0d14" />
+    <text x="33" y="185" fill="#ffffff">Default Agent</text>
+    <circle cx="25" cy="182" r="3" fill="none" stroke="#ffffff" stroke-width="1" />
+    <text x="124" y="185" fill="#8f98ad">AI Review</text>
+    <text x="188" y="185" fill="#8f98ad">Skills</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="8" y="204" width="559" height="98" rx="8" fill="url(#card)" stroke="#262b42" />
+    <text x="30" y="236" fill="#f5f7fb" font-family="Inter, Arial, sans-serif" font-size="17" font-weight="700">Default Agent</text>
+    <text x="30" y="255" fill="#8f98ad" font-family="Inter, Arial, sans-serif" font-size="7.5">Select which agent new chats open with. Admins can override this at runtime; it takes precedence over DEFAULT_AGENT_ID.</text>
+
+    <text x="30" y="280" fill="#e3e8f4" font-family="Inter, Arial, sans-serif" font-size="8" font-weight="600">Default agent for new chats</text>
+    <rect x="178" y="266" width="198" height="22" rx="5" fill="#080b12" stroke="#242a3d" />
+    <text x="194" y="281" fill="#f5f7fb" font-family="Inter, Arial, sans-serif" font-size="8">Basic SRE</text>
+    <path d="M358 274l5 5 5-5" fill="none" stroke="#8f98ad" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
+
+    <rect x="30" y="306" width="54" height="22" rx="6" fill="#12a391" opacity="0.62" />
+    <text x="50" y="321" fill="#c8fff4" font-family="Inter, Arial, sans-serif" font-size="8" font-weight="700">Save</text>
+  </g>
+</svg>
