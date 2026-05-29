@@ -87,9 +87,14 @@ Run the `/update-docs` skill to sync all remaining docs surfaces:
 This checks and fixes:
 
 - Homepage Helm `--version` string in `docs/src/pages/index.tsx`
-- `lastVersion` in `docs/docusaurus.config.ts`
-- Docusaurus version snapshot (`versioned_docs/version-x.y.z/`)
 - Navbar version label
+
+> **Versioned docs are no longer committed.** Pushing a release tag runs the
+> `[Docs] Register Published Version` workflow, which adds the version to
+> `docs/published-versions.json` (applying the retention policy) and opens a tiny
+> auto-merging PR. The versioned snapshots are then materialised from release tags
+> at build time by `docs/scripts/generate-versioned-docs.js` during the GitHub
+> Pages deploy — nothing under `versioned_docs/` is stored in git.
 
 See [Skills → Overview](./skills/) for the full checklist.
 
