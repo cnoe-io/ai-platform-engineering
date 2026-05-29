@@ -144,13 +144,14 @@ seed_spec104_main() {
 
 seed_spec104_main || echo "[init-idp] [spec-104] seed had errors (see above)"
 
-# Spec 103: the realm-management role pinning for service-account-caipe-platform
-# ({view-users, query-users, manage-users}) is a hard requirement for the
-# slack-bot path and is independent of whether this realm has an external IdP
-# configured. Run it BEFORE the early-exit below so dev/CI stacks that don't
-# wire IDP_ISSUER still get the correct role mapping.
+# Spec 103 + RBAC migration: realm-management role pinning for
+# service-account-caipe-platform is a hard requirement for the slack-bot JIT
+# user path and for the BFF's Keycloak RBAC reconciliation migration. Run it
+# BEFORE the early-exit below so dev/CI stacks that don't wire IDP_ISSUER still
+# get the correct role mapping.
 _ensure_caipe_platform_user_roles() {
-  echo "[init-idp] Ensuring caipe-platform service account has {view-users, query-users, manage-users} ..."
+  local desired_roles="view-users query-users manage-users query-clients view-clients manage-clients view-authorization manage-authorization"
+  echo "[init-idp] Ensuring caipe-platform service account has realm-management roles: ${desired_roles} ..."
   # Spec 103: AUTH may not be set yet when this helper runs from the
   # pre-IdP path (we run it right after persona seeding so dev stacks without
   # IDP_ISSUER still get role-pinned). Acquire a master-realm admin token
@@ -184,7 +185,7 @@ _ensure_caipe_platform_user_roles() {
     | grep -o '"name" *: *"[^"]*"' | sed 's/.*"\([^"]*\)"/\1/' | sort -u | tr '\n' ',')
   echo "[init-idp]   Current realm-management roles on caipe-platform: ${CP_CURRENT_ROLES%,}"
 
-  for desired in view-users query-users manage-users; do
+  for desired in ${desired_roles}; do
     if echo ",${CP_CURRENT_ROLES}" | grep -q ",${desired},"; then
       echo "[init-idp]     ✓ ${desired} already present."
     else
@@ -208,10 +209,10 @@ _ensure_caipe_platform_user_roles() {
     "${KC_URL}/admin/realms/${REALM}/users/${CP_SA_ID}/role-mappings/clients/${RM_CLIENT_ID}" 2>/dev/null \
     | grep -o '"name" *: *"[^"]*"' | sed 's/.*"\([^"]*\)"/\1/' | sort -u | tr '\n' ',')
   echo "[init-idp]   Final realm-management roles on caipe-platform: ${CP_FINAL_ROLES%,}"
-  for needed in view-users query-users manage-users; do
+  for needed in ${desired_roles}; do
     if ! echo ",${CP_FINAL_ROLES}" | grep -q ",${needed},"; then
       echo "[init-idp]   AUDIT-FAILURE: caipe-platform service account is MISSING required role '${needed}'."
-      echo "[init-idp]   Slack-bot lookup or JIT user creation will fail until this is fixed."
+      echo "[init-idp]   BFF Keycloak reconciliation or Slack-bot JIT user creation will fail until this is fixed."
     fi
   done
 }
@@ -721,6 +722,16 @@ print(json.dumps(realm))
         echo "[init-idp]   WARNING: failed to update master realm frontendUrl."
     fi
   fi
+fi
+
+UNSAFE_RBAC_BYPASS="$(printf '%s' "${CAIPE_UNSAFE_RBAC_BYPASS:-false}" | tr '[:upper:]' '[:lower:]')"
+if [ -z "${IDP_ISSUER:-}" ] && [ -z "${IDP_CLIENT_ID:-}" ] && [ -z "${IDP_CLIENT_SECRET:-}" ]; then
+  if [ "${UNSAFE_RBAC_BYPASS}" = "true" ] || [ "${UNSAFE_RBAC_BYPASS}" = "1" ] || [ "${UNSAFE_RBAC_BYPASS}" = "yes" ]; then
+    echo "[init-idp] CAIPE_UNSAFE_RBAC_BYPASS=true and no upstream IdP broker configured; skipping IdP setup after local realm reconciliation."
+    exit 0
+  fi
+  echo "[init-idp] ERROR: IDP_ISSUER, IDP_CLIENT_ID, and IDP_CLIENT_SECRET are required unless CAIPE_UNSAFE_RBAC_BYPASS=true." >&2
+  exit 1
 fi
 
 MISSING_IDP_ENV=0

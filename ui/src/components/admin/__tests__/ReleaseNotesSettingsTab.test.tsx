@@ -6,6 +6,19 @@ import React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { ReleaseNotesSettingsTab } from '../ReleaseNotesSettingsTab';
 
+jest.mock('remark-gfm', () => ({
+  __esModule: true,
+  default: jest.fn(),
+}));
+
+jest.mock('react-markdown', () => ({
+  __esModule: true,
+  default: ({ children }: { children: unknown }) => {
+    const React = require('react');
+    return React.createElement('div', null, children);
+  },
+}));
+
 function mockFetch({
   config = {
     success: true,

@@ -6,6 +6,11 @@ export interface SchemaAreaClassificationEntry {
 }
 
 export const SCHEMA_AREA_CLASSIFICATIONS: Record<string, SchemaAreaClassificationEntry> = {
+  admin_surfaces: {
+    classification: "migration",
+    description:
+      "Org-admin manager grants on admin_surface:* objects (e.g. admin_surface:rag_datasources). The `admin_surface_rag_datasources_admin_grant_v1` migration backfills these tuples for every existing org admin.",
+  },
   agent_skills: {
     classification: "baseline_v1",
     description: "Skill catalog/config records; start at v1 unless a future data migration is registered.",
@@ -95,6 +100,11 @@ export const SCHEMA_AREA_CLASSIFICATIONS: Record<string, SchemaAreaClassificatio
     classification: "baseline_v1",
     description: "NPS response records.",
   },
+  openfga_tuples: {
+    classification: "migration",
+    description:
+      "OpenFGA tuple backfill target. The `data_source_grants_backfill_v1` and `mcp_tool_grants_backfill_v1` migrations mirror existing `knowledge_base:<id>` tuples onto the new `data_source:<id>` type and derive `mcp_tool:<id>` tuples from Mongo `team_rag_tools`.",
+  },
   organization_membership: {
     classification: "migration",
     description: "Organization membership migration target.",
@@ -144,8 +154,9 @@ export const SCHEMA_AREA_CLASSIFICATIONS: Record<string, SchemaAreaClassificatio
     description: "Slack user linkage metrics.",
   },
   team_kb_ownership: {
-    classification: "baseline_v1",
-    description: "Team knowledge base ownership records.",
+    classification: "migration",
+    description:
+      "Team knowledge base ownership records. The `knowledge_base_shared_team_grants_backfill_v1` migration writes the canonical OpenFGA team↔KB tuples for every existing row.",
   },
   team_membership_sources: {
     classification: "baseline_v1",

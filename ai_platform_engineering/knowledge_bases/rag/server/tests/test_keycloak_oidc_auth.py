@@ -1,4 +1,4 @@
-"""Keycloak-specific OIDC compatibility tests for the RAG server."""
+"""Keycloak-specific OIDC authentication tests for the RAG server."""
 
 from __future__ import annotations
 
@@ -70,19 +70,26 @@ class FakeAuthManager:
 
     async def fetch_userinfo(self, *_args, **_kwargs):
         self.fetch_userinfo_called = True
-        return {"email": "from-userinfo@example.com", "groups": ["legacy-admin-group"]}
+        return {"email": "from-userinfo@example.com", "groups": ["ignored-admin-group"]}
 
 
 class TestRebacFirstUserAuth:
     @pytest.mark.asyncio
-    async def test_human_token_uses_keycloak_claims_without_userinfo_or_group_fallback(self):
+    async def test_human_token_uses_keycloak_claims_without_userinfo_group_or_role_fallback(self):
         auth_manager = FakeAuthManager(
             {
                 "sub": "user-sub",
                 "email": "sri@example.com",
                 "preferred_username": "sri@example.com",
-                "realm_access": {"roles": ["chat_user"]},
-                "groups": ["legacy-admin-group"],
+                "realm_access": {
+                    "roles": [
+                        "chat_user",
+                        "admin_user",
+                        "kb_admin",
+                        "kb_reader:ignored-kb",
+                    ]
+                },
+                "groups": ["ignored-admin-group"],
             }
         )
         request = SimpleNamespace(
@@ -96,6 +103,8 @@ class TestRebacFirstUserAuth:
         assert user is not None
         assert user.subject == "user-sub"
         assert user.email == "sri@example.com"
-        assert user.groups == []
         assert user.role == Role.READONLY
+        assert not hasattr(user, "groups")
+        assert not hasattr(user, "kb_permissions")
+        assert not hasattr(user, "realm_roles")
         assert auth_manager.fetch_userinfo_called is False

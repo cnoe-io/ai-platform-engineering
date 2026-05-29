@@ -12,22 +12,27 @@ import {
   requireResourcePermission,
   type ResourcePermissionAction,
 } from '@/lib/rbac/resource-authz';
-import { reconcileKnowledgeBaseRelationships } from '@/lib/rbac/openfga-owned-resources';
+import {
+  reconcileDataSourceRelationships,
+  reconcileKnowledgeBaseRelationships,
+  reconcileMcpToolRelationships,
+} from '@/lib/rbac/openfga-owned-resources';
+import { checkOpenFgaTuple } from '@/lib/rbac/openfga';
+import { organizationObjectId } from '@/lib/rbac/organization';
+import { getDevAnonymousSession, isDevAnonymousAuthEnabled } from '@/lib/auth/dev-auth-provider';
 
 /**
  * RAG API Proxy with JWT Bearer Token Authentication
  *
  * Proxies requests from /api/rag/* to the RAG server with JWT authentication.
- * The RAG server validates the JWT token and fetches user claims (email, groups)
- * from the OIDC userinfo endpoint, caching them in Redis.
+ * The RAG server validates the JWT token and uses the subject for OpenFGA
+ * checks. Static IdP/AD groups are not consumed by RAG authorization.
  *
  * Authentication:
  * - Authorization: Bearer {access_token} (OIDC JWT access token)
  *
- * The RAG server uses the access_token to:
- * 1. Authenticate the request (validate JWT signature, expiry, audience)
- * 2. Fetch user claims from OIDC userinfo endpoint (cached in Redis)
- * 3. Determine user role based on group membership
+ * The RAG server uses the access_token to authenticate the caller and
+ * derive OpenFGA subjects for resource checks.
  *
  * This is the standards-compliant OAuth approach - only the access_token is
  * passed downstream, and user claims are fetched server-side from the
@@ -37,8 +42,9 @@ import { reconcileKnowledgeBaseRelationships } from '@/lib/rbac/openfga-owned-re
  *   /api/rag/healthz -> RAG_SERVER_URL/healthz (with Bearer token)
  *   /api/rag/v1/query -> RAG_SERVER_URL/v1/query (with Bearer token)
  *
- * RBAC (098): Web UI backend enforces Keycloak AuthZ on `rag` before proxying —
- * GET/POST use `query` (read/search); PUT/DELETE use `admin` (098 matrix).
+ * The Web UI backend enforces coarse RAG access before proxying and
+ * checks object-level OpenFGA relationships where the request identifies
+ * a knowledge base, data source, or MCP tool.
  */
 
 function getRagServerUrl(): string {
@@ -80,6 +86,22 @@ function actionForRagRequest(method: string, pathSegments: string[]): ResourcePe
   return 'admin';
 }
 
+function resourceTypeForRagRequest(pathSegments: string[]): 'data_source' | 'knowledge_base' {
+  const path = pathSegments.join('/').toLowerCase();
+  if (
+    path === 'v1/query' ||
+    path === 'v1/mcp/invoke' ||
+    path.startsWith('v1/ingest/') ||
+    path === 'v1/datasource' ||
+    path.startsWith('v1/datasource/') ||
+    path === 'v1/datasources' ||
+    path.startsWith('v1/datasources/')
+  ) {
+    return 'data_source';
+  }
+  return 'knowledge_base';
+}
+
 function extractKnowledgeBaseId(
   request: NextRequest,
   pathSegments: string[],
@@ -118,6 +140,17 @@ interface AuthorizedRagContext {
     ownerSubject: string | null;
     ownerTeamSlug: string | null;
   };
+  /**
+   * Populated for `PUT /v1/mcp/custom-tools/<tool_id>`. The proxy
+   * writes the `mcp_tool:<tool_id>` tuples after a successful upstream
+   * response so the new tool is visible to the owner team's members in
+   * the filtered list endpoint.
+   */
+  pendingMcpToolOwnership?: {
+    toolId: string;
+    ownerSubject: string | null;
+    ownerTeamSlug: string | null;
+  };
 }
 
 function normalizeString(value: unknown): string | null {
@@ -129,17 +162,51 @@ function isDatasourceCreateRequest(method: string, pathSegments: string[]): bool
   return method === 'POST' && (path === 'v1/datasource' || path === 'v1/datasources');
 }
 
+/**
+ * Detect `PUT /v1/mcp/custom-tools/<tool_id>` — the RAG server's upsert
+ * endpoint for custom MCP tools. The path's last segment is the
+ * tool id when this returns true, mirroring `extractMcpToolId`.
+ */
+function isMcpToolUpsertRequest(method: string, pathSegments: string[]): boolean {
+  const path = pathSegments.join('/').toLowerCase();
+  return (
+    method === 'PUT' &&
+    path.startsWith('v1/mcp/custom-tools/') &&
+    pathSegments.length === 4
+  );
+}
+
+/**
+ * Return the `tool_id` for an MCP-tool upsert path
+ * (`v1/mcp/custom-tools/<tool_id>`). Returns null when the path doesn't
+ * match the upsert pattern.
+ */
+function extractMcpToolId(pathSegments: string[]): string | null {
+  if (
+    pathSegments.length === 4 &&
+    pathSegments[0] === 'v1' &&
+    pathSegments[1] === 'mcp' &&
+    pathSegments[2] === 'custom-tools'
+  ) {
+    const candidate = pathSegments[3]?.trim();
+    return candidate && candidate.length > 0 ? candidate : null;
+  }
+  return null;
+}
+
 async function getAuthorizedRagContext(
   method: string,
   pathSegments: string[],
   request: NextRequest,
   body?: unknown,
 ): Promise<AuthorizedRagContext> {
-  const session = await getServerSession(authOptions);
+  const session = await getServerSession(authOptions) ?? (
+    isDevAnonymousAuthEnabled() ? getDevAnonymousSession() : null
+  );
   if (!session?.user?.email) {
     throw new ApiError('Unauthorized', 401);
   }
-  if (!session.accessToken) {
+  if (!session.accessToken && !isDevAnonymousAuthEnabled()) {
     throw new ApiError('A Keycloak access token is required for RAG access.', 401, 'NOT_SIGNED_IN');
   }
 
@@ -170,22 +237,47 @@ async function getAuthorizedRagContext(
     };
   } else if (kbId) {
     const authzSession = { sub: session.sub, role: session.role, user: session.user };
-    const target = { type: 'knowledge_base' as const, id: kbId, action: actionForRagRequest(method, pathSegments) };
-    await requireResourcePermission(authzSession, target);
+    const target = {
+      type: resourceTypeForRagRequest(pathSegments),
+      id: kbId,
+      action: actionForRagRequest(method, pathSegments),
+    };
+    await requireResourcePermission(authzSession, target, { bypassForOrgAdmin: true });
+  }
+
+  let pendingMcpToolOwnership: AuthorizedRagContext['pendingMcpToolOwnership'];
+  if (isMcpToolUpsertRequest(method, pathSegments)) {
+    const toolId = extractMcpToolId(pathSegments);
+    if (toolId) {
+      const ownerTeamSlug = isRecord(body) ? normalizeString(body.owner_team_slug) : null;
+      if (ownerTeamSlug) {
+        await requireResourcePermission(
+          { sub: session.sub, role: session.role, user: session.user },
+          { type: 'team', id: ownerTeamSlug, action: 'use' },
+        );
+      }
+      const ownerSubject = normalizeString(session.sub);
+      pendingMcpToolOwnership = {
+        toolId,
+        ownerSubject,
+        ownerTeamSlug,
+      };
+    }
   }
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   };
-  headers['Authorization'] = `Bearer ${session.accessToken}`;
+  if (session.accessToken) {
+    headers['Authorization'] = `Bearer ${session.accessToken}`;
+  }
   if (session.org) {
     headers['X-Tenant-Id'] = session.org;
   }
-  // Phase 3 of spec 2026-05-24-derive-team-from-channel removed the
-  // X-Team-Id header AND the `active_team` JWT claim. RAG derives the
-  // user's team membership from OpenFGA at request time using the
-  // bearer-token subject (see `_kb_cel_context` on the server side).
-  return { headers, session, pendingKnowledgeBaseOwnership };
+  // RAG derives the user's team membership from OpenFGA at request time
+  // using the bearer-token subject (see `_kb_cel_context` on the server
+  // side), so this proxy does not forward X-Team-Id or active_team.
+  return { headers, session, pendingKnowledgeBaseOwnership, pendingMcpToolOwnership };
 }
 
 function isDatasourceListRequest(method: string, pathSegments: string[]): boolean {
@@ -194,6 +286,21 @@ function isDatasourceListRequest(method: string, pathSegments: string[]): boolea
 
 function datasourceId(resource: Record<string, unknown>): string {
   const value = resource.datasource_id ?? resource.id;
+  return typeof value === 'string' ? value : '';
+}
+
+/**
+ * Detect `GET /v1/mcp/custom-tools`. Used by `filterMcpToolListResponse`
+ * to gate the BFF response on `mcp_tool#can_read` per row, with
+ * org-admin bypass enabled. The RAG server doesn't yet enforce per-tool
+ * ReBAC, so the filtering is BFF-side until PR4-server.
+ */
+function isMcpToolListRequest(method: string, pathSegments: string[]): boolean {
+  return method === 'GET' && pathSegments.join('/') === 'v1/mcp/custom-tools';
+}
+
+function mcpToolIdOf(resource: Record<string, unknown>): string {
+  const value = resource.tool_id ?? resource.id;
   return typeof value === 'string' ? value : '';
 }
 
@@ -221,14 +328,51 @@ async function filterDatasourceListResponse(
     session,
     candidates,
     {
-      type: 'knowledge_base',
+      type: 'data_source',
       action: 'read',
       id: datasourceId,
     },
-    { allowAdminBypass: true },
+    { bypassForOrgAdmin: true },
   );
 
   return { ...envelope, datasources, count: datasources.length };
+}
+
+/**
+ * Filter the `GET /v1/mcp/custom-tools` response to only the tools a
+ * non-admin caller has `mcp_tool#can_read` on. Org admins see every
+ * row (via `bypassForOrgAdmin: true`). RAG server returns a bare JSON
+ * array of `MCPToolConfig`, so we filter the array in place and pass
+ * through the array (rather than wrapping it in an envelope) to avoid
+ * a breaking schema change for the UI.
+ *
+ * If the kill switch `RAG_ADMIN_BYPASS_DISABLED` is on, admins go
+ * through the same per-tool filter as everyone else.
+ * assisted-by Cursor claude-opus-4-7
+ */
+async function filterMcpToolListResponse(
+  session: AuthorizedRagContext['session'],
+  pathSegments: string[],
+  data: unknown,
+): Promise<unknown> {
+  if (!isMcpToolListRequest('GET', pathSegments) || !Array.isArray(data)) {
+    return data;
+  }
+  const candidates = (data as Array<Record<string, unknown>>).filter(
+    (resource) => isRecord(resource) && mcpToolIdOf(resource).length > 0,
+  );
+  if (candidates.length === 0) return data;
+
+  return await filterResourcesByPermission(
+    session,
+    candidates,
+    {
+      type: 'mcp_tool',
+      action: 'read',
+      id: mcpToolIdOf,
+    },
+    { bypassForOrgAdmin: true },
+  );
 }
 
 async function loadReadableDatasourceIds(
@@ -251,11 +395,11 @@ async function loadReadableDatasourceIds(
     session,
     candidates,
     {
-      type: 'knowledge_base',
+      type: 'data_source',
       action: 'read',
       id: datasourceId,
     },
-    { allowAdminBypass: true },
+    { bypassForOrgAdmin: true },
   );
 
   return datasources.map(datasourceId).filter(Boolean);
@@ -266,7 +410,7 @@ function constrainDatasourceFilter(
   allowedDatasourceIds: string[],
 ): Record<string, unknown> {
   if (allowedDatasourceIds.length === 0) {
-    throw new ApiError('No readable knowledge bases are assigned to this user.', 403, 'knowledge_base#read');
+    throw new ApiError('No readable data sources are assigned to this user.', 403, 'data_source#read');
   }
 
   const filters = isRecord(value.filters) ? { ...value.filters } : {};
@@ -274,7 +418,7 @@ function constrainDatasourceFilter(
 
   if (typeof existing === 'string') {
     if (!allowedDatasourceIds.includes(existing)) {
-      throw new ApiError('You do not have permission to search this data source.', 403, 'knowledge_base#read');
+      throw new ApiError('You do not have permission to search this data source.', 403, 'data_source#read');
     }
     filters.datasource_id = existing;
   } else if (Array.isArray(existing)) {
@@ -283,7 +427,7 @@ function constrainDatasourceFilter(
         typeof candidate === 'string' && allowedDatasourceIds.includes(candidate),
     );
     if (intersection.length === 0) {
-      throw new ApiError('You do not have permission to search these data sources.', 403, 'knowledge_base#read');
+      throw new ApiError('You do not have permission to search these data sources.', 403, 'data_source#read');
     }
     filters.datasource_id = intersection.length === 1 ? intersection[0] : intersection;
   } else {
@@ -293,6 +437,28 @@ function constrainDatasourceFilter(
   const { datasource_id, ...rest } = value;
   void datasource_id;
   return { ...rest, filters };
+}
+
+function isOrgAdminBypassKillSwitchEnabled(): boolean {
+  const raw = process.env.RAG_ADMIN_BYPASS_DISABLED;
+  if (!raw) return false;
+  return raw === '1' || raw.trim().toLowerCase() === 'true';
+}
+
+async function isOrgAdminSession(session: AuthorizedRagContext['session']): Promise<boolean> {
+  if (isOrgAdminBypassKillSwitchEnabled()) return false;
+  const subject = typeof session.sub === 'string' && session.sub.trim() ? session.sub.trim() : null;
+  if (!subject) return false;
+  try {
+    const result = await checkOpenFgaTuple({
+      user: `user:${subject}`,
+      relation: 'can_manage',
+      object: organizationObjectId(),
+    });
+    return result.allowed === true;
+  } catch {
+    return false;
+  }
 }
 
 async function constrainSearchBody(
@@ -307,6 +473,13 @@ async function constrainSearchBody(
 
   const targetPath = pathSegments.join('/');
   if (targetPath !== 'v1/query' && targetPath !== 'v1/mcp/invoke') {
+    return body;
+  }
+
+  // Org admins (per OpenFGA `organization#admin`) skip the per-KB filter
+  // injection on KB-aware search. The kill-switch env var disables this
+  // bypass. See `bypassForOrgAdmin` in resource-authz.ts.
+  if (await isOrgAdminSession(session)) {
     return body;
   }
 
@@ -348,7 +521,8 @@ export async function GET(
     });
 
     const data = await response.json();
-    const filteredData = await filterDatasourceListResponse(session, path, data);
+    let filteredData = await filterDatasourceListResponse(session, path, data);
+    filteredData = await filterMcpToolListResponse(session, path, filteredData);
     return NextResponse.json(filteredData, { status: response.status });
   } catch (error) {
     if (error instanceof ApiError) {
@@ -401,7 +575,15 @@ export async function POST(
 
     const data = await response.json();
     if (response.ok && pendingKnowledgeBaseOwnership) {
+      // KB-backed datasources use the same identifier for data_source and
+      // knowledge_base relationships, so keep both resource graphs aligned.
+      // assisted-by Cursor claude-opus-4-7
       await reconcileKnowledgeBaseRelationships(pendingKnowledgeBaseOwnership);
+      await reconcileDataSourceRelationships({
+        dataSourceId: pendingKnowledgeBaseOwnership.knowledgeBaseId,
+        ownerSubject: pendingKnowledgeBaseOwnership.ownerSubject,
+        ownerTeamSlug: pendingKnowledgeBaseOwnership.ownerTeamSlug,
+      });
     }
     return NextResponse.json(data, { status: response.status });
   } catch (error) {
@@ -436,7 +618,7 @@ export async function PUT(
       }
     }
 
-    const { headers } = await getAuthorizedRagContext('PUT', path, request, body);
+    const { headers, pendingMcpToolOwnership } = await getAuthorizedRagContext('PUT', path, request, body);
     const fetchOptions: RequestInit = {
       method: 'PUT',
       headers,
@@ -449,10 +631,16 @@ export async function PUT(
     const response = await fetch(targetUrl, fetchOptions);
 
     if (response.status === 204) {
+      if (pendingMcpToolOwnership) {
+        await reconcileMcpToolRelationships(pendingMcpToolOwnership);
+      }
       return new NextResponse(null, { status: 204 });
     }
 
     const data = await response.json();
+    if (response.ok && pendingMcpToolOwnership) {
+      await reconcileMcpToolRelationships(pendingMcpToolOwnership);
+    }
     return NextResponse.json(data, { status: response.status });
   } catch (error) {
     if (error instanceof ApiError) {

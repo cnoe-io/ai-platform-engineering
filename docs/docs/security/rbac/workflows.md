@@ -606,6 +606,8 @@ endpoint cannot persist for long:
 | Save-side normaliser (BFF) | `POST/PUT /api/mcp-servers` rewrites a bare gateway URL to `/<server_id>` form before insert/update — prevents future drift | `ui/src/lib/rbac/mcp-endpoint-normalizer.ts`, `ui/src/app/api/mcp-servers/route.ts` |
 | Editor picker (UI) | `MCPServerEditor` calls `/api/mcp-servers/agentgateway/discover` on open and offers a `Pick AgentGateway target` row that fills the endpoint with the canonical `/<id>` form | `ui/src/components/dynamic-agents/MCPServerEditor.tsx` |
 | Read-side self-heal (runtime) | `build_mcp_connection_config` in dynamic-agents re-normalises against `AGENT_GATEWAY_URL` before handing the URL to the MCP transport, so legacy rows still work until repaired | `ai_platform_engineering/dynamic_agents/src/dynamic_agents/services/mcp_client.py`, `services/mcp_endpoint_normalizer.py` |
+| Standalone config reconciliation (Docker Compose) | `agentgateway-config-bridge` polls MongoDB for enabled AgentGateway-managed `mcp_servers` rows, renders one hot-reloaded standalone route per server, and writes the generated config volume consumed by AgentGateway | `deploy/agentgateway/config_bridge.py`, `deploy/agentgateway/Dockerfile.config-bridge`, `docker-compose.dev.yaml` |
+| Native Kubernetes routing (Helm) | The umbrella chart renders AgentGateway-native `AgentgatewayBackend` and `HTTPRoute` resources for the built-in Knowledge Base target and any configured `global.agentgateway.extraMcpTargets` | `charts/ai-platform-engineering/templates/agentgateway-mcp.yaml`, `charts/ai-platform-engineering/values.yaml` |
 | One-shot repair script | `scripts/fix-mcp-endpoint-routing.ts` audits the `mcp_servers` collection (dry-run by default) and rewrites mis-shaped rows under `--apply` | `scripts/fix-mcp-endpoint-routing.ts` |
 
 **Direct upstream URLs are never rewritten.** AgentGateway routing is
@@ -870,6 +872,79 @@ The two load-bearing invariants are:
 1. **Audience follows the next hop.** Bot pre-dispatch calls target the CAIPE UI BFF, so OBO uses `CAIPE_PLATFORM_AUDIENCE` (`caipe-platform` by default). The same bearer can still be forwarded later because Dynamic Agents and AgentGateway accept `caipe-platform`.
 2. **Team context is data-layer derived, not JWT-signed** (Phase 3 of spec 2026-05-24-derive-team-from-channel). Channel/space → team mapping is read from MongoDB at every request, and the BFF + AgentGateway PDP evaluate the OpenFGA decision against that mapping. The OBO token is team-agnostic.
 
+#### Sharing model: assigning a channel to a team transitively shares its agents
+
+Channel-dispatch authorization deliberately uses the channel's mapped team as
+the user-side subject of the `can_use agent:<id>` check
+(`team:<slug>#member can_use agent:<id>`). This is **stronger than a direct
+per-user grant on the user → agent edge**, because the OpenFGA model lets a
+user reach the agent through any team they belong to that has the grant.
+
+Operationally that means:
+
+- Assigning channel `C` to `team:T` and then sharing any agent `A` with `C`
+  (via the channel's `can_use agent` tuple) **also makes `A` callable in `C`
+  by every member of `team:T`**, including members who were never granted
+  `A` directly.
+- Removing the channel→team assignment, or unsharing the agent from the
+  channel, revokes that transitive access immediately on the next request.
+- A DM with the same user does **not** inherit this channel→team cascade
+  on its own — DM dispatch uses `user:<sub> can_use agent:<id>` and
+  ignores channel/team mappings. However, the DM check **does** fall
+  back to a team-union OpenFGA evaluation against existing
+  `team:<slug>#member can_use agent:<id>` tuples (see
+  `evaluateAgentAccess`), so any agent explicitly shared with a team
+  via the Agent editor (next section) **is** callable in DM by every
+  member of that team.
+
+If an agent must stay private to a subset of a team, do not pin it to a
+channel that is mapped to that team. Either:
+
+1. Share the agent with a smaller team (or with individual users) and keep
+   the channel mapped to the broader team for other agents, or
+2. Map the channel to a narrower team whose membership matches the intended
+   audience for that agent.
+
+The admin UI (Slack channel and Webex space ReBAC panels) surfaces this
+trade-off in the top-of-card "Sharing model" callout and in a per-channel
+heads-up under the agent-association form. Future work may add an
+optional per-channel agent allow-list that is stricter than the team-level
+grant; until then, the team cascade is the canonical policy and is
+documented behavior, not a bug.
+
+#### Sharing model: explicit "Share with Teams" on an agent
+
+The Agent editor (`DynamicAgentEditor`) has a "Share with Teams"
+multi-select that operates on the same two-tuple inheritance pair as
+the owner team, but **additively** — selecting a team T writes
+`team:T#member can_use agent:<id>` and `team:T#admin can_manage
+agent:<id>` to OpenFGA without disturbing the owner-team tuples. The
+practical consequence is:
+
+- Every member of team T can DM the agent in a 1:1 chat (because the
+  DM dispatch's team-union fallback resolves `user:<sub>` →
+  `team:T#member` → `can_use agent:<id>`).
+- Every member of team T can use the agent in any Slack channel or
+  Webex space whose `channel_team_mappings`/`webex_space_team_mappings`
+  row points at team T (because channel dispatch evaluates
+  `team:T#member can_use agent:<id>` directly).
+- Every admin of team T inherits `can_manage` on the agent and can
+  edit, disable, or delete it from the admin surfaces.
+
+Removing a team from the multi-select on the editor is symmetric:
+`POST/PUT /api/dynamic-agents` walks the previous `shared_with_teams`
+list against the new one and emits OpenFGA *delete* tuples for every
+removed slug (via `previousSharedTeamSlugs` on
+`reconcileAgentRelationships`). Until 2026-05-27 this field was
+Mongo-only — the multi-select silently denied access — see
+`agent_shared_team_grants_backfill_v1` for the one-shot replay that
+fixes existing agents.
+
+The "Effective access" callout under the multi-select is the
+operator-facing render of exactly which `team:<slug>#member` tuples the
+next save will write to OpenFGA, so admins can confirm the transitive
+grant before the form is submitted.
+
 ### `/use default` workflow (DM personal default)
 
 `/caipe-use default <agent_id>` and `/caipe-use default` (no agent) update a
@@ -980,14 +1055,14 @@ On the user's first Slack message the bot:
 When no existing Keycloak user matches the Slack email, and JIT is enabled, the bot:
 
 1. **Optionally checks** the email domain against `SLACK_JIT_ALLOWED_EMAIL_DOMAINS` (comma-separated allowlist; empty = any domain).
-2. **POSTs to `/admin/realms/{realm}/users`** using the same `KEYCLOAK_SLACK_BOT_ADMIN_*` credentials (`caipe-platform` service account, holds `realm-management:{view-users, query-users, manage-users}`).
+2. **POSTs to `/admin/realms/{realm}/users`** using the same `KEYCLOAK_SLACK_BOT_ADMIN_*` credentials (`caipe-platform` service account, holds `realm-management:{view-users, query-users, manage-users}` for this path).
 3. The created user is **federated-only**: no password, no required actions, `emailVerified=true`, with attributes `slack_user_id`, `created_by=slack-bot:jit`, `created_at=<RFC3339>`.
 4. **Race-safe**: an HTTP 409 from a concurrent create is resolved by re-querying the email and returning the surviving UUID.
 5. **On failure** (4xx/5xx/network), the bot logs `event=jit_failed error_kind=<auth_failure|forbidden|server_error|network_error|unexpected>` and falls through to step 3.
 
 JIT is **default ON in dev** so first-time DMs work without an admin handshake. **Set `SLACK_JIT_CREATE_USER=false` in production** if you want web-UI onboarding to be a hard prerequisite — in which case all unknown emails go to the link URL below.
 
-> **Single-credential design (spec 103, plan R-8).** JIT deliberately reuses the existing `caipe-platform` admin client rather than introducing a separate `caipe-slack-bot-provisioner`. This trades strict privilege separation (one secret can both read and create users) for operational simplicity (one Secret to manage, one rotation procedure, one audit identity). Compensating mitigations: only the `create_user_from_slack` helper writes `/users`; `init-idp.sh` and `realm-config.json` pin the service account to exactly `{view-users, query-users, manage-users}`; all JIT actions are logged with stable `event=jit_*` tokens for SIEM.
+> **Single-credential design (spec 103, plan R-8).** JIT deliberately reuses the existing `caipe-platform` admin client rather than introducing a separate `caipe-slack-bot-provisioner`. This trades strict privilege separation (one secret can both read and create users) for operational simplicity (one Secret to manage, one rotation procedure, one audit identity). Compensating mitigations: only the `create_user_from_slack` helper writes `/users`; all JIT actions are logged with stable `event=jit_*` tokens for SIEM. The same service account also holds client/authz `realm-management` roles because the Web UI BFF Keycloak RBAC migration must inspect and repair OBO clients and scope permissions.
 
 ### 3. Explicit link URL (fallback or `SLACK_FORCE_LINK=true`)
 

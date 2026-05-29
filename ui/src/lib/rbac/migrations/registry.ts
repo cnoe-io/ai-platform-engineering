@@ -5,7 +5,7 @@ import {
   KEYCLOAK_RBAC_RECONCILIATION_MIGRATION_ID,
   planKeycloakRbacReconciliationMigration,
 } from "@/lib/rbac/keycloak-rbac-reconciliation";
-import { writeOpenFgaTuples, type OpenFgaTupleKey } from "@/lib/rbac/openfga";
+import { readOpenFgaTuples, writeOpenFgaTuples, type OpenFgaTupleKey } from "@/lib/rbac/openfga";
 import { caipeOrgKey } from "@/lib/rbac/organization";
 import { slackChannelTeamVisibilityRelationships } from "@/lib/rbac/slack-channel-rebac";
 import { webexSpaceTeamVisibilityRelationships } from "@/lib/rbac/webex-space-rebac";
@@ -44,6 +44,56 @@ const ORGANIZATION_MEMBERSHIP_MIGRATION_ID = "organization_membership_backfill_v
 const SKILL_HUB_TEAM_GRANTS_MIGRATION_ID = "skill_hub_team_grants_backfill_v1";
 const AGENT_TOOL_MIGRATION_ID = "agent_tool_openfga_backfill_v1";
 export const AGENT_ORG_ADMIN_MIGRATION_ID = "agent_org_admin_inheritance_v1";
+// assisted-by Cursor Claude:claude-opus-4-7
+// Backfills the OpenFGA tuples implied by every existing agent's
+// `shared_with_teams` field. Until 2026-05-27 the Agent editor stored
+// shared teams in Mongo only — no `team:<slug>#member can_use agent:<id>`
+// tuples were ever written — so the multi-select silently denied access in
+// DMs (which evaluate `user:<sub> can_use agent:<id>` and only fall back
+// to a team-union check against EXISTING tuples). This migration walks
+// the dynamic_agents collection, resolves each shared entry (legacy
+// Mongo `_id` OR slug) against the teams collection, and writes the
+// canonical team-member/team-admin tuple pair for every resolved slug.
+// Idempotent — re-running it is safe and a no-op when nothing changed.
+export const AGENT_SHARED_TEAM_GRANTS_MIGRATION_ID = "agent_shared_team_grants_backfill_v1";
+// assisted-by Cursor Claude:claude-opus-4-7
+// Adds `rag_datasources` to PRIVILEGED_ADMIN_SURFACES, but every
+// previously-bootstrapped org-admin in OpenFGA still lacks the matching
+// `user:<sub> manager admin_surface:rag_datasources` tuple. The `rag` +
+// `admin` short-circuit in `api-middleware.ts` resolves that tuple via
+// model inheritance from `organization#admin`, but writing it explicitly
+// makes the org-admin super-grant on KB/Search/Data Sources/Graph/MCP
+// fail-safe instead of inheritance-dependent. Idempotent — re-running
+// it writes the same tuples and OpenFGA no-ops on identical writes.
+export const ADMIN_SURFACE_RAG_DATASOURCES_ADMIN_GRANT_MIGRATION_ID =
+  "admin_surface_rag_datasources_admin_grant_v1";
+// Walks every existing `team_kb_ownership` doc and writes the canonical
+// `team:<slug>#member reader`, `team:<slug>#member ingestor`, and
+// `team:<slug>#admin manager knowledge_base:<id>` tuples for every
+// (team, kb) row. Catches up KBs that were granted to a team via the
+// Settings → Knowledge Bases UI before explicit Share-with-Teams
+// reconciliation existed. Idempotent.
+export const KNOWLEDGE_BASE_SHARED_TEAM_GRANTS_MIGRATION_ID =
+  "knowledge_base_shared_team_grants_backfill_v1";
+// `data_source_grants_backfill_v1` mirrors every existing
+// `knowledge_base:<id>` tuple in OpenFGA as a `data_source:<id>`
+// tuple, so day-zero behavior of "if you can read the KB you can read
+// its data source" is preserved when the new type is introduced.
+// Strictly additive — no deletes are ever planned by this migration.
+// See [docs/docs/security/rbac/architecture.md] for the policy and
+// rollout sequence.
+// assisted-by Cursor claude-opus-4-7
+export const DATA_SOURCE_GRANTS_BACKFILL_MIGRATION_ID =
+  "data_source_grants_backfill_v1";
+// `mcp_tool_grants_backfill_v1` walks Mongo `team_rag_tools` and
+// writes `team:<slug>#member reader mcp_tool:<tool_id>` (plus the
+// matching `user` relation, mirroring `mcp_server` invokers). For
+// teams without an explicit owner team it's a no-op — admins keep
+// access via the `organization#admin → manager` model edge documented
+// in [deploy/openfga/model.fga].
+// assisted-by Cursor claude-opus-4-7
+export const MCP_TOOL_GRANTS_BACKFILL_MIGRATION_ID =
+  "mcp_tool_grants_backfill_v1";
 const RBAC_INDEXES_MIGRATION_ID = "rbac_indexes_v1";
 const SLACK_CHANNEL_REBAC_MIGRATION_ID = "slack_channel_rebac_backfill_v1";
 const WEBEX_SPACE_REBAC_MIGRATION_ID = "webex_space_rebac_backfill_v1";
@@ -166,6 +216,77 @@ export const MIGRATION_DEFINITIONS: MigrationDefinition[] = [
     required: true,
     implemented: true,
     dependencies: [AGENT_TOOL_MIGRATION_ID],
+  },
+  {
+    id: AGENT_SHARED_TEAM_GRANTS_MIGRATION_ID,
+    release: RELEASE_051,
+    schema_area: "dynamic_agents",
+    from_version: 3,
+    to_version: 4,
+    kind: "explicit",
+    title: "Dynamic Agent shared-team grants",
+    description:
+      "Backfill OpenFGA team#member→can_use and team#admin→can_manage tuples for every dynamic agent's shared_with_teams field. Before 2026-05-27 the Agent editor wrote shared teams to Mongo only, so the multi-select silently denied DM access.",
+    confirmation: "MIGRATE dynamic_agents TO v4",
+    required: true,
+    implemented: true,
+    dependencies: [AGENT_ORG_ADMIN_MIGRATION_ID],
+  },
+  {
+    id: ADMIN_SURFACE_RAG_DATASOURCES_ADMIN_GRANT_MIGRATION_ID,
+    release: RELEASE_051,
+    schema_area: "admin_surfaces",
+    from_version: 1,
+    to_version: 2,
+    kind: "explicit",
+    title: "rag_datasources admin-surface manager grant",
+    description:
+      "Backfill `user:<sub> manager admin_surface:rag_datasources` for every existing org admin so the org-admin super-grant on KB/Search/Data Sources/Graph/MCP Tools no longer relies solely on OpenFGA model inheritance.",
+    confirmation: "MIGRATE admin_surfaces TO v2",
+    required: true,
+    implemented: true,
+  },
+  {
+    id: KNOWLEDGE_BASE_SHARED_TEAM_GRANTS_MIGRATION_ID,
+    release: RELEASE_051,
+    schema_area: "team_kb_ownership",
+    from_version: 1,
+    to_version: 2,
+    kind: "explicit",
+    title: "Knowledge Base team-share grants backfill",
+    description:
+      "Walks every `team_kb_ownership` Mongo doc and writes the canonical `team:<slug>#member reader knowledge_base:<id>`, `team:<slug>#member ingestor knowledge_base:<id>`, and `team:<slug>#admin manager knowledge_base:<id>` tuples so any KB granted to a team via Settings → Knowledge Bases keeps its access after the explicit Share-with-Teams panel ships. Idempotent.",
+    confirmation: "MIGRATE team_kb_ownership TO v2",
+    required: true,
+    implemented: true,
+  },
+  {
+    id: DATA_SOURCE_GRANTS_BACKFILL_MIGRATION_ID,
+    release: RELEASE_051,
+    schema_area: "openfga_tuples",
+    from_version: 1,
+    to_version: 2,
+    kind: "explicit",
+    title: "data_source grants backfill",
+    description:
+      "Mirrors every existing `knowledge_base:<id>` tuple in OpenFGA as a parallel `data_source:<id>` tuple. Preserves day-zero behavior — anyone who can read the KB can read its data source — without requiring users to re-share their KBs after the new `data_source` type is introduced. Strictly additive.",
+    confirmation: "MIGRATE openfga_tuples TO data_source_v1",
+    required: true,
+    implemented: true,
+  },
+  {
+    id: MCP_TOOL_GRANTS_BACKFILL_MIGRATION_ID,
+    release: RELEASE_051,
+    schema_area: "team_rag_tools",
+    from_version: 1,
+    to_version: 2,
+    kind: "explicit",
+    title: "mcp_tool grants backfill",
+    description:
+      "Walks Mongo `team_rag_tools` and writes the canonical `team:<slug>#member reader mcp_tool:<tool_id>` + `team:<slug>#member user mcp_tool:<tool_id>` + `team:<slug>#admin manager mcp_tool:<tool_id>` tuples so every team that already owned a RAG custom MCP tool keeps access through the BFF's per-tool filter. Idempotent.",
+    confirmation: "MIGRATE team_rag_tools TO mcp_tool_v1",
+    required: true,
+    implemented: true,
   },
   {
     id: "rbac_indexes_v1",
@@ -382,6 +503,12 @@ function deriveUniversalRebacPlan(input: {
       continue;
     }
 
+    // Historic universal-rebac migration: reads legacy team.members[] to seed
+    // team_membership_sources for clusters upgrading from < 0.5.1. After the
+    // canonical-team-membership refactor (spec 2026-05-26), live writers no
+    // longer populate this array, but this code path must remain for legacy
+    // upgrade paths and is harmless on already-canonical clusters (the array
+    // is undefined, so the loop is empty).
     for (const member of team.members ?? []) {
       const email = normalizeEmail(member.user_id);
       const subject = email ? emailSubjects.get(email) ?? email : null;
@@ -760,6 +887,446 @@ export function deriveAgentOrganizationInheritancePlan(
     })),
     tuple_writes_planned: unique.length,
     confirmation: "MIGRATE dynamic_agents TO v3",
+    tuples: unique,
+  };
+}
+
+/**
+ * Derive `team:<slug>#member can_use agent:<id>` and
+ * `team:<slug>#admin can_manage agent:<id>` tuples for every shared
+ * team on every existing dynamic agent.
+ *
+ * Inputs:
+ *  - `agents`: full dynamic_agents collection. Reads `shared_with_teams`
+ *    (legacy: array of Mongo `_id` strings; modern: array of canonical
+ *    slugs) and `owner_team_slug`. The owner team's tuples are
+ *    intentionally *not* written here — `agent_org_admin_inheritance_v1`
+ *    and the original `agent_tool_openfga_backfill_v1` already cover
+ *    that — so this migration is strictly additive for the shared
+ *    multi-select.
+ *  - `teams`: full teams collection (id + slug). Used to translate any
+ *    legacy `_id` references back to the canonical slug.
+ *
+ * Idempotent: re-running this migration writes the same tuples a second
+ * time and OpenFGA's tuple store no-ops on identical writes.
+ */
+export function deriveAgentSharedTeamGrantsPlan(
+  agents: Array<Record<string, any>>,
+  teams: Array<Record<string, any>>,
+): MigrationRuntimePlan {
+  const slugById = new Map<string, string>();
+  const knownSlugs = new Set<string>();
+  for (const team of teams) {
+    const slug = normalizeString(team.slug);
+    if (!slug || !isOpenFgaId(slug)) continue;
+    knownSlugs.add(slug);
+    const idHex = mongoId(team);
+    if (idHex) slugById.set(idHex, slug);
+  }
+
+  const tuples: OpenFgaTupleKey[] = [];
+  const warnings: string[] = [];
+  let agentsScanned = 0;
+  let agentsWithSharedTeams = 0;
+  let sharedSlugsResolved = 0;
+  let unresolvedEntries = 0;
+
+  for (const agent of agents) {
+    agentsScanned += 1;
+    const agentId = normalizeString(agent.id) ?? normalizeString(agent._id);
+    if (!agentId || !isOpenFgaId(agentId)) {
+      warnings.push(`Skipping dynamic agent with invalid id: ${String(agent.id ?? agent._id)}`);
+      continue;
+    }
+    const rawShared = normalizeStringArray(agent.shared_with_teams);
+    if (rawShared.length === 0) continue;
+    agentsWithSharedTeams += 1;
+
+    const ownerSlug = normalizeString(agent.owner_team_slug);
+    const seen = new Set<string>();
+    for (const entry of rawShared) {
+      // Resolve legacy `_id` → slug, or accept a slug directly.
+      const resolvedSlug =
+        slugById.get(entry) ??
+        (knownSlugs.has(entry) ? entry : null);
+      if (!resolvedSlug || !isOpenFgaId(resolvedSlug)) {
+        unresolvedEntries += 1;
+        warnings.push(`Agent ${agentId}: shared_with_teams entry has no matching team: ${entry}`);
+        continue;
+      }
+      // Don't double-count the owner team — the owner-team tuples are
+      // written by the earlier agent_tool / agent_org_admin migrations
+      // and by every live POST/PUT reconcile.
+      if (ownerSlug && resolvedSlug === ownerSlug) continue;
+      if (seen.has(resolvedSlug)) continue;
+      seen.add(resolvedSlug);
+      sharedSlugsResolved += 1;
+
+      tuples.push({
+        user: `team:${resolvedSlug}#member`,
+        relation: "user",
+        object: `agent:${agentId}`,
+      });
+      tuples.push({
+        user: `team:${resolvedSlug}#admin`,
+        relation: "manager",
+        object: `agent:${agentId}`,
+      });
+    }
+  }
+
+  const unique = uniqueTuples(tuples);
+  return {
+    migration_id: AGENT_SHARED_TEAM_GRANTS_MIGRATION_ID,
+    release: RELEASE_051,
+    schema_area: "dynamic_agents",
+    kind: "explicit",
+    from_version: 3,
+    to_version: 4,
+    counts: {
+      agents_scanned: agentsScanned,
+      agents_with_shared_teams: agentsWithSharedTeams,
+      shared_slugs_resolved: sharedSlugsResolved,
+      unresolved_entries: unresolvedEntries,
+      teams_scanned: teams.length,
+      tuples_planned: unique.length,
+    },
+    warnings,
+    sample_diffs: unique.slice(0, 10).map((tuple, index) => ({
+      collection: "openfga_tuples",
+      id: `${AGENT_SHARED_TEAM_GRANTS_MIGRATION_ID}:${index}`,
+      before: {},
+      after: { ...tuple },
+    })),
+    tuple_writes_planned: unique.length,
+    confirmation: "MIGRATE dynamic_agents TO v4",
+    tuples: unique,
+  };
+}
+
+/**
+ * Backfill the `user:<sub> manager admin_surface:rag_datasources` tuple
+ * for every existing org admin.
+ *
+ * Inputs:
+ *  - `adminSubjects`: list of OpenFGA user subjects (no `user:` prefix)
+ *    derived from the `user:<sub> admin organization:<key>` tuples in
+ *    OpenFGA. Invalid subjects are skipped with a warning.
+ *
+ * Idempotent: re-running this migration writes the same tuples; OpenFGA's
+ * tuple store no-ops on identical writes.
+ */
+export function deriveAdminSurfaceRagDatasourcesAdminGrantPlan(
+  adminSubjects: string[],
+): MigrationRuntimePlan {
+  const tuples: OpenFgaTupleKey[] = [];
+  const warnings: string[] = [];
+  let invalidSubjects = 0;
+  const seen = new Set<string>();
+
+  for (const raw of adminSubjects) {
+    const subject = typeof raw === "string" ? raw.trim() : "";
+    if (!subject) continue;
+    if (!isOpenFgaId(subject)) {
+      invalidSubjects += 1;
+      warnings.push(`Skipping org admin with invalid OpenFGA subject: ${raw}`);
+      continue;
+    }
+    if (seen.has(subject)) continue;
+    seen.add(subject);
+    tuples.push({
+      user: `user:${subject}`,
+      relation: "manager",
+      object: "admin_surface:rag_datasources",
+    });
+  }
+
+  const unique = uniqueTuples(tuples);
+  return {
+    migration_id: ADMIN_SURFACE_RAG_DATASOURCES_ADMIN_GRANT_MIGRATION_ID,
+    release: RELEASE_051,
+    schema_area: "admin_surfaces",
+    kind: "explicit",
+    from_version: 1,
+    to_version: 2,
+    counts: {
+      admins_scanned: adminSubjects.length,
+      admins_resolved: seen.size,
+      tuples_planned: unique.length,
+      invalid_subjects: invalidSubjects,
+    },
+    warnings,
+    sample_diffs: unique.slice(0, 10).map((tuple, index) => ({
+      collection: "openfga_tuples",
+      id: `${ADMIN_SURFACE_RAG_DATASOURCES_ADMIN_GRANT_MIGRATION_ID}:${index}`,
+      before: {},
+      after: { ...tuple },
+    })),
+    tuple_writes_planned: unique.length,
+    confirmation: "MIGRATE admin_surfaces TO v2",
+    tuples: unique,
+  };
+}
+
+/**
+ * Backfill team-share grants for every KB ownership record.
+ *
+ * Inputs:
+ *  - `ownershipDocs`: rows from the `team_kb_ownership` Mongo collection.
+ *  - `teamSlugByMongoId`: map from each team's Mongo `_id` (as string) to
+ *    its canonical slug. Rows whose team is unknown (or has no slug yet)
+ *    are skipped with a warning so the migration is safe to re-run after
+ *    a team rename.
+ *
+ * The migration emits the same canonical tuple set the runtime reconciler
+ * writes (`reader` + `ingestor` + `manager`) for every (team, kb_id) row,
+ * so first-time installs and existing deployments converge on the same
+ * OpenFGA state.
+ */
+export function deriveKnowledgeBaseSharedTeamGrantsPlan(
+  ownershipDocs: Array<Record<string, unknown>>,
+  teamSlugByMongoId: Map<string, string>,
+): MigrationRuntimePlan {
+  const tuples: OpenFgaTupleKey[] = [];
+  const warnings: string[] = [];
+  let rowsScanned = 0;
+  let rowsResolved = 0;
+  let invalidKbIds = 0;
+  let unresolvedTeams = 0;
+  const teamsTouched = new Set<string>();
+
+  for (const doc of ownershipDocs) {
+    rowsScanned += 1;
+    const teamId = typeof doc.team_id === "string" ? doc.team_id.trim() : "";
+    if (!teamId) continue;
+    const slug = teamSlugByMongoId.get(teamId);
+    if (!slug || !isOpenFgaId(slug)) {
+      unresolvedTeams += 1;
+      warnings.push(`Skipping team_kb_ownership row with unresolved team_id=${teamId}`);
+      continue;
+    }
+    const kbIdsRaw = Array.isArray(doc.kb_ids) ? doc.kb_ids : [];
+    let perRowResolved = false;
+    for (const candidate of kbIdsRaw) {
+      const kbId = typeof candidate === "string" ? candidate.trim() : "";
+      if (!kbId) continue;
+      if (!isOpenFgaId(kbId)) {
+        invalidKbIds += 1;
+        warnings.push(`Skipping team_kb_ownership kb_id=${candidate} (not a valid OpenFGA id)`);
+        continue;
+      }
+      tuples.push({
+        user: `team:${slug}#member`,
+        relation: "reader",
+        object: `knowledge_base:${kbId}`,
+      });
+      tuples.push({
+        user: `team:${slug}#member`,
+        relation: "ingestor",
+        object: `knowledge_base:${kbId}`,
+      });
+      tuples.push({
+        user: `team:${slug}#admin`,
+        relation: "manager",
+        object: `knowledge_base:${kbId}`,
+      });
+      perRowResolved = true;
+    }
+    if (perRowResolved) {
+      rowsResolved += 1;
+      teamsTouched.add(slug);
+    }
+  }
+
+  const unique = uniqueTuples(tuples);
+  return {
+    migration_id: KNOWLEDGE_BASE_SHARED_TEAM_GRANTS_MIGRATION_ID,
+    release: RELEASE_051,
+    schema_area: "team_kb_ownership",
+    kind: "explicit",
+    from_version: 1,
+    to_version: 2,
+    counts: {
+      ownership_rows_scanned: rowsScanned,
+      ownership_rows_resolved: rowsResolved,
+      teams_touched: teamsTouched.size,
+      unresolved_teams: unresolvedTeams,
+      invalid_kb_ids: invalidKbIds,
+      tuples_planned: unique.length,
+    },
+    warnings,
+    sample_diffs: unique.slice(0, 10).map((tuple, index) => ({
+      collection: "openfga_tuples",
+      id: `${KNOWLEDGE_BASE_SHARED_TEAM_GRANTS_MIGRATION_ID}:${index}`,
+      before: {},
+      after: { ...tuple },
+    })),
+    tuple_writes_planned: unique.length,
+    confirmation: "MIGRATE team_kb_ownership TO v2",
+    tuples: unique,
+  };
+}
+
+/**
+ * Mirror existing `knowledge_base:<id>` tuples as `data_source:<id>`
+ * tuples so day-zero behavior of "if you can read the KB you can read
+ * its data source" is preserved when the new `data_source` type is
+ * introduced.
+ *
+ * Input: every OpenFGA tuple whose `object` starts with
+ * `knowledge_base:`. The deriver does not deduplicate against existing
+ * `data_source:` tuples because write-by-tuple is already idempotent
+ * in OpenFGA (writing the same tuple twice is a no-op), and the
+ * migration runner runs `unique` filtering anyway. Only tuples whose
+ * relation is one of the team-share relations (`reader`, `manager`,
+ * `ingestor`, `owner`) are mirrored — `can_*` computed relations
+ * never appear as written tuples so they're safe to ignore.
+ *
+ * Caller-supplied tuples must already be valid OpenFGA tuple keys;
+ * this deriver does no validation beyond the relation allow-list.
+ */
+export function deriveDataSourceGrantsBackfillPlan(
+  knowledgeBaseTuples: ReadonlyArray<OpenFgaTupleKey>,
+): MigrationRuntimePlan {
+  const tuples: OpenFgaTupleKey[] = [];
+  const warnings: string[] = [];
+  let scanned = 0;
+  let mirrored = 0;
+  const MIRRORABLE_RELATIONS = new Set([
+    "owner",
+    "reader",
+    "ingestor",
+    "manager",
+  ]);
+
+  for (const tuple of knowledgeBaseTuples) {
+    scanned += 1;
+    if (!tuple.object?.startsWith("knowledge_base:")) continue;
+    if (!MIRRORABLE_RELATIONS.has(tuple.relation)) continue;
+    const id = tuple.object.slice("knowledge_base:".length);
+    if (!id || !isOpenFgaId(id)) {
+      warnings.push(`Skipping knowledge_base tuple with invalid id: ${tuple.object}`);
+      continue;
+    }
+    tuples.push({
+      user: tuple.user,
+      relation: tuple.relation,
+      object: `data_source:${id}`,
+    });
+    mirrored += 1;
+  }
+
+  const unique = uniqueTuples(tuples);
+  return {
+    migration_id: DATA_SOURCE_GRANTS_BACKFILL_MIGRATION_ID,
+    release: RELEASE_051,
+    schema_area: "openfga_tuples",
+    kind: "explicit",
+    from_version: 1,
+    to_version: 2,
+    counts: {
+      tuples_scanned: scanned,
+      tuples_mirrored: mirrored,
+      tuples_planned: unique.length,
+    },
+    warnings,
+    sample_diffs: unique.slice(0, 10).map((tuple, index) => ({
+      collection: "openfga_tuples",
+      id: `${DATA_SOURCE_GRANTS_BACKFILL_MIGRATION_ID}:${index}`,
+      before: {},
+      after: { ...tuple },
+    })),
+    tuple_writes_planned: unique.length,
+    confirmation: "MIGRATE openfga_tuples TO data_source_v1",
+    tuples: unique,
+  };
+}
+
+/**
+ * Backfill `mcp_tool:<tool_id>` grants for every Mongo `team_rag_tools`
+ * row. Mirrors the runtime reconciler used by
+ * `reconcileMcpToolRelationships`: the owner team's members get
+ * `reader` + `user`, the owner team's admins get `manager`.
+ *
+ * Inputs:
+ *  - `ownershipDocs`: rows from the `team_rag_tools` collection. Each
+ *    is expected to have a `team_id` (Mongo id of the owning team)
+ *    and a `tool_ids` array of `tool_id` strings, mirroring the
+ *    `team_kb_ownership` schema.
+ *  - `teamSlugByMongoId`: same `_id → slug` map as the KB backfill.
+ *
+ * Rows whose team is unknown or whose tool_id is not OpenFGA-safe are
+ * skipped with a warning.
+ */
+export function deriveMcpToolGrantsBackfillPlan(
+  ownershipDocs: Array<Record<string, unknown>>,
+  teamSlugByMongoId: Map<string, string>,
+): MigrationRuntimePlan {
+  const tuples: OpenFgaTupleKey[] = [];
+  const warnings: string[] = [];
+  let rowsScanned = 0;
+  let rowsResolved = 0;
+  let invalidToolIds = 0;
+  let unresolvedTeams = 0;
+  const teamsTouched = new Set<string>();
+
+  for (const doc of ownershipDocs) {
+    rowsScanned += 1;
+    const teamId = typeof doc.team_id === "string" ? doc.team_id.trim() : "";
+    if (!teamId) continue;
+    const slug = teamSlugByMongoId.get(teamId);
+    if (!slug || !isOpenFgaId(slug)) {
+      unresolvedTeams += 1;
+      warnings.push(`Skipping team_rag_tools row with unresolved team_id=${teamId}`);
+      continue;
+    }
+    const toolIdsRaw = Array.isArray(doc.tool_ids) ? doc.tool_ids : [];
+    let perRowResolved = false;
+    for (const candidate of toolIdsRaw) {
+      const toolId = typeof candidate === "string" ? candidate.trim() : "";
+      if (!toolId) continue;
+      if (!isOpenFgaId(toolId)) {
+        invalidToolIds += 1;
+        warnings.push(`Skipping team_rag_tools tool_id=${candidate} (not a valid OpenFGA id)`);
+        continue;
+      }
+      const object = `mcp_tool:${toolId}`;
+      tuples.push({ user: `team:${slug}#member`, relation: "reader", object });
+      tuples.push({ user: `team:${slug}#member`, relation: "user", object });
+      tuples.push({ user: `team:${slug}#admin`, relation: "manager", object });
+      perRowResolved = true;
+    }
+    if (perRowResolved) {
+      rowsResolved += 1;
+      teamsTouched.add(slug);
+    }
+  }
+
+  const unique = uniqueTuples(tuples);
+  return {
+    migration_id: MCP_TOOL_GRANTS_BACKFILL_MIGRATION_ID,
+    release: RELEASE_051,
+    schema_area: "team_rag_tools",
+    kind: "explicit",
+    from_version: 1,
+    to_version: 2,
+    counts: {
+      ownership_rows_scanned: rowsScanned,
+      ownership_rows_resolved: rowsResolved,
+      teams_touched: teamsTouched.size,
+      unresolved_teams: unresolvedTeams,
+      invalid_tool_ids: invalidToolIds,
+      tuples_planned: unique.length,
+    },
+    warnings,
+    sample_diffs: unique.slice(0, 10).map((tuple, index) => ({
+      collection: "openfga_tuples",
+      id: `${MCP_TOOL_GRANTS_BACKFILL_MIGRATION_ID}:${index}`,
+      before: {},
+      after: { ...tuple },
+    })),
+    tuple_writes_planned: unique.length,
+    confirmation: "MIGRATE team_rag_tools TO mcp_tool_v1",
     tuples: unique,
   };
 }
@@ -1261,6 +1828,155 @@ async function loadAgentToolMigrationInputs() {
   return dynamicAgents.find({}).toArray();
 }
 
+async function loadAgentSharedTeamGrantInputs() {
+  const [agents, teams] = await Promise.all([
+    getCollection("dynamic_agents"),
+    getCollection("teams"),
+  ]);
+  const [agentDocs, teamDocs] = await Promise.all([
+    agents.find({}).toArray(),
+    teams.find({}).project({ _id: 1, slug: 1 }).toArray(),
+  ]);
+  return { agentDocs, teamDocs };
+}
+
+// assisted-by Cursor Claude:claude-opus-4-7
+// Walk the existing OpenFGA `user:<sub> admin organization:<key>` tuples
+// to discover every previously-bootstrapped org admin subject. Pages
+// through the store because some deployments have thousands of users.
+/**
+ * Load every `team_kb_ownership` Mongo doc plus a `teamId → slug` map for
+ * the KB shared-team grants backfill. Skips teams whose Mongo `_id` is
+ * unknown (returned in the migration `warnings` instead of failing the
+ * whole plan, mirroring `deriveMessagingRebacPlan`).
+ */
+async function loadKnowledgeBaseSharedTeamGrantsInputs(): Promise<{
+  ownershipDocs: Array<Record<string, unknown>>;
+  teamSlugByMongoId: Map<string, string>;
+}> {
+  const [ownershipCollection, teamsCollection] = await Promise.all([
+    getCollection("team_kb_ownership"),
+    getCollection("teams"),
+  ]);
+
+  const ownershipDocs = (await ownershipCollection.find({}).toArray()) as Array<
+    Record<string, unknown>
+  >;
+
+  // Best-effort: only resolve teams that have a slug field. The teams
+  // collection's _id is sometimes an ObjectId and sometimes a string;
+  // we coerce both to string so the lookup is uniform.
+  const teamDocs = (await teamsCollection
+    .find({}, { projection: { _id: 1, slug: 1 } } as never)
+    .toArray()) as Array<Record<string, unknown>>;
+  const teamSlugByMongoId = new Map<string, string>();
+  for (const doc of teamDocs) {
+    const idValue = (doc as { _id?: unknown })._id;
+    const slug = typeof doc.slug === "string" ? doc.slug.trim() : "";
+    if (!slug) continue;
+    const idString =
+      typeof idValue === "string"
+        ? idValue
+        : idValue && typeof (idValue as { toString?: () => string }).toString === "function"
+          ? (idValue as { toString: () => string }).toString()
+          : "";
+    if (!idString) continue;
+    teamSlugByMongoId.set(idString, slug);
+  }
+
+  return { ownershipDocs, teamSlugByMongoId };
+}
+
+/**
+ * Read existing `knowledge_base:*` tuples from OpenFGA. Used by
+ * `deriveDataSourceGrantsBackfillPlan` so the data_source mirror set is
+ * computed from the source of truth instead of Mongo. OpenFGA does not
+ * accept `knowledge_base:` as a tuple-key prefix filter, so this iterates
+ * the valid paginated read API and filters object type client-side.
+ *
+ * Failures (OpenFGA unreachable, model not loaded) bubble up so the
+ * migration runner can surface the underlying error rather than
+ * silently writing 0 tuples.
+ */
+async function loadKnowledgeBaseTuples(): Promise<OpenFgaTupleKey[]> {
+  const collected: OpenFgaTupleKey[] = [];
+  let continuationToken: string | undefined;
+  do {
+    const page = await readOpenFgaTuples({
+      continuationToken,
+      pageSize: 100,
+    });
+    for (const entry of page.tuples) {
+      if (entry.key.object.startsWith("knowledge_base:")) {
+        collected.push(entry.key);
+      }
+    }
+    continuationToken = page.continuationToken;
+  } while (continuationToken);
+  return collected;
+}
+
+/**
+ * Load every `team_rag_tools` Mongo doc plus a `teamId → slug` map
+ * for the MCP tool grants backfill, mirroring
+ * `loadKnowledgeBaseSharedTeamGrantsInputs`.
+ */
+async function loadMcpToolGrantsBackfillInputs(): Promise<{
+  ownershipDocs: Array<Record<string, unknown>>;
+  teamSlugByMongoId: Map<string, string>;
+}> {
+  const [ownershipCollection, teamsCollection] = await Promise.all([
+    getCollection("team_rag_tools"),
+    getCollection("teams"),
+  ]);
+
+  const ownershipDocs = (await ownershipCollection.find({}).toArray()) as Array<
+    Record<string, unknown>
+  >;
+
+  const teamDocs = (await teamsCollection
+    .find({}, { projection: { _id: 1, slug: 1 } } as never)
+    .toArray()) as Array<Record<string, unknown>>;
+  const teamSlugByMongoId = new Map<string, string>();
+  for (const doc of teamDocs) {
+    const idValue = (doc as { _id?: unknown })._id;
+    const slug = typeof doc.slug === "string" ? doc.slug.trim() : "";
+    if (!slug) continue;
+    const idString =
+      typeof idValue === "string"
+        ? idValue
+        : idValue && typeof (idValue as { toString?: () => string }).toString === "function"
+          ? (idValue as { toString: () => string }).toString()
+          : "";
+    if (!idString) continue;
+    teamSlugByMongoId.set(idString, slug);
+  }
+
+  return { ownershipDocs, teamSlugByMongoId };
+}
+
+async function loadOrgAdminSubjects(): Promise<string[]> {
+  const subjects = new Set<string>();
+  const organizationObject = `organization:${caipeOrgKey()}`;
+  let continuationToken: string | undefined;
+  do {
+    const page = await readOpenFgaTuples({
+      tuple: { object: organizationObject, relation: "admin" },
+      continuationToken,
+      pageSize: 100,
+    });
+    for (const tuple of page.tuples) {
+      const user = tuple.key?.user;
+      if (typeof user !== "string") continue;
+      if (!user.startsWith("user:")) continue;
+      const subject = user.slice("user:".length).trim();
+      if (subject) subjects.add(subject);
+    }
+    continuationToken = page.continuationToken;
+  } while (continuationToken);
+  return Array.from(subjects);
+}
+
 async function loadMessagingRebacInputs(surface: "slack" | "webex") {
   if (surface === "slack") {
     const [grants, routes] = await Promise.all([
@@ -1712,6 +2428,30 @@ export async function planMigration(migrationId: string, now = new Date().toISOS
   if (migrationId === AGENT_ORG_ADMIN_MIGRATION_ID) {
     const agentDocs = await loadAgentToolMigrationInputs();
     return deriveAgentOrganizationInheritancePlan(agentDocs as Array<Record<string, any>>);
+  }
+  if (migrationId === AGENT_SHARED_TEAM_GRANTS_MIGRATION_ID) {
+    const { agentDocs, teamDocs } = await loadAgentSharedTeamGrantInputs();
+    return deriveAgentSharedTeamGrantsPlan(
+      agentDocs as Array<Record<string, any>>,
+      teamDocs as Array<Record<string, any>>,
+    );
+  }
+  if (migrationId === ADMIN_SURFACE_RAG_DATASOURCES_ADMIN_GRANT_MIGRATION_ID) {
+    const subjects = await loadOrgAdminSubjects();
+    return deriveAdminSurfaceRagDatasourcesAdminGrantPlan(subjects);
+  }
+  if (migrationId === KNOWLEDGE_BASE_SHARED_TEAM_GRANTS_MIGRATION_ID) {
+    const { ownershipDocs, teamSlugByMongoId } =
+      await loadKnowledgeBaseSharedTeamGrantsInputs();
+    return deriveKnowledgeBaseSharedTeamGrantsPlan(ownershipDocs, teamSlugByMongoId);
+  }
+  if (migrationId === DATA_SOURCE_GRANTS_BACKFILL_MIGRATION_ID) {
+    const tuples = await loadKnowledgeBaseTuples();
+    return deriveDataSourceGrantsBackfillPlan(tuples);
+  }
+  if (migrationId === MCP_TOOL_GRANTS_BACKFILL_MIGRATION_ID) {
+    const { ownershipDocs, teamSlugByMongoId } = await loadMcpToolGrantsBackfillInputs();
+    return deriveMcpToolGrantsBackfillPlan(ownershipDocs, teamSlugByMongoId);
   }
   if (migrationId === RBAC_INDEXES_MIGRATION_ID) {
     return deriveIndexPlan();

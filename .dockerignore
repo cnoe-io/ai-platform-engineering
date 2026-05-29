@@ -159,3 +159,7 @@ docs/_build/
 .env
 .env.local
 .env.*.local
+ui/.env
+ui/.env.local
+ui/.env.*.local
+!ui/.env.example

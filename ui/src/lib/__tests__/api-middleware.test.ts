@@ -52,6 +52,7 @@ const mockCheckPermission = jest.requireMock('@/lib/rbac/keycloak-authz').checkP
 
 beforeEach(() => {
   mockGetConfig.mockImplementation((key: string) => key === 'ssoEnabled');
+  delete process.env.CAIPE_UNSAFE_RBAC_BYPASS;
 });
 
 jest.spyOn(console, 'error').mockImplementation(() => {});
@@ -255,6 +256,7 @@ describe('requireRbacPermission organization ReBAC', () => {
     mockCheckPermission.mockResolvedValue({ allowed: false, reason: 'DENY_NO_CAPABILITY' });
     delete process.env.BOOTSTRAP_ADMIN_EMAILS;
     delete process.env.CAIPE_ORG_KEY;
+    delete process.env.CAIPE_UNSAFE_RBAC_BYPASS;
   });
 
   it('allows admin UI management via organization can_manage', async () => {
@@ -441,6 +443,27 @@ describe('requireRbacPermission organization ReBAC', () => {
         'admin'
       )
     ).resolves.toBeUndefined();
+  });
+
+  it('allows all RBAC decisions behind the unsafe bypass flag', async () => {
+    process.env.CAIPE_UNSAFE_RBAC_BYPASS = 'true';
+    const warnMock = jest.mocked(console.warn);
+    warnMock.mockClear();
+
+    await expect(
+      requireRbacPermission(
+        {
+          role: 'admin',
+          user: { email: 'anonymous@local' },
+        },
+        'admin_ui',
+        'admin'
+      )
+    ).resolves.toBeUndefined();
+
+    expect(mockCheckOpenFgaTuple).not.toHaveBeenCalled();
+    expect(mockCheckPermission).not.toHaveBeenCalled();
+    expect(warnMock).toHaveBeenCalledWith(expect.stringContaining('RBAC IS DISABLED'));
   });
 });
 
@@ -707,8 +730,14 @@ describe('getAuthenticatedUser', () => {
     });
   });
 
-  it('returns a non-admin anonymous fallback only when explicitly allowed and SSO is disabled', async () => {
-    mockGetConfig.mockImplementation((key: string) => (key === 'ssoEnabled' ? false : undefined));
+  it('returns the local dev auth principal only when dev anonymous auth is enabled', async () => {
+    process.env.CAIPE_UNSAFE_RBAC_BYPASS = 'true';
+    mockGetConfig.mockImplementation((key: string) => {
+      if (key === 'ssoEnabled') return false;
+      if (key === 'allowDevAdminWhenSsoDisabled') return true;
+      if (key === 'unsafeRbacBypassEnabled') return true;
+      return undefined;
+    });
     mockGetServerSession.mockResolvedValue(null);
 
     const req = new Request('http://test.com') as unknown as NextRequest;
@@ -716,31 +745,36 @@ describe('getAuthenticatedUser', () => {
 
     expect(result.user).toEqual({
       email: 'anonymous@local',
-      name: 'Anonymous',
-      role: 'user',
+      name: 'Anonymous Local Admin',
+      role: 'admin',
     });
     expect(result.session).toEqual({
-      role: 'user',
-      canViewAdmin: false,
+      sub: 'anonymous-local-dev',
+      org: 'caipe',
+      role: 'admin',
+      user: {
+        email: 'anonymous@local',
+        name: 'Anonymous Local Admin',
+        role: 'admin',
+      },
+      canViewAdmin: true,
+      canAccessDynamicAgents: true,
     });
   });
 
-  it('can promote the anonymous fallback only behind the local dev admin flag', async () => {
-    const previous = process.env.ALLOW_ANONYMOUS_ADMIN;
-    process.env.ALLOW_ANONYMOUS_ADMIN = 'true';
-    mockGetConfig.mockImplementation((key: string) => (key === 'ssoEnabled' ? false : undefined));
+  it('does not provide an anonymous fallback when the unsafe bypass is disabled', async () => {
+    mockGetConfig.mockImplementation((key: string) => {
+      if (key === 'ssoEnabled') return false;
+      if (key === 'allowDevAdminWhenSsoDisabled') return true;
+      return undefined;
+    });
     mockGetServerSession.mockResolvedValue(null);
 
-    try {
-      const req = new Request('http://test.com') as unknown as NextRequest;
-      const result = await getAuthenticatedUser(req, { allowAnonymous: true });
-
-      expect(result.user.role).toBe('admin');
-      expect(result.session.canViewAdmin).toBe(true);
-    } finally {
-      if (previous === undefined) delete process.env.ALLOW_ANONYMOUS_ADMIN;
-      else process.env.ALLOW_ANONYMOUS_ADMIN = previous;
-    }
+    const req = new Request('http://test.com') as unknown as NextRequest;
+    await expect(getAuthenticatedUser(req, { allowAnonymous: true })).rejects.toMatchObject({
+      statusCode: 401,
+      reason: 'not_signed_in',
+    });
   });
 
   it('throws 403 when the session failed the Web UI admission group check', async () => {
@@ -918,6 +952,189 @@ describe('withAuth', () => {
       code: 'WEB_UI_ACCESS_DENIED',
     });
     expect(handler).not.toHaveBeenCalled();
+  });
+
+  // Regression: read-only admin endpoints that handle their own resource-level
+  // RBAC must NOT have an `admin_ui#view` blanket gate slapped on by the BFF
+  // — otherwise a non-admin user with the resource-level grant (e.g. a viewer
+  // with `system_config:platform_settings#read`) gets a misleading
+  // `admin_ui#view` 403 long before the route handler runs and the Settings
+  // tab silently falls back to the placeholder ("Default CAIPE Supervisor")
+  // instead of showing the configured value.
+  describe('legacy RBAC policy resolution', () => {
+    function viewerSession() {
+      mockGetServerSession.mockResolvedValue({
+        user: { email: 'viewer@test.com', name: 'Read-Only Viewer' },
+        role: 'user',
+        sub: 'viewer-sub',
+        accessToken: 'mock-viewer-token',
+      });
+      mockGetCollection.mockResolvedValue({
+        findOne: jest.fn().mockResolvedValue(null),
+      });
+    }
+
+    function loggedCapabilities(): string[] {
+      return (console.log as jest.Mock).mock.calls
+        .map((call) => {
+          try {
+            return JSON.parse(String(call[0])) as { capability?: string };
+          } catch {
+            return {};
+          }
+        })
+        .map((event) => event.capability)
+        .filter((capability): capability is string => typeof capability === 'string');
+    }
+
+    it('lets a non-admin signed-in user reach GET /api/admin/platform-config with an explicit system_config read audit row', async () => {
+      viewerSession();
+      mockCheckOpenFgaTuple.mockResolvedValue({ allowed: true });
+      (console.log as jest.Mock).mockClear();
+
+      const handler = jest.fn().mockResolvedValue('config-payload');
+      const req = new Request('http://test.com/api/admin/platform-config', {
+        method: 'GET',
+      }) as unknown as NextRequest;
+
+      const result = await withAuth(req, handler);
+
+      expect(result).toBe('config-payload');
+      expect(handler).toHaveBeenCalledTimes(1);
+      // Confirm the BFF asked OpenFGA for baseline org access, proving the
+      // admin_ui#view gate was bypassed and the narrower in-route
+      // system_config check is free to run.
+      const calls = mockCheckOpenFgaTuple.mock.calls as Array<[
+        { user: string; relation: string; object: string },
+      ]>;
+      const relations = calls.map((c) => c[0]?.relation);
+      expect(relations).toContain('can_use');
+      expect(relations).not.toContain('can_audit'); // admin_ui#view → can_audit
+      expect(loggedCapabilities()).toContain('system_config#read');
+      expect(loggedCapabilities()).not.toContain('supervisor#invoke');
+    });
+
+    it.each([
+      ['/api/users/me', 'GET', 'can_read_self'],
+      ['/api/users/me', 'PATCH', 'can_manage_self'],
+      ['/api/users/search?q=alice', 'GET', 'can_search_directory'],
+      ['/api/auth/my-roles', 'GET', 'can_read_self'],
+      ['/api/auth/slack-link', 'POST', 'can_manage_self'],
+      ['/api/settings/preferences', 'GET', 'can_manage_self'],
+      ['/api/settings/preferences', 'PATCH', 'can_manage_self'],
+      ['/api/nps/active', 'GET', 'can_submit_feedback'],
+      ['/api/feedback', 'POST', 'can_submit_feedback'],
+      ['/api/chat/conversations', 'GET', 'can_chat'],
+      ['/api/a2a/tasks', 'POST', 'can_chat'],
+      ['/api/dynamic-agents/models', 'GET', 'can_chat'],
+      ['/api/dynamic-agents/available', 'GET', 'can_chat'],
+      ['/api/files/list', 'GET', 'can_use_files'],
+      ['/api/files/content', 'POST', 'can_use_files'],
+      ['/api/ai/review', 'POST', 'can_use_ai_assist'],
+      ['/api/credentials/retrieve', 'POST', 'can_use_credentials'],
+    ])('maps %s %s to explicit OpenFGA relation %s', async (path, method, expectedRelation) => {
+      viewerSession();
+      mockCheckOpenFgaTuple.mockResolvedValue({ allowed: true });
+      mockCheckOpenFgaTuple.mockClear();
+
+      const handler = jest.fn().mockResolvedValue('ok');
+      const req = new Request(`http://test.com${path}`, { method }) as unknown as NextRequest;
+
+      await expect(withAuth(req, handler)).resolves.toBe('ok');
+
+      const calls = mockCheckOpenFgaTuple.mock.calls as Array<[
+        { user: string; relation: string; object: string },
+      ]>;
+      const relations = calls.map((c) => c[0]?.relation);
+      expect(relations).toContain(expectedRelation);
+      expect(relations).not.toContain('can_use');
+    });
+
+    it('still gates PATCH /api/admin/platform-config behind admin_ui#manage', async () => {
+      viewerSession();
+      // The viewer is signed in but has no admin tuple — OpenFGA denies.
+      mockCheckOpenFgaTuple.mockResolvedValue({ allowed: false });
+      // Keycloak legacy fallback also denies.
+      mockCheckPermission.mockResolvedValue({
+        allowed: false,
+        reason: 'DENY_NO_CAPABILITY',
+      });
+
+      const handler = jest.fn();
+      const req = new Request('http://test.com/api/admin/platform-config', {
+        method: 'PATCH',
+      }) as unknown as NextRequest;
+
+      await expect(withAuth(req, handler)).rejects.toMatchObject({
+        statusCode: 403,
+        reason: 'pdp_denied',
+      });
+      expect(handler).not.toHaveBeenCalled();
+
+      // Confirm the BFF asked OpenFGA for `can_manage` (the relation that
+      // the `admin_ui#manage` RBAC pair maps to).
+      const calls = mockCheckOpenFgaTuple.mock.calls as Array<[
+        { user: string; relation: string; object: string },
+      ]>;
+      const relations = calls.map((c) => c[0]?.relation);
+      expect(relations).toContain('can_manage');
+    });
+
+    it('still gates other GET /api/admin/* endpoints behind admin_ui#view', async () => {
+      viewerSession();
+      mockCheckOpenFgaTuple.mockResolvedValue({ allowed: false });
+      mockCheckPermission.mockResolvedValue({
+        allowed: false,
+        reason: 'DENY_NO_CAPABILITY',
+      });
+
+      const handler = jest.fn();
+      const req = new Request('http://test.com/api/admin/users', {
+        method: 'GET',
+      }) as unknown as NextRequest;
+
+      await expect(withAuth(req, handler)).rejects.toMatchObject({
+        statusCode: 403,
+        reason: 'pdp_denied',
+      });
+      expect(handler).not.toHaveBeenCalled();
+
+      // Confirm the BFF asked OpenFGA for `can_audit` (the relation that
+      // the `admin_ui#view` RBAC pair maps to).
+      const calls = mockCheckOpenFgaTuple.mock.calls as Array<[
+        { user: string; relation: string; object: string },
+      ]>;
+      const relations = calls.map((c) => c[0]?.relation);
+      expect(relations).toContain('can_audit');
+    });
+
+    it.each([
+      ['/api/unclassified-feature', 'GET', 'can_audit', 'admin_ui#view'],
+      ['/api/unclassified-feature', 'POST', 'can_manage', 'admin_ui#manage'],
+    ])('maps fallback route %s %s to explicit %s capability', async (
+      path,
+      method,
+      expectedRelation,
+      expectedCapability
+    ) => {
+      viewerSession();
+      mockCheckOpenFgaTuple.mockResolvedValue({ allowed: true });
+      mockCheckOpenFgaTuple.mockClear();
+      (console.log as jest.Mock).mockClear();
+
+      const handler = jest.fn().mockResolvedValue('ok');
+      const req = new Request(`http://test.com${path}`, { method }) as unknown as NextRequest;
+
+      await expect(withAuth(req, handler)).resolves.toBe('ok');
+
+      const calls = mockCheckOpenFgaTuple.mock.calls as Array<[
+        { user: string; relation: string; object: string },
+      ]>;
+      const relations = calls.map((c) => c[0]?.relation);
+      expect(relations).toContain(expectedRelation);
+      expect(loggedCapabilities()).toContain(expectedCapability);
+      expect(loggedCapabilities()).not.toContain('supervisor#invoke');
+    });
   });
 });
 

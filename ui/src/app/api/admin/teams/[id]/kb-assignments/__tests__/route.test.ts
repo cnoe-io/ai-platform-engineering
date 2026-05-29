@@ -49,17 +49,42 @@ jest.mock("@/lib/rbac/openfga", () => ({
   writeOpenFgaTuples: (...args: unknown[]) => mockWriteOpenFgaTuples(...args),
 }));
 
+/**
+ * Minimal MongoDB-filter shim. Supports the shapes used by route
+ * handlers under test:
+ *   - equality:               { team_slug: "x" }
+ *   - object id equality:     { _id: <ObjectId> }
+ *   - $or with sub-filters:   { $or: [{user_email: ...}, ...] }
+ *   - $ne:                    { status: { $ne: "removed" } }
+ *   - $in:                    { slug: { $in: [...] } }
+ */
 function matchesFilter(row: any, filter: Record<string, any>): boolean {
   return Object.entries(filter).every(([key, value]) => {
+    if (key === "$or" && Array.isArray(value)) {
+      return value.some((clause: Record<string, any>) => matchesFilter(row, clause));
+    }
     if (value instanceof ObjectId) return String(row[key]) === String(value);
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      if ("$ne" in value) return row[key] !== value.$ne;
+      if ("$in" in value) return Array.isArray(value.$in) && value.$in.includes(row[key]);
+    }
     return row[key] === value;
   });
 }
 
 function createMockCollection(rows: any[]) {
+  // Cursor must support `find().toArray()` so the canonical
+  // team-membership reader (post 2026-05-26 canonical-membership refactor)
+  // can resolve the calling user's role for KB-permission gates.
   return {
     rows,
     findOne: jest.fn(async (filter: Record<string, any>) => rows.find((row) => matchesFilter(row, filter)) ?? null),
+    find: jest.fn((filter: Record<string, any> = {}) => ({
+      toArray: jest.fn(async () => rows.filter((row) => matchesFilter(row, filter))),
+      sort: jest.fn().mockReturnValue({
+        toArray: jest.fn(async () => rows.filter((row) => matchesFilter(row, filter))),
+      }),
+    })),
     updateOne: jest.fn(async (filter: Record<string, any>, update: any, options?: any) => {
       const row = rows.find((candidate) => matchesFilter(candidate, filter));
       if (row && update.$set) Object.assign(row, update.$set);
@@ -94,6 +119,32 @@ beforeEach(() => {
 });
 
 describe("/api/admin/teams/[id]/kb-assignments", () => {
+  it("falls back to legacy team resource KB assignments when ownership rows are missing", async () => {
+    mockCollections.teams = createMockCollection([
+      {
+        _id: teamId,
+        slug: "platform",
+        name: "Platform",
+        resources: {
+          knowledge_bases: ["legacy-ds"],
+        },
+      },
+    ]);
+    mockCollections.team_kb_ownership = createMockCollection([]);
+    const { GET } = await import("../route");
+
+    const response = await GET(
+      request(`/api/admin/teams/${teamId}/kb-assignments`),
+      { params: Promise.resolve({ id: String(teamId) }) }
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.kb_ids).toEqual(["legacy-ds"]);
+    expect(body.data.kb_permissions).toEqual({ "legacy-ds": "read" });
+    expect(body.data.allowed_datasource_ids).toEqual(["legacy-ds"]);
+  });
+
   it("reconciles knowledge-base tuples before saving assignments", async () => {
     mockCollections.team_kb_ownership = createMockCollection([
       {
@@ -125,7 +176,7 @@ describe("/api/admin/teams/[id]/kb-assignments", () => {
       writes: [
         { user: "team:platform#member", relation: "reader", object: "knowledge_base:new-read-ds" },
         { user: "team:platform#member", relation: "ingestor", object: "knowledge_base:new-ingest-ds" },
-        { user: "team:platform#member", relation: "manager", object: "knowledge_base:new-admin-ds" },
+        { user: "team:platform#admin", relation: "manager", object: "knowledge_base:new-admin-ds" },
       ],
       deletes: [
         { user: "team:platform#member", relation: "reader", object: "knowledge_base:old-ds" },
@@ -209,7 +260,17 @@ describe("/api/admin/teams/[id]/kb-assignments", () => {
         _id: teamId,
         slug: "platform",
         name: "Platform",
-        members: [{ user_id: "lead@example.com", role: "admin" }],
+      },
+    ]);
+    // Post-canonical-membership refactor: scoped-admin gate reads from
+    // team_membership_sources, not team.members[].
+    mockCollections.team_membership_sources = createMockCollection([
+      {
+        team_slug: "platform",
+        user_email: "lead@example.com",
+        relationship: "admin",
+        source_type: "manual",
+        status: "active",
       },
     ]);
     const { PUT } = await import("../route");
@@ -228,7 +289,7 @@ describe("/api/admin/teams/[id]/kb-assignments", () => {
     expect(response.status).toBe(200);
     expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
       writes: [
-        { user: "team:platform#member", relation: "manager", object: "knowledge_base:team-ds" },
+        { user: "team:platform#admin", relation: "manager", object: "knowledge_base:team-ds" },
       ],
       deletes: [],
     });

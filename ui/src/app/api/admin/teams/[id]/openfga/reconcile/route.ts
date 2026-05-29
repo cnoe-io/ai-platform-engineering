@@ -86,7 +86,9 @@ export const POST = withErrorHandler(async (
   await requireTeamMembershipManagementPermission(
     session,
     user.email,
-    team as { members?: Array<{ user_id?: string; role?: string }> }
+    // Pre-2026-05-26 the gate read team.members[]; it now reads from the
+    // canonical team_membership_sources collection via the team slug.
+    { slug: typeof team.slug === 'string' ? team.slug : undefined }
   );
 
   const teamSlug = typeof team.slug === 'string' ? team.slug : '';

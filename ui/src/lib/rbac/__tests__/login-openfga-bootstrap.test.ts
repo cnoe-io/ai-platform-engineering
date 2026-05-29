@@ -4,6 +4,7 @@
 
 const mockWriteOpenFgaTuples = jest.fn();
 const mockGetCollection = jest.fn();
+const mockGetRbacCollection = jest.fn();
 
 jest.mock("@/lib/rbac/openfga", () => ({
   writeOpenFgaTuples: (...args: unknown[]) => mockWriteOpenFgaTuples(...args),
@@ -12,6 +13,23 @@ jest.mock("@/lib/rbac/openfga", () => ({
 jest.mock("@/lib/mongodb", () => ({
   getCollection: (...args: unknown[]) => mockGetCollection(...args),
 }));
+
+jest.mock("@/lib/rbac/mongo-collections", () => ({
+  getRbacCollection: (...args: unknown[]) => mockGetRbacCollection(...args),
+}));
+
+/**
+ * Stub a `team_membership_sources` collection driven by an in-memory
+ * row array. Tests populate `rows` to simulate "the user is in these
+ * teams with these roles". Empty array == user is in no teams.
+ */
+function stubTeamMembershipSources(rows: Record<string, unknown>[]) {
+  return {
+    find: jest.fn(() => ({
+      toArray: jest.fn().mockResolvedValue(rows),
+    })),
+  };
+}
 
 describe("login OpenFGA bootstrap", () => {
   const originalEnv = { ...process.env };
@@ -26,6 +44,11 @@ describe("login OpenFGA bootstrap", () => {
     mockWriteOpenFgaTuples.mockResolvedValue({ enabled: true, writes: 8, deletes: 0 });
     mockGetCollection.mockResolvedValue({
       findOne: jest.fn().mockResolvedValue(null),
+    });
+    // Default: no team-membership rows. Individual tests override.
+    mockGetRbacCollection.mockImplementation(async (key: string) => {
+      if (key === "teamMembershipSources") return stubTeamMembershipSources([]);
+      throw new Error(`unexpected rbac collection ${key}`);
     });
   });
 
@@ -49,6 +72,7 @@ describe("login OpenFGA bootstrap", () => {
         { user: "user:sub-user", relation: "member", object: "organization:grid" },
         { user: "user:sub-user", relation: "reader", object: "system_config:platform_settings" },
         { user: "user:sub-user", relation: "owner", object: "user_profile:sub-user" },
+        { user: "user:sub-user", relation: "caller", object: "mcp_gateway:list" },
         { user: "user:sub-user", relation: "reader", object: "admin_surface:users" },
         { user: "user:sub-user", relation: "reader", object: "admin_surface:teams" },
         { user: "user:sub-user", relation: "reader", object: "admin_surface:skills" },
@@ -166,7 +190,8 @@ describe("login OpenFGA bootstrap", () => {
                 _id: "team-1",
                 slug: "support",
                 name: "Support",
-                members: [{ user_id: "user@example.com", role: "member" }],
+                // No `members[]` — the canonical reader looks up the user in
+                // team_membership_sources via the rbac collection mock below.
                 baseline_profile_overrides: { member_profile_id: "support-member" },
               },
             ]),
@@ -177,6 +202,21 @@ describe("login OpenFGA bootstrap", () => {
         return { findOne: jest.fn().mockResolvedValue(null) };
       }
       throw new Error(`unexpected collection ${name}`);
+    });
+    mockGetRbacCollection.mockImplementation(async (key: string) => {
+      if (key === "teamMembershipSources") {
+        return stubTeamMembershipSources([
+          {
+            team_id: "team-1",
+            team_slug: "support",
+            user_email: "user@example.com",
+            relationship: "member",
+            source_type: "manual",
+            status: "active",
+          },
+        ]);
+      }
+      throw new Error(`unexpected rbac collection ${key}`);
     });
     const { reconcileLoginOpenFgaAccess } = await import("../login-openfga-bootstrap");
 
@@ -190,6 +230,85 @@ describe("login OpenFGA bootstrap", () => {
     expect(result.status).toBe("completed");
     expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
       writes: [{ user: "user:sub-user", relation: "reader", object: "admin_surface:metrics" }],
+      deletes: [],
+    });
+  });
+
+  it("ignores stale teams.members[] entries when the canonical store has no matching row (regression: post-canonical-membership migration)", async () => {
+    // Models the bug we just fixed: a stale `team.members[]` entry must
+    // NOT cause the override to apply if `team_membership_sources` has
+    // no active row for the user.
+    mockGetCollection.mockImplementation(async (name: string) => {
+      if (name === "openfga_baseline_profiles") {
+        return {
+          findOne: jest.fn().mockImplementation(async (query: { _id: string }) =>
+            query._id === "profiles_v2"
+              ? {
+                  _id: "profiles_v2",
+                  global_member_profile_id: "org-member",
+                  global_admin_profile_id: "org-admin",
+                  profiles: [
+                    {
+                      id: "org-member",
+                      name: "Organization member",
+                      role: "member",
+                      grants: ["organization-member", "own-profile-owner"],
+                    },
+                    {
+                      id: "support-member",
+                      name: "Support member",
+                      role: "member",
+                      grants: ["admin-surface:metrics:read"],
+                    },
+                  ],
+                }
+              : null,
+          ),
+        };
+      }
+      if (name === "teams") {
+        return {
+          find: jest.fn().mockReturnValue({
+            toArray: jest.fn().mockResolvedValue([
+              {
+                _id: "team-1",
+                slug: "support",
+                name: "Support",
+                // Stale embedded array — must be ignored.
+                members: [{ user_id: "user@example.com", role: "member" }],
+                baseline_profile_overrides: { member_profile_id: "support-member" },
+              },
+            ]),
+          }),
+        };
+      }
+      if (name === "platform_config") {
+        return { findOne: jest.fn().mockResolvedValue(null) };
+      }
+      throw new Error(`unexpected collection ${name}`);
+    });
+    // Canonical store: empty for this user.
+    mockGetRbacCollection.mockImplementation(async (key: string) => {
+      if (key === "teamMembershipSources") return stubTeamMembershipSources([]);
+      throw new Error(`unexpected rbac collection ${key}`);
+    });
+
+    const { reconcileLoginOpenFgaAccess } = await import("../login-openfga-bootstrap");
+
+    const result = await reconcileLoginOpenFgaAccess({
+      subject: "sub-user",
+      email: "user@example.com",
+      isAuthorized: true,
+      isAdmin: false,
+    });
+
+    expect(result.status).toBe("completed");
+    // Falls back to the global member baseline (org-member), NOT the override.
+    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
+      writes: [
+        { user: "user:sub-user", relation: "member", object: "organization:grid" },
+        { user: "user:sub-user", relation: "owner", object: "user_profile:sub-user" },
+      ],
       deletes: [],
     });
   });

@@ -124,8 +124,8 @@ it("auto-loads bot-member Slack channels when the team Slack tab opens", async (
 
   expect(await screen.findByText("new-slack-channel")).toBeInTheDocument();
   expect(screen.getByText("C0B4GLC5EFQ")).toBeInTheDocument();
-  expect(screen.getByPlaceholderText("Search bot-visible channels...")).toBeInTheDocument();
-  expect(screen.getByText("184 bot-visible channels found. Showing 1.")).toBeInTheDocument();
+  expect(screen.getByPlaceholderText("Search bot-member channels...")).toBeInTheDocument();
+  expect(screen.getByText("184 bot-member channels found. Showing 1.")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Refresh bot channels" })).toBeInTheDocument();
   expect(screen.queryByText(/Click Discover to list channels/i)).not.toBeInTheDocument();
   expect(fetchMock).toHaveBeenCalledWith(

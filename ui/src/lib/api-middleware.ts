@@ -11,6 +11,11 @@ import { validateBearerJWT, validateLocalSkillsJWT } from '@/lib/jwt-validation'
 import { ApiError } from '@/lib/api-error';
 import type { AuthFailureAction, AuthFailureReason } from '@/lib/auth-error';
 import { CredentialError } from '@/lib/credentials/errors';
+import {
+  getDevAnonymousSession,
+  getDevAnonymousUser,
+  isDevAnonymousAuthEnabled,
+} from '@/lib/auth/dev-auth-provider';
 
 // Re-export so existing `import { ApiError } from "@/lib/api-middleware"`
 // call sites keep working — see ./api-error.ts for why the class lives
@@ -204,14 +209,11 @@ export async function getAuthenticatedUser(
 
   if (!session || !session.user?.email) {
     const { allowAnonymous = false } = options;
-    if (allowAnonymous && !getConfig('ssoEnabled')) {
-      const allowAnonAdmin = process.env.ALLOW_ANONYMOUS_ADMIN === 'true';
-      if (!allowAnonAdmin) {
-        console.warn('[Auth] SSO is disabled and ALLOW_ANONYMOUS_ADMIN is not set — anonymous user gets role "user" only');
-      }
-      const role = allowAnonAdmin ? 'admin' : 'user';
-      const fallbackUser = { email: 'anonymous@local', name: 'Anonymous', role };
-      return { user: fallbackUser, session: { role, canViewAdmin: allowAnonAdmin } };
+    if (allowAnonymous && isDevAnonymousAuthEnabled()) {
+      return {
+        user: getDevAnonymousUser(),
+        session: getDevAnonymousSession(),
+      };
     }
     throw new ApiError(
       'You are not signed in. Please sign in to continue.',
@@ -269,6 +271,19 @@ interface RouteRbacPolicy {
   scope: RbacScope;
 }
 
+// LEGACY: this function maps every `/api/*` URL that goes through
+// `withAuth(...)` (i.e. doesn't call a fine-grained `require*Permission`
+// helper itself) to a `{ resource, scope }` PDP pair. Keep adding explicit
+// capability mappings here while older routes are migrated off the wrapper.
+// Unknown routes fail toward admin UI capabilities instead of the old generic
+// supervisor umbrella so audit rows stay explicit.
+//
+// See `docs/docs/specs/2026-05-27-fine-grained-rbac-for-withauth-routes/plan.md`
+// for the migration plan that replaces this resolver with a per-route
+// capability map and adds dedicated OpenFGA relations
+// (`self_profile#read`, `chat_supervisor#invoke`, `feedback#submit`, etc.).
+// New routes should call the appropriate `require*Permission` helper
+// directly rather than relying on this legacy gate.
 function resolveLegacyWithAuthRbacPolicy(request: NextRequest): RouteRbacPolicy {
   const pathname = new URL(request.url).pathname;
   const method = request.method.toUpperCase();
@@ -276,19 +291,60 @@ function resolveLegacyWithAuthRbacPolicy(request: NextRequest): RouteRbacPolicy 
   if (pathname.startsWith('/api/users/debug')) {
     return { resource: 'admin_ui', scope: 'view' };
   }
+  // Read-only admin endpoints that any signed-in user is allowed to read
+  // (so the Settings panel can render the configured default agent for
+  // read-only viewers). Each route still enforces its own fine-grained
+  // resource permission in the handler — e.g. platform-config requires
+  // `system_config:platform_settings#read` and PATCH still requires
+  // `admin_ui#manage` plus `system_config#admin`.
+  if (pathname === '/api/admin/platform-config' && method === 'GET') {
+    return { resource: 'system_config', scope: 'read' };
+  }
   if (pathname.startsWith('/api/admin')) {
     return method === 'GET'
       ? { resource: 'admin_ui', scope: 'view' }
       : { resource: 'admin_ui', scope: 'manage' };
   }
-  if (pathname.startsWith('/api/users/me') || pathname.startsWith('/api/users/search')) {
-    return { resource: 'supervisor', scope: 'invoke' };
+  if (pathname.startsWith('/api/users/search')) {
+    return { resource: 'user_directory', scope: 'read' };
   }
-  if (pathname.startsWith('/api/settings') || pathname.startsWith('/api/nps')) {
-    return { resource: 'supervisor', scope: 'invoke' };
+  if (pathname.startsWith('/api/users/me')) {
+    return method === 'GET'
+      ? { resource: 'self_profile', scope: 'read' }
+      : { resource: 'self_profile', scope: 'write' };
   }
-  if (pathname.startsWith('/api/chat')) {
-    return { resource: 'supervisor', scope: 'invoke' };
+  if (pathname === '/api/auth/my-roles' || pathname === '/api/auth/role') {
+    return { resource: 'self_profile', scope: 'read' };
+  }
+  if (pathname === '/api/auth/slack-link' || pathname === '/api/auth/webex-link') {
+    return { resource: 'self_profile', scope: 'write' };
+  }
+  if (pathname.startsWith('/api/settings')) {
+    return method === 'GET'
+      ? { resource: 'user_settings', scope: 'read' }
+      : { resource: 'user_settings', scope: 'write' };
+  }
+  if (pathname.startsWith('/api/nps') || pathname.startsWith('/api/feedback')) {
+    return { resource: 'feedback', scope: 'submit' };
+  }
+  if (
+    pathname.startsWith('/api/chat') ||
+    pathname.startsWith('/api/a2a') ||
+    pathname === '/api/dynamic-agents/models' ||
+    pathname === '/api/dynamic-agents/available'
+  ) {
+    return { resource: 'chat_supervisor', scope: 'invoke' };
+  }
+  if (pathname.startsWith('/api/files')) {
+    return method === 'GET'
+      ? { resource: 'user_files', scope: 'read' }
+      : { resource: 'user_files', scope: 'write' };
+  }
+  if (pathname.startsWith('/api/ai')) {
+    return { resource: 'ai_assist', scope: 'invoke' };
+  }
+  if (pathname.startsWith('/api/credentials')) {
+    return { resource: 'credential_vault', scope: 'use' };
   }
 
   if (pathname.startsWith('/api/task-configs')) {
@@ -333,7 +389,9 @@ function resolveLegacyWithAuthRbacPolicy(request: NextRequest): RouteRbacPolicy 
     return { resource: 'skill', scope: 'configure' };
   }
 
-  return { resource: 'supervisor', scope: 'invoke' };
+  return method === 'GET'
+    ? { resource: 'admin_ui', scope: 'view' }
+    : { resource: 'admin_ui', scope: 'manage' };
 }
 
 export async function withAuth<T>(
@@ -521,9 +579,34 @@ import { deniedApiResponse } from '@/lib/rbac/error-responses';
 import { checkPermission } from '@/lib/rbac/keycloak-authz';
 import { checkOpenFgaTuple } from '@/lib/rbac/openfga';
 import { organizationObjectId } from '@/lib/rbac/organization';
+import { isUnsafeRbacBypassEnabled, warnUnsafeRbacBypassEnabled } from '@/lib/rbac/bypass';
 import type { RbacResource, RbacScope } from '@/lib/rbac/types';
 
 function organizationRelationFor(resource: RbacResource, scope: RbacScope): string {
+  if (resource === 'self_profile') {
+    return scope === 'write' ? 'can_manage_self' : 'can_read_self';
+  }
+  if (resource === 'user_directory') {
+    return 'can_search_directory';
+  }
+  if (resource === 'chat_supervisor') {
+    return 'can_chat';
+  }
+  if (resource === 'feedback') {
+    return 'can_submit_feedback';
+  }
+  if (resource === 'user_settings') {
+    return 'can_manage_self';
+  }
+  if (resource === 'user_files') {
+    return 'can_use_files';
+  }
+  if (resource === 'ai_assist') {
+    return 'can_use_ai_assist';
+  }
+  if (resource === 'credential_vault') {
+    return 'can_use_credentials';
+  }
   if (resource === 'admin_ui') {
     return scope === 'view' || scope === 'audit.view' ? 'can_audit' : 'can_manage';
   }
@@ -595,6 +678,21 @@ export async function requireRbacPermission(
   const accessToken = session.accessToken;
   const email = session.user?.email;
   const subject = session.sub;
+
+  if (isUnsafeRbacBypassEnabled()) {
+    warnUnsafeRbacBypassEnabled(`${resource}#${scope}`);
+    logAuthzDecision({
+      tenantId: session.org ?? 'unknown',
+      sub: subject ?? email ?? 'unsafe-rbac-bypass',
+      resource,
+      scope,
+      outcome: 'allow',
+      reasonCode: 'OK_ROLE_FALLBACK',
+      pdp: 'local',
+      email,
+    });
+    return;
+  }
 
   if (!accessToken && !subject) {
     logAuthzDecision({

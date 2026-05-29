@@ -165,7 +165,6 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
   const [completedMigrations, setCompletedMigrations] = useState<MigrationListItem[]>([]);
   const [showCompleted, setShowCompleted] = useState(false);
   const [showAllSchemaVersions, setShowAllSchemaVersions] = useState(false);
-  const [selectedVersionBootstrapAreas, setSelectedVersionBootstrapAreas] = useState<string[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedBulkMigrationIds, setSelectedBulkMigrationIds] = useState<string[]>([]);
   const [plan, setPlan] = useState<MigrationPlan | null>(null);
@@ -202,9 +201,6 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
     () => schemaVersions.filter((schema) => schema.current_version === null).map((schema) => schema.schema_area),
     [schemaVersions],
   );
-  const allVersionBootstrapAreasSelected =
-    unversionedSchemaAreaNames.length > 0 &&
-    selectedVersionBootstrapAreas.length === unversionedSchemaAreaNames.length;
 
   const selectedMigration = useMemo(
     () => visibleMigrations.find((migration) => migration.id === selectedId) ?? visibleMigrations[0] ?? null,
@@ -324,18 +320,25 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
   }
 
   function toggleAllPendingMigrations(checked: boolean) {
-    resetBulkPreview();
-    setSelectedBulkMigrationIds(checked ? selectableBulkMigrations.map((migration) => migration.id) : []);
+    if (!checked) {
+      resetBulkPreview();
+      setSelectedBulkMigrationIds([]);
+      return;
+    }
+
+    const nextSelection = selectableBulkMigrations;
+    setSelectedBulkMigrationIds(nextSelection.map((migration) => migration.id));
+    void runBulkPlanFor(nextSelection);
   }
 
-  async function runBulkPlan() {
-    if (selectedBulkMigrations.length === 0) return;
+  async function runBulkPlanFor(migrationsToPlan: MigrationListItem[]) {
+    if (migrationsToPlan.length === 0) return;
     setError(null);
     resetBulkPreview();
     setBulkPlanning(true);
     try {
       const plans = await Promise.all(
-        selectedBulkMigrations.map((migration) =>
+        migrationsToPlan.map((migration) =>
           fetch(`/api/admin/rebac/migrations/${migration.id}/plan`, { method: "POST" }).then((response) =>
             readJson<MigrationPlan>(response),
           ),
@@ -347,6 +350,10 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
     } finally {
       setBulkPlanning(false);
     }
+  }
+
+  async function runBulkPlan() {
+    await runBulkPlanFor(selectedBulkMigrations);
   }
 
   async function applySelectedMigration() {
@@ -370,8 +377,8 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
     }
   }
 
-  async function applySelectedVersionBootstrap() {
-    if (selectedVersionBootstrapAreas.length === 0) return;
+  async function applySchemaVersionBootstrap(schemaAreas: string[]) {
+    if (schemaAreas.length === 0) return null;
     setError(null);
     setVersionBootstrapResult(null);
     setVersionBootstrapApplying(true);
@@ -381,18 +388,24 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            schema_areas: selectedVersionBootstrapAreas,
+            schema_areas: schemaAreas,
             confirmation: SCHEMA_VERSION_BOOTSTRAP_CONFIRMATION,
           }),
         }),
       );
       setVersionBootstrapResult(data);
-      setSelectedVersionBootstrapAreas([]);
+      return data;
+    } finally {
+      setVersionBootstrapApplying(false);
+    }
+  }
+
+  async function applySelectedVersionBootstrap() {
+    try {
+      await applySchemaVersionBootstrap(unversionedSchemaAreaNames);
       await loadMigrations({ keepSelection: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to initialize schema versions");
-    } finally {
-      setVersionBootstrapApplying(false);
     }
   }
 
@@ -409,8 +422,11 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
     setError(null);
     setBulkApplying(true);
     const results: BulkMigrationApplyResult["results"] = [];
+    let failedStep = "schema version metadata";
     try {
+      await applySchemaVersionBootstrap(unversionedSchemaAreaNames);
       for (const migration of selectedBulkMigrations) {
+        failedStep = migration.title;
         const data = await readJson<MigrationApplyResult>(
           await fetch(`/api/admin/rebac/migrations/${migration.id}/apply`, {
             method: "POST",
@@ -434,7 +450,7 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
       const failedMigration = selectedBulkMigrations[results.length];
       const message = err instanceof Error ? err.message : "Failed to apply selected migrations";
       setBulkApplyResult(results.length > 0 ? { applied_count: results.length, results } : null);
-      setError(failedMigration ? `Failed applying ${failedMigration.title}: ${message}` : message);
+      setError(failedMigration ? `Failed applying ${failedStep}: ${message}` : message);
     } finally {
       setBulkApplying(false);
     }
@@ -461,7 +477,7 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
               {release} Schema Migrations
             </CardTitle>
             <CardDescription>
-              Dry-run and apply schema-versioned migrations for the release. Private conversation ownership stays implicit;
+              Preview and apply schema-versioned migrations for the release. Private conversation ownership stays implicit;
               shared/resource access is reconciled through explicit ReBAC migrations.
             </CardDescription>
           </div>
@@ -524,34 +540,24 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
                       {unversionedSchemaAreaNames.length} schema areas are missing version metadata.
                     </p>
                     <p className="text-amber-900/80">
-                      Version-only initialization sets selected schema areas to v1 in data_schema_versions and does
-                      not modify collection documents.
+                      Missing version rows are initialized to v1 automatically before bulk apply. This only writes
+                      data_schema_versions and does not modify collection documents.
                     </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <label className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={allVersionBootstrapAreasSelected}
-                        onChange={(event) =>
-                          setSelectedVersionBootstrapAreas(event.target.checked ? unversionedSchemaAreaNames : [])
-                        }
-                      />
-                      Select all version-only migrations ({unversionedSchemaAreaNames.length})
-                    </label>
                     <Button
                       type="button"
                       size="sm"
                       variant="outline"
                       onClick={applySelectedVersionBootstrap}
-                      disabled={selectedVersionBootstrapAreas.length === 0 || versionBootstrapApplying}
+                      disabled={versionBootstrapApplying}
                     >
                       {versionBootstrapApplying ? (
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                       ) : (
                         <CheckCircle2 className="mr-2 h-4 w-4" />
                       )}
-                      Initialize selected to v1
+                      Initialize all to v1
                     </Button>
                   </div>
                   {versionBootstrapResult && (
@@ -634,7 +640,7 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
                     Select all pending migrations ({selectableBulkMigrations.length})
                   </label>
                   <p className="text-xs text-muted-foreground">
-                    {selectedBulkMigrations.length} migrations selected for bulk dry-run and apply.
+                    {selectedBulkMigrations.length} migrations selected for preview and apply.
                   </p>
                 </div>
                 <Button
@@ -648,7 +654,7 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
                   ) : (
                     <PlayCircle className="mr-2 h-4 w-4" />
                   )}
-                  Dry run selected
+                  Preview selected
                 </Button>
               </div>
               <label className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -752,7 +758,8 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
                 <CardHeader>
                   <CardTitle className="text-base">Bulk Migration Preview</CardTitle>
                   <CardDescription>
-                    Dry-run selected migrations, then type the bulk confirmation before applying them in order.
+                    Review selected migrations, then type the bulk confirmation before applying them in order.
+                    Missing schema-version metadata is initialized first.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
@@ -762,7 +769,7 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
                       : "Bulk apply complete."}
                   </p>
                   {bulkPlans.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">Run a bulk dry run to preview selected migrations.</p>
+                    <p className="text-sm text-muted-foreground">Preview selected migrations to unlock apply.</p>
                   ) : (
                     <div className="space-y-3">
                       {bulkPlans.map((bulkPlan) => {

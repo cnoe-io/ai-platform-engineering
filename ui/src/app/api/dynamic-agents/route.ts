@@ -48,6 +48,80 @@ interface TeamOwnershipDoc {
   members?: Array<{ user_id?: string; email?: string; role?: string }>;
 }
 
+/**
+ * Resolve a list of `shared_with_teams` entries (which historically have
+ * been Mongo `_id` strings from the editor but may now also be canonical
+ * slugs after this change is rolled out) into the canonical team slug
+ * set used everywhere else in the RBAC layer.
+ *
+ * - Unknown / invalid entries are dropped (we don't want a typo in the
+ *   request body to silently grant a non-existent `team:<bogus>#member`
+ *   tuple that no admin can ever delete from the UI).
+ * - Duplicates are removed.
+ * - Order is preserved from the input.
+ *
+ * Returns `{ slugs, droppedInputs }` so callers can log/warn on drops
+ * without surfacing a hard error (the agent save should not fail just
+ * because one stale team reference was sent).
+ */
+async function resolveSharedTeamSlugs(
+  rawInput: unknown,
+): Promise<{ slugs: string[]; droppedInputs: string[] }> {
+  if (!Array.isArray(rawInput) || rawInput.length === 0) {
+    return { slugs: [], droppedInputs: [] };
+  }
+  const teams = await getCollection<TeamOwnershipDoc>("teams");
+  const candidates: string[] = [];
+  for (const value of rawInput) {
+    if (typeof value !== "string") continue;
+    const trimmed = value.trim();
+    if (trimmed) candidates.push(trimmed);
+  }
+  if (candidates.length === 0) return { slugs: [], droppedInputs: [] };
+
+  const objectIdCandidates = candidates.filter((c) => ObjectId.isValid(c));
+  const filters: Record<string, unknown>[] = [
+    { slug: { $in: candidates } },
+    { _id: { $in: candidates } },
+  ];
+  if (objectIdCandidates.length > 0) {
+    filters.push({
+      _id: { $in: objectIdCandidates.map((c) => new ObjectId(c)) },
+    });
+  }
+  const docs = (await teams
+    .find({ $or: filters })
+    .project({ _id: 1, slug: 1 })
+    .toArray()) as TeamOwnershipDoc[];
+
+  const slugByCandidate = new Map<string, string>();
+  for (const doc of docs) {
+    const slug = normalizeString(doc.slug);
+    if (!slug) continue;
+    const idHex =
+      doc._id instanceof ObjectId
+        ? doc._id.toHexString()
+        : normalizeString(doc._id);
+    if (idHex) slugByCandidate.set(idHex, slug);
+    slugByCandidate.set(slug, slug);
+  }
+
+  const seen = new Set<string>();
+  const slugs: string[] = [];
+  const droppedInputs: string[] = [];
+  for (const candidate of candidates) {
+    const slug = slugByCandidate.get(candidate);
+    if (!slug) {
+      droppedInputs.push(candidate);
+      continue;
+    }
+    if (seen.has(slug)) continue;
+    seen.add(slug);
+    slugs.push(slug);
+  }
+  return { slugs, droppedInputs };
+}
+
 async function canManageOrganization(
   session: Parameters<typeof requireResourcePermission>[0]
 ): Promise<boolean> {
@@ -397,6 +471,27 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       }
     }
 
+    // Resolve `shared_with_teams` (which historically held Mongo `_id`
+    // values from the editor) into canonical slugs so (a) the OpenFGA
+    // tuples we write below match the global subject naming convention
+    // (`team:<slug>#member`) and (b) the stored Mongo field is
+    // self-consistent for any future read path. Owner-team slug is
+    // dropped from the shared list because the reconciler already writes
+    // the owner-team tuples — keeping it duplicated in
+    // `shared_with_teams` would surface confusingly in the UI and is
+    // semantically a no-op for OpenFGA (deduped at write time).
+    const { slugs: rawSharedTeamSlugs, droppedInputs: droppedSharedInputs } =
+      await resolveSharedTeamSlugs(body.shared_with_teams);
+    const sharedTeamSlugs = ownerTeamSlug
+      ? rawSharedTeamSlugs.filter((slug) => slug !== ownerTeamSlug)
+      : rawSharedTeamSlugs;
+    if (droppedSharedInputs.length > 0) {
+      console.warn(
+        "[dynamic-agents] POST dropped unresolved shared_with_teams entries (no such team)",
+        { agent: body.name, dropped: droppedSharedInputs },
+      );
+    }
+
     // Build document with explicit field allowlist (Security VII)
     const ownerSubject = requireStableSubject(session);
     const now = new Date();
@@ -409,7 +504,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       builtin_tools: body.builtin_tools ?? undefined,
       model: body.model as DynamicAgentConfig["model"],
       visibility,
-      shared_with_teams: (body.shared_with_teams as string[]) ?? [],
+      shared_with_teams: sharedTeamSlugs,
       owner_team_slug: ownerTeamSlug ?? undefined,
       owner_team_id: ownerTeam ? teamIdString(ownerTeam) : undefined,
       subagents,
@@ -434,6 +529,8 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       ownerSubject: doc.owner_subject,
       organizationId: caipeOrgKey(),
       ownerTeamSlug,
+      nextSharedTeamSlugs: sharedTeamSlugs,
+      previousSharedTeamSlugs: [],
     });
 
     try {
@@ -526,6 +623,37 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
       }
     }
 
+    // Resolve `shared_with_teams` on update so the OpenFGA reconciler
+    // sees a slug-only set in both `previousSharedTeamSlugs` (from the
+    // existing doc) and `nextSharedTeamSlugs` (from the request). If the
+    // caller did not include `shared_with_teams` in the patch, keep the
+    // existing value unchanged (do NOT clear it — that would silently
+    // revoke team grants on every metadata-only update).
+    const previousSharedRaw = Array.isArray(agent.shared_with_teams)
+      ? (agent.shared_with_teams as string[])
+      : [];
+    const { slugs: previousSharedTeamSlugs } =
+      await resolveSharedTeamSlugs(previousSharedRaw);
+
+    let sharedTeamSlugs = previousSharedTeamSlugs;
+    if (Object.prototype.hasOwnProperty.call(updateData, "shared_with_teams")) {
+      const { slugs: nextRaw, droppedInputs: droppedSharedInputs } =
+        await resolveSharedTeamSlugs(updateData.shared_with_teams);
+      const ownerSlugForFilter = normalizeString(agent.owner_team_slug);
+      sharedTeamSlugs = ownerSlugForFilter
+        ? nextRaw.filter((slug) => slug !== ownerSlugForFilter)
+        : nextRaw;
+      if (droppedSharedInputs.length > 0) {
+        console.warn(
+          "[dynamic-agents] PUT dropped unresolved shared_with_teams entries (no such team)",
+          { agent: id, dropped: droppedSharedInputs },
+        );
+      }
+      // Persist the canonical slug form so subsequent reads from the
+      // editor render the same identifiers we wrote to OpenFGA.
+      updateData.shared_with_teams = sharedTeamSlugs;
+    }
+
     updateData.updated_at = new Date().toISOString();
 
     const finalAllowedTools = (updateData.allowed_tools ??
@@ -538,6 +666,8 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
       ownerSubject: agent.owner_subject ?? agent.owner_id,
       organizationId: caipeOrgKey(),
       ownerTeamSlug: agent.owner_team_slug,
+      nextSharedTeamSlugs: sharedTeamSlugs,
+      previousSharedTeamSlugs,
     });
 
     const updated = await collection.findOneAndUpdate(

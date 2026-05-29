@@ -47,7 +47,7 @@ async function getOAuthPayloadStore() {
   );
   return new MongoEnvelopeCredentialStore({
     payloadCollection: encryptedPayloadsCollection,
-    keyWrapper: createOAuthKeyWrapper(),
+    keyWrapper: createOAuthKeyWrapper,
   });
 }
 

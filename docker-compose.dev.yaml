@@ -19,6 +19,10 @@
 #     docker compose -f docker-compose.dev.yaml --profile caipe-supervisor --profile <agent-profiles> up --build
 #     Set: DISTRIBUTED_AGENTS=argocd,github  (only listed agents are remote)
 #
+#   Single-node MCP-only — supervisor runs agents in-process and only external MCP
+#   server containers are started:
+#     DISTRIBUTED_AGENTS= docker compose -f docker-compose.dev.yaml --profile caipe-supervisor --profile mcp-servers up --build
+#
 # Agent selection and configuration are controlled through environment variables
 # in the .env file—see documentation for full list and descriptions.
 # ============================================================================
@@ -454,6 +458,7 @@ services:
     profiles:
       - github
       - all-agents
+      - mcp-servers
 
   agent-github:
     build:
@@ -589,6 +594,7 @@ services:
       - USE_PIPELINE=true
       - GITLAB_API_URL=https://${GITLAB_HOST:-gitlab.com}/api/v4
       - GITLAB_PERSONAL_ACCESS_TOKEN=${GITLAB_PERSONAL_ACCESS_TOKEN:-${GITLAB_TOKEN}}
+      - REMOTE_AUTHORIZATION=${GITLAB_MCP_REMOTE_AUTHORIZATION:-true}
  
       # Option 1: Simple read-only mode (blocks all write operations)
       - GITLAB_READ_ONLY_MODE=${GITLAB_READ_ONLY_MODE:-true}
@@ -597,6 +603,7 @@ services:
     profiles:
       - gitlab
       - all-agents
+      - mcp-servers
 
   # Weather Agent
   agent-weather:
@@ -676,6 +683,7 @@ services:
     profiles:
       - backstage
       - all-agents
+      - mcp-servers
 
   # ArgoCD Agents
   agent-argocd:
@@ -730,6 +738,7 @@ services:
     profiles:
       - argocd
       - all-agents
+      - mcp-servers
 
   # Confluence Agents
   agent-confluence:
@@ -771,6 +780,7 @@ services:
     profiles:
       - confluence
       - all-agents
+      - mcp-servers
 
   # Jira Agent
   agent-jira:
@@ -841,6 +851,7 @@ services:
     profiles:
       - jira
       - all-agents
+      - mcp-servers
 
   # Komodor Agent
   agent-komodor:
@@ -892,6 +903,7 @@ services:
       start_period: 15s
     profiles:
       - komodor
+      - mcp-servers
 
   # PagerDuty Agent
   agent-pagerduty:
@@ -946,6 +958,7 @@ services:
     profiles:
       - pagerduty
       - all-agents
+      - mcp-servers
 
   # Slack Agent
   agent-slack:
@@ -1000,6 +1013,7 @@ services:
     profiles:
       - slack
       - all-agents
+      - mcp-servers
 
   # Splunk
   agent-splunk:
@@ -1054,6 +1068,7 @@ services:
     profiles:
       - splunk
       - all-agents
+      - mcp-servers
 
   # Webex
   agent-webex:
@@ -1108,6 +1123,7 @@ services:
     profiles:
       - webex
       - all-agents
+      - mcp-servers
 
   # VictorOps Agent
   agent-victorops:
@@ -1161,6 +1177,7 @@ services:
       start_period: 15s
     profiles:
       - victorops
+      - mcp-servers
 
   ####################################################################################################
   #                                      NETUTILS AGENT (NetUtils)                                    #
@@ -1219,6 +1236,7 @@ services:
       start_period: 15s
     profiles:
       - netutils-agent
+      - mcp-servers
 
   ####################################################################################################
   #                                      AGENT JARVIS A2A P2P                                        #
@@ -1268,36 +1286,47 @@ services:
   #   - Default (dev): http://localhost:8000
   #   - Default (docker): http://caipe-supervisor:8000
   #   - Override with: CAIPE_URL=http://your-host:port
+  # ---------------------------------------------------------------------------
+  # caipe-ui (hot/dev) and caipe-ui-prod (prod-parity) are TWO first-class
+  # services that share most env/volumes/depends_on but differ in:
+  #   - build target (`dev` vs `runner`)
+  #   - NODE_ENV (`development` vs `production`)
+  #   - command (`npm run dev` vs `/app/entrypoint.sh`)
+  #   - image suffix (`-dev` vs `-prod`) so both tags persist on disk
+  #   - source bind-mounts (only caipe-ui has ./ui/src etc. for hot reload)
+  #   - profile (`caipe-ui` vs `caipe-ui-prod`)
+  #
+  # Two ways to run them:
+  #   make caipe-ui-hot   → boots `caipe-ui`      via profile `caipe-ui`
+  #                          (next dev, hot reload, bind-mounted ./ui/src)
+  #   make caipe-ui-prod  → boots `caipe-ui-prod` via profile `caipe-ui-prod`
+  #                          (next build + next start, NO hot reload)
+  #
+  # IMPORTANT: both services bind host port 3000 — they are MUTUALLY EXCLUSIVE
+  # at runtime. Keycloak's caipe-ui client only allow-lists
+  # http://localhost:3000/* as a redirect URI (see deploy/keycloak/realm-config.json),
+  # so prod-parity must reuse 3000 too. The Makefile targets bring the sibling
+  # down before bringing the chosen one up.
+  # ---------------------------------------------------------------------------
   caipe-ui:
     build:
       context: .
       dockerfile: build/Dockerfile.caipe-ui
-      # docker-compose.dev.yaml defaults to the `dev` stage so UI source edits
-      # hot-reload through `next dev`. Two ways to switch between hot-reload
-      # and prod-parity runtime — both are first-class, persistent, and live
-      # side-by-side on disk via separate IMAGE_SUFFIXes:
-      #   - make caipe-ui-hot   (hot reload via next dev, default)
-      #   - make caipe-ui-prod  (prod parity via next build + next start)
-      # Or set the underlying compose vars manually:
-      #   CAIPE_UI_BUILD_TARGET=runner CAIPE_UI_NODE_ENV=production \
-      #   CAIPE_UI_COMMAND=/app/entrypoint.sh CAIPE_UI_IMAGE_SUFFIX=-prod \
-      #   docker compose -f docker-compose.dev.yaml --profile caipe-ui up -d --build caipe-ui
-      target: ${CAIPE_UI_BUILD_TARGET:-dev}
+      target: dev
       args:
         - IMAGE_TAG=${IMAGE_TAG:-localtag}
         - GIT_COMMIT=${GIT_COMMIT:-unknown}
         - BUILD_DATE=${BUILD_DATE:-}
-    image: ghcr.io/cnoe-io/caipe-ui:${IMAGE_TAG:-localtag}${CAIPE_UI_IMAGE_SUFFIX:-}
+        # Local prod-parity rebuilds skip Next's duplicate typecheck; run
+        # `npm run lint` / targeted tests separately when validating changes.
+        - CAIPE_UI_FAST_BUILD=${CAIPE_UI_FAST_BUILD:-true}
+    image: ghcr.io/cnoe-io/caipe-ui:${IMAGE_TAG:-localtag}-dev
     container_name: caipe-ui
-    # IMPORTANT: caipe-ui host port MUST stay 3000 — Keycloak's caipe-ui client
-    # only allow-lists http://localhost:3000/* as a redirect URI (see
-    # deploy/keycloak/realm-config.json). The e2e lane reuses the same port.
     ports: ["3000:3000"]
     env_file:
       - .env
     environment:
-      # Dev compose defaults to development for Next.js hot reload.
-      - NODE_ENV=${CAIPE_UI_NODE_ENV:-development}
+      - NODE_ENV=development
       # Spec 102 — Playwright sets E2E_RUN=true to enable test-only fixtures
       # (see ui/src/lib/test-fixtures.ts). Defaults to false in dev.
       - E2E_RUN=${E2E_RUN:-false}
@@ -1335,6 +1364,14 @@ services:
       - OPENFGA_RECONCILE_ENABLED=${OPENFGA_RECONCILE_ENABLED:-false}
       - OPENFGA_HTTP=${OPENFGA_HTTP:-http://openfga:8080}
       - OPENFGA_STORE_NAME=${OPENFGA_STORE_NAME:-caipe-openfga}
+      # Keep local .env role defaults from affecting RAG authorization paths.
+      - ALLOW_TRUSTED_NETWORK=false
+      - TRUSTED_NETWORK_CIDRS=
+      - TRUSTED_NETWORK_DEFAULT_ROLE=
+      - RBAC_ADMIN_GROUPS=
+      - RBAC_DEFAULT_AUTHENTICATED_ROLE=
+      - RBAC_READONLY_GROUPS=
+      - RBAC_INGESTONLY_GROUPS=
       - AUTHZ_TRACING_ENABLED=${AUTHZ_TRACING_ENABLED:-false}
       - OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:-}
       # OIDC_DISCOVERY_URL: Docker-internal URL used for server-side discovery +
@@ -1347,6 +1384,12 @@ services:
       - OIDC_REQUIRED_ADMIN_GROUP=${OIDC_REQUIRED_ADMIN_GROUP:-}
       - BOOTSTRAP_ADMIN_EMAILS=${BOOTSTRAP_ADMIN_EMAILS:-}
       - IDENTITY_SYNC_LOGIN_CLAIMS_ENABLED=${IDENTITY_SYNC_LOGIN_CLAIMS_ENABLED:-true}
+      # Login-time team auto-creation. STRICT opt-in; defaults to "false" to
+      # preserve the locked-down login posture. Even with this set to "true",
+      # the matched identity-group-sync rule must also have auto_create_team=true
+      # for a team to actually be created (defense in depth — see
+      # ui/src/lib/rbac/identity-group-sync-planner.ts).
+      - IDENTITY_SYNC_LOGIN_AUTO_CREATE_TEAMS=${IDENTITY_SYNC_LOGIN_AUTO_CREATE_TEAMS:-false}
       - CAIPE_ORG_KEY=${CAIPE_ORG_KEY:-caipe}
       - CAIPE_ORG_DISPLAY_NAME=${CAIPE_ORG_DISPLAY_NAME:-CAIPE}
       - OIDC_ENABLE_REFRESH_TOKEN=${OIDC_ENABLE_REFRESH_TOKEN:-true}
@@ -1429,6 +1472,8 @@ services:
       - SLACK_BOT_ADMIN_URL=${SLACK_BOT_ADMIN_URL:-http://slack-bot:3001}
       - SLACK_BOT_ADMIN_AUDIENCE=${SLACK_BOT_ADMIN_AUDIENCE:-caipe-slack-bot-admin}
       - SLACK_BOT_ADMIN_TOKEN_URL=${SLACK_BOT_ADMIN_TOKEN_URL:-http://keycloak:7080/realms/caipe/protocol/openid-connect/token}
+      - SLACK_BOT_ADMIN_DEV_AUTH_ENABLED=${SLACK_BOT_ADMIN_DEV_AUTH_ENABLED:-false}
+      - SLACK_BOT_ADMIN_DEV_TOKEN=${SLACK_BOT_ADMIN_DEV_TOKEN:-}
       - WEBEX_INTEGRATION_BOT_ACCESS_TOKEN=${WEBEX_INTEGRATION_BOT_ACCESS_TOKEN:-}
       - WEBEX_WORKSPACE_ALIAS=${WEBEX_WORKSPACE_ALIAS:-CAIPE-WEBEX}
       - WEBEX_LINK_HMAC_SECRET=${WEBEX_LINK_HMAC_SECRET:-${WEBEX_SIGNING_SECRET:-}}
@@ -1466,11 +1511,8 @@ services:
       # Do not mount /app/node_modules or /app/.next here: this compose file
       # bind-mounts only selected source/config files, so the dev image's
       # installed dependencies and generated Next cache stay intact.
-    # Dev default runs Next.js hot reload (`next dev`). Override with
-    # CAIPE_UI_COMMAND=/app/entrypoint.sh for the prod runner. See the
-    # `target:` block above for the full set of compose vars and the
-    # `make caipe-ui-hot` / `make caipe-ui-prod` switch.
-    command: ${CAIPE_UI_COMMAND:-npm run dev}
+    # Hot-reload command: next dev rebuilds on edits to bind-mounted ./ui/src.
+    command: npm run dev
     depends_on:
       caipe-supervisor:
         condition: service_started
@@ -1483,6 +1525,162 @@ services:
         required: false
     profiles:
       - caipe-ui
+
+  # caipe-ui-prod — prod-parity sibling of caipe-ui (see header above).
+  # Runs the runner stage with NODE_ENV=production and `next start` against
+  # the prebuilt .next/standalone bundle. No source bind-mounts: source edits
+  # require a rebuild (`make caipe-ui-prod`). Same env/secrets/depends_on as
+  # caipe-ui — only build target, NODE_ENV, image suffix, command, and
+  # profile differ. Env-var defaults are duplicated rather than anchored
+  # because docker-compose YAML anchors don't merge `environment:` lists
+  # cleanly across services.
+  caipe-ui-prod:
+    build:
+      context: .
+      dockerfile: build/Dockerfile.caipe-ui
+      target: runner
+      args:
+        - IMAGE_TAG=${IMAGE_TAG:-localtag}
+        - GIT_COMMIT=${GIT_COMMIT:-unknown}
+        - BUILD_DATE=${BUILD_DATE:-}
+        # Local prod-parity rebuilds skip Next's duplicate typecheck; run
+        # `npm run lint` / targeted tests separately when validating changes.
+        - CAIPE_UI_FAST_BUILD=${CAIPE_UI_FAST_BUILD:-true}
+    image: ghcr.io/cnoe-io/caipe-ui:${IMAGE_TAG:-localtag}-prod
+    container_name: caipe-ui-prod
+    # Same host port as caipe-ui — these two services are mutually exclusive.
+    # Keycloak's caipe-ui client only allow-lists http://localhost:3000/*.
+    ports: ["3000:3000"]
+    # Slack-bot, webex-bot, dynamic-agents, and a handful of other sibling
+    # services hardcode the in-network hostname `http://caipe-ui:3000` for
+    # CAIPE_API_URL/CREDENTIAL_API_URL. The hot-reload `caipe-ui` service
+    # gets that hostname for free via its container_name, but this prod
+    # sibling needs an explicit network alias so the same env var resolves
+    # when only `caipe-ui-prod` is up.
+    networks:
+      default:
+        aliases:
+          - caipe-ui
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - E2E_RUN=${E2E_RUN:-false}
+      - A2A_BASE_URL=${A2A_BASE_URL:-http://caipe-supervisor:8000}
+      - RAG_ENABLED=${RAG_ENABLED:-true}
+      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag-server:9446}
+      - RAG_URL=${RAG_URL:-http://localhost:9446}
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:-caipe-dev-secret-change-in-production}
+      - NEXTAUTH_URL=${NEXTAUTH_URL:-http://localhost:3000}
+      - SSO_ENABLED=${SSO_ENABLED:-false}
+      - OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-}
+      - OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET:-}
+      - OIDC_ISSUER=${OIDC_ISSUER:-}
+      - OIDC_EXTRA_AUDIENCES=${OIDC_EXTRA_AUDIENCES:-agentgateway}
+      - OIDC_ACCEPTED_AUDIENCES=${OIDC_ACCEPTED_AUDIENCES:-caipe-platform}
+      - OPENFGA_RECONCILE_ENABLED=${OPENFGA_RECONCILE_ENABLED:-false}
+      - OPENFGA_HTTP=${OPENFGA_HTTP:-http://openfga:8080}
+      - OPENFGA_STORE_NAME=${OPENFGA_STORE_NAME:-caipe-openfga}
+      # Keep local .env role defaults from affecting RAG authorization paths.
+      - ALLOW_TRUSTED_NETWORK=false
+      - TRUSTED_NETWORK_CIDRS=
+      - TRUSTED_NETWORK_DEFAULT_ROLE=
+      - RBAC_ADMIN_GROUPS=
+      - RBAC_DEFAULT_AUTHENTICATED_ROLE=
+      - RBAC_READONLY_GROUPS=
+      - RBAC_INGESTONLY_GROUPS=
+      - AUTHZ_TRACING_ENABLED=${AUTHZ_TRACING_ENABLED:-false}
+      - OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:-}
+      - OIDC_DISCOVERY_URL=${OIDC_DISCOVERY_URL:-http://keycloak:7080/realms/caipe}
+      - OIDC_GROUP_CLAIM=${OIDC_GROUP_CLAIM:-}
+      - OIDC_REQUIRED_GROUP=${OIDC_REQUIRED_GROUP:-}
+      - OIDC_REQUIRED_ADMIN_GROUP=${OIDC_REQUIRED_ADMIN_GROUP:-}
+      - BOOTSTRAP_ADMIN_EMAILS=${BOOTSTRAP_ADMIN_EMAILS:-}
+      - IDENTITY_SYNC_LOGIN_CLAIMS_ENABLED=${IDENTITY_SYNC_LOGIN_CLAIMS_ENABLED:-true}
+      - IDENTITY_SYNC_LOGIN_AUTO_CREATE_TEAMS=${IDENTITY_SYNC_LOGIN_AUTO_CREATE_TEAMS:-false}
+      - CAIPE_ORG_KEY=${CAIPE_ORG_KEY:-caipe}
+      - CAIPE_ORG_DISPLAY_NAME=${CAIPE_ORG_DISPLAY_NAME:-CAIPE}
+      - OIDC_ENABLE_REFRESH_TOKEN=${OIDC_ENABLE_REFRESH_TOKEN:-true}
+      - APP_NAME=${APP_NAME:-}
+      - TAGLINE=${TAGLINE:-}
+      - DESCRIPTION=${DESCRIPTION:-}
+      - LOGO_URL=${LOGO_URL:-}
+      - LOGO_STYLE=${LOGO_STYLE:-}
+      - SPINNER_COLOR=${SPINNER_COLOR:-}
+      - SHOW_POWERED_BY=${SHOW_POWERED_BY:-}
+      - SUPPORT_EMAIL=${SUPPORT_EMAIL:-}
+      - PREVIEW_MODE=${PREVIEW_MODE:-}
+      - WORKFLOW_RUNNER_ENABLED=${WORKFLOW_RUNNER_ENABLED:-false}
+      - WORKFLOWS_ENABLED=${WORKFLOWS_ENABLED:-false}
+      - DYNAMIC_AGENTS_ENABLED=${DYNAMIC_AGENTS_ENABLED:-false}
+      - DYNAMIC_AGENTS_URL=${DYNAMIC_AGENTS_URL:-http://dynamic-agents:8001}
+      - SKILL_SCANNER_URL=${SKILL_SCANNER_URL:-http://skill-scanner:8000}
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-${GITHUB_PERSONAL_ACCESS_TOKEN:-}}
+      - MONGODB_URI=${MONGODB_URI:-mongodb://admin:changeme@caipe-mongodb:27017/caipe?authSource=admin}
+      - MONGODB_DATABASE=${MONGODB_DATABASE:-caipe}
+      - CAIPE_CREDENTIALS_ENABLED=${CAIPE_CREDENTIALS_ENABLED:-false}
+      - CREDENTIAL_STORE_BACKEND=${CREDENTIAL_STORE_BACKEND:-mongodb-envelope}
+      - CREDENTIAL_KEY_PROVIDER=${CREDENTIAL_KEY_PROVIDER:-local-cmk}
+      - CREDENTIAL_KMS_CMK_ID=${CREDENTIAL_KMS_CMK_ID:-}
+      - CREDENTIAL_KMS_REGION=${CREDENTIAL_KMS_REGION:-}
+      - CREDENTIAL_SERVICE_AUDIENCE=${CREDENTIAL_SERVICE_AUDIENCE:-caipe-credential-service}
+      - CREDENTIAL_BOOTSTRAP_OAUTH_CONNECTORS=${CREDENTIAL_BOOTSTRAP_OAUTH_CONNECTORS:-false}
+      - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID:-}
+      - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET:-}
+      - GITHUB_REDIRECT_URI=${GITHUB_REDIRECT_URI:-}
+      - CONFLUENCE_CLIENT_ID=${CONFLUENCE_CLIENT_ID:-}
+      - CONFLUENCE_CLIENT_SECRET=${CONFLUENCE_CLIENT_SECRET:-}
+      - CONFLUENCE_REDIRECT_URI=${CONFLUENCE_REDIRECT_URI:-}
+      - WEBEX_CLIENT_ID=${WEBEX_CLIENT_ID:-}
+      - WEBEX_CLIENT_SECRET=${WEBEX_CLIENT_SECRET:-}
+      - WEBEX_REDIRECT_URI=${WEBEX_REDIRECT_URI:-}
+      - PAGERDUTY_CLIENT_ID=${PAGERDUTY_CLIENT_ID:-}
+      - PAGERDUTY_CLIENT_SECRET=${PAGERDUTY_CLIENT_SECRET:-}
+      - PAGERDUTY_REDIRECT_URI=${PAGERDUTY_REDIRECT_URI:-}
+      - PAGERDUTY_SCOPES=${PAGERDUTY_SCOPES:-}
+      - KEYCLOAK_URL=${KEYCLOAK_URL:-http://keycloak:7080}
+      - KEYCLOAK_REALM=${KEYCLOAK_REALM:-caipe}
+      - KEYCLOAK_RESOURCE_SERVER_ID=${KEYCLOAK_RESOURCE_SERVER_ID:-caipe-platform}
+      - KEYCLOAK_CLIENT_SECRET=${KEYCLOAK_CLIENT_SECRET:-caipe-platform-dev-secret}
+      - RBAC_CACHE_TTL_SECONDS=${RBAC_CACHE_TTL_SECONDS:-60}
+      - KEYCLOAK_ADMIN_CLIENT_ID=${KEYCLOAK_ADMIN_CLIENT_ID:-admin-cli}
+      - KEYCLOAK_ADMIN_CLIENT_SECRET=${KEYCLOAK_ADMIN_CLIENT_SECRET:-}
+      - ALLOW_KEYCLOAK_ADMIN_PASSWORD_FALLBACK=${ALLOW_KEYCLOAK_ADMIN_PASSWORD_FALLBACK:-true}
+      - SLACK_LINK_HMAC_SECRET=${SLACK_LINK_HMAC_SECRET:-${SLACK_SIGNING_SECRET:-}}
+      - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN:-}
+      - SLACK_WORKSPACE_ALIAS=${SLACK_WORKSPACE_ALIAS:-CAIPE}
+      - SLACK_BOT_ADMIN_URL=${SLACK_BOT_ADMIN_URL:-http://slack-bot:3001}
+      - SLACK_BOT_ADMIN_AUDIENCE=${SLACK_BOT_ADMIN_AUDIENCE:-caipe-slack-bot-admin}
+      - SLACK_BOT_ADMIN_TOKEN_URL=${SLACK_BOT_ADMIN_TOKEN_URL:-http://keycloak:7080/realms/caipe/protocol/openid-connect/token}
+      - SLACK_BOT_ADMIN_DEV_AUTH_ENABLED=${SLACK_BOT_ADMIN_DEV_AUTH_ENABLED:-false}
+      - SLACK_BOT_ADMIN_DEV_TOKEN=${SLACK_BOT_ADMIN_DEV_TOKEN:-}
+      - WEBEX_INTEGRATION_BOT_ACCESS_TOKEN=${WEBEX_INTEGRATION_BOT_ACCESS_TOKEN:-}
+      - WEBEX_WORKSPACE_ALIAS=${WEBEX_WORKSPACE_ALIAS:-CAIPE-WEBEX}
+      - WEBEX_LINK_HMAC_SECRET=${WEBEX_LINK_HMAC_SECRET:-${WEBEX_SIGNING_SECRET:-}}
+      - WEBEX_BOT_ADMIN_URL=${WEBEX_BOT_ADMIN_URL:-http://webex-bot:3002}
+      - WEBEX_BOT_ADMIN_CLIENT_ID=${WEBEX_BOT_ADMIN_CLIENT_ID:-caipe-ui}
+      - WEBEX_BOT_ADMIN_CLIENT_SECRET=${WEBEX_BOT_ADMIN_CLIENT_SECRET:-}
+      - WEBEX_BOT_ADMIN_AUDIENCE=${WEBEX_BOT_ADMIN_AUDIENCE:-caipe-webex-bot-admin}
+      - WEBEX_BOT_ADMIN_TOKEN_URL=${WEBEX_BOT_ADMIN_TOKEN_URL:-http://keycloak:7080/realms/caipe/protocol/openid-connect/token}
+      - APP_CONFIG_PATH=/app/config/app-config.yaml
+    volumes:
+      # App config only — NO source bind-mounts. The runner stage uses the
+      # prebuilt .next/standalone bundle and ignores ./ui/src etc., so any
+      # bind-mount here would either be dead weight or actively shadow
+      # the prod runner's prebuilt assets (e.g. ui/public, which the
+      # entrypoint writes env-config.js into).
+      - ${CAIPE_APP_CONFIG_FILE:-${APP_CONFIG_FILE:-./config/app-config.yaml}}:/app/config/app-config.yaml:ro
+      - ./charts/ai-platform-engineering/data/skills:/charts/ai-platform-engineering/data/skills:ro
+    command: /app/entrypoint.sh
+    depends_on:
+      caipe-supervisor:
+        condition: service_started
+        required: false
+      keycloak:
+        condition: service_healthy
+        required: false
+    profiles:
+      - caipe-ui-prod
 
   ####################################################################################################
   #                                      Dynamic Agents                                              #
@@ -1631,12 +1829,6 @@ services:
       - AWS_SHARED_CREDENTIALS_FILE=/home/app/.aws/credentials
       - LOG_LEVEL=${RAG_SERVER_LOG_LEVEL:-INFO}
       - RBAC_FALLBACK_CONFIG_PATH=${RBAC_FALLBACK_CONFIG_PATH:-}
-      - ALLOW_UNAUTHENTICATED=true
-      # Trusted Network Configuration
-      - ALLOW_TRUSTED_NETWORK=${ALLOW_TRUSTED_NETWORK:-true}
-      - TRUSTED_NETWORK_CIDRS=${TRUSTED_NETWORK_CIDRS:-127.0.0.0/8,192.168.0.0/16,172.16.0.0/12}
-      - TRUSTED_NETWORK_DEFAULT_ROLE=${TRUSTED_NETWORK_DEFAULT_ROLE:-admin}
-      - RBAC_ADMIN_GROUPS=${RBAC_ADMIN_GROUPS:-}
       - REDIS_URL=redis://rag-redis:6379/0
       - NEO4J_ADDR=neo4j://neo4j:7687
       - NEO4J_ONTOLOGY_ADDR=neo4j://neo4j-ontology:7688
@@ -1663,18 +1855,17 @@ services:
       - OIDC_AUDIENCE=${OIDC_AUDIENCE:-caipe-platform}
       - OIDC_JWKS_URL=${OIDC_JWKS_URL:-http://keycloak:7080/realms/caipe/protocol/openid-connect/certs}
       - OIDC_DISCOVERY_URL=${OIDC_DISCOVERY_URL:-http://keycloak:7080/realms/caipe/.well-known/openid-configuration}
-      - OIDC_GROUP_CLAIM=${OIDC_GROUP_CLAIM:-groups}
+      - OIDC_GROUP_CLAIM=
       # Ingestor OIDC configuration (for OAuth2 client credentials)
       - INGESTOR_OIDC_ISSUER=${INGESTOR_OIDC_ISSUER:-}
       - INGESTOR_OIDC_CLIENT_ID=${INGESTOR_OIDC_CLIENT_ID}
-      # RBAC role assignment by group
-      - RBAC_DEFAULT_AUTHENTICATED_ROLE=${RBAC_DEFAULT_AUTHENTICATED_ROLE:-readonly}
+      # Client-credentials ingestors keep a service role; human access is OpenFGA-only.
       - RBAC_CLIENT_CREDENTIALS_ROLE=${RBAC_CLIENT_CREDENTIALS_ROLE:-ingestonly}
-      - RBAC_READONLY_GROUPS=${RBAC_READONLY_GROUPS}
-      - RBAC_INGESTONLY_GROUPS=${RBAC_INGESTONLY_GROUPS}
-      - RBAC_ADMIN_GROUPS=${RBAC_ADMIN_GROUPS}
       # 098 team-scoped KB / datasource checks (MongoDB same as UI)
       - RBAC_TEAM_SCOPE_ENABLED=${RBAC_TEAM_SCOPE_ENABLED:-true}
+      - OPENFGA_HTTP=${OPENFGA_HTTP:-http://openfga:8080}
+      - OPENFGA_STORE_NAME=${OPENFGA_STORE_NAME:-caipe-openfga}
+      - CAIPE_UNSAFE_RBAC_BYPASS=${CAIPE_UNSAFE_RBAC_BYPASS:-false}
       - RBAC_MONGODB_URI=${RBAC_MONGODB_URI:-mongodb://admin:changeme@caipe-mongodb:27017/caipe?authSource=admin}
       - RBAC_MONGODB_DATABASE=${RBAC_MONGODB_DATABASE:-caipe}
     restart: unless-stopped
@@ -1740,7 +1931,7 @@ services:
       - EXIT_AFTER_FIRST_SYNC=${EXIT_AFTER_FIRST_SYNC:-false}
       - SCRAPY_WORKER_POOL_SIZE=${SCRAPY_WORKER_POOL_SIZE:-3}
       - WEBLOADER_MAX_INGESTION_TASKS=${WEBLOADER_MAX_INGESTION_TASKS:-3}
-      # Ingestor OIDC (optional - uses trusted network if not set)
+      # Ingestor OIDC
       - INGESTOR_OIDC_ISSUER=${INGESTOR_OIDC_ISSUER}
       - INGESTOR_OIDC_CLIENT_ID=${INGESTOR_OIDC_CLIENT_ID}
       - INGESTOR_OIDC_CLIENT_SECRET=${INGESTOR_OIDC_CLIENT_SECRET}
@@ -2347,6 +2538,12 @@ services:
     env_file: [.env]
     ports: ["8030:3000"]  # Only used in HTTP mode (SLACK_INTEGRATION_BOT_MODE=http)
     environment:
+      # Force unbuffered stdio so loguru/print output reaches `docker logs`
+      # in real time. Without this, Python block-buffers stderr when the fd
+      # is a pipe (docker captures aren't a TTY), which means INFO lines
+      # like "RBAC denied request for slack_user=..." don't appear until a
+      # buffer fills — making live debugging of denials nearly impossible.
+      - PYTHONUNBUFFERED=1
       - DEV_HOT_RELOAD=${DEV_HOT_RELOAD:-false}
       - SLACK_INTEGRATION_APP_NAME=${SLACK_INTEGRATION_APP_NAME:-CAIPE}
       - SLACK_INTEGRATION_BOT_TOKEN=${SLACK_INTEGRATION_BOT_TOKEN:-${SLACK_BOT_TOKEN}}
@@ -2378,6 +2575,8 @@ services:
       - SLACK_ADMIN_API_ENABLED=${SLACK_ADMIN_API_ENABLED:-false}
       - SLACK_ADMIN_API_HOST=${SLACK_ADMIN_API_HOST:-0.0.0.0}
       - SLACK_ADMIN_API_PORT=${SLACK_ADMIN_API_PORT:-3001}
+      - SLACK_ADMIN_DEV_AUTH_ENABLED=${SLACK_ADMIN_DEV_AUTH_ENABLED:-false}
+      - SLACK_ADMIN_DEV_TOKEN=${SLACK_ADMIN_DEV_TOKEN:-}
       - SLACK_ADMIN_JWT_ISSUER=${SLACK_ADMIN_JWT_ISSUER:-http://localhost:7080/realms/caipe}
       - SLACK_ADMIN_JWKS_URL=${SLACK_ADMIN_JWKS_URL:-http://keycloak:7080/realms/caipe/protocol/openid-connect/certs}
       - SLACK_ADMIN_JWT_AUDIENCE=${SLACK_ADMIN_JWT_AUDIENCE:-caipe-slack-bot-admin}
@@ -2636,6 +2835,7 @@ services:
       IDP_ADMIN_GROUP: ${IDP_ADMIN_GROUP:-}
       KEYCLOAK_FORCE_IDP_REDIRECT: ${KEYCLOAK_FORCE_IDP_REDIRECT:-false}
       KEYCLOAK_ADMIN_FRONTEND_URL: ${KEYCLOAK_ADMIN_FRONTEND_URL:-}
+      CAIPE_UNSAFE_RBAC_BYPASS: ${CAIPE_UNSAFE_RBAC_BYPASS:-false}
       SLACK_BOT_ADMIN_AUDIENCE: ${SLACK_BOT_ADMIN_AUDIENCE:-caipe-slack-bot-admin}
       KC_REALM: caipe
       # Spec 104: comma-separated emails that get the admin_user role and the
@@ -2758,14 +2958,16 @@ services:
     container_name: openfga-init
     profiles:
       - rbac
+    volumes:
+      - ./charts/ai-platform-engineering/charts/openfga/authorization-model.json:/app/authorization-model.json:ro
     environment:
       OPENFGA_HTTP: http://openfga:8080
       OPENFGA_STORE_NAME: caipe-openfga
       # Seed a dev allow tuple with a Keycloak user `sub`. If unset, OpenFGA
       # starts deny-by-default and you can write tuples later.
       OPENFGA_SEED_SUB: ${OPENFGA_SEED_SUB:-}
-      # Backward-compatible alias from the previous experiment overlay.
-      OPENFGA_EXPERIMENT_SUB: ${OPENFGA_EXPERIMENT_SUB:-}
+    volumes:
+      - ./charts/ai-platform-engineering/charts/openfga/authorization-model.json:/app/authorization-model.json:ro
     depends_on:
       openfga:
         condition: service_healthy
@@ -2805,11 +3007,53 @@ services:
       openfga:
         condition: service_healthy
 
+  agentgateway-config-bridge:
+    build:
+      context: ./deploy/agentgateway
+      dockerfile: Dockerfile.config-bridge
+    image: ghcr.io/cnoe-io/caipe-agentgateway-config-bridge:${IMAGE_TAG:-localtag}
+    container_name: agentgateway-config-bridge
+    restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    profiles:
+      - rbac
+    environment:
+      MONGODB_URI: ${MONGODB_URI:-mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin}
+      MONGODB_DATABASE: ${MONGODB_DATABASE:-caipe}
+      AGENTGATEWAY_CONFIG_PATH: /generated/config.yaml
+      AGENTGATEWAY_BOOTSTRAP_CONFIG_PATH: /bootstrap/config.yaml
+      AGENTGATEWAY_ADMIN_CONFIG_URL: http://agentgateway:15000/config
+      AGENTGATEWAY_CONFIG_BRIDGE_POLL_SECONDS: ${AGENTGATEWAY_CONFIG_BRIDGE_POLL_SECONDS:-5}
+      LOG_LEVEL: ${AGENTGATEWAY_CONFIG_BRIDGE_LOG_LEVEL:-INFO}
+    volumes:
+      - agentgateway_config:/generated
+      - ./deploy/agentgateway/config.yaml:/bootstrap/config.yaml:ro
+    tmpfs:
+      - /tmp
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "from pathlib import Path; import sys; sys.exit(0 if Path('/generated/config.yaml').is_file() and Path('/generated/config.yaml').stat().st_size > 0 else 1)"
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+    depends_on:
+      caipe-mongodb:
+        condition: service_healthy
+
   agentgateway:
     image: ghcr.io/agentgateway/agentgateway:latest
     container_name: agentgateway
     restart: unless-stopped
     command: ["--file", "/etc/agentgateway/config.yaml"]
+    environment:
+      GITHUB_PERSONAL_ACCESS_TOKEN: ${GITHUB_PERSONAL_ACCESS_TOKEN:-}
+      GITLAB_PERSONAL_ACCESS_TOKEN: ${GITLAB_PERSONAL_ACCESS_TOKEN:-${GITLAB_TOKEN:-}}
     read_only: true
     security_opt:
       - no-new-privileges:true
@@ -2834,11 +3078,13 @@ services:
         condition: service_completed_successfully
       openfga-authz-bridge:
         condition: service_healthy
+      agentgateway-config-bridge:
+        condition: service_healthy
     ports:
       - "4000:4000"
       - "127.0.0.1:15000:15000" # Admin UI (config.config.adminAddr)
     volumes:
-      - ./deploy/agentgateway/config.yaml:/etc/agentgateway/config.yaml:ro
+      - agentgateway_config:/etc/agentgateway:ro
     tmpfs:
       - /tmp
     healthcheck:
@@ -3013,6 +3259,8 @@ volumes:
   langgraph_mongodb_data:
     driver: local
   openfga_postgres_data:
+    driver: local
+  agentgateway_config:
     driver: local
   # Durable Keycloak state (users, role assignments, per-team client scopes,
   # `team_member:<slug>` realm roles, identity links, token-exchange grants).

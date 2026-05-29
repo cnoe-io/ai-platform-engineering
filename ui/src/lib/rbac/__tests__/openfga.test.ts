@@ -4,6 +4,7 @@ import path from "node:path";
 import {
   buildTeamResourceTupleDiff,
   buildUniversalRebacTupleDiff,
+  checkOpenFgaTuple,
   checkUniversalRebacRelationship,
   isOpenFgaReconciliationEnabled,
   readOpenFgaTuples,
@@ -75,6 +76,7 @@ describe("OpenFGA team resource tuple reconciliation", () => {
     delete process.env.OPENFGA_RECONCILE_ENABLED;
     delete process.env.OPENFGA_HTTP;
     delete process.env.OPENFGA_STORE_NAME;
+    delete process.env.CAIPE_UNSAFE_RBAC_BYPASS;
   });
 
   it("maps team members and resource diffs to OpenFGA tuples", () => {
@@ -113,6 +115,24 @@ describe("OpenFGA team resource tuple reconciliation", () => {
     ]);
   });
 
+  it("allows tuple checks without OpenFGA when the unsafe bypass flag is enabled", async () => {
+    process.env.CAIPE_UNSAFE_RBAC_BYPASS = "true";
+    global.fetch = jest.fn();
+    const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
+
+    await expect(
+      checkOpenFgaTuple({
+        user: "user:alice",
+        relation: "can_manage",
+        object: "organization:caipe",
+      })
+    ).resolves.toEqual({ allowed: true });
+
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("RBAC IS DISABLED"));
+    warnSpy.mockRestore();
+  });
+
   it("writes manager grants with admin usersets that match the OpenFGA model", () => {
     const diff = buildTeamResourceTupleDiff({
       teamSlug: "platform-engineering",
@@ -143,7 +163,6 @@ describe("OpenFGA team resource tuple reconciliation", () => {
 
   it("allows typed user wildcards on agent user relation in shipped authorization models", () => {
     const modelPaths = [
-      path.join(process.cwd(), "../deploy/openfga/init/authorization-model.json"),
       path.join(process.cwd(), "../charts/ai-platform-engineering/charts/openfga/authorization-model.json"),
     ];
 
@@ -154,7 +173,6 @@ describe("OpenFGA team resource tuple reconciliation", () => {
 
   it("defines agent can_delete in shipped authorization models", () => {
     const modelPaths = [
-      path.join(process.cwd(), "../deploy/openfga/init/authorization-model.json"),
       path.join(process.cwd(), "../charts/ai-platform-engineering/charts/openfga/authorization-model.json"),
     ];
 
@@ -165,9 +183,7 @@ describe("OpenFGA team resource tuple reconciliation", () => {
 
   it("defines self-service ownership relations in shipped authorization models", () => {
     const modelPaths = [
-      path.join(process.cwd(), "../deploy/openfga/init/authorization-model.json"),
       path.join(process.cwd(), "../charts/ai-platform-engineering/charts/openfga/authorization-model.json"),
-      path.join(process.cwd(), "../deploy/openfga-experiment/init/authorization-model.json"),
     ];
 
     for (const modelPath of modelPaths) {
@@ -185,11 +201,24 @@ describe("OpenFGA team resource tuple reconciliation", () => {
     }
   });
 
+  it("defines RAG data source and custom MCP tool types in shipped authorization models", () => {
+    const modelPaths = [
+      path.join(process.cwd(), "../charts/ai-platform-engineering/charts/openfga/authorization-model.json"),
+    ];
+
+    for (const modelPath of modelPaths) {
+      expect(resourceRelationNames(modelPath, "data_source")).toEqual(
+        expect.arrayContaining(["can_read", "can_ingest", "can_manage"]),
+      );
+      expect(resourceRelationNames(modelPath, "mcp_tool")).toEqual(
+        expect.arrayContaining(["can_read", "can_use", "can_call", "can_manage"]),
+      );
+    }
+  });
+
   it("keeps manager tuple schemas aligned with tuple writers across all packaged models", () => {
     const modelPaths = [
-      path.join(process.cwd(), "../deploy/openfga/init/authorization-model.json"),
       path.join(process.cwd(), "../charts/ai-platform-engineering/charts/openfga/authorization-model.json"),
-      path.join(process.cwd(), "../deploy/openfga-experiment/init/authorization-model.json"),
     ];
 
     for (const modelPath of modelPaths) {
@@ -236,7 +265,7 @@ describe("OpenFGA team resource tuple reconciliation", () => {
     }
   });
 
-  it("builds owner and team-manager tuples for self-service resources", () => {
+  it("builds owner and team grant tuples for self-service resources", () => {
     expect(
       buildMcpServerRelationshipTupleDiff({
         serverId: "mcp-team-tools",
@@ -297,6 +326,7 @@ describe("OpenFGA team resource tuple reconciliation", () => {
     ).toEqual([
       { user: "user:alice-sub", relation: "owner", object: "knowledge_base:kb-team" },
       { user: "team:platform#member", relation: "reader", object: "knowledge_base:kb-team" },
+      { user: "team:platform#member", relation: "ingestor", object: "knowledge_base:kb-team" },
       { user: "team:platform#admin", relation: "manager", object: "knowledge_base:kb-team" },
     ]);
   });

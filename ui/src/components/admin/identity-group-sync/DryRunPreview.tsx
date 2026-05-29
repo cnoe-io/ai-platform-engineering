@@ -5,15 +5,16 @@ import { AlertCircle, CheckCircle2, Info, Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import type { IdentityGroupSyncDryRunResult } from "@/types/identity-group-sync";
+import type { ExternalGroup, IdentityGroupSyncDryRunResult } from "@/types/identity-group-sync";
 
 interface DryRunPreviewProps {
   result: IdentityGroupSyncDryRunResult | null;
+  detectedGroups?: ExternalGroup[];
   applying: boolean;
   onApply: (options?: { acknowledgeRemovalRisks?: boolean }) => void;
 }
 
-export function DryRunPreview({ result, applying, onApply }: DryRunPreviewProps) {
+export function DryRunPreview({ result, detectedGroups = [], applying, onApply }: DryRunPreviewProps) {
   const [acknowledgedRemovalRisks, setAcknowledgedRemovalRisks] = useState(false);
 
   if (!result) {
@@ -36,8 +37,62 @@ export function DryRunPreview({ result, applying, onApply }: DryRunPreviewProps)
     result.membership_sources_to_remove.length +
     result.tuple_writes.length +
     result.tuple_deletes.length;
+  const detectedGroupRows = mergeDetectedGroups(detectedGroups, result.matched_groups, result.ignored_groups);
 
   if (changeCount === 0 && !hasConflicts && result.skipped_users.length === 0) {
+    if (detectedGroupRows.length > 0) {
+      const matchedIds = new Set(result.matched_groups.map((group) => group.external_group_id));
+      const ignoredIds = new Set(result.ignored_groups.map((group) => group.external_group_id));
+      const alreadyRepresentedCount = detectedGroupRows.filter((group) => matchedIds.has(group.external_group_id)).length;
+      const unmatchedCount = detectedGroupRows.filter((group) => ignoredIds.has(group.external_group_id)).length;
+
+      return (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <CheckCircle2 className="h-5 w-5 text-green-500" />
+              Detected groups are already represented
+            </CardTitle>
+            <CardDescription>
+              {detectedGroupRows.length} group(s) were found in this preview. No team, membership, or tuple changes are
+              needed right now.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-3 md:grid-cols-3">
+              <Metric label="detected" value={detectedGroupRows.length} />
+              <Metric label="already represented" value={alreadyRepresentedCount} />
+              <Metric label="unmatched" value={unmatchedCount} />
+            </div>
+            <details className="rounded-md border bg-background/60 p-3">
+              <summary className="cursor-pointer text-sm font-medium">Detected groups</summary>
+              <div className="mt-3 grid gap-2">
+                {detectedGroupRows.map((group) => {
+                  const status = matchedIds.has(group.external_group_id)
+                    ? "Already represented"
+                    : ignoredIds.has(group.external_group_id)
+                      ? "No enabled sync rule matched"
+                      : "Detected";
+                  return (
+                    <div
+                      key={`${group.provider_id}:${group.external_group_id}`}
+                      className="flex flex-col gap-1 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between"
+                    >
+                      <div>
+                        <div className="font-medium">{group.display_name || group.external_group_id}</div>
+                        <div className="text-xs text-muted-foreground">{group.external_group_id}</div>
+                      </div>
+                      <span className="text-sm text-muted-foreground">{status}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </details>
+          </CardContent>
+        </Card>
+      );
+    }
+
     return (
       <Card>
         <CardHeader>
@@ -130,4 +185,16 @@ function Metric({ label, value }: { label: string; value: number }) {
       <div className="text-sm text-muted-foreground">{label}</div>
     </div>
   );
+}
+
+function mergeDetectedGroups(...groups: ExternalGroup[][]): ExternalGroup[] {
+  const seen = new Set<string>();
+  const merged: ExternalGroup[] = [];
+  for (const group of groups.flat()) {
+    const key = `${group.provider_id}:${group.external_group_id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(group);
+  }
+  return merged;
 }

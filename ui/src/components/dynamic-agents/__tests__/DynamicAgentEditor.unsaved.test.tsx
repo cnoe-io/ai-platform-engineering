@@ -90,6 +90,7 @@ jest.mock("framer-motion", () => ({
 import { DynamicAgentEditor } from "../DynamicAgentEditor";
 import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
+import { pickTeam } from "@/__test-utils__/team-picker";
 
 // ============================================================================
 // Helpers
@@ -405,7 +406,8 @@ describe("DynamicAgentEditor — unsaved-changes back-button guard", () => {
     await flushAsync();
 
     fireEvent.change(screen.getByPlaceholderText(/Code Review Agent/i), { target: { value: "Ops Helper" } });
-    fireEvent.change(screen.getByLabelText(/Owner Team/i), { target: { value: "platform" } });
+    // Owner Team picker is now a searchable TeamPicker (2026-05-27).
+    await pickTeam(/Owner Team/i, "platform");
     fireEvent.click(screen.getByText("Next"));
     fireEvent.change(await screen.findByTestId("codemirror-mock"), { target: { value: "Help ops." } });
 

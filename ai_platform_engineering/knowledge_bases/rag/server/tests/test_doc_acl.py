@@ -1,7 +1,5 @@
 """Tests for the hybrid-ACL helper (server.doc_acl).
 
-Spec 102 Phase 7 follow-on (RAG hybrid ACL).
-
 These tests exercise the feature flag, tag derivation, and the
 filter merge semantics — including the failure-closed behaviour
 that prevents callers from widening their own ACL.
@@ -39,15 +37,11 @@ def _restore_flag(monkeypatch):
 
 def _user(
     email: str = "alice@example.com",
-    groups: list[str] | None = None,
-    realm_roles: list[str] | None = None,
 ) -> UserContext:
     return UserContext(
         email=email,
-        groups=groups or [],
-        realm_roles=realm_roles or [],
         role="user",
-        is_authenticated=email != "anonymous",
+        is_authenticated=True,
     )
 
 
@@ -62,53 +56,23 @@ def _qr(filters=None) -> QueryRequest:
 
 def test_derive_returns_empty_when_flag_off():
     mod = _reload_with_flag("false")
-    tags = mod.derive_user_acl_tags(_user(groups=["platform-eng"]))
+    tags = mod.derive_user_acl_tags(_user())
     assert tags == []
 
 
-def test_derive_returns_empty_for_anonymous_even_when_flag_on():
+def test_derive_includes_only_public_for_authenticated_users():
     mod = _reload_with_flag("true")
-    tags = mod.derive_user_acl_tags(_user(email="anonymous"))
-    assert tags == []
+    tags = mod.derive_user_acl_tags(_user())
+    assert tags == [mod.PUBLIC_TAG]
 
 
-def test_derive_includes_public_role_and_team():
+def test_user_context_does_not_carry_group_or_realm_role_tags():
     mod = _reload_with_flag("true")
-    tags = mod.derive_user_acl_tags(
-        _user(
-            groups=["platform-eng", "ops"],
-            realm_roles=["chat_user", "kb_admin"],
-        )
-    )
-    assert tags[0] == mod.PUBLIC_TAG
-    assert "role:chat_user" in tags
-    assert "role:kb_admin" in tags
-    assert "team:platform-eng" in tags
-    assert "team:ops" in tags
-
-
-def test_derive_skips_per_kb_realm_roles():
-    """``kb_reader:foo`` is datasource-level; never a tag."""
-    mod = _reload_with_flag("true")
-    tags = mod.derive_user_acl_tags(
-        _user(realm_roles=["kb_reader:foo", "kb_admin:bar", "kb_ingestor:baz"])
-    )
-    assert "role:kb_reader:foo" not in tags
-    assert "role:kb_admin:bar" not in tags
-    assert "role:kb_ingestor:baz" not in tags
-
-
-def test_derive_dedupes_and_skips_blanks():
-    mod = _reload_with_flag("true")
-    tags = mod.derive_user_acl_tags(
-        _user(
-            groups=["platform-eng", " ", "platform-eng"],
-            realm_roles=["chat_user", "chat_user", ""],
-        )
-    )
-    assert tags.count("team:platform-eng") == 1
-    assert tags.count("role:chat_user") == 1
-    assert "team: " not in tags  # blank-only entries dropped
+    user = _user()
+    assert not hasattr(user, "groups")
+    assert not hasattr(user, "realm_roles")
+    tags = mod.derive_user_acl_tags(user)
+    assert tags == [mod.PUBLIC_TAG]
 
 
 # ---------------------------------------------------------------------------
@@ -119,28 +83,7 @@ def test_derive_dedupes_and_skips_blanks():
 def test_apply_noop_when_flag_off():
     mod = _reload_with_flag("false")
     qr = _qr()
-    mod.apply_doc_acl_filter(qr, _user(groups=["platform-eng"]))
-    assert qr.filters == {}
-
-
-def test_apply_noop_for_anonymous():
-    mod = _reload_with_flag("true")
-    qr = _qr()
-    mod.apply_doc_acl_filter(qr, _user(email="anonymous"))
-    assert qr.filters == {}
-
-
-def test_apply_noop_for_trusted_network_principal():
-    mod = _reload_with_flag("true")
-    qr = _qr()
-    mod.apply_doc_acl_filter(qr, _user(email="trusted-network"))
-    assert qr.filters == {}
-
-
-def test_apply_noop_for_trusted_prefixed_principal():
-    mod = _reload_with_flag("true")
-    qr = _qr()
-    mod.apply_doc_acl_filter(qr, _user(email="trusted:internal"))
+    mod.apply_doc_acl_filter(qr, _user())
     assert qr.filters == {}
 
 
@@ -159,23 +102,22 @@ def test_apply_noop_for_client_credentials_principal():
 def test_apply_sets_filter_when_absent():
     mod = _reload_with_flag("true")
     qr = _qr()
-    mod.apply_doc_acl_filter(qr, _user(groups=["platform-eng"]))
+    mod.apply_doc_acl_filter(qr, _user())
     tags = qr.filters[mod.ACL_FILTER_KEY]
-    assert mod.PUBLIC_TAG in tags
-    assert "team:platform-eng" in tags
+    assert tags == [mod.PUBLIC_TAG]
 
 
-def test_apply_keeps_existing_string_when_in_user_set():
+def test_apply_keeps_public_string_when_in_user_set():
     mod = _reload_with_flag("true")
-    qr = _qr(filters={mod.ACL_FILTER_KEY: "team:platform-eng"})
-    mod.apply_doc_acl_filter(qr, _user(groups=["platform-eng"]))
-    assert qr.filters[mod.ACL_FILTER_KEY] == ["team:platform-eng"]
+    qr = _qr(filters={mod.ACL_FILTER_KEY: mod.PUBLIC_TAG})
+    mod.apply_doc_acl_filter(qr, _user())
+    assert qr.filters[mod.ACL_FILTER_KEY] == [mod.PUBLIC_TAG]
 
 
 def test_apply_drops_existing_string_outside_user_set():
     mod = _reload_with_flag("true")
     qr = _qr(filters={mod.ACL_FILTER_KEY: "team:secret-ops"})
-    mod.apply_doc_acl_filter(qr, _user(groups=["platform-eng"]))
+    mod.apply_doc_acl_filter(qr, _user())
     # caller cannot widen — "__noresults__" guarantees zero rows
     assert qr.filters[mod.ACL_FILTER_KEY] == ["__noresults__"]
 
@@ -184,17 +126,17 @@ def test_apply_intersects_existing_list_with_user_set():
     mod = _reload_with_flag("true")
     qr = _qr(
         filters={
-            mod.ACL_FILTER_KEY: ["team:platform-eng", "team:secret-ops"]
+            mod.ACL_FILTER_KEY: [mod.PUBLIC_TAG, "team:secret-ops"]
         }
     )
-    mod.apply_doc_acl_filter(qr, _user(groups=["platform-eng"]))
-    assert qr.filters[mod.ACL_FILTER_KEY] == ["team:platform-eng"]
+    mod.apply_doc_acl_filter(qr, _user())
+    assert qr.filters[mod.ACL_FILTER_KEY] == [mod.PUBLIC_TAG]
 
 
 def test_apply_empty_intersection_yields_noresults_sentinel():
     mod = _reload_with_flag("true")
     qr = _qr(filters={mod.ACL_FILTER_KEY: ["team:secret-ops"]})
-    mod.apply_doc_acl_filter(qr, _user(groups=["platform-eng"]))
+    mod.apply_doc_acl_filter(qr, _user())
     assert qr.filters[mod.ACL_FILTER_KEY] == ["__noresults__"]
 
 
@@ -204,14 +146,14 @@ def test_apply_unexpected_type_fails_closed():
     # Bypass pydantic validation — simulate a buggy upstream that
     # somehow planted a non-string/list value into filters.
     object.__setattr__(qr, "filters", {mod.ACL_FILTER_KEY: 42})
-    mod.apply_doc_acl_filter(qr, _user(groups=["platform-eng"]))
+    mod.apply_doc_acl_filter(qr, _user())
     assert qr.filters[mod.ACL_FILTER_KEY] == ["__noresults__"]
 
 
 def test_apply_preserves_unrelated_filters():
     mod = _reload_with_flag("true")
     qr = _qr(filters={"datasource_id": "team-eng-kb", "document_type": "doc"})
-    mod.apply_doc_acl_filter(qr, _user(groups=["platform-eng"]))
+    mod.apply_doc_acl_filter(qr, _user())
     assert qr.filters["datasource_id"] == "team-eng-kb"
     assert qr.filters["document_type"] == "doc"
     assert mod.ACL_FILTER_KEY in qr.filters

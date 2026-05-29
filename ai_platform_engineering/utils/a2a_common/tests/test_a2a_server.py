@@ -265,6 +265,18 @@ class TestA2AServerBuildApp(unittest.TestCase):
         for path in ["/.well-known/agent.json", "/.well-known/agent-card.json", "/health", "/ready"]:
             self.assertIn(path, kw["excluded_paths"])
 
+    def test_health_excluded_from_metrics_tracking(self):
+        s = _make_server(metrics_enabled=True)
+        app = s.build_app()
+        kw = self._find_middleware_kwargs(app, "PrometheusMetricsMiddleware")
+        self.assertIn("/health", kw["excluded_paths"])
+
+    def test_ready_excluded_from_metrics_tracking(self):
+        s = _make_server(metrics_enabled=True)
+        app = s.build_app()
+        kw = self._find_middleware_kwargs(app, "PrometheusMetricsMiddleware")
+        self.assertIn("/ready", kw["excluded_paths"])
+
     def test_build_app_can_be_called_multiple_times(self):
         s = _make_server()
         app1 = s.build_app()
@@ -521,6 +533,55 @@ class TestA2AServerE2E(unittest.IsolatedAsyncioTestCase):
         async with self._client(s) as client:
             resp = await client.get("/metrics")
         self.assertIn("text/plain", resp.headers.get("content-type", ""))
+
+    # --- Health and readiness endpoints ---
+
+    async def test_health_returns_200(self):
+        s = _make_server()
+        async with self._client(s) as client:
+            resp = await client.get("/health")
+        self.assertEqual(resp.status_code, 200)
+
+    async def test_health_returns_json(self):
+        s = _make_server()
+        async with self._client(s) as client:
+            resp = await client.get("/health")
+        self.assertIn("application/json", resp.headers.get("content-type", ""))
+
+    async def test_health_body_status_ok(self):
+        s = _make_server()
+        async with self._client(s) as client:
+            resp = await client.get("/health")
+        self.assertEqual(resp.json(), {"status": "ok"})
+
+    async def test_ready_returns_200(self):
+        s = _make_server()
+        async with self._client(s) as client:
+            resp = await client.get("/ready")
+        self.assertEqual(resp.status_code, 200)
+
+    async def test_ready_returns_json(self):
+        s = _make_server()
+        async with self._client(s) as client:
+            resp = await client.get("/ready")
+        self.assertIn("application/json", resp.headers.get("content-type", ""))
+
+    async def test_ready_body_status_ok(self):
+        s = _make_server()
+        async with self._client(s) as client:
+            resp = await client.get("/ready")
+        self.assertEqual(resp.json(), {"status": "ok"})
+
+    async def test_health_and_ready_do_not_interfere_with_agent_card(self):
+        s = _make_server(agent_name="argocd")
+        async with self._client(s) as client:
+            h = await client.get("/health")
+            r = await client.get("/ready")
+            card = await client.get("/.well-known/agent.json")
+        self.assertEqual(h.status_code, 200)
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(card.status_code, 200)
+        self.assertEqual(card.json()["name"], "argocd")
 
     # --- Unknown routes ---
 

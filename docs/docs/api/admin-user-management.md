@@ -1755,9 +1755,9 @@ Search MongoDB users by email or name (for sharing, etc.).
 
 ### GET `/api/user/info`
 
-**Auth:** None required by the route; RAG decides | **Since:** v1.0
+**Auth:** NextAuth session with access token | **Since:** v1.0
 
-Server-side proxy to RAG server `GET /v1/user/info`. When NextAuth has `session.accessToken`, the handler adds `Authorization: Bearer <accessToken>`; otherwise RAG may treat the caller as anonymous or use trusted-network rules. HTTP status and JSON body are passed through from RAG.
+Server-side proxy to RAG server `GET /v1/user/info`. The handler adds `Authorization: Bearer <accessToken>` from the active NextAuth session. Without an access token, the route returns `401`.
 
 **Example `200` (typical RAG shape):**
 
@@ -1766,9 +1766,7 @@ Server-side proxy to RAG server `GET /v1/user/info`. When NextAuth has `session.
   "email": "user@example.com",
   "role": "readonly",
   "is_authenticated": true,
-  "groups": [],
-  "permissions": ["read"],
-  "in_trusted_network": false
+  "permissions": ["read"]
 }
 ```
 

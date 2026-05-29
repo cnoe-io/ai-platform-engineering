@@ -356,11 +356,13 @@ const sidebars: SidebarsConfig = {
               items: [
                 { type: 'doc', id: 'security/rbac/feature-guide', label: 'Feature Guide' },
                 { type: 'doc', id: 'security/rbac/architecture', label: 'Architecture' },
+                { type: 'doc', id: 'security/rbac/pdp-coverage-audit', label: 'PDP Coverage Audit (BFF /api/*)' },
                 { type: 'doc', id: 'security/rbac/comprehensive-rbac-refactor', label: 'Comprehensive Refactor' },
                 { type: 'doc', id: 'security/rbac/workflows', label: 'Workflows' },
                 { type: 'doc', id: 'security/rbac/usage', label: 'Usage' },
                 { type: 'doc', id: 'security/rbac/roles-scopes-comparison', label: 'Roles vs Scopes' },
                 { type: 'doc', id: 'security/rbac/helm-install-upgrade', label: 'Helm Install and Upgrade' },
+                { type: 'doc', id: 'security/rbac/caipe-rbac-migration', label: 'CAIPE RBAC Migration' },
                 { type: 'doc', id: 'security/rbac/secrets-bootstrap', label: 'Secrets Bootstrap' },
                 { type: 'doc', id: 'security/rbac/file-map', label: 'File Map' },
               ],

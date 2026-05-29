@@ -11,7 +11,7 @@ import { isUniversalRebacResourceType } from "@/lib/rbac/relationship-validator"
 export const ALLOWED_RELATIONS = new Set(["member", "admin", ...OPENFGA_ACTION_RELATIONS]);
 
 const SAFE_ID = /^[A-Za-z0-9._:@#*+-]+$/;
-const SUBJECT_PREFIXES = ["user:", "service_account:", "anonymous:", "slack_channel:"];
+const SUBJECT_PREFIXES = ["user:", "service_account:", "slack_channel:"];
 
 export interface OpenFgaAuthContext {
   user: { email: string };

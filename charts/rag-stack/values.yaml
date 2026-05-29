@@ -94,12 +94,9 @@ rag-server:
     UI_URL: "http://localhost:9447"
     SLEEP_ON_INIT_FAILURE_SECONDS: "180"
     CLEANUP_INTERVAL: "86400"
-    # RBAC/Authentication (when using OAuth2 Proxy)
-    ALLOW_UNAUTHENTICATED: "true"
-    RBAC_READONLY_GROUPS: ""
-    RBAC_INGESTONLY_GROUPS: ""
-    RBAC_ADMIN_GROUPS: ""
-    RBAC_DEFAULT_ROLE: "readonly"
+    # RAG human authorization is OpenFGA-only. This bypass is for emergency
+    # recovery and must remain false in normal deployments.
+    CAIPE_UNSAFE_RBAC_BYPASS: "false"
 
   # Additional envFrom references (secrets, configmaps)
   envFrom: []
@@ -191,22 +188,30 @@ agent-ontology:
       memory: 3Gi
       ephemeral-storage: 3Gi
 
-  # This is to setup the liveness and readiness probes more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/
-  livenessProbe:
-    tcpSocket:
+  startupProbe:
+    httpGet:
+      path: /v1/graph/ontology/agent/status
       port: http
-    initialDelaySeconds: 60
+    initialDelaySeconds: 10
     periodSeconds: 10
     timeoutSeconds: 5
-    failureThreshold: 10
+    failureThreshold: 30
+
+  livenessProbe:
+    httpGet:
+      path: /v1/graph/ontology/agent/status
+      port: http
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
 
   readinessProbe:
-    tcpSocket:
+    httpGet:
+      path: /v1/graph/ontology/agent/status
       port: http
-    initialDelaySeconds: 60
-    periodSeconds: 10
-    timeoutSeconds: 5
-    failureThreshold: 10
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
 
 neo4j:
   enabled: true

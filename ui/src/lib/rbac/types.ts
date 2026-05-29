@@ -7,18 +7,30 @@
 
 /** Protected components from the 098 permission matrix (FR-008, FR-014) */
 export type RbacResource =
+  | "ai_assist"
   | "admin_ui"
+  | "chat_supervisor"
+  | "credential_vault"
+  | "feedback"
   | "slack"
   | "supervisor"
   | "rag"
+  | "self_profile"
   | "sub_agent"
+  | "system_config"
   | "tool"
   | "skill"
   | "a2a"
   | "mcp"
   | "team"
+  | "user_directory"
+  | "user_files"
+  | "user_settings"
   | "mcp_server"
-  | "dynamic_agent";
+  | "dynamic_agent"
+  | "user_directory"
+  | "user_files"
+  | "user_settings";
 
 /** Common capability scopes from the permission matrix */
 export type RbacScope =
@@ -40,7 +52,10 @@ export type RbacScope =
   | "kb.ingest"
   | "kb.query"
   | "read"
-  | "manage";
+  | "manage"
+  | "submit"
+  | "use"
+  | "write";
 
 /** Legacy transition label; CAIPE authorization now comes from OpenFGA relationships. */
 export type RbacRole = "denied";
@@ -168,6 +183,35 @@ export type AdminTabKey =
 
 /** Per-tab visibility gates returned by GET /api/rbac/admin-tab-gates */
 export type AdminTabGatesMap = Record<AdminTabKey, boolean>;
+
+/**
+ * Knowledge sidebar tab keys for RBAC-based visibility.
+ *
+ * Returned by GET /api/rbac/kb-tab-gates. Org admins (`organization#admin`)
+ * always see every tab; non-admins see a tab only if they have at least one
+ * readable resource on that surface (or a readable KB for `graph` / `search`
+ * / `data_sources`).
+ */
+export type KbTabKey =
+  | "search"
+  | "data_sources"
+  | "graph"
+  | "mcp_tools";
+
+/**
+ * Per-tab visibility gates returned by GET /api/rbac/kb-tab-gates.
+ * Includes counts the sidebar uses for empty-state banners.
+ */
+export interface KbTabGatesMap {
+  search: boolean;
+  data_sources: boolean;
+  graph: boolean;
+  mcp_tools: boolean;
+  /** True iff `kb_count > 0` OR the user is an org admin. */
+  has_any_kb: boolean;
+  /** Number of `knowledge_base:<id>` objects the user can `can_read`. -1 means "unknown / admin bypass". */
+  kb_count: number;
+}
 
 /** Per-KB permission level for team-KB ownership (FR-038) */
 export type KbPermission = 'read' | 'ingest' | 'admin';

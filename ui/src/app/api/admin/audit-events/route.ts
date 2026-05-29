@@ -10,7 +10,6 @@ import type {
 } from "@/lib/rbac/types";
 
 const COLLECTION = "audit_events";
-const DEFAULT_HIDDEN_ACTIONS = ["admin_ui#view", "admin_ui#audit.view"];
 
 const VALID_TYPES: AuditEventType[] = ["auth", "tool_action", "agent_delegation", "openfga_rebac"];
 const VALID_OUTCOMES: UnifiedAuditOutcome[] = ["allow", "deny", "success", "error"];
@@ -172,8 +171,6 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
   }
   if (typeParam) {
     filter.type = typeParam;
-  } else {
-    filter.action = { $nin: DEFAULT_HIDDEN_ACTIONS };
   }
   if (agentName) {
     filter.agent_name = agentName;

@@ -75,6 +75,11 @@ export interface Config {
    * Set ALLOW_DEV_ADMIN_WHEN_SSO_DISABLED=true. Do not use in production.
    */
   allowDevAdminWhenSsoDisabled: boolean;
+  /**
+   * Unsafe dev/emergency bypass for UI RBAC enforcement.
+   * Client-visible so the header can show a compact no-auth indicator.
+   */
+  unsafeRbacBypassEnabled: boolean;
   /** Storage mode: 'mongodb' or 'localStorage' */
   storageMode: 'mongodb' | 'localStorage';
   /** Enabled integration icons on login page (comma-separated list, null = show all) */
@@ -231,6 +236,7 @@ const DEFAULT_CONFIG: Config = {
   showPoweredBy: true,
   supportEmail: DEFAULT_SUPPORT_EMAIL,
   allowDevAdminWhenSsoDisabled: false,
+  unsafeRbacBypassEnabled: false,
   storageMode: 'localStorage',
   enabledIntegrationIcons: null,
   faviconUrl: '/favicon.ico',
@@ -274,6 +280,13 @@ const DEFAULT_CONFIG: Config = {
  */
 function env(name: string): string | undefined {
   return process.env[name] || process.env[`NEXT_PUBLIC_${name}`] || undefined;
+}
+
+const ENABLED_VALUES = new Set(['1', 'true', 'yes', 'on']);
+
+function enabledEnv(name: string): boolean {
+  const raw = env(name)?.trim().toLowerCase();
+  return raw ? ENABLED_VALUES.has(raw) : false;
 }
 
 /**
@@ -347,6 +360,7 @@ export function getServerConfig(): Config {
   const envBadge = env('ENV_BADGE')
     || (env('PREVIEW_MODE') === 'true' ? 'Preview' : '');
   const allowDevAdminWhenSsoDisabled = env('ALLOW_DEV_ADMIN_WHEN_SSO_DISABLED') === 'true';
+  const unsafeRbacBypassEnabled = enabledEnv('CAIPE_UNSAFE_RBAC_BYPASS');
   const workflowRunnerEnabled = env('WORKFLOW_RUNNER_ENABLED') === 'true';
   const workflowsEnabled = env('WORKFLOWS_ENABLED') === 'true';
   const taskBuilderEnabled = env('TASK_BUILDER_ENABLED') !== 'false';
@@ -405,6 +419,7 @@ export function getServerConfig(): Config {
     showPoweredBy,
     supportEmail: env('SUPPORT_EMAIL') || DEFAULT_SUPPORT_EMAIL,
     allowDevAdminWhenSsoDisabled,
+    unsafeRbacBypassEnabled,
     storageMode: mongodbEnabled ? 'mongodb' : 'localStorage',
     enabledIntegrationIcons: env('ENABLED_INTEGRATION_ICONS')?.split(',').map((icon) => icon.trim().toLowerCase()) ?? null,
     faviconUrl: env('FAVICON_URL') || '/favicon.ico',

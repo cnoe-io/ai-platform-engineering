@@ -1,4 +1,9 @@
-import { exchangeOAuthToken } from "@/lib/credentials/oauth-service-factory";
+import {
+  exchangeOAuthToken,
+  getOAuthConnectorService,
+  getProviderConnectionService,
+} from "@/lib/credentials/oauth-service-factory";
+import { getCollection } from "@/lib/mongodb";
 
 jest.mock("@/lib/mongodb", () => ({
   getCollection: jest.fn(),
@@ -57,5 +62,69 @@ describe("exchangeOAuthToken", () => {
         code: "code-1",
       }),
     ).resolves.toEqual({ access_token: "access-token", expires_in: 3600 });
+  });
+});
+
+describe("getOAuthConnectorService", () => {
+  const originalNodeEnv = process.env.NODE_ENV;
+  const originalKeyProvider = process.env.CREDENTIAL_KEY_PROVIDER;
+
+  afterEach(() => {
+    process.env.NODE_ENV = originalNodeEnv;
+    process.env.CREDENTIAL_KEY_PROVIDER = originalKeyProvider;
+    jest.clearAllMocks();
+  });
+
+  it("lists connector metadata in local prod compose without initializing secret key wrapping", async () => {
+    process.env.NODE_ENV = "production";
+    process.env.CREDENTIAL_KEY_PROVIDER = "local-cmk";
+    (getCollection as jest.Mock).mockResolvedValue({
+      find: () => ({
+        sort: () => ({
+          toArray: async () => [
+            {
+              id: "github-connector",
+              name: "GitHub",
+              provider: "github",
+              clientId: "github-client",
+              clientSecretRef: "oauth_connector:github-connector:client_secret",
+              authorizationUrl: "https://github.com/login/oauth/authorize",
+              tokenUrl: "https://github.com/login/oauth/access_token",
+              scopes: ["repo", "read:user"],
+              redirectUri: "http://localhost:3000/api/credentials/oauth/github/callback",
+              enabled: true,
+              createdAt: new Date("2026-05-27T00:00:00.000Z"),
+              updatedAt: new Date("2026-05-27T00:00:00.000Z"),
+            },
+          ],
+        }),
+      }),
+    });
+
+    await expect((await getOAuthConnectorService()).listConnectors()).resolves.toEqual([
+      expect.objectContaining({
+        id: "github-connector",
+        name: "GitHub",
+        provider: "github",
+        enabled: true,
+        clientSecretConfigured: true,
+      }),
+    ]);
+  });
+
+  it("lists provider connection metadata in local prod compose without initializing secret key wrapping", async () => {
+    process.env.NODE_ENV = "production";
+    process.env.CREDENTIAL_KEY_PROVIDER = "local-cmk";
+    (getCollection as jest.Mock).mockResolvedValue({
+      find: () => ({
+        sort: () => ({
+          toArray: async () => [],
+        }),
+      }),
+    });
+
+    await expect(
+      (await getProviderConnectionService()).listConnections({ type: "user", id: "alice-sub" }),
+    ).resolves.toEqual([]);
   });
 });

@@ -521,6 +521,15 @@ function tupleKey(tuple: TupleKey): string {
   return `${tuple.user} ${tuple.relation} ${tuple.object}`;
 }
 
+function tupleFilterParams(filter: Partial<TupleKey>): URLSearchParams {
+  const params = new URLSearchParams();
+  if (filter.user?.trim()) params.set("user", filter.user.trim());
+  if (filter.relation?.trim()) params.set("relation", filter.relation.trim());
+  if (filter.object?.trim()) params.set("object", filter.object.trim());
+  params.set("limit", "100");
+  return params;
+}
+
 function nodeKind(object: string): string {
   if (object.includes("#")) return "userset";
   const [type] = object.split(":");
@@ -634,11 +643,7 @@ function relationshipFromTuple(tuple: TupleKey): UniversalRebacRelationship | nu
   const [resourceType, resourceId = ""] = tuple.object.split(":", 2);
   const action = RELATION_TO_ACTION[tuple.relation];
   if (!subjectType || !subjectId || !resourceType || !resourceId || !action) return null;
-  if (
-    !["user", "team", "slack_channel", "webex_space", "external_group", "service_account", "anonymous"].includes(
-      subjectType
-    )
-  ) {
+  if (!["user", "team", "slack_channel", "webex_space", "external_group", "service_account"].includes(subjectType)) {
     return null;
   }
   return {
@@ -724,17 +729,13 @@ export function OpenFgaRebacTab({ isAdmin }: { isAdmin: boolean }) {
     setAccessResourceId((prev) => prev || accessResources(data, "agent")[0]?.id || "");
   }, []);
 
-  const loadTuples = useCallback(async () => {
-    const params = new URLSearchParams();
-    if (tupleFilter.user) params.set("user", tupleFilter.user);
-    if (tupleFilter.relation) params.set("relation", tupleFilter.relation);
-    if (tupleFilter.object) params.set("object", tupleFilter.object);
-    params.set("limit", "100");
+  const loadTuples = useCallback(async (filter: Partial<TupleKey> = {}) => {
+    const params = tupleFilterParams(filter);
     const res = await fetch(`/api/admin/openfga/tuples?${params.toString()}`);
     if (!res.ok) throw new Error(`Failed to load tuples: ${res.status}`);
     const payload = await res.json();
     setTuples(apiData<{ tuples: TupleRecord[] }>(payload).tuples ?? []);
-  }, [tupleFilter]);
+  }, []);
 
   const loadGraph = useCallback(async () => {
     const params = new URLSearchParams();
@@ -765,6 +766,15 @@ export function OpenFgaRebacTab({ isAdmin }: { isAdmin: boolean }) {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  const applyTupleFilters = useCallback(async () => {
+    setError(null);
+    try {
+      await loadTuples(tupleFilter);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load OpenFGA tuples");
+    }
+  }, [loadTuples, tupleFilter]);
 
   useEffect(() => {
     const nextSubjects = subjectOptions(catalog, accessSubjectType);
@@ -866,7 +876,7 @@ export function OpenFgaRebacTab({ isAdmin }: { isAdmin: boolean }) {
       setMessage(
         `Granted ${selectedAccessRelationship.action} on ${selectedAccessRelationship.resource.type}:${selectedAccessRelationship.resource.id}`
       );
-      await Promise.all([loadTuples(), loadGraph()]);
+      await Promise.all([loadTuples(tupleFilter), loadGraph()]);
       await checkAccess();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Effective access grant failed");
@@ -892,7 +902,7 @@ export function OpenFgaRebacTab({ isAdmin }: { isAdmin: boolean }) {
       setMessage(
         `Revoked ${selectedAccessRelationship.action} on ${selectedAccessRelationship.resource.type}:${selectedAccessRelationship.resource.id}`
       );
-      await Promise.all([loadTuples(), loadGraph()]);
+      await Promise.all([loadTuples(tupleFilter), loadGraph()]);
       await checkAccess();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Effective access revoke failed");
@@ -913,7 +923,7 @@ export function OpenFgaRebacTab({ isAdmin }: { isAdmin: boolean }) {
     try {
       await applyChangeSet(`Revoke ${tuple.relation} ${tuple.object}`, [], [relationship]);
       setMessage(`Deleted ${tuple.user} ${tuple.relation} ${tuple.object}`);
-      await Promise.all([loadTuples(), loadGraph()]);
+      await Promise.all([loadTuples(tupleFilter), loadGraph()]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Tuple delete failed");
     } finally {
@@ -941,7 +951,7 @@ export function OpenFgaRebacTab({ isAdmin }: { isAdmin: boolean }) {
       );
       setPendingGraphWrites([]);
       setPendingGraphDeletes([]);
-      await Promise.all([loadTuples(), loadGraph()]);
+      await Promise.all([loadTuples(tupleFilter), loadGraph()]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "OpenFGA graph save failed");
     } finally {
@@ -1254,7 +1264,7 @@ export function OpenFgaRebacTab({ isAdmin }: { isAdmin: boolean }) {
                 <FilterInput label="User" value={tupleFilter.user ?? ""} onChange={(user) => setTupleFilter((prev) => ({ ...prev, user }))} />
                 <FilterInput label="Relation" value={tupleFilter.relation ?? ""} onChange={(relationValue) => setTupleFilter((prev) => ({ ...prev, relation: relationValue }))} />
                 <FilterInput label="Object" value={tupleFilter.object ?? ""} onChange={(object) => setTupleFilter((prev) => ({ ...prev, object }))} />
-                <Button variant="outline" className="self-end" onClick={loadTuples}>
+                <Button variant="outline" className="self-end" onClick={applyTupleFilters}>
                   Apply filters
                 </Button>
               </div>

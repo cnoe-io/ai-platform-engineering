@@ -23,6 +23,7 @@ _install_log_redaction()
 
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
+from slack_bolt.response import BoltResponse
 
 from loguru import logger
 from utils.config import config
@@ -844,6 +845,20 @@ _SEEN_TTL = 30.0  # seconds
 _linking_prompt_sent: dict[str, float] = {}
 _LINKING_PROMPT_COOLDOWN = float(os.environ.get("SLACK_LINKING_PROMPT_COOLDOWN", "3600"))
 
+# Returning BoltResponse(200) from the global middleware tells bolt-python
+# "the request is handled, skip the rest of the chain", AND signals to Slack
+# that the envelope has been acknowledged so Socket Mode does not retry the
+# same event 3 more times. This is the maintainer-recommended way to short-
+# circuit a global middleware:
+#   https://github.com/slackapi/bolt-python/issues/235
+#   https://github.com/slackapi/bolt-python/issues/1222
+# Without this, every short-circuit branch (dedupe, silence, unlinked, deny)
+# logs "skipped calling next()/next_() without providing a response" AND
+# Slack retries the event up to 3 more times, generating duplicate work
+# and confusing logs.
+_HANDLED_200 = BoltResponse(status=200, body="")
+
+
 @app.middleware
 def rbac_global_middleware(body, context, next, logger):
     # Deduplicate retried events
@@ -857,11 +872,11 @@ def rbac_global_middleware(body, context, next, logger):
             _seen_events.pop(k, None)
         if event_id in _seen_events:
             logger.debug("Ignoring duplicate event_id={}", event_id)
-            return
+            return _HANDLED_200
         _seen_events[event_id] = now
     if _slack_responses_suppressed():
         logger.info("Ignoring Slack payload while SLACK_INTEGRATION_SILENCE_ENV=true")
-        return
+        return _HANDLED_200
     """Enterprise RBAC enforcement checkpoint (098).
 
     When SLACK_RBAC_ENABLED=true:
@@ -936,7 +951,7 @@ def rbac_global_middleware(body, context, next, logger):
                 )
             except Exception:
                 logger.warning("Could not send RBAC error message to {}", slack_user_id)
-        return
+        return _HANDLED_200
     finally:
         loop.close()
 
@@ -952,7 +967,7 @@ def rbac_global_middleware(body, context, next, logger):
         last_sent = _linking_prompt_sent.get(slack_user_id, 0)
         if now - last_sent < _LINKING_PROMPT_COOLDOWN:
             logger.debug("Suppressing linking prompt for {} (cooldown)", slack_user_id)
-            return
+            return _HANDLED_200
         if channel:
             try:
                 # Spec 103 FR-007: replace the previous dead-end message
@@ -990,22 +1005,36 @@ def rbac_global_middleware(body, context, next, logger):
                 _linking_prompt_sent[slack_user_id] = now
             except Exception:
                 logger.warning("Could not send linking prompt to {}", slack_user_id)
-        return
+        return _HANDLED_200
 
     if isinstance(rbac_status, tuple) and rbac_status[0] == "deny":
         msg = rbac_status[1]
+        # INFO-level log so denials are visible in slackbot logs. Without this
+        # the previous code returned silently and the only visible artifact was
+        # bolt-python's generic "middleware skipped calling next()" warning,
+        # which is useless for debugging "why didn't my user get a response?".
+        logger.info(
+            "RBAC denied request for slack_user={} channel={}: {}",
+            slack_user_id, channel, msg,
+        )
         if channel:
-            msg += f"\n_Channel: <#{channel}>_"
             try:
-                thread_ts = body.get("event", {}).get("thread_ts") or body.get("event", {}).get("ts")
-                context["client"].chat_postMessage(
+                # chat_postEphemeral keeps the denial visible only to the
+                # requesting user. The previous chat_postMessage broadcasted
+                # the denial (and the channel name suffix) to the entire
+                # channel, which is a UX/privacy regression — other channel
+                # members do not need to see that someone else was denied.
+                context["client"].chat_postEphemeral(
                     channel=channel,
-                    thread_ts=thread_ts,
+                    user=slack_user_id,
                     text=msg,
                 )
             except Exception:
                 logger.warning("Could not send RBAC denial to {} in {}", slack_user_id, channel)
-        return
+        # Return BoltResponse(200) so Slack does not retry the event 3 more
+        # times — without this the same denial fires up to 4× and Bolt logs
+        # the "middleware skipped calling next()" warning on every retry.
+        return _HANDLED_200
 
     next()
 
@@ -2290,6 +2319,21 @@ def handle_reaction_added(event, logger):
 
 @app.event("reaction_removed")
 def handle_reaction_removed(event, logger):
+  pass
+
+
+@app.event("assistant_thread_context_changed")
+def handle_assistant_thread_context_changed(event, logger):
+  pass
+
+
+@app.event("assistant_thread_started")
+def handle_assistant_thread_started(event, logger):
+  pass
+
+
+@app.event("app_home_opened")
+def handle_app_home_opened(event, logger):
   pass
 
 

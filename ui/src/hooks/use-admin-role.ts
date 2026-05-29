@@ -1,6 +1,6 @@
 import { useSession } from 'next-auth/react';
 import { useEffect, useState } from 'react';
-import { getConfig } from '@/lib/config';
+import { isDevAnonymousAuthEnabled } from '@/lib/auth/dev-auth-provider';
 
 /**
  * Hook to check admin role.
@@ -14,15 +14,11 @@ import { getConfig } from '@/lib/config';
  * Only admins can perform write operations (role changes, team CRUD, etc.).
  */
 export function useAdminRole() {
-  const { data: session, status } = useSession();
+  const { data: session } = useSession();
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  const isDevAdmin = Boolean(
-    !getConfig('ssoEnabled') &&
-    getConfig('allowDevAdminWhenSsoDisabled') &&
-    getConfig('storageMode') === 'mongodb'
-  );
+  const isDevAdmin = isDevAnonymousAuthEnabled();
 
   const canViewAdmin = (session?.canViewAdmin === true) || isDevAdmin;
   const canAccessDynamicAgents = (session?.canAccessDynamicAgents === true) || isDevAdmin;
@@ -58,7 +54,7 @@ export function useAdminRole() {
     }
 
     checkAdminRole();
-  }, [session]);
+  }, [isDevAdmin, session]);
 
   return { isAdmin, canViewAdmin, canAccessDynamicAgents, loading };
 }

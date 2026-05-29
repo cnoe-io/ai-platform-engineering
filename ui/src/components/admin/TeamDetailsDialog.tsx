@@ -257,6 +257,34 @@ function syncBadgeAppearance(status: TeamMembershipSyncState): {
   }
 }
 
+function memberFromSource(source: TeamMembershipSource, fallbackDate: Date): TeamMember | null {
+  if (source.status !== "active") return null;
+  const userId = (source.user_email ?? source.user_subject ?? "").trim();
+  if (!userId) return null;
+
+  return {
+    user_id: userId,
+    role: source.relationship === "admin" ? "admin" : "member",
+    added_at: new Date(source.first_seen_at ?? source.created_at ?? source.last_seen_at ?? fallbackDate),
+    added_by: source.created_by ?? "identity-sync",
+  };
+}
+
+function membersFromSources(sources: TeamMembershipSource[], fallbackDate: Date): TeamMember[] {
+  const byUser = new Map<string, TeamMember>();
+  for (const source of sources) {
+    const member = memberFromSource(source, fallbackDate);
+    if (!member) continue;
+
+    const key = member.user_id.toLowerCase();
+    const existing = byUser.get(key);
+    if (!existing || existing.role === "member") {
+      byUser.set(key, member);
+    }
+  }
+  return Array.from(byUser.values());
+}
+
 export function TeamDetailsDialog({
   team,
   mode,
@@ -1185,7 +1213,11 @@ export function TeamDetailsDialog({
 
   if (!currentTeam) return null;
 
-  const members = currentTeam.members || [];
+  const canonicalMembers = membersFromSources(
+    membershipSources,
+    new Date(currentTeam.created_at),
+  );
+  const members = canonicalMembers.length > 0 ? canonicalMembers : currentTeam.members || [];
   const sourcesByMember = membershipSources.reduce<Record<string, TeamMembershipSource[]>>(
     (acc, source) => {
       const key = (source.user_email ?? source.user_subject ?? "").toLowerCase();
@@ -2167,9 +2199,9 @@ function ToolList({
  * Two-column layout:
  *   Left  — channels currently assigned to the team (editable: change bound
  *           agent, remove)
- *   Right — channel discovery (live Slack `conversations.list`) + manual
- *           channel-ID entry as fallback when SLACK_BOT_TOKEN is unset or
- *           the channel isn't visible to the bot yet
+ *   Right — bot-member channel discovery (live Slack `users.conversations`) +
+ *           manual channel-ID entry as fallback when SLACK_BOT_TOKEN is unset
+ *           or the channel isn't visible to the bot yet
  *
  * The bound-agent dropdown is intentionally limited to the team's
  * `resources.agents` so admins can't accidentally bind a channel to an
@@ -2315,17 +2347,17 @@ function SlackChannelsPanel({
             <Input
               value={discoverySearch}
               onChange={(e) => onSearchChange(e.target.value)}
-              placeholder="Search bot-visible channels..."
+              placeholder="Search bot-member channels..."
               className="h-7 text-xs pl-6"
             />
           </div>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
             {discovery ? (
               <span>
-                {totalBotVisibleChannels} bot-visible channels found. Showing {shownBotVisibleChannels}.
+                {totalBotVisibleChannels} bot-member channels found. Showing {shownBotVisibleChannels}.
               </span>
             ) : (
-              <span>Loading bot-visible channels...</span>
+              <span>Loading bot-member channels...</span>
             )}
             <label className="flex items-center gap-1.5 cursor-pointer select-none">
               <input

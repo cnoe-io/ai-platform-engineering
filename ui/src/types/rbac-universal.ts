@@ -40,6 +40,8 @@ export type UniversalRebacResourceType =
   | "mcp_server"
   | "tool"
   | "knowledge_base"
+  | "data_source"
+  | "mcp_tool"
   | "document"
   | "skill"
   | "task"
@@ -56,8 +58,7 @@ export type UniversalRebacSubjectType =
   | "slack_channel"
   | "webex_space"
   | "external_group"
-  | "service_account"
-  | "anonymous";
+  | "service_account";
 
 export interface UniversalRebacSubjectRef {
   type: UniversalRebacSubjectType;

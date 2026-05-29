@@ -10,6 +10,7 @@ import {
 } from '@/lib/api-middleware';
 import type { TeamKbOwnership, KbPermission } from '@/lib/rbac/types';
 import { writeOpenFgaTuples, type OpenFgaTupleKey, type TeamResourceTupleDiff } from '@/lib/rbac/openfga';
+import { findUserRoleInTeam } from '@/lib/rbac/team-membership-store';
 
 function requireMongoDB() {
   if (!isMongoDBConfigured) {
@@ -37,25 +38,36 @@ function validateTeamId(id: string): void {
 interface TeamDoc {
   _id: ObjectId;
   slug?: string;
-  members?: Array<{ user_id?: string; email?: string; role?: string }>;
+  resources?: {
+    knowledge_bases?: string[];
+  };
 }
 
 function normalizeEmail(value: unknown): string {
   return typeof value === 'string' ? value.trim().toLowerCase() : '';
 }
 
-function userTeamRole(team: TeamDoc, email: string): string | null {
-  const userEmail = normalizeEmail(email);
-  const member = team.members?.find((entry) => normalizeEmail(entry.user_id ?? entry.email) === userEmail);
-  return member?.role ?? null;
+/**
+ * KB-permission gate helpers backed by the canonical
+ * team_membership_sources store (post 2026-05-26 canonical-membership
+ * refactor). The legacy embedded `team.members[]` is no longer
+ * consulted.
+ *
+ * Note on `"owner"`: the legacy store distinguished "owner" from
+ * "admin"; the canonical store collapses both to "admin". KB gates
+ * always treated owner == admin (see `isTeamAdminOrOwner` original
+ * impl), so the collapse is behavior-preserving.
+ */
+async function isTeamMember(team: TeamDoc, email: string): Promise<boolean> {
+  if (!team.slug) return false;
+  const role = await findUserRoleInTeam(team.slug, { user_email: normalizeEmail(email) });
+  return role !== null;
 }
 
-function isTeamMember(team: TeamDoc, email: string): boolean {
-  return Boolean(userTeamRole(team, email));
-}
-
-function isTeamAdminOrOwner(team: TeamDoc, email: string): boolean {
-  return ['admin', 'owner'].includes(userTeamRole(team, email) ?? '');
+async function isTeamAdminOrOwner(team: TeamDoc, email: string): Promise<boolean> {
+  if (!team.slug) return false;
+  const role = await findUserRoleInTeam(team.slug, { user_email: normalizeEmail(email) });
+  return role === "admin";
 }
 
 const VALID_PERMISSIONS: KbPermission[] = ['read', 'ingest', 'admin'];
@@ -65,6 +77,12 @@ const KB_PERMISSION_TO_OPENFGA_RELATION: Record<KbPermission, string> = {
   ingest: 'ingestor',
   admin: 'manager',
 };
+
+function teamUsersetForPermission(teamSlug: string, permission: KbPermission): string {
+  return permission === 'admin'
+    ? `team:${teamSlug}#admin`
+    : `team:${teamSlug}#member`;
+}
 
 function uniqueTupleKeys(tuples: OpenFgaTupleKey[]): OpenFgaTupleKey[] {
   const seen = new Set<string>();
@@ -80,7 +98,7 @@ function uniqueTupleKeys(tuples: OpenFgaTupleKey[]): OpenFgaTupleKey[] {
 
 function kbTuple(teamSlug: string, datasourceId: string, permission: KbPermission): OpenFgaTupleKey {
   return {
-    user: `team:${teamSlug}#member`,
+    user: teamUsersetForPermission(teamSlug, permission),
     relation: KB_PERMISSION_TO_OPENFGA_RELATION[permission],
     object: `knowledge_base:${datasourceId}`,
   };
@@ -137,6 +155,7 @@ export const GET = withErrorHandler(
 
       const params = await context.params;
       validateTeamId(params.id);
+      let team: TeamDoc | null = null;
 
       if (params.id === GLOBAL_PSEUDO_TEAM) {
         if (user.role !== 'admin') {
@@ -148,23 +167,36 @@ export const GET = withErrorHandler(
           () => false
         );
         const teams = await getCollection('teams');
-        const team = await teams.findOne({ _id: new ObjectId(params.id) }) as TeamDoc | null;
+        team = await teams.findOne({ _id: new ObjectId(params.id) }) as TeamDoc | null;
         if (!team) {
           throw new ApiError('Team not found', 404);
         }
-        if (!canViewAdmin && !isTeamMember(team, user.email)) {
+        if (!canViewAdmin && !(await isTeamMember(team, user.email))) {
           throw new ApiError('You do not have permission to view this team\'s KB assignments', 403);
         }
       }
 
       const ownership = await getCollection<TeamKbOwnership>('team_kb_ownership');
       const record = await ownership.findOne({ team_id: params.id });
+      const legacyKbIds =
+        !record && params.id !== GLOBAL_PSEUDO_TEAM && team?.resources?.knowledge_bases
+          ? Array.from(
+              new Set(
+                team.resources.knowledge_bases
+                  .map((id) => id.trim())
+                  .filter((id) => id.length > 0)
+              )
+            )
+          : [];
+      const legacyPermissions = Object.fromEntries(
+        legacyKbIds.map((id) => [id, 'read' as KbPermission])
+      );
 
       return successResponse({
         team_id: params.id,
-        kb_ids: record?.kb_ids ?? [],
-        kb_permissions: record?.kb_permissions ?? {},
-        allowed_datasource_ids: record?.allowed_datasource_ids ?? [],
+        kb_ids: record?.kb_ids ?? legacyKbIds,
+        kb_permissions: record?.kb_permissions ?? legacyPermissions,
+        allowed_datasource_ids: record?.allowed_datasource_ids ?? legacyKbIds,
         updated_at: record?.updated_at ?? null,
         updated_by: record?.updated_by ?? null,
       });
@@ -205,7 +237,7 @@ export const PUT = withErrorHandler(
         if (!team) {
           throw new ApiError('Team not found', 404);
         }
-        if (!canAdmin && !isTeamAdminOrOwner(team, user.email)) {
+        if (!canAdmin && !(await isTeamAdminOrOwner(team, user.email))) {
           throw new ApiError('You do not have permission to manage this team\'s KB assignments', 403);
         }
         teamSlug = (team.slug as string | undefined) || params.id;
@@ -301,7 +333,7 @@ export const DELETE = withErrorHandler(
         if (!team) {
           throw new ApiError('Team not found', 404);
         }
-        if (!canAdmin && !isTeamAdminOrOwner(team, user.email)) {
+        if (!canAdmin && !(await isTeamAdminOrOwner(team, user.email))) {
           throw new ApiError('You do not have permission to manage this team\'s KB assignments', 403);
         }
         teamSlug = (team.slug as string | undefined) || params.id;

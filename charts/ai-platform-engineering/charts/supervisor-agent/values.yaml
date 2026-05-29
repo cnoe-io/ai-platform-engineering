@@ -93,20 +93,30 @@ resources: {}
   #   cpu: 100m
   #   memory: 128Mi
 
+# -- Startup probe configuration (prevents liveness/readiness probes from running during slow init)
+startupProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 30
+
 # -- Liveness probe configuration
 livenessProbe:
-  tcpSocket:
+  httpGet:
+    path: /health
     port: http
-  initialDelaySeconds: 30
   periodSeconds: 10
   timeoutSeconds: 5
   failureThreshold: 3
 
 # -- Readiness probe configuration
 readinessProbe:
-  tcpSocket:
+  httpGet:
+    path: /health
     port: http
-  initialDelaySeconds: 5
   periodSeconds: 5
   timeoutSeconds: 3
   failureThreshold: 3

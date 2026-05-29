@@ -185,8 +185,8 @@
 ### Implementation for User Story 5
 
 - [ ] T072 [US5] Extend OpenFGA model for credential sharing if needed in `deploy/openfga/model.fga`
-- [ ] T073 [US5] Sync OpenFGA JSON model updates if needed in `deploy/openfga/init/authorization-model.json`
-- [ ] T074 [US5] Sync Helm-packaged OpenFGA model updates if needed in `charts/ai-platform-engineering/charts/openfga/authorization-model.json`
+- [ ] T073 [US5] Sync OpenFGA JSON model updates if needed in `charts/ai-platform-engineering/charts/openfga/authorization-model.json`
+- [ ] T074 [US5] Verify Docker Compose still mounts the Helm-packaged OpenFGA model from `charts/ai-platform-engineering/charts/openfga/authorization-model.json`
 - [ ] T075 [US5] Implement credential audit query route in `ui/src/app/api/credentials/audit/route.ts`
 - [ ] T076 [US5] Implement credential audit UI in `ui/src/components/credentials/CredentialAuditPanel.tsx`
 - [ ] T077 [US5] Add sensitive credential-sharing preview UI in `ui/src/components/credentials/SecretSharingPanel.tsx`

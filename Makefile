@@ -15,7 +15,7 @@ APP_NAME ?= ai-platform-engineering
 # or unset to restore unlimited parallelism. Used by every target below that
 # invokes `docker compose ... up --build`.
 COMPOSE_PARALLEL_LIMIT ?= 4
-DOCKER_COMPOSE_BUILD_ENV := COMPOSE_PARALLEL_LIMIT=$(COMPOSE_PARALLEL_LIMIT) BUILDKIT_MAX_PARALLELISM=$(COMPOSE_PARALLEL_LIMIT)
+DOCKER_COMPOSE_BUILD_ENV := DOCKER_BUILDKIT=1 COMPOSE_PARALLEL_LIMIT=$(COMPOSE_PARALLEL_LIMIT) BUILDKIT_MAX_PARALLELISM=$(COMPOSE_PARALLEL_LIMIT)
 
 ## -------------------------------------------------
 .PHONY: \
@@ -189,6 +189,21 @@ caipe-ui-tests: ## Run CAIPE UI Jest tests
 	@echo "Running CAIPE UI tests..."
 	@cd ui && npm test
 
+migrate-canonical-team-membership: ## Backfill team_membership_sources from legacy teams.members[] and $$unset the field. Dry-run by default; APPLY=1 to apply.
+	@# One-shot migration for spec 2026-05-26-canonical-team-membership.
+	@# See docs/docs/specs/2026-05-26-canonical-team-membership/mongodb-migration.md
+	@# for the operator runbook (dry-run, apply, verify, roll back).
+	@APPLY_FLAG="$${APPLY:-false}"; \
+	if [ "$$APPLY_FLAG" = "1" ] || [ "$$APPLY_FLAG" = "true" ]; then \
+		APPLY=true npx ts-node --compiler-options '{"module":"CommonJS"}' scripts/migrate-canonical-team-membership.ts; \
+	else \
+		echo "[dry-run] Set APPLY=1 to apply. Use MONGODB_URI / MONGODB_DATABASE to point at the target database."; \
+		APPLY=false npx ts-node --compiler-options '{"module":"CommonJS"}' scripts/migrate-canonical-team-membership.ts; \
+	fi
+
+migrate-canonical-team-membership-tests: ## Run unit tests for the canonical-team-membership migration planner.
+	@npx ts-node --compiler-options '{"module":"CommonJS"}' scripts/__tests__/migrate-canonical-team-membership.test.ts
+
 # Docker targets for CAIPE UI
 CAIPE_UI_IMAGE ?= caipe-ui
 CAIPE_UI_TAG ?= local
@@ -240,12 +255,12 @@ caipe-ui-hot: ## Run CAIPE UI in Docker with hot reload (next dev + bind-mounted
 	@echo "Starting CAIPE UI in hot-reload mode (next dev)..."
 	@echo "  - Edits in ui/src trigger sub-second rebuild via next dev"
 	@echo "  - public/ asset changes still need: make caipe-ui-hot (rebuilds image)"
+	@# Bring down the prod-parity sibling first — both bind host port 3000 and
+	@# Keycloak's caipe-ui client only allow-lists localhost:3000/* as a redirect
+	@# URI (see deploy/keycloak/realm-config.json), so the two services are
+	@# mutually exclusive at runtime.
+	@docker compose -f docker-compose.dev.yaml --profile caipe-ui-prod rm -sf caipe-ui-prod 2>/dev/null || true
 	$(DOCKER_COMPOSE_BUILD_ENV) \
-	CAIPE_UI_MODE=hot \
-	CAIPE_UI_BUILD_TARGET=dev \
-	CAIPE_UI_NODE_ENV=development \
-	CAIPE_UI_COMMAND="npm run dev" \
-	CAIPE_UI_IMAGE_SUFFIX=-dev \
 	docker compose -f docker-compose.dev.yaml --profile caipe-ui up -d --build caipe-ui
 	@echo ""
 	@echo "Hot-reload UI ready: http://localhost:3000"
@@ -256,16 +271,14 @@ caipe-ui-prod: ## Run CAIPE UI in Docker in prod-parity mode (next build + next 
 	@echo "Starting CAIPE UI in prod-parity mode (next build + next start)..."
 	@echo "  - Source edits will NOT auto-reload — rerun this target to rebuild"
 	@echo "  - Matches the runner stage that ships in the published image"
+	@# Bring down the hot/dev sibling first (port 3000 collision — see comment
+	@# in caipe-ui-hot above and the header block in docker-compose.dev.yaml).
+	@docker compose -f docker-compose.dev.yaml --profile caipe-ui rm -sf caipe-ui 2>/dev/null || true
 	$(DOCKER_COMPOSE_BUILD_ENV) \
-	CAIPE_UI_MODE=prod \
-	CAIPE_UI_BUILD_TARGET=runner \
-	CAIPE_UI_NODE_ENV=production \
-	CAIPE_UI_COMMAND=/app/entrypoint.sh \
-	CAIPE_UI_IMAGE_SUFFIX=-prod \
-	docker compose -f docker-compose.dev.yaml --profile caipe-ui up -d --build caipe-ui
+	docker compose -f docker-compose.dev.yaml --profile caipe-ui-prod up -d --build caipe-ui-prod
 	@echo ""
 	@echo "Prod-parity UI ready: http://localhost:3000"
-	@echo "Stream logs:          docker logs -f caipe-ui"
+	@echo "Stream logs:          docker logs -f caipe-ui-prod"
 	@echo "Switch back to hot reload:  make caipe-ui-hot"
 
 ## ========== Documentation (Docusaurus) ==========

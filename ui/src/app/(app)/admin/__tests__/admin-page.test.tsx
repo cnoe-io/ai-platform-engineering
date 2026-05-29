@@ -229,6 +229,12 @@ const mockTeamsResponse = {
         description: 'The platform engineering team',
         owner_id: 'admin@example.com',
         created_at: new Date().toISOString(),
+        // Commit 4/8 + 5/8 of the canonical-team-membership refactor:
+        // `member_count` is the new server-aggregated truth from
+        // `team_membership_sources`. We still emit a legacy `members[]`
+        // so older defensive readers (search/filter UX) keep working
+        // through the dual-write window.
+        member_count: 2,
         members: [
           { user_id: 'admin@example.com', role: 'owner', added_at: new Date().toISOString() },
           { user_id: 'user@example.com', role: 'member', added_at: new Date().toISOString() },
@@ -737,6 +743,7 @@ describe('Admin Dashboard Page', () => {
         'Default Agent',
         'Release notes',
         'AI Review',
+        'Credentials',
         'Knowledge Bases',
         'Skills',
       ]);
@@ -1054,6 +1061,35 @@ describe('Admin Dashboard Page', () => {
       expect(screen.getByText(/^Chat$/i)).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /3 integrations/i })).not.toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /1 channels/i })).not.toBeInTheDocument();
+    });
+
+    it('shows the KB chip count from team resources', async () => {
+      currentSearchParams = new URLSearchParams('cat=people&tab=teams');
+      setupFetchMock({
+        teams: {
+          success: true,
+          data: {
+            teams: [
+              {
+                _id: 'team-kbs',
+                name: 'KB Team',
+                owner_id: 'admin@example.com',
+                created_at: new Date().toISOString(),
+                member_count: 1,
+                members: [],
+                resources: {
+                  knowledge_bases: ['kb-1', 'kb-2'],
+                },
+              },
+            ],
+          },
+        },
+      });
+
+      render(<AdminPage />);
+
+      expect(await screen.findByText('KB Team')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /2 KBs/i })).toBeInTheDocument();
     });
 
     it('filters teams by search text and shows an empty result state', async () => {
