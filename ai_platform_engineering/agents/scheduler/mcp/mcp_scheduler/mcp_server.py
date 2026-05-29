@@ -22,7 +22,7 @@ from typing import Annotated, Any
 import httpx
 from mcp.shared.exceptions import McpError
 from mcp.types import INTERNAL_ERROR, INVALID_PARAMS, ErrorData
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 logger = logging.getLogger(__name__)
 
@@ -224,6 +224,70 @@ class DeleteScheduleArgs(BaseModel):
     schedule_id: Annotated[str, Field(description="The schedule to delete.")]
 
 
+class ScheduleOneOffArgs(BaseModel):
+    schedule_id: Annotated[
+        str,
+        Field(description="Parent sched_<...> id whose CronJob template should be fired."),
+    ]
+    run_at: Annotated[
+        str | None,
+        Field(
+            default=None,
+            description=(
+                "Exact UTC or timezone-aware ISO timestamp for the one-off fire. "
+                "Mutually exclusive with delay_minutes."
+            ),
+        ),
+    ] = None
+    delay_minutes: Annotated[
+        int | None,
+        Field(
+            default=None,
+            ge=0,
+            description="Delay from now before firing. Mutually exclusive with run_at.",
+        ),
+    ] = None
+    message_template: Annotated[
+        str | None,
+        Field(
+            default=None,
+            description=(
+                "Optional one-off message. Omit to reuse the parent schedule's "
+                "message_template."
+            ),
+        ),
+    ] = None
+    reason: Annotated[
+        str | None,
+        Field(
+            default=None,
+            description="Optional short reason, e.g. transcript_not_ready.",
+        ),
+    ] = None
+    retry_num: Annotated[
+        int | None,
+        Field(default=None, ge=0, description="Optional retry attempt number."),
+    ] = None
+    retry_limit: Annotated[
+        int | None,
+        Field(default=None, ge=0, description="Optional retry limit."),
+    ] = None
+
+    @model_validator(mode="after")
+    def exactly_one_time_source(self) -> "ScheduleOneOffArgs":
+        if (self.run_at is None) == (self.delay_minutes is None):
+            raise ValueError("Pass exactly one of run_at or delay_minutes.")
+        return self
+
+
+class ListOneOffRunsArgs(BaseModel):
+    schedule_id: Annotated[str, Field(description="Parent schedule id.")]
+    status: Annotated[
+        list[str] | None,
+        Field(default=None, description="Optional statuses to filter by."),
+    ] = None
+
+
 # ─────────────────────────────── tool surface ───────────────────────────────
 
 
@@ -350,6 +414,51 @@ def register_tools(server) -> None:
     @_handle_errors
     async def restart_schedule(args: ScheduleIdArgs) -> dict[str, Any]:
         return await _patch_schedule(args.schedule_id, {"enabled": True})
+
+    @server.tool(
+        name="schedule_one_off",
+        description=(
+            "Create a delayed one-off fire for an existing recurring schedule. "
+            "The scheduler stores the request in Mongo, then creates a normal "
+            "Kubernetes Job from the parent CronJob's jobTemplate when due. Pass "
+            "exactly one of run_at or delay_minutes. Use retry_num/retry_limit for "
+            "domain retries such as transcript_not_ready."
+        ),
+    )
+    @_handle_errors
+    async def schedule_one_off(args: ScheduleOneOffArgs) -> dict[str, Any]:
+        body = args.model_dump(
+            exclude_unset=True,
+            exclude_none=True,
+            exclude={"schedule_id"},
+            mode="json",
+        )
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            r = await client.post(
+                f"{_scheduler_url()}/v1/schedules/{args.schedule_id}/one-off-runs",
+                headers=_headers(),
+                json=body,
+            )
+            r.raise_for_status()
+            return r.json()
+
+    @server.tool(
+        name="list_one_off_runs",
+        description="List delayed one-off fires linked to a recurring schedule.",
+    )
+    @_handle_errors
+    async def list_one_off_runs(args: ListOneOffRunsArgs) -> dict[str, Any]:
+        params: list[tuple[str, str]] = []
+        for status in args.status or []:
+            params.append(("status", status))
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            r = await client.get(
+                f"{_scheduler_url()}/v1/schedules/{args.schedule_id}/one-off-runs",
+                headers=_headers(),
+                params=params,
+            )
+            r.raise_for_status()
+            return r.json()
 
     @server.tool(
         name="delete_schedule",

@@ -13,6 +13,8 @@ patch, and delete schedules.
 - `pause_schedule(schedule_id)` — set `enabled=false` and suspend the underlying Kubernetes CronJob
 - `resume_schedule(schedule_id)` — set `enabled=true` and unsuspend the underlying Kubernetes CronJob
 - `restart_schedule(schedule_id)` — alias for resume; resumes future fires, does not immediately create a Job
+- `schedule_one_off(schedule_id, run_at? | delay_minutes?, message_template?, reason?, retry_num?, retry_limit?)`
+- `list_one_off_runs(schedule_id, status?)`
 - `delete_schedule(schedule_id)`
 
 ## Env

@@ -110,6 +110,7 @@ mongo:
   uri: ""                      # If unset, falls back to global.mongo.uri or existingSecret
   database: "caipe"
   schedulesCollection: "schedules"
+  oneOffRunsCollection: "schedule_one_off_runs"
   # Existing Secret holding MONGODB_URI under key "uri" (preferred).
   existingSecret: ""
   existingSecretKey: "uri"
@@ -132,6 +133,15 @@ serviceToken:
 limits:
   maxSchedulesPerOwner: 50
   maxMessageChars: 2000
+
+# Delayed one-off fire dispatcher. These are used for scheduler-managed domain
+# retries, such as "transcript not ready, try again in 10 minutes".
+oneOff:
+  dispatchEnabled: true
+  dispatchIntervalSeconds: 30
+  dispatchBatchSize: 50
+  dispatchConcurrency: 5
+  claimTimeoutSeconds: 300
 
 # Set ownerReferences on every CronJob. Disabled by default because the chart
 # cannot obtain the scheduler Deployment UID through downward API; using the

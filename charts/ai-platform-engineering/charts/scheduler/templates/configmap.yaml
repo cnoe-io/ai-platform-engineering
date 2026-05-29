@@ -7,6 +7,7 @@ metadata:
 data:
   MONGODB_DATABASE: {{ .Values.mongo.database | quote }}
   SCHEDULES_COLLECTION: {{ .Values.mongo.schedulesCollection | quote }}
+  ONE_OFF_RUNS_COLLECTION: {{ .Values.mongo.oneOffRunsCollection | quote }}
   SCHEDULER_NAMESPACE: {{ .Release.Namespace | quote }}
   CRON_RUNNER_IMAGE: "{{ .Values.cronRunner.image.repository }}:{{ .Values.cronRunner.image.tag | default (include "scheduler.appVersion" .) }}"
   CRON_RUNNER_IMAGE_PULL_POLICY: {{ .Values.cronRunner.image.pullPolicy | quote }}
@@ -18,4 +19,9 @@ data:
   CAIPE_API_TOKEN_SECRET_KEY: {{ .Values.caipe.apiTokenSecretKey | quote }}
   MAX_SCHEDULES_PER_OWNER: {{ .Values.limits.maxSchedulesPerOwner | quote }}
   MAX_MESSAGE_CHARS: {{ .Values.limits.maxMessageChars | quote }}
+  ONE_OFF_DISPATCH_ENABLED: {{ .Values.oneOff.dispatchEnabled | quote }}
+  ONE_OFF_DISPATCH_INTERVAL_SECONDS: {{ .Values.oneOff.dispatchIntervalSeconds | quote }}
+  ONE_OFF_DISPATCH_BATCH_SIZE: {{ .Values.oneOff.dispatchBatchSize | quote }}
+  ONE_OFF_DISPATCH_CONCURRENCY: {{ .Values.oneOff.dispatchConcurrency | quote }}
+  ONE_OFF_CLAIM_TIMEOUT_SECONDS: {{ .Values.oneOff.claimTimeoutSeconds | quote }}
   PORT: {{ .Values.service.port | quote }}

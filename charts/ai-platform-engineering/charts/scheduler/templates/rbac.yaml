@@ -14,11 +14,11 @@ rules:
   - apiGroups: ["batch"]
     resources: ["cronjobs"]
     verbs: ["create", "get", "list", "watch", "update", "patch", "delete"]
-  # Read-only access to Jobs created by the CronJobs (for diagnostics + the
-  # `last_run` reporting fallback when the runner can't reach back).
+  # Create one-off Jobs from stored CronJob jobTemplates, and read Jobs for
+  # diagnostics + the `last_run` reporting fallback when the runner can't reach back.
   - apiGroups: ["batch"]
     resources: ["jobs"]
-    verbs: ["get", "list", "watch"]
+    verbs: ["create", "get", "list", "watch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

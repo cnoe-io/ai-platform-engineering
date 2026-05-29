@@ -6,6 +6,8 @@ Endpoints:
   GET    /v1/schedules/{id}             — single
   PATCH  /v1/schedules/{id}             — enable/disable, change cron/tz/msg
   DELETE /v1/schedules/{id}             — remove (Mongo + CronJob)
+  POST   /v1/schedules/{id}/one-off-runs — create delayed one-off fire
+  GET    /v1/schedules/{id}/one-off-runs — list one-off fires
   POST   /v1/schedules/{id}/runs        — cron-runner reports last run
   GET    /healthz
 """
@@ -15,12 +17,14 @@ from __future__ import annotations
 import logging
 import secrets
 import uuid
+from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.responses import JSONResponse
 
 from caipe_scheduler.config import Settings, get_settings
+from caipe_scheduler.dispatcher import OneOffDispatcher
 from caipe_scheduler.k8s import CronJobOps, cronjob_name_for
 from caipe_scheduler.models import (
     LastRunReport,
@@ -29,6 +33,9 @@ from caipe_scheduler.models import (
     ScheduleCreateResponse,
     ScheduleList,
     SchedulePatch,
+    ScheduleOneOffCreate,
+    ScheduleOneOffList,
+    ScheduleOneOffRun,
 )
 from caipe_scheduler.store import ScheduleStore
 from caipe_scheduler.validation import validate_cron, validate_message, validate_tz
@@ -39,6 +46,7 @@ app = FastAPI(title="CAIPE Scheduler", version="0.1.0")
 
 _store: ScheduleStore | None = None
 _k8s: CronJobOps | None = None
+_dispatcher: OneOffDispatcher | None = None
 
 
 def get_store(settings: Annotated[Settings, Depends(get_settings)]) -> ScheduleStore:
@@ -69,6 +77,32 @@ def require_service_token(
         x_scheduler_token, expected
     ):
         raise HTTPException(401, "Invalid or missing X-Scheduler-Token.")
+
+
+@app.on_event("startup")
+def start_one_off_dispatcher() -> None:
+    global _dispatcher
+    settings = get_settings()
+    store = get_store(settings)
+    k8s = get_k8s(settings)
+    _refresh_existing_cronjob_templates(store, k8s)
+    if not settings.one_off_dispatch_enabled:
+        log.info("One-off dispatcher disabled")
+        return
+    _dispatcher = OneOffDispatcher(
+        store=store,
+        k8s=k8s,
+        settings=settings,
+    )
+    _dispatcher.start()
+
+
+@app.on_event("shutdown")
+def stop_one_off_dispatcher() -> None:
+    global _dispatcher
+    if _dispatcher is not None:
+        _dispatcher.stop()
+        _dispatcher = None
 
 
 # ── routes ──────────────────────────────────────────────────────────────
@@ -236,8 +270,66 @@ def delete_schedule(
         k8s.delete(cronjob_name)
     except Exception:
         log.exception("CronJob delete failed for %s; deleting Mongo doc anyway", schedule_id)
+    cancelled = store.cancel_one_off_runs_for_schedule(schedule_id)
     store.delete(schedule_id)
-    return JSONResponse({"deleted": schedule_id})
+    return JSONResponse({"deleted": schedule_id, "cancelled_one_off_runs": cancelled})
+
+
+@app.post(
+    "/v1/schedules/{schedule_id}/one-off-runs",
+    response_model=ScheduleOneOffRun,
+    dependencies=[Depends(require_service_token)],
+)
+def create_schedule_one_off_run(
+    schedule_id: str,
+    body: ScheduleOneOffCreate,
+    store: Annotated[ScheduleStore, Depends(get_store)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> ScheduleOneOffRun:
+    existing = store.get(schedule_id)
+    if not existing:
+        raise HTTPException(404, "Schedule not found.")
+    if body.message_template is not None:
+        validate_message(body.message_template, settings.max_message_chars)
+
+    now = datetime.now(timezone.utc)
+    run_at = (
+        _coerce_utc(body.run_at)
+        if body.run_at is not None
+        else now + timedelta(minutes=body.delay_minutes or 0)
+    )
+    one_off_run_id = f"oneoff_{uuid.uuid4().hex[:16]}"
+    doc = {
+        "one_off_run_id": one_off_run_id,
+        "schedule_id": schedule_id,
+        "owner_user_id": existing["owner_user_id"],
+        "run_at": run_at,
+        "status": "pending",
+        "message_template": body.message_template,
+        "reason": body.reason,
+        "retry_num": body.retry_num,
+        "retry_limit": body.retry_limit,
+    }
+    created = store.create_one_off_run(doc)
+    if _dispatcher is not None:
+        _dispatcher.wake()
+    return ScheduleOneOffRun.model_validate(created)
+
+
+@app.get(
+    "/v1/schedules/{schedule_id}/one-off-runs",
+    response_model=ScheduleOneOffList,
+    dependencies=[Depends(require_service_token)],
+)
+def list_schedule_one_off_runs(
+    schedule_id: str,
+    store: Annotated[ScheduleStore, Depends(get_store)],
+    status: list[str] | None = Query(default=None),
+) -> ScheduleOneOffList:
+    if not store.get(schedule_id):
+        raise HTTPException(404, "Schedule not found.")
+    docs = store.list_one_off_runs(schedule_id, statuses=status)
+    return ScheduleOneOffList(items=[ScheduleOneOffRun.model_validate(d) for d in docs])
 
 
 @app.post(
@@ -257,4 +349,41 @@ def report_run(
         error=body.error,
         http_status=body.http_status,
     )
+    if body.one_off_run_id:
+        store.record_one_off_run(
+            body.one_off_run_id,
+            status=body.status,
+            error=body.error,
+            http_status=body.http_status,
+        )
     return {"recorded": schedule_id}
+
+
+def _coerce_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def _refresh_existing_cronjob_templates(
+    store: ScheduleStore,
+    k8s: CronJobOps,
+) -> None:
+    refreshed = 0
+    for schedule in store.list():
+        schedule_id = schedule.get("schedule_id")
+        cronjob_name = schedule.get("cronjob_name") or (
+            cronjob_name_for(schedule_id) if schedule_id else None
+        )
+        if not cronjob_name:
+            continue
+        try:
+            k8s.refresh_runner_template(cronjob_name=cronjob_name)
+            refreshed += 1
+        except Exception:
+            log.exception(
+                "Failed to refresh CronJob runner template for %s",
+                schedule_id or cronjob_name,
+            )
+    if refreshed:
+        log.info("Refreshed runner template for %s existing CronJob(s)", refreshed)

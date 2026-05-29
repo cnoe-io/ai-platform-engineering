@@ -13,6 +13,10 @@ SCHEDULE_ID env ──▶ GET scheduler-svc/v1/schedules/<id>
                 ──▶ POST scheduler-svc/v1/schedules/<id>/runs  (status report)
 ```
 
+For delayed one-off fires, the copied Job also gets `ONE_OFF_RUN_ID` plus
+optional retry metadata. The runner appends `SCHEDULED_RUN_METADATA` to the
+chat message so the target agent can schedule another delayed retry when needed.
+
 ## Env
 
 | Var                      | Required | Notes                                         |
@@ -23,6 +27,11 @@ SCHEDULE_ID env ──▶ GET scheduler-svc/v1/schedules/<id>
 | `CAIPE_API_URL`          | yes      | e.g. `http://caipe-ui:3000`                   |
 | `CAIPE_API_TOKEN`        | yes      | Mounted from `caipe-cron-runner-token` Secret. |
 | `CAIPE_CHAT_PATH`        | no       | Default `/api/v1/chat/invoke`.                |
+| `ONE_OFF_RUN_ID`         | no       | Set only for delayed one-off retry Jobs.      |
+| `RETRY_NUM`              | no       | Optional retry attempt metadata.              |
+| `RETRY_LIMIT`            | no       | Optional retry limit metadata.                |
+| `RETRY_REASON`           | no       | Optional retry reason metadata.               |
+| `MESSAGE_TEMPLATE_OVERRIDE` | no    | Optional one-off message body override.       |
 | `HTTP_TIMEOUT`           | no       | Seconds; default 300.                         |
 | `LOG_LEVEL`              | no       | Default `INFO`.                               |
 

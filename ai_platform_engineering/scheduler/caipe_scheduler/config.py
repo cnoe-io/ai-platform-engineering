@@ -21,6 +21,11 @@ class Settings(BaseModel):
     schedules_collection: str = Field(
         default_factory=lambda: os.environ.get("SCHEDULES_COLLECTION", "schedules")
     )
+    one_off_runs_collection: str = Field(
+        default_factory=lambda: os.environ.get(
+            "ONE_OFF_RUNS_COLLECTION", "schedule_one_off_runs"
+        )
+    )
 
     # Auth: shared service token between dynamic-agents and scheduler-svc.
     # Sent as `X-Scheduler-Token` header on every request.
@@ -83,6 +88,35 @@ class Settings(BaseModel):
     )
     max_message_chars: int = Field(
         default_factory=lambda: int(os.environ.get("MAX_MESSAGE_CHARS", "2000"))
+    )
+
+    # One-off run dispatcher. One-off records are stored in Mongo with UTC run_at;
+    # the scheduler pod wakes near the next due record and creates a normal Job.
+    one_off_dispatch_enabled: bool = Field(
+        default_factory=lambda: os.environ.get(
+            "ONE_OFF_DISPATCH_ENABLED", "true"
+        ).lower()
+        not in {"0", "false", "no"}
+    )
+    one_off_dispatch_interval_seconds: int = Field(
+        default_factory=lambda: int(
+            os.environ.get("ONE_OFF_DISPATCH_INTERVAL_SECONDS", "30")
+        )
+    )
+    one_off_dispatch_batch_size: int = Field(
+        default_factory=lambda: int(
+            os.environ.get("ONE_OFF_DISPATCH_BATCH_SIZE", "50")
+        )
+    )
+    one_off_dispatch_concurrency: int = Field(
+        default_factory=lambda: int(
+            os.environ.get("ONE_OFF_DISPATCH_CONCURRENCY", "5")
+        )
+    )
+    one_off_claim_timeout_seconds: int = Field(
+        default_factory=lambda: int(
+            os.environ.get("ONE_OFF_CLAIM_TIMEOUT_SECONDS", "300")
+        )
     )
 
     # Owner reference: scheduler-svc's own Deployment, for cascade-delete of

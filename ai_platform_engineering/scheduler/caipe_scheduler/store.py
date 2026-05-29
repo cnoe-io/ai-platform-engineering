@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from pymongo import MongoClient
+from pymongo import MongoClient, ReturnDocument
 from pymongo.collection import Collection
 
 from caipe_scheduler.config import Settings
@@ -16,12 +16,19 @@ class ScheduleStore:
         self._client: MongoClient[dict[str, Any]] = MongoClient(settings.mongodb_uri)
         self._db = self._client[settings.mongodb_database]
         self._col: Collection[dict[str, Any]] = self._db[settings.schedules_collection]
+        self._one_off_runs: Collection[dict[str, Any]] = self._db[
+            settings.one_off_runs_collection
+        ]
         self._dynamic_agents = self._db["dynamic_agents"]
         # schedule_id is the public unique handle; ensure it.
         self._col.create_index("schedule_id", unique=True)
         self._col.create_index("owner_user_id")
         self._col.create_index("pod_id")
         self._col.create_index("agent_id")
+        self._one_off_runs.create_index("one_off_run_id", unique=True)
+        self._one_off_runs.create_index("schedule_id")
+        self._one_off_runs.create_index("owner_user_id")
+        self._one_off_runs.create_index([("status", 1), ("run_at", 1)])
 
     # ── lookups ─────────────────────────────────────────────────────────
     def agent_exists(self, agent_id: str) -> bool:
@@ -147,6 +154,155 @@ class ScheduleStore:
                 }
             },
         )
+
+    # ── one-off runs ───────────────────────────────────────────────────
+    def create_one_off_run(self, doc: dict[str, Any]) -> dict[str, Any]:
+        now = datetime.now(timezone.utc)
+        doc.setdefault("created_at", now)
+        doc.setdefault("updated_at", now)
+        doc.setdefault("status", "pending")
+        self._one_off_runs.insert_one(doc)
+        return self._one_off_runs.find_one({"one_off_run_id": doc["one_off_run_id"]}) or doc
+
+    def list_one_off_runs(
+        self,
+        schedule_id: str,
+        *,
+        statuses: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        query: dict[str, Any] = {"schedule_id": schedule_id}
+        if statuses:
+            query["status"] = {"$in": statuses}
+        return list(self._one_off_runs.find(query).sort("run_at", -1))
+
+    def get_one_off_run(self, one_off_run_id: str) -> dict[str, Any] | None:
+        return self._one_off_runs.find_one({"one_off_run_id": one_off_run_id})
+
+    def next_pending_one_off_run_at(self) -> datetime | None:
+        doc = self._one_off_runs.find_one(
+            {"status": "pending"},
+            sort=[("run_at", 1)],
+            projection={"run_at": 1},
+        )
+        return doc.get("run_at") if doc else None
+
+    def claim_due_one_off_runs(
+        self,
+        *,
+        limit: int,
+        claim_timeout_seconds: int,
+    ) -> list[dict[str, Any]]:
+        now = datetime.now(timezone.utc)
+        stale_cutoff = now - timedelta(seconds=claim_timeout_seconds)
+        self._one_off_runs.update_many(
+            {
+                "status": "claimed",
+                "claimed_at": {"$lt": stale_cutoff},
+                "job_name": {"$exists": False},
+            },
+            {
+                "$set": {"status": "pending", "updated_at": now},
+                "$unset": {"claimed_at": ""},
+            },
+        )
+
+        candidates = list(
+            self._one_off_runs.find(
+                {"status": "pending", "run_at": {"$lte": now}},
+                projection={"_id": 0},
+            )
+            .sort("run_at", 1)
+            .limit(limit)
+        )
+        claimed: list[dict[str, Any]] = []
+        for candidate in candidates:
+            doc = self._one_off_runs.find_one_and_update(
+                {
+                    "one_off_run_id": candidate["one_off_run_id"],
+                    "status": "pending",
+                    "run_at": {"$lte": now},
+                },
+                {
+                    "$set": {
+                        "status": "claimed",
+                        "claimed_at": now,
+                        "updated_at": now,
+                    }
+                },
+                return_document=ReturnDocument.AFTER,
+            )
+            if doc:
+                claimed.append(doc)
+        return claimed
+
+    def mark_one_off_fired(self, one_off_run_id: str, *, job_name: str) -> None:
+        now = datetime.now(timezone.utc)
+        self._one_off_runs.update_one(
+            {"one_off_run_id": one_off_run_id},
+            {
+                "$set": {
+                    "status": "fired",
+                    "job_name": job_name,
+                    "fired_at": now,
+                    "updated_at": now,
+                    "error": None,
+                }
+            },
+        )
+
+    def mark_one_off_failed(self, one_off_run_id: str, *, error: str) -> None:
+        now = datetime.now(timezone.utc)
+        self._one_off_runs.update_one(
+            {"one_off_run_id": one_off_run_id},
+            {
+                "$set": {
+                    "status": "failed",
+                    "error": error[:1000],
+                    "completed_at": now,
+                    "updated_at": now,
+                }
+            },
+        )
+
+    def record_one_off_run(
+        self,
+        one_off_run_id: str,
+        *,
+        status: str,
+        error: str | None = None,
+        http_status: int | None = None,
+    ) -> None:
+        now = datetime.now(timezone.utc)
+        self._one_off_runs.update_one(
+            {"one_off_run_id": one_off_run_id},
+            {
+                "$set": {
+                    "status": "succeeded" if status == "ok" else "failed",
+                    "error": error,
+                    "http_status": http_status,
+                    "completed_at": now,
+                    "updated_at": now,
+                }
+            },
+        )
+
+    def cancel_one_off_runs_for_schedule(self, schedule_id: str) -> int:
+        now = datetime.now(timezone.utc)
+        result = self._one_off_runs.update_many(
+            {
+                "schedule_id": schedule_id,
+                "status": {"$in": ["pending", "claimed"]},
+            },
+            {
+                "$set": {
+                    "status": "cancelled",
+                    "updated_at": now,
+                    "completed_at": now,
+                    "error": "Parent schedule deleted.",
+                }
+            },
+        )
+        return result.modified_count
 
     def delete(self, schedule_id: str) -> int:
         return self._col.delete_one({"schedule_id": schedule_id}).deleted_count

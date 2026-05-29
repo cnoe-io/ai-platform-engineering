@@ -5,10 +5,18 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 RunStatus = Literal["ok", "error"]
+OneOffRunStatus = Literal[
+    "pending",
+    "claimed",
+    "fired",
+    "succeeded",
+    "failed",
+    "cancelled",
+]
 
 
 class LastRun(BaseModel):
@@ -177,6 +185,81 @@ class ScheduleList(BaseModel):
     items: list[Schedule]
 
 
+class ScheduleOneOffCreate(BaseModel):
+    """Body of POST /v1/schedules/{id}/one-off-runs."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    run_at: datetime | None = Field(
+        default=None,
+        description=(
+            "Exact UTC or timezone-aware timestamp for the one-off fire. "
+            "If omitted, pass delay_minutes."
+        ),
+    )
+    delay_minutes: int | None = Field(
+        default=None,
+        ge=0,
+        description="Delay from now before firing. Mutually exclusive with run_at.",
+    )
+    message_template: str | None = Field(
+        default=None,
+        description=(
+            "Optional one-off message body. When omitted, the parent schedule's "
+            "message_template is used."
+        ),
+    )
+    reason: str | None = Field(
+        default=None,
+        max_length=200,
+        description="Optional short reason such as transcript_not_ready.",
+    )
+    retry_num: int | None = Field(
+        default=None,
+        ge=0,
+        description="Optional retry attempt number carried into the runner.",
+    )
+    retry_limit: int | None = Field(
+        default=None,
+        ge=0,
+        description="Optional retry limit carried into the runner.",
+    )
+
+    @model_validator(mode="after")
+    def exactly_one_time_source(self) -> "ScheduleOneOffCreate":
+        if (self.run_at is None) == (self.delay_minutes is None):
+            raise ValueError("Pass exactly one of run_at or delay_minutes.")
+        return self
+
+
+class ScheduleOneOffRun(BaseModel):
+    """Stored one-off fire linked to a recurring parent schedule."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    one_off_run_id: str
+    schedule_id: str
+    owner_user_id: str
+    run_at: datetime
+    status: OneOffRunStatus = "pending"
+    message_template: str | None = None
+    reason: str | None = None
+    retry_num: int | None = None
+    retry_limit: int | None = None
+    job_name: str | None = None
+    error: str | None = None
+    http_status: int | None = None
+    created_at: datetime
+    updated_at: datetime
+    claimed_at: datetime | None = None
+    fired_at: datetime | None = None
+    completed_at: datetime | None = None
+
+
+class ScheduleOneOffList(BaseModel):
+    items: list[ScheduleOneOffRun]
+
+
 class LastRunReport(BaseModel):
     """Body of POST /v1/schedules/{id}/runs (cron-runner reports back)."""
 
@@ -185,3 +268,4 @@ class LastRunReport(BaseModel):
     status: RunStatus
     error: str | None = None
     http_status: int | None = None
+    one_off_run_id: str | None = None

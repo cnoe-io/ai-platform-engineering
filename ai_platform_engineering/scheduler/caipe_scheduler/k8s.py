@@ -8,6 +8,7 @@ privileges via this path.
 
 from __future__ import annotations
 
+import copy
 import logging
 import re
 
@@ -50,6 +51,7 @@ class CronJobOps:
                     "OK for unit tests with mocked client."
                 )
         self._batch = client.BatchV1Api()
+        self._api_client = client.ApiClient()
 
     # ── public ──────────────────────────────────────────────────────────
     def create(
@@ -105,6 +107,110 @@ class CronJobOps:
                 log.info("CronJob %s already gone, ignoring delete", cronjob_name)
                 return
             raise
+
+    def refresh_runner_template(self, *, cronjob_name: str) -> None:
+        """Patch an existing CronJob to use the scheduler's current runner image."""
+        s = self._settings
+        cronjob = self._batch.read_namespaced_cron_job(
+            name=cronjob_name,
+            namespace=s.namespace,
+        )
+        job_template = copy.deepcopy(cronjob.spec.job_template)
+        job_template.spec.backoff_limit = 2
+        job_template.spec.ttl_seconds_after_finished = 86400
+
+        containers = job_template.spec.template.spec.containers or []
+        runner = next((c for c in containers if c.name == "runner"), containers[0])
+        runner.image = s.cron_runner_image
+        runner.image_pull_policy = s.cron_runner_image_pull_policy
+
+        body = {
+            "spec": {
+                "jobTemplate": self._api_client.sanitize_for_serialization(
+                    job_template
+                )
+            }
+        }
+        self._batch.patch_namespaced_cron_job(
+            name=cronjob_name,
+            namespace=s.namespace,
+            body=body,
+        )
+
+    def create_one_off_job_from_cronjob(
+        self,
+        *,
+        cronjob_name: str,
+        one_off_run_id: str,
+        retry_num: int | None = None,
+        retry_limit: int | None = None,
+        retry_reason: str | None = None,
+        message_template_override: str | None = None,
+    ) -> str:
+        """Create a normal Job by copying an existing CronJob's jobTemplate."""
+        job_name = f"caipe-oneoff-{_sanitize_name(one_off_run_id)}"
+        cronjob = self._batch.read_namespaced_cron_job(
+            name=cronjob_name,
+            namespace=self._settings.namespace,
+        )
+        job_spec = copy.deepcopy(cronjob.spec.job_template.spec)
+
+        labels = {
+            "app.kubernetes.io/name": "caipe-cron-runner",
+            "app.kubernetes.io/managed-by": "caipe-scheduler",
+            "caipe.cisco.com/cronjob-name": _sanitize_name(cronjob_name),
+            "caipe.cisco.com/one-off-run-id": _sanitize_name(one_off_run_id),
+        }
+        template_meta = job_spec.template.metadata or client.V1ObjectMeta()
+        template_meta.labels = {**(template_meta.labels or {}), **labels}
+        job_spec.template.metadata = template_meta
+
+        containers = job_spec.template.spec.containers or []
+        runner = next((c for c in containers if c.name == "runner"), containers[0])
+        runner.image = self._settings.cron_runner_image
+        runner.image_pull_policy = self._settings.cron_runner_image_pull_policy
+        self._set_env(runner, "ONE_OFF_RUN_ID", one_off_run_id)
+        if retry_num is not None:
+            self._set_env(runner, "RETRY_NUM", str(retry_num))
+        if retry_limit is not None:
+            self._set_env(runner, "RETRY_LIMIT", str(retry_limit))
+        if retry_reason:
+            self._set_env(runner, "RETRY_REASON", retry_reason)
+        if message_template_override:
+            self._set_env(
+                runner,
+                "MESSAGE_TEMPLATE_OVERRIDE",
+                message_template_override,
+            )
+
+        body = client.V1Job(
+            api_version="batch/v1",
+            kind="Job",
+            metadata=client.V1ObjectMeta(
+                name=job_name,
+                namespace=self._settings.namespace,
+                labels=labels,
+            ),
+            spec=job_spec,
+        )
+        try:
+            self._batch.create_namespaced_job(
+                namespace=self._settings.namespace,
+                body=body,
+            )
+        except ApiException as e:
+            if e.status == 409:
+                log.info("One-off Job %s already exists, treating as fired", job_name)
+                return job_name
+            log.error(
+                "One-off Job create failed: name=%s cronjob=%s status=%s body=%s",
+                job_name,
+                cronjob_name,
+                e.status,
+                e.body,
+            )
+            raise
+        return job_name
 
     # ── body builder ────────────────────────────────────────────────────
     def _build_body(
@@ -210,3 +316,9 @@ class CronJobOps:
                 "blockOwnerDeletion": True,
             }
         ]
+
+    @staticmethod
+    def _set_env(container: client.V1Container, name: str, value: str) -> None:
+        env = [item for item in (container.env or []) if item.name != name]
+        env.append(client.V1EnvVar(name=name, value=value))
+        container.env = env

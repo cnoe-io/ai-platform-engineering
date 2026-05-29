@@ -46,6 +46,11 @@ def main() -> int:
     caipe_token = _required_env("CAIPE_API_TOKEN")
     chat_path = os.environ.get("CAIPE_CHAT_PATH", "/api/v1/chat/invoke")
     timeout = float(os.environ.get("HTTP_TIMEOUT", str(DEFAULT_HTTP_TIMEOUT_SECONDS)))
+    one_off_run_id = os.environ.get("ONE_OFF_RUN_ID", "").strip() or None
+    retry_num = os.environ.get("RETRY_NUM", "").strip() or None
+    retry_limit = os.environ.get("RETRY_LIMIT", "").strip() or None
+    retry_reason = os.environ.get("RETRY_REASON", "").strip() or None
+    message_override = os.environ.get("MESSAGE_TEMPLATE_OVERRIDE")
 
     sched_headers = {"X-Scheduler-Token": scheduler_token}
 
@@ -64,14 +69,46 @@ def main() -> int:
 
         if not schedule.get("enabled", True):
             log.info("Schedule %s is disabled, skipping fire.", schedule_id)
+            if one_off_run_id:
+                try:
+                    client.post(
+                        f"{scheduler_url}/v1/schedules/{schedule_id}/runs",
+                        headers=sched_headers,
+                        json={
+                            "status": "error",
+                            "error": "Schedule disabled, skipping one-off fire.",
+                            "one_off_run_id": one_off_run_id,
+                        },
+                    )
+                except Exception:
+                    log.exception("Failed to report disabled one-off skip")
             return 0
 
         # 2. POST to chat as the schedule's owner user.
         run_ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        conversation_hash = hashlib.sha1(f"{schedule_id}:{run_ts}".encode()).hexdigest()[:12]
+        conversation_hash = hashlib.sha1(
+            f"{schedule_id}:{one_off_run_id or ''}:{run_ts}".encode()
+        ).hexdigest()[:12]
+        message = message_override if message_override is not None else schedule["message_template"]
+        metadata_lines = [
+            "",
+            "SCHEDULED_RUN_METADATA",
+            f"schedule_id={schedule_id}",
+            f"run_type={'one_off' if one_off_run_id else 'recurring'}",
+        ]
+        if one_off_run_id:
+            metadata_lines.append(f"one_off_run_id={one_off_run_id}")
+            if retry_num is not None:
+                metadata_lines.append(f"retry_num={retry_num}")
+            if retry_limit is not None:
+                metadata_lines.append(f"retry_limit={retry_limit}")
+            if retry_reason:
+                metadata_lines.append(f"retry_reason={retry_reason}")
+        message = "\n".join([message, *metadata_lines])
+
         chat_payload = {
             "agent_id": schedule["agent_id"],
-            "message": schedule["message_template"],
+            "message": message,
             "conversation_id": f"scheduled-{schedule_id}-{conversation_hash}",
             "owner_user_id": schedule["owner_user_id"],
             "trace_id": f"scheduled-{schedule_id}-{conversation_hash}",
@@ -79,6 +116,11 @@ def main() -> int:
                 "source": "scheduler",
                 "schedule_id": schedule_id,
                 "pod_id": schedule.get("pod_id"),
+                "run_type": "one_off" if one_off_run_id else "recurring",
+                "one_off_run_id": one_off_run_id,
+                "retry_num": retry_num,
+                "retry_limit": retry_limit,
+                "retry_reason": retry_reason,
             },
         }
         if schedule.get("pod_id"):
@@ -146,6 +188,7 @@ def main() -> int:
                     "status": status,
                     "error": error,
                     "http_status": http_status,
+                    "one_off_run_id": one_off_run_id,
                 },
             )
         except Exception:
