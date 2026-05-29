@@ -1,43 +1,79 @@
 ---
-description: Never do branch/PR work on the user's live working tree; use an isolated worktree
+description: Protect the user's live working tree during branch/PR work; verify a current base, preserve uncommitted edits, and isolate risky work in a worktree
 alwaysApply: true
 ---
 
 # Safe Git: Protect the User's Working Tree
 
-The user's checked-out branch and working tree are sacred. NEVER switch branches,
-reset, or rewrite history on it to do PR/experiment work. Do that work in an
-**isolated git worktree** instead.
+The user's checked-out branch and working tree are theirs. Before doing any
+branch/PR work, make sure you will not lose their edits or churn thousands of
+files. The failure that motivated this rule was switching branches across a
+**stale local `main` (37 commits behind `origin/main`)**, which rewrote ~3,800
+`docs/` files in the user's tree.
 
-## Required workflow for any PR / multi-commit / experiment work
+## Always (universal — applies to every repo and agent)
+
+- **Never assume local `main` is current.** Run `git fetch origin <base>` and
+  branch from the *remote* ref (`origin/main`), not the local one.
+- **Preserve uncommitted work.** Run `git status` before any git command. If the
+  tree is dirty, do not switch/reset/checkout over those edits — commit, stash
+  *with the user's awareness*, or isolate in a worktree instead.
+- **Never push to a shared branch.** Push only to feature branches; never
+  `push`/`--force` to `origin/main` (or any protected branch).
+- **Never rewrite shared history** (`reset --hard`, force-push) on a branch
+  others may have pulled.
+- **Branch naming:** use the `prebuild/` prefix when the branch should trigger CI
+  Docker image builds (see `AGENTS.md`).
+
+## Prefer an isolated worktree when the work is risky or parallel
+
+Reach for a throwaway worktree when you need to *experiment*, run work *in
+parallel* with the user's current branch, or when the tree is dirty and you must
+not disturb it:
 
 ```bash
-# 1. Make a throwaway worktree off the REMOTE main (never the stale local one)
 git fetch origin main
-git worktree add /tmp/caipe-<task> origin/main -b <feat-branch>
-cd /tmp/caipe-<task>          # do ALL edits, commits, pushes here
-
-# 2. When done
-cd -                          # back to the user's repo, untouched
+git worktree add /tmp/caipe-<task> origin/main -b prebuild/<feat-branch>
+cd /tmp/caipe-<task>          # do edits, commits, pushes here
+# when done:
+cd -                          # user's repo, untouched
 git worktree remove /tmp/caipe-<task>
 ```
 
-The user's repo is never `checkout`-ed, `reset`, or `stash`-ed.
+Worktree caveats to handle (don't assume the worktree "just works"):
 
-## Hard rules (in the user's repo)
+- **Untracked-but-essential files don't come along.** Gitignored config such as
+  `.env` is absent in a fresh worktree — copy or symlink what the task needs.
+- **Virtualenvs are not shared.** Per `CLAUDE.md`, each worktree (and each
+  subpackage: RAG ingestors/server, MCP agents) needs its own
+  `uv venv --python python3.13 --clear .venv && uv sync`.
+- `/tmp` is cleared on reboot and duplicates large caches — fine for short tasks,
+  not for long-lived state.
 
-- NEVER `git checkout <branch>` / `git checkout -B` / `git switch` to do feature work.
-- NEVER `git reset` (any mode) to move the checked-out branch pointer.
-- NEVER `git stash` the user's edits as a substitute for isolation.
-- NEVER assume local `main` is current — it is often many commits behind
-  `origin/main`. Switching across that gap churns thousands of files (e.g. `docs/`).
-- ALWAYS run `git status` before any git command and preserve uncommitted edits.
-- ALWAYS push only to feature branches; never to `origin/main`.
+## A plain feature branch is acceptable when the base is current and the tree is clean
 
-## If you only need to read another branch/commit
+If `git status` is clean and your base is up to date with `origin`, branching in
+the user's repo is normal git flow and is fine:
+
+```bash
+git fetch origin main
+git switch -c prebuild/<feat-branch> origin/main
+```
+
+The point of this rule is **not** "never branch" — it is "never destroy the
+user's uncommitted work or branch from a stale base."
+
+## If you only need to *read* another branch/commit
 
 Use `git show <ref>:<path>`, `git diff <ref>`, or `git log <ref>` — these never
-touch the working tree. Reach for a worktree the moment you need to *build*, *edit*,
-or *commit*.
+touch the working tree. Switch to an edit workflow (branch or worktree) only when
+you need to build, edit, or commit.
+
+## Enforcement
+
+Prose rules are advisory. For a hard gate, this repo ships a
+`beforeShellExecution` hook (`.cursor/hooks/guard-git-branch-ops.sh`) that pauses
+for confirmation on branch/history-mutating git commands while letting read-only
+git through. See `.cursor/hooks.json`.
 
 See the `using-git-worktrees` skill for the full isolation procedure.
