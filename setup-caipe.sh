@@ -2742,9 +2742,12 @@ choose_features() {
         fi
       fi
     else
+      ENABLE_INGRESS=false
       log "Ingress skipped"
     fi
   else
+    ENABLE_METALLB=false
+    ENABLE_INGRESS=false
     log "MetalLB skipped"
   fi
 }
