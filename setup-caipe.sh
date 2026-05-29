@@ -76,6 +76,11 @@ ENABLE_AGENTGATEWAY="${ENABLE_AGENTGATEWAY:-true}"
 # ENABLE_AGENTGATEWAY=true. Set ENABLE_RBAC_RUNTIME=false or pass
 # --no-rbac-runtime to skip.
 ENABLE_RBAC_RUNTIME="${ENABLE_RBAC_RUNTIME:-true}"
+# Keycloak bootstrap admin password (master realm). The keycloak subchart
+# requires an explicit value — generated admin passwords are disabled because
+# Keycloak persists the bootstrap admin in its database. Resolved/persisted by
+# _resolve_keycloak_admin_password (idempotent, mirrors the MongoDB pattern).
+KEYCLOAK_ADMIN_PASSWORD="${KEYCLOAK_ADMIN_PASSWORD:-}"
 VLLM_MODEL="${VLLM_MODEL:-openai/gpt-oss-20b}"
 VLLM_GPU_COUNT="${VLLM_GPU_COUNT:-1}"
 OLLAMA_MODEL="${OLLAMA_MODEL:-llama2}"
@@ -118,6 +123,18 @@ UI_ENV_FILE=""
 # baseline CAIPE experience). Set ENABLE_DYNAMIC_AGENTS=false or pass
 # --no-dynamic-agents to skip.
 ENABLE_DYNAMIC_AGENTS="${ENABLE_DYNAMIC_AGENTS:-true}"
+# Chat-bot surfaces (the slack-bot / webex-bot deployments — distinct from the
+# slack/webex MCP agents). Default OFF; enabled via --slack-bot / --webex-bot,
+# the ENABLE_SLACK_BOT / ENABLE_WEBEX_BOT env vars, or (for parity with
+# docker-compose.dev.yaml + .env) when the env-file sets ENABLE_SLACK /
+# ENABLE_WEBEX. They wire the slack-bot/webex-bot subcharts onto an existing
+# Keycloak + OpenFGA + MongoDB stack.
+ENABLE_SLACK_BOT="${ENABLE_SLACK_BOT:-false}"
+ENABLE_WEBEX_BOT="${ENABLE_WEBEX_BOT:-false}"
+# Set to "on"/"off" by --slack-bot / --no-slack-bot (and webex equivalents) so an
+# explicit CLI choice wins over the env-file auto-enable. Empty = no CLI flag given.
+_SLACK_BOT_FORCED=""
+_WEBEX_BOT_FORCED=""
 # Agents selected interactively; empty means all defaults are used (non-interactive path)
 SELECTED_AGENTS=()
 CAIPE_DEPLOYMENT_MODE="${CAIPE_DEPLOYMENT_MODE:-all-in-one}"
@@ -1671,7 +1688,11 @@ install_nginx_ingress() {
   step "Installing nginx-ingress controller"
 
   helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx &>/dev/null 2>&1 || true
-  helm repo update &>/dev/null 2>&1
+  # Scope the refresh to just this repo and tolerate failure: a globally
+  # configured but unreachable third-party repo (e.g. a private chartmuseum)
+  # makes `helm repo update` (all repos) return non-zero, which would abort the
+  # whole script under `set -e`. We only need the ingress-nginx index here.
+  helm repo update ingress-nginx &>/dev/null 2>&1 || true
 
   helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
     --namespace ingress-nginx --create-namespace \
@@ -1695,7 +1716,12 @@ install_nginx_ingress() {
   # address. NAT the host's external IP to the ingress IP so external traffic
   # reaches the cluster. On cloud clusters (EKS/GKE/AKS) the cloud LB handles
   # this automatically — skip iptables entirely.
-  if $ENABLE_METALLB && [[ -n "$CAIPE_DOMAIN" ]]; then
+  #
+  # This whole block is Linux-only: it relies on `hostname -I`, /proc/sys, and
+  # iptables, none of which exist on macOS. On Docker Desktop (macOS) the kind
+  # network is not routable from the host regardless, so external DNAT can't
+  # work — local access is via `*.local.me` → 127.0.0.1 and/or port-forward.
+  if $ENABLE_METALLB && [[ -n "$CAIPE_DOMAIN" ]] && [[ "$(uname -s)" == "Linux" ]]; then
     # DNAT requires IP forwarding to be enabled at runtime — not just in sysctl.conf.
     if [[ "$(cat /proc/sys/net/ipv4/ip_forward 2>/dev/null)" != "1" ]]; then
       sudo sysctl -w net.ipv4.ip_forward=1 &>/dev/null \
@@ -1777,6 +1803,8 @@ install_nginx_ingress() {
 
     # Persist iptables rules and ip_forward so they survive a reboot.
     _persist_iptables "$ingress_ip"
+  elif $ENABLE_METALLB && [[ "$(uname -s)" != "Linux" ]]; then
+    log "Skipping iptables DNAT (non-Linux host) — use port-forward or *.local.me → 127.0.0.1 for local access"
   fi
 }
 
@@ -1875,8 +1903,11 @@ setup_tls() {
     [[ "$CAIPE_DOMAIN" == *.local.me ]] && _reason="*.local.me has no public CA"
     _announce_self_signed "${CAIPE_DOMAIN}" "${_reason}"
     log "Generating self-signed certificate for ${CAIPE_DOMAIN}"
-    TLS_CERT_FILE=$(mktemp /tmp/caipe-tls-cert.XXXX.pem)
-    TLS_KEY_FILE=$(mktemp /tmp/caipe-tls-key.XXXX.pem)
+    # Trailing X's only: BSD mktemp (macOS) treats any chars after the X's as a
+    # literal filename (no randomization), which collides on re-runs. The .pem
+    # extension is cosmetic — openssl writes by path, not extension.
+    TLS_CERT_FILE=$(mktemp /tmp/caipe-tls-cert-XXXXXX)
+    TLS_KEY_FILE=$(mktemp /tmp/caipe-tls-key-XXXXXX)
     local _san
     if [[ "$CAIPE_DOMAIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
       _san="IP:${CAIPE_DOMAIN}"
@@ -1902,13 +1933,14 @@ setup_tls() {
 
 _choose_agents() {
   # All available agents with display labels
-  local -a _agent_keys=(argocd aws backstage confluence github jira komodor netutils pagerduty slack splunk webex aigateway)
+  local -a _agent_keys=(argocd aws backstage confluence github gitlab jira komodor netutils pagerduty slack splunk webex aigateway)
   local -a _agent_labels=(
     "ArgoCD        — GitOps / CD pipelines"
     "AWS           — cloud resources & infrastructure"
     "Backstage     — developer portal & catalog"
     "Confluence    — wiki & knowledge base"
     "GitHub        — repos, PRs, issues, Actions"
+    "GitLab        — repos, MRs, pipelines"
     "Jira          — tickets & project tracking"
     "Komodor       — Kubernetes health & incidents"
     "NetUtils      — network diagnostics"
@@ -2556,7 +2588,7 @@ choose_features() {
   done
 
   # Disable all agents NOT in SELECTED_AGENTS
-  local -a _all_agents=(argocd aws backstage confluence github jira komodor netutils pagerduty slack splunk webex aigateway)
+  local -a _all_agents=(argocd aws backstage confluence github gitlab jira komodor netutils pagerduty slack splunk webex aigateway)
   for _agent in "${_all_agents[@]}"; do
     local _selected=false
     for _s in "${SELECTED_AGENTS[@]}"; do [[ "$_agent" == "$_s" ]] && { _selected=true; break; }; done
@@ -2801,12 +2833,13 @@ _create_secret_from_env() {
 
 # Maps each Helm agent tag to:  (tag_name  secret_name  env_enable_key  keys...)
 # declare -A can't hold arrays so we use parallel indexed arrays.
-_AGENT_TAGS=(argocd github jira confluence backstage slack pagerduty webex komodor aws splunk)
+_AGENT_TAGS=(argocd github gitlab jira confluence backstage slack pagerduty webex komodor aws splunk)
 
 _agent_enable_key() {
   case "$1" in
     argocd) echo "ENABLE_ARGOCD" ;;
     github) echo "ENABLE_GITHUB" ;;
+    gitlab) echo "ENABLE_GITLAB" ;;
     jira) echo "ENABLE_JIRA" ;;
     confluence) echo "ENABLE_CONFLUENCE" ;;
     backstage) echo "ENABLE_BACKSTAGE" ;;
@@ -2823,6 +2856,7 @@ _agent_secret_keys() {
   case "$1" in
     argocd) echo "ARGOCD_TOKEN ARGOCD_API_URL ARGOCD_VERIFY_SSL" ;;
     github) echo "GITHUB_PERSONAL_ACCESS_TOKEN" ;;
+    gitlab) echo "GITLAB_PERSONAL_ACCESS_TOKEN GITLAB_API_URL" ;;
     jira) echo "ATLASSIAN_TOKEN ATLASSIAN_EMAIL ATLASSIAN_API_URL JIRA_URL JIRA_USERNAME JIRA_API_TOKEN JIRA_SSL_VERIFY" ;;
     confluence) echo "CONFLUENCE_API_TOKEN CONFLUENCE_USERNAME CONFLUENCE_URL CONFLUENCE_API_URL CONFLUENCE_SSL_VERIFY ATLASSIAN_TOKEN ATLASSIAN_EMAIL ATLASSIAN_API_URL ATLASSIAN_VERIFY_SSL" ;;
     backstage) echo "BACKSTAGE_API_TOKEN BACKSTAGE_URL" ;;
@@ -2860,9 +2894,14 @@ provision_agent_secrets() {
     _create_secret_from_env "$env_file" "$secret_name" caipe "${keys[@]}"
     log "Agent ${agent}: secret '${secret_name}' ready"
 
+    # tags.agent-* deploys the agent as its own service (distributed/multi-node);
+    # singleNode.enabledSubAgents.* loads it in-process in all-in-one mode. Set
+    # both so the agent activates regardless of deployment mode (matches the
+    # interactive path, which sets the singleNode flag too).
     HELM_AGENT_ARGS+=(
       --set "tags.agent-${agent}=true"
       --set "agent-${agent}.agentSecrets.secretName=${secret_name}"
+      --set "supervisor-agent.singleNode.enabledSubAgents.${agent}=true"
     )
   done
 }
@@ -2924,6 +2963,158 @@ provision_ui_secret() {
       HELM_UI_SECRET_ARGS+=(--set "caipe-ui.env.${key}=${val}")
     fi
   done
+}
+
+# ─── Chat-bot surfaces (slack-bot / webex-bot) ───────────────────────────────
+# These mirror the slack-bot / webex-bot profiles in docker-compose.dev.yaml.
+# They are deployed via the umbrella chart's slack-bot / webex-bot subcharts
+# (tags.slack-bot / tags.webex-bot) wired onto the in-chart Keycloak + OpenFGA +
+# MongoDB stack. Bot tokens go into k8s Secrets (envFrom secretRef); non-secret
+# wiring goes into the subchart `config:` map written by _write_bot_values.
+HELM_BOT_ARGS=()
+
+# Create slack-bot-secrets / webex-bot-secrets from the env file (tokens only).
+# Falls back to the committed dev client secrets (realm-config.json) for the
+# Keycloak OBO/admin clients ONLY in local dev (no public domain), so the bot
+# can do RBAC user-lookup + token-exchange against the in-chart Keycloak.
+provision_bot_secrets() {
+  local env_file="${1:-}"
+  step "Provisioning chat-bot secrets"
+
+  if $ENABLE_SLACK_BOT; then
+    local _slack_keys=(
+      SLACK_BOT_TOKEN SLACK_APP_TOKEN SLACK_SIGNING_SECRET SLACK_CLIENT_SECRET
+      SLACK_LINK_HMAC_SECRET SLACK_INTEGRATION_AUTH_CLIENT_SECRET
+      KEYCLOAK_BOT_CLIENT_SECRET KEYCLOAK_SLACK_BOT_ADMIN_CLIENT_SECRET OAUTH2_CLIENT_SECRET
+    )
+    local _slack_literals=()
+    if [[ -n "$env_file" && -f "$env_file" ]]; then
+      local _k _v
+      for _k in "${_slack_keys[@]}"; do
+        _v=$(_env_get "$env_file" "$_k")
+        [[ -n "$_v" ]] && _slack_literals+=(--from-literal="${_k}=${_v}")
+      done
+    fi
+    # Local-dev OBO/admin defaults (match charts/.../keycloak/realm-config.json).
+    if [[ -z "$CAIPE_DOMAIN" ]]; then
+      _bot_default_literal _slack_literals "${_slack_literals[*]}" KEYCLOAK_BOT_CLIENT_SECRET caipe-slack-bot-dev-secret
+      _bot_default_literal _slack_literals "${_slack_literals[*]}" OAUTH2_CLIENT_SECRET caipe-slack-bot-dev-secret
+      _bot_default_literal _slack_literals "${_slack_literals[*]}" KEYCLOAK_SLACK_BOT_ADMIN_CLIENT_SECRET caipe-platform-dev-secret
+    fi
+    if [[ ${#_slack_literals[@]} -gt 0 ]]; then
+      kubectl create secret generic slack-bot-secrets -n caipe "${_slack_literals[@]}" \
+        --dry-run=client -o yaml | kubectl apply -f - &>/dev/null
+      log "slack-bot: secret 'slack-bot-secrets' ready"
+    else
+      warn "slack-bot enabled but no Slack tokens found in env file — bot will not start until SLACK_BOT_TOKEN/SLACK_APP_TOKEN are provided"
+    fi
+  fi
+
+  if $ENABLE_WEBEX_BOT; then
+    local _webex_keys=(
+      WEBEX_INTEGRATION_BOT_ACCESS_TOKEN WEBEX_TOKEN WEBEX_LINK_HMAC_SECRET
+      WEBEX_INTEGRATION_AUTH_CLIENT_SECRET KEYCLOAK_WEBEX_BOT_CLIENT_SECRET
+    )
+    local _webex_literals=()
+    if [[ -n "$env_file" && -f "$env_file" ]]; then
+      local _k _v
+      for _k in "${_webex_keys[@]}"; do
+        _v=$(_env_get "$env_file" "$_k")
+        [[ -n "$_v" ]] && _webex_literals+=(--from-literal="${_k}=${_v}")
+      done
+    fi
+    if [[ -z "$CAIPE_DOMAIN" ]]; then
+      _bot_default_literal _webex_literals "${_webex_literals[*]}" KEYCLOAK_WEBEX_BOT_CLIENT_SECRET caipe-webex-bot-dev-secret
+    fi
+    if [[ ${#_webex_literals[@]} -gt 0 ]]; then
+      kubectl create secret generic webex-bot-secrets -n caipe "${_webex_literals[@]}" \
+        --dry-run=client -o yaml | kubectl apply -f - &>/dev/null
+      log "webex-bot: secret 'webex-bot-secrets' ready"
+    else
+      warn "webex-bot enabled but no Webex token found in env file — bot will not start until WEBEX_INTEGRATION_BOT_ACCESS_TOKEN is provided"
+    fi
+  fi
+}
+
+# Append --from-literal=KEY=DEFAULT to the named array unless KEY is already
+# present in its current contents. Usage:
+#   _bot_default_literal ARRAY_NAME "${ARRAY[*]}" KEY DEFAULT
+_bot_default_literal() {
+  local _arr_name="$1" _current="$2" _key="$3" _default="$4"
+  case " $_current " in
+    *"--from-literal=${_key}="*) return 0 ;;  # already set from env file
+  esac
+  eval "${_arr_name}+=(--from-literal=\"\${_key}=\${_default}\")"
+}
+
+# Write a Helm values file enabling the requested bot surfaces and pointing
+# them at the in-cluster Keycloak/OpenFGA/MongoDB/UI services (release "caipe").
+# Echoes the values-file path (empty if no bot is enabled). MONGODB_URI is built
+# from the resolved cluster password (same pattern as dynamic-agents).
+_write_bot_values() {
+  $ENABLE_SLACK_BOT || $ENABLE_WEBEX_BOT || { printf '%s' ""; return 0; }
+
+  local values_file
+  values_file=$(mktemp /tmp/caipe-bot-values-XXXXXX)
+  local _mongo_pw="${MONGODB_ROOT_PASSWORD:-MONGODB_ROOT_PASSWORD_UNSET}"
+  local _mongo_uri="mongodb://admin:${_mongo_pw}@caipe-mongodb:27017/caipe?authSource=caipe"
+  local _kc="http://caipe-keycloak:8080"
+  local _issuer="${_kc}/realms/caipe"
+
+  {
+    echo "tags:"
+    $ENABLE_SLACK_BOT && echo "  slack-bot: true"
+    $ENABLE_WEBEX_BOT && echo "  webex-bot: true"
+  } >> "$values_file"
+
+  if $ENABLE_SLACK_BOT; then
+    cat >> "$values_file" <<SLACKEOF
+slack-bot:
+  existingSecret: "slack-bot-secrets"
+  config:
+    CAIPE_API_URL: "http://caipe-caipe-ui:3000"
+    SLACK_BOT_MODE: "socket"
+    SLACK_INTEGRATION_BOT_MODE: "socket"
+    MONGODB_URI: "${_mongo_uri}"
+    MONGODB_DATABASE: "caipe"
+    KEYCLOAK_URL: "${_kc}"
+    KEYCLOAK_REALM: "caipe"
+    OPENFGA_HTTP: "http://caipe-openfga:8080"
+    OPENFGA_STORE_NAME: "caipe-openfga"
+    SLACK_RBAC_ENABLED: "true"
+    SLACK_AGENT_ROUTES_MODE: "db_prefer"
+    SLACK_ADMIN_API_ENABLED: "true"
+    SLACK_ADMIN_API_PORT: "3001"
+    SLACK_ADMIN_JWT_ISSUER: "${_issuer}"
+    SLACK_ADMIN_JWKS_URL: "${_kc}/realms/caipe/protocol/openid-connect/certs"
+    SLACK_ADMIN_JWT_AUDIENCE: "caipe-slack-bot-admin"
+    SLACK_ADMIN_ALLOWED_CLIENT_IDS: "caipe-ui"
+    SLACK_INTEGRATION_ENABLE_AUTH: "true"
+    SLACK_INTEGRATION_AUTH_TOKEN_URL: "${_issuer}/protocol/openid-connect/token"
+    SLACK_INTEGRATION_AUTH_CLIENT_ID: "caipe-slack-bot"
+    KEYCLOAK_BOT_CLIENT_ID: "caipe-slack-bot"
+    KEYCLOAK_SLACK_BOT_ADMIN_CLIENT_ID: "caipe-platform"
+    SLACK_JIT_CREATE_USER: "true"
+SLACKEOF
+  fi
+
+  if $ENABLE_WEBEX_BOT; then
+    cat >> "$values_file" <<WEBEXEOF
+webex-bot:
+  existingSecret: "webex-bot-secrets"
+  config:
+    CAIPE_API_URL: "http://caipe-caipe-ui:3000"
+    MONGODB_URI: "${_mongo_uri}"
+    MONGODB_DATABASE: "caipe"
+    KEYCLOAK_URL: "${_kc}"
+    KEYCLOAK_REALM: "caipe"
+    OPENFGA_HTTP: "http://caipe-openfga:8080"
+    OPENFGA_STORE_NAME: "caipe-openfga"
+    KEYCLOAK_WEBEX_BOT_ADMIN_CLIENT_ID: "caipe-platform"
+WEBEXEOF
+  fi
+
+  printf '%s' "$values_file"
 }
 
 create_namespace_and_secrets() {
@@ -3097,6 +3288,13 @@ create_namespace_and_secrets() {
     fi
     provision_ui_secret "$UI_ENV_FILE"
   fi
+
+  # Chat-bot surfaces (slack-bot / webex-bot). Token secrets are created here;
+  # the Helm tags + in-cluster config (incl. MONGODB_URI built from the resolved
+  # cluster password) are written by _write_bot_values and applied in deploy_caipe.
+  if $ENABLE_SLACK_BOT || $ENABLE_WEBEX_BOT; then
+    provision_bot_secrets "$ENV_FILE"
+  fi
 }
 
 _fix_langfuse_minio_credentials() {
@@ -3145,7 +3343,9 @@ deploy_langfuse() {
   fi
 
   helm repo add langfuse https://langfuse.github.io/langfuse-k8s &>/dev/null 2>&1 || true
-  helm repo update langfuse &>/dev/null
+  # Scope to the langfuse repo and tolerate failure so an unrelated unreachable
+  # repo in the user's global helm config can't abort the script under `set -e`.
+  helm repo update langfuse &>/dev/null || true
   log "Langfuse Helm repo ready"
 
   kubectl create namespace langfuse --dry-run=client -o yaml | kubectl apply -f - &>/dev/null
@@ -3973,6 +4173,34 @@ _resolve_mongodb_password() {
     | kubectl apply -f - &>/dev/null
 }
 
+# Resolve (reuse-or-generate) the Keycloak bootstrap admin password and persist
+# it in the caipe-keycloak-admin Secret so re-runs reuse the same value. The
+# keycloak subchart requires keycloak.admin.password (or a secretRef) to be set
+# — it refuses to auto-generate because Keycloak stores the bootstrap admin in
+# its database, so a regenerated value on upgrade would silently drift from the
+# already-bootstrapped admin. Mirrors _resolve_mongodb_password.
+# assisted-by Claude:claude-opus-4-8
+_resolve_keycloak_admin_password() {
+  # The keycloak subchart owns the caipe-keycloak-admin Secret (keys
+  # username/password) and marks it helm.sh/resource-policy: keep, so it
+  # survives uninstalls. We must NOT create our own Secret of that name —
+  # Helm refuses to adopt a non-Helm-owned object. Instead read the existing
+  # chart-owned value for reuse (idempotent across upgrades), or generate a
+  # fresh one on first install and let the chart create+own the Secret.
+  local existing_pw
+  existing_pw=$(kubectl get secret caipe-keycloak-admin -n caipe \
+    -o jsonpath='{.data.password}' 2>/dev/null \
+    | base64 -d 2>/dev/null || true)
+  if [[ -n "$existing_pw" ]]; then
+    KEYCLOAK_ADMIN_PASSWORD="$existing_pw"
+    log "Reusing existing Keycloak admin password from caipe-keycloak-admin Secret"
+  else
+    # Hex avoids characters that would need escaping in YAML / URLs.
+    KEYCLOAK_ADMIN_PASSWORD="$(openssl rand -hex 24)"
+    log "Generated random Keycloak admin password"
+  fi
+}
+
 _ensure_dynamic_agents_mongodb() {
   local mongo_svc="caipe-mongodb"
   _resolve_mongodb_password
@@ -4413,7 +4641,7 @@ LITELLM_EOF
 
 _write_rbac_runtime_values() {
   local values_file
-  values_file=$(mktemp /tmp/caipe-rbac-runtime-XXXXXX.yaml)
+  values_file=$(mktemp /tmp/caipe-rbac-runtime-XXXXXX)
 
   local keycloak_ssl_required="external"
   if [[ -z "$CAIPE_DOMAIN" ]]; then
@@ -4438,6 +4666,9 @@ global:
       port: 9100
 
 keycloak:
+  admin:
+    username: "admin"
+    password: "${KEYCLOAK_ADMIN_PASSWORD}"
   realm:
     sslRequired: "${keycloak_ssl_required}"
 
@@ -4489,19 +4720,27 @@ RBACEOF
   printf '%s' "$values_file"
 }
 
-deploy_agentgateway() {
-  step "Deploying AgentGateway (${AGENTGATEWAY_VERSION})"
-
-  # 1. Install Gateway API CRDs
+# Install the CRDs that the AgentGateway proxy and Gateway API resources depend
+# on (Gateway API + agentgateway.dev). Idempotent. This MUST run before the
+# CAIPE Helm install when the RBAC runtime is enabled, because the chart renders
+# Gateway / HTTPRoute / AgentgatewayBackend / AgentgatewayPolicy objects that
+# Helm validates against installed CRDs at render time. Also reused by the
+# legacy deploy_agentgateway path. assisted-by Claude:claude-opus-4-8
+_install_agentgateway_crds() {
   log "Installing Gateway API CRDs..."
   kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.4.0/standard-install.yaml 2>&1 \
     | tail -1 || true
-
-  # 2. Install AgentGateway CRDs via Helm
   log "Installing AgentGateway CRDs..."
   helm upgrade -i agentgateway-crds oci://ghcr.io/kgateway-dev/charts/agentgateway-crds \
     --create-namespace --namespace agentgateway-system \
     --version "$AGENTGATEWAY_VERSION" 2>&1 | tail -1 || true
+}
+
+deploy_agentgateway() {
+  step "Deploying AgentGateway (${AGENTGATEWAY_VERSION})"
+
+  # 1-2. Install Gateway API + AgentGateway CRDs
+  _install_agentgateway_crds
 
   # 3. Install AgentGateway control plane
   log "Installing AgentGateway control plane..."
@@ -4709,7 +4948,7 @@ deploy_caipe() {
     # Also carries auth/OIDC config — using a values file avoids --set comma
     # parsing issues with CORS_ORIGINS (Helm splits on unescaped commas).
     local _da_values_file
-    _da_values_file=$(mktemp /tmp/caipe-da-seed-XXXXXX.yaml)
+    _da_values_file=$(mktemp /tmp/caipe-da-seed-XXXXXX)
 
     # Build models list from llm-secret LLM_PROVIDER
     local _provider="${LLM_PROVIDER:-anthropic-claude}"
@@ -4991,10 +5230,27 @@ DAEOF
   fi
 
   if $ENABLE_RBAC_RUNTIME; then
+    # Must run BEFORE _write_rbac_runtime_values (it bakes the password into the
+    # values file) and OUTSIDE the command substitution below, because it logs
+    # to stdout which would otherwise be captured into the values file path.
+    _resolve_keycloak_admin_password
     local _rbac_values_file
     _rbac_values_file=$(_write_rbac_runtime_values)
     helm_args+=(--values "$_rbac_values_file")
     log "RBAC runtime configured (Keycloak, OpenFGA, OpenFGA bridge, AgentGateway)"
+  fi
+
+  # Chat-bot surfaces (slack-bot / webex-bot) — wired onto the in-cluster
+  # Keycloak/OpenFGA/MongoDB/UI. MONGODB_ROOT_PASSWORD is resolved by
+  # _ensure_dynamic_agents_mongodb, which main() runs before deploy_caipe.
+  if $ENABLE_SLACK_BOT || $ENABLE_WEBEX_BOT; then
+    local _bot_values_file
+    _bot_values_file=$(_write_bot_values)
+    if [[ -n "$_bot_values_file" ]]; then
+      helm_args+=(--values "$_bot_values_file")
+      $ENABLE_SLACK_BOT && log "slack-bot surface enabled"
+      $ENABLE_WEBEX_BOT && log "webex-bot surface enabled"
+    fi
   fi
 
   if $ENABLE_INGRESS && [[ -n "$CAIPE_DOMAIN" ]]; then
@@ -6377,7 +6633,7 @@ detect_deployed_features() {
 
   # ── Re-populate HELM_AGENT_ARGS from detected agent selection ─────────────
   if [[ ${#SELECTED_AGENTS[@]} -gt 0 && ${#HELM_AGENT_ARGS[@]} -eq 0 ]]; then
-    local -a _all_agents=(argocd aws backstage confluence github jira komodor netutils pagerduty slack splunk webex aigateway)
+    local -a _all_agents=(argocd aws backstage confluence github gitlab jira komodor netutils pagerduty slack splunk webex aigateway)
     for _a in "${_all_agents[@]}"; do
       local _on=false
       for _s in "${SELECTED_AGENTS[@]}"; do [[ "$_a" == "$_s" ]] && { _on=true; break; }; done
@@ -6578,6 +6834,31 @@ BANNER
       _val=$(_env_get "$ENV_FILE" "$_v")
       [[ -n "$_val" && -z "${!_v:-}" ]] && export "$_v=$_val"
     done
+
+    # Honor feature toggles from --env-file so a single .env reproduces the same
+    # stack as docker-compose.dev.yaml (rag, tracing, graph-rag, slack-bot,
+    # webex-bot). Enable-only semantics: an env-file value of "true" turns a
+    # feature ON; a "false"/unset value never disables something already turned
+    # on via a CLI flag (e.g. --rag, --tracing). Explicit --slack-bot /
+    # --no-slack-bot (and webex) always win over the env-file value.
+    if _env_true "$(_env_get "$ENV_FILE" ENABLE_RAG)"; then ENABLE_RAG=true; fi
+    if _env_true "$(_env_get "$ENV_FILE" ENABLE_GRAPH_RAG)"; then ENABLE_GRAPH_RAG=true; ENABLE_RAG=true; fi
+    if _env_true "$(_env_get "$ENV_FILE" ENABLE_TRACING)"; then ENABLE_TRACING=true; fi
+    # The slack/webex MCP agents (ENABLE_SLACK/ENABLE_WEBEX) and the chat-bot
+    # surfaces share the same .env. docker-compose.dev.yaml runs the bot
+    # surfaces via the slack-bot/webex-bot profiles, so treat ENABLE_SLACK_BOT/
+    # ENABLE_WEBEX_BOT (preferred) — or ENABLE_SLACK/ENABLE_WEBEX as a fallback —
+    # as the trigger to deploy the surface here.
+    if [[ -z "$_SLACK_BOT_FORCED" ]] \
+       && { _env_true "$(_env_get "$ENV_FILE" ENABLE_SLACK_BOT)" \
+            || _env_true "$(_env_get "$ENV_FILE" ENABLE_SLACK)"; }; then
+      ENABLE_SLACK_BOT=true
+    fi
+    if [[ -z "$_WEBEX_BOT_FORCED" ]] \
+       && { _env_true "$(_env_get "$ENV_FILE" ENABLE_WEBEX_BOT)" \
+            || _env_true "$(_env_get "$ENV_FILE" ENABLE_WEBEX)"; }; then
+      ENABLE_WEBEX_BOT=true
+    fi
   fi
 
   # ── Wizard step loop — each step can return 1 to go back ─────────────
@@ -6621,10 +6902,22 @@ BANNER
     setup_tls
   fi
 
-  # Deploy MongoDB before CAIPE so caipe-dynamic-agents can resolve the hostname
-  # on first start (avoiding crash-loop during the pod readiness wait).
-  if $ENABLE_DYNAMIC_AGENTS; then
+  # Deploy MongoDB before CAIPE so caipe-dynamic-agents (and the slack-bot /
+  # webex-bot surfaces) can resolve the hostname on first start (avoiding
+  # crash-loop during the pod readiness wait) and so MONGODB_ROOT_PASSWORD is
+  # resolved before _write_bot_values builds the bot MONGODB_URI.
+  if $ENABLE_DYNAMIC_AGENTS || $ENABLE_SLACK_BOT || $ENABLE_WEBEX_BOT; then
     _ensure_dynamic_agents_mongodb
+  fi
+
+  # When the RBAC runtime is enabled, the CAIPE chart itself renders the
+  # AgentGateway proxy (Gateway, HTTPRoute, AgentgatewayBackend,
+  # AgentgatewayPolicy). Helm validates those against installed CRDs at render
+  # time, so the CRDs must exist BEFORE deploy_caipe. (The legacy non-RBAC
+  # AgentGateway path installs them later inside deploy_agentgateway.)
+  if $ENABLE_RBAC_RUNTIME; then
+    step "Installing AgentGateway + Gateway API CRDs"
+    _install_agentgateway_crds
   fi
 
   deploy_caipe
@@ -6682,6 +6975,12 @@ Options:
   --no-persistence   Skip Redis persistence (in-memory checkpointer only)
   --dynamic-agents    Enable the dynamic agents service (custom agent builder UI) — default ON
   --no-dynamic-agents Skip the dynamic agents service (opt out of the default)
+  --slack-bot        Deploy the Slack bot surface (slack-bot subchart). Auto-enabled when
+                     --env-file sets ENABLE_SLACK_BOT/ENABLE_SLACK; needs SLACK_BOT_TOKEN etc.
+  --no-slack-bot     Skip the Slack bot surface (overrides the env-file value)
+  --webex-bot        Deploy the Webex bot surface (webex-bot subchart). Auto-enabled when
+                     --env-file sets ENABLE_WEBEX_BOT/ENABLE_WEBEX; needs WEBEX_INTEGRATION_BOT_ACCESS_TOKEN
+  --no-webex-bot     Skip the Webex bot surface (overrides the env-file value)
   --all-in-one       All-in-One CAIPE: single supervisor with all agents embedded (default)
   --distributed      Distributed CAIPE: each agent runs as its own independent service
   --metallb          Install MetalLB to give LoadBalancer services real IPs in kind clusters — default ON
@@ -6695,7 +6994,11 @@ Options:
   --tls-key=FILE     Path to TLS private key PEM file (paired with --tls-cert)
   --env-file=FILE    Path to .env file with agent credentials (ENABLE_ARGOCD=true, ARGOCD_TOKEN=..., etc.)
                      Creates per-agent k8s secrets and enables corresponding agents in Helm.
-                     Values are never written to disk or logged.
+                     Also honors feature toggles to mirror docker-compose.dev.yaml:
+                     ENABLE_RAG, ENABLE_GRAPH_RAG, ENABLE_TRACING, ENABLE_SLACK(_BOT),
+                     ENABLE_WEBEX(_BOT) (enable-only; CLI flags win). Supported agents:
+                     argocd github gitlab jira confluence backstage slack pagerduty webex
+                     komodor aws splunk. Values are never written to disk or logged.
   --ui-env-file=FILE Path to UI .env.local file (OIDC, MongoDB, NextAuth secrets).
                      Creates caipe-ui-secret and wires it into the caipe-ui chart.
   --ingest-url=URL   Ingest a URL into the RAG knowledge base after deploy
@@ -6745,8 +7048,14 @@ Environment variables (all optional):
   HF_TOKEN                HuggingFace token (for vLLM model download)
   VLLM_MODEL              vLLM model (default: openai/gpt-oss-20b)
   VLLM_GPU_COUNT          GPUs per vLLM replica (default: 1)
-  ENABLE_AGENTGATEWAY     Enable AgentGateway (default: false)
-  ENABLE_RBAC_RUNTIME     Enable in-chart RBAC runtime services (default: false)
+  ENABLE_AGENTGATEWAY     Enable AgentGateway (default: true; --no-agentgateway to skip)
+  ENABLE_RBAC_RUNTIME     Enable in-chart RBAC runtime services — Keycloak, OpenFGA,
+                          OpenFGA ext_authz bridge, AgentGateway (default: true;
+                          --no-rbac-runtime to skip)
+  ENABLE_SLACK_BOT        Deploy the Slack bot surface (default: false; --slack-bot,
+                          or set ENABLE_SLACK in --env-file)
+  ENABLE_WEBEX_BOT        Deploy the Webex bot surface (default: false; --webex-bot,
+                          or set ENABLE_WEBEX in --env-file)
   AGENTGATEWAY_VERSION    AgentGateway Helm chart version (default: v2.2.1)
 
 LLM provider credentials are read from (in order):
@@ -6835,6 +7144,10 @@ for arg in "$@"; do
     --ui-env-file=*)   UI_ENV_FILE="${arg#--ui-env-file=}" ;;
     --dynamic-agents)    ENABLE_DYNAMIC_AGENTS=true ;;
     --no-dynamic-agents) ENABLE_DYNAMIC_AGENTS=false ;;
+    --slack-bot)       ENABLE_SLACK_BOT=true;  _SLACK_BOT_FORCED=on ;;
+    --no-slack-bot)    ENABLE_SLACK_BOT=false; _SLACK_BOT_FORCED=off ;;
+    --webex-bot)       ENABLE_WEBEX_BOT=true;  _WEBEX_BOT_FORCED=on ;;
+    --no-webex-bot)    ENABLE_WEBEX_BOT=false; _WEBEX_BOT_FORCED=off ;;
     --all-in-one)      CAIPE_DEPLOYMENT_MODE="all-in-one" ;;
     --distributed)     CAIPE_DEPLOYMENT_MODE="distributed" ;;
     --upgrade)         FORCE_UPGRADE=true ;;
