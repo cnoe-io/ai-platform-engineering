@@ -384,11 +384,6 @@ RBAC_DEFAULT_TEAM=platform
 
 # Skip the team-scope sync (useful for local dev without Keycloak)
 SKIP_TEAM_SCOPE_SYNC=0
-
-# OIDC group → role mapping (existing in 0.4.0; still required)
-RBAC_ADMIN_GROUPS=caipe_admin
-RBAC_READONLY_GROUPS=caipe_readonly
-RBAC_INGESTONLY_GROUPS=caipe_ingestonly
 ```
 
 ### Dynamic Agents
