@@ -3289,6 +3289,27 @@ create_namespace_and_secrets() {
     provision_ui_secret "$UI_ENV_FILE"
   fi
 
+  # Keycloak "platform" confidential-client secret for the BFF -> Keycloak Admin
+  # REST wiring. The chart references an existing Secret named
+  # caipe-platform-secret (caipe-ui.keycloakAdminClient.secretName +
+  # keycloak.platformClient.secretRef both default to it) but, unless ESO is
+  # enabled, NOTHING creates it — so the caipe-ui pod stays in
+  # CreateContainerConfigError once SSO is on (SSO is auto-enabled when a domain
+  # is set). Pre-create it whenever the in-chart Keycloak (RBAC runtime) is used.
+  # The value is the caipe-platform client secret; in the committed dev realm
+  # that is caipe-platform-dev-secret (env KEYCLOAK_CLIENT_SECRET).
+  if $ENABLE_RBAC_RUNTIME; then
+    local _platform_client_secret=""
+    if [[ -n "$ENV_FILE" && -f "$ENV_FILE" ]]; then
+      _platform_client_secret=$(_env_get "$ENV_FILE" KEYCLOAK_CLIENT_SECRET)
+    fi
+    [[ -z "$_platform_client_secret" ]] && _platform_client_secret="caipe-platform-dev-secret"
+    kubectl create secret generic caipe-platform-secret -n caipe \
+      --from-literal=OIDC_CLIENT_SECRET="$_platform_client_secret" \
+      --dry-run=client -o yaml | kubectl apply -f - &>/dev/null
+    log "caipe-platform-secret ready (Keycloak platform client -> caipe-ui admin REST)"
+  fi
+
   # Chat-bot surfaces (slack-bot / webex-bot). Token secrets are created here;
   # the Helm tags + in-cluster config (incl. MONGODB_URI built from the resolved
   # cluster password) are written by _write_bot_values and applied in deploy_caipe.
