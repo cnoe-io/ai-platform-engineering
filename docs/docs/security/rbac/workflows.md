@@ -606,6 +606,8 @@ endpoint cannot persist for long:
 | Save-side normaliser (BFF) | `POST/PUT /api/mcp-servers` rewrites a bare gateway URL to `/<server_id>` form before insert/update — prevents future drift | `ui/src/lib/rbac/mcp-endpoint-normalizer.ts`, `ui/src/app/api/mcp-servers/route.ts` |
 | Editor picker (UI) | `MCPServerEditor` calls `/api/mcp-servers/agentgateway/discover` on open and offers a `Pick AgentGateway target` row that fills the endpoint with the canonical `/<id>` form | `ui/src/components/dynamic-agents/MCPServerEditor.tsx` |
 | Read-side self-heal (runtime) | `build_mcp_connection_config` in dynamic-agents re-normalises against `AGENT_GATEWAY_URL` before handing the URL to the MCP transport, so legacy rows still work until repaired | `ai_platform_engineering/dynamic_agents/src/dynamic_agents/services/mcp_client.py`, `services/mcp_endpoint_normalizer.py` |
+| Standalone config reconciliation (Docker Compose) | `agentgateway-config-bridge` polls MongoDB for enabled AgentGateway-managed `mcp_servers` rows, renders one hot-reloaded standalone route per server, and writes the generated config volume consumed by AgentGateway | `deploy/agentgateway/config_bridge.py`, `deploy/agentgateway/Dockerfile.config-bridge`, `docker-compose.dev.yaml` |
+| Native Kubernetes routing (Helm) | The umbrella chart renders AgentGateway-native `AgentgatewayBackend` and `HTTPRoute` resources for the built-in Knowledge Base target and any configured `global.agentgateway.extraMcpTargets` | `charts/ai-platform-engineering/templates/agentgateway-mcp.yaml`, `charts/ai-platform-engineering/values.yaml` |
 | One-shot repair script | `scripts/fix-mcp-endpoint-routing.ts` audits the `mcp_servers` collection (dry-run by default) and rewrites mis-shaped rows under `--apply` | `scripts/fix-mcp-endpoint-routing.ts` |
 
 **Direct upstream URLs are never rewritten.** AgentGateway routing is
@@ -1053,14 +1055,14 @@ On the user's first Slack message the bot:
 When no existing Keycloak user matches the Slack email, and JIT is enabled, the bot:
 
 1. **Optionally checks** the email domain against `SLACK_JIT_ALLOWED_EMAIL_DOMAINS` (comma-separated allowlist; empty = any domain).
-2. **POSTs to `/admin/realms/{realm}/users`** using the same `KEYCLOAK_SLACK_BOT_ADMIN_*` credentials (`caipe-platform` service account, holds `realm-management:{view-users, query-users, manage-users}`).
+2. **POSTs to `/admin/realms/{realm}/users`** using the same `KEYCLOAK_SLACK_BOT_ADMIN_*` credentials (`caipe-platform` service account, holds `realm-management:{view-users, query-users, manage-users}` for this path).
 3. The created user is **federated-only**: no password, no required actions, `emailVerified=true`, with attributes `slack_user_id`, `created_by=slack-bot:jit`, `created_at=<RFC3339>`.
 4. **Race-safe**: an HTTP 409 from a concurrent create is resolved by re-querying the email and returning the surviving UUID.
 5. **On failure** (4xx/5xx/network), the bot logs `event=jit_failed error_kind=<auth_failure|forbidden|server_error|network_error|unexpected>` and falls through to step 3.
 
 JIT is **default ON in dev** so first-time DMs work without an admin handshake. **Set `SLACK_JIT_CREATE_USER=false` in production** if you want web-UI onboarding to be a hard prerequisite — in which case all unknown emails go to the link URL below.
 
-> **Single-credential design (spec 103, plan R-8).** JIT deliberately reuses the existing `caipe-platform` admin client rather than introducing a separate `caipe-slack-bot-provisioner`. This trades strict privilege separation (one secret can both read and create users) for operational simplicity (one Secret to manage, one rotation procedure, one audit identity). Compensating mitigations: only the `create_user_from_slack` helper writes `/users`; `init-idp.sh` and `realm-config.json` pin the service account to exactly `{view-users, query-users, manage-users}`; all JIT actions are logged with stable `event=jit_*` tokens for SIEM.
+> **Single-credential design (spec 103, plan R-8).** JIT deliberately reuses the existing `caipe-platform` admin client rather than introducing a separate `caipe-slack-bot-provisioner`. This trades strict privilege separation (one secret can both read and create users) for operational simplicity (one Secret to manage, one rotation procedure, one audit identity). Compensating mitigations: only the `create_user_from_slack` helper writes `/users`; all JIT actions are logged with stable `event=jit_*` tokens for SIEM. The same service account also holds client/authz `realm-management` roles because the Web UI BFF Keycloak RBAC migration must inspect and repair OBO clients and scope permissions.
 
 ### 3. Explicit link URL (fallback or `SLACK_FORCE_LINK=true`)
 

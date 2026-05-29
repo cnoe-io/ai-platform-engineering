@@ -73,9 +73,7 @@ Use `ai_platform_engineering/integrations/slack_bot/` as the reference implement
 ### Policy, Deployment, And Docs
 
 - Modify `deploy/openfga/model.fga`
-- Modify `deploy/openfga/init/authorization-model.json`
-- Modify `deploy/openfga-experiment/model.fga`
-- Modify `deploy/openfga-experiment/init/authorization-model.json`
+- Modify `charts/ai-platform-engineering/charts/openfga/authorization-model.json`
 - Modify `charts/ai-platform-engineering/charts/keycloak/scripts/init-idp.sh`
 - Create `charts/ai-platform-engineering/charts/webex-bot/`
 - Modify `charts/ai-platform-engineering/Chart.yaml`
@@ -366,9 +364,7 @@ Expected: PASS.
 
 **Files:**
 - Modify: `deploy/openfga/model.fga`
-- Modify: `deploy/openfga/init/authorization-model.json`
-- Modify: `deploy/openfga-experiment/model.fga`
-- Modify: `deploy/openfga-experiment/init/authorization-model.json`
+- Modify: `charts/ai-platform-engineering/charts/openfga/authorization-model.json`
 - Modify or create: `ui/src/lib/rbac/__tests__/rebac/tuple-builders.test.ts`
 
 - [ ] **Step 1: Add failing tuple/model tests**
@@ -415,7 +411,7 @@ If the current model expresses resource invocation relations on the target resou
 
 Update the matching `authorization-model.json` files to include Webex types and subject references. Use the exact relation names from `model.fga`.
 
-Run: `python -m json.tool deploy/openfga/init/authorization-model.json >/dev/null`
+Run: `python -m json.tool charts/ai-platform-engineering/charts/openfga/authorization-model.json >/dev/null`
 
 Expected: exit code 0.
 

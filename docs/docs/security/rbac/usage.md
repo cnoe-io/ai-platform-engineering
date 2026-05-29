@@ -39,6 +39,21 @@ entry, and built-in skill catalog access after the OpenFGA cutover. A user in
 `OIDC_REQUIRED_ADMIN_GROUP` is reconciled to durable OpenFGA admin tuples. Users
 outside `OIDC_REQUIRED_GROUP` are not bootstrapped.
 
+### Identity Group Sync Preview
+
+Open **Admin → Teams & Users → Identity Groups** to review upstream OIDC claim
+groups before applying any team changes. **Suggest from my groups** uses the
+server-side cached groups from the current admin session and shows a dry-run
+summary. When all detected groups are already represented, the preview stays
+read-only and lists the detected groups with counts for detected, already
+represented, and unmatched groups instead of showing an empty "nothing happened"
+state. Unmatched groups mean no enabled sync rule matched that upstream group.
+
+Use **Manual dry-run** only to test a hand-entered upstream group name and one
+example member email. Manual preview sends the group to the backend dry-run API
+with the configured provider so the server evaluates the real enabled sync rules,
+current teams, and current membership sources. It does not apply changes.
+
 The baseline Users tab is self-scoped for non-admins: the list API returns only
 the caller's own Keycloak row when OpenFGA allows
 `admin_surface:users#can_read`, and the detail modal opens records through
@@ -65,8 +80,6 @@ Team owners/admins may update grants for their own team. Platform admins still
 need the concrete OpenFGA `data_source:<id>#can_ingest` or
 `#can_manage` decision for datasource operations such as re-ingest; session
 `role=admin` is not a bypass.
-`RBAC_DEFAULT_AUTHENTICATED_ROLE` is deprecated and does not grant broad RAG
-access by itself.
 
 ### Local Dev Auth Provider
 
@@ -362,8 +375,8 @@ See [Architecture › Component 5: Dynamic Agents](./architecture.md#component-5
 ### Slack and Webex Onboarding
 
 Slack channel and Webex space setup use the same guided admin path:
-**Discover → Configure → Apply → Verify**. The discovery step lists bot-visible
-channels/spaces with row-level readiness labels:
+**Discover → Configure → Apply → Verify**. The discovery step lists Slack
+bot-member channels and Webex bot-visible spaces with row-level readiness labels:
 
 - **Setup completed** means the channel/space is already known to CAIPE; selecting
   it refreshes grants and routes.
@@ -378,7 +391,7 @@ Webex spaces`) after every selected row has a team and Dynamic Agent. The apply
 step flips successfully applied discovery rows back to **Setup completed** in the
 table, so admins can see the setup state change without opening a separate result
 dialog. Use **Refresh setup status** to re-run discovery and reconcile the row
-colors against the latest bot-visible state. The operation is intentionally
+colors against the latest bot-member/bot-visible state. The operation is intentionally
 upsert-only: existing UI-managed or config-synced route metadata is preserved
 while missing grants and default routes are ensured.
 
@@ -639,8 +652,11 @@ to notice a regression. The right-hand cluster of the global `AppHeader`
 renders a single admin-only `Alerts: <N>` pill whenever one or more
 admin-side conditions are active. Today those conditions are:
 
-- **Keycloak unreachable** — Keycloak is configured but its admin API is
-  unreachable (red severity).
+- **Keycloak connection/admin issue** — Keycloak is configured but either
+  the service is unreachable, the Web UI backend's Keycloak Admin API token
+  is forbidden, or reconciliation is failing before invariants can be
+  evaluated (red severity). The Keycloak tab labels these separately so a
+  `403 Forbidden` admin-permission failure is not shown as a network outage.
 - **Migrations required** — one or more blocking migrations are pending
   (red severity).
 - **Keycloak invariants failing** — at least one realm invariant is
@@ -668,7 +684,8 @@ simultaneously. Specifically:
 - **Total count** is the sum of each source's count
   (`blocking_required_count`, `invariants.failing`,
   `version_bootstrap_required_count`, and `1` for sourceless conditions
-  like "Keycloak unreachable" or "override active").
+  like "Keycloak admin API authorization failed", "Keycloak unreachable",
+  or "override active").
 - **Hover / aria-label** shows a per-source breakdown
   (`Migrations required: 2 · Keycloak invariants failing: 4 · …`) so a
   screen reader or hover user can see the individual contributions before
@@ -787,16 +804,16 @@ The full sequence (HMAC URL shape, TTL enforcement, **JIT user creation** for un
 
 Use **Admin → Integrations → Slack → Channel Setup** when onboarding an existing Slack bot workspace. The panel is split into five subtly tinted sections so operators can follow the path from discovery to verification to import:
 
-1. **Step 1: Discover and Setup** — use **Find Slack Channels with Bot Integration** to find bot-member channels, select the channels to import, and override the team or Dynamic Agent per selected channel.
+1. **Step 1: Discover and Setup** — use **Find Bot-Member Slack Channels** to find channels where the Slack bot is already a member, select the channels to import, and override the team or Dynamic Agent per selected channel.
 2a. **Step 2a: Verify Slack Channel ReBAC** — select the channel, inspect its team scope, OpenFGA reachability, tuple counts, runtime route candidates, and fix common drift.
 2b. **Step 2b: Specify agent priority** — create or edit channel-agent associations, listen mode, and priority for the selected channel.
 3. **Onboarding Default Selection** — choose only the team/agent values
    preselected in the onboarding form.
 5. **Advanced Setup - Import/Sync with Slackbot** — inspect bot runtime state, reload caches, preview YAML import, and apply static Slackbot route config.
 
-Use **Admin → Teams → Slack Channels** when assigning bot-visible channels to a
-specific team. That tab auto-loads Slack discovery with `member_only=1`, so the
-available list shows channels where the bot is already present. It requests the
+Use **Admin → Teams → Slack Channels** when assigning bot-member channels to a
+specific team. That tab auto-loads Slack discovery through `users.conversations`, so
+the available list shows channels where the bot is already present. It requests the
 first 50 matches on load, keeps search visible so admins can narrow large
 workspaces, and uses **Load more** for additional pages. **Refresh bot channels**
 invalidates the cache and re-runs discovery. The manual ID entry stays as a
@@ -828,9 +845,9 @@ The sync flow is upsert-only:
 - **Import from YAML Config** creates missing `slack_channel_agent_routes` rows, updates matching channel/agent route metadata, and ensures the channel-agent OpenFGA tuple exists.
 - Existing UI-managed associations that are not present in static config are left in place.
 
-Use **Step 1: Discover and Setup → Find Slack Channels with Bot Integration** when the bot is already invited to Slack
-channels that are not listed in static config. The UI first refreshes Slack
-discovery with `member_only=1`, then renders the association table in section 1.
+Use **Step 1: Discover and Setup → Find Bot-Member Slack Channels** when the bot is already invited to Slack
+channels that are not listed in static config. The UI uses Slack
+`users.conversations`, then renders the association table in section 1.
 Newly discovered channels are selected by default; already-managed channels are
 shown but left unselected unless there are no new channels. Admins can select or
 clear individual rows and choose the team and Dynamic Agent for each selected
@@ -848,7 +865,7 @@ MongoDB but is missing setup still shows **Needs setup** and remains selected so
 the onboarding action can finish the missing pieces.
 
 The two workflows are complementary: run **Import from YAML Config** for explicit YAML
-routes, and run **Find Slack Channels with Bot Integration** to bootstrap bot-member channels
+routes, and run **Find Bot-Member Slack Channels** to bootstrap bot-member channels
 that the static config does not enumerate.
 
 The Web UI backend must be configured with `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `SLACK_BOT_ADMIN_URL`, and `SLACK_BOT_ADMIN_AUDIENCE`. The Keycloak init job enables client credentials on `caipe-ui` and adds the `caipe-slack-bot-admin` audience mapper. The Slack bot must have `SLACK_ADMIN_API_ENABLED=true`, `SLACK_ADMIN_JWT_ISSUER`, `SLACK_ADMIN_JWKS_URL` when an internal JWKS URL is needed, `SLACK_ADMIN_JWT_AUDIENCE`, and `SLACK_ADMIN_ALLOWED_CLIENT_IDS` configured. Keep the Slack bot admin API internal to the cluster; it is not a browser-facing API.

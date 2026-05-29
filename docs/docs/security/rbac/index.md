@@ -18,6 +18,9 @@ This is the canonical reference for how authentication and authorization work in
 | Install or upgrade the RBAC/OpenFGA refactor with Helm, including optional Keycloak, AgentGateway, OpenFGA, and bridge runtime components | [Helm installation and upgrade guide](./helm-install-upgrade.md) |
 | **Install CAIPE on a real K8s cluster** — bootstrap admin, IdP, and slack-bot client secrets via dev defaults, manual K8s Secrets, or ESO (Vault / AWS-SM / GCP-SM) | [Secrets bootstrap](./secrets-bootstrap.md) |
 
+For the live `caipe/rbac` GitOps upgrade, see
+[CAIPE RBAC Helm Migration Guide](./caipe-rbac-migration.md).
+
 Every component-level doc opens with a **badge analogy** to build intuition, followed by the precise technical detail. Read the analogy first, then the technical section — they describe the same thing at different levels of abstraction.
 
 ---

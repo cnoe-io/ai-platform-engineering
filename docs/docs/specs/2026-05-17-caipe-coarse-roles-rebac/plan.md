@@ -80,7 +80,6 @@ Expected: all updated tests pass.
 **Files:**
 - Modify: `deploy/openfga/model.fga`
 - Modify: `charts/ai-platform-engineering/charts/openfga/authorization-model.json`
-- Modify: `deploy/openfga/init/authorization-model.json`
 - Test: `deploy/openfga/bridge/tests/test_grpc_bridge.py`
 - Test: `ui/src/lib/rbac/__tests__/openfga.test.ts`
 
