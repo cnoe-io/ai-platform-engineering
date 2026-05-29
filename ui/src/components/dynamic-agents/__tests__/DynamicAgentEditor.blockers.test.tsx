@@ -179,6 +179,18 @@ describe("DynamicAgentEditor — submit-blocked hint", () => {
     );
   });
 
+  it("highlights the empty Owner Team field inline while creating an agent", async () => {
+    render(<DynamicAgentEditor onCancel={jest.fn()} onSave={jest.fn()} />);
+    await flushAsync();
+
+    const nameInput = screen.getByPlaceholderText(/Code Review Agent/i) as HTMLInputElement;
+    fireEvent.change(nameInput, { target: { value: "blocker-test-agent" } });
+
+    expect(screen.getByLabelText(/Owner Team/i)).toHaveAttribute("aria-invalid", "true");
+    expect(await screen.findByText(/Owner Team is required/i)).toBeVisible();
+    expect(screen.getByText(/Choose a team before creating this agent/i)).toBeVisible();
+  });
+
   it("removes the Owner Team blocker from the hint once the picker is filled", async () => {
     render(<DynamicAgentEditor onCancel={jest.fn()} onSave={jest.fn()} />);
     await flushAsync();

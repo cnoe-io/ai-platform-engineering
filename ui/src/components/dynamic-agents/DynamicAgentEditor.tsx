@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowLeft, Loader2, Globe, Users, ChevronLeft, ChevronRight, Check, Sparkles, Eye, Pencil, GripHorizontal, ChevronDown } from "lucide-react";
+import { ArrowLeft, Loader2, Globe, Users, ChevronLeft, ChevronRight, Check, Sparkles, Eye, Pencil, GripHorizontal, ChevronDown, AlertCircle } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -1003,6 +1003,8 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
   // the first wizard step but the button lives below step 5's content).
   //
   // assisted-by Cursor claude-opus-4-7
+  const ownerTeamMissing = !isEditing && !ownerTeamSlug;
+
   const blockers: { field: string; label: string; step: StepId }[] = React.useMemo(() => {
     const list: { field: string; label: string; step: StepId }[] = [];
     if (!name.trim()) {
@@ -1016,14 +1018,14 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
     } else if (!modelId) {
       list.push({ field: "model", label: "Model", step: "basic" });
     }
-    if (!isEditing && !ownerTeamSlug) {
+    if (ownerTeamMissing) {
       list.push({ field: "ownerTeam", label: "Owner Team", step: "basic" });
     }
     if (!systemPrompt.trim()) {
       list.push({ field: "systemPrompt", label: "Instructions (system prompt)", step: "instructions" });
     }
     return list;
-  }, [name, systemPrompt, modelId, availableModels.length, isEditing, ownerTeamSlug]);
+  }, [name, systemPrompt, modelId, availableModels.length, ownerTeamMissing]);
 
   const isValid = blockers.length === 0;
   const firstBlocker = blockers[0];
@@ -1427,10 +1429,22 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="ownerTeam">
-                  Owner Team {!isEditing && <span className="text-destructive">*</span>}
-                </Label>
+              <div
+                className={cn(
+                  "space-y-2 rounded-lg transition-colors",
+                  ownerTeamMissing && "border border-destructive/40 bg-destructive/5 p-3"
+                )}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <Label htmlFor="ownerTeam">
+                    Owner Team {!isEditing && <span className="text-destructive">*</span>}
+                  </Label>
+                  {ownerTeamMissing && (
+                    <span className="rounded-full bg-destructive px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-destructive-foreground">
+                      Required
+                    </span>
+                  )}
+                </div>
                 {/* Native <select> would mount the entire team list
                     (often 600+ AWS-* SSO entries) directly into the
                     DOM, making the editor unusable. Switched to the
@@ -1446,6 +1460,16 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                   value={ownerTeamSlug}
                   onChange={setOwnerTeamSlug}
                   disabled={loading || isEditing}
+                  ariaInvalid={ownerTeamMissing}
+                  ariaDescribedBy={
+                    ownerTeamMissing
+                      ? "owner-team-required-message owner-team-help"
+                      : "owner-team-help"
+                  }
+                  triggerClassName={cn(
+                    ownerTeamMissing &&
+                      "border-destructive/70 bg-destructive/5 ring-1 ring-destructive/30 focus:ring-destructive"
+                  )}
                   placeholder="Select a team that will own this agent"
                   searchPlaceholder="Search your teams..."
                   emptyLabel={
@@ -1464,7 +1488,20 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                       disabled: !team.can_own_agents,
                     }))}
                 />
-                <p className="text-xs text-muted-foreground">
+                {ownerTeamMissing && (
+                  <p
+                    id="owner-team-required-message"
+                    role="alert"
+                    className="flex items-start gap-1.5 rounded-md border border-destructive/30 bg-destructive/10 px-2.5 py-2 text-xs text-destructive"
+                  >
+                    <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    <span>
+                      <span className="font-semibold">Owner Team is required.</span>{" "}
+                      Choose a team before creating this agent.
+                    </span>
+                  </p>
+                )}
+                <p id="owner-team-help" className="text-xs text-muted-foreground">
                   Owner-team members can use the agent; owner-team admins can manage it.
                 </p>
                 {!isEditing && availableTeams.every((team) => !team.can_own_agents) && (
