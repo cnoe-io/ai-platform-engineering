@@ -123,7 +123,7 @@ MIDDLEWARE_REGISTRY: dict[str, MiddlewareSpec] = {
     "context_editing": MiddlewareSpec(
         cls=ContextEditingMiddleware,
         default_params={"trigger": 100_000, "keep": 3},
-        enabled_by_default=True,
+        enabled_by_default=False,
         allow_multiple=False,
         label="Context Editing",
         description="Clears older tool outputs when approaching token limits",
