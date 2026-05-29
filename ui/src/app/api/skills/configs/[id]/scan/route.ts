@@ -12,6 +12,7 @@ import {
   getAgentSkillVisibleToUser,
   userCanModifyAgentSkill,
 } from "@/lib/agent-skill-visibility";
+import { requireResourcePermission } from "@/lib/rbac/resource-authz";
 import type { AgentSkill } from "@/types/agent-skill";
 
 const STORAGE_TYPE = isMongoDBConfigured ? "mongodb" : "none";
@@ -93,6 +94,7 @@ export const POST = withErrorHandler(
         throw new ApiError("Agent config not found", 404);
       }
 
+      await requireResourcePermission(session, { type: "skill", id, action: "admin" });
       if (!userCanModifyAgentSkill(existing, user)) {
         throw new ApiError("You don't have permission to scan this skill", 403);
       }

@@ -1,9 +1,9 @@
 import { NextRequest } from "next/server";
 import {
-  withAuth,
   withErrorHandler,
-  requireAdmin,
   successResponse,
+  getAuthFromBearerOrSession,
+  requireRbacPermission,
 } from "@/lib/api-middleware";
 import { runImport } from "../import/route";
 
@@ -23,11 +23,10 @@ import { runImport } from "../import/route";
  */
 
 export const POST = withErrorHandler(async (request: NextRequest) => {
-  return await withAuth(request, async (_req, _user, session) => {
-    requireAdmin(session);
+  const { session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, "admin_ui", "admin");
 
     const body = (await request.json()) as Record<string, unknown>;
     const { files, count } = await runImport({ ...body, source: "github" });
     return successResponse({ files, count });
-  });
 });

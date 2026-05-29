@@ -50,6 +50,16 @@ export interface ReviewConfigEditorProps {
   target: string;
   /** Notified after a successful save so the parent can refresh adjacent state. */
   onSaved?: (config: ReviewConfig) => void;
+  /** Hide the editor-local save button when the parent renders one in its header. */
+  showInlineSave?: boolean;
+  /** Lets a parent header button mirror this editor's saving state. */
+  onSavingChange?: (saving: boolean) => void;
+  /** Lets a parent header button avoid saving while the editor is still loading. */
+  onReadyChange?: (ready: boolean) => void;
+}
+
+export interface ReviewConfigEditorHandle {
+  save: () => Promise<void>;
 }
 
 interface FormState {
@@ -111,7 +121,17 @@ function unwrapApiBody<T>(body: unknown): T {
   return body as T;
 }
 
-export function ReviewConfigEditor({ target, onSaved }: ReviewConfigEditorProps) {
+export const ReviewConfigEditor = React.forwardRef<ReviewConfigEditorHandle, ReviewConfigEditorProps>(
+  function ReviewConfigEditor(
+    {
+      target,
+      onSaved,
+      showInlineSave = true,
+      onSavingChange,
+      onReadyChange,
+    },
+    ref,
+  ) {
   const { toast } = useToast();
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
@@ -121,6 +141,14 @@ export function ReviewConfigEditor({ target, onSaved }: ReviewConfigEditorProps)
     { model_id: string; name: string; provider: string }[]
   >([]);
   const [modelsLoading, setModelsLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    onSavingChange?.(saving);
+  }, [onSavingChange, saving]);
+
+  React.useEffect(() => {
+    onReadyChange?.(!loading);
+  }, [loading, onReadyChange]);
 
   // Mirror DynamicAgentEditor: pull the platform's configured LLMs so admins
   // pick from the same dropdown instead of typing free-form ids/providers.
@@ -285,6 +313,8 @@ export function ReviewConfigEditor({ target, onSaved }: ReviewConfigEditorProps)
     }
   }
 
+  React.useImperativeHandle(ref, () => ({ save: handleSave }));
+
   // ─────────────────────────────────────────────────────────────
   // Criteria mutations
   // ─────────────────────────────────────────────────────────────
@@ -322,22 +352,24 @@ export function ReviewConfigEditor({ target, onSaved }: ReviewConfigEditorProps)
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-end">
-        <Button
-          type="button"
-          size="sm"
-          onClick={handleSave}
-          disabled={saving}
-          className="gap-1.5"
-        >
-          {saving ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <Save className="h-3.5 w-3.5" />
-          )}
-          Save
-        </Button>
-      </div>
+      {showInlineSave && (
+        <div className="flex items-center justify-end">
+          <Button
+            type="button"
+            size="sm"
+            onClick={handleSave}
+            disabled={saving}
+            className="gap-1.5"
+          >
+            {saving ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Save className="h-3.5 w-3.5" />
+            )}
+            Save
+          </Button>
+        </div>
+      )}
 
       {error && (
         <div className="flex items-start gap-2 px-3 py-2 rounded-md bg-red-500/10 text-red-600 dark:text-red-400 text-sm">
@@ -587,7 +619,7 @@ export function ReviewConfigEditor({ target, onSaved }: ReviewConfigEditorProps)
                       onChange={(e) =>
                         updateCriterion(idx, { id: e.target.value })
                       }
-                      placeholder="no-second-person"
+                      placeholder="my-custom-rule"
                       className="font-mono text-xs h-8"
                     />
                   </div>
@@ -689,4 +721,5 @@ export function ReviewConfigEditor({ target, onSaved }: ReviewConfigEditorProps)
       </Card>
     </div>
   );
-}
+  },
+);

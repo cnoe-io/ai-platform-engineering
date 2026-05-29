@@ -21,16 +21,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Harden runner
-        uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450  # v2.19.1
+        uses: step-security/harden-runner@ab7a9404c0f3da075243ca237b5fac12c98deaa5  # v2.19.3
         with:
           egress-policy: audit
 
       - name: Generate GitHub App token
         id: app-token
-        uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         with:
-          app-id: ${{ secrets.RELEASE_APP_ID }}
-          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          app-id: ${{ secrets.CI_RELEASE_APP_ID }}
+          private-key: ${{ secrets.CI_RELEASE_APP_PRIVATE_KEY }}
 
       - name: Checkout repository (full history)
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -80,7 +80,6 @@ jobs:
       - name: Open PR
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          WORKFLOW_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NEW_VERSION: ${{ steps.versions.outputs.new_version }}
         run: |
           BRANCH="docs/snapshot-${NEW_VERSION}"
@@ -124,7 +123,7 @@ jobs:
             echo "- [ ] Helm docs look correct"
           } > /tmp/pr-body.md
 
-          GH_TOKEN="$WORKFLOW_TOKEN" gh pr create \
+          gh pr create \
             --title "docs: snapshot ${NEW_VERSION}" \
             --base main \
             --head "$BRANCH" \

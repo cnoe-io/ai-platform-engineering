@@ -20,7 +20,7 @@ jobs:
     name: Cleanup Prebuild Charts
     runs-on: ubuntu-latest
     if: |
-      (github.actor != 'github-actions[bot]' && github.actor != 'caipe-release-bot[bot]') &&
+      (github.actor != 'github-actions[bot]' && github.actor != 'caipe-ci-release[bot]') &&
       (
         (
           github.event.action == 'closed' &&
@@ -36,6 +36,13 @@ jobs:
       )
 
     steps:
+      - name: 🔑 Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ secrets.CI_BUILD_APP_ID }}
+          private-key: ${{ secrets.CI_BUILD_APP_PRIVATE_KEY }}
+
       - name: 🗑️ Delete Prebuild Chart Versions
         run: |
           # Get branch name and remove 'prebuild/' prefix if present
@@ -119,4 +126,4 @@ jobs:
 
           echo "✅ All prebuild chart cleanup completed"
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}

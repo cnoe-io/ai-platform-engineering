@@ -39,6 +39,8 @@ dependencies = [
     "PyJWT[crypto]==2.12.1",
     "click==8.3.0",
     "aiofile==3.9.0",
+    # 098 RBAC additions
+    "python-jose[cryptography]==3.5.0",
     "common",
 ]
 

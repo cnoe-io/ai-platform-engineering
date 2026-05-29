@@ -1,0 +1,89 @@
+replicaCount: 1
+
+image:
+  repository: cr.agentgateway.dev/agentgateway
+  tag: v1.1.0
+  pullPolicy: IfNotPresent
+
+extraEnv: []
+# - name: GITHUB_PERSONAL_ACCESS_TOKEN
+#   valueFrom:
+#     secretKeyRef:
+#       name: github-mcp-secret
+#       key: GITHUB_PERSONAL_ACCESS_TOKEN
+# - name: GITLAB_PERSONAL_ACCESS_TOKEN
+#   valueFrom:
+#     secretKeyRef:
+#       name: gitlab-mcp-secret
+#       key: GITLAB_PERSONAL_ACCESS_TOKEN
+
+extraEnvFrom: []
+# - secretRef:
+#     name: agentgateway-secrets
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+service:
+  type: ClusterIP
+  port: 4000
+  adminPort: 15000
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: agentgateway.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+config:
+  binds:
+    - port: 4000
+      listeners:
+        - protocol: HTTP
+          routes: []
+  config:
+    adminAddr: 0.0.0.0:15000
+    logging:
+      level: info
+      format: json
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1001
+  runAsGroup: 1001
+  fsGroup: 1001
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 1001
+  runAsGroup: 1001
+  capabilities:
+    drop:
+      - ALL
+  seccompProfile:
+    type: RuntimeDefault

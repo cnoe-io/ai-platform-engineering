@@ -1,0 +1,18 @@
+{{- if and .Values.theme.enabled (not .Values.theme.existingConfigMap) }}
+{{- $themeProperties := .Values.theme.files.themeProperties | default (.Files.Get (printf "themes/%s/login/theme.properties" .Values.theme.name)) }}
+{{- $css := .Values.theme.files.css | default (.Files.Get (printf "themes/%s/login/resources/css/caipe.css.tpl" .Values.theme.name)) }}
+{{- $logoSvg := .Values.theme.files.logoSvg | default (.Files.Get (printf "themes/%s/login/resources/img/logo.svg" .Values.theme.name)) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "keycloak.themeConfigMapName" . }}
+  labels:
+    {{- include "keycloak.labels" . | nindent 4 }}
+data:
+  theme.properties: |-
+{{ tpl $themeProperties . | indent 4 }}
+  caipe.css: |-
+{{ tpl $css . | indent 4 }}
+  logo.svg: |-
+{{ tpl $logoSvg . | indent 4 }}
+{{- end }}

@@ -90,6 +90,8 @@ class WorkerSpider(Spider):
     self.result_queue = result_queue
 
     self.start_url = request.url
+    # assisted-by Codex Codex-sonnet-4-6
+    self.start_urls = [request.url]
     self.max_pages = request.max_pages
     self.crawl_mode = request.crawl_mode
     self.follow_external = request.follow_external_links
@@ -220,6 +222,11 @@ class WorkerSpider(Spider):
     if not self._is_safe_crawl_url(url):
       return None
     return Request(url, **kwargs)
+
+  async def start(self):
+    """Bridge Scrapy's async start API to this spider's mode-specific requests."""
+    for request in self.start_requests():
+      yield request
 
   def start_requests(self):
     """Generate initial request(s) based on crawl mode."""

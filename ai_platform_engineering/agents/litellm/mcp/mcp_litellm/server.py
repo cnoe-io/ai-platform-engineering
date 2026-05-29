@@ -256,10 +256,7 @@ def main():
   logging.info(f"MCP Server name: {SERVER_NAME}")
 
   # Create server instance
-  if MCP_MODE.lower() in ["sse", "http"]:
-    mcp = FastMCP(f"{SERVER_NAME} MCP Server", host=MCP_HOST, port=MCP_PORT)
-  else:
-    mcp = FastMCP(f"{SERVER_NAME} MCP Server")
+  mcp = FastMCP(f"{SERVER_NAME} MCP Server")
 
   # Register curated report tools first so agents prefer summarized analytics
   # over raw paginated spend logs for FinOps questions.
@@ -711,7 +708,10 @@ def main():
   mcp.tool()(user_available_users.get_available_enterprise_get)
 
   # Run the MCP server
-  mcp.run(transport=MCP_MODE.lower())
+  if MCP_MODE.lower() in ["sse", "http"]:
+    mcp.run(transport=MCP_MODE.lower(), host=MCP_HOST, port=MCP_PORT)
+  else:
+    mcp.run(transport=MCP_MODE.lower())
 
 
 if __name__ == "__main__":

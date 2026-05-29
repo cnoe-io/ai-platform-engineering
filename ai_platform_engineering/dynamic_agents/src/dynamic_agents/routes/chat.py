@@ -9,11 +9,17 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from dynamic_agents.auth.auth import get_user_context
+from dynamic_agents.auth.openfga_authz import require_agent_use_permission
 from dynamic_agents.config import get_settings
 from dynamic_agents.log_config import conversation_id_var
 from dynamic_agents.models import ChatRequest, ClientContext, DynamicAgentConfig, UserContext
 from dynamic_agents.services.mongo import MongoDBService, get_mongo_service
-from dynamic_agents.services.runtime_cache import RuntimeCapacityError, get_runtime_cache
+from dynamic_agents.services.llm_clients import LLMConfigError
+from dynamic_agents.services.runtime_cache import (
+    RuntimeCapacityError,
+    RuntimeInitError,
+    get_runtime_cache,
+)
 from dynamic_agents.services.stream_encoders import StreamEncoder, get_encoder
 
 logger = logging.getLogger(__name__)
@@ -138,7 +144,9 @@ def _validate_allowed_tools_subset(
         # override is list, base is True — any subset is fine (all tools available)
 
 
+# assisted-by Codex Codex-sonnet-4-6
 router = APIRouter(prefix="/chat", tags=["chat"])
+GENERIC_AGENT_ERROR = "Agent execution failed. Check server logs for details."
 
 
 class RestartRuntimeRequest(BaseModel):
@@ -213,9 +221,28 @@ async def _generate_sse_events(
         logger.warning(f"Agent runtime at capacity: {e}")
         for frame in encoder.on_run_error("This agent is at capacity right now. Please try again in a moment."):
             yield frame
-    except Exception as e:
+    except RuntimeInitError as e:
+        # If init failed because of a config problem (no LLM provider/model,
+        # invalid provider, missing API key, etc.) we own the message — emit
+        # the actionable LLMConfigError text instead of GENERIC_AGENT_ERROR
+        # so the client surface (Slack/Webex/UI) can tell the operator what
+        # to fix. Anything else falls through to the generic message.
+        cause = e.cause
+        if isinstance(cause, LLMConfigError):
+            logger.warning(
+                f"Agent '{agent_config.name}' has no usable LLM config: {cause}"
+            )
+            for frame in encoder.on_run_error(str(cause)):
+                yield frame
+        else:
+            logger.exception(
+                f"Runtime init failed for agent '{agent_config.name}'"
+            )
+            for frame in encoder.on_run_error(GENERIC_AGENT_ERROR):
+                yield frame
+    except Exception:
         logger.exception(f"Error streaming from agent '{agent_config.name}'")
-        for frame in encoder.on_run_error(str(e)):
+        for frame in encoder.on_run_error(GENERIC_AGENT_ERROR):
             yield frame
 
 
@@ -248,7 +275,9 @@ async def chat_start_stream(
     # Set conversation context for logging
     conversation_id_var.set(request.conversation_id)
 
-    # Get agent config (access control is handled by the gateway)
+    await require_agent_use_permission(request.agent_id)
+
+    # Get agent config after the runtime policy check passes.
     agent = mongo.get_agent(request.agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
@@ -333,9 +362,9 @@ async def _generate_resume_sse_events(
         logger.warning(f"Agent runtime at capacity: {e}")
         for frame in encoder.on_run_error("This agent is at capacity right now. Please try again in a moment."):
             yield frame
-    except Exception as e:
+    except Exception:
         logger.exception(f"Error resuming stream for agent '{agent_config.name}'")
-        for frame in encoder.on_run_error(str(e)):
+        for frame in encoder.on_run_error(GENERIC_AGENT_ERROR):
             yield frame
 
 
@@ -362,7 +391,9 @@ async def chat_resume_stream(
     # Set conversation context for logging
     conversation_id_var.set(request.conversation_id)
 
-    # Get agent config (access control is handled by the gateway)
+    await require_agent_use_permission(request.agent_id)
+
+    # Get agent config after the runtime policy check passes.
     agent = mongo.get_agent(request.agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
@@ -416,7 +447,9 @@ async def chat_invoke(
     # Set conversation context for logging
     conversation_id_var.set(request.conversation_id)
 
-    # Get agent config (access control is handled by the gateway)
+    await require_agent_use_permission(request.agent_id)
+
+    # Get agent config after the runtime policy check passes.
     agent = mongo.get_agent(request.agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
@@ -507,13 +540,13 @@ async def chat_invoke(
                 "trace_id": request.trace_id,
             },
         )
-    except Exception as e:
+    except Exception:
         logger.exception(f"Error invoking agent '{agent.name}'")
         return JSONResponse(
             status_code=500,
             content={
                 "success": False,
-                "error": str(e),
+                "error": GENERIC_AGENT_ERROR,
                 "agent_id": agent.id,
                 "conversation_id": request.conversation_id,
                 "trace_id": request.trace_id,

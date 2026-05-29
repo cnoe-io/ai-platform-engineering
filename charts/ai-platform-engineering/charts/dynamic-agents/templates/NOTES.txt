@@ -1,0 +1,72 @@
+{{- /*
+  Post-install notes for the dynamic-agents subchart.
+
+  This template is intentionally non-blocking: a missing KEYCLOAK_URL /
+  OIDC_ISSUER is a *configuration smell* (every Bearer-token request will
+  401 inside the pod because JWKS fetch resolves to http://localhost:7080
+  by default), but it is NOT a Helm-template error. We surface it as a
+  visible warning at the bottom of `helm install` / `helm upgrade` output
+  so operators see it the moment they ship a bad configuration, without
+  breaking back-compat for dev installs that may genuinely run Keycloak on
+  localhost:7080.
+
+  Tested by tests/test_dynamic_agents_chart_keycloak_env.py.
+*/ -}}
+{{- $kcUrl := default "" (index .Values.config "KEYCLOAK_URL") }}
+{{- $oidcIssuer := default "" (index .Values.config "OIDC_ISSUER") }}
+
+dynamic-agents installed.
+
+{{- if and (eq (toString $kcUrl) "") (eq (toString $oidcIssuer) "") }}
+
+⚠️  WARNING — Keycloak/OIDC env vars are NOT set for dynamic-agents.
+
+    The dynamic-agents pod validates every incoming Bearer token against
+    Keycloak's JWKS endpoint. With KEYCLOAK_URL unset, the JWKS fetch
+    falls back to http://localhost:7080 — which is a connection-refused
+    trap inside Kubernetes. With OIDC_ISSUER unset, the validator
+    derives the issuer from KEYCLOAK_URL, which usually does NOT match
+    the `iss` claim Keycloak puts in the JWT (Keycloak bakes its
+    KC_HOSTNAME / browser-facing URL into the token's `iss`).
+
+    Set both at the parent-chart level, e.g.:
+
+      dynamic-agents:
+        config:
+          KEYCLOAK_URL: "http://ai-platform-engineering-keycloak:8080"
+          OIDC_ISSUER:  "https://idp.example.com/realms/caipe"
+
+    This warning is non-blocking. If you are running Keycloak on
+    localhost:7080 (docker-compose dev) you can safely ignore it.
+
+{{- else if eq (toString $oidcIssuer) "" }}
+
+⚠️  WARNING — OIDC_ISSUER is empty for dynamic-agents.
+
+    KEYCLOAK_URL is set ({{ $kcUrl | quote }}) but OIDC_ISSUER is not.
+    Token validation will only succeed when KEYCLOAK_URL is *also* the
+    browser-facing issuer URL (the `iss` claim Keycloak puts in JWTs).
+    For any deployment where the in-cluster service URL differs from the
+    public issuer (the typical production topology), you MUST set
+    `dynamic-agents.config.OIDC_ISSUER` to the public realm URL, e.g.:
+
+      dynamic-agents:
+        config:
+          OIDC_ISSUER: "https://idp.example.com/realms/caipe"
+
+{{- else if eq (toString $kcUrl) "" }}
+
+⚠️  WARNING — KEYCLOAK_URL is empty for dynamic-agents.
+
+    OIDC_ISSUER is set ({{ $oidcIssuer | quote }}) but KEYCLOAK_URL is
+    not, so the JWKS fetch falls back to http://localhost:7080.
+    Inside a Kubernetes pod that resolves to ECONNREFUSED.
+
+    Set `dynamic-agents.config.KEYCLOAK_URL` to the in-cluster Keycloak
+    service URL, e.g.:
+
+      dynamic-agents:
+        config:
+          KEYCLOAK_URL: "http://ai-platform-engineering-keycloak:8080"
+
+{{- end }}

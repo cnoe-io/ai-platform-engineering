@@ -42,12 +42,8 @@ env: {}
   # SLEEP_ON_INIT_FAILURE_SECONDS: "180"
   # CLEANUP_INTERVAL: "86400"
   #
-  # RBAC/Authentication (when using OAuth2 Proxy)
-  # ALLOW_UNAUTHENTICATED: "true"
-  # RBAC_READONLY_GROUPS: ""
-  # RBAC_INGESTONLY_GROUPS: ""
-  # RBAC_ADMIN_GROUPS: ""
-  # RBAC_DEFAULT_ROLE: "readonly"
+  # RAG human authorization is OpenFGA-only. Set emergency bypass values only
+  # through controlled operator overrides.
 
 # Additional envFrom references (secrets, configmaps)
 envFrom: []

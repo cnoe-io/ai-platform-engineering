@@ -23,7 +23,10 @@ const mockGetServerSession = jest.fn();
 jest.mock("next-auth", () => ({
   getServerSession: (...args: unknown[]) => mockGetServerSession(...args),
 }));
-jest.mock("@/lib/auth-config", () => ({ authOptions: {} }));
+jest.mock("@/lib/auth-config", () => ({
+  authOptions: {},
+  isBootstrapAdmin: jest.fn().mockReturnValue(false),
+}));
 
 let mongoConfigured = true;
 jest.mock("@/lib/mongodb", () => ({
@@ -44,6 +47,13 @@ jest.mock("@/lib/agent-skill-visibility", () => ({
   userCanModifyAgentSkill: jest.fn().mockReturnValue(true),
 }));
 
+// 098-enterprise-rbac introduced an OpenFGA PDP gate on the export route via
+// `requireResourcePermission`. Mock it so tests don't need a live OpenFGA;
+// the underlying visibility helper is what actually controls 404 vs 200 here.
+jest.mock("@/lib/rbac/openfga", () => ({
+  checkOpenFgaTuple: jest.fn().mockResolvedValue({ allowed: true }),
+}));
+
 function makeRequest(): NextRequest {
   return new NextRequest(
     new URL("/api/skills/configs/skill-1/export", "http://localhost:3000"),
@@ -54,6 +64,9 @@ function userSession(email = "user@example.com") {
   return {
     user: { email, name: "Test User" },
     role: "user",
+    // OpenFGA gates require a stable subject id; populate it so the
+    // 098-enterprise-rbac PDP gates don't 401 with NO_SUBJECT.
+    sub: "user-sub",
   };
 }
 

@@ -8,12 +8,12 @@
 import { NextRequest } from "next/server";
 import { getCollection } from "@/lib/mongodb";
 import {
-  withAuth,
   withErrorHandler,
   successResponse,
   ApiError,
-  getUserTeamIds,
+  getAuthFromBearerOrSession,
 } from "@/lib/api-middleware";
+import { requireResourcePermission } from "@/lib/rbac/resource-authz";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 
 const COLLECTION_NAME = "dynamic_agents";
@@ -34,7 +34,8 @@ export const GET = withErrorHandler(
       throw new ApiError("Agent ID is required", 400);
     }
 
-    return await withAuth(request, async (req, user, session) => {
+    const { session } = await getAuthFromBearerOrSession(request);
+
       const collection = await getCollection<DynamicAgentConfig>(COLLECTION_NAME);
 
       // Find the agent
@@ -44,27 +45,12 @@ export const GET = withErrorHandler(
         throw new ApiError("Agent not found", 404);
       }
 
-      // Check access permissions (unless admin)
-      if (session.role !== "admin") {
-        const userTeams = await getUserTeamIds(user.email);
-
-        const hasAccess =
-          // Owner always has access
-          agent.owner_id === user.email ||
-          // Global agents are accessible to everyone
-          agent.visibility === "global" ||
-          // Team agents are accessible to team members
-          (agent.visibility === "team" &&
-            agent.shared_with_teams?.some((team) => userTeams.includes(team)));
-
-        if (!hasAccess) {
-          throw new ApiError("Agent not found", 404); // Return 404 to not leak existence
-        }
-
-        // Non-admins can only see enabled agents
-        if (!agent.enabled) {
-          throw new ApiError("Agent not found", 404);
-        }
+      try {
+        await requireResourcePermission(session, { type: "agent", id, action: "read" });
+      } catch (error) {
+        const statusCode = (error as { statusCode?: number }).statusCode;
+        if (!statusCode || (statusCode !== 403 && statusCode !== 404)) throw error;
+        throw new ApiError("Agent not found", 404);
       }
 
       // Normalize legacy model_id/model_provider → model
@@ -76,6 +62,5 @@ export const GET = withErrorHandler(
       }
 
       return successResponse(doc);
-    });
   }
 );

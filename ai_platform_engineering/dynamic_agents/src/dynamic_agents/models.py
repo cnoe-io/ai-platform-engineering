@@ -46,6 +46,12 @@ class UserContext(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     email: str
+    name: str | None = None
+    groups: list[str] = []
+    is_admin: bool = False
+    raw_claims: dict[str, Any] = {}
+    access_token: str | None = Field(default=None, repr=False)
+    obo_jwt: str | None = Field(default=None, repr=False)
 
 
 # =============================================================================
@@ -64,6 +70,21 @@ class MCPServerConfigBase(BaseModel):
     args: list[str] | None = Field(None, description="Args for stdio transport")
     env: dict[str, str] | None = Field(None, description="Env vars for stdio transport")
     enabled: bool = Field(True, description="Whether the server is enabled")
+    credential_sources: list["MCPCredentialSource"] | None = Field(
+        None,
+        description="Server-side credential refs to resolve for MCP connections.",
+    )
+
+
+class MCPCredentialSource(BaseModel):
+    """Credential source metadata for MCP server connection setup."""
+
+    kind: Literal["secret_ref", "provider_connection"] = Field(..., description="Credential source type")
+    target: Literal["env", "header"] = Field(..., description="Where to inject the resolved credential")
+    name: str = Field(..., description="Environment variable or header name")
+    secret_ref: str | None = Field(None, description="Credential secret_ref id")
+    provider_connection_id: str | None = Field(None, description="Provider connection id")
+    provider: str | None = Field(None, description="Provider key for JWT subject-owned provider connection")
 
 
 class MCPServerConfig(MCPServerConfigBase):
@@ -71,6 +92,18 @@ class MCPServerConfig(MCPServerConfigBase):
 
     id: str = Field(..., alias="_id", description="Unique slug ID")
     config_driven: bool = Field(False, description="Whether this server was loaded from config.yaml")
+    source: Literal["manual", "config", "agentgateway"] | None = Field(
+        None,
+        description="Where this MCP server record came from.",
+    )
+    agentgateway_discovered: bool = Field(
+        False,
+        description="Whether this MCP server was discovered from AgentGateway.",
+    )
+    agentgateway_target_endpoint: str | None = Field(
+        None,
+        description="Upstream MCP endpoint behind the AgentGateway route.",
+    )
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -246,6 +279,10 @@ class CurlToolConfig(BaseModel):
     https_only: bool = Field(
         default=True,
         description="If True (default), reject non-https:// URLs.",
+    )
+    allow_non_public_urls: bool = Field(
+        default=False,
+        description="If True, allow URLs that resolve to private/internal IP addresses. Off by default (SSRF protection).",
     )
 
 
@@ -583,6 +620,7 @@ class AgentContext(BaseModel):
     user_groups: list[str] = []
     agent_config_id: str
     session_id: str
+    obo_jwt: str | None = None
 
 
 # =============================================================================

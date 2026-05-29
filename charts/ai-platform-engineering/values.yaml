@@ -22,6 +22,8 @@ tags:
   agent-petstore: false
   rag-stack: false
   slack-bot: false
+  webex-bot: false
+  keycloak: false
 
 # Global configuration shared across all subcharts
 global:
@@ -30,6 +32,11 @@ global:
   # Individual subchart `image.tag` values still take highest precedence.
   image:
     tag: ""
+    # -- Image repository channel for maintained CAIPE images.
+    # Empty means auto: rc/hotfix/dev chart appVersions use `pre-release/`,
+    # final release appVersions use the root published image repositories.
+    # Set to `pre-release` or `release` to force either repository channel.
+    channel: ""
 
   # Deployment mode: "single-node" (all agents in-process) or "multi-node" (each agent as a separate pod)
   deploymentMode: "multi-node"
@@ -115,6 +122,68 @@ global:
 
   agentgateway:
     enabled: false
+    # Set to true only if Istio CRDs are NOT already present in the cluster.
+    # If Istio is already installed (any version), leave this false to avoid conflicts.
+    installIstioCrds: false
+    # Port for the agentgateway proxy listener (Gateway resource)
+    proxyPort: 8080
+    extAuth:
+      enabled: false
+      serviceName: "ai-platform-engineering-openfga-authz-bridge"
+      serviceNamespace: ""
+      port: 9100
+    # Built-in Knowledge Base MCP route. This keeps the Dynamic Agents
+    # `knowledge-base` MCP server ID aligned with the RAG server MCP backend
+    # when AgentGateway is enabled in the umbrella chart.
+    knowledgeBaseTarget:
+      enabled: true
+      host: "rag-server.{{ .Release.Namespace }}.svc.cluster.local"
+      port: 9446
+      protocol: StreamableHTTP
+      pathPrefix: /mcp/knowledge-base
+    # Additional MCP routes that are not rendered from `agent-*` subcharts.
+    # Use this for platform MCP endpoints such as RAG/Knowledge Base.
+    # Each item renders one AgentgatewayBackend and one HTTPRoute:
+    #   /mcp/<id> -> static host:port using the requested MCP protocol.
+    #
+    # Example:
+    # extraMcpTargets:
+    #   - id: knowledge-base
+    #     host: "{{ .Release.Name }}-rag-server.{{ .Release.Namespace }}.svc.cluster.local"
+    #     port: 9446
+    #     protocol: StreamableHTTP
+    #     pathPrefix: /mcp/knowledge-base
+    extraMcpTargets: []
+
+  # OpenFGA service discovery defaults for CAIPE components that perform
+  # relationship-based authorization or reconciliation.
+  openfga:
+    httpUrl: "http://{{ .Release.Name }}-openfga:8080"
+    storeName: "caipe-openfga"
+
+agentgateway:
+  enabled: false
+  image:
+    repository: cr.agentgateway.dev/agentgateway
+    tag: v1.1.0
+    pullPolicy: IfNotPresent
+  # Secret-backed environment for backend auth placeholders used by the
+  # standalone AgentGateway config, for example:
+  #   backendAuth:
+  #     key: "$GITHUB_PERSONAL_ACCESS_TOKEN"
+  #     key: "$GITLAB_PERSONAL_ACCESS_TOKEN"
+  extraEnv: []
+  # - name: GITHUB_PERSONAL_ACCESS_TOKEN
+  #   valueFrom:
+  #     secretKeyRef:
+  #       name: github-mcp-secret
+  #       key: GITHUB_PERSONAL_ACCESS_TOKEN
+  # - name: GITLAB_PERSONAL_ACCESS_TOKEN
+  #   valueFrom:
+  #     secretKeyRef:
+  #       name: gitlab-mcp-secret
+  #       key: GITLAB_PERSONAL_ACCESS_TOKEN
+  extraEnvFrom: []
 
   # LangGraph Redis for checkpoint and cross-thread store persistence.
   # Two deployment options:
@@ -276,6 +345,8 @@ supervisor-agent:
     USE_STRUCTURED_RESPONSE: "true" # Set to "true" to enforce agent to always use structured response format as the final output
     TASK_CONFIG_PATH: "/app/task_config.yaml"
     POLICY_FILE_PATH: "/app/policy.lp"
+    ENABLE_USER_INFO_TOOL: "false"   # Capture user identity from JWT; enables user_info tool and JWT context middleware
+    FORWARD_JWT_TO_MCP: "false"      # Forward the user JWT as Bearer token to HTTP/streamable-HTTP MCP connections (requires ENABLE_USER_INFO_TOOL=true). Also used by sub-agents via base_langgraph_agent.
     # Self-service workflow env vars — referenced as ${VAR_NAME} in task_config.yaml prompts.
     # Set these per environment so system workflows can resolve repo references at runtime.
     # JARVIS_WORKFLOWS_REPO: "org/jarvis-workflows"      # Templates repo (safe-settings, terraform, etc.)
@@ -377,6 +448,12 @@ agent-argocd:
       pullPolicy: "IfNotPresent"
     mode: "http" # Options: stdio, http
     port: 8000
+    # Route MCP traffic through agentgateway proxy (requires global.agentgateway.enabled).
+    # When enabled, subagent MCP calls go through the agentgateway proxy which can
+    # enforce JWT validation and ext_authz decisions backed by OpenFGA.
+    agentgateway:
+      enabled: false
+      protocol: StreamableHTTP # SSE or StreamableHTTP
 
 agent-backstage:
   nameOverride: "agent-backstage"
@@ -391,6 +468,9 @@ agent-backstage:
       pullPolicy: "IfNotPresent"
     mode: "http" # Options: stdio, http
     port: 8000
+    agentgateway:
+      enabled: false
+      protocol: StreamableHTTP
 
 agent-confluence:
   nameOverride: "agent-confluence"
@@ -404,6 +484,9 @@ agent-confluence:
       pullPolicy: "IfNotPresent"
     mode: "http" # Options: stdio, http
     port: 8000
+    agentgateway:
+      enabled: false
+      protocol: StreamableHTTP
     env:
       TRANSPORT: "streamable-http"
 
@@ -478,6 +561,9 @@ agent-jira:
       pullPolicy: "IfNotPresent"
     mode: "http" # Options: stdio, http
     port: 8000
+    agentgateway:
+      enabled: false
+      protocol: StreamableHTTP
 
 agent-pagerduty:
   nameOverride: "agent-pagerduty"
@@ -492,6 +578,9 @@ agent-pagerduty:
       pullPolicy: "IfNotPresent"
     mode: "http" # Options: stdio, http
     port: 8000
+    agentgateway:
+      enabled: false
+      protocol: StreamableHTTP
 
 agent-slack:
   nameOverride: "agent-slack"
@@ -505,6 +594,9 @@ agent-slack:
       pullPolicy: "IfNotPresent"
     mode: "http" # Options: stdio, http
     port: 3001
+    agentgateway:
+      enabled: false
+      protocol: StreamableHTTP
     command: ["--transport", "http"]
     env:
       SLACK_MCP_HOST: "0.0.0.0"
@@ -526,6 +618,9 @@ agent-aws:
       pullPolicy: "IfNotPresent"
     mode: "http" # Options: stdio, http
     port: 8000
+    agentgateway:
+      enabled: false
+      protocol: StreamableHTTP
   env:
     # -- Block kubectl get/describe secret(s) and redact Secret data from output. Defaults to true (on).
     RESTRICT_KUBECTL_SECRETS: "true"
@@ -553,6 +648,9 @@ agent-splunk:
       pullPolicy: "IfNotPresent"
     mode: "http" # Options: stdio, http
     port: 8000
+    agentgateway:
+      enabled: false
+      protocol: StreamableHTTP
 
 agent-victorops:
   nameOverride: "agent-victorops"
@@ -566,6 +664,9 @@ agent-victorops:
       pullPolicy: "IfNotPresent"
     mode: "http" # Options: stdio, http
     port: 8000
+    agentgateway:
+      enabled: false
+      protocol: StreamableHTTP
 
 agent-webex:
   nameOverride: "agent-webex"
@@ -580,6 +681,9 @@ agent-webex:
       pullPolicy: "IfNotPresent"
     mode: "http" # Options: stdio, http
     port: 8000
+    agentgateway:
+      enabled: false
+      protocol: StreamableHTTP
 
 agent-weather:
   nameOverride: "agent-weather"
@@ -608,6 +712,9 @@ agent-komodor:
       pullPolicy: "IfNotPresent"
     mode: "http" # Options: stdio, http
     port: 8000
+    agentgateway:
+      enabled: false
+      protocol: StreamableHTTP
 
 agent-netutils:
   nameOverride: "agent-netutils"
@@ -624,6 +731,9 @@ agent-netutils:
       pullPolicy: "IfNotPresent"
     mode: "http" # Options: stdio, http
     port: 8000
+    agentgateway:
+      enabled: false
+      protocol: StreamableHTTP
 
 agent-weather:
   nameOverride: "agent-weather"
@@ -650,6 +760,25 @@ caipe-ui:
   skills:
     enabled: true
   nameOverride: "caipe-ui"
+  # R1 upstream fix (May 2026): default the Keycloak Admin REST client
+  # secret name to "caipe-platform-secret" — the conventional name an
+  # operator passes via `keycloak.platformClient.secretRef` AND the
+  # default target of the keycloak chart's ExternalSecret (see below
+  # where we also default `keycloak.platformClient.secretRef` itself).
+  #
+  # Helm does not support cross-subchart value substitution at template
+  # time, so we have to hardcode the conventional name in both places.
+  # Operators using a non-default Secret name must override BOTH:
+  #     keycloak.platformClient.secretRef: my-custom-platform-secret
+  #     caipe-ui.keycloakAdminClient.secretName: my-custom-platform-secret
+  #
+  # See docs/docs/security/rbac/secrets-bootstrap.md section "R1: BFF
+  # Keycloak Admin token — production-safety gate".
+  # assisted-by Claude:claude-opus-4-7
+  keycloakAdminClient:
+    secretName: "caipe-platform-secret"
+    secretKey: "OIDC_CLIENT_SECRET"
+    clientId: "caipe-platform"
   image:
     repository: "ghcr.io/cnoe-io/caipe-ui"
     # tag defaults to .Chart.AppVersion when not specified
@@ -719,6 +848,18 @@ caipe-ui:
     DYNAMIC_AGENTS_ENABLED: "false"
     # Dynamic Agents service URL (only used when DYNAMIC_AGENTS_ENABLED is "true")
     # DYNAMIC_AGENTS_URL: "http://ai-platform-engineering-dynamic-agents:8001"
+    # Connections & Secrets credential store. Disabled by default. Use local-cmk
+    # only for non-production testing; production must use aws-kms.
+    CAIPE_CREDENTIALS_ENABLED: "false"
+    CREDENTIAL_STORE_BACKEND: "mongodb-envelope"
+    CREDENTIAL_KEY_PROVIDER: "local-cmk"
+    CREDENTIAL_KMS_CMK_ID: ""
+    CREDENTIAL_KMS_REGION: ""
+    CREDENTIAL_SERVICE_AUDIENCE: "caipe-credential-service"
+    # Bootstrap global OAuth connectors from server env at startup. In
+    # Kubernetes, provide provider client IDs/secrets/redirect URIs through
+    # externalSecrets; in Docker Compose, provide them through .env.
+    CREDENTIAL_BOOTSTRAP_OAUTH_CONNECTORS: "false"
     # Standalone skill-scanner microservice (cisco-ai-defense/skill-scanner).
     # Active when global.skillScanner.enabled=true; the in-cluster Service
     # name is derived from the Helm release name, so the URL is rendered
@@ -729,6 +870,18 @@ caipe-ui:
     SKILL_SCANNER_URL: "http://{{ .Release.Name }}-skill-scanner:8000"
     # MongoDB configuration
     MONGODB_DATABASE: "caipe"
+    # OpenFGA relationship authorization. Enable reconciliation only after
+    # OpenFGA is installed and the authorization model has been initialized.
+    OPENFGA_HTTP: ""
+    OPENFGA_STORE_NAME: "caipe-openfga"
+    OPENFGA_RECONCILE_ENABLED: "false"
+    # Unsafe dev/emergency escape hatch: when true, UI RBAC checks allow all
+    # requests without consulting OpenFGA. Do not enable in staging or prod.
+    CAIPE_UNSAFE_RBAC_BYPASS: "false"
+    # Keycloak Admin API integration for resource/scope synchronization.
+    KEYCLOAK_URL: ""
+    KEYCLOAK_REALM: "caipe"
+    KEYCLOAK_RESOURCE_SERVER_ID: "caipe-platform"
     # NextAuth URL (non-sensitive)
     NEXTAUTH_URL: "http://localhost:3000"
     # Node environment
@@ -737,6 +890,29 @@ caipe-ui:
     TAGLINE: "Multi-Agent Workflow Automation"
     DESCRIPTION: "Where Humans and AI agents collaborate to deliver high quality outcomes."
     APP_NAME: "CAIPE"
+    # Canonical Slack workspace namespace used by UI-managed Slack ReBAC/routes.
+    SLACK_WORKSPACE_ALIAS: "CAIPE"
+    # Slack bot internal admin API used by the Web UI BFF for route reload and
+    # one-time static-config-to-MongoDB/OpenFGA migration. The BFF uses the
+    # existing OIDC_CLIENT_ID/OIDC_CLIENT_SECRET Keycloak client credentials.
+    SLACK_BOT_ADMIN_URL: "http://ai-platform-engineering-slack-bot:3001"
+    SLACK_BOT_ADMIN_AUDIENCE: "caipe-slack-bot-admin"
+    # SLACK_BOT_ADMIN_TOKEN_URL: "http://keycloak:7080/realms/caipe/protocol/openid-connect/token"
+    # SLACK_BOT_ADMIN_SCOPE: "slack:routes:read slack:routes:reload slack:routes:sync"
+    SLACK_DEFAULT_TEAM_SLUG: ""
+    SLACK_DEFAULT_AGENT_ID: ""
+    # Webex bot internal admin API (BFF access-check + route management).
+    WEBEX_BOT_ADMIN_URL: "http://ai-platform-engineering-webex-bot:3002"
+    WEBEX_BOT_ADMIN_CLIENT_ID: "caipe-ui"
+    WEBEX_BOT_ADMIN_AUDIENCE: "caipe-webex-bot-admin"
+    # WEBEX_BOT_ADMIN_TOKEN_URL: "http://keycloak:7080/realms/caipe/protocol/openid-connect/token"
+    WEBEX_DEFAULT_TEAM_SLUG: ""
+    WEBEX_DEFAULT_AGENT_ID: ""
+    WEBEX_THREAD_CONTEXT_ENABLED: "true"
+    WEBEX_THREAD_CONTEXT_MAX_MESSAGES: "10"
+    WEBEX_THREAD_CONTEXT_MAX_CHARS: "4000"
+    CAIPE_ORG_KEY: "caipe"
+    CAIPE_ORG_DISPLAY_NAME: "CAIPE"
     LOGO_URL: "/logo.svg"
     LOGO_STYLE: "default"
     # SPINNER_COLOR: ""
@@ -779,8 +955,18 @@ caipe-ui:
       size: 10Gi
     auth:
       rootUsername: "admin"
-      rootPassword: "changeme"  # CHANGE THIS or use external secrets
+      # CHANGE THIS or use external secrets.
+      # R3 (May 2026): set `mongodb.strictPasswords: true` below to make
+      # `helm install` / `helm upgrade` fail-fast on the placeholder.
+      rootPassword: "changeme"
       database: "caipe"
+    # R3: Production-safety gate. When true AND `externalSecrets.enabled`
+    # is false, the chart refuses to render if `auth.rootPassword` is a
+    # known placeholder ("changeme", "admin", "password", "mongo",
+    # "root", "test", etc.). Mirrors `keycloak.strictClientSecrets`.
+    # Default false so docker-compose dev + CI matrix keep working.
+    # assisted-by Claude:claude-opus-4-7
+    strictPasswords: false
     # External Secrets for MongoDB credentials
     externalSecrets:
       enabled: false  # Set to true to use external secrets
@@ -887,8 +1073,31 @@ dynamic-agents:
     port: 8001
   # ConfigMap for non-sensitive configuration
   config:
+    # ─── Keycloak / OIDC (REQUIRED for Bearer token validation) ─────────
+    # In-cluster Keycloak service URL used for the server-to-server JWKS
+    # fetch. The bundled Keycloak subchart exposes its service as
+    # `<release>-keycloak`; this default works for the umbrella chart
+    # but MUST be overridden when pointing dynamic-agents at an external
+    # Keycloak (production IdP / forge.dev / etc.).
+    KEYCLOAK_URL: "http://ai-platform-engineering-keycloak:8080"
+    # Browser-facing issuer string baked into JWTs (Keycloak's
+    # KC_HOSTNAME). Override when the public issuer differs from
+    # KEYCLOAK_URL (the typical production topology), e.g.
+    # OIDC_ISSUER: "https://idp.example.com/realms/caipe".
+    # Leaving this empty falls back to deriving the issuer from
+    # KEYCLOAK_URL, which only works in dev where both URLs coincide;
+    # NOTES.txt prints a warning otherwise.
+    OIDC_ISSUER: ""
     # MongoDB configuration (uses same database as CAIPE UI)
     MONGODB_DATABASE: "caipe"
+    # Connections & Secrets credential exchange client. Disabled by default.
+    CAIPE_CREDENTIALS_ENABLED: "false"
+    CREDENTIAL_API_URL: "http://ai-platform-engineering-caipe-ui:3000/api/credentials"
+    CREDENTIAL_SERVICE_AUDIENCE: "caipe-credential-service"
+    USE_IMPERSONATION_TOKENS: "false"
+    # MCP server IDs routed through AgentGateway. "all" only applies to
+    # gateway-managed MCP rows; manual/direct MCP rows keep their stored endpoint.
+    AGENT_GATEWAY_MCP_SERVER_IDS: "all"
     # LLM configuration (override if needed)
     # LLM_PROVIDER: "openai"
     # LLM_MODEL: "gpt-4o"
@@ -930,9 +1139,20 @@ slack-bot:
     SLACK_INTEGRATION_SILENCE_ENV: "false"
     # MONGODB_URI: ""                          # Override per environment
     # SLACK_WORKSPACE_URL: ""                  # e.g. "https://mycompany.slack.com"
+    SLACK_WORKSPACE_ALIAS: "CAIPE"             # Canonical workspace namespace for Slack ReBAC/routes
     # SLACK_INTEGRATION_ENABLE_AUTH: "true"    # Enable OAuth2 Client Credentials
     # OAUTH2_TOKEN_URL: ""                     # OIDC token endpoint
     # OAUTH2_CLIENT_ID: ""                     # OAuth2 client ID
+    SLACK_AGENT_ROUTES_MODE: "db_prefer"       # Prefer UI-managed Slack routes, fallback to static config
+    SLACK_AUTO_ASSIGN_UNMAPPED_CHANNELS: "false" # Opt-in first-message channel onboarding
+    SLACK_DEFAULT_TEAM_SLUG: ""                # Required when auto-assignment is enabled
+    SLACK_DEFAULT_AGENT_ID: ""                 # Required when auto-assignment is enabled
+    SLACK_ADMIN_API_ENABLED: "false"           # Internal admin API for route status/reload/config sync
+    SLACK_ADMIN_API_HOST: "0.0.0.0"
+    SLACK_ADMIN_API_PORT: "3001"
+    SLACK_ADMIN_JWT_ISSUER: ""                 # Set to Keycloak/OIDC issuer when admin API is enabled
+    SLACK_ADMIN_JWT_AUDIENCE: "caipe-slack-bot-admin"
+    SLACK_ADMIN_ALLOWED_CLIENT_IDS: "caipe-ui"
 
   # -- Reference to a pre-existing Kubernetes Secret.
   # Should contain: SLACK_BOT_TOKEN, SLACK_APP_TOKEN, SLACK_SIGNING_SECRET,
@@ -963,10 +1183,41 @@ slack-bot:
       name: "vault"
       kind: "ClusterSecretStore"
     data: []
+      # Example placeholders. Keep values in your external secret backend; these
+      # keys are materialized into the generated Kubernetes Secret and injected
+      # into the slack-bot pod via envFrom.
       # - secretKey: SLACK_BOT_TOKEN
       #   remoteRef:
       #     key: prod/slack-bot
       #     property: bot_token
+      # - secretKey: SLACK_APP_TOKEN
+      #   remoteRef:
+      #     key: prod/slack-bot
+      #     property: app_token
+      # - secretKey: SLACK_SIGNING_SECRET
+      #   remoteRef:
+      #     key: prod/slack-bot
+      #     property: signing_secret
+      # - secretKey: SLACK_CLIENT_SECRET
+      #   remoteRef:
+      #     key: prod/slack-bot
+      #     property: slack_client_secret
+      # - secretKey: SLACK_LINK_HMAC_SECRET
+      #   remoteRef:
+      #     key: prod/slack-bot
+      #     property: slack_link_hmac_secret
+      # - secretKey: OAUTH2_CLIENT_SECRET
+      #   remoteRef:
+      #     key: prod/slack-bot
+      #     property: oauth2_client_secret
+      # - secretKey: KEYCLOAK_BOT_CLIENT_SECRET
+      #   remoteRef:
+      #     key: prod/slack-bot
+      #     property: keycloak_bot_client_secret
+      # - secretKey: KEYCLOAK_SLACK_BOT_ADMIN_CLIENT_SECRET
+      #   remoteRef:
+      #     key: prod/slack-bot
+      #     property: keycloak_slack_bot_admin_client_secret
 
   resources:
     requests:
@@ -975,6 +1226,215 @@ slack-bot:
     limits:
       cpu: 500m
       memory: 512Mi
+
+######### Webex Bot Integration configuration #########
+# Parallel to slack-bot: Webex spaces, identity linking, and OpenFGA ReBAC.
+# Enable with Helm tag: webex-bot=true
+webex-bot:
+  image:
+    repository: "ghcr.io/cnoe-io/caipe-webex-bot"
+    tag: ""
+    pullPolicy: "IfNotPresent"
+
+  config:
+    APP_NAME: "CAIPE"
+    CAIPE_API_URL: "http://ai-platform-engineering-caipe-ui:3000"
+    WEBEX_WORKSPACE_ALIAS: "CAIPE-WEBEX"
+    WEBEX_AGENT_ROUTES_MODE: "db_prefer"
+    WEBEX_THREAD_CONTEXT_ENABLED: "true"
+    WEBEX_THREAD_CONTEXT_MAX_MESSAGES: "10"
+    WEBEX_THREAD_CONTEXT_MAX_CHARS: "4000"
+    WEBEX_AUTO_ASSIGN_UNMAPPED_SPACES: "false"
+    WEBEX_DEFAULT_TEAM_SLUG: ""
+    WEBEX_DEFAULT_AGENT_ID: ""
+    WEBEX_ADMIN_API_ENABLED: "false"
+    WEBEX_ADMIN_API_HOST: "0.0.0.0"
+    WEBEX_ADMIN_API_PORT: "3002"
+    WEBEX_ADMIN_JWT_ISSUER: "http://ai-platform-engineering-keycloak:8080/realms/caipe"
+    WEBEX_ADMIN_JWKS_URL: "http://ai-platform-engineering-keycloak:8080/realms/caipe/protocol/openid-connect/certs"
+    WEBEX_ADMIN_JWT_AUDIENCE: "caipe-webex-bot-admin"
+    WEBEX_ADMIN_ALLOWED_CLIENT_IDS: "caipe-ui"
+    KEYCLOAK_URL: "http://ai-platform-engineering-keycloak:8080"
+    KEYCLOAK_REALM: "caipe"
+    OPENFGA_HTTP: "http://ai-platform-engineering-openfga:8080"
+    OPENFGA_STORE_NAME: "caipe-openfga"
+
+  # Wire OBO secret from Keycloak chart (see keycloak/templates/NOTES.txt).
+  keycloakBot:
+    clientSecretFromSecret:
+      name: "ai-platform-engineering-keycloak-webex-bot"
+      key: "KC_WEBEX_BOT_CLIENT_SECRET"
+
+  existingSecret: "webex-bot-secrets"
+
+  botConfig: {}
+
+  externalSecrets:
+    enabled: false
+    apiVersion: "v1beta1"
+    secretStoreRef:
+      name: "vault"
+      kind: "ClusterSecretStore"
+    data: []
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+######### Keycloak Identity Provider configuration #########
+# Keycloak provides RBAC, identity federation (upstream SSO broker),
+# and token exchange (RFC 8693) for the Slack bot.
+# Enable with tag: keycloak=true
+keycloak:
+  image:
+    repository: "quay.io/keycloak/keycloak"
+    tag: "26.3"
+    pullPolicy: IfNotPresent
+
+  # Admin credentials — auto-generated random password by default.
+  # For prod: set admin.secretRef to an existing Secret, or enable
+  # externalSecrets to pull from Vault / AWS Secrets Manager.
+  admin:
+    username: admin
+    password: ""       # Leave empty for auto-generated 32-char password
+    secretRef: ""      # Set to an existing K8s Secret name with keys: username, password
+
+  realm:
+    name: caipe
+    sslRequired: "external"  # "none" for dev, "external" for prod
+
+  # Keycloak features
+  features:
+    tokenExchange: true
+    adminFineGrainedAuthz: true
+
+  # Token exchange setup — enables bot impersonation via RFC 8693
+  tokenExchange:
+    enabled: true
+    botClientId: "caipe-slack-bot"
+  webexTokenExchange:
+    enabled: true
+    botClientId: "caipe-webex-bot"
+
+  # CAIPE platform OIDC client (the supervisor confidential client).
+  #
+  # R1 upstream fix (May 2026): the umbrella defaults `secretRef` to
+  # `caipe-platform-secret` so the keycloak chart's
+  # `platformClientSecretName` helper and the caipe-ui Deployment's
+  # `KEYCLOAK_ADMIN_CLIENT_SECRET` valueFrom.secretKeyRef both resolve
+  # to the same Secret name. An operator who:
+  #   - pre-creates a K8s Secret called `caipe-platform-secret` with
+  #     key `OIDC_CLIENT_SECRET`, OR
+  #   - enables `externalSecret.enabled=true` (ESO emits a Secret of
+  #     this same name as its target),
+  # gets the full BFF → Keycloak Admin REST wiring out of the box.
+  #
+  # Migration for existing ESO installs that used the OLD default name
+  # `<release>-keycloak-platform-client`: see
+  # docs/docs/security/rbac/secrets-bootstrap.md → R1 upstream fix.
+  # assisted-by Claude:claude-opus-4-7
+  platformClient:
+    secretRef: "caipe-platform-secret"
+
+  # Upstream IDP broker (generic OIDC — works with Okta, Azure AD, Duo, etc.)
+  # No vendor-specific credentials stored here.
+  idp:
+    enabled: false
+    alias: ""              # e.g. "upstream-sso"
+    displayName: ""        # e.g. "Enterprise SSO"
+    issuer: ""             # OIDC issuer URL
+    clientId: ""
+    secretRef: ""          # K8s Secret with key: IDP_CLIENT_SECRET
+    accessGroup: ""        # Optional upstream group reference; mirrored into idp_groups only
+    adminGroup: ""         # Optional upstream admin group reference; map to OpenFGA admin via Identity Group Sync
+
+  # External Secrets for admin password
+  externalSecrets:
+    enabled: false
+    apiVersion: "v1beta1"
+    secretStoreRef:
+      name: "vault"
+      kind: "ClusterSecretStore"
+    data: []
+      # - secretKey: password
+      #   remoteRef:
+      #     key: prod/keycloak
+      #     property: admin_password
+
+  service:
+    type: ClusterIP
+    port: 8080
+
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+######### OpenFGA Relationship PDP configuration #########
+# OpenFGA stores team/resource tuples used by the UI and the AgentGateway
+# ext_authz bridge. Enable for RBAC/ReBAC installs.
+openfga:
+  enabled: false
+  image:
+    repository: openfga/openfga
+    tag: v1.15.1
+    pullPolicy: IfNotPresent
+  init:
+    enabled: true
+    storeName: caipe-openfga
+    seedTuples: []
+  datastore:
+    engine: memory
+    uriSecretRef:
+      name: ""
+      key: OPENFGA_DATASTORE_URI
+  migrate:
+    enabled: true
+
+######### OpenFGA AgentGateway ext_authz bridge #########
+# The bridge receives Envoy ext_authz checks from AgentGateway and performs
+# OpenFGA Check calls. Enable alongside OpenFGA and AgentGateway.
+openfgaAuthzBridge:
+  enabled: false
+
+# Values for the openfga-authz-bridge subchart. The separate camelCase block
+# above is kept as the dependency condition flag.
+openfga-authz-bridge:
+  image:
+    repository: ghcr.io/cnoe-io/openfga-authz-bridge
+    tag: ""
+    pullPolicy: IfNotPresent
+  openfga:
+    httpUrl: "http://{{ .Release.Name }}-openfga:8080"
+    storeName: caipe-openfga
+    relation: can_call
+    object: mcp_gateway:list
+  agentContext:
+    existingSecret:
+      name: ""
+      key: CAIPE_AGENT_CONTEXT_HMAC_SECRET
+  tokenValidation:
+    jwksUrl: "http://{{ .Release.Name }}-keycloak:8080/realms/caipe/protocol/openid-connect/certs"
+    issuer: ""
+    audiences: []
+    algorithms:
+      - RS256
+  audit:
+    enabled: true
+    mongodbUri: ""
+    mongodbDatabase: caipe
+    tenantId: default
+    subjectSalt: caipe-098-audit
+    existingSecret:
+      name: ""
+      key: MONGODB_URI
 
 ######### RAG Stack configuration #########
 # RAG Stack - Complete stack including web, server, agent, Redis, and Milvus
@@ -994,6 +1454,11 @@ rag-stack:
       # tag defaults to .Chart.AppVersion when not specified
       tag: ""
       pullPolicy: "IfNotPresent"
+    env:
+      RBAC_TEAM_SCOPE_ENABLED: "true"
+      OPENFGA_HTTP: "http://ai-platform-engineering-openfga:8080"
+      OPENFGA_STORE_NAME: "caipe-openfga"
+      CAIPE_UNSAFE_RBAC_BYPASS: "false"
 
   agent-rag:
     enabled: true

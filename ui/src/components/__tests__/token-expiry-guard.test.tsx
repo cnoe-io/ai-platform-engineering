@@ -654,6 +654,25 @@ describe('TokenExpiryGuard', () => {
       })
     })
 
+    it('should set token-expiry-handling flag when the server-side access token cache is missing', async () => {
+      jest.useRealTimers()
+
+      mockUseSession.mockReturnValue({
+        data: {
+          user: { name: 'Test User', email: 'test@example.com' },
+          error: 'AccessTokenMissing',
+        } as any,
+        status: 'authenticated',
+        update: mockUpdateSession,
+      })
+
+      render(<TokenExpiryGuard />)
+
+      await waitFor(() => {
+        expect(mockSessionStorage.setItem).toHaveBeenCalledWith('token-expiry-handling', 'true')
+      })
+    })
+
     it('should show refresh-failed modal when session has RefreshTokenExpired error', async () => {
       jest.useRealTimers()
 

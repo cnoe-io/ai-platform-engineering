@@ -32,7 +32,7 @@ concurrency:
 
 jobs:
   run-tests:
-    if: github.actor != 'github-actions[bot]' && github.actor != 'caipe-release-bot[bot]'
+    if: github.actor != 'github-actions[bot]' && github.actor != 'caipe-ci-release[bot]'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code

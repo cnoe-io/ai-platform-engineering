@@ -11,6 +11,7 @@ import { getAgentSkillVisibleToUser } from "@/lib/agent-skill-visibility";
 import { scanSkillContent as runSkillScan } from "@/lib/skill-scan";
 import { recordScanEvent } from "@/lib/skill-scan-history";
 import { recordRevision } from "@/lib/skill-revisions";
+import { requireResourcePermission } from "@/lib/rbac/resource-authz";
 import type { AgentSkill } from "@/types/agent-skill";
 
 /**
@@ -48,13 +49,14 @@ export const POST = withErrorHandler(
       throw new ApiError("Source skill id is required", 400);
     }
 
-    return await withAuth(request, async (_req, user) => {
+    return await withAuth(request, async (_req, user, session) => {
       const source = await getAgentSkillVisibleToUser(id, user.email);
       if (!source) {
         // 404 (not 403) so we don't leak existence of skills the
         // caller can't see.
         throw new ApiError("Skill not found", 404);
       }
+      await requireResourcePermission(session, { type: "skill", id, action: "read" });
 
       // Optional caller overrides via JSON body (name + description).
       // If the body is missing or invalid we just default to

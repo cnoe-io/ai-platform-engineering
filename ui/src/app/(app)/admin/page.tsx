@@ -1,16 +1,24 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { motion } from "framer-motion";
-import { Users, MessageSquare, TrendingUp, Activity, Database, Share2, ShieldCheck, ShieldOff, UserPlus, Trash2, UsersIcon, Loader2, Bot, ThumbsUp, ThumbsDown, Clock, Zap, CheckCircle2, Layers, Eye, Star, Filter, ExternalLink, Plus, Calendar, X, FileText, Shield, HelpCircle, Globe, RefreshCw, Settings, type LucideIcon } from "lucide-react";
+import { Users, MessageSquare, TrendingUp, Activity, Database, Share2, ShieldCheck, ShieldOff, UserPlus, Trash2, UsersIcon, Loader2, Bot, ThumbsUp, ThumbsDown, Clock, Zap, CheckCircle2, AlertCircle, Layers, Eye, Star, Filter, ExternalLink, Plus, Calendar, X, FileText, Shield, HelpCircle, Globe, RefreshCw, Settings, Wrench, Hash, Search, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AuthGuard } from "@/components/auth-guard";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { CAIPESpinner } from "@/components/ui/caipe-spinner";
 import { MultiSelect, TagInput } from "@/components/ui/multi-select";
 import { SimpleLineChart } from "@/components/admin/SimpleLineChart";
@@ -23,9 +31,14 @@ import {
   TopCreatorsCard,
 } from "@/components/admin/SkillMetricsCards";
 import { CreateTeamDialog } from "@/components/admin/CreateTeamDialog";
-import { TeamDetailsDialog } from "@/components/admin/TeamDetailsDialog";
+import { TeamDetailsDialog, type DialogMode as TeamDialogMode } from "@/components/admin/TeamDetailsDialog";
 import { AuditLogsTab } from "@/components/admin/AuditLogsTab";
-import { PolicyTab } from "@/components/admin/PolicyTab";
+import { UnifiedAuditTab } from "@/components/admin/UnifiedAuditTab";
+import { OpenFgaRebacTab } from "@/components/admin/OpenFgaRebacTab";
+import { RagTeamAccessPanel } from "@/components/admin/rebac/RagTeamAccessPanel";
+import { SlackChannelRebacPanel } from "@/components/admin/rebac/SlackChannelRebacPanel";
+import { WebexSpaceRebacPanel } from "@/components/admin/rebac/WebexSpaceRebacPanel";
+import { IdentityGroupSyncTab } from "@/components/admin/identity-group-sync/IdentityGroupSyncTab";
 import { ReviewConfigsTab } from "@/components/admin/ReviewConfigsTab";
 import { CheckpointStatsSection } from "@/components/admin/CheckpointStatsSection";
 import { SlackStatsSection } from "@/components/admin/SlackStatsSection";
@@ -35,8 +48,15 @@ import { CrawlConsoleDialog } from "@/components/admin/CrawlConsoleDialog";
 import { CrawlConsoleHeaderPill } from "@/components/admin/CrawlConsoleHeaderPill";
 import { UserDetailPanel } from "@/components/admin/UserDetailPanel";
 import { SupervisorSkillsStatusSection } from "@/components/admin/SupervisorSkillsStatusSection";
+import { UserManagementTab } from "@/components/admin/UserManagementTab";
+import { UserDetailModal } from "@/components/admin/UserDetailModal";
 import { PlatformSettingsTab } from "@/components/admin/PlatformSettingsTab";
+import { ReleaseNotesSettingsTab } from "@/components/admin/ReleaseNotesSettingsTab";
+import { MigrationTab } from "@/components/admin/MigrationTab";
+import { KeycloakMigrationHealthPanel } from "@/components/admin/KeycloakMigrationHealthPanel";
+import { AdminCredentialManagementPanel } from "@/components/credentials/AdminCredentialManagementPanel";
 import { useAdminRole } from "@/hooks/use-admin-role";
+import { useAdminTabGates, type AdminTabGateSimulationTarget } from "@/hooks/useAdminTabGates";
 import { getConfig } from "@/lib/config";
 import { apiClient } from "@/lib/api-client";
 import type { Team as TeamType } from "@/types/teams";
@@ -172,69 +192,117 @@ interface NPSData {
   }>;
 }
 
-interface UserInfo {
-  email: string;
-  name: string;
-  role: string;
-  created_at: Date;
-  last_login: Date;
-  last_activity: Date;
-  stats: {
-    conversations: number;
-    messages: number;
-  };
-}
-
 interface Team {
   _id: string;
   name: string;
+  slug?: string;
   description?: string;
   owner_id: string;
   created_at: Date;
-  members: Array<{
+  // Commit 5/8 of the canonical-team-membership refactor (spec
+  // 2026-05-26-canonical-team-membership): `member_count` is now the
+  // authoritative source for the Members badge, aggregated server-side
+  // from `team_membership_sources`. `members[]` remains optional during
+  // the migration window (commit 6/8 stops the dual write entirely)
+  // and is no longer read by the page badge — only kept on the type
+  // so older fixtures and dialog state shapes continue to compile.
+  member_count?: number;
+  members?: Array<{
     user_id: string;
     role: string;
     added_at: Date;
   }>;
+  // Spec 104 — surfaced on the team card via StatChip counts. Optional
+  // because legacy team docs may not have been migrated yet.
+  resources?: {
+    agents?: string[];
+    agent_admins?: string[];
+    tools?: string[];
+    knowledge_bases?: string[];
+    tool_wildcard?: boolean;
+  };
+  // Spec 098 US9 — denormalised channel count for the team-card StatChip.
+  // Source of truth is `channel_team_mappings`, but we mirror a thin array
+  // onto the team document so the card doesn't need an extra round-trip.
+  slack_channels?: Array<{ slack_channel_id: string }>;
+  webex_spaces?: Array<{ space_id: string; space_name?: string; workspace_id?: string }>;
 }
 
-const VALID_TABS = ['users', 'teams', 'stats', 'skills', 'feedback', 'nps', 'metrics', 'health', 'policy', 'audit-logs', 'ai-review', 'settings'];
-
-type CategoryKey = 'system' | 'people' | 'insights' | 'platform' | 'security';
-type TabGate = 'always' | 'feedback' | 'nps' | 'admin' | 'audit-admin';
-
-interface AdminTabConfig {
-  value: string;
-  label: string;
-  icon: LucideIcon;
-  gate: TabGate;
+interface SimulationUserOption {
+  id: string;
+  email?: string;
+  firstName?: string;
+  lastName?: string;
+  username?: string;
 }
 
-interface AdminCategoryConfig {
+interface SimulationTeamOption {
+  _id?: string;
+  id?: string;
+  slug?: string;
+  name: string;
+  description?: string;
+}
+
+const VALID_TABS = ['users', 'teams', 'stats', 'skills', 'feedback', 'nps', 'metrics', 'health', 'credentials', 'audit-logs', 'action-audit', 'identity-groups', 'openfga', 'keycloak', 'migrations', 'ai-review', 'settings', 'release-notes', 'slack', 'webex', 'rag-access'] as const;
+const VALID_OPENFGA_SUBTABS = ['builder', 'explorer', 'graph', 'tuples', 'access', 'baseline', 'diagnostics'] as const;
+const MOVED_ADMIN_TAB_MAP = {
+  insights: 'stats',
+} as const;
+const MOVED_OPENFGA_DEEPLINK_TAB_MAP = {
+  slack: 'slack',
+  webex: 'webex',
+  rag: 'rag-access',
+} as const;
+
+type CategoryKey = 'settings' | 'people' | 'integrations' | 'insights' | 'platform' | 'security';
+const DEFAULT_ADMIN_CATEGORY: CategoryKey = 'settings';
+const DEFAULT_ADMIN_TAB = 'settings';
+const DEFAULT_READONLY_TAB = 'users';
+
+interface Category {
   key: CategoryKey;
   label: string;
   icon: LucideIcon;
-  tabs: AdminTabConfig[];
+  tabs: Array<{
+    value: string;
+    label: string;
+    icon: LucideIcon;
+    gateKey: string;
+  }>;
 }
 
-const ADMIN_CATEGORIES: AdminCategoryConfig[] = [
+const CATEGORIES: Category[] = [
   {
-    key: 'system',
-    label: 'System',
+    key: 'settings',
+    label: 'Settings',
     icon: Settings,
     tabs: [
-      { value: 'settings', label: 'Default Agent', icon: Settings, gate: 'admin' },
-      { value: 'ai-review', label: 'AI Review', icon: ShieldCheck, gate: 'admin' },
-      { value: 'skills', label: 'Skills', icon: Layers, gate: 'always' },
+      { value: 'settings', label: 'Default Agent', icon: Settings, gateKey: 'settings' },
+      { value: 'release-notes', label: 'Release notes', icon: FileText, gateKey: 'settings' },
+      { value: 'ai-review', label: 'AI Review', icon: ShieldCheck, gateKey: 'ai_review' },
+      { value: 'credentials', label: 'Credentials', icon: Shield, gateKey: 'credentials' },
+      { value: 'rag-access', label: 'Knowledge Bases', icon: Database, gateKey: 'openfga' },
+      { value: 'skills', label: 'Skills', icon: Layers, gateKey: 'skills' },
     ],
   },
   {
     key: 'people',
-    label: 'Users & Teams',
+    label: 'Teams & Users',
     icon: Users,
     tabs: [
-      { value: 'users', label: 'Users', icon: Users, gate: 'always' },
-      { value: 'teams', label: 'Teams', icon: UsersIcon, gate: 'always' },
+      { value: 'users', label: 'Users', icon: Users, gateKey: 'users' },
+      { value: 'teams', label: 'Teams', icon: UsersIcon, gateKey: 'teams' },
+      { value: 'identity-groups', label: 'Identity Groups', icon: UserPlus, gateKey: 'identity_group_sync' },
+    ],
+  },
+  {
+    key: 'integrations',
+    label: 'Integrations',
+    icon: Globe,
+    tabs: [
+      { value: 'slack', label: 'Slack', icon: Hash, gateKey: 'slack' },
+      { value: 'webex', label: 'Webex', icon: MessageSquare, gateKey: 'webex' },
     ],
   },
   {
@@ -242,9 +310,9 @@ const ADMIN_CATEGORIES: AdminCategoryConfig[] = [
     label: 'Insights',
     icon: TrendingUp,
     tabs: [
-      { value: 'feedback', label: 'Feedback', icon: ThumbsUp, gate: 'feedback' },
-      { value: 'nps', label: 'NPS', icon: Star, gate: 'nps' },
-      { value: 'stats', label: 'Statistics', icon: TrendingUp, gate: 'always' },
+      { value: 'stats', label: 'Statistics', icon: TrendingUp, gateKey: 'stats' },
+      { value: 'feedback', label: 'Feedback', icon: ThumbsUp, gateKey: 'feedback' },
+      { value: 'nps', label: 'NPS', icon: Star, gateKey: 'nps' },
     ],
   },
   {
@@ -252,8 +320,8 @@ const ADMIN_CATEGORIES: AdminCategoryConfig[] = [
     label: 'Metrics & Health',
     icon: Activity,
     tabs: [
-      { value: 'metrics', label: 'Metrics', icon: Activity, gate: 'always' },
-      { value: 'health', label: 'Health', icon: Database, gate: 'always' },
+      { value: 'metrics', label: 'Metrics', icon: Activity, gateKey: 'metrics' },
+      { value: 'health', label: 'Health', icon: Database, gateKey: 'health' },
     ],
   },
   {
@@ -261,16 +329,117 @@ const ADMIN_CATEGORIES: AdminCategoryConfig[] = [
     label: 'Security & Policy',
     icon: Shield,
     tabs: [
-      { value: 'audit-logs', label: 'Audit Logs', icon: FileText, gate: 'audit-admin' },
-      { value: 'policy', label: 'Policy', icon: Shield, gate: 'admin' },
+      { value: 'openfga', label: 'OpenFGA ReBAC', icon: Shield, gateKey: 'openfga' },
+      { value: 'action-audit', label: 'RBAC Audit', icon: Shield, gateKey: 'action_audit' },
+      { value: 'audit-logs', label: 'Chat Audit', icon: FileText, gateKey: 'audit_logs' },
+      { value: 'keycloak', label: 'Keycloak', icon: ShieldCheck, gateKey: 'migrations' },
+      { value: 'migrations', label: 'Migrations', icon: Database, gateKey: 'migrations' },
     ],
   },
 ];
 
 function categoryForTab(tab: string): CategoryKey {
-  return ADMIN_CATEGORIES.find((category) =>
-    category.tabs.some((item) => item.value === tab)
-  )?.key ?? 'people';
+  for (const cat of CATEGORIES) {
+    if (cat.tabs.some((t) => t.value === tab)) return cat.key;
+  }
+  return DEFAULT_ADMIN_CATEGORY;
+}
+
+function isValidTab(tab: string | null): tab is typeof VALID_TABS[number] {
+  return Boolean(tab && (VALID_TABS as readonly string[]).includes(tab));
+}
+
+function isValidCategory(category: string | null): category is CategoryKey {
+  return Boolean(category && CATEGORIES.some((c) => c.key === category));
+}
+
+function isValidOpenFgaSubtab(tab: string | null): tab is typeof VALID_OPENFGA_SUBTABS[number] {
+  return Boolean(tab && (VALID_OPENFGA_SUBTABS as readonly string[]).includes(tab));
+}
+
+function movedAdminTab(tab: string | null): typeof VALID_TABS[number] | null {
+  if (!tab) return null;
+  return (MOVED_ADMIN_TAB_MAP as Record<string, typeof VALID_TABS[number]>)[tab] ?? null;
+}
+
+function OverviewStatsCards({ overview }: { overview: AdminStats['overview'] | null }) {
+  if (!overview) return null;
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+          <CardTitle className="text-sm font-medium">Total Users</CardTitle>
+          <Users className="h-4 w-4 text-muted-foreground" />
+        </CardHeader>
+        <CardContent>
+          <div className="text-2xl font-bold">{overview.total_users}</div>
+          <p className="text-xs text-muted-foreground mt-1">
+            DAU: {overview.dau} | MAU: {overview.mau}
+          </p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+          <CardTitle className="text-sm font-medium">Conversations</CardTitle>
+          <MessageSquare className="h-4 w-4 text-muted-foreground" />
+        </CardHeader>
+        <CardContent>
+          <div className="text-2xl font-bold">{overview.total_conversations}</div>
+          <p className="text-xs text-muted-foreground mt-1">
+            Today: +{overview.conversations_today}
+          </p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+          <CardTitle className="text-sm font-medium">Messages</CardTitle>
+          <Activity className="h-4 w-4 text-muted-foreground" />
+        </CardHeader>
+        <CardContent>
+          <div className="text-2xl font-bold">{overview.total_messages}</div>
+          <p className="text-xs text-muted-foreground mt-1">
+            Today: +{overview.messages_today}
+          </p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+          <CardTitle className="text-sm font-medium">Shared (Web)</CardTitle>
+          <Share2 className="h-4 w-4 text-muted-foreground" />
+        </CardHeader>
+        <CardContent>
+          <div className="text-2xl font-bold">{overview.shared_conversations}</div>
+          <p className="text-xs text-muted-foreground mt-1">
+            {overview.total_conversations > 0
+              ? ((overview.shared_conversations / overview.total_conversations) * 100).toFixed(1)
+              : '0.0'}
+            % of all conversations
+          </p>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function movedOpenFgaDeepLinkTab(tab: string | null): typeof VALID_TABS[number] | null {
+  if (!tab) return null;
+  return (MOVED_OPENFGA_DEEPLINK_TAB_MAP as Record<string, typeof VALID_TABS[number]>)[tab] ?? null;
+}
+
+function simulationTargetFromParams(searchParams: { get(name: string): string | null }): AdminTabGateSimulationTarget | null {
+  const type = searchParams.get("simulate_type");
+  const id = searchParams.get("simulate_id")?.trim();
+  const relation = searchParams.get("simulate_relation");
+  if ((type !== "user" && type !== "team") || !id) return null;
+  return {
+    type,
+    id,
+    ...(type === "team" && (relation === "member" || relation === "admin") ? { relation } : {}),
+  };
 }
 
 function AdminPage() {
@@ -278,83 +447,260 @@ function AdminPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
-  const { isAdmin } = useAdminRole();
+  const { isAdmin, loading: adminRoleLoading } = useAdminRole();
+  const simulationTarget = useMemo(() => simulationTargetFromParams(searchParams), [searchParams]);
+  const { gates, loading: adminTabGatesLoading, simulation } = useAdminTabGates(simulationTarget);
+  const isSimulationActive = Boolean(simulationTarget);
   const auditLogsEnabled = getConfig('auditLogsEnabled');
   const feedbackEnabled = getConfig('feedbackEnabled');
   const npsEnabled = getConfig('npsEnabled');
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [globalOverview, setGlobalOverview] = useState<AdminStats['overview'] | null>(null);
   const [skillStats, setSkillStats] = useState<SkillMetricsAdmin | null>(null);
-  const [users, setUsers] = useState<UserInfo[]>([]);
-  const [userSearch, setUserSearch] = useState('');
-  const [userPage, setUserPage] = useState(1);
-  const [userTotal, setUserTotal] = useState(0);
-  const [userTotalPages, setUserTotalPages] = useState(1);
-  const [usersLoading, setUsersLoading] = useState(false);
   const [teams, setTeams] = useState<Team[]>([]);
+  const [teamSearch, setTeamSearch] = useState("");
+  const [teamsRefreshing, setTeamsRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedUserEmail, setSelectedUserEmail] = useState<string | null>(null);
   const [updatingRole, setUpdatingRole] = useState<string | null>(null);
-  const initialTab = searchParams.get('tab');
-  const [activeTab, setActiveTab] = useState(
-    initialTab && VALID_TABS.includes(initialTab) ? initialTab : 'users'
+  const [simulationType, setSimulationType] = useState<"user" | "team">(simulationTarget?.type ?? "user");
+  const [simulationId, setSimulationId] = useState(simulationTarget?.id ?? "");
+  const [simulationRelation, setSimulationRelation] = useState<"member" | "admin">(
+    simulationTarget?.relation ?? "admin"
   );
-  const initialCategory = searchParams.get('cat') as CategoryKey | null;
+  const [simulationDialogOpen, setSimulationDialogOpen] = useState(false);
+  const [simulationSearch, setSimulationSearch] = useState(simulationTarget?.id ?? "");
+  const [simulationUsers, setSimulationUsers] = useState<SimulationUserOption[]>([]);
+  const [simulationTeams, setSimulationTeams] = useState<SimulationTeamOption[]>([]);
+  const [simulationSearchLoading, setSimulationSearchLoading] = useState(false);
+  const userSelectedAdminTabRef = useRef(false);
+  const initialTab = searchParams.get('tab');
+  const defaultTab = isAdmin ? DEFAULT_ADMIN_TAB : DEFAULT_READONLY_TAB;
+  const [activeTab, setActiveTab] = useState<string>(
+    isValidTab(initialTab) ? initialTab : defaultTab
+  );
+  const initialCat = searchParams.get('cat') as CategoryKey | null;
   const [activeCategory, setActiveCategory] = useState<CategoryKey>(
-    initialCategory && ADMIN_CATEGORIES.some((category) => category.key === initialCategory)
-      ? initialCategory
+    isValidCategory(initialCat)
+      ? initialCat
       : categoryForTab(activeTab)
   );
-  const isTabVisible = useCallback((tab: AdminTabConfig): boolean => {
-    switch (tab.gate) {
-      case 'feedback':
-        return feedbackEnabled;
-      case 'nps':
-        return npsEnabled;
-      case 'admin':
-        return isAdmin;
-      case 'audit-admin':
-        return auditLogsEnabled && isAdmin;
-      case 'always':
-      default:
-        return true;
-    }
-  }, [auditLogsEnabled, feedbackEnabled, isAdmin, npsEnabled]);
+
+  const tabGateValues = useMemo<Record<string, boolean>>(
+    () => ({
+      ...gates,
+      feedback: Boolean(gates.feedback && feedbackEnabled),
+      nps: Boolean(gates.nps && npsEnabled),
+      audit_logs: Boolean(gates.audit_logs && auditLogsEnabled),
+      credentials: Boolean(gates.credentials && getConfig('credentialsEnabled')),
+      settings: !isSimulationActive,
+      ai_review: isAdmin && !isSimulationActive,
+    }),
+    [auditLogsEnabled, feedbackEnabled, gates, isAdmin, isSimulationActive, npsEnabled]
+  );
+
   const visibleCategories = useMemo(
     () =>
-      ADMIN_CATEGORIES
-        .map((category) => ({
-          ...category,
-          tabs: category.tabs.filter(isTabVisible),
-        }))
-        .filter((category) => category.tabs.length > 0),
-    [isTabVisible]
+      CATEGORIES.filter((cat) =>
+        cat.tabs.some((t) => tabGateValues[t.gateKey])
+      ),
+    [tabGateValues]
   );
+
   const visibleTabsForCategory = useMemo(
     () =>
-      visibleCategories.find((category) => category.key === activeCategory)?.tabs
-      ?? visibleCategories[0]?.tabs
-      ?? [],
-    [activeCategory, visibleCategories]
+      (CATEGORIES.find((c) => c.key === activeCategory)?.tabs ?? []).filter(
+        (t) => tabGateValues[t.gateKey]
+      ),
+    [activeCategory, tabGateValues]
   );
-  const handleCategoryChange = useCallback((categoryKey: CategoryKey) => {
-    const category = visibleCategories.find((item) => item.key === categoryKey);
-    const firstTab = category?.tabs[0];
-    if (!category || !firstTab) return;
 
-    setActiveCategory(categoryKey);
-    setActiveTab(firstTab.value);
+  useEffect(() => {
+    if (adminRoleLoading || adminTabGatesLoading) return;
+    if (visibleCategories.length === 0) return;
+
+    const requestedTab = searchParams.get('tab');
+    const requestedCategory = searchParams.get('cat');
+    const requestedOpenFgaSubtab = searchParams.get('subtab') ?? searchParams.get('openfgaTab');
+    const shouldOpenOpenFgaDeepLink = isValidOpenFgaSubtab(requestedOpenFgaSubtab);
+    const movedDeepLinkTab = movedOpenFgaDeepLinkTab(requestedOpenFgaSubtab);
+    const movedTab = movedAdminTab(requestedTab);
+    const tabFromUrl = shouldOpenOpenFgaDeepLink
+      ? 'openfga'
+      : movedDeepLinkTab ?? movedTab ?? (isValidTab(requestedTab) ? requestedTab : null);
+    const categoryFromUrl = isValidCategory(requestedCategory) ? requestedCategory : null;
+    const defaultCategory = categoryForTab(defaultTab);
+
+    if (
+      !requestedTab &&
+      !requestedCategory &&
+      userSelectedAdminTabRef.current &&
+      (activeTab !== defaultTab || activeCategory !== defaultCategory)
+    ) {
+      return;
+    }
+
+    let nextCategory: CategoryKey | undefined;
+    let nextTab: string | undefined;
+    const tabConfig = tabFromUrl
+      ? CATEGORIES.flatMap((category) => category.tabs).find((tab) => tab.value === tabFromUrl)
+      : undefined;
+
+    if (tabFromUrl && tabConfig && tabGateValues[tabConfig.gateKey]) {
+      nextTab = tabFromUrl;
+      nextCategory = categoryForTab(tabFromUrl);
+    } else {
+      const preferredCategory =
+        categoryFromUrl && visibleCategories.some((category) => category.key === categoryFromUrl)
+          ? categoryFromUrl
+          : defaultCategory;
+      const fallbackCategory = visibleCategories.some((category) => category.key === preferredCategory)
+        ? preferredCategory
+        : visibleCategories[0].key;
+      nextCategory = fallbackCategory;
+      nextTab = CATEGORIES.find((category) => category.key === fallbackCategory)?.tabs.find(
+        (tab) => tabGateValues[tab.gateKey]
+      )?.value;
+    }
+
+    if (!nextCategory || !nextTab) return;
+
+    if (activeCategory !== nextCategory) setActiveCategory(nextCategory);
+    if (activeTab !== nextTab) setActiveTab(nextTab);
+
+    if (requestedCategory !== nextCategory || requestedTab !== nextTab) {
+      const params = new URLSearchParams(searchParams.toString());
+      params.set('cat', nextCategory);
+      params.set('tab', nextTab);
+      if (nextTab !== 'openfga') {
+        params.delete('subtab');
+        params.delete('openfgaTab');
+      }
+      router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+    }
+  }, [
+    activeCategory,
+    activeTab,
+    adminTabGatesLoading,
+    adminRoleLoading,
+    defaultTab,
+    pathname,
+    router,
+    searchParams,
+    tabGateValues,
+    visibleCategories,
+  ]);
+
+  const handleCategoryChange = useCallback(
+    (catKey: CategoryKey) => {
+      userSelectedAdminTabRef.current = true;
+      setActiveCategory(catKey);
+      const cat = CATEGORIES.find((c) => c.key === catKey);
+      if (!cat) return;
+      const firstVisible = cat.tabs.find((t) => tabGateValues[t.gateKey]);
+      if (firstVisible) {
+        setActiveTab(firstVisible.value);
+        const params = new URLSearchParams(searchParams.toString());
+        params.set('cat', catKey);
+        params.set('tab', firstVisible.value);
+        if (firstVisible.value !== 'openfga') {
+          params.delete('subtab');
+          params.delete('openfgaTab');
+        }
+        router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+      }
+    },
+    [pathname, router, searchParams, tabGateValues]
+  );
+
+  useEffect(() => {
+    setSimulationType(simulationTarget?.type ?? "user");
+    setSimulationId(simulationTarget?.id ?? "");
+    setSimulationSearch(simulationTarget?.id ?? "");
+    setSimulationRelation(simulationTarget?.relation ?? "admin");
+  }, [simulationTarget]);
+
+  useEffect(() => {
+    if (!simulationDialogOpen) return;
+    const query = simulationSearch.trim();
+    if (query.length < 2) {
+      setSimulationUsers([]);
+      setSimulationTeams([]);
+      setSimulationSearchLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setSimulationSearchLoading(true);
+
+    async function loadSimulationSubjects() {
+      try {
+        if (simulationType === "user") {
+          const response = await fetch(`/api/admin/users?search=${encodeURIComponent(query)}&pageSize=20`);
+          const payload = await response.json();
+          const users = (payload.users ?? payload.data?.users ?? []) as SimulationUserOption[];
+          if (!cancelled) setSimulationUsers(users);
+        } else {
+          const response = await fetch("/api/admin/teams");
+          const payload = await response.json();
+          const rows = (payload.data?.teams ?? payload.teams ?? []) as SimulationTeamOption[];
+          const normalizedQuery = query.toLowerCase();
+          const matching = rows.filter((team) =>
+            [team.slug, team.name, team.description, team.id, team._id]
+              .filter(Boolean)
+              .some((value) => String(value).toLowerCase().includes(normalizedQuery))
+          );
+          if (!cancelled) setSimulationTeams(matching);
+        }
+      } catch {
+        if (!cancelled) {
+          setSimulationUsers([]);
+          setSimulationTeams([]);
+        }
+      } finally {
+        if (!cancelled) setSimulationSearchLoading(false);
+      }
+    }
+
+    void loadSimulationSubjects();
+    return () => {
+      cancelled = true;
+    };
+  }, [simulationDialogOpen, simulationSearch, simulationType]);
+
+  const applySimulationTarget = useCallback(() => {
+    const trimmedId = simulationId.trim();
+    if (!trimmedId) return;
     const params = new URLSearchParams(searchParams.toString());
-    params.set('cat', categoryKey);
-    params.set('tab', firstTab.value);
+    params.set("simulate_type", simulationType);
+    params.set("simulate_id", trimmedId);
+    if (simulationType === "team") {
+      params.set("simulate_relation", simulationRelation);
+    } else {
+      params.delete("simulate_relation");
+    }
+    userSelectedAdminTabRef.current = false;
+    setSimulationDialogOpen(false);
     router.replace(`${pathname}?${params.toString()}`, { scroll: false });
-  }, [pathname, router, searchParams, visibleCategories]);
+  }, [pathname, router, searchParams, simulationId, simulationRelation, simulationType]);
+
+  const clearSimulationTarget = useCallback(() => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("simulate_type");
+    params.delete("simulate_id");
+    params.delete("simulate_relation");
+    userSelectedAdminTabRef.current = false;
+    setSimulationDialogOpen(false);
+    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+  }, [pathname, router, searchParams]);
+
   const [createTeamDialogOpen, setCreateTeamDialogOpen] = useState(false);
   const [teamDetailsOpen, setTeamDetailsOpen] = useState(false);
   const [selectedTeam, setSelectedTeam] = useState<TeamType | null>(null);
-  const [teamDialogMode, setTeamDialogMode] = useState<"details" | "members">("details");
+  const [teamDialogMode, setTeamDialogMode] = useState<TeamDialogMode>("details");
   const [deletingTeam, setDeletingTeam] = useState<string | null>(null);
+  const [teamPendingDelete, setTeamPendingDelete] = useState<Team | null>(null);
   // ── Shared filters (source, users, date range) across feedback + stats tabs ──
   const initSource = searchParams.get('source') as 'all' | 'web' | 'slack' | null;
   const initUsers = searchParams.get('users');
@@ -440,6 +786,7 @@ function AdminPage() {
   const [statsChannelFilter, setStatsChannelFilter] = useState<string[]>([]);
   const [statsChannels, setStatsChannels] = useState<string[]>([]);
   const rangeLabel = datePreset === "1h" ? "1 Hour" : datePreset === "12h" ? "12 Hours" : datePreset === "24h" ? "24 Hours" : datePreset === "7d" ? "7 Days" : datePreset === "90d" ? "90 Days" : datePreset === "custom" ? "Custom Range" : "30 Days";
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
 
   useEffect(() => {
     // Fetch admin data when authenticated or when SSO is disabled (local dev)
@@ -448,13 +795,63 @@ function AdminPage() {
     }
   }, [status]);
 
+  const fetchTeamsFromDb = async (): Promise<Team[]> => {
+    const response = await fetch(`/api/admin/teams?fresh=${Date.now()}`, {
+      cache: 'no-store',
+    });
+    const result = await response.json();
+
+    if (!response.ok || !result.success) {
+      throw new Error(result.error || 'Failed to load teams');
+    }
+
+    return result.data?.teams || [];
+  };
+
+  const loadTeams = async () => {
+    setTeamsRefreshing(true);
+    try {
+      setTeams(await fetchTeamsFromDb());
+    } catch (err: any) {
+      console.error('[Admin] Failed to refresh teams:', err);
+      alert(`Failed to refresh teams: ${err.message || 'Unknown error'}`);
+    } finally {
+      setTeamsRefreshing(false);
+    }
+  };
+
+  const filteredTeams = useMemo(() => {
+    const query = teamSearch.trim().toLowerCase();
+    if (!query) return teams;
+
+    return teams.filter((team) => {
+      const searchableValues = [
+        team.name,
+        team.slug,
+        team.description,
+        team.owner_id,
+        // Defensive read: post Commit 6/8 of the canonical-team-membership
+        // refactor the embedded `members[]` array goes away. Until the
+        // search-by-member-email UX is reworked to lazily fetch rosters
+        // via `/api/admin/teams/[id]` we still consult the embedded list
+        // when it's present, but never crash if it's absent.
+        ...(team.members ?? []).map((member) => member.user_id),
+      ];
+      return searchableValues
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(query));
+    });
+  }, [teams, teamSearch]);
+
   // Expand team: prefixed selections to member emails
+  // See `filteredTeams` above for the canonical-team-membership refactor note —
+  // same defensive guard applies here.
   const expandStatsUsers = (selected: string[]): string[] => {
     const emails = new Set<string>();
     for (const s of selected) {
       if (s.startsWith('team:')) {
         const team = teams.find((t) => t.name === s.slice(5));
-        if (team) team.members.forEach((m) => emails.add(m.user_id));
+        if (team) (team.members ?? []).forEach((m) => emails.add(m.user_id));
       } else {
         emails.add(s);
       }
@@ -507,10 +904,13 @@ function AdminPage() {
     try {
       const feedbackOn = getConfig('feedbackEnabled');
       const npsOn = getConfig('npsEnabled');
-      // Fetch stats, users, teams, skill metrics, feedback, and NPS in parallel
-      // Always fetch unfiltered stats for the global overview cards
+      // Fetch stats, teams, skill metrics, feedback, and NPS in parallel.
+      // The user list is intentionally NOT fetched here — UserManagementTab
+      // lazy-loads it when the Users tab is selected. Fetching it eagerly
+      // burned a Keycloak list+count round-trip on every admin page load
+      // and the result was discarded.
       const hasStatsFilters = sourceFilter !== 'all' || userFilter.length > 0;
-      const [statsRes, globalStatsRes, usersRes, teamsRes, skillStatsRes, feedbackRes, npsRes] = await Promise.all([
+      const [statsRes, globalStatsRes, teamsData, skillStatsRes, feedbackRes, npsRes] = await Promise.all([
         (() => {
           const p = new URLSearchParams({ from: dateRange.from, to: dateRange.to });
           if (sourceFilter !== 'all') p.set('source', sourceFilter);
@@ -518,24 +918,28 @@ function AdminPage() {
           return fetch(`/api/admin/stats?${p}`);
         })(),
         hasStatsFilters ? fetch('/api/admin/stats') : null,
-        fetch('/api/admin/users'),
-        fetch('/api/admin/teams').catch(() => null),
+        fetchTeamsFromDb().catch(() => []),
         fetch('/api/admin/stats/skills').catch(() => null),
         feedbackOn ? fetch('/api/admin/feedback').catch(() => null) : null,
         npsOn ? fetch('/api/admin/nps').catch(() => null) : null,
       ]);
 
-      if (statsRes.status === 401 || usersRes.status === 401) {
+      if (statsRes.status === 401) {
         setError('Not authenticated. Please sign in via SSO first.');
         setLoading(false);
         return;
       }
 
-      const [statsResponse, globalStatsResponse, usersResponse, teamsResponse] = await Promise.all([
-        statsRes.json(),
+      const statsForbidden = statsRes.status === 403;
+      if (statsForbidden && !tabGateValues.settings) {
+        setError('Access denied. Try signing out and back in to refresh your session.');
+        setLoading(false);
+        return;
+      }
+
+      const [statsResponse, globalStatsResponse] = await Promise.all([
+        statsForbidden ? Promise.resolve({ success: false }) : statsRes.json(),
         globalStatsRes ? globalStatsRes.json().catch(() => null) : null,
-        usersRes.json(),
-        teamsRes ? teamsRes.json().catch(() => ({ success: true, data: { teams: [] } })) : { success: true, data: { teams: [] } },
       ]);
 
       if (statsResponse.success) {
@@ -544,26 +948,11 @@ function AdminPage() {
         // Use unfiltered response for global overview, or the main response if no filters were applied
         const overviewData = globalStatsResponse?.success ? globalStatsResponse.data.overview : statsResponse.data.overview;
         setGlobalOverview(overviewData);
-      } else {
+      } else if (!statsForbidden) {
         throw new Error(statsResponse.error || 'Failed to load stats');
       }
 
-      if (usersResponse.success) {
-        setUsers(usersResponse.data.users);
-        if (usersResponse.data.pagination) {
-          setUserTotal(usersResponse.data.pagination.total);
-          setUserTotalPages(usersResponse.data.pagination.total_pages);
-          setUserPage(usersResponse.data.pagination.page);
-        } else {
-          setUserTotal(usersResponse.data.total || usersResponse.data.users.length);
-        }
-      } else {
-        throw new Error(usersResponse.error || 'Failed to load users');
-      }
-
-      if (teamsResponse.success) {
-        setTeams(teamsResponse.data.teams || []);
-      }
+      setTeams(teamsData);
 
       if (skillStatsRes?.ok) {
         const skillStatsResponse = await skillStatsRes.json().catch(() => ({ success: false }));
@@ -592,29 +981,6 @@ function AdminPage() {
       setError(err.message || 'Failed to load admin data');
     } finally {
       setLoading(false);
-    }
-  };
-
-  const loadUsers = async (search?: string, page = 1) => {
-    setUsersLoading(true);
-    try {
-      const params = new URLSearchParams({ page: String(page), limit: '50' });
-      const q = search ?? userSearch;
-      if (q) params.set('search', q);
-      const res = await fetch(`/api/admin/users?${params}`);
-      if (res.ok) {
-        const json = await res.json();
-        if (json.success) {
-          setUsers(json.data.users);
-          setUserTotal(json.data.pagination.total);
-          setUserTotalPages(json.data.pagination.total_pages);
-          setUserPage(json.data.pagination.page);
-        }
-      }
-    } catch (err) {
-      console.error('[Admin] Failed to load users:', err);
-    } finally {
-      setUsersLoading(false);
     }
   };
 
@@ -755,45 +1121,7 @@ function AdminPage() {
     }
   };
 
-  const handleRoleChange = async (email: string, newRole: 'admin' | 'user') => {
-    if (!confirm(`Are you sure you want to change ${email} to ${newRole}?`)) {
-      return;
-    }
-
-    setUpdatingRole(email);
-
-    try {
-      const response = await fetch(`/api/admin/users/${encodeURIComponent(email)}/role`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ role: newRole }),
-      });
-
-      const result = await response.json();
-
-      if (!result.success) {
-        throw new Error(result.error || 'Failed to update role');
-      }
-
-      // Update local state
-      setUsers(users.map(u =>
-        u.email === email ? { ...u, role: newRole } : u
-      ));
-
-      console.log(`[Admin] Successfully changed ${email} to ${newRole}`);
-    } catch (err: any) {
-      console.error('[Admin] Failed to update role:', err);
-      alert(`Failed to update role: ${err.message}`);
-    } finally {
-      setUpdatingRole(null);
-    }
-  };
-
   const handleDeleteTeam = async (team: Team) => {
-    if (!confirm(`Are you sure you want to delete the team "${team.name}"? This cannot be undone.`)) {
-      return;
-    }
-
     setDeletingTeam(team._id);
     try {
       const response = await fetch(`/api/admin/teams/${team._id}`, {
@@ -807,6 +1135,7 @@ function AdminPage() {
 
       // Remove from local state
       setTeams(teams.filter(t => t._id !== team._id));
+      setTeamPendingDelete(null);
       console.log(`[Admin] Team deleted: ${team.name}`);
     } catch (err: any) {
       console.error('[Admin] Failed to delete team:', err);
@@ -816,7 +1145,7 @@ function AdminPage() {
     }
   };
 
-  const openTeamDialog = (team: Team, mode: "details" | "members") => {
+  const openTeamDialog = (team: Team, mode: TeamDialogMode) => {
     setSelectedTeam(team as TeamType);
     setTeamDialogMode(mode);
     setTeamDetailsOpen(true);
@@ -879,250 +1208,323 @@ function AdminPage() {
               </p>
             </div>
 
-            {/* Overview Stats — always shows unfiltered global totals */}
-            {globalOverview && (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Total Users</CardTitle>
-                    <Users className="h-4 w-4 text-muted-foreground" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold">{globalOverview.total_users}</div>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      DAU: {globalOverview.dau} | MAU: {globalOverview.mau}
-                    </p>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Conversations</CardTitle>
-                    <MessageSquare className="h-4 w-4 text-muted-foreground" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold">{globalOverview.total_conversations}</div>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Today: +{globalOverview.conversations_today}
-                    </p>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Messages</CardTitle>
-                    <Activity className="h-4 w-4 text-muted-foreground" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold">{globalOverview.total_messages}</div>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Today: +{globalOverview.messages_today}
-                    </p>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Shared (Web)</CardTitle>
-                    <Share2 className="h-4 w-4 text-muted-foreground" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold">{globalOverview.shared_conversations}</div>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      {globalOverview.total_conversations > 0 ? ((globalOverview.shared_conversations / globalOverview.total_conversations) * 100).toFixed(1) : '0.0'}% of all conversations
-                    </p>
-                  </CardContent>
-                </Card>
-              </div>
-            )}
-
             {/* Tabbed Content */}
             <Tabs value={activeTab} onValueChange={(tab) => {
+              userSelectedAdminTabRef.current = true;
               setActiveTab(tab);
-              const nextCategory = categoryForTab(tab);
-              setActiveCategory(nextCategory);
+              setActiveCategory(categoryForTab(tab));
               const params = new URLSearchParams(searchParams.toString());
-              params.set('cat', nextCategory);
+              params.set('cat', categoryForTab(tab));
               params.set('tab', tab);
+              if (tab !== 'openfga') {
+                params.delete('subtab');
+                params.delete('openfgaTab');
+              }
               router.replace(`${pathname}?${params.toString()}`, { scroll: false });
             }} className="space-y-4">
+              {/* Category selector */}
               <div className="flex flex-wrap gap-1.5">
-                {visibleCategories.map((category) => {
-                  const Icon = category.icon;
-                  const selected = category.key === activeCategory;
+                {visibleCategories.map((cat) => {
+                  const Icon = cat.icon;
+                  const isActive = activeCategory === cat.key;
                   return (
                     <button
-                      key={category.key}
-                      type="button"
-                      aria-pressed={selected}
-                      onClick={() => handleCategoryChange(category.key)}
-                      className={cn(
-                        "inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-colors",
-                        selected
-                          ? "bg-primary text-primary-foreground shadow-sm"
-                          : "bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground"
-                      )}
+                      key={cat.key}
+                      onClick={() => handleCategoryChange(cat.key)}
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                        isActive
+                          ? 'bg-primary text-primary-foreground shadow-sm'
+                          : 'bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground'
+                      }`}
                     >
                       <Icon className="h-3.5 w-3.5" />
-                      {category.label}
+                      {cat.label}
                     </button>
                   );
                 })}
+                {isAdmin && (
+                  <button
+                    type="button"
+                    onClick={() => setSimulationDialogOpen(true)}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                      isSimulationActive
+                        ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30'
+                        : 'bg-muted/40 text-muted-foreground hover:bg-muted hover:text-foreground'
+                    }`}
+                  >
+                    <Eye className="h-3.5 w-3.5" />
+                    View as
+                    {isSimulationActive && (
+                      <span className="max-w-40 truncate">
+                        {simulation?.subject?.openfga_user ?? simulationTarget?.id}
+                      </span>
+                    )}
+                  </button>
+                )}
               </div>
 
-              <TabsList className="flex w-full justify-start gap-0 overflow-x-auto">
-                {visibleTabsForCategory.map((tab) => {
-                  const Icon = tab.icon;
+              <Dialog open={simulationDialogOpen} onOpenChange={setSimulationDialogOpen}>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>View As Effective Permissions</DialogTitle>
+                    <DialogDescription>
+                      Search for a real user or team. Preview is read-only and evaluates Admin visibility
+                      against the selected OpenFGA subject.
+                    </DialogDescription>
+                  </DialogHeader>
+
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium text-muted-foreground" htmlFor="simulate-type">
+                          Subject type
+                        </label>
+                        <select
+                          id="simulate-type"
+                          value={simulationType}
+                          onChange={(event) => {
+                            const nextType = event.target.value as "user" | "team";
+                            setSimulationType(nextType);
+                            setSimulationId("");
+                            setSimulationSearch("");
+                            setSimulationUsers([]);
+                            setSimulationTeams([]);
+                          }}
+                          className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                        >
+                          <option value="team">Team</option>
+                          <option value="user">User</option>
+                        </select>
+                      </div>
+                      {simulationType === "team" && (
+                        <div className="space-y-1">
+                          <label className="text-xs font-medium text-muted-foreground" htmlFor="simulate-relation">
+                            Role / relation
+                          </label>
+                          <select
+                            id="simulate-relation"
+                            value={simulationRelation}
+                            onChange={(event) => setSimulationRelation(event.target.value as "member" | "admin")}
+                            className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                          >
+                            <option value="admin">Manager/Admin</option>
+                            <option value="member">Reader/Member</option>
+                          </select>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-muted-foreground" htmlFor="simulate-search">
+                        {simulationType === "team" ? "Search team, slug, or role" : "Search user, email, or sub"}
+                      </label>
+                      <div className="relative">
+                        <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                        <input
+                          id="simulate-search"
+                          value={simulationSearch}
+                          onChange={(event) => {
+                            setSimulationSearch(event.target.value);
+                            setSimulationId(event.target.value.trim());
+                          }}
+                          placeholder={
+                            simulationType === "team"
+                              ? "Search team name or slug"
+                              : "Search by email, name, or Keycloak sub"
+                          }
+                          className="h-9 w-full rounded-md border border-input bg-background pl-9 pr-3 text-sm"
+                        />
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        You can select a search result or enter a raw OpenFGA id directly.
+                      </p>
+                    </div>
+
+                    <div className="max-h-56 overflow-y-auto rounded-md border border-border">
+                      {simulationSearchLoading ? (
+                        <div className="p-3 text-sm text-muted-foreground">Searching...</div>
+                      ) : simulationType === "user" ? (
+                        simulationUsers.length > 0 ? (
+                          simulationUsers.map((user) => {
+                            const label = [user.firstName, user.lastName].filter(Boolean).join(" ") || user.username || user.email || user.id;
+                            return (
+                              <button
+                                key={user.id}
+                                type="button"
+                                onClick={() => {
+                                  setSimulationId(user.id);
+                                  setSimulationSearch(user.email || user.username || user.id);
+                                }}
+                                className="block w-full px-3 py-2 text-left text-sm hover:bg-muted"
+                              >
+                                <span className="font-medium">{label}</span>{" "}
+                                {user.email && <span className="text-muted-foreground">{user.email}</span>}{" "}
+                                <code className="text-xs text-muted-foreground">{user.id}</code>
+                              </button>
+                            );
+                          })
+                        ) : (
+                          <div className="p-3 text-sm text-muted-foreground">Type at least 2 characters to search users.</div>
+                        )
+                      ) : simulationTeams.length > 0 ? (
+                        simulationTeams.map((team) => {
+                          const teamId = team.slug || team.id || team._id || team.name;
+                          return (
+                            <button
+                              key={teamId}
+                              type="button"
+                              onClick={() => {
+                                setSimulationId(teamId);
+                                setSimulationSearch(team.slug || team.name);
+                              }}
+                              className="block w-full px-3 py-2 text-left text-sm hover:bg-muted"
+                            >
+                              <span className="font-medium">{team.name}</span>{" "}
+                              <code className="text-xs text-muted-foreground">{teamId}</code>
+                            </button>
+                          );
+                        })
+                      ) : (
+                        <div className="p-3 text-sm text-muted-foreground">Type at least 2 characters to search teams.</div>
+                      )}
+                    </div>
+
+                    {isSimulationActive && (
+                      <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm">
+                        <span className="font-medium">Active preview:</span>{" "}
+                        <code>{simulation?.subject?.openfga_user ?? `${simulationTarget?.type}:${simulationTarget?.id}`}</code>
+                      </div>
+                    )}
+                  </div>
+
+                  <DialogFooter>
+                    {isSimulationActive && (
+                      <Button type="button" variant="outline" onClick={clearSimulationTarget}>
+                        Exit Simulation
+                      </Button>
+                    )}
+                    <Button type="button" onClick={applySimulationTarget} disabled={!simulationId.trim()}>
+                      Preview
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+
+              {/* Filtered sub-tabs for the active category */}
+              <TabsList className="flex w-full justify-start gap-0">
+                {visibleTabsForCategory.map((t) => {
+                  const Icon = t.icon;
                   return (
-                    <TabsTrigger key={tab.value} value={tab.value} className="gap-1.5 shrink-0">
+                    <TabsTrigger key={t.value} value={t.value} className="gap-1.5 shrink-0">
                       <Icon className="h-4 w-4" />
-                      {tab.label}
+                      {t.label}
                     </TabsTrigger>
                   );
                 })}
               </TabsList>
 
+              {tabGateValues.settings && (
+                <TabsContent value="settings" className="space-y-4">
+                  <PlatformSettingsTab isAdmin={isAdmin} />
+                </TabsContent>
+              )}
+
+              {tabGateValues.settings && (
+                <TabsContent value="release-notes" className="space-y-4">
+                  <ReleaseNotesSettingsTab isAdmin={isAdmin} />
+                </TabsContent>
+              )}
+
+              {tabGateValues.ai_review && (
+                <TabsContent value="ai-review" className="space-y-4">
+                  <ReviewConfigsTab />
+                </TabsContent>
+              )}
+
+              {tabGateValues.credentials && (
+                <TabsContent value="credentials" className="space-y-4">
+                  <AdminCredentialManagementPanel />
+                </TabsContent>
+              )}
+
+              {tabGateValues.openfga && (
+                <TabsContent value="rag-access" className="space-y-4">
+                  <RagTeamAccessPanel isAdmin={isAdmin} />
+                </TabsContent>
+              )}
+
+              {tabGateValues.slack && (
+                <TabsContent value="slack" className="space-y-4">
+                  <SlackChannelRebacPanel disabled={isSimulationActive} selfService={!isAdmin} />
+                </TabsContent>
+              )}
+
+              {tabGateValues.webex && (
+                <TabsContent value="webex" className="space-y-4">
+                  <WebexSpaceRebacPanel disabled={isSimulationActive} selfService={!isAdmin} />
+                </TabsContent>
+              )}
+
               {/* User Management Tab */}
               <TabsContent value="users" className="space-y-4">
-                {/* Search */}
-                <div className="flex items-center gap-3">
-                  <div className="relative flex-1 max-w-sm">
-                    <Filter className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-                    <input
-                      type="text"
-                      placeholder="Search by name or email..."
-                      value={userSearch}
-                      onChange={(e) => {
-                        setUserSearch(e.target.value);
-                        const q = e.target.value;
-                        clearTimeout((window as any).__userSearchTimer);
-                        (window as any).__userSearchTimer = setTimeout(() => {
-                          loadUsers(q, 1);
-                        }, 300);
-                      }}
-                      className="h-8 w-full rounded-md border border-input bg-background pl-8 pr-3 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
-                    />
-                    {userSearch && (
-                      <button
-                        onClick={() => { setUserSearch(''); loadUsers('', 1); }}
-                        className="absolute right-2 top-1/2 -translate-y-1/2"
-                      >
-                        <X className="h-3.5 w-3.5 text-muted-foreground hover:text-foreground" />
-                      </button>
-                    )}
-                  </div>
-                  <span className="text-xs text-muted-foreground">{userTotal} users</span>
-                </div>
-
-                {/* Table */}
-                <div className="space-y-2 relative">
-                  {usersLoading && (
-                    <div className="absolute inset-0 bg-background/60 z-10 flex items-center justify-center rounded">
-                      <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-                    </div>
-                  )}
-                  <div className={`grid gap-4 pb-2 border-b text-xs font-medium text-muted-foreground ${isAdmin ? 'grid-cols-6' : 'grid-cols-5'}`}>
-                    <div>Email</div>
-                    <div>Name</div>
-                    <div>Role</div>
-                    <div>Activity</div>
-                    <div>Stats</div>
-                    {isAdmin && <div className="text-right">Actions</div>}
-                  </div>
-                  {users.length === 0 && !usersLoading ? (
-                    <div className="text-center py-8 text-sm text-muted-foreground">
-                      {userSearch ? 'No users matching your search' : 'No users found'}
-                    </div>
-                  ) : users.map((user) => (
-                    <div key={user.email} className={`grid gap-4 py-2 text-sm hover:bg-muted/50 rounded px-2 items-center ${isAdmin ? 'grid-cols-6' : 'grid-cols-5'}`}>
-                      <div className="truncate text-primary hover:underline cursor-pointer" onClick={() => setSelectedUserEmail(user.email)}>{user.email}</div>
-                      <div className="truncate text-primary hover:underline cursor-pointer" onClick={() => setSelectedUserEmail(user.email)}>{user.name}</div>
-                      <div>
-                        <span className={`px-2 py-0.5 rounded text-xs ${
-                          user.role === 'admin'
-                            ? 'bg-red-500/10 text-red-600 dark:text-red-400'
-                            : 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
-                        }`}>
-                          {user.role}
-                        </span>
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        {new Date(user.last_activity).toLocaleDateString()}
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        {user.stats.conversations} chats, {user.stats.messages} msgs
-                      </div>
-                      {isAdmin && (
-                        <div className="flex justify-end gap-1">
-                          {user.role === 'user' ? (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => handleRoleChange(user.email, 'admin')}
-                              disabled={updatingRole === user.email}
-                              className="h-7 text-xs gap-1"
-                            >
-                              <ShieldCheck className="h-3 w-3" />
-                              Make Admin
-                            </Button>
-                          ) : (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => handleRoleChange(user.email, 'user')}
-                              disabled={updatingRole === user.email}
-                              className="h-7 text-xs gap-1"
-                            >
-                              <ShieldOff className="h-3 w-3" />
-                              Remove Admin
-                            </Button>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-
-                {/* Pagination */}
-                {userTotalPages > 1 && (
-                  <div className="flex items-center justify-between pt-2 border-t">
-                    <p className="text-xs text-muted-foreground">
-                      Page {userPage} of {userTotalPages}
-                    </p>
-                    <div className="flex gap-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-7 text-xs"
-                        disabled={userPage <= 1 || usersLoading}
-                        onClick={() => loadUsers(undefined, userPage - 1)}
-                      >
-                        Previous
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-7 text-xs"
-                        disabled={userPage >= userTotalPages || usersLoading}
-                        onClick={() => loadUsers(undefined, userPage + 1)}
-                      >
-                        Next
-                      </Button>
-                    </div>
-                  </div>
+                <UserManagementTab onSelectUser={(id) => setSelectedUserId(id)} />
+                {selectedUserId && (
+                  <UserDetailModal
+                    userId={selectedUserId}
+                    onClose={() => setSelectedUserId(null)}
+                    onSaved={() => {}}
+                    readOnly={!isAdmin}
+                  />
                 )}
               </TabsContent>
 
               {/* Team Management Tab */}
               <TabsContent value="teams" className="space-y-4">
-                {isAdmin && (
-                  <div className="flex justify-end">
-                    <Button className="gap-2" onClick={() => setCreateTeamDialogOpen(true)}>
-                      <UserPlus className="h-4 w-4" />
-                      Create Team
-                    </Button>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="relative w-full sm:max-w-md">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <input
+                      type="search"
+                      aria-label="Search teams"
+                      value={teamSearch}
+                      onChange={(event) => setTeamSearch(event.target.value)}
+                      placeholder="Search teams by name, owner, or description"
+                      className="h-10 w-full rounded-md border border-input bg-background pl-9 pr-9 text-sm outline-none ring-offset-background placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                    />
+                    {teamSearch && (
+                      <button
+                        type="button"
+                        aria-label="Clear search input"
+                        onClick={() => setTeamSearch("")}
+                        className="absolute right-2 top-1/2 rounded p-1 text-muted-foreground hover:text-foreground -translate-y-1/2"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    )}
                   </div>
-                )}
+                  <div className="flex justify-end gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="gap-2"
+                      onClick={loadTeams}
+                      disabled={teamsRefreshing}
+                    >
+                      {teamsRefreshing ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <RefreshCw className="h-4 w-4" />
+                      )}
+                      Refresh Teams
+                    </Button>
+                    {isAdmin && (
+                      <Button className="gap-2" onClick={() => setCreateTeamDialogOpen(true)}>
+                        <UserPlus className="h-4 w-4" />
+                        Create Team
+                      </Button>
+                    )}
+                  </div>
+                </div>
                 {teams.length === 0 ? (
                   <div className="text-center py-12">
                     <UsersIcon className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
@@ -1139,9 +1541,24 @@ function AdminPage() {
                       </Button>
                     )}
                   </div>
+                ) : filteredTeams.length === 0 ? (
+                  <div className="rounded-lg border border-dashed py-12 text-center">
+                    <Search className="h-10 w-10 text-muted-foreground mx-auto mb-4" />
+                    <h3 className="text-lg font-semibold mb-2">No teams match &quot;{teamSearch}&quot;</h3>
+                    <p className="text-muted-foreground mb-4">
+                      Try a team name, owner email, member email, or description.
+                    </p>
+                    <Button type="button" variant="outline" onClick={() => setTeamSearch("")}>
+                      Clear team search
+                    </Button>
+                  </div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {teams.map((team) => (
+                    {filteredTeams.map((team) => {
+                      const chatIntegrationCount =
+                        (team.slack_channels?.length ?? 0) + (team.webex_spaces?.length ?? 0);
+
+                      return (
                       <Card key={team._id}>
                         <CardHeader>
                           <div className="flex items-center justify-between">
@@ -1156,7 +1573,8 @@ function AdminPage() {
                                 variant="ghost"
                                 size="sm"
                                 className="text-destructive hover:text-destructive"
-                                onClick={() => handleDeleteTeam(team)}
+                                aria-label={`Delete ${team.name}`}
+                                onClick={() => setTeamPendingDelete(team)}
                                 disabled={deletingTeam === team._id}
                               >
                                 {deletingTeam === team._id ? (
@@ -1169,39 +1587,83 @@ function AdminPage() {
                           </div>
                         </CardHeader>
                         <CardContent>
-                          <div className="space-y-2">
-                            <div className="flex items-center justify-between text-sm">
-                              <span className="text-muted-foreground">Members:</span>
-                              <span>{team.members.length}</span>
-                            </div>
-                            <div className="flex items-center justify-between text-sm">
-                              <span className="text-muted-foreground">Owner:</span>
-                              <span className="text-primary hover:underline cursor-pointer" onClick={() => setSelectedUserEmail(team.owner_id)}>{team.owner_id}</span>
-                            </div>
-                            <div className="flex gap-2 mt-4">
-                              {isAdmin && (
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="flex-1"
-                                  onClick={() => openTeamDialog(team, "members")}
-                                >
-                                  Manage Members
-                                </Button>
-                              )}
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="flex-1"
-                                onClick={() => openTeamDialog(team, "details")}
-                              >
-                                View Details
-                              </Button>
-                            </div>
+                          {/* Owner row — clearly labeled, not styled like a button. */}
+                          <div className="flex items-center justify-between text-sm pb-3 border-b">
+                            <span className="text-muted-foreground">Owner</span>
+                            <button
+                              type="button"
+                              className="text-sm hover:underline truncate max-w-[60%] text-right"
+                              onClick={() => setSelectedUserEmail(team.owner_id)}
+                              title="Open user details"
+                            >
+                              {team.owner_id}
+                            </button>
+                          </div>
+
+                          {/* Quick stats — 5 chips give an at-a-glance summary
+                              and double as deep-links into the right tab in
+                              the team-management dialog. Counts that we
+                              don't have on the Team object yet (KBs) just
+                              hide the number and show an icon. */}
+                          <div className="grid grid-cols-5 gap-1.5 mt-3">
+                            <StatChip
+                              icon={<Users className="h-3.5 w-3.5" />}
+                              label="Members"
+                              count={team.member_count ?? 0}
+                              onClick={() => openTeamDialog(team, "members")}
+                            />
+                            <StatChip
+                              icon={<Bot className="h-3.5 w-3.5" />}
+                              label="Agents"
+                              count={team.resources?.agents?.length}
+                              onClick={() => openTeamDialog(team, "resources")}
+                            />
+                            <StatChip
+                              icon={<Wrench className="h-3.5 w-3.5" />}
+                              label="Tools"
+                              count={
+                                team.resources?.tool_wildcard
+                                  ? "*"
+                                  : team.resources?.tools?.length
+                              }
+                              onClick={() => openTeamDialog(team, "resources")}
+                            />
+                            <StatChip
+                              icon={<Database className="h-3.5 w-3.5" />}
+                              label="KBs"
+                              count={team.resources?.knowledge_bases?.length}
+                              onClick={() => openTeamDialog(team, "kbs")}
+                            />
+                            <StatChip
+                              icon={<MessageSquare className="h-3.5 w-3.5" />}
+                              label="Chat"
+                              count={chatIntegrationCount}
+                              ariaLabel={`${chatIntegrationCount} chat integration${chatIntegrationCount === 1 ? "" : "s"}`}
+                              title="Manage chat integrations"
+                              onClick={() => openTeamDialog(team, "channels")}
+                            />
+                          </div>
+
+                          {/* Single primary action — replaces the previous
+                              two-button row. The chips above give shortcuts
+                              into specific tabs; this is the catch-all. */}
+                          <div className="mt-4">
+                            <Button
+                              size="sm"
+                              variant={isAdmin ? "default" : "outline"}
+                              className="w-full gap-1.5"
+                              onClick={() =>
+                                openTeamDialog(team, isAdmin ? "details" : "details")
+                              }
+                            >
+                              <Settings className="h-3.5 w-3.5" />
+                              {isAdmin ? "Manage team" : "View team"}
+                            </Button>
                           </div>
                         </CardContent>
                       </Card>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </TabsContent>
@@ -1339,7 +1801,7 @@ function AdminPage() {
               </TabsContent>
 
               {/* Feedback Tab */}
-              {feedbackEnabled && <TabsContent value="feedback" className="space-y-4">
+              {tabGateValues.feedback && <TabsContent value="feedback" className="space-y-4">
                 {/* Filters */}
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3 flex-wrap">
@@ -1413,7 +1875,9 @@ function AdminPage() {
                             for (const s of selected) {
                               if (s.startsWith('team:')) {
                                 const team = teams.find((t) => t.name === s.slice(5));
-                                if (team) team.members.forEach((m) => emails.add(m.user_id));
+                                // Defensive read — see `filteredTeams` for the
+                                // canonical-team-membership refactor context.
+                                if (team) (team.members ?? []).forEach((m) => emails.add(m.user_id));
                               } else {
                                 emails.add(s);
                               }
@@ -1572,7 +2036,7 @@ function AdminPage() {
               </TabsContent>}
 
               {/* NPS Tab */}
-              {npsEnabled && <TabsContent value="nps" className="space-y-4">
+              {tabGateValues.nps && <TabsContent value="nps" className="space-y-4">
                 {/* Campaign Management */}
                 {isAdmin && (
                   <Card>
@@ -1980,6 +2444,8 @@ function AdminPage() {
 
               {/* Usage Statistics Tab */}
               <TabsContent value="stats" className="space-y-4">
+                <OverviewStatsCards overview={globalOverview} />
+
                 {/* Stats Filters */}
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3 flex-wrap">
@@ -2015,7 +2481,7 @@ function AdminPage() {
                     <MultiSelect
                       options={[
                         ...teams.map((t) => `team:${t.name}`),
-                        ...users.map((u) => u.email),
+                        ...feedbackUsers,
                       ]}
                       selected={userFilter}
                       onChange={(selected) => {
@@ -2024,7 +2490,9 @@ function AdminPage() {
                           if (s.startsWith('team:')) {
                             const teamName = s.slice(5);
                             const team = teams.find((t) => t.name === teamName);
-                            if (team) team.members.forEach((m) => emails.add(m.user_id));
+                            // Defensive read — see `filteredTeams` for the
+                            // canonical-team-membership refactor context.
+                            if (team) (team.members ?? []).forEach((m) => emails.add(m.user_id));
                           } else {
                             emails.add(s);
                           }
@@ -2611,33 +3079,42 @@ function AdminPage() {
                 <HealthTab />
               </TabsContent>
 
-              {/* Audit Logs Tab (optional, gated by AUDIT_LOGS_ENABLED + full admin role) */}
-              {auditLogsEnabled && isAdmin && (
+              {tabGateValues.audit_logs && (
                 <TabsContent value="audit-logs" className="space-y-4">
                   <AuditLogsTab isAdmin={isAdmin} onUserClick={setSelectedUserEmail} />
                 </TabsContent>
               )}
 
-              {/* Policy Tab (admin only) */}
-              {isAdmin && (
-                <TabsContent value="policy" className="space-y-4">
-                  <PolicyTab isAdmin={isAdmin} />
+              {tabGateValues.action_audit && (
+                <TabsContent value="action-audit" className="space-y-4">
+                  <UnifiedAuditTab isAdmin={isAdmin} />
                 </TabsContent>
               )}
 
-              {/* AI Review configurations (admin only) */}
-              {isAdmin && (
-                <TabsContent value="ai-review" className="space-y-4">
-                  <ReviewConfigsTab />
+              {tabGateValues.openfga && (
+                <TabsContent value="openfga" className="space-y-4">
+                  <OpenFgaRebacTab isAdmin={isAdmin} />
                 </TabsContent>
               )}
 
-              {/* Platform Settings (admin only) */}
-              {isAdmin && (
-                <TabsContent value="settings" className="space-y-4">
-                  <PlatformSettingsTab isAdmin={isAdmin} />
+              {tabGateValues.migrations && (
+                <TabsContent value="keycloak" className="space-y-4">
+                  <KeycloakMigrationHealthPanel />
                 </TabsContent>
               )}
+
+              {tabGateValues.migrations && (
+                <TabsContent value="migrations" className="space-y-4">
+                  <MigrationTab isAdmin={tabGateValues.migrations} />
+                </TabsContent>
+              )}
+
+              {tabGateValues.identity_group_sync && (
+                <TabsContent value="identity-groups" className="space-y-4">
+                  <IdentityGroupSyncTab isAdmin={isAdmin} />
+                </TabsContent>
+              )}
+
             </Tabs>
           </div>
         </ScrollArea>
@@ -2656,7 +3133,78 @@ function AdminPage() {
         open={teamDetailsOpen}
         onOpenChange={setTeamDetailsOpen}
         onTeamUpdated={loadAdminData}
+        onTeamMutated={(updatedTeam) => {
+          // In-place patch of the teams[] state so the row in the
+          // background list re-renders with the new member count /
+          // attributes — without triggering loadAdminData() (which
+          // sets loading=true and re-fetches the entire dashboard).
+          //
+          // The Team shape used by this page is a structural superset
+          // of the one returned by /api/admin/teams/[id]/* mutation
+          // endpoints; we merge so any locally-known fields the API
+          // doesn't echo back (e.g. denormalised StatChip counters)
+          // survive the patch.
+          setTeams((prev) =>
+            prev.map((t) =>
+              t._id === updatedTeam._id
+                ? ({ ...t, ...(updatedTeam as Partial<Team>) } as Team)
+                : t,
+            ),
+          );
+          // Also keep `selectedTeam` (the prop the dialog reads from)
+          // in sync so its `useEffect(() => setCurrentTeam(team), [team])`
+          // can pick up the patched payload if the dialog re-opens
+          // before the next dashboard refresh.
+          setSelectedTeam((prev) =>
+            prev
+              ? ({ ...prev, ...(updatedTeam as Partial<TeamType>) } as TeamType)
+              : (updatedTeam as TeamType),
+          );
+        }}
       />
+
+      <Dialog
+        open={Boolean(teamPendingDelete)}
+        onOpenChange={(open) => {
+          if (!open && !deletingTeam) {
+            setTeamPendingDelete(null);
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete team?</DialogTitle>
+            <DialogDescription>
+              {teamPendingDelete
+                ? `Are you sure you want to delete the team "${teamPendingDelete.name}"? This cannot be undone.`
+                : "This cannot be undone."}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setTeamPendingDelete(null)}
+              disabled={Boolean(deletingTeam)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => {
+                if (teamPendingDelete) {
+                  void handleDeleteTeam(teamPendingDelete);
+                }
+              }}
+              disabled={Boolean(deletingTeam)}
+            >
+              {deletingTeam ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Delete team
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* User Detail Sliding Panel */}
       <UserDetailPanel
@@ -2672,5 +3220,51 @@ export default function Admin() {
     <AuthGuard>
       <AdminPage />
     </AuthGuard>
+  );
+}
+
+/**
+ * Compact stat chip used inside team cards. Renders as a button so the whole
+ * chip is clickable and keyboard-focusable; clicking jumps the user to the
+ * matching tab in the team-management dialog. When `count` is undefined the
+ * chip still renders (so the chip layout is stable across teams) but only
+ * shows the icon + label, signalling "click to configure".
+ */
+function StatChip({
+  icon,
+  label,
+  count,
+  ariaLabel,
+  title,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  // string variant supports wildcard markers like "*" for all-tool grants
+  count?: number | string;
+  ariaLabel?: string;
+  title?: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={ariaLabel}
+      onClick={onClick}
+      className="flex flex-col items-center justify-center gap-0.5 rounded-md border bg-muted/30 hover:bg-muted/60 transition-colors py-2 px-1 text-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      title={title || `Manage ${label.toLowerCase()}`}
+    >
+      <div className="flex items-center gap-1 text-muted-foreground">
+        {icon}
+        {(typeof count === "number" || typeof count === "string") && (
+          <span className="text-sm font-semibold text-foreground tabular-nums">
+            {count}
+          </span>
+        )}
+      </div>
+      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+        {label}
+      </span>
+    </button>
   );
 }

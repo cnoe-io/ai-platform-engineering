@@ -30,7 +30,7 @@ jobs:
   check-version-bump:
     name: Check Chart Version Bump
     runs-on: ubuntu-latest
-    if: (github.actor != 'github-actions[bot]' && github.actor != 'caipe-release-bot[bot]') &&
+    if: (github.actor != 'github-actions[bot]' && github.actor != 'caipe-ci-release[bot]') &&
       (github.event_name == 'pull_request')
     steps:
       - name: 📥 Checkout repository
@@ -166,7 +166,7 @@ jobs:
 
       - name: 🔐 Login to GHCR
         run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
+          echo "${{ github.token }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
 
       - name: 🔍 Detect Changed Charts
         id: detect

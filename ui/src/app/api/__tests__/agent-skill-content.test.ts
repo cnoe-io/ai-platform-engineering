@@ -27,6 +27,8 @@ jest.mock("next-auth", () => ({
 
 jest.mock("@/lib/auth-config", () => ({
   authOptions: {},
+  isBootstrapAdmin: jest.fn().mockReturnValue(false),
+  REQUIRED_ADMIN_GROUP: "",
 }));
 
 const mockCollections: Record<string, ReturnType<typeof createMockCollection>> = {};

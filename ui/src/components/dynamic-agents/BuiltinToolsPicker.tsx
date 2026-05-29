@@ -41,8 +41,13 @@ function useBuiltinToolDefinitions() {
           throw new Error(`Failed to fetch: ${response.status}`);
         }
         const data = await response.json();
-        // API returns { success: true, data: [...tools] }
-        setDefinitions(data.data || []);
+        // Backend returns `{ success: true, data: { tools: [...] } }`.
+        // Older proxy unwrapped to `{ success: true, data: [...] }`.
+        // Accept both shapes for forward/backward compat.
+        const tools = Array.isArray(data.data)
+          ? data.data
+          : (data.data?.tools ?? []);
+        setDefinitions(tools);
         setError(null);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Unknown error");

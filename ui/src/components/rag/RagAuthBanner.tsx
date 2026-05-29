@@ -1,28 +1,21 @@
 "use client";
 
-import { AlertTriangle, Check, X, Shield, User } from "lucide-react";
+import { AlertTriangle, Check, X, User } from "lucide-react";
 import { useRagPermissions, Permission } from "@/hooks/useRagPermissions";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import type { PermissionType } from "@/lib/rag-api";
 
 interface RagAuthIndicatorProps {
   compact?: boolean;
 }
 
-export function RagAuthIndicator({ compact = false }: RagAuthIndicatorProps) {
-  const { userInfo, hasPermission, isLoading } = useRagPermissions();
+interface PermissionsTooltipContentProps {
+  hasPermission: (permission: PermissionType) => boolean;
+}
 
-  // Don't show while loading
-  if (isLoading) {
-    return null;
-  }
-
-  // No user info available
-  if (!userInfo) {
-    return null;
-  }
-
-  const PermissionsTooltipContent = () => (
+function PermissionsTooltipContent({ hasPermission }: PermissionsTooltipContentProps) {
+  return (
     <div className="space-y-1.5">
       <div className="font-semibold text-xs border-b border-border pb-1 mb-1">Permissions</div>
       <div className="flex items-center gap-2">
@@ -51,6 +44,22 @@ export function RagAuthIndicator({ compact = false }: RagAuthIndicatorProps) {
       </div>
     </div>
   );
+}
+
+export function RagAuthIndicator({ compact = false }: RagAuthIndicatorProps) {
+  const { userInfo, hasPermission, isLoading } = useRagPermissions();
+
+  // Don't show while loading
+  if (isLoading) {
+    return null;
+  }
+
+  // No user info available
+  if (!userInfo) {
+    return null;
+  }
+
+  const ragStatusLabel = userInfo.role === "ADMIN" ? "Admin" : "Non-admin";
 
   // Compact mode for collapsed sidebar - just show icon with tooltip
   if (compact) {
@@ -76,20 +85,11 @@ export function RagAuthIndicator({ compact = false }: RagAuthIndicatorProps) {
             <div className="space-y-2">
               <div className="flex items-center gap-2">
                 <span className="text-xs font-medium">
-                  {isAuthenticated ? userInfo.email : "Unauthenticated"}
-                </span>
-                <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-muted text-muted-foreground">
-                  {userInfo.role}
+                  {isAuthenticated ? ragStatusLabel : "Unauthenticated"}
                 </span>
               </div>
-              {userInfo.in_trusted_network && (
-                <div className="flex items-center gap-1 text-blue-600 dark:text-blue-400">
-                  <Shield className="h-3 w-3" />
-                  <span className="text-[10px]">Trusted network</span>
-                </div>
-              )}
               <div className="border-t border-border pt-2">
-                <PermissionsTooltipContent />
+                <PermissionsTooltipContent hasPermission={hasPermission} />
               </div>
             </div>
           </TooltipContent>
@@ -98,40 +98,28 @@ export function RagAuthIndicator({ compact = false }: RagAuthIndicatorProps) {
     );
   }
 
-  // Show unauthenticated indicator with role
+  // Show unauthenticated indicator with permissions tooltip
   if (!userInfo.is_authenticated) {
     return (
       <TooltipProvider>
         <Tooltip>
           <TooltipTrigger asChild>
             <div className="flex flex-col items-center gap-1 cursor-help">
-              <div className="flex items-center gap-1">
-                <span className="text-[10px] text-muted-foreground">Role:</span>
-                <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-muted/50 text-muted-foreground border border-border">
-                  {userInfo.role}
-                </span>
-              </div>
               <div className="flex items-center gap-1 text-amber-600 dark:text-amber-400">
                 <AlertTriangle className="h-3 w-3" />
                 <span className="text-[10px]">Unauthenticated</span>
               </div>
-              {userInfo.in_trusted_network && (
-                <div className="flex items-center gap-1 text-blue-600 dark:text-blue-400">
-                  <Shield className="h-3 w-3" />
-                  <span className="text-[10px]">Trusted network</span>
-                </div>
-              )}
             </div>
           </TooltipTrigger>
           <TooltipContent side="top" className="w-48">
-            <PermissionsTooltipContent />
+            <PermissionsTooltipContent hasPermission={hasPermission} />
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>
     );
   }
 
-  // Show role badge with permissions tooltip when authenticated
+  // Show authenticated identity with permissions tooltip
   return (
     <TooltipProvider>
       <Tooltip>
@@ -139,24 +127,12 @@ export function RagAuthIndicator({ compact = false }: RagAuthIndicatorProps) {
           <div className="flex flex-col items-center gap-1 cursor-help">
             <div className="flex items-center gap-1">
               <User className="h-3 w-3 text-muted-foreground shrink-0" />
-              <span className="text-[10px] text-muted-foreground truncate">{userInfo.email}</span>
+              <span className="text-[10px] text-muted-foreground truncate">{ragStatusLabel}</span>
             </div>
-            <div className="flex items-center gap-1">
-              <span className="text-[10px] text-muted-foreground">Role:</span>
-              <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-primary/10 text-primary border border-primary/20 shrink-0">
-                {userInfo.role}
-              </span>
-            </div>
-            {userInfo.in_trusted_network && (
-              <div className="flex items-center gap-1 text-blue-600 dark:text-blue-400">
-                <Shield className="h-3 w-3" />
-                <span className="text-[10px]">Trusted network</span>
-              </div>
-            )}
           </div>
         </TooltipTrigger>
         <TooltipContent side="top" className="w-48">
-          <PermissionsTooltipContent />
+          <PermissionsTooltipContent hasPermission={hasPermission} />
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>
