@@ -17,7 +17,7 @@ import {
   Bot,
   AlertTriangle,
   KeyRound,
-  MoreHorizontal,
+  ChevronDown,
   ChevronRight,
 } from "lucide-react";
 import { GithubIcon as Github } from "@/components/ui/icons";
@@ -616,14 +616,14 @@ export function AppHeader() {
                   type="button"
                   aria-label="More navigation"
                   className={cn(
-                    "flex h-8 w-8 items-center justify-center rounded-full text-[13px] font-medium whitespace-nowrap transition-all",
+                    "flex h-8 items-center justify-center gap-1.5 rounded-full px-3 text-[13px] font-medium whitespace-nowrap transition-all",
                     secondaryNavItems.some((item) => activeTab === item.key)
                       ? "bg-primary text-primary-foreground shadow-sm"
                       : "text-muted-foreground hover:text-foreground",
                   )}
                 >
-                  <MoreHorizontal className="h-3.5 w-3.5 shrink-0" />
-                  <span className="sr-only">More</span>
+                  <span>More</span>
+                  <ChevronDown className="h-3.5 w-3.5 shrink-0" />
                 </button>
               </PopoverTrigger>
               <PopoverContent side="bottom" align="start" className="w-56 p-2">

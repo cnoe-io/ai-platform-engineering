@@ -47,8 +47,13 @@ function displayNameForId(id: string): string {
 function routePathForRoute(route: Record<string, unknown>): string | undefined {
   for (const match of asArray(route.matches)) {
     if (!isRecord(match) || !isRecord(match.path)) continue;
-    const value = match.path.value;
-    if (typeof value === "string" && value.trim()) return value.trim();
+    // AgentGateway's admin /config emits the route path under different keys
+    // depending on version: standalone proxy v0.12 returns `pathPrefix` (verified
+    // live), while the Gateway-API-normalized shape uses `{ type, value }`. Accept
+    // any of the known match kinds so per-target `/mcp/<id>` paths are recovered.
+    const path = match.path as Record<string, unknown>;
+    const candidate = path.value ?? path.pathPrefix ?? path.prefix ?? path.exact ?? path.regex;
+    if (typeof candidate === "string" && candidate.trim()) return candidate.trim();
   }
   return undefined;
 }

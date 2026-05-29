@@ -255,10 +255,12 @@ data/
 # TypeScript build cache
 *.tsbuildinfo
 
-# Cursor — track commands and rules, ignore everything else
+# Cursor — track commands, rules, and hooks, ignore everything else
 .cursor/*
 !.cursor/commands/
 !.cursor/rules/
+!.cursor/hooks/
+!.cursor/hooks.json
 
 # Claude Code — track commands and skills, ignore everything else
 .claude/*
