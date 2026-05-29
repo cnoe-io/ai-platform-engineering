@@ -91,6 +91,16 @@ def _env_missing(job: dict[str, Any], name: str) -> bool:
     return all(item.get("name") != name for item in env)
 
 
+def _realm_config(docs: list[dict[str, Any]]) -> tuple[str, dict[str, Any]]:
+    configmap = next(
+        doc
+        for doc in docs
+        if doc.get("kind") == "ConfigMap" and doc["metadata"]["name"].endswith("-realm")
+    )
+    raw = configmap["data"]["realm-config.json"]
+    return raw, json.loads(raw)
+
+
 # The three Jobs that consume the strict flag.
 _TARGET_JOB_SUFFIXES = ("-init-idp", "-auth-reconcile", "-init-token-exchange")
 
@@ -136,6 +146,20 @@ def test_strict_mode_explicit_false_omits_env_var() -> None:
         )
 
 
+def test_realm_import_follows_configured_realm_name() -> None:
+    """The Keycloak import JSON must serve the same realm probed by the chart."""
+    docs = _helm_template("realm.name=forge")
+
+    raw, realm = _realm_config(docs)
+
+    assert realm["realm"] == "forge"
+    assert realm["defaultRole"]["name"] == "default-roles-forge"
+    assert "default-roles-caipe" not in raw
+    for role in realm["roles"]["realm"]:
+        if "containerId" in role:
+            assert role["containerId"] == "forge"
+
+
 def test_realm_config_grants_caipe_platform_admin_client_roles() -> None:
     """Fresh realms must let the BFF migration inspect and repair clients."""
     realm = json.loads(REALM_CONFIG_PATH.read_text())
@@ -157,6 +181,14 @@ def test_init_idp_reconciles_caipe_platform_admin_client_roles() -> None:
     missing = [role for role in CAIPE_PLATFORM_ADMIN_ROLES if role not in script]
 
     assert missing == []
+
+
+def test_init_idp_uses_configured_realm_default_role_name() -> None:
+    """Existing realms must patch default-roles-${KC_REALM}, not caipe only."""
+    script = INIT_IDP_PATH.read_text()
+
+    assert 'DEFAULT_REALM_ROLE="default-roles-${REALM}"' in script
+    assert 'grep -B1 "\\"${DEFAULT_REALM_ROLE}\\""' in script
 
 
 def test_init_token_exchange_reconciles_webex_impersonation_role() -> None:
