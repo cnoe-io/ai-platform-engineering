@@ -1346,7 +1346,7 @@ In Helm and GitOps installs, `charts/ai-platform-engineering/charts/slack-bot/te
 
 The realm seeder already provisions `caipe-platform` with all of those, so the default values "just work" in dev.
 
-## Spec 104 — `active_team` JWT claim (REMOVED by Phase 3 of spec 2026-05-24-derive-team-from-channel)
+## Spec 104 — `active_team` JWT claim (REMOVED by Phase 3 of spec 2026-05-24-derive-team-from-channel) {#spec-104--active_team-jwt-claim-team-scope-refactor}
 
 > **Status: removed.** The `active_team` JWT claim mechanism described
 > here has been demolished. Team identity is now derived from the

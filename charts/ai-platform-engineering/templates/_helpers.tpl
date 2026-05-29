@@ -145,6 +145,60 @@ When empty, use .Release.Name so legacy DNS like <release>-agent-jira-mcp stays 
 {{- end -}}
 
 {{/*
+Normalized list of AgentGateway MCP targets, as YAML.
+
+Single source of truth for both the Gateway API custom resources
+(templates/agentgateway-mcp.yaml) and the CRD-free standalone static config
+(templates/agentgateway-static-config.yaml). Each entry is a dict:
+
+  id:          MCP server id / route segment (e.g. "argocd", "knowledge-base")
+  pathPrefix:  HTTP path prefix served by the gateway (e.g. "/mcp/argocd")
+  host:        in-cluster MCP service DNS (host only, no scheme/path)
+  port:        MCP service port
+  protocol:    AgentGateway target protocol (StreamableHTTP | SSE)
+  backendAuthKey (optional): env-var reference for upstream backend auth
+
+Sources, in order: enabled subagents with mcp.agentgateway.enabled,
+global.agentgateway.knowledgeBaseTarget, global.agentgateway.extraMcpTargets.
+*/}}
+{{- define "ai-platform-engineering.agentgatewayMcpTargets" -}}
+{{- $root := . -}}
+{{- $ns := $root.Release.Namespace -}}
+{{- $agw := (($root.Values.global).agentgateway) | default dict -}}
+{{- $targets := list -}}
+{{- range $name, $enabled := (include "ai-platform-engineering.enabledSubAgents" $root | fromYaml) -}}
+{{- if $enabled -}}
+{{- $agentValues := index $root.Values (printf "agent-%s" $name) | default dict -}}
+{{- $mcp := $agentValues.mcp | default dict -}}
+{{- $sub := $mcp.agentgateway | default dict -}}
+{{- if $sub.enabled -}}
+{{- $entry := dict "id" $name "pathPrefix" (printf "/mcp/%s" $name) "host" (printf "%s-agent-%s-mcp.%s.svc.cluster.local" $root.Release.Name $name $ns) "port" ($mcp.port | default 8000) "protocol" ($sub.protocol | default "StreamableHTTP") -}}
+{{- if or (eq $name "github") (eq $name "gitlab") -}}
+{{- $_ := set $entry "backendAuthKey" (printf "$%s_PERSONAL_ACCESS_TOKEN" (upper $name)) -}}
+{{- end -}}
+{{- $targets = append $targets $entry -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- $kb := $agw.knowledgeBaseTarget | default dict -}}
+{{- if or (not (hasKey $kb "enabled")) $kb.enabled -}}
+{{- $kbHost := required "global.agentgateway.knowledgeBaseTarget.host is required" $kb.host -}}
+{{- $kbPort := required "global.agentgateway.knowledgeBaseTarget.port is required" $kb.port -}}
+{{- $targets = append $targets (dict "id" "knowledge-base" "pathPrefix" ($kb.pathPrefix | default "/mcp/knowledge-base") "host" (tpl $kbHost $root) "port" $kbPort "protocol" ($kb.protocol | default "StreamableHTTP")) -}}
+{{- end -}}
+{{- range $target := ($agw.extraMcpTargets | default list) -}}
+{{- if or (not (hasKey $target "enabled")) $target.enabled -}}
+{{- $id := required "global.agentgateway.extraMcpTargets[].id is required" $target.id -}}
+{{- $safeId := regexReplaceAll "[^a-z0-9-]" (lower $id) "-" | trunc 45 | trimSuffix "-" -}}
+{{- $host := required (printf "global.agentgateway.extraMcpTargets[%s].host is required" $id) $target.host -}}
+{{- $port := required (printf "global.agentgateway.extraMcpTargets[%s].port is required" $id) $target.port -}}
+{{- $targets = append $targets (dict "id" $safeId "pathPrefix" ($target.pathPrefix | default (printf "/mcp/%s" $id)) "host" (tpl $host $root) "port" $port "protocol" ($target.protocol | default "StreamableHTTP")) -}}
+{{- end -}}
+{{- end -}}
+{{- $targets | toYaml -}}
+{{- end -}}
+
+{{/*
 LiteLLM MCP standalone server helpers.
 */}}
 {{- define "ai-platform-engineering.litellmMcp.name" -}}
