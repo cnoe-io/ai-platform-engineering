@@ -112,6 +112,24 @@ spec:
               value: {{ index .Values.config "DYNAMIC_AGENTS_URL" | default (printf "http://%s-dynamic-agents:8001" .Release.Name) | quote }}
             - name: SKILL_SCANNER_URL
               value: {{ index .Values.config "SKILL_SCANNER_URL" | default (printf "http://%s-skill-scanner:8000" .Release.Name) | quote }}
+            {{- if (.Values.global.agentgateway).enabled }}
+            {{- /*
+            AgentGateway MCP discovery/sync reads the standalone proxy admin
+            /config endpoint (AGENT_GATEWAY_ADMIN_URL) and registers discovered
+            MCP servers behind the proxy MCP listener (AGENT_GATEWAY_URL). The
+            admin endpoint always lives on the standalone "<release>-agentgateway"
+            Service. The MCP listener is mode-aware: static routing serves MCP on
+            the standalone proxy (port 4000); gateway-api routing serves it on the
+            controller-provisioned "<release>-agentgateway-proxy" Gateway (proxyPort).
+            */ -}}
+            {{- $agwStatic := eq (((.Values.global.agentgateway).routingMode) | default "static") "static" }}
+            {{- $agwMcpHost := ternary (printf "%s-agentgateway" .Release.Name) (printf "%s-agentgateway-proxy" .Release.Name) $agwStatic }}
+            {{- $agwMcpPort := ternary 4000 (int (((.Values.global.agentgateway).proxyPort) | default 8080)) $agwStatic }}
+            - name: AGENT_GATEWAY_ADMIN_URL
+              value: {{ index .Values.config "AGENT_GATEWAY_ADMIN_URL" | default (printf "http://%s-agentgateway:15000" .Release.Name) | quote }}
+            - name: AGENT_GATEWAY_URL
+              value: {{ index .Values.config "AGENT_GATEWAY_URL" | default (printf "http://%s:%v" $agwMcpHost $agwMcpPort) | quote }}
+            {{- end }}
           envFrom:
             # Mount ConfigMap as environment variables (non-sensitive config)
             - configMapRef:
