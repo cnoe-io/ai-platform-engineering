@@ -22,9 +22,20 @@ import {
   Users,
   TrendingUp,
   RefreshCw,
-  Globe
+  Globe,
+  Pencil,
+  Loader2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useChatStore } from "@/store/chat-store";
@@ -72,6 +83,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
     isConversationStreaming,
     hasUnviewedMessages,
     isConversationInputRequired,
+    updateConversationTitle,
   } = useChatStore();
   const { data: session } = useSession();
   const [useCaseBuilderOpen, setUseCaseBuilderOpen] = useState(false);
@@ -81,6 +93,9 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
   const [isResizing, setIsResizing] = useState(false);
   const [isReloading, setIsReloading] = useState(false);
   const [recycleBinOpen, setRecycleBinOpen] = useState(false);
+  const [titleEditorConversation, setTitleEditorConversation] = useState<{ id: string; title: string } | null>(null);
+  const [titleDraft, setTitleDraft] = useState("");
+  const [isSavingTitle, setIsSavingTitle] = useState(false);
   const { toast } = useToast();
 
   // Agent name lookup for dynamic agent conversations
@@ -177,6 +192,44 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
       console.error('[Sidebar] Failed to reload conversations:', error);
     } finally {
       setIsReloading(false);
+    }
+  };
+
+  const openTitleEditor = (conv: Conversation, event: React.MouseEvent) => {
+    event.stopPropagation();
+    setTitleEditorConversation({ id: conv.id, title: conv.title || "New Conversation" });
+    setTitleDraft(conv.title || "");
+  };
+
+  const closeTitleEditor = () => {
+    if (isSavingTitle) return;
+    setTitleEditorConversation(null);
+    setTitleDraft("");
+  };
+
+  const saveTitle = async () => {
+    if (!titleEditorConversation || isSavingTitle) return;
+    const nextTitle = titleDraft.trim();
+    if (!nextTitle) {
+      toast("Conversation title cannot be empty", "error", 3000);
+      return;
+    }
+    if (nextTitle === titleEditorConversation.title) {
+      closeTitleEditor();
+      return;
+    }
+
+    setIsSavingTitle(true);
+    try {
+      await updateConversationTitle(titleEditorConversation.id, nextTitle);
+      toast("Conversation title updated", "success", 3000);
+      setTitleEditorConversation(null);
+      setTitleDraft("");
+    } catch (error) {
+      console.error("[Sidebar] Failed to update conversation title:", error);
+      toast("Failed to update conversation title", "error", 4000);
+    } finally {
+      setIsSavingTitle(false);
     }
   };
 
@@ -381,6 +434,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                   const isInputRequired = !isLive && isConversationInputRequired(conv.id);
                   const isUnviewed = !isLive && !isInputRequired && hasUnviewedMessages(conv.id);
                   const scheduleId = getScheduleId(conv);
+                  const isOwner = !conv.owner_id || conv.owner_id === session?.user?.email;
 
                   return (
                   <div
@@ -521,11 +575,30 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                         </div>
 
                         <div className="flex items-center gap-0.5 shrink-0">
+                          {isOwner && (
+                            <TooltipProvider delayDuration={200}>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                                    onClick={(event) => openTitleEditor(conv, event)}
+                                  >
+                                    <Pencil className="h-3 w-3" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent side="top" sideOffset={4}>
+                                  <p className="text-xs">Edit title</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          )}
                           <div className="opacity-0 group-hover:opacity-100 transition-opacity">
                             <ShareButton
                               conversationId={conv.id}
                               conversationTitle={conv.title}
-                              isOwner={!conv.owner_id || conv.owner_id === session?.user?.email}
+                              isOwner={isOwner}
                             />
                           </div>
                           <TooltipProvider delayDuration={200}>
@@ -773,6 +846,53 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
         open={recycleBinOpen}
         onOpenChange={setRecycleBinOpen}
       />
+
+      <Dialog open={!!titleEditorConversation} onOpenChange={(open) => {
+        if (!open) closeTitleEditor();
+      }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit Chat Title</DialogTitle>
+            <DialogDescription>
+              Rename this conversation in your chat history.
+            </DialogDescription>
+          </DialogHeader>
+          <form
+            className="space-y-4"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void saveTitle();
+            }}
+          >
+            <Input
+              value={titleDraft}
+              onChange={(event) => setTitleDraft(event.target.value)}
+              maxLength={120}
+              autoFocus
+              placeholder="Conversation title"
+              disabled={isSavingTitle}
+            />
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={closeTitleEditor}
+                disabled={isSavingTitle}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={isSavingTitle || !titleDraft.trim()}
+                className="gap-1.5"
+              >
+                {isSavingTitle && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                Save
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
     </motion.div>
   );
