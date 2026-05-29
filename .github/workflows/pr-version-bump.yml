@@ -271,7 +271,6 @@ jobs:
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
-          NEEDS_UPDATE: ${{ steps.branch-status.outputs.needs_update }}
           HAS_CONFLICTS: ${{ steps.mergeability.outputs.has_conflicts }}
         with:
           script: |
@@ -285,16 +284,7 @@ jobs:
             const marker = `<!-- pr-version-bump:update-branch sha=${headSha} -->`;
             const isFork = headRepo !== repo;
             const isPrebuild = headRef.startsWith('prebuild/');
-            const needsUpdate = process.env.NEEDS_UPDATE === 'true';
             const hasConflicts = process.env.HAS_CONFLICTS === 'true';
-
-            const reasons = [];
-            if (needsUpdate) {
-              reasons.push(`this branch does not contain the latest \`${baseRef}\``);
-            }
-            if (hasConflicts) {
-              reasons.push(`GitHub reports merge conflicts with \`${baseRef}\``);
-            }
 
             const commands = isFork
               ? [
@@ -311,10 +301,15 @@ jobs:
                 ];
 
             let body = `${marker}\n`;
-            body += `## ❗ Branch update needed\n\n`;
-            body += `**Commit:** \`${headSha.slice(0, 8)}\`\n\n`;
-            body += `CI failed to bump chart and app versions because ${reasons.join(' and ')}. Please update the branch by following the steps below:\n\n`;
-            body += `Run:\n\n`;
+            if (hasConflicts) {
+              body += `## ❗ Merge conflicts with \`${baseRef}\`\n\n`;
+              body += `**Commit:** \`${headSha.slice(0, 8)}\`\n\n`;
+              body += `This PR has merge conflicts with \`${baseRef}\` that must be resolved before it can merge. Resolve them by running:\n\n`;
+            } else {
+              body += `## ℹ️ Branch is behind \`${baseRef}\` (advisory, non-blocking)\n\n`;
+              body += `**Commit:** \`${headSha.slice(0, 8)}\`\n\n`;
+              body += `This branch does not yet contain the latest \`${baseRef}\`. This does **not** fail the version-bump check — version files are bumped once the branch is updated, and GitHub branch protection still requires the branch to be up to date before merge. Use the **Update branch** button on this PR, or run:\n\n`;
+            }
             body += '```bash\n';
             body += commands.join('\n');
             body += '\n```\n\n';
@@ -568,8 +563,19 @@ jobs:
           echo "committed=true" >> "$GITHUB_OUTPUT"
           echo "✅ Removed Helm chart bump changes"
 
-      - name: ❌ Require branch update before merge
-        if: steps.branch-status.outputs.needs_update == 'true' || steps.mergeability.outputs.has_conflicts == 'true'
+      # Don't double-gate on staleness: GitHub branch protection's "Require
+      # branches to be up to date before merging" already enforces freshness at
+      # merge time. Failing here too just flips every open PR red whenever main
+      # advances. Being behind base is advisory; only real conflicts hard-fail.
+      - name: ℹ️ Branch behind base (non-blocking)
+        if: steps.branch-status.outputs.needs_update == 'true' && steps.mergeability.outputs.has_conflicts != 'true'
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          echo "::notice::This PR branch is behind ${BASE_REF}. Not failing the version-bump check — branch protection enforces up-to-date at merge time, and version files are bumped once the branch is updated."
+
+      - name: ❌ Require conflict resolution before merge
+        if: steps.mergeability.outputs.has_conflicts == 'true'
         env:
           COMMENT_RESULT: ${{ steps.branch-update-comment.outputs.result }}
           COMMENT_URL: ${{ steps.branch-update-comment.outputs.comment_url }}
@@ -579,12 +585,10 @@ jobs:
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           BASE_REPO: ${{ github.repository }}
         run: |
-          if [[ "$COMMENT_RESULT" == "created" ]]; then
-            echo "::error::This PR branch must be updated with $BASE_REF before it can merge. A PR comment with the exact commands was created: $COMMENT_URL"
-          elif [[ "$COMMENT_RESULT" == "recreated" ]]; then
-            echo "::error::This PR branch must be updated with $BASE_REF before it can merge. The previous PR comment was deleted and a new one was created: $COMMENT_URL"
+          if [[ "$COMMENT_RESULT" == "created" || "$COMMENT_RESULT" == "recreated" ]]; then
+            echo "::error::This PR has merge conflicts with $BASE_REF that must be resolved before it can merge. A PR comment with the exact commands is available: $COMMENT_URL"
           else
-            echo "::error::This PR branch must be updated with $BASE_REF before it can merge, but CI could not create a fresh PR comment: ${COMMENT_ERROR:-unknown error}"
+            echo "::error::This PR has merge conflicts with $BASE_REF that must be resolved before it can merge, but CI could not create a fresh PR comment: ${COMMENT_ERROR:-unknown error}"
             echo "Run:"
             if [[ "$HEAD_REPO" != "$BASE_REPO" ]]; then
               echo "git fetch https://github.com/${BASE_REPO}.git ${BASE_REF}"
