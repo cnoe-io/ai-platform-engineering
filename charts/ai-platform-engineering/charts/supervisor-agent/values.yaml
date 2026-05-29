@@ -225,7 +225,7 @@ slim:
   # -- Enable SLIM transport (standalone fallback; in production provided by global.slim)
   enabled: false
   # -- SLIM endpoint URL
-  endpoint: "http://ai-platform-engineering-slim:46357"
+  endpoint: ""
   # -- Transport label passed to agents
   transport: "slim"
 

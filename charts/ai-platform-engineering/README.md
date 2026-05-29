@@ -277,7 +277,7 @@ helm show values oci://ghcr.io/cnoe-io/charts/ai-platform-engineering --version 
 | global.metrics.enabled | bool | `false` |  |
 | global.rag.enableGraphRag | bool | `true` |  |
 | global.slim.enabled | bool | `false` |  |
-| global.slim.endpoint | string | `"http://{{ .Release.Name }}-slim:46357"` |  |
+| global.slim.endpoint | string | `""` |  |
 | global.slim.transport | string | `"slim"` |  |
 | metrics.grafanaDashboard.enabled | bool | `true` |  |
 | metrics.grafanaDashboard.labels.grafana_dashboard | string | `"1"` |  |

@@ -99,19 +99,12 @@ Determine if slim transport is enabled - global takes precedence
 Get slim endpoint - global takes precedence
 */}}
 {{- define "supervisorAgent.slim.endpoint" -}}
-    {{- if hasKey .Values "global" }}
-        {{- if hasKey .Values.global "slim" }}
-            {{- if hasKey .Values.global.slim "endpoint" }}
-                {{- .Values.global.slim.endpoint }}
-            {{- else }}
-                {{- .Values.slim.endpoint | default "http://ai-platform-engineering-slim:46357" }}
-            {{- end }}
-        {{- else }}
-            {{- .Values.slim.endpoint | default "http://ai-platform-engineering-slim:46357" }}
-        {{- end }}
-    {{- else }}
-        {{- .Values.slim.endpoint | default "http://ai-platform-engineering-slim:46357" }}
-    {{- end }}
+    {{- $defaultEndpoint := printf "http://%s-slim:46357" .Release.Name -}}
+    {{- if and (hasKey .Values "global") (hasKey .Values.global "slim") (hasKey .Values.global.slim "endpoint") -}}
+        {{- .Values.global.slim.endpoint | default $defaultEndpoint -}}
+    {{- else -}}
+        {{- .Values.slim.endpoint | default $defaultEndpoint -}}
+    {{- end -}}
 {{- end }}
 
 {{/*

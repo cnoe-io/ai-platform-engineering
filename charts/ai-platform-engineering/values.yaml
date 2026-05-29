@@ -56,7 +56,7 @@ global:
     apiVersion: "v1beta1"  # API version for ExternalSecret resources. Options: "v1" or "v1beta1". Defaults to "v1beta1" if not specified.
   slim:
     enabled: false
-    endpoint: "http://{{ .Release.Name }}-slim:46357"
+    endpoint: ""
     transport: "slim"
 
   # RAG Stack configuration

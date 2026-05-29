@@ -205,7 +205,7 @@ agentSecrets:
 # In production, these are provided by the parent chart's global.slim section
 slim:
   enabled: false
-  endpoint: "http://ai-platform-engineering-slim:46357"
+  endpoint: ""
   transport: "slim"
 
 # Prometheus metrics configuration
