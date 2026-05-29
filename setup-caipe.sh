@@ -6677,6 +6677,8 @@ monitor_port_forwards() {
       echo -e "      Password         ${BOLD}${LOCAL_USER_PASSWORD}${NC}"
       echo -e "      ${DIM}Recover: kubectl get secret caipe-local-user -n caipe -o jsonpath='{.data.password}' | base64 -d${NC}"
     fi
+    echo ""
+    echo -e "    ${DIM}Re-print these any time: ./$(basename "$0") creds${NC}"
     if [[ "$CAIPE_DOMAIN" == *.local.me ]]; then
       echo -e "    ${DIM}${CAIPE_DOMAIN} resolves to 127.0.0.1 — on a remote host, tunnel 443 (ssh -L 8443:127.0.0.1:443 <host>) or re-run with --domain=<public-dns>.${NC}"
     fi
@@ -7408,6 +7410,42 @@ BANNER
   monitor_port_forwards
 }
 
+# Re-print the default local Keycloak logins from the persisted Secrets. Lets an
+# operator recover credentials any time after install without re-running setup or
+# scrolling back through the install log (caipe-local-admin / caipe-local-user).
+cmd_creds() {
+  local ns="caipe"
+  local domain admin_email admin_pw user_email user_pw
+  domain=$(kubectl get ingress -n "$ns" -o jsonpath='{.items[0].spec.rules[0].host}' 2>/dev/null || true)
+  admin_email=$(kubectl get secret caipe-local-admin -n "$ns" -o jsonpath='{.data.email}' 2>/dev/null | base64 -d 2>/dev/null || true)
+  admin_pw=$(kubectl get secret caipe-local-admin -n "$ns" -o jsonpath='{.data.password}' 2>/dev/null | base64 -d 2>/dev/null || true)
+  user_email=$(kubectl get secret caipe-local-user -n "$ns" -o jsonpath='{.data.email}' 2>/dev/null | base64 -d 2>/dev/null || true)
+  user_pw=$(kubectl get secret caipe-local-user -n "$ns" -o jsonpath='{.data.password}' 2>/dev/null | base64 -d 2>/dev/null || true)
+
+  if [[ -z "$admin_email" && -z "$user_email" ]]; then
+    warn "No local login secrets found (caipe-local-admin / caipe-local-user) in namespace ${ns}."
+    echo -e "  ${DIM}These are created by a default local-SSO install (RBAC + in-chart Keycloak, no upstream IdP).${NC}"
+    echo -e "  ${DIM}If you signed in with an upstream IdP (Cisco SSO / GitHub social), use that login instead.${NC}"
+    return 0
+  fi
+
+  header "CAIPE local logins (in-chart Keycloak)"
+  [[ -n "$domain" ]] && echo -e "    URL                ${CYAN}https://${domain}${NC}" && echo ""
+  if [[ -n "$admin_email" ]]; then
+    echo -e "    ${BOLD}Admin${NC} (org-admin / admin UI)"
+    echo -e "      Email            ${BOLD}${admin_email}${NC}"
+    echo -e "      Password         ${BOLD}${admin_pw}${NC}"
+  fi
+  if [[ -n "$user_email" ]]; then
+    echo ""
+    echo -e "    ${BOLD}Standard${NC} (non-admin / chat only, no admin UI)"
+    echo -e "      Email            ${BOLD}${user_email}${NC}"
+    echo -e "      Password         ${BOLD}${user_pw}${NC}"
+  fi
+  echo ""
+  echo -e "  ${DIM}Source: caipe-local-admin / caipe-local-user Secrets (namespace ${ns}).${NC}"
+}
+
 usage() {
   cat <<EOF
 
@@ -7419,6 +7457,8 @@ Commands:
   port-forward  Start port-forwarding, run validation + sanity tests,
                 monitor with auto-restart and periodic health checks (5m)
   validate      Run validation and sanity tests (A2A, agents, RAG, tracing)
+  creds         Re-print the default local Keycloak logins (admin + standard
+                user) from the persisted Secrets — run any time after install
   cleanup       Interactive teardown: uninstall releases, delete secrets,
                 PVCs, namespaces, and optionally the Kind cluster
   nuke          Non-interactive cleanup (same as: cleanup --yes)
@@ -7670,6 +7710,7 @@ case "${args[0]:-setup}" in
   setup)        cmd_setup ;;
   port-forward) cmd_port_forward ;;
   validate)     cmd_validate ;;
+  creds)        cmd_creds ;;
   cleanup)      cmd_cleanup ;;
   nuke)         AUTO_YES=true; cmd_cleanup ;;
   status)       cmd_status ;;

@@ -173,6 +173,13 @@ kubectl get secret caipe-local-admin -n caipe -o jsonpath='{.data.password}' | b
 kubectl get secret caipe-local-user  -n caipe -o jsonpath='{.data.password}' | base64 -d
 ```
 
+Or re-print both logins (email + password + UI URL) any time without scrolling
+back through the install log:
+
+```bash
+./setup-caipe.sh creds
+```
+
 Flags:
 - `--no-local-admin` (skip the admin — only when brokering an upstream IdP or
   GitHub social login), `--local-admin=<email>`, `--local-admin-password=<pw>`.
