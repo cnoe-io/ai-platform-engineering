@@ -2966,8 +2966,6 @@ services:
       # Seed a dev allow tuple with a Keycloak user `sub`. If unset, OpenFGA
       # starts deny-by-default and you can write tuples later.
       OPENFGA_SEED_SUB: ${OPENFGA_SEED_SUB:-}
-    volumes:
-      - ./charts/ai-platform-engineering/charts/openfga/authorization-model.json:/app/authorization-model.json:ro
     depends_on:
       openfga:
         condition: service_healthy
