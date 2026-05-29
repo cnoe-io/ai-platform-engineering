@@ -41,7 +41,7 @@ LITELLM_ENDPOINT="${LITELLM_ENDPOINT:-}"
 LITELLM_API_KEY="${LITELLM_API_KEY:-}"
 LITELLM_MODEL_NAME="${LITELLM_MODEL_NAME:-gpt-oss-20B}"
 ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}"
-ANTHROPIC_MODEL_NAME="claude-haiku-4-5-20251001-v1:0"
+ANTHROPIC_MODEL_NAME="claude-haiku-4-5-20251001"
 AWS_BEDROCK_MODEL_ID="${AWS_BEDROCK_MODEL_ID:-global.anthropic.claude-sonnet-4-6}"
 AWS_BEDROCK_PROVIDER="${AWS_BEDROCK_PROVIDER:-anthropic}"
 AWS_REGION="${AWS_REGION:-us-east-2}"
@@ -1022,7 +1022,7 @@ _collect_anthropic_credentials() {
     model_choice="${model_choice:-1}"
     if _is_back "$model_choice"; then ANTHROPIC_API_KEY=""; return 1; fi
     case "$model_choice" in
-      1) ANTHROPIC_MODEL_NAME="claude-haiku-4-5-20251001-v1:0" ;;
+      1) ANTHROPIC_MODEL_NAME="claude-haiku-4-5-20251001" ;;
       2) ANTHROPIC_MODEL_NAME="claude-sonnet-4-20250514" ;;
       3) ANTHROPIC_MODEL_NAME="claude-opus-4-20250514" ;;
       4)
