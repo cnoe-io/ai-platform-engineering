@@ -1062,6 +1062,35 @@ describe('Admin Dashboard Page', () => {
       expect(screen.queryByRole('button', { name: /1 channels/i })).not.toBeInTheDocument();
     });
 
+    it('shows the KB chip count from team resources', async () => {
+      currentSearchParams = new URLSearchParams('cat=people&tab=teams');
+      setupFetchMock({
+        teams: {
+          success: true,
+          data: {
+            teams: [
+              {
+                _id: 'team-kbs',
+                name: 'KB Team',
+                owner_id: 'admin@example.com',
+                created_at: new Date().toISOString(),
+                member_count: 1,
+                members: [],
+                resources: {
+                  knowledge_bases: ['kb-1', 'kb-2'],
+                },
+              },
+            ],
+          },
+        },
+      });
+
+      render(<AdminPage />);
+
+      expect(await screen.findByText('KB Team')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /2 KBs/i })).toBeInTheDocument();
+    });
+
     it('filters teams by search text and shows an empty result state', async () => {
       currentSearchParams = new URLSearchParams('cat=people&tab=teams');
       setupFetchMock({

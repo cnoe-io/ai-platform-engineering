@@ -73,4 +73,62 @@ describe("Keycloak admin user helpers", () => {
       }),
     );
   });
+
+  it("uses existing users-management permissions when runtime admin cannot enable them", async () => {
+    (global.fetch as jest.Mock).mockImplementation(async (input: string | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+
+      if (url.endsWith("/protocol/openid-connect/token")) {
+        return response({ access_token: "token", expires_in: 300 });
+      }
+      if (url.endsWith("/clients?clientId=caipe-slack-bot")) {
+        return response([{ id: "bot-client-uuid", clientId: "caipe-slack-bot" }]);
+      }
+      if (url.endsWith("/clients?clientId=caipe-platform")) {
+        return response([{ id: "platform-client-uuid", clientId: "caipe-platform" }]);
+      }
+      if (url.endsWith("/clients?clientId=realm-management")) {
+        return response([{ id: "realm-management-uuid", clientId: "realm-management" }]);
+      }
+      if (url.includes("/clients/bot-client-uuid/management/permissions")) {
+        return response({ enabled: true, scopePermissions: { "token-exchange": "bot-token-perm" } });
+      }
+      if (url.includes("/clients/platform-client-uuid/management/permissions")) {
+        return response({ enabled: true, scopePermissions: { "token-exchange": "platform-token-perm" } });
+      }
+      if (url.endsWith("/users-management-permissions") && method === "PUT") {
+        return response({ error: "forbidden" }, { status: 403 });
+      }
+      if (url.endsWith("/users-management-permissions") && method === "GET") {
+        return response({ enabled: true, scopePermissions: { impersonate: "users-impersonate-perm" } });
+      }
+      if (url.includes("/authz/resource-server/policy?name=caipe-slack-bot-token-exchange")) {
+        return response([{ id: "policy-id", name: "caipe-slack-bot-token-exchange" }]);
+      }
+      if (
+        url.includes("/authz/resource-server/permission/scope/") &&
+        url.endsWith("/associatedPolicies")
+      ) {
+        return response([{ id: "policy-id", name: "caipe-slack-bot-token-exchange" }]);
+      }
+      if (url.includes("/authz/resource-server/permission/scope/")) {
+        return response({ id: "permission-id", policies: ["policy-id"] });
+      }
+
+      throw new Error(`unexpected fetch ${method} ${url}`);
+    });
+
+    const { ensureSlackBotOboPermissions } = await import("../keycloak-admin");
+
+    await expect(ensureSlackBotOboPermissions()).resolves.toBeUndefined();
+    expect(global.fetch).toHaveBeenCalledWith(
+      "http://keycloak/admin/realms/caipe/users-management-permissions",
+      expect.objectContaining({ method: "PUT" })
+    );
+    expect(global.fetch).toHaveBeenCalledWith(
+      "http://keycloak/admin/realms/caipe/users-management-permissions",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
 });
