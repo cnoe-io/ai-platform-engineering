@@ -273,28 +273,40 @@ else
 fi
 
 # ------------------------------------------------------------------
-# 5. Get service account user + assign impersonation role
+# 5. Get service account users + assign impersonation role
 # ------------------------------------------------------------------
-echo "${TAG} Looking up service account for '${BOT_CLIENT_ID}' ..."
-SA_RESP=$(curl -sf -H "${AUTH}" \
-  "${KC_URL}/admin/realms/${REALM}/clients/${BOT_INTERNAL_ID}/service-account-user" 2>/dev/null || echo "{}")
-SA_USER_ID=$(json_field "${SA_RESP}" "id")
-
-if [ -z "${SA_USER_ID}" ]; then
-  echo "${TAG} ERROR: service account not found for '${BOT_CLIENT_ID}'" >&2
-  exit 1
-fi
-echo "${TAG}   Service account user ID: ${SA_USER_ID}"
-
 # Find realm-management client
 RM_RESP=$(curl -sf -H "${AUTH}" \
   "${KC_URL}/admin/realms/${REALM}/clients?clientId=realm-management" 2>/dev/null || echo "[]")
 RM_CLIENT_ID=$(json_field "${RM_RESP}" "id")
 
-if [ -z "${RM_CLIENT_ID}" ]; then
-  echo "${TAG} WARNING: realm-management client not found — skipping impersonation role."
-else
-  # Check if impersonation role is already assigned
+ensure_service_account_impersonation_role() {
+  CLIENT_ID="$1"
+  CLIENT_INTERNAL_ID="$2"
+
+  if [ -z "${CLIENT_ID}" ]; then
+    return 0
+  fi
+  if [ -z "${CLIENT_INTERNAL_ID}" ]; then
+    echo "${TAG} WARNING: client '${CLIENT_ID}' not found — skipping impersonation role."
+    return 0
+  fi
+  if [ -z "${RM_CLIENT_ID}" ]; then
+    echo "${TAG} WARNING: realm-management client not found — skipping impersonation role for '${CLIENT_ID}'."
+    return 0
+  fi
+
+  echo "${TAG} Looking up service account for '${CLIENT_ID}' ..."
+  SA_RESP=$(curl -sf -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/clients/${CLIENT_INTERNAL_ID}/service-account-user" 2>/dev/null || echo "{}")
+  SA_USER_ID=$(json_field "${SA_RESP}" "id")
+
+  if [ -z "${SA_USER_ID}" ]; then
+    echo "${TAG} ERROR: service account not found for '${CLIENT_ID}'" >&2
+    exit 1
+  fi
+  echo "${TAG}   Service account user ID: ${SA_USER_ID}"
+
   SA_CLIENT_ROLES=$(curl -sf -H "${AUTH}" \
     "${KC_URL}/admin/realms/${REALM}/users/${SA_USER_ID}/role-mappings/clients/${RM_CLIENT_ID}" 2>/dev/null || echo "[]")
 
@@ -302,7 +314,6 @@ else
     echo "${TAG}   impersonation role already assigned."
   else
     echo "${TAG}   Assigning impersonation role ..."
-    # Get the impersonation role object
     ROLES_RESP=$(curl -sf -H "${AUTH}" \
       "${KC_URL}/admin/realms/${REALM}/clients/${RM_CLIENT_ID}/roles" 2>/dev/null || echo "[]")
     IMP_ROLE_ID=$(echo "${ROLES_RESP}" | grep -B1 '"impersonation"' | grep -o '"id" *: *"[^"]*"' | sed 's/.*"\([^"]*\)"/\1/' | head -1)
@@ -317,6 +328,17 @@ else
       echo "${TAG}   WARNING: impersonation role not found in realm-management."
     fi
   fi
+}
+
+ensure_service_account_impersonation_role "${BOT_CLIENT_ID}" "${BOT_INTERNAL_ID}"
+
+if [ -n "${WEBEX_BOT_CLIENT_ID}" ]; then
+  if [ -z "${WEBEX_INTERNAL_ID:-}" ]; then
+    WEBEX_CLIENTS_RESP=$(curl -sf -H "${AUTH}" \
+      "${KC_URL}/admin/realms/${REALM}/clients?clientId=${WEBEX_BOT_CLIENT_ID}" 2>/dev/null || echo "[]")
+    WEBEX_INTERNAL_ID=$(json_field "${WEBEX_CLIENTS_RESP}" "id")
+  fi
+  ensure_service_account_impersonation_role "${WEBEX_BOT_CLIENT_ID}" "${WEBEX_INTERNAL_ID}"
 fi
 
 # ------------------------------------------------------------------

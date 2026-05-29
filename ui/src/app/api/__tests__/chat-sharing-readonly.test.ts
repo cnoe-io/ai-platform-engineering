@@ -57,10 +57,11 @@ jest.mock('@/lib/rbac/keycloak-authz', () => ({
 // we want the route's own `access_level === 'shared_readonly'` check and
 // owner-only branches in `share/route.ts` to drive the outcome, not the
 // PDP. Default to allow non-privileged actions (`can_read`/`can_discover`/
-// `can_write`) so the route reaches its own logic; deny `can_share` /
+// `can_write`) plus the `/api/chat/*` compatibility wrapper's org-level
+// `can_chat` gate so the route reaches its own logic; deny `can_share` /
 // `can_manage` / `can_delete` so non-owner privileged actions return 403.
 const mockCheckOpenFgaTuple = jest.fn().mockImplementation(async (tuple: { relation?: string }) => {
-  const allowed = new Set(['can_read', 'can_discover', 'can_write', 'can_use']);
+  const allowed = new Set(['can_read', 'can_discover', 'can_write', 'can_use', 'can_chat']);
   return { allowed: allowed.has(tuple?.relation ?? '') };
 });
 jest.mock('@/lib/rbac/openfga', () => ({

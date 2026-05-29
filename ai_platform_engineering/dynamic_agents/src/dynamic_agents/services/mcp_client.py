@@ -48,6 +48,26 @@ def _agent_gateway_base_url() -> str | None:
     return raw[: -len("/mcp")] if raw.rstrip("/").endswith("/mcp") else raw.rstrip("/")
 
 
+def _is_agentgateway_endpoint(endpoint: str | None, base_url: str | None) -> bool:
+    if not endpoint or not base_url:
+        return False
+    endpoint = endpoint.rstrip("/")
+    base = base_url.rstrip("/")
+    if base.endswith("/mcp"):
+        base = base[: -len("/mcp")]
+    return endpoint == base or endpoint.startswith(f"{base}/mcp")
+
+
+def _is_gateway_managed_server(server: MCPServerConfig, base_url: str | None) -> bool:
+    """Return true when an MCP row has a corresponding AgentGateway route."""
+
+    return (
+        server.source == "agentgateway"
+        or server.agentgateway_discovered
+        or _is_agentgateway_endpoint(server.endpoint, base_url)
+    )
+
+
 def _heal_endpoint(server: MCPServerConfig) -> str | None:
     """Self-heal stale AgentGateway endpoints at read time.
 
@@ -257,9 +277,16 @@ def build_mcp_connections(
             logger.warning(f"MCP server '{server_id}' is disabled, skipping")
             continue
 
+        use_gateway = bool(
+            agent_gateway_url
+            and (
+                server_id in gateway_ids
+                or (gateway_all and _is_gateway_managed_server(server, agent_gateway_url))
+            )
+        )
         connections[server_id] = build_mcp_connection_config(
             server,
-            agent_gateway_url=agent_gateway_url if (gateway_all or server_id in gateway_ids) else None,
+            agent_gateway_url=agent_gateway_url if use_gateway else None,
             auth_bearer=auth_bearer,
             agent_id=agent_id,
         )

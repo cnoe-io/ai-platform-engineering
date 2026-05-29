@@ -259,7 +259,7 @@ describe("MigrationTab", () => {
     expect(screen.getByText("audit_events")).toBeInTheDocument();
   });
 
-  it("lets admins select all version-only schema areas and initialize them to v1", async () => {
+  it("lets admins initialize all version-only schema areas to v1", async () => {
     (global.fetch as jest.Mock).mockImplementation(async (url: RequestInfo | URL, init?: RequestInit) => {
       const href = String(url);
       if (href === "/api/admin/rebac/migrations") {
@@ -309,8 +309,7 @@ describe("MigrationTab", () => {
     render(<MigrationTab isAdmin />);
 
     expect(await screen.findByText(/2 schema areas are missing version metadata/i)).toBeInTheDocument();
-    fireEvent.click(screen.getByLabelText(/Select all version-only migrations/i));
-    fireEvent.click(screen.getByRole("button", { name: /Initialize selected to v1/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Initialize all to v1/i }));
 
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledWith(
@@ -376,7 +375,6 @@ describe("MigrationTab", () => {
 
     expect(await screen.findByText("0.5.1 Schema Migrations")).toBeInTheDocument();
     fireEvent.click(await screen.findByLabelText(/Select all pending migrations/i));
-    fireEvent.click(screen.getByRole("button", { name: /Dry run selected/i }));
 
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledWith(
@@ -390,6 +388,7 @@ describe("MigrationTab", () => {
     });
     expect(await screen.findByText(/Bulk migration preview/i)).toBeInTheDocument();
     expect(screen.getAllByText(/6 migrations selected/i).length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: /Preview selected/i })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /Copy bulk confirmation/i }));
 
@@ -420,6 +419,118 @@ describe("MigrationTab", () => {
       );
     });
     expect(await screen.findByText(/Applied 6 selected migration/i)).toBeInTheDocument();
+  });
+
+  it("initializes missing schema metadata before applying selected migrations", async () => {
+    (global.fetch as jest.Mock).mockImplementation(async (url: RequestInfo | URL, init?: RequestInit) => {
+      const href = String(url);
+      if (href === "/api/admin/rebac/migrations") {
+        return jsonResponse({
+          success: true,
+          data: {
+            release: "0.5.1",
+            runtime: { migration_release: "0.5.1", manifest_count: 1 },
+            schema_versions: [
+              { schema_area: "admin_surfaces", current_version: null, target_version: 2, status: "unknown" },
+            ],
+            migrations: [
+              {
+                id: "admin_surface_rag_datasources_admin_grant_v1",
+                title: "rag_datasources admin-surface manager grant",
+                description: "Backfill admin surface grants",
+                kind: "explicit",
+                schema_area: "admin_surfaces",
+                current_version: null,
+                target_version: 2,
+                status: "not_started",
+                implemented: true,
+                confirmation: "MIGRATE admin_surfaces TO v2",
+                required: true,
+              },
+            ],
+            completed_migrations: [],
+          },
+        });
+      }
+      if (href === "/api/admin/rebac/migrations/status") {
+        return jsonResponse({
+          success: true,
+          data: {
+            release: "0.5.1",
+            runtime: { migration_release: "0.5.1", manifest_count: 1 },
+            schema_versions: [],
+            pending_required_count: 1,
+            blocking_required_count: 1,
+            is_blocking: true,
+            override_active: false,
+          },
+        });
+      }
+      if (href === "/api/admin/rebac/migrations/admin_surface_rag_datasources_admin_grant_v1/plan") {
+        return jsonResponse({
+          success: true,
+          data: {
+            migration_id: "admin_surface_rag_datasources_admin_grant_v1",
+            confirmation: "MIGRATE admin_surfaces TO v2",
+            counts: { admins_scanned: 1, tuples_planned: 1 },
+            warnings: [],
+            sample_diffs: [],
+          },
+        });
+      }
+      if (href === "/api/admin/rebac/migrations/version-bootstrap/apply") {
+        const body = JSON.parse(String(init?.body ?? "{}"));
+        return jsonResponse({
+          success: true,
+          data: {
+            migration_id: "schema_version_bootstrap_v1",
+            schema_areas: body.schema_areas,
+            applied_counts: { schema_versions_initialized: body.schema_areas.length, collection_documents_touched: 0 },
+          },
+        });
+      }
+      if (href === "/api/admin/rebac/migrations/admin_surface_rag_datasources_admin_grant_v1/apply") {
+        return jsonResponse({
+          success: true,
+          data: { applied_counts: { tuple_writes_applied: 1 } },
+        });
+      }
+      return jsonResponse({ success: false }, false, 404);
+    });
+
+    render(<MigrationTab isAdmin />);
+
+    expect(await screen.findByText(/1 schema areas are missing version metadata/i)).toBeInTheDocument();
+    fireEvent.click(await screen.findByLabelText(/Select all pending migrations/i));
+    await screen.findByText(/Bulk migration preview/i);
+    fireEvent.change(screen.getByLabelText(/Type bulk confirmation/i), {
+      target: { value: "APPLY SELECTED MIGRATIONS" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Apply selected/i }));
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/admin/rebac/migrations/version-bootstrap/apply",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({
+            schema_areas: ["admin_surfaces"],
+            confirmation: "INITIALIZE SCHEMA VERSIONS TO v1",
+          }),
+        }),
+      );
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/admin/rebac/migrations/admin_surface_rag_datasources_admin_grant_v1/apply",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ confirmation: "MIGRATE admin_surfaces TO v2" }),
+        }),
+      );
+    });
+    const calls = (global.fetch as jest.Mock).mock.calls.map(([url]) => String(url));
+    expect(calls.indexOf("/api/admin/rebac/migrations/version-bootstrap/apply")).toBeLessThan(
+      calls.indexOf("/api/admin/rebac/migrations/admin_surface_rag_datasources_admin_grant_v1/apply"),
+    );
   });
 
   it("copies the required confirmation text", async () => {

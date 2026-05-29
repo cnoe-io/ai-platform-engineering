@@ -5,6 +5,9 @@ import { isBootstrapAdmin } from "@/lib/auth-config";
 
 export async function requireMigrationAdmin(request: NextRequest) {
   const { user, session } = await getAuthFromBearerOrSession(request);
+  if (isBootstrapAdmin(user.email)) {
+    return { user, session };
+  }
   await requireRbacPermission(session, "admin_ui", "admin");
   return { user, session };
 }

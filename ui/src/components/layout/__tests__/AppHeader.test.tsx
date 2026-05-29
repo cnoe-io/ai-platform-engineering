@@ -1160,6 +1160,32 @@ describe('AppHeader — Chat tab notification dots', () => {
     expect(mockRouterPush).toHaveBeenCalledTimes(2)
   })
 
+  it('labels Keycloak admin authorization errors without calling the realm unreachable', () => {
+    mockIsAdmin = true
+    mockKeycloakHealth = {
+      isLoading: false,
+      summary: {
+        configured: true,
+        reachable: true,
+        status: 'admin_authorization_error',
+        realm: 'caipe',
+        invariants: null,
+        has_issues: true,
+        cached: false,
+        fetched_at: '2026-05-24T13:00:00.000Z',
+      },
+    }
+
+    render(<AppHeader />)
+
+    const trigger = screen.getByTestId(triggerSelector)
+    expect(trigger.textContent ?? '').toContain('1')
+    const title = trigger.getAttribute('title') ?? ''
+    expect(title).toContain('Keycloak admin API authorization failed')
+    expect(title).not.toContain('unreachable')
+    expect(findAlertRow('Keycloak admin API authorization failed')).not.toBeNull()
+  })
+
   it('shows the admin alerts pill for failing Keycloak invariants with a row that deep-links to the Keycloak tab', () => {
     mockIsAdmin = true
     mockKeycloakHealth = {

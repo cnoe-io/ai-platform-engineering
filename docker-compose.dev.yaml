@@ -19,6 +19,10 @@
 #     docker compose -f docker-compose.dev.yaml --profile caipe-supervisor --profile <agent-profiles> up --build
 #     Set: DISTRIBUTED_AGENTS=argocd,github  (only listed agents are remote)
 #
+#   Single-node MCP-only — supervisor runs agents in-process and only external MCP
+#   server containers are started:
+#     DISTRIBUTED_AGENTS= docker compose -f docker-compose.dev.yaml --profile caipe-supervisor --profile mcp-servers up --build
+#
 # Agent selection and configuration are controlled through environment variables
 # in the .env file—see documentation for full list and descriptions.
 # ============================================================================
@@ -454,6 +458,7 @@ services:
     profiles:
       - github
       - all-agents
+      - mcp-servers
 
   agent-github:
     build:
@@ -589,6 +594,7 @@ services:
       - USE_PIPELINE=true
       - GITLAB_API_URL=https://${GITLAB_HOST:-gitlab.com}/api/v4
       - GITLAB_PERSONAL_ACCESS_TOKEN=${GITLAB_PERSONAL_ACCESS_TOKEN:-${GITLAB_TOKEN}}
+      - REMOTE_AUTHORIZATION=${GITLAB_MCP_REMOTE_AUTHORIZATION:-true}
  
       # Option 1: Simple read-only mode (blocks all write operations)
       - GITLAB_READ_ONLY_MODE=${GITLAB_READ_ONLY_MODE:-true}
@@ -597,6 +603,7 @@ services:
     profiles:
       - gitlab
       - all-agents
+      - mcp-servers
 
   # Weather Agent
   agent-weather:
@@ -676,6 +683,7 @@ services:
     profiles:
       - backstage
       - all-agents
+      - mcp-servers
 
   # ArgoCD Agents
   agent-argocd:
@@ -730,6 +738,7 @@ services:
     profiles:
       - argocd
       - all-agents
+      - mcp-servers
 
   # Confluence Agents
   agent-confluence:
@@ -771,6 +780,7 @@ services:
     profiles:
       - confluence
       - all-agents
+      - mcp-servers
 
   # Jira Agent
   agent-jira:
@@ -841,6 +851,7 @@ services:
     profiles:
       - jira
       - all-agents
+      - mcp-servers
 
   # Komodor Agent
   agent-komodor:
@@ -892,6 +903,7 @@ services:
       start_period: 15s
     profiles:
       - komodor
+      - mcp-servers
 
   # PagerDuty Agent
   agent-pagerduty:
@@ -946,6 +958,7 @@ services:
     profiles:
       - pagerduty
       - all-agents
+      - mcp-servers
 
   # Slack Agent
   agent-slack:
@@ -1000,6 +1013,7 @@ services:
     profiles:
       - slack
       - all-agents
+      - mcp-servers
 
   # Splunk
   agent-splunk:
@@ -1054,6 +1068,7 @@ services:
     profiles:
       - splunk
       - all-agents
+      - mcp-servers
 
   # Webex
   agent-webex:
@@ -1108,6 +1123,7 @@ services:
     profiles:
       - webex
       - all-agents
+      - mcp-servers
 
   # VictorOps Agent
   agent-victorops:
@@ -1161,6 +1177,7 @@ services:
       start_period: 15s
     profiles:
       - victorops
+      - mcp-servers
 
   ####################################################################################################
   #                                      NETUTILS AGENT (NetUtils)                                    #
@@ -1219,6 +1236,7 @@ services:
       start_period: 15s
     profiles:
       - netutils-agent
+      - mcp-servers
 
   ####################################################################################################
   #                                      AGENT JARVIS A2A P2P                                        #
@@ -1834,13 +1852,6 @@ services:
       - OIDC_JWKS_URL=${OIDC_JWKS_URL:-http://keycloak:7080/realms/caipe/protocol/openid-connect/certs}
       - OIDC_DISCOVERY_URL=${OIDC_DISCOVERY_URL:-http://keycloak:7080/realms/caipe/.well-known/openid-configuration}
       - OIDC_GROUP_CLAIM=
-      - ALLOW_TRUSTED_NETWORK=false
-      - TRUSTED_NETWORK_CIDRS=
-      - TRUSTED_NETWORK_DEFAULT_ROLE=
-      - RBAC_ADMIN_GROUPS=
-      - RBAC_DEFAULT_AUTHENTICATED_ROLE=
-      - RBAC_READONLY_GROUPS=
-      - RBAC_INGESTONLY_GROUPS=
       # Ingestor OIDC configuration (for OAuth2 client credentials)
       - INGESTOR_OIDC_ISSUER=${INGESTOR_OIDC_ISSUER:-}
       - INGESTOR_OIDC_CLIENT_ID=${INGESTOR_OIDC_CLIENT_ID}
@@ -2946,8 +2957,8 @@ services:
       # Seed a dev allow tuple with a Keycloak user `sub`. If unset, OpenFGA
       # starts deny-by-default and you can write tuples later.
       OPENFGA_SEED_SUB: ${OPENFGA_SEED_SUB:-}
-      # Backward-compatible alias from the previous experiment overlay.
-      OPENFGA_EXPERIMENT_SUB: ${OPENFGA_EXPERIMENT_SUB:-}
+    volumes:
+      - ./charts/ai-platform-engineering/charts/openfga/authorization-model.json:/app/authorization-model.json:ro
     depends_on:
       openfga:
         condition: service_healthy
@@ -2987,11 +2998,53 @@ services:
       openfga:
         condition: service_healthy
 
+  agentgateway-config-bridge:
+    build:
+      context: ./deploy/agentgateway
+      dockerfile: Dockerfile.config-bridge
+    image: ghcr.io/cnoe-io/caipe-agentgateway-config-bridge:${IMAGE_TAG:-localtag}
+    container_name: agentgateway-config-bridge
+    restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    profiles:
+      - rbac
+    environment:
+      MONGODB_URI: ${MONGODB_URI:-mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin}
+      MONGODB_DATABASE: ${MONGODB_DATABASE:-caipe}
+      AGENTGATEWAY_CONFIG_PATH: /generated/config.yaml
+      AGENTGATEWAY_BOOTSTRAP_CONFIG_PATH: /bootstrap/config.yaml
+      AGENTGATEWAY_ADMIN_CONFIG_URL: http://agentgateway:15000/config
+      AGENTGATEWAY_CONFIG_BRIDGE_POLL_SECONDS: ${AGENTGATEWAY_CONFIG_BRIDGE_POLL_SECONDS:-5}
+      LOG_LEVEL: ${AGENTGATEWAY_CONFIG_BRIDGE_LOG_LEVEL:-INFO}
+    volumes:
+      - agentgateway_config:/generated
+      - ./deploy/agentgateway/config.yaml:/bootstrap/config.yaml:ro
+    tmpfs:
+      - /tmp
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "from pathlib import Path; import sys; sys.exit(0 if Path('/generated/config.yaml').is_file() and Path('/generated/config.yaml').stat().st_size > 0 else 1)"
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+    depends_on:
+      caipe-mongodb:
+        condition: service_healthy
+
   agentgateway:
     image: ghcr.io/agentgateway/agentgateway:latest
     container_name: agentgateway
     restart: unless-stopped
     command: ["--file", "/etc/agentgateway/config.yaml"]
+    environment:
+      GITHUB_PERSONAL_ACCESS_TOKEN: ${GITHUB_PERSONAL_ACCESS_TOKEN:-}
+      GITLAB_PERSONAL_ACCESS_TOKEN: ${GITLAB_PERSONAL_ACCESS_TOKEN:-${GITLAB_TOKEN:-}}
     read_only: true
     security_opt:
       - no-new-privileges:true
@@ -3016,11 +3069,13 @@ services:
         condition: service_completed_successfully
       openfga-authz-bridge:
         condition: service_healthy
+      agentgateway-config-bridge:
+        condition: service_healthy
     ports:
       - "4000:4000"
       - "127.0.0.1:15000:15000" # Admin UI (config.config.adminAddr)
     volumes:
-      - ./deploy/agentgateway/config.yaml:/etc/agentgateway/config.yaml:ro
+      - agentgateway_config:/etc/agentgateway:ro
     tmpfs:
       - /tmp
     healthcheck:
@@ -3195,6 +3250,8 @@ volumes:
   langgraph_mongodb_data:
     driver: local
   openfga_postgres_data:
+    driver: local
+  agentgateway_config:
     driver: local
   # Durable Keycloak state (users, role assignments, per-team client scopes,
   # `team_member:<slug>` realm roles, identity links, token-exchange grants).

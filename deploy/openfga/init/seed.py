@@ -15,10 +15,7 @@ OPENFGA = os.environ.get("OPENFGA_HTTP", "http://openfga:8080").rstrip("/")
 STORE_NAME = os.environ.get("OPENFGA_STORE_NAME", "caipe-openfga").strip()
 SEED_OBJECT = os.environ.get("OPENFGA_SEED_OBJECT", "mcp_gateway:list").strip()
 SEED_RELATION = os.environ.get("OPENFGA_SEED_RELATION", "caller").strip()
-SEED_SUB = (
-    os.environ.get("OPENFGA_SEED_SUB", "").strip()
-    or os.environ.get("OPENFGA_EXPERIMENT_SUB", "").strip()
-)
+SEED_SUB = os.environ.get("OPENFGA_SEED_SUB", "").strip()
 
 
 def wait_ready() -> None:

@@ -24,6 +24,7 @@ function request(): NextRequest {
 
 function buildHealth(overrides: {
   reachable?: boolean;
+  status?: string;
   configured?: boolean;
   failing?: number;
   unknown?: number;
@@ -32,6 +33,7 @@ function buildHealth(overrides: {
 } = {}) {
   const {
     reachable = true,
+    status = reachable ? "reachable" : "unreachable",
     configured = true,
     failing = 0,
     unknown = 0,
@@ -42,6 +44,7 @@ function buildHealth(overrides: {
     keycloak: {
       configured,
       reachable,
+      status,
       realm: "caipe",
       last_probe_at: "2026-05-24T13:00:00.000Z",
     },
@@ -119,6 +122,30 @@ describe("GET /api/admin/keycloak/migration-health/summary", () => {
     expect(response.status).toBe(200);
     expect(body.data.has_issues).toBe(true);
     expect(body.data.invariants).toBeNull();
+  });
+
+  it("flags has_issues for admin authorization errors without marking Keycloak unreachable", async () => {
+    mockGetKeycloakMigrationHealth.mockResolvedValueOnce(
+      buildHealth({
+        reachable: true,
+        status: "admin_authorization_error",
+        invariantsOmitted: true,
+      }),
+    );
+    const { GET, __resetKeycloakHealthSummaryCacheForTests } = await import("../route");
+    __resetKeycloakHealthSummaryCacheForTests();
+
+    const response = await GET(request());
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data).toMatchObject({
+      configured: true,
+      reachable: true,
+      status: "admin_authorization_error",
+      has_issues: true,
+      invariants: null,
+    });
   });
 
   it("returns has_issues=false when Keycloak is healthy and invariants pass", async () => {

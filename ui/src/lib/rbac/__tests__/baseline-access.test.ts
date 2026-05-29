@@ -20,7 +20,7 @@ describe("baseline FGA profile bundles", () => {
         expect.objectContaining({
           id: "org-member",
           role: "member",
-          grants: expect.arrayContaining(["organization-member", "own-profile-owner"]),
+          grants: expect.arrayContaining(["organization-member", "own-profile-owner", "mcp-gateway-call"]),
         }),
         expect.objectContaining({
           id: "org-admin",

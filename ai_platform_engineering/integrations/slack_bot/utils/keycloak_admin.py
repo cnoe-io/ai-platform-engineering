@@ -63,10 +63,10 @@ logger = logging.getLogger("caipe.slack_bot.keycloak_admin")
 #    POSTs to ``/users``; callers never get a generic "POST any user" surface.
 # 2. Any follow-up ``PUT /users/{id}`` performed inside this helper targets
 #    the just-returned UUID only — never an arbitrary id passed in.
-# 3. The ``caipe-platform`` service account holds exactly
-#    {view-users, query-users, manage-users} and no other realm-management
-#    roles (asserted idempotently by ``init-idp.sh`` and pinned in
-#    ``realm-config.json``).
+# 3. The Slack JIT path needs only {view-users, query-users, manage-users}.
+#    The default ``caipe-platform`` service account also holds the narrow
+#    client/authz roles required by the Web UI BFF's Keycloak RBAC migration;
+#    this helper still exposes only user lookup/create operations.
 
 
 class JitError(Exception):

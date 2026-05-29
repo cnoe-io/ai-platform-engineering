@@ -163,7 +163,6 @@ describe("OpenFGA team resource tuple reconciliation", () => {
 
   it("allows typed user wildcards on agent user relation in shipped authorization models", () => {
     const modelPaths = [
-      path.join(process.cwd(), "../deploy/openfga/init/authorization-model.json"),
       path.join(process.cwd(), "../charts/ai-platform-engineering/charts/openfga/authorization-model.json"),
     ];
 
@@ -174,7 +173,6 @@ describe("OpenFGA team resource tuple reconciliation", () => {
 
   it("defines agent can_delete in shipped authorization models", () => {
     const modelPaths = [
-      path.join(process.cwd(), "../deploy/openfga/init/authorization-model.json"),
       path.join(process.cwd(), "../charts/ai-platform-engineering/charts/openfga/authorization-model.json"),
     ];
 
@@ -185,9 +183,7 @@ describe("OpenFGA team resource tuple reconciliation", () => {
 
   it("defines self-service ownership relations in shipped authorization models", () => {
     const modelPaths = [
-      path.join(process.cwd(), "../deploy/openfga/init/authorization-model.json"),
       path.join(process.cwd(), "../charts/ai-platform-engineering/charts/openfga/authorization-model.json"),
-      path.join(process.cwd(), "../deploy/openfga-experiment/init/authorization-model.json"),
     ];
 
     for (const modelPath of modelPaths) {
@@ -205,11 +201,24 @@ describe("OpenFGA team resource tuple reconciliation", () => {
     }
   });
 
+  it("defines RAG data source and custom MCP tool types in shipped authorization models", () => {
+    const modelPaths = [
+      path.join(process.cwd(), "../charts/ai-platform-engineering/charts/openfga/authorization-model.json"),
+    ];
+
+    for (const modelPath of modelPaths) {
+      expect(resourceRelationNames(modelPath, "data_source")).toEqual(
+        expect.arrayContaining(["can_read", "can_ingest", "can_manage"]),
+      );
+      expect(resourceRelationNames(modelPath, "mcp_tool")).toEqual(
+        expect.arrayContaining(["can_read", "can_use", "can_call", "can_manage"]),
+      );
+    }
+  });
+
   it("keeps manager tuple schemas aligned with tuple writers across all packaged models", () => {
     const modelPaths = [
-      path.join(process.cwd(), "../deploy/openfga/init/authorization-model.json"),
       path.join(process.cwd(), "../charts/ai-platform-engineering/charts/openfga/authorization-model.json"),
-      path.join(process.cwd(), "../deploy/openfga-experiment/init/authorization-model.json"),
     ];
 
     for (const modelPath of modelPaths) {

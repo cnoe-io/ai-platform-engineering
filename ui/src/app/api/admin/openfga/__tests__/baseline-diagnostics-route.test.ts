@@ -60,6 +60,7 @@ describe("GET /api/admin/openfga/baseline-diagnostics", () => {
         tuple.object === "organization:grid" && tuple.relation === "can_use" ||
         tuple.object === "system_config:platform_settings" && tuple.relation === "can_read" ||
         tuple.object === "user_profile:bob-sub" && tuple.relation === "can_read" ||
+        tuple.object === "mcp_gateway:list" && tuple.relation === "caller" ||
         tuple.object.startsWith("admin_surface:") && tuple.relation === "can_read",
     }));
   });

@@ -132,6 +132,28 @@ global:
       serviceName: "ai-platform-engineering-openfga-authz-bridge"
       serviceNamespace: ""
       port: 9100
+    # Built-in Knowledge Base MCP route. This keeps the Dynamic Agents
+    # `knowledge-base` MCP server ID aligned with the RAG server MCP backend
+    # when AgentGateway is enabled in the umbrella chart.
+    knowledgeBaseTarget:
+      enabled: true
+      host: "rag-server.{{ .Release.Namespace }}.svc.cluster.local"
+      port: 9446
+      protocol: StreamableHTTP
+      pathPrefix: /mcp/knowledge-base
+    # Additional MCP routes that are not rendered from `agent-*` subcharts.
+    # Use this for platform MCP endpoints such as RAG/Knowledge Base.
+    # Each item renders one AgentgatewayBackend and one HTTPRoute:
+    #   /mcp/<id> -> static host:port using the requested MCP protocol.
+    #
+    # Example:
+    # extraMcpTargets:
+    #   - id: knowledge-base
+    #     host: "{{ .Release.Name }}-rag-server.{{ .Release.Namespace }}.svc.cluster.local"
+    #     port: 9446
+    #     protocol: StreamableHTTP
+    #     pathPrefix: /mcp/knowledge-base
+    extraMcpTargets: []
 
   # OpenFGA service discovery defaults for CAIPE components that perform
   # relationship-based authorization or reconciliation.
@@ -145,6 +167,23 @@ agentgateway:
     repository: cr.agentgateway.dev/agentgateway
     tag: v1.1.0
     pullPolicy: IfNotPresent
+  # Secret-backed environment for backend auth placeholders used by the
+  # standalone AgentGateway config, for example:
+  #   backendAuth:
+  #     key: "$GITHUB_PERSONAL_ACCESS_TOKEN"
+  #     key: "$GITLAB_PERSONAL_ACCESS_TOKEN"
+  extraEnv: []
+  # - name: GITHUB_PERSONAL_ACCESS_TOKEN
+  #   valueFrom:
+  #     secretKeyRef:
+  #       name: github-mcp-secret
+  #       key: GITHUB_PERSONAL_ACCESS_TOKEN
+  # - name: GITLAB_PERSONAL_ACCESS_TOKEN
+  #   valueFrom:
+  #     secretKeyRef:
+  #       name: gitlab-mcp-secret
+  #       key: GITLAB_PERSONAL_ACCESS_TOKEN
+  extraEnvFrom: []
 
   # LangGraph Redis for checkpoint and cross-thread store persistence.
   # Two deployment options:
@@ -1056,9 +1095,9 @@ dynamic-agents:
     CREDENTIAL_API_URL: "http://ai-platform-engineering-caipe-ui:3000/api/credentials"
     CREDENTIAL_SERVICE_AUDIENCE: "caipe-credential-service"
     USE_IMPERSONATION_TOKENS: "false"
-    # MCP server IDs routed through the shared AgentGateway backend.
-    # Other MCP servers keep direct endpoints so tool names reflect real upstreams.
-    AGENT_GATEWAY_MCP_SERVER_IDS: "jira"
+    # MCP server IDs routed through AgentGateway. "all" only applies to
+    # gateway-managed MCP rows; manual/direct MCP rows keep their stored endpoint.
+    AGENT_GATEWAY_MCP_SERVER_IDS: "all"
     # LLM configuration (override if needed)
     # LLM_PROVIDER: "openai"
     # LLM_MODEL: "gpt-4o"

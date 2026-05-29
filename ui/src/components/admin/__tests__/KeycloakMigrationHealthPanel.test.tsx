@@ -194,6 +194,26 @@ describe("KeycloakMigrationHealthPanel", () => {
     expect(screen.getByText("Schema current")).toHaveClass("text-emerald-700");
   });
 
+  it("labels admin API 403s separately from Keycloak network reachability", async () => {
+    global.fetch = jest.fn().mockResolvedValueOnce(jsonResponse({
+      success: true,
+      data: {
+        ...failedHealth.data,
+        keycloak: {
+          ...failedHealth.data.keycloak,
+          reachable: true,
+          status: "admin_authorization_error",
+          probe_error: "Keycloak Admin enableUsersManagementPermissions failed: 403 HTTP 403 Forbidden",
+        },
+      },
+    }));
+
+    render(<KeycloakMigrationHealthPanel />);
+
+    expect(await screen.findByText("Keycloak admin unauthorized")).toHaveClass("text-red-700");
+    expect(screen.queryByText("Keycloak unreachable")).not.toBeInTheDocument();
+  });
+
   // The "applied_counts tile grid" was removed in 2026-05-24 — those
   // tiles (Mongo teams seen / Team scopes reconciled / OBO permission
   // sets reconciled / Bot service accounts reconciled / Token exchange
@@ -504,6 +524,23 @@ describe("KeycloakMigrationHealthPanel", () => {
     const copied = writeText.mock.calls[0][0] as string;
     expect(copied).toContain('"realm": "caipe"');
     expect(copied).toContain('"manifest_status": "completed"');
+  });
+
+  it("keeps the last successful health payload without showing raw fetch failures", async () => {
+    global.fetch = jest
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(completedHealth))
+      .mockRejectedValueOnce(new TypeError("fetch failed"));
+
+    render(<KeycloakMigrationHealthPanel />);
+
+    expect(await screen.findByText("Keycloak reachable")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Refresh/i }));
+
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(2));
+    expect(screen.getByText("Keycloak reachable")).toBeInTheDocument();
+    expect(screen.queryByText("fetch failed")).not.toBeInTheDocument();
   });
 
   it("marks health degraded when bootstrap admin reconciliation has failures", async () => {
