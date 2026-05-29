@@ -90,6 +90,26 @@ KEYCLOAK_ADMIN_PASSWORD="${KEYCLOAK_ADMIN_PASSWORD:-}"
 ENABLE_GITHUB_SOCIAL="${ENABLE_GITHUB_SOCIAL:-}"
 GITHUB_SOCIAL_CLIENT_ID="${GITHUB_SOCIAL_CLIENT_ID:-}"
 GITHUB_SOCIAL_CLIENT_SECRET="${GITHUB_SOCIAL_CLIENT_SECRET:-}"
+# Local Keycloak admin login (no upstream IdP / no Cisco SSO). The default
+# in-chart Keycloak install ships no human users, so without this nobody could
+# sign in unless an upstream IdP (Duo/Okta) was brokered. When the RBAC runtime
+# is on with a DNS domain and no upstream IdP is configured, we create a single
+# realm user with a password and grant it org-admin (BOOTSTRAP_ADMIN_EMAILS) so
+# RBAC/auth can be exercised end-to-end with zero external identity setup.
+# Disable with --no-local-admin. The password is generated and persisted in the
+# caipe-local-admin Secret (idempotent re-runs) unless LOCAL_ADMIN_PASSWORD is set.
+ENABLE_LOCAL_ADMIN="${ENABLE_LOCAL_ADMIN:-true}"
+LOCAL_ADMIN_EMAIL="${LOCAL_ADMIN_EMAIL:-admin@caipe.local}"
+LOCAL_ADMIN_PASSWORD="${LOCAL_ADMIN_PASSWORD:-}"
+# Second local realm user that is NOT in BOOTSTRAP_ADMIN_EMAILS, so it logs in as
+# a plain (non-org-admin) user. Lets operators test both RBAC paths — admin
+# surfaces vs a standard chat user denied the admin UI — out of the box. Disable
+# with --no-local-user. Password generated + persisted in the caipe-local-user
+# Secret (idempotent) unless LOCAL_USER_PASSWORD is set. Only provisioned when the
+# local admin is (same _local_admin_active gate).
+ENABLE_LOCAL_USER="${ENABLE_LOCAL_USER:-true}"
+LOCAL_USER_EMAIL="${LOCAL_USER_EMAIL:-user@caipe.local}"
+LOCAL_USER_PASSWORD="${LOCAL_USER_PASSWORD:-}"
 VLLM_MODEL="${VLLM_MODEL:-openai/gpt-oss-20b}"
 VLLM_GPU_COUNT="${VLLM_GPU_COUNT:-1}"
 OLLAMA_MODEL="${OLLAMA_MODEL:-llama2}"
@@ -213,6 +233,13 @@ ask_yn() {
 wait_for_pods() {
   local ns="$1" timeout="${2:-300}" exclude_pattern="${3:-}" interval=5 elapsed=0
   local show_interval=10 next_show=10
+  # Once the cluster has "settled" (every not-ready pod is CrashLoopBackOff/Error,
+  # i.e. nothing is still converging) we stop waiting and return 0 instead of
+  # burning the full timeout. This is the common case for a credential-less
+  # default install where optional agents (argocd/slack/splunk/…) CrashLoop
+  # without secrets — the platform itself is healthy and post-deploy must still
+  # run. Grace period avoids declaring "settled" during normal startup flapping.
+  local settle_grace=120
   local log_check_after=20 log_check_interval=15 next_log_check=0
   local exclude_awk=""
   local prev_lines=0
@@ -229,15 +256,28 @@ wait_for_pods() {
   }
 
   while [[ $elapsed -lt $timeout ]]; do
-    local total ready
+    local total ready stuck transient
+    # Completed/Succeeded job pods (e.g. Keycloak init hooks) are finished work,
+    # not long-running workloads — exclude them so they don't inflate the total
+    # and make readiness unreachable.
     total=$(kubectl get pods -n "$ns" --no-headers 2>/dev/null \
-      | awk "${exclude_awk}"'$3!="Terminating" {print}' | wc -l | tr -d ' ')
+      | awk "${exclude_awk}"'$3!="Terminating" && $3!="Completed" && $3!="Succeeded" {print}' | wc -l | tr -d ' ')
     ready=$(kubectl get pods -n "$ns" --no-headers 2>/dev/null \
       | awk "${exclude_awk}"'$3=="Running" && $2~"^[0-9]+/[0-9]+$" {split($2,a,"/"); if(a[1]==a[2]) print}' \
       | wc -l | tr -d ' ')
     if [[ "$total" -gt 0 && "$total" -eq "$ready" ]]; then
       _wfp_clear_table
       log "All $total pods in ${ns} are running"
+      return 0
+    fi
+    # Settled? Every not-ready pod is CrashLoopBackOff/Error (nothing converging).
+    stuck=$(kubectl get pods -n "$ns" --no-headers 2>/dev/null \
+      | awk "${exclude_awk}"'$3=="CrashLoopBackOff" || $3=="Error" {print}' | wc -l | tr -d ' ')
+    transient=$(( total - ready - stuck ))
+    if [[ "$total" -gt 0 && $elapsed -ge $settle_grace && "$transient" -le 0 && "$stuck" -gt 0 ]]; then
+      _wfp_clear_table
+      warn "${ready}/${total} pods ready in ${ns}; ${stuck} stuck (CrashLoopBackOff/Error) — continuing"
+      warn "Stuck pods usually lack agent credentials; the core platform is up. Add creds via --env-file to enable them."
       return 0
     fi
 
@@ -3338,6 +3378,35 @@ create_namespace_and_secrets() {
     log "caipe-platform-secret ready (Keycloak platform client -> caipe-ui admin REST)"
   fi
 
+  # caipe-ui-secret for the DEFAULT (no --ui-env-file) SSO install: NextAuth needs
+  # a stable NEXTAUTH_SECRET to sign sessions, and the UI authenticates to
+  # Keycloak as the caipe-ui confidential client (the committed dev realm ships
+  # secret caipe-ui-dev-secret). With a --ui-env-file these come from
+  # provision_ui_secret; here we synthesize them so a vanilla install can do SSO.
+  # NEXTAUTH_SECRET is generated once and persisted (idempotent re-runs). These
+  # MUST live in the Secret (not config) so the chart's envFrom secretRef wins
+  # over the empty config defaults. assisted-by Claude:claude-opus-4-8
+  if $ENABLE_RBAC_RUNTIME && [[ -z "$UI_ENV_FILE" ]]; then
+    local _ui_nextauth
+    _ui_nextauth=$(kubectl get secret caipe-ui-secret -n caipe \
+      -o jsonpath='{.data.NEXTAUTH_SECRET}' 2>/dev/null | base64 -d 2>/dev/null || true)
+    [[ -z "$_ui_nextauth" ]] && _ui_nextauth="$(openssl rand -hex 32)"
+    local _ui_client_id="${OIDC_CLIENT_ID:-caipe-ui}"
+    local _ui_client_secret="${OIDC_CLIENT_SECRET:-caipe-ui-dev-secret}"
+    # OIDC_CLIENT_ID MUST be provided too: NextAuth's oidc provider throws
+    # "client_id is required" (login error=OAuthSignin) if only the secret is set.
+    # The chart default config.OIDC_CLIENT_ID is empty, so without this the UI can
+    # never start the auth flow. Keep it in the Secret alongside the secret so the
+    # envFrom secretRef wins over the empty config default.
+    kubectl create secret generic caipe-ui-secret -n caipe \
+      --from-literal=NEXTAUTH_SECRET="$_ui_nextauth" \
+      --from-literal=OIDC_CLIENT_ID="$_ui_client_id" \
+      --from-literal=OIDC_CLIENT_SECRET="$_ui_client_secret" \
+      --dry-run=client -o yaml | kubectl apply -f - &>/dev/null
+    HELM_UI_SECRET_ARGS+=(--set "caipe-ui.existingSecret=caipe-ui-secret")
+    log "caipe-ui-secret ready (NextAuth secret + caipe-ui client id/secret; default SSO)"
+  fi
+
   # Chat-bot surfaces (slack-bot / webex-bot). Token secrets are created here;
   # the Helm tags + in-cluster config (incl. MONGODB_URI built from the resolved
   # cluster password) are written by _write_bot_values and applied in deploy_caipe.
@@ -4176,6 +4245,11 @@ SUPERVISOR_INGRESS_EOF
 
     # Optional GitHub social login broker (configured only when requested).
     configure_github_idp
+
+    # Default local Keycloak logins (no upstream IdP): an org-admin and a
+    # non-admin user. Self-guards via _local_admin_active (RBAC + DNS domain +
+    # no brokered IdP).
+    provision_local_users
   fi
 }
 
@@ -4270,6 +4344,138 @@ JSON
   else
     warn "GitHub social login: Keycloak IdP upsert returned HTTP ${code} (check client id/secret)"
   fi
+}
+
+# True when we should self-provision a local Keycloak admin login. Requires the
+# RBAC runtime + a DNS domain (SSO needs a browser-reachable issuer) and is
+# skipped when an upstream IdP is brokered (IDP_ISSUER set in an env file) —
+# in that case identity comes from the broker, not a local password user.
+# assisted-by Claude:claude-opus-4-8
+_local_admin_active() {
+  $ENABLE_RBAC_RUNTIME || return 1
+  [[ "$ENABLE_LOCAL_ADMIN" != "false" ]] || return 1
+  [[ -n "$CAIPE_DOMAIN" && ! "$CAIPE_DOMAIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || return 1
+  if [[ -n "${UI_ENV_FILE:-}" && -f "${UI_ENV_FILE:-}" ]]; then
+    [[ -z "$(_env_get "$UI_ENV_FILE" IDP_ISSUER)" ]] || return 1
+  fi
+  if [[ -n "${ENV_FILE:-}" && -f "${ENV_FILE:-}" ]]; then
+    [[ -z "$(_env_get "$ENV_FILE" IDP_ISSUER)" ]] || return 1
+  fi
+  return 0
+}
+
+# Create (or refresh) local Keycloak realm users with passwords so the default
+# in-chart Keycloak SSO install is actually loginable without any upstream IdP /
+# Cisco SSO. We provision TWO users so both RBAC paths can be tested out of the
+# box:
+#   • admin@caipe.local — wired into BOOTSTRAP_ADMIN_EMAILS (caipe-ui.config), so
+#     the BFF JWT callback grants it org-admin + reconciles the OpenFGA
+#     super-admin tuple on first login (admin surfaces).
+#   • user@caipe.local  — NOT in BOOTSTRAP_ADMIN_EMAILS, so it logs in as a plain
+#     non-admin user (baseline chat access, denied the admin UI).
+# The Keycloak admin API is not exposed publicly, so we reach it over a single
+# temporary port-forward and authenticate with the master-realm bootstrap admin.
+# Idempotent: resets passwords in place when users exist, and persists each
+# credential in its own Secret (caipe-local-admin / caipe-local-user) so re-runs
+# reuse them. assisted-by Claude:claude-opus-4-8
+provision_local_users() {
+  _local_admin_active || return 0
+  step "Provisioning local Keycloak logins (no upstream IdP)"
+
+  # Master-realm bootstrap admin (creating realm users needs manage-users; the
+  # bootstrap admin has it without depending on the caipe-platform grants). The
+  # chart-owned caipe-keycloak-admin Secret stores keys username/password — fall
+  # back to those (NOT a non-existent admin-password key) when the in-process
+  # KEYCLOAK_ADMIN_PASSWORD isn't set (e.g. an --upgrade/monitor re-entry).
+  local kcadm_user kcadm_pw="${KEYCLOAK_ADMIN_PASSWORD:-}"
+  kcadm_user=$(kubectl get secret caipe-keycloak-admin -n caipe \
+    -o jsonpath='{.data.username}' 2>/dev/null | base64 -d 2>/dev/null || true)
+  [[ -z "$kcadm_user" ]] && kcadm_user="admin"
+  if [[ -z "$kcadm_pw" ]]; then
+    kcadm_pw=$(kubectl get secret caipe-keycloak-admin -n caipe \
+      -o jsonpath='{.data.password}' 2>/dev/null | base64 -d 2>/dev/null || true)
+  fi
+  if [[ -z "$kcadm_pw" ]]; then
+    warn "Local logins: no Keycloak admin password available; skipping"
+    return 0
+  fi
+
+  local _pf_port=17082
+  kubectl port-forward svc/caipe-keycloak -n caipe ${_pf_port}:8080 >/dev/null 2>&1 &
+  local _pf=$!
+  sleep 4
+  local kc="http://localhost:${_pf_port}"
+
+  local tok
+  tok=$(curl -s "$kc/realms/master/protocol/openid-connect/token" \
+    -d grant_type=password -d client_id=admin-cli \
+    --data-urlencode "username=${kcadm_user}" --data-urlencode "password=${kcadm_pw}" \
+    | sed -n 's/.*"access_token":"\([^"]*\)".*/\1/p')
+  if [[ -z "$tok" ]]; then
+    warn "Local logins: could not obtain a Keycloak admin token; skipping"
+    kill "$_pf" 2>/dev/null || true
+    return 0
+  fi
+
+  # Upsert one realm user (idempotent). Args: email password first last.
+  # Echoes the HTTP status code from the create/update call.
+  _kc_upsert_user() {
+    local email="$1" pw="$2" first="$3" last="$4" uid body
+    uid=$(curl -s -H "Authorization: Bearer $tok" \
+      "$kc/admin/realms/caipe/users?email=${email}&exact=true" \
+      | sed -n 's/.*"id":"\([^"]*\)".*/\1/p' | head -1)
+    body=$(cat <<JSON
+{"username":"${email}","email":"${email}","emailVerified":true,"enabled":true,"firstName":"${first}","lastName":"${last}","credentials":[{"type":"password","value":"${pw}","temporary":false}]}
+JSON
+)
+    if [[ -n "$uid" ]]; then
+      curl -s -o /dev/null -w '%{http_code}' -X PUT \
+        -H "Authorization: Bearer $tok" -H "Content-Type: application/json" \
+        "$kc/admin/realms/caipe/users/${uid}" -d "$body"
+    else
+      curl -s -o /dev/null -w '%{http_code}' -X POST \
+        -H "Authorization: Bearer $tok" -H "Content-Type: application/json" \
+        "$kc/admin/realms/caipe/users" -d "$body"
+    fi
+  }
+
+  # ── Admin user (org-admin via BOOTSTRAP_ADMIN_EMAILS) ──
+  local admin_pw code
+  admin_pw=$(kubectl get secret caipe-local-admin -n caipe \
+    -o jsonpath='{.data.password}' 2>/dev/null | base64 -d 2>/dev/null || true)
+  [[ -z "$admin_pw" ]] && admin_pw="${LOCAL_ADMIN_PASSWORD:-$(openssl rand -hex 12)}"
+  code=$(_kc_upsert_user "$LOCAL_ADMIN_EMAIL" "$admin_pw" "CAIPE" "Admin")
+  if [[ "$code" =~ ^20[0-9]$ ]]; then
+    kubectl create secret generic caipe-local-admin -n caipe \
+      --from-literal=email="${LOCAL_ADMIN_EMAIL}" \
+      --from-literal=password="${admin_pw}" \
+      --dry-run=client -o yaml | kubectl apply -f - &>/dev/null
+    LOCAL_ADMIN_PASSWORD="$admin_pw"
+    log "Local admin login ready: ${LOCAL_ADMIN_EMAIL} (org-admin via BOOTSTRAP_ADMIN_EMAILS)"
+  else
+    warn "Local admin: Keycloak user upsert returned HTTP ${code}; sign-in may not work"
+  fi
+
+  # ── Standard (non-admin) user — NOT in BOOTSTRAP_ADMIN_EMAILS ──
+  if [[ "$ENABLE_LOCAL_USER" != "false" ]]; then
+    local user_pw
+    user_pw=$(kubectl get secret caipe-local-user -n caipe \
+      -o jsonpath='{.data.password}' 2>/dev/null | base64 -d 2>/dev/null || true)
+    [[ -z "$user_pw" ]] && user_pw="${LOCAL_USER_PASSWORD:-$(openssl rand -hex 12)}"
+    code=$(_kc_upsert_user "$LOCAL_USER_EMAIL" "$user_pw" "CAIPE" "User")
+    if [[ "$code" =~ ^20[0-9]$ ]]; then
+      kubectl create secret generic caipe-local-user -n caipe \
+        --from-literal=email="${LOCAL_USER_EMAIL}" \
+        --from-literal=password="${user_pw}" \
+        --dry-run=client -o yaml | kubectl apply -f - &>/dev/null
+      LOCAL_USER_PASSWORD="$user_pw"
+      log "Local standard login ready: ${LOCAL_USER_EMAIL} (non-admin — baseline access, no admin UI)"
+    else
+      warn "Local user: Keycloak user upsert returned HTTP ${code}; sign-in may not work"
+    fi
+  fi
+
+  kill "$_pf" 2>/dev/null || true
 }
 
 _patch_rag_server_envfrom() {
@@ -5080,17 +5286,25 @@ deploy_caipe() {
     --set tags.caipe-ui=true
     --set tags.agent-weather=false
     --set tags.agent-netutils=true
-    # A2A_BASE_URL: server-side only (Next.js API routes fetching /tools, etc.)
-    # Must use the internal k8s service URL to avoid hairpin routing failures
-    # through the nginx ingress when the pod calls its own cluster domain.
-    --set "caipe-ui.env.A2A_BASE_URL=http://caipe-supervisor-agent:8000"
+    # A2A_BASE_URL: server-side only (Next.js API routes fetching /tools, the
+    # /api/a2a health probe, etc.). Must use the internal k8s service URL to
+    # avoid hairpin routing failures through the nginx ingress when the pod calls
+    # its own cluster domain. NOTE: these MUST be set under caipe-ui.config.* (the
+    # caipe-ui Deployment consumes config via `envFrom: caipe-caipe-ui-config`
+    # and defines no explicit env: entries, so caipe-ui.env.* is silently
+    # ignored). The chart's default config.A2A_BASE_URL hardcodes the DEFAULT
+    # release name (ai-platform-engineering-supervisor-agent); since we install as
+    # release "caipe" the service is caipe-supervisor-agent, so we must override
+    # it or the UI shows the Supervisor permanently OFFLINE.
+    --set "caipe-ui.config.A2A_BASE_URL=http://caipe-supervisor-agent:8000"
     # NEXT_PUBLIC_A2A_BASE_URL: client-side browser fetches (A2A streaming, health)
-    # Must be the externally reachable URL so the browser can connect.
-    --set "caipe-ui.env.NEXT_PUBLIC_A2A_BASE_URL=${CAIPE_DOMAIN:+https://${CAIPE_DOMAIN}/supervisor}"
+    # Must be the externally reachable URL so the browser can connect (via the
+    # /supervisor ingress that routes to caipe-supervisor-agent:8000).
+    --set "caipe-ui.config.NEXT_PUBLIC_A2A_BASE_URL=${CAIPE_DOMAIN:+https://${CAIPE_DOMAIN}/supervisor}"
   )
   # When no domain is set (local dev), default to localhost for port-forward usage
   if [[ -z "$CAIPE_DOMAIN" ]]; then
-    helm_args+=(--set "caipe-ui.env.NEXT_PUBLIC_A2A_BASE_URL=http://localhost:8000")
+    helm_args+=(--set "caipe-ui.config.NEXT_PUBLIC_A2A_BASE_URL=http://localhost:8000")
   fi
 
   # SSO: enable when a public domain is configured (NEXTAUTH_URL is already
@@ -5099,6 +5313,28 @@ deploy_caipe() {
     helm_args+=(--set "caipe-ui.config.SSO_ENABLED=true")
   else
     helm_args+=(--set "caipe-ui.config.SSO_ENABLED=false")
+  fi
+
+  # Default (no --ui-env-file) in-chart Keycloak SSO. The dev/Cisco env file
+  # normally supplies OIDC_ISSUER/NEXTAUTH_URL, so without it the chart defaults
+  # leave OIDC_ISSUER empty (sign-in is impossible) and NEXTAUTH_URL pointing at
+  # localhost. Synthesize them from the DNS domain so a vanilla install does
+  # Keycloak SSO with zero external config. OIDC_DISCOVERY_URL/KEYCLOAK_URL
+  # already default to the in-cluster service in the chart. The matching
+  # NEXTAUTH_SECRET + caipe-ui client secret are created in
+  # create_namespace_and_secrets (caipe-ui-secret). Skipped for IP domains (no
+  # browser-reachable issuer) and when a ui-env-file already provides OIDC.
+  # assisted-by Claude:claude-opus-4-8
+  if $ENABLE_RBAC_RUNTIME && [[ -z "$UI_ENV_FILE" \
+      && -n "$CAIPE_DOMAIN" && ! "$CAIPE_DOMAIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    helm_args+=(
+      --set "caipe-ui.config.NEXTAUTH_URL=https://${CAIPE_DOMAIN}"
+      --set "caipe-ui.config.OIDC_ISSUER=https://${CAIPE_DOMAIN}/realms/caipe"
+      --set "openfga-authz-bridge.tokenValidation.issuer=https://${CAIPE_DOMAIN}/realms/caipe"
+    )
+    if _local_admin_active; then
+      helm_args+=(--set "caipe-ui.config.BOOTSTRAP_ADMIN_EMAILS=${LOCAL_ADMIN_EMAIL}")
+    fi
   fi
 
   # ── Deployment mode ──────────────────────────────────────────────────────
@@ -5508,10 +5744,14 @@ DAEOF
     exit 1
   fi
   log "CAIPE Helm release deployed"
+  # Non-fatal: a timeout here (e.g. credential-less agents that never become
+  # ready) must NOT abort the script under `set -e` — post_deploy_patches still
+  # needs to run the RBAC reconcile + local-admin provisioning on the healthy
+  # core. wait_for_pods already returns early once the cluster has settled.
   if $ENABLE_RAG; then
-    wait_for_pods caipe 600 "rag-server"
+    wait_for_pods caipe 600 "rag-server" || warn "Proceeding despite not-ready pods (see above)"
   else
-    wait_for_pods caipe 600
+    wait_for_pods caipe 600 || warn "Proceeding despite not-ready pods (see above)"
   fi
 }
 
@@ -6418,6 +6658,30 @@ monitor_port_forwards() {
   run_validation
   run_sanity_tests
 
+  # Surface the default local Keycloak logins (no upstream IdP) in both
+  # interactive and non-interactive modes so the operator can sign in and test
+  # both RBAC paths (org-admin vs non-admin).
+  if _local_admin_active && [[ -n "${LOCAL_ADMIN_PASSWORD:-}" ]]; then
+    echo ""
+    header "Local logins (in-chart Keycloak, no upstream IdP)"
+    echo -e "    URL                ${CYAN}https://${CAIPE_DOMAIN}${NC}"
+    echo ""
+    echo -e "    ${BOLD}Admin${NC} (org-admin / admin UI)"
+    echo -e "      Email            ${BOLD}${LOCAL_ADMIN_EMAIL}${NC}"
+    echo -e "      Password         ${BOLD}${LOCAL_ADMIN_PASSWORD}${NC}"
+    echo -e "      ${DIM}Recover: kubectl get secret caipe-local-admin -n caipe -o jsonpath='{.data.password}' | base64 -d${NC}"
+    if [[ "$ENABLE_LOCAL_USER" != "false" && -n "${LOCAL_USER_PASSWORD:-}" ]]; then
+      echo ""
+      echo -e "    ${BOLD}Standard${NC} (non-admin / chat only, no admin UI)"
+      echo -e "      Email            ${BOLD}${LOCAL_USER_EMAIL}${NC}"
+      echo -e "      Password         ${BOLD}${LOCAL_USER_PASSWORD}${NC}"
+      echo -e "      ${DIM}Recover: kubectl get secret caipe-local-user -n caipe -o jsonpath='{.data.password}' | base64 -d${NC}"
+    fi
+    if [[ "$CAIPE_DOMAIN" == *.local.me ]]; then
+      echo -e "    ${DIM}${CAIPE_DOMAIN} resolves to 127.0.0.1 — on a remote host, tunnel 443 (ssh -L 8443:127.0.0.1:443 <host>) or re-run with --domain=<public-dns>.${NC}"
+    fi
+  fi
+
   # In non-interactive (CI) mode, exit after validation — no need to keep
   # port-forwards alive for an interactive session.
   if $NON_INTERACTIVE; then
@@ -7205,6 +7469,18 @@ Options:
   --no-github-social Skip GitHub social login (local Keycloak login only)
   --github-social-id=ID         GitHub OAuth App client ID (login broker)
   --github-social-secret=SECRET GitHub OAuth App client secret (login broker)
+  --local-admin[=EMAIL]         Create a local Keycloak admin login (default ON for
+                     in-chart Keycloak with a DNS domain and no upstream IdP) so RBAC/auth
+                     work with zero external SSO. EMAIL defaults to admin@caipe.local.
+  --no-local-admin   Skip the local admin user (use only with an upstream IdP / GitHub social)
+  --local-admin-password=PW     Set the local admin password (default: generated, persisted
+                     in the caipe-local-admin Secret)
+  --local-user[=EMAIL]          Also create a non-admin local user (default ON alongside the
+                     local admin) so both RBAC paths can be tested — a standard chat user that
+                     is NOT in BOOTSTRAP_ADMIN_EMAILS (no admin UI). EMAIL defaults to user@caipe.local.
+  --no-local-user    Skip the non-admin local user (provision the admin only)
+  --local-user-password=PW      Set the non-admin user password (default: generated, persisted
+                     in the caipe-local-user Secret)
   --env-file=FILE    Path to .env file with agent credentials (ENABLE_ARGOCD=true, ARGOCD_TOKEN=..., etc.)
                      Creates per-agent k8s secrets and enables corresponding agents in Helm.
                      Also honors feature toggles to mirror docker-compose.dev.yaml:
@@ -7324,6 +7600,9 @@ Examples:
   $(basename "$0") --non-interactive --create-cluster --ingress --domain=my-caipe.example.com                   # kind + MetalLB + ingress + self-signed TLS
   $(basename "$0") --non-interactive --create-cluster --ingress --domain=my-caipe.example.com \
     --tls-cert=/path/to/cert.pem --tls-key=/path/to/key.pem            # kind + MetalLB + ingress + custom TLS
+  $(basename "$0") --non-interactive --create-cluster --ingress --rbac-runtime \
+    --domain=my-caipe.example.com                                      # INTEGRATION TEST: full RBAC stack, zero Cisco/SSO config,
+                                                                        # in-chart Keycloak + auto local admin login (creds printed at end)
 
 EOF
   exit 0
@@ -7355,6 +7634,14 @@ for arg in "$@"; do
     --no-github-social)         ENABLE_GITHUB_SOCIAL=false ;;
     --github-social-id=*)       GITHUB_SOCIAL_CLIENT_ID="${arg#--github-social-id=}" ;;
     --github-social-secret=*)   GITHUB_SOCIAL_CLIENT_SECRET="${arg#--github-social-secret=}" ;;
+    --local-admin)              ENABLE_LOCAL_ADMIN=true ;;
+    --local-admin=*)            ENABLE_LOCAL_ADMIN=true; LOCAL_ADMIN_EMAIL="${arg#--local-admin=}" ;;
+    --no-local-admin)           ENABLE_LOCAL_ADMIN=false ;;
+    --local-admin-password=*)   LOCAL_ADMIN_PASSWORD="${arg#--local-admin-password=}" ;;
+    --local-user)               ENABLE_LOCAL_USER=true ;;
+    --local-user=*)             ENABLE_LOCAL_USER=true; LOCAL_USER_EMAIL="${arg#--local-user=}" ;;
+    --no-local-user)            ENABLE_LOCAL_USER=false ;;
+    --local-user-password=*)    LOCAL_USER_PASSWORD="${arg#--local-user-password=}" ;;
     --tls-cert=*)      TLS_CERT_FILE="${arg#--tls-cert=}" ;;
     --tls-key=*)       TLS_KEY_FILE="${arg#--tls-key=}" ;;
     --env-file=*)      ENV_FILE="${arg#--env-file=}" ;;
