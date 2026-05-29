@@ -12,6 +12,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/toast";
+import { AgentPicker, type AgentPickerOption } from "@/components/ui/agent-picker";
 import { TeamPicker, type TeamPickerOption } from "@/components/ui/team-picker";
 import { cn } from "@/lib/utils";
 import { ConnectorOnboardingWizard } from "./ConnectorOnboardingWizard";
@@ -178,16 +179,15 @@ function ItemDetail({
           <div className="grid gap-3 md:grid-cols-4">
             <div className="space-y-2 md:col-span-2">
               <Label htmlFor="connector-route-agent-id">Dynamic Agent</Label>
-              <select
+              <AgentPicker
                 id="connector-route-agent-id"
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                ariaLabel="Dynamic Agent"
                 value={routeAgentId}
-                onChange={(e) => setRouteAgentId(e.target.value)}
+                onChange={setRouteAgentId}
                 disabled={disabled || !selectedCanManage || dynamicAgents.length === 0}
-              >
-                <option value="">{dynamicAgents.length === 0 ? "No enabled Dynamic Agents found" : "Select Dynamic Agent"}</option>
-                {dynamicAgents.map((a) => <option key={a._id} value={a._id}>{agentLabel(a)}</option>)}
-              </select>
+                placeholder={dynamicAgents.length === 0 ? "No enabled Dynamic Agents found" : "Select Dynamic Agent"}
+                options={dynamicAgents.map<AgentPickerOption>((a) => ({ value: a._id, label: a.name || a._id }))}
+              />
             </div>
             <div className="space-y-2">
               <Label htmlFor="connector-route-listen">Listen</Label>
@@ -866,16 +866,15 @@ export function ConnectorAdminPanel({
               </div>
               <div className="space-y-2">
                 <Label htmlFor={`${adapter.connectorName.toLowerCase()}-default-agent`}>Preselected Dynamic Agent</Label>
-                <select
+                <AgentPicker
                   id={`${adapter.connectorName.toLowerCase()}-default-agent`}
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  ariaLabel="Preselected Dynamic Agent"
                   value={defaultAgentId}
-                  onChange={(e) => setDefaultAgentId(e.target.value)}
+                  onChange={setDefaultAgentId}
                   disabled={disabled || dynamicAgents.length === 0}
-                >
-                  <option value="">{dynamicAgents.length === 0 ? "No enabled Dynamic Agents found" : "Select preselected Dynamic Agent"}</option>
-                  {sortedDynamicAgents.map((a) => <option key={a._id} value={a._id}>{agentLabel(a)}</option>)}
-                </select>
+                  placeholder={dynamicAgents.length === 0 ? "No enabled Dynamic Agents found" : "Select preselected Dynamic Agent"}
+                  options={sortedDynamicAgents.map<AgentPickerOption>((a) => ({ value: a._id, label: a.name || a._id }))}
+                />
                 {invalidDefaultAgentId && (
                   <p className="text-xs text-amber-700 dark:text-amber-400" role="alert">
                     The saved default Dynamic Agent <code>agent:{invalidDefaultAgentId}</code> wasn&apos;t found (or is disabled). Pick one above.

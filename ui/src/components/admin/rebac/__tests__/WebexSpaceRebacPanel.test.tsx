@@ -7,6 +7,7 @@ jest.mock("@/components/ui/toast", () => ({
 
 import { WebexSpaceRebacPanel } from "../WebexSpaceRebacPanel";
 import { pickTeam } from "@/__test-utils__/team-picker";
+import { pickAgent } from "@/__test-utils__/agent-picker";
 
 const fetchMock = jest.fn();
 
@@ -192,7 +193,7 @@ it("shows spaces in a table and expands a row to show diagnostics without manual
   expect(await screen.findByText(/OpenFGA tuple read failed/i)).toBeInTheDocument();
 
   // No manual route form — Webex routes are managed via onboarding + auto-fix
-  expect(screen.queryByRole("combobox", { name: "Dynamic Agent" })).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("Dynamic Agent")).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Create Association" })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: /edit agent:incident-agent/i })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: /delete agent:incident-agent/i })).not.toBeInTheDocument();
@@ -265,9 +266,7 @@ it("discovers Webex bot spaces, auto-selects new ones, and POSTs per-space defau
 
   await screen.findByLabelText("Preselected Team");
   await pickTeam("Preselected Team", "platform-engineering");
-  fireEvent.change(await screen.findByRole("combobox", { name: "Preselected Dynamic Agent" }), {
-    target: { value: "incident-agent" },
-  });
+  await pickAgent("Preselected Dynamic Agent", "incident-agent");
 
   fireEvent.click(screen.getByRole("button", { name: "Find Webex Spaces with Bot Integration" }));
 
@@ -343,9 +342,7 @@ it("shows saved onboarding defaults and enables Save button only when form diffe
   expect(screen.queryByText("Unsaved changes")).not.toBeInTheDocument();
 
   await pickTeam("Preselected Team", "platform-engineering");
-  fireEvent.change(await screen.findByRole("combobox", { name: "Preselected Dynamic Agent" }), {
-    target: { value: "incident-agent" },
-  });
+  await pickAgent("Preselected Dynamic Agent", "incident-agent");
 
   await waitFor(() => expect(saveButton).toBeEnabled());
   expect(screen.getByText("Unsaved changes")).toBeInTheDocument();
@@ -372,10 +369,10 @@ it("shows saved onboarding team and agent in the defaults section header row", a
   await switchToTab("Onboard spaces");
 
   const savedTeamLabel = await screen.findByText("Onboarding team");
-  const row = savedTeamLabel.closest("div")?.parentElement;
-  expect(row).toBeTruthy();
-  expect(within(row!).getByText("team:platform-engineering")).toBeInTheDocument();
-  expect(await screen.findByText("agent:incident-agent")).toBeInTheDocument();
+  const savedInfoBox = savedTeamLabel.closest("div")?.parentElement?.parentElement;
+  expect(savedInfoBox).toBeTruthy();
+  expect(within(savedInfoBox!).getByText("team:platform-engineering")).toBeInTheDocument();
+  expect(within(savedInfoBox!).getByText("agent:incident-agent")).toBeInTheDocument();
   expect(screen.getByText(/Only changes what is preselected when you onboard spaces/i)).toBeInTheDocument();
 });
 

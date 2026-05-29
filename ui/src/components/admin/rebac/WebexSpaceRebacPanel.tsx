@@ -6,6 +6,7 @@ import type {
   ConnectorAdminAdapter,
   DiagnosticRoute,
   ItemAgentRoute,
+  ItemDiagnostics,
   ItemSummary,
 } from "./connector-admin-adapter";
 
