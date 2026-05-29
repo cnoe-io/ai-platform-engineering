@@ -10,6 +10,7 @@ const mockRequireResourcePermission = jest.fn();
 const mockGetCollection = jest.fn();
 const mockConnectToDatabase = jest.fn();
 const mockWriteOpenFgaTuples = jest.fn();
+const mockGetKeycloakRbacDiagnosticValues = jest.fn();
 
 const collections: Record<string, ReturnType<typeof createCollection>> = {};
 
@@ -58,6 +59,11 @@ jest.mock("@/lib/mongodb", () => ({
 
 jest.mock("@/lib/rbac/openfga", () => ({
   writeOpenFgaTuples: (...args: unknown[]) => mockWriteOpenFgaTuples(...args),
+}));
+
+jest.mock("@/lib/rbac/keycloak-admin", () => ({
+  getKeycloakRbacDiagnosticValues: (...args: unknown[]) =>
+    mockGetKeycloakRbacDiagnosticValues(...args),
 }));
 
 type TestRow = Record<string, unknown>;
@@ -355,6 +361,7 @@ describe("admin ReBAC migrations API", () => {
         last_migration_id: "keycloak_rbac_mapping_reconciliation_v1",
       },
     ]);
+    mockGetKeycloakRbacDiagnosticValues.mockRejectedValueOnce(new TypeError("fetch failed"));
     const { GET } = await import("../../keycloak/migration-health/route");
 
     const response = await GET(request("/api/admin/keycloak/migration-health"));

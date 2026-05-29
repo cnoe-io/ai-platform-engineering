@@ -1021,11 +1021,6 @@ export function WebexSpaceRebacPanel({
           discoveredCount={discoveredBotSpaces.length}
           newCount={discoveredNewSpaceCount}
           selectedCount={selectedDiscoveredImportRows.length}
-          routeModeDescription={
-            createDefaultRoutes
-              ? "create missing defaults and preserve existing route metadata"
-              : "do not create Webex routes"
-          }
           rows={discoveredImportRows.map((space) => ({
             id: space.id,
             name: space.name,

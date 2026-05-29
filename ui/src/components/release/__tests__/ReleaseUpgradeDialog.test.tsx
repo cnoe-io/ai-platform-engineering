@@ -1,21 +1,60 @@
 import React from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
 
-jest.mock("@/components/ui/button", () => ({
-  Button: React.forwardRef(({ children, ...props }: any, ref: any) => (
-    <button ref={ref} {...props}>
-      {children}
-    </button>
-  )),
-}));
+jest.mock("@/components/ui/button", () => {
+  const MockButton = React.forwardRef<HTMLButtonElement, React.ButtonHTMLAttributes<HTMLButtonElement>>(
+    ({ children, ...props }, ref) => (
+      <button ref={ref} {...props}>
+        {children}
+      </button>
+    ),
+  );
+  MockButton.displayName = "MockButton";
+  return { Button: MockButton };
+});
+
+interface MockDialogProps {
+  open: boolean;
+  children: React.ReactNode;
+}
+
+interface MockChildrenProps {
+  children: React.ReactNode;
+}
 
 jest.mock("@/components/ui/dialog", () => ({
-  Dialog: ({ open, children }: any) => (open ? <div role="dialog">{children}</div> : null),
-  DialogContent: ({ children }: any) => <div>{children}</div>,
-  DialogHeader: ({ children }: any) => <div>{children}</div>,
-  DialogTitle: ({ children }: any) => <h2>{children}</h2>,
-  DialogDescription: ({ children }: any) => <p>{children}</p>,
-  DialogFooter: ({ children }: any) => <div>{children}</div>,
+  Dialog: ({ open, children }: MockDialogProps) => (open ? <div role="dialog">{children}</div> : null),
+  DialogContent: ({ children }: MockChildrenProps) => <div>{children}</div>,
+  DialogHeader: ({ children }: MockChildrenProps) => <div>{children}</div>,
+  DialogTitle: ({ children }: MockChildrenProps) => <h2>{children}</h2>,
+  DialogDescription: ({ children }: MockChildrenProps) => <p>{children}</p>,
+  DialogFooter: ({ children }: MockChildrenProps) => <div>{children}</div>,
+}));
+
+jest.mock("remark-gfm", () => ({
+  __esModule: true,
+  default: jest.fn(),
+}));
+
+jest.mock("react-markdown", () => ({
+  __esModule: true,
+  default: ({
+    children,
+    components = {},
+  }: {
+    children: React.ReactNode;
+    components?: Record<string, React.ElementType<{ children: React.ReactNode }>>;
+  }) => {
+    const text = String(children ?? "");
+    const rendered = text.split(/(\*\*[^*]+\*\*)/g).map((part, index) => {
+      const match = part.match(/^\*\*([^*]+)\*\*$/);
+      if (!match) return <React.Fragment key={index}>{part}</React.Fragment>;
+      const Strong = components.strong ?? "strong";
+      return <Strong key={index}>{match[1]}</Strong>;
+    });
+    const P = components.p;
+    return P ? <P>{rendered}</P> : <div>{rendered}</div>;
+  },
 }));
 
 import { ReleaseUpgradeDialog } from "../ReleaseUpgradeDialog";
@@ -65,6 +104,33 @@ describe("ReleaseUpgradeDialog", () => {
     expect(onOpenMigrationAssistant).toHaveBeenCalledTimes(1);
     expect(onSkipUntilNextLogin).toHaveBeenCalledTimes(1);
     expect(onDismissPermanently).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders markdown emphasis in release note items", () => {
+    render(
+      <ReleaseUpgradeDialog
+        open
+        isAdmin
+        releaseVersion="0.5.1"
+        release={{
+          version: "0.5.1",
+          date: "2026-05-19",
+          sections: [
+            {
+              type: "Feat",
+              items: [{ text: "**rbac/ui**: gate Graph tab on any-KB-readable", scope: "rbac/ui" }],
+            },
+          ],
+        }}
+        onOpenMigrationAssistant={jest.fn()}
+        onSkipUntilNextLogin={jest.fn()}
+        onDismissPermanently={jest.fn()}
+      />,
+    );
+
+    expect(screen.queryByText(/\*\*rbac\/ui\*\*/)).not.toBeInTheDocument();
+    expect(screen.getByText("rbac/ui", { selector: "strong" })).toBeInTheDocument();
+    expect(screen.getByText(/gate Graph tab on any-KB-readable/)).toBeInTheDocument();
   });
 
   it("shows non-admin feature notes without migration assistant language", () => {

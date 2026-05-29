@@ -97,6 +97,7 @@ describe("AgentGateway MCP discovery", () => {
           "github",
           "gitlab",
           "jira",
+          "knowledge-base",
           "komodor",
           "netutils",
           "pagerduty",

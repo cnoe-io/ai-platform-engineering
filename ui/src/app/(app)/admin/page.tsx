@@ -218,6 +218,7 @@ interface Team {
     agents?: string[];
     agent_admins?: string[];
     tools?: string[];
+    knowledge_bases?: string[];
     tool_wildcard?: boolean;
   };
   // Spec 098 US9 — denormalised channel count for the team-card StatChip.
@@ -1630,6 +1631,7 @@ function AdminPage() {
                             <StatChip
                               icon={<Database className="h-3.5 w-3.5" />}
                               label="KBs"
+                              count={team.resources?.knowledge_bases?.length}
                               onClick={() => openTeamDialog(team, "kbs")}
                             />
                             <StatChip

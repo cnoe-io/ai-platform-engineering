@@ -25,6 +25,12 @@ import { requireMigrationAdmin } from "../../../rebac/migrations/_lib";
 interface KeycloakHealthSummary {
   configured: boolean;
   reachable: boolean;
+  status:
+    | "unconfigured"
+    | "reachable"
+    | "unreachable"
+    | "admin_authorization_error"
+    | "reconciliation_error";
   realm: string;
   invariants: {
     total: number;
@@ -35,7 +41,8 @@ interface KeycloakHealthSummary {
   } | null;
   /**
    * `true` whenever an admin should pay attention: Keycloak is configured
-   * but unreachable, OR there is at least one failing invariant. Computed
+   * but unreachable or has an admin/reconciliation error, OR there is at
+   * least one failing invariant. Computed
    * server-side so the client chip stays trivial.
    */
   has_issues: boolean;
@@ -63,12 +70,14 @@ function buildSummary(
     : null;
 
   const has_issues =
-    (health.keycloak.configured && !health.keycloak.reachable) ||
+    (health.keycloak.configured &&
+      (health.keycloak.status ?? (health.keycloak.reachable ? "reachable" : "unreachable")) !== "reachable") ||
     (invariants?.failing ?? 0) > 0;
 
   return {
     configured: health.keycloak.configured,
     reachable: health.keycloak.reachable,
+    status: health.keycloak.status ?? (health.keycloak.reachable ? "reachable" : "unreachable"),
     realm: health.keycloak.realm,
     invariants,
     has_issues,

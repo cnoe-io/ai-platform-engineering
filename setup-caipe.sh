@@ -41,8 +41,8 @@ LITELLM_ENDPOINT="${LITELLM_ENDPOINT:-}"
 LITELLM_API_KEY="${LITELLM_API_KEY:-}"
 LITELLM_MODEL_NAME="${LITELLM_MODEL_NAME:-gpt-oss-20B}"
 ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}"
-ANTHROPIC_MODEL_NAME="claude-haiku-4-5-20251001-v1:0"
-AWS_BEDROCK_MODEL_ID="${AWS_BEDROCK_MODEL_ID:-global.anthropic.claude-sonnet-4-6}"
+ANTHROPIC_MODEL_NAME="claude-haiku-4-5-20251001"
+AWS_BEDROCK_MODEL_ID="${AWS_BEDROCK_MODEL_ID:-global.anthropic.claude-haiku-4-5-20251001-v1:0}"
 AWS_BEDROCK_PROVIDER="${AWS_BEDROCK_PROVIDER:-anthropic}"
 AWS_REGION="${AWS_REGION:-us-east-2}"
 AWS_PROFILE="${AWS_PROFILE:-}"
@@ -1022,7 +1022,7 @@ _collect_anthropic_credentials() {
     model_choice="${model_choice:-1}"
     if _is_back "$model_choice"; then ANTHROPIC_API_KEY=""; return 1; fi
     case "$model_choice" in
-      1) ANTHROPIC_MODEL_NAME="claude-haiku-4-5-20251001-v1:0" ;;
+      1) ANTHROPIC_MODEL_NAME="claude-haiku-4-5-20251001" ;;
       2) ANTHROPIC_MODEL_NAME="claude-sonnet-4-20250514" ;;
       3) ANTHROPIC_MODEL_NAME="claude-opus-4-20250514" ;;
       4)
@@ -1230,8 +1230,8 @@ _collect_bedrock_credentials() {
     echo ""
     echo -e "  ${DIM}Bedrock model:${NC}"
     echo -e "    ${BOLD}0)${NC} ${DIM}← Back to provider selection${NC}"
-    echo -e "    ${BOLD}1)${NC} global.anthropic.claude-sonnet-4-6           ${DIM}(recommended)${NC}"
-    echo -e "    ${BOLD}2)${NC} global.anthropic.claude-haiku-4-5            ${DIM}(fast, low cost)${NC}"
+    echo -e "    ${BOLD}1)${NC} global.anthropic.claude-haiku-4-5-20251001-v1:0 ${DIM}(default, fast, low cost)${NC}"
+    echo -e "    ${BOLD}2)${NC} global.anthropic.claude-sonnet-4-6           ${DIM}(balanced)${NC}"
     echo -e "    ${BOLD}3)${NC} global.anthropic.claude-3-5-sonnet"
     echo -e "    ${BOLD}4)${NC} Custom"
     echo ""
@@ -1240,8 +1240,8 @@ _collect_bedrock_credentials() {
     model_choice="${model_choice:-1}"
     if _is_back "$model_choice"; then AWS_ACCESS_KEY_ID=""; AWS_SECRET_ACCESS_KEY=""; return 1; fi
     case "$model_choice" in
-      1) AWS_BEDROCK_MODEL_ID="global.anthropic.claude-sonnet-4-6" ;;
-      2) AWS_BEDROCK_MODEL_ID="global.anthropic.claude-haiku-4-5" ;;
+      1) AWS_BEDROCK_MODEL_ID="global.anthropic.claude-haiku-4-5-20251001-v1:0" ;;
+      2) AWS_BEDROCK_MODEL_ID="global.anthropic.claude-sonnet-4-6" ;;
       3) AWS_BEDROCK_MODEL_ID="global.anthropic.claude-3-5-sonnet" ;;
       4)
         prompt "Enter Bedrock model ID: "
@@ -2742,9 +2742,12 @@ choose_features() {
         fi
       fi
     else
+      ENABLE_INGRESS=false
       log "Ingress skipped"
     fi
   else
+    ENABLE_METALLB=false
+    ENABLE_INGRESS=false
     log "MetalLB skipped"
   fi
 }
@@ -2880,8 +2883,7 @@ provision_ui_secret() {
     MONGODB_URI MONGODB_DATABASE MONGODB_ROOT_USERNAME MONGODB_ROOT_PASSWORD
     RAG_SERVER_URL PROMETHEUS_URL
     LANGFUSE_SECRET_KEY LANGFUSE_PUBLIC_KEY LANGFUSE_HOST
-    RBAC_ADMIN_GROUPS RBAC_READONLY_GROUPS RBAC_INGESTONLY_GROUPS
-    RBAC_DEFAULT_AUTHENTICATED_ROLE RBAC_CLIENT_CREDENTIALS_ROLE
+    RBAC_CLIENT_CREDENTIALS_ROLE
   )
 
   _create_secret_from_env "$ui_env_file" "caipe-ui-secret" caipe "${ui_keys[@]}"
@@ -3728,17 +3730,7 @@ post_deploy_patches() {
   # is healthy we disable the skip and restart RAG to run its full init checks.
   if $ENABLE_RAG; then
     _finalize_rag_startup
-    # Set RBAC_DEFAULT_ROLE=admin for anonymous/unauthenticated requests (no-SSO
-    # deployments). RBAC_DEFAULT_AUTHENTICATED_ROLE=readonly matches prod — group
-    # membership (RBAC_ADMIN_GROUPS) controls who gets admin.
-    kubectl set env deployment/rag-server -n caipe \
-      RBAC_DEFAULT_ROLE=admin \
-      RBAC_DEFAULT_AUTHENTICATED_ROLE=readonly &>/dev/null \
-      && log "rag-server: RBAC_DEFAULT_ROLE=admin, RBAC_DEFAULT_AUTHENTICATED_ROLE=readonly"
-
-    # Propagate OIDC config from caipe-ui-secret so RAG can validate tokens and
-    # check group membership for group-based RBAC (RBAC_ADMIN_GROUPS, etc.).
-    # Without this, RAG shows "No OIDC providers configured" and defaults to anonymous.
+    # Propagate OIDC config from caipe-ui-secret so RAG can validate tokens.
     # Also set OIDC_GROUP_CLAIM=members,groups to match prod group claim names.
     _rag_oidc_issuer=$(kubectl get secret caipe-ui-secret -n caipe \
       -o jsonpath='{.data.OIDC_ISSUER}' 2>/dev/null | base64 -d || true)
@@ -3748,8 +3740,6 @@ post_deploy_patches() {
       -o jsonpath='{.data.INGESTOR_OIDC_ISSUER}' 2>/dev/null | base64 -d || true)
     _rag_ingestor_client_id=$(kubectl get secret caipe-ui-secret -n caipe \
       -o jsonpath='{.data.INGESTOR_OIDC_CLIENT_ID}' 2>/dev/null | base64 -d || true)
-    _rag_admin_groups=$(kubectl get secret caipe-ui-secret -n caipe \
-      -o jsonpath='{.data.RBAC_ADMIN_GROUPS}' 2>/dev/null | base64 -d || true)
     if [[ -n "$_rag_oidc_issuer" && -n "$_rag_oidc_client_id" ]]; then
       local _rag_env_args=(
         "OIDC_ISSUER=$_rag_oidc_issuer"
@@ -3758,9 +3748,8 @@ post_deploy_patches() {
       )
       [[ -n "$_rag_ingestor_issuer" ]]    && _rag_env_args+=("INGESTOR_OIDC_ISSUER=$_rag_ingestor_issuer")
       [[ -n "$_rag_ingestor_client_id" ]] && _rag_env_args+=("INGESTOR_OIDC_CLIENT_ID=$_rag_ingestor_client_id")
-      [[ -n "$_rag_admin_groups" ]]       && _rag_env_args+=("RBAC_ADMIN_GROUPS=$_rag_admin_groups")
       kubectl set env deployment/rag-server -n caipe "${_rag_env_args[@]}" &>/dev/null \
-        && log "rag-server: OIDC providers configured (issuer=${_rag_oidc_issuer}, admin_groups=${_rag_admin_groups:-<unset>})"
+        && log "rag-server: OIDC providers configured (issuer=${_rag_oidc_issuer})"
     else
       log "rag-server: No OIDC config found in caipe-ui-secret — skipping OIDC patch (no-SSO deployment)"
     fi
@@ -4928,8 +4917,6 @@ DAEOF
       --set "caipe-ui.config.RAG_SERVER_URL=http://rag-server:${RAG_SERVER_PORT}"
       --set "rag-stack.rag-server.env.EMBEDDINGS_MODEL=${EMBEDDINGS_MODEL}"
       --set "rag-stack.rag-server.env.EMBEDDINGS_PROVIDER=${EMBEDDINGS_PROVIDER}"
-      --set 'rag-stack.rag-server.env.ALLOW_TRUSTED_NETWORK=true'
-      --set 'rag-stack.rag-server.env.TRUSTED_NETWORK_CIDRS=127.0.0.0/8\,10.0.0.0/8'
       --set 'rag-stack.milvus.cluster.enabled=false'
       --set 'rag-stack.milvus.standalone.disk.enabled=true'
       --set 'rag-stack.milvus.etcd.replicaCount=1'
@@ -6738,7 +6725,7 @@ Environment variables (all optional):
   AWS_SECRET_ACCESS_KEY   AWS secret key for Bedrock
   AWS_PROFILE             AWS profile name (keys resolved from ~/.aws/credentials)
   AWS_REGION              AWS region (default: us-east-2)
-  AWS_BEDROCK_MODEL_ID    Bedrock model (default: global.anthropic.claude-sonnet-4-6)
+  AWS_BEDROCK_MODEL_ID    Bedrock model (default: global.anthropic.claude-haiku-4-5-20251001-v1:0)
   CAIPE_CHART_VERSION     Pre-set chart version (skips version picker)
   EMBEDDINGS_MODEL        Embedding model (default: text-embedding-3-large)
   EMBEDDINGS_PROVIDER     Embedding provider (default: openai)

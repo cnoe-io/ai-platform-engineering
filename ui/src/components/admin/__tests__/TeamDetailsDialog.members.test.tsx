@@ -40,6 +40,57 @@ beforeEach(() => {
   global.fetch = fetchMock as unknown as typeof fetch;
 });
 
+it("renders active canonical membership sources when embedded team members are empty", async () => {
+  const teamWithoutEmbeddedMembers: Team = {
+    ...baseTeam,
+    members: [],
+    membership_sources: [
+      {
+        team_id: "team-1",
+        team_slug: "platform",
+        user_email: "alice@example.com",
+        relationship: "member",
+        source_type: "active_directory",
+        managed: true,
+        status: "active",
+        created_at: "2026-01-02T00:00:00.000Z",
+      },
+    ],
+  };
+
+  fetchMock.mockImplementation(async (url: string) => {
+    if (url === "/api/admin/identity-group-sync/teams/team-1/membership-sources") {
+      return jsonResponse({
+        success: true,
+        data: {
+          sources: teamWithoutEmbeddedMembers.membership_sources,
+        },
+      });
+    }
+    return jsonResponse({
+      success: true,
+      data: {
+        team: teamWithoutEmbeddedMembers,
+        membership_sources: teamWithoutEmbeddedMembers.membership_sources,
+      },
+    });
+  });
+
+  render(
+    <TeamDetailsDialog
+      team={teamWithoutEmbeddedMembers}
+      mode="members"
+      open
+      onOpenChange={jest.fn()}
+      onTeamUpdated={jest.fn()}
+    />,
+  );
+
+  expect(await screen.findByText("alice@example.com")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /Members \(1\)/i })).toBeInTheDocument();
+  expect(screen.queryByText("No members yet. Add members above.")).not.toBeInTheDocument();
+});
+
 it("calls onTeamMutated (not onTeamUpdated) when a member is added", async () => {
   const onTeamMutated = jest.fn();
   const onTeamUpdated = jest.fn();

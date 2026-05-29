@@ -315,6 +315,17 @@ Enable the standalone AgentGateway proxy and configure its JWT and OpenFGA `ext_
 ```yaml
 agentgateway:
   enabled: true
+  extraEnv:
+    - name: GITHUB_PERSONAL_ACCESS_TOKEN
+      valueFrom:
+        secretKeyRef:
+          name: github-mcp-secret
+          key: GITHUB_PERSONAL_ACCESS_TOKEN
+    - name: GITLAB_PERSONAL_ACCESS_TOKEN
+      valueFrom:
+        secretKeyRef:
+          name: gitlab-mcp-secret
+          key: GITLAB_PERSONAL_ACCESS_TOKEN
   config:
     binds:
       - port: 4000
@@ -328,7 +339,10 @@ agentgateway:
                 jwks:
                   url: http://caipe-keycloak:8080/realms/caipe/protocol/openid-connect/certs
             routes:
-              - policies:
+              - matches:
+                  - path:
+                      pathPrefix: /mcp/github
+                policies:
                   extAuthz:
                     host: caipe-openfga-authz-bridge:9100
                     failureMode:
@@ -342,8 +356,40 @@ agentgateway:
                       - allow: 'true'
                 backends:
                   - mcp:
-                      targets: []
+                      targets:
+                        - name: github
+                          mcp:
+                            host: http://github-mcp-server:8082/mcp
+                          policies:
+                            backendAuth:
+                              key: "$GITHUB_PERSONAL_ACCESS_TOKEN"
+              - matches:
+                  - path:
+                      pathPrefix: /mcp/gitlab
+                policies:
+                  extAuthz:
+                    host: caipe-openfga-authz-bridge:9100
+                    failureMode:
+                      denyWithStatus: 403
+                    protocol:
+                      grpc:
+                        metadata:
+                          caipe.auth: '{"sub": jwt.sub}'
+                  authorization:
+                    rules:
+                      - allow: 'true'
+                backends:
+                  - mcp:
+                      targets:
+                        - name: gitlab
+                          mcp:
+                            host: http://mcp-gitlab:8000/mcp
+                          policies:
+                            backendAuth:
+                              key: "$GITLAB_PERSONAL_ACCESS_TOKEN"
 ```
+
+Use this pattern for upstream MCP servers that require provider credentials, including GitHub and GitLab. The caller still sends a Keycloak bearer to AgentGateway for JWT validation and OpenFGA `mcp_gateway:list` authorization; AgentGateway injects the provider token only on the backend hop. Keep the provider token in a Kubernetes Secret or ExternalSecret and reference it through `agentgateway.extraEnv` or `agentgateway.extraEnvFrom`.
 
 If you use the Gateway API controller path instead of standalone config, enable `global.agentgateway.enabled=true`. The parent chart then renders:
 

@@ -377,6 +377,30 @@ it("keeps OpenFGA focused on tuples, graph, access management, and diagnostics",
   expect(screen.queryByRole("tab", { name: "Webex Spaces" })).not.toBeInTheDocument();
 });
 
+it("only reloads tuple filters when Apply filters is clicked", async () => {
+  const user = userEvent.setup();
+
+  render(<OpenFgaRebacTab isAdmin />);
+
+  expect(await screen.findByText("OpenFGA Tuple Store")).toBeInTheDocument();
+  await waitFor(() =>
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).startsWith("/api/admin/openfga/tuples"))).toHaveLength(1),
+  );
+
+  await user.type(screen.getByPlaceholderText("relation filter"), "can");
+
+  expect(fetchMock.mock.calls.filter(([url]) => String(url).startsWith("/api/admin/openfga/tuples"))).toHaveLength(1);
+
+  await user.click(screen.getByRole("button", { name: "Apply filters" }));
+
+  await waitFor(() =>
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).startsWith("/api/admin/openfga/tuples"))).toHaveLength(2),
+  );
+  expect(
+    fetchMock.mock.calls.filter(([url]) => String(url).startsWith("/api/admin/openfga/tuples")).at(-1)?.[0],
+  ).toBe("/api/admin/openfga/tuples?relation=can&limit=100");
+});
+
 it("runs baseline diagnostics for an individual user", async () => {
   const user = userEvent.setup();
   currentSearchParams = new URLSearchParams("openfgaTab=diagnostics");

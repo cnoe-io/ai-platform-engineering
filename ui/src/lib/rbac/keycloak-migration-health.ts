@@ -21,6 +21,12 @@ import type { MigrationStatus } from "@/lib/rbac/migrations/types";
 type KeycloakReachability = {
   configured: boolean;
   reachable: boolean;
+  status:
+    | "unconfigured"
+    | "reachable"
+    | "unreachable"
+    | "admin_authorization_error"
+    | "reconciliation_error";
   realm: string;
   last_probe_at: string;
   probe_error?: string;
@@ -105,12 +111,39 @@ function oboAudienceClientId(): string {
   return process.env.CAIPE_PLATFORM_AUDIENCE?.trim() || "caipe-platform";
 }
 
-function inferReachability(run: SchemaMigrationRunDoc | null): Pick<KeycloakReachability, "reachable" | "probe_error"> {
-  if (!run || run.status !== "failed") {
-    return { reachable: true };
+function isAdminAuthorizationError(message: string): boolean {
+  return /\b(401|403)\b|forbidden|unauthorized/i.test(message);
+}
+
+function isNetworkReachabilityError(message: string): boolean {
+  return /fetch failed|econnrefused|enotfound|etimedout|network|unavailable|connection refused|could not connect/i.test(
+    message,
+  );
+}
+
+function inferReachability(
+  configured: boolean,
+  details: Array<string | undefined>,
+): Pick<KeycloakReachability, "reachable" | "status" | "probe_error"> {
+  if (!configured) {
+    return {
+      reachable: false,
+      status: "unconfigured",
+      probe_error: "KEYCLOAK_URL is not configured",
+    };
   }
-  const detail = run.error || run.warnings?.join("; ") || "Last Keycloak migration failed";
-  return { reachable: false, probe_error: detail };
+
+  const detail = details.find((item) => item && item.trim())?.trim();
+  if (!detail) {
+    return { reachable: true, status: "reachable" };
+  }
+  if (isAdminAuthorizationError(detail)) {
+    return { reachable: true, status: "admin_authorization_error", probe_error: detail };
+  }
+  if (isNetworkReachabilityError(detail)) {
+    return { reachable: false, status: "unreachable", probe_error: detail };
+  }
+  return { reachable: true, status: "reconciliation_error", probe_error: detail };
 }
 
 export async function getKeycloakMigrationHealth(input: {
@@ -131,9 +164,6 @@ export async function getKeycloakMigrationHealth(input: {
     releaseState.migrations.find((item) => item.id === KEYCLOAK_RBAC_RECONCILIATION_MIGRATION_ID) ??
     releaseState.completed_migrations.find((item) => item.id === KEYCLOAK_RBAC_RECONCILIATION_MIGRATION_ID);
   const configured = keycloakConfigured();
-  const reachability = configured
-    ? inferReachability(run)
-    : { reachable: false, probe_error: "KEYCLOAK_URL is not configured" };
   const keycloakValuesResult = configured
     ? await getKeycloakRbacDiagnosticValues()
         .then((values) => ({ values }))
@@ -141,6 +171,15 @@ export async function getKeycloakMigrationHealth(input: {
           error: err instanceof Error ? err.message : "Failed to inspect Keycloak values",
         }))
     : undefined;
+  const failedRunDetail =
+    run?.status === "failed"
+      ? run.error || run.warnings?.join("; ") || "Last Keycloak migration failed"
+      : undefined;
+  const keycloakValuesError =
+    keycloakValuesResult && "error" in keycloakValuesResult
+      ? keycloakValuesResult.error
+      : undefined;
+  const reachability = inferReachability(configured, [keycloakValuesError, failedRunDetail]);
 
   const invariants =
     keycloakValuesResult && "values" in keycloakValuesResult
@@ -159,6 +198,7 @@ export async function getKeycloakMigrationHealth(input: {
     keycloak: {
       configured,
       reachable: reachability.reachable,
+      status: reachability.status,
       realm: keycloakRealm(),
       last_probe_at: now,
       probe_error: reachability.probe_error,

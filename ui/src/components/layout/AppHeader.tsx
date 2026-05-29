@@ -348,17 +348,32 @@ export function AppHeader() {
     severity: "red" | "amber";
     href: string;
   };
+  const keycloakSummary = keycloakHealth.summary;
+  const keycloakStatus =
+    keycloakSummary?.status ?? (keycloakSummary?.reachable ? "reachable" : "unreachable");
+  const keycloakStatusAlert =
+    keycloakSummary?.configured && keycloakStatus !== "reachable"
+      ? {
+          id:
+            keycloakStatus === "admin_authorization_error"
+              ? "keycloak_admin_authorization"
+              : keycloakStatus === "reconciliation_error"
+                ? "keycloak_reconciliation_error"
+                : "keycloak_unreachable",
+          label:
+            keycloakStatus === "admin_authorization_error"
+              ? `Keycloak admin API authorization failed for realm ${keycloakSummary.realm}`
+              : keycloakStatus === "reconciliation_error"
+                ? `Keycloak reconciliation failing for realm ${keycloakSummary.realm}`
+                : `Keycloak realm ${keycloakSummary.realm} unreachable`,
+          count: 1,
+          severity: "red" as const,
+          href: "/admin?cat=security&tab=keycloak",
+        }
+      : null;
   const adminAlerts: AdminAlertSource[] = isAdmin
     ? ([
-        keycloakHealth.summary?.configured && !keycloakHealth.summary.reachable
-          ? {
-              id: "keycloak_unreachable",
-              label: `Keycloak realm ${keycloakHealth.summary.realm} unreachable`,
-              count: 1,
-              severity: "red" as const,
-              href: "/admin?cat=security&tab=keycloak",
-            }
-          : null,
+        keycloakStatusAlert,
         migrationStatus.status?.is_blocking
           ? {
               id: "migrations_blocking",
@@ -440,7 +455,7 @@ export function AppHeader() {
       Icon: KeyRound,
       activeClassName: "bg-primary text-primary-foreground shadow-sm",
     },
-    session && {
+    (session || isAdmin) && {
       key: "admin",
       href: "/admin",
       label: "Admin",

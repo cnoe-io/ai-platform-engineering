@@ -6,6 +6,12 @@ import { useSession } from "next-auth/react";
 export interface KeycloakHealthSummary {
   configured: boolean;
   reachable: boolean;
+  status?:
+    | "unconfigured"
+    | "reachable"
+    | "unreachable"
+    | "admin_authorization_error"
+    | "reconciliation_error";
   realm: string;
   invariants: {
     total: number;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -120,6 +120,12 @@ interface KeycloakMigrationHealth {
   keycloak: {
     configured: boolean;
     reachable: boolean;
+    status?:
+      | "unconfigured"
+      | "reachable"
+      | "unreachable"
+      | "admin_authorization_error"
+      | "reconciliation_error";
     realm: string;
     last_probe_at: string;
     probe_error?: string;
@@ -216,6 +222,10 @@ async function readJson<T>(response: Response): Promise<T> {
   return body.data as T;
 }
 
+function isTransientFetchFailure(error: unknown): boolean {
+  return error instanceof TypeError && error.message === "fetch failed";
+}
+
 function statusTone(status: MigrationStatus | "current" | "behind" | "unknown") {
   if (status === "completed" || status === "current") return "text-emerald-600";
   if (status === "failed" || status === "behind") return "text-red-600";
@@ -258,6 +268,27 @@ function HealthCheck({
       {label}
     </span>
   );
+}
+
+function keycloakAccessHealth(keycloak: KeycloakMigrationHealth["keycloak"]): {
+  label: string;
+  state: "ok" | "warning" | "error";
+  hasIssue: boolean;
+} {
+  const status = keycloak.status ?? (keycloak.reachable ? "reachable" : "unreachable");
+  if (status === "reachable") {
+    return { label: "Keycloak reachable", state: "ok", hasIssue: false };
+  }
+  if (status === "admin_authorization_error") {
+    return { label: "Keycloak admin unauthorized", state: "error", hasIssue: true };
+  }
+  if (status === "reconciliation_error") {
+    return { label: "Keycloak reconciliation error", state: "error", hasIssue: true };
+  }
+  if (status === "unconfigured") {
+    return { label: "Keycloak URL missing", state: "error", hasIssue: true };
+  }
+  return { label: "Keycloak unreachable", state: "error", hasIssue: true };
 }
 
 function displayText(value: unknown): string {
@@ -322,6 +353,7 @@ function ValueDisplay({ value }: { value: unknown }) {
 
 export function KeycloakMigrationHealthPanel({ compact = false }: KeycloakMigrationHealthPanelProps) {
   const [health, setHealth] = useState<KeycloakMigrationHealth | null>(null);
+  const hasLoadedHealthRef = useRef(false);
   const [loading, setLoading] = useState(false);
   const [reconciling, setReconciling] = useState(false);
   // Tracks which surface initiated the active reconcile, so we can render an
@@ -338,12 +370,15 @@ export function KeycloakMigrationHealthPanel({ compact = false }: KeycloakMigrat
     setLoading(true);
     setError(null);
     try {
-      setHealth(
-        await readJson<KeycloakMigrationHealth>(
-          await fetch("/api/admin/keycloak/migration-health"),
-        ),
+      const nextHealth = await readJson<KeycloakMigrationHealth>(
+        await fetch("/api/admin/keycloak/migration-health"),
       );
+      hasLoadedHealthRef.current = true;
+      setHealth(nextHealth);
     } catch (err) {
+      if (hasLoadedHealthRef.current && isTransientFetchFailure(err)) {
+        return;
+      }
       setError(err instanceof Error ? err.message : "Failed to load Keycloak migration health");
     } finally {
       setLoading(false);
@@ -393,6 +428,7 @@ export function KeycloakMigrationHealthPanel({ compact = false }: KeycloakMigrat
 
   const lastRun = health?.migration.last_run;
   const bootstrapHasFailures = Boolean(health?.bootstrap_admins && health.bootstrap_admins.failed_count > 0);
+  const keycloakAccess = health ? keycloakAccessHealth(health.keycloak) : null;
   const invariantsFailing = Boolean(
     health?.keycloak_invariants && health.keycloak_invariants.summary.failing > 0,
   );
@@ -403,7 +439,7 @@ export function KeycloakMigrationHealthPanel({ compact = false }: KeycloakMigrat
     error ||
       health?.blocking.is_blocking ||
       health?.migration.manifest_status === "failed" ||
-      !health?.keycloak.reachable ||
+      keycloakAccess?.hasIssue ||
       bootstrapHasFailures ||
       invariantsFailing,
   );
@@ -516,8 +552,8 @@ export function KeycloakMigrationHealthPanel({ compact = false }: KeycloakMigrat
                 state={health.keycloak.configured ? "ok" : "error"}
               />
               <HealthCheck
-                label={health.keycloak.reachable ? "Keycloak reachable" : "Keycloak unreachable"}
-                state={health.keycloak.reachable ? "ok" : "error"}
+                label={keycloakAccessHealth(health.keycloak).label}
+                state={keycloakAccessHealth(health.keycloak).state}
               />
               <HealthCheck
                 label={`Schema ${health.schema_area.status}`}

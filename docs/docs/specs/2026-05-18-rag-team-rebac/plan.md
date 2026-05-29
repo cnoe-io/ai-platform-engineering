@@ -20,7 +20,7 @@ RAG and the `caipe-ui` BFF should both fail closed unless OpenFGA allows the con
 
 ## Goal
 
-Move RAG default authorization from `RBAC_DEFAULT_AUTHENTICATED_ROLE` style environment fallbacks into team-based OpenFGA grants, editable from `Admin -> Security & Policy -> OpenFGA ReBAC`.
+Move RAG authorization to team-based OpenFGA grants, editable from `Admin -> Security & Policy -> OpenFGA ReBAC`.
 
 The target flow is:
 
@@ -44,7 +44,7 @@ sequenceDiagram
 
 - Keep Keycloak as authentication only for RAG: JWT validation, user subject, issuer, audience, expiry, and claims extraction.
 - Use teams as the authorization unit: `user:<sub> member team:<slug>` plus `team:<slug>#member reader|ingestor|manager knowledge_base:<datasource_id>`.
-- Treat the old default role as a migration hint only. In ReBAC mode, an unmatched authenticated user does not receive broad RAG access just because `RBAC_DEFAULT_AUTHENTICATED_ROLE` is set.
+- Treat OpenFGA as the only authorization source. An unmatched authenticated user does not receive broad RAG access without a concrete team-derived OpenFGA relationship.
 - Extend the OpenFGA ReBAC admin tab with a RAG Team Access panel that grants team access to the Data Sources admin surface via `team:<slug>#member manager admin_surface:rag_datasources`. Keep individual datasource permission management in the existing Team Knowledge Base/Data Sources UI.
 - Preserve `team_kb_ownership` as operational metadata for UI display and migration compatibility, but make OpenFGA tuples the enforcement source of truth.
 - For direct RAG calls, add a small OpenFGA client to the RAG server and update RAG auth dependencies so every read/ingest/admin decision is checked as `user:<sub> can_read|can_ingest|can_manage knowledge_base:<id>` or derived through team membership.
@@ -79,7 +79,7 @@ sequenceDiagram
 
 ## Rollout Notes
 
-- Keep `RBAC_DEFAULT_AUTHENTICATED_ROLE` temporarily accepted but deprecated. In ReBAC mode, it should not grant access; log a warning if set.
+- Do not rely on legacy role or trusted-network configuration; deployments should grant RAG access through OpenFGA relationships only.
 - Default to no team KB grants for safety.
 - Provide a migration/backfill action from the OpenFGA ReBAC tab to materialize team KB tuples for existing `team_kb_ownership` rows and Team Resources selections.
 - Do not change upstream IdP integration: RAG should validate Keycloak-issued tokens only.
