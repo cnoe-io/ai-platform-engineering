@@ -13,7 +13,7 @@ For local or demo installs, `setup-caipe.sh --rbac-runtime` now enables those op
 | CAIPE UI | Yes | `charts/ai-platform-engineering/charts/caipe-ui` includes Deployment, Service, Ingress, ConfigMap, and secret wiring. |
 | Slack bot | Yes | `charts/ai-platform-engineering/charts/slack-bot` includes Deployment and Slack/OBO configuration. |
 | Keycloak | Yes, optional | Enable with `tags.keycloak=true`. The subchart imports the realm and runs the IdP/token-exchange init hooks. |
-| AgentGateway | Yes, optional | Enable the standalone proxy with `agentgateway.enabled=true`. Gateway API route resources are still controlled by `global.agentgateway.enabled=true`. |
+| AgentGateway | Yes, optional | Enable the standalone proxy with `agentgateway.enabled=true`. MCP routing is controlled by `global.agentgateway.enabled=true` plus `global.agentgateway.routingMode` (`static`, the default, renders no CRs and writes routes into the standalone proxy config — safe on clusters you do not own; `gateway-api` renders Gateway API/AgentGateway CRs and needs cluster CRDs + a controller). |
 | OpenFGA | Yes, optional | Enable with `openfga.enabled=true`. The subchart deploys OpenFGA and a model-loader hook for the CAIPE authorization model. |
 | OpenFGA bridge | Yes, optional | Enable with `openfgaAuthzBridge.enabled=true`. The bridge image is published with the release and exposed as an internal gRPC Service. |
 
@@ -43,7 +43,7 @@ Before installing the refactor, prepare:
 - A Kubernetes namespace, for example `caipe`.
 - DNS and TLS for `caipe.example.com` and `idp.caipe.example.com`.
 - A trusted Ingress controller or Gateway API implementation.
-- Gateway API CRDs if using the chart's AgentGateway route resources.
+- Gateway API + AgentGateway CRDs **only** when you opt into `global.agentgateway.routingMode=gateway-api`. The default `routingMode=static` renders no custom resources and needs no CRDs, so it installs cleanly on clusters where you cannot install cluster-scoped CRDs.
 - A production OpenFGA datastore, usually PostgreSQL, exposed through a Kubernetes Secret consumed by `openfga.datastore.uriSecretRef`.
 - The OpenFGA model initialized by the `openfga-init` Helm hook.
 - The OpenFGA bridge enabled as an internal service reachable by AgentGateway `ext_authz`.
@@ -391,12 +391,37 @@ agentgateway:
 
 Use this pattern for upstream MCP servers that require provider credentials, including GitHub and GitLab. The caller still sends a Keycloak bearer to AgentGateway for JWT validation and OpenFGA `mcp_gateway:list` authorization; AgentGateway injects the provider token only on the backend hop. Keep the provider token in a Kubernetes Secret or ExternalSecret and reference it through `agentgateway.extraEnv` or `agentgateway.extraEnvFrom`.
 
-If you use the Gateway API controller path instead of standalone config, enable `global.agentgateway.enabled=true`. The parent chart then renders:
+### MCP routing modes
+
+`global.agentgateway.enabled=true` turns on chart-managed MCP routing. `global.agentgateway.routingMode` then selects how those routes are provisioned:
+
+**`static` (default) — CRD-free standalone proxy path.** No CRDs or controller required, so it installs cleanly even on clusters you do not own and keeps `helm diff`/`helm upgrade` clean. The chart renders **no** custom resources. Instead it generates the standalone proxy's static config (`<release>-agentgateway-static-config`) with one `/mcp/<id>` route + MCP backend per enabled target, and the `agentgateway` subchart proxy mounts it. Enable the standalone proxy (`agentgateway.enabled=true`) alongside it. MCP endpoints remain discoverable through the proxy admin `/config` endpoint, which the CAIPE UI discover/sync flow consumes — so no CRDs are needed for discovery either. The chart auto-wires the UI to that endpoint via `AGENT_GATEWAY_ADMIN_URL` (admin `/config` on `<release>-agentgateway:15000`) and `AGENT_GATEWAY_URL` (the MCP listener — `<release>-agentgateway:4000` in static mode, `<release>-agentgateway-proxy:<proxyPort>` in gateway-api mode); override both under `caipe-ui.config` for an out-of-cluster gateway. Optional listener JWT validation is configured under `global.agentgateway.static.jwtAuth`, and OpenFGA `ext_authz` is applied per route when `global.agentgateway.extAuth.enabled=true`.
+
+```yaml
+global:
+  agentgateway:
+    enabled: true
+    # routingMode: static is the default; shown here for clarity.
+    routingMode: static
+    # Optional listener JWT validation (mirrors the Gateway API jwtAuth policy)
+    static:
+      jwtAuth:
+        enabled: true
+        issuer: https://idp.caipe.example.com/realms/caipe
+        jwksUrl: http://caipe-keycloak:8080/realms/caipe/protocol/openid-connect/certs
+        audiences: [caipe-platform, agentgateway]
+agentgateway:
+  enabled: true
+```
+
+**`gateway-api` (opt-in) — Gateway API controller path.** Set `global.agentgateway.routingMode=gateway-api` when you control the cluster and want the controller-managed Gateway data plane. The parent chart then renders:
 
 - A `Gateway` using `gatewayClassName: agentgateway`.
 - One `AgentgatewayBackend` per enabled MCP backend.
 - One `HTTPRoute` per enabled MCP backend.
 - An optional `AgentgatewayPolicy` when `global.agentgateway.extAuth.enabled=true`.
+
+This requires the following CRDs and an AgentGateway/Gateway API controller in the cluster: `gateways.gateway.networking.k8s.io`, `httproutes.gateway.networking.k8s.io`, `agentgatewaybackends.agentgateway.dev`, `agentgatewaypolicies.agentgateway.dev`.
 
 ## Install Through `setup-caipe.sh`
 

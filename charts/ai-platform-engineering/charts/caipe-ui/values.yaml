@@ -227,6 +227,12 @@ config:
   TAGLINE: "Multi-Agent Workflow Automation"
   DESCRIPTION: "Where Humans and AI agents collaborate to deliver high quality outcomes."
   APP_NAME: "CAIPE"
+  # AgentGateway MCP discovery endpoints. Leave empty to default to the in-cluster
+  # AgentGateway Services (admin /config on "<release>-agentgateway:15000"; MCP
+  # listener mode-aware on the standalone proxy or controller Gateway). Only used
+  # when global.agentgateway.enabled=true. Override for out-of-cluster gateways.
+  AGENT_GATEWAY_ADMIN_URL: ""
+  AGENT_GATEWAY_URL: ""
   # Canonical Slack workspace namespace used by UI-managed Slack ReBAC/routes.
   SLACK_WORKSPACE_ALIAS: "CAIPE"
   # Slack bot internal admin API used for route-cache reload and one-time
