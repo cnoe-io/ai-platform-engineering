@@ -7,7 +7,7 @@ In multi-node mode, the supervisor-agent-env ConfigMap handles this instead.
 */ -}}
 {{- if eq .Values.global.deploymentMode "single-node" }}
 {{- $agwGlobal := .Values.global.agentgateway | default dict }}
-{{- $agwRoutingMode := ($agwGlobal.routingMode | default "gateway-api") }}
+{{- $agwRoutingMode := ($agwGlobal.routingMode | default "static") }}
 {{- /*
 gateway-api mode routes agent MCP traffic through the controller-provisioned
 "<release>-agentgateway-proxy" Gateway data plane (proxyPort). static mode has no

@@ -4,7 +4,7 @@ In static (CRD-free) routing mode the umbrella chart renders the proxy config
 subchart-owned ConfigMap is not used. Skip it to avoid a dangling object.
 */ -}}
 {{- $agwGlobal := ((.Values.global).agentgateway) | default dict }}
-{{- if not (and $agwGlobal.enabled (eq ($agwGlobal.routingMode | default "gateway-api") "static")) }}
+{{- if not (and $agwGlobal.enabled (eq ($agwGlobal.routingMode | default "static") "static")) }}
 apiVersion: v1
 kind: ConfigMap
 metadata:

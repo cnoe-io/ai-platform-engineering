@@ -14,7 +14,7 @@ discoverable via the proxy admin /config endpoint, which the CAIPE UI
 discover/sync flow already consumes.
 */ -}}
 {{- $agw := .Values.global.agentgateway | default dict }}
-{{- $routingMode := ($agw.routingMode | default "gateway-api") }}
+{{- $routingMode := ($agw.routingMode | default "static") }}
 {{- if and $agw.enabled (eq $routingMode "static") }}
 {{- $sub := .Values.agentgateway | default dict }}
 {{- $svc := $sub.service | default dict }}

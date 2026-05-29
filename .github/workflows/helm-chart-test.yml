@@ -131,6 +131,7 @@ jobs:
         rendered=$(helm template test-agentgateway-static . \
           --set tags.basic=true \
           --set tags.rag-stack=false \
+          --set tags.caipe-ui=true \
           --set global.deploymentMode=single-node \
           --set global.agentgateway.enabled=true \
           --set agentgateway.enabled=true \
@@ -142,7 +143,10 @@ jobs:
         fi
         echo "$rendered" | grep -q 'test-agentgateway-static-agentgateway-static-config' \
           || { echo "ERROR: static config ConfigMap was not rendered" >&2; exit 1; }
-        echo "OK: default (static) routing mode rendered no Gateway API CRs and produced the static config ConfigMap"
+        # The UI must be wired to the standalone proxy admin /config for CRD-free discovery.
+        echo "$rendered" | grep -q 'http://test-agentgateway-static-agentgateway:15000' \
+          || { echo "ERROR: caipe-ui AGENT_GATEWAY_ADMIN_URL not wired to the standalone proxy admin endpoint" >&2; exit 1; }
+        echo "OK: default (static) routing mode rendered no Gateway API CRs, produced the static config ConfigMap, and wired UI discovery"
 
     - name: Test ai-platform-engineering installation (dry-run) - AgentGateway gateway-api routing (opt-in)
       run: |

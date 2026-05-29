@@ -15,7 +15,7 @@ spec:
         {{- include "agentgateway.selectorLabels" . | nindent 8 }}
       annotations:
         {{- $agwGlobal := ((.Values.global).agentgateway) | default dict }}
-        {{- if eq ($agwGlobal.routingMode | default "gateway-api") "static" }}
+        {{- if eq ($agwGlobal.routingMode | default "static") "static" }}
         checksum/config: {{ $agwGlobal | toYaml | sha256sum }}
         {{- else }}
         checksum/config: {{ toYaml .Values.config | sha256sum }}
@@ -69,7 +69,7 @@ spec:
         - name: config
           configMap:
             {{- $agwGlobal := ((.Values.global).agentgateway) | default dict }}
-            {{- if and $agwGlobal.enabled (eq ($agwGlobal.routingMode | default "gateway-api") "static") }}
+            {{- if and $agwGlobal.enabled (eq ($agwGlobal.routingMode | default "static") "static") }}
             # Static (CRD-free) routing: mount the umbrella-rendered static config.
             name: {{ printf "%s-agentgateway-static-config" .Release.Name }}
             {{- else }}

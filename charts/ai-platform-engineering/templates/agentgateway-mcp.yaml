@@ -14,7 +14,7 @@ Prerequisites:
   - an AgentGateway GatewayClass/controller must exist when using the Gateway API path
   - Gateway API CRDs must be installed in the cluster
 */ -}}
-{{- $routingMode := (.Values.global.agentgateway.routingMode | default "gateway-api") }}
+{{- $routingMode := (.Values.global.agentgateway.routingMode | default "static") }}
 {{- if and .Values.global.agentgateway.enabled (eq $routingMode "gateway-api") }}
 {{- $gatewayName := printf "%s-agentgateway-proxy" .Release.Name }}
 {{- $gatewayPort := .Values.global.agentgateway.proxyPort | default 8080 }}
