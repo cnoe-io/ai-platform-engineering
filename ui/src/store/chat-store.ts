@@ -167,6 +167,7 @@ function serializeStreamEvent(event: StreamEvent): Record<string, unknown> {
     inputRequiredData: event.inputRequiredData,
     memoryUpdateData: event.memoryUpdateData,
     memoryInjectedData: event.memoryInjectedData,
+    memoryContextUsedData: event.memoryContextUsedData,
     // Content fields
     content: event.content,
     displayContent: event.displayContent,

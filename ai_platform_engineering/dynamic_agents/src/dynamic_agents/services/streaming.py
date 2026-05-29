@@ -48,6 +48,7 @@ class StreamingMixin:
     tracing: Any
     _current_trace_id: str | None
     _last_injected_memory_ids: list[str]
+    _pending_memory_context_used_ids: list[str]
 
     # forward declarations so the mixin can call them
     async def initialize(self) -> None:
@@ -55,6 +56,18 @@ class StreamingMixin:
 
     def build_memory_prompt_message(self, session_id: str) -> dict[str, str] | None:
         raise NotImplementedError
+
+    def _drain_memory_context_used_ids(self) -> list[str]:
+        """Return and clear queued context memory ids from tool-result attachment."""
+        memory_ids = list(
+            dict.fromkeys(
+                str(memory_id)
+                for memory_id in getattr(self, "_pending_memory_context_used_ids", [])
+                if memory_id
+            )
+        )
+        self._pending_memory_context_used_ids = []
+        return memory_ids
 
     async def _has_prior_conversation_messages(self, session_id: str) -> bool:
         """Return whether this LangGraph thread already has chat history."""
@@ -139,6 +152,7 @@ class StreamingMixin:
 
         self._cancelled = False
         self._is_streaming = True
+        self._pending_memory_context_used_ids = []
 
         config = self._build_stream_config(session_id, user_id, trace_id)
         run_id = f"run-{uuid4().hex[:12]}"
@@ -219,6 +233,10 @@ class StreamingMixin:
 
                 for frame in encoder.on_chunk(chunk):
                     yield frame
+                memory_context_ids = self._drain_memory_context_used_ids()
+                if memory_context_ids:
+                    for frame in encoder.on_memory_context_used(memory_context_ids):
+                        yield frame
         finally:
             if not next_chunk.done():
                 next_chunk.cancel()
@@ -326,6 +344,7 @@ class StreamingMixin:
 
         self._cancelled = False
         self._is_streaming = True
+        self._pending_memory_context_used_ids = []
 
         config = self._build_stream_config(session_id, user_id, trace_id)
         run_id = f"run-{uuid4().hex[:12]}"
@@ -422,6 +441,10 @@ class StreamingMixin:
 
                 for frame in encoder.on_chunk(chunk):
                     yield frame
+                memory_context_ids = self._drain_memory_context_used_ids()
+                if memory_context_ids:
+                    for frame in encoder.on_memory_context_used(memory_context_ids):
+                        yield frame
         finally:
             if not next_chunk.done():
                 next_chunk.cancel()

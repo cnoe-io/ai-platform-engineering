@@ -130,6 +130,19 @@ class CustomStreamEncoder(StreamEncoder):
             )
         ]
 
+    def on_memory_context_used(self, memory_ids: list[str]) -> list[str]:
+        if not memory_ids:
+            return []
+        return [
+            _sse_frame(
+                "memory_context_used",
+                {
+                    "memory_ids": memory_ids,
+                    "namespace": [],
+                },
+            )
+        ]
+
     def on_keepalive(self) -> list[str]:
         return [_sse_frame("heartbeat", {})]
 

@@ -96,6 +96,9 @@ export interface StreamCallbacks {
   /** Memory records were injected into model context for this chat run */
   onMemoryInjected?(memoryIds: string[], namespace?: string[]): void;
 
+  /** Context memories were attached to a context-provider tool result */
+  onMemoryContextUsed?(memoryIds: string[], namespace?: string[]): void;
+
   /** Durable memory was changed by a memory tool call */
   onMemoryUpdate?(memoryIds: string[], action?: string, namespace?: string[]): void;
 

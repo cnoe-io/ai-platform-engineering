@@ -730,6 +730,14 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       addStreamEvent(streamEvent, convId);
     },
 
+    onMemoryContextUsed(memoryIds, namespace) {
+      const streamEvent = createStreamEvent("memory_context_used", {
+        memory_ids: memoryIds,
+        namespace: namespace ?? [],
+      });
+      addStreamEvent(streamEvent, convId);
+    },
+
     onDone() {
       // Finalization handled after adapter.streamMessage resolves
     },
@@ -1442,6 +1450,11 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
                             turnEvents.flatMap((event) => event.memoryInjectedData?.memory_ids ?? [])
                           ))
                         : [];
+                      const memoryContextUsedIds = msg.role === "assistant"
+                        ? Array.from(new Set(
+                            turnEvents.flatMap((event) => event.memoryContextUsedData?.memory_ids ?? [])
+                          ))
+                        : [];
 
                       return (
                         <ChatMessage
@@ -1464,6 +1477,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
                           agentName={agentName}
                           turnEvents={turnEvents}
                           memoryInjectedIds={memoryInjectedIds}
+                          memoryContextUsedIds={memoryContextUsedIds}
                           memoryUpdateIds={memoryUpdateIds}
                           onOpenMemory={handleOpenMemory}
                           // Timeline props (only passed to latest message)
@@ -1870,6 +1884,7 @@ interface ChatMessageProps {
   agentName?: string;
   turnEvents?: StreamEvent[];
   memoryInjectedIds?: string[];
+  memoryContextUsedIds?: string[];
   memoryUpdateIds?: string[];
   onOpenMemory?: (memoryIds: string[]) => void;
   // Timeline props (for AgentTimeline)
@@ -2220,6 +2235,7 @@ const ChatMessage = React.memo(function ChatMessage({
   agentName,
   turnEvents = [],
   memoryInjectedIds = [],
+  memoryContextUsedIds = [],
   memoryUpdateIds = [],
   onOpenMemory,
   // Timeline props
@@ -2459,10 +2475,21 @@ const ChatMessage = React.memo(function ChatMessage({
               <button
                 type="button"
                 onClick={() => onOpenMemory(memoryInjectedIds)}
-                className="mb-2 inline-flex items-center gap-1.5 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-300 transition-colors hover:bg-emerald-500/20"
+                className="mb-2 mr-2 inline-flex items-center gap-1.5 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-300 transition-colors hover:bg-emerald-500/20"
               >
                 <Brain className="h-3.5 w-3.5" />
                 {memoryInjectedIds.length === 1 ? "1 memory injected" : `${memoryInjectedIds.length} memories injected`}
+              </button>
+            )}
+
+            {memoryContextUsedIds.length > 0 && onOpenMemory && (
+              <button
+                type="button"
+                onClick={() => onOpenMemory(memoryContextUsedIds)}
+                className="mb-2 inline-flex items-center gap-1.5 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-300 transition-colors hover:bg-emerald-500/20"
+              >
+                <Brain className="h-3.5 w-3.5" />
+                {memoryContextUsedIds.length === 1 ? "1 context memory used" : `${memoryContextUsedIds.length} context memories used`}
               </button>
             )}
 

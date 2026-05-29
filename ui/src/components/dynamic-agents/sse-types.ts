@@ -85,6 +85,11 @@ export interface MemoryInjectedEventData {
   memory_ids: string[];
 }
 
+/** Context memory data from memory_context_used events */
+export interface MemoryContextUsedEventData {
+  memory_ids: string[];
+}
+
 /** Input required data from input_required events (HITL forms) */
 export interface InputRequiredEventData {
   /** Unique ID for this interrupt (used to resume) */
@@ -155,6 +160,7 @@ export type StreamEventType =
   | "tool_start" // Tool invocation started (task tool = subagent invocation)
   | "tool_end" // Tool invocation completed
   | "memory_injected" // Memory records were injected into model context
+  | "memory_context_used" // Context memories were attached to a tool result
   | "memory_update" // Durable memory changed
   | "input_required" // Agent requests user input via form (HITL)
   | "warning" // Warning event (e.g., missing tools) - rendered inline
@@ -203,6 +209,9 @@ export interface StreamEvent {
 
   /** Memory injection data for memory_injected events */
   memoryInjectedData?: MemoryInjectedEventData;
+
+  /** Context memory data for memory_context_used events */
+  memoryContextUsedData?: MemoryContextUsedEventData;
 
   // ─── Content ─────────────────────────────────────────────────
   /** Content text for content events */
@@ -360,6 +369,16 @@ export function createStreamEvent(
       return {
         ...base,
         memoryInjectedData,
+      };
+    }
+
+    case "memory_context_used": {
+      const memoryContextUsedData: MemoryContextUsedEventData = {
+        memory_ids: data.memory_ids ?? [],
+      };
+      return {
+        ...base,
+        memoryContextUsedData,
       };
     }
 

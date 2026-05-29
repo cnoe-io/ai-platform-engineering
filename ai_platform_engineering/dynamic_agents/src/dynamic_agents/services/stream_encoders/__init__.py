@@ -70,6 +70,10 @@ class StreamEncoder(ABC):
         """Memory records were injected into the model context for this turn."""
 
     @abstractmethod
+    def on_memory_context_used(self, memory_ids: list[str]) -> list[str]:
+        """Context memories were attached to a context-provider tool result."""
+
+    @abstractmethod
     def on_keepalive(self) -> list[str]:
         """Emit a no-op frame to keep long-running streams alive."""
 

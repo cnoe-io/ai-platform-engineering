@@ -216,6 +216,15 @@ export class CustomStreamAdapter implements StreamAdapter {
           return false;
         }
 
+        case "memory_context_used": {
+          const parsed = JSON.parse(data);
+          callbacks.onMemoryContextUsed?.(
+            parsed.memory_ids ?? [],
+            parsed.namespace ?? [],
+          );
+          return false;
+        }
+
         case "memory_update": {
           const parsed = JSON.parse(data);
           callbacks.onMemoryUpdate?.(

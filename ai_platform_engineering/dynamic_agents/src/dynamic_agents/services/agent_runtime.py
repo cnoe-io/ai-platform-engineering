@@ -180,6 +180,7 @@ class AgentRuntime(StreamingMixin):
             logger.warning("Failed to ensure user memory indexes: %s", exc)
         self._memory_enabled_for_run = True
         self._last_injected_memory_ids: list[str] = []
+        self._pending_memory_context_used_ids: list[str] = []
         self._mcp_client: MultiServerMCPClient | None = None
         self._initialized = False
         self._is_streaming = False  # guards LRU eviction — never evict mid-stream
@@ -621,6 +622,17 @@ class AgentRuntime(StreamingMixin):
                         ],
                     )
                     memory_text = self._memory_service.format_context_tool_memory(memories)
+                    context_memory_ids = list(
+                        dict.fromkeys(
+                            str(memory.get("memory_id") or "")
+                            for memory in memories
+                            if memory.get("scope") == "context"
+                            and memory.get("memory_id")
+                            and str(memory.get("value") or "").strip()
+                        )
+                    )[:6]
+                    if memory_text and context_memory_ids:
+                        self._pending_memory_context_used_ids.extend(context_memory_ids)
                     return self._append_tool_memory(result, memory_text, _resp_fmt)
                 except Exception as exc:  # noqa: BLE001 - memory must not break the domain tool
                     logger.warning(

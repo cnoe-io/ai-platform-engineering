@@ -209,6 +209,21 @@ class AGUIStreamEncoder(StreamEncoder):
             )
         ]
 
+    def on_memory_context_used(self, memory_ids: list[str]) -> list[str]:
+        if not memory_ids:
+            return []
+        return [
+            _sse_frame(
+                "CUSTOM",
+                {
+                    "type": "CUSTOM",
+                    "name": "MEMORY_CONTEXT_USED",
+                    "value": {"memory_ids": memory_ids, "namespace": []},
+                    "timestamp": _ts(),
+                },
+            )
+        ]
+
     def on_keepalive(self) -> list[str]:
         return [
             _sse_frame(

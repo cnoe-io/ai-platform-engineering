@@ -47,6 +47,7 @@ const CUSTOM_NAMESPACE_CONTEXT = "NAMESPACE_CONTEXT";
 const CUSTOM_WARNING = "WARNING";
 const CUSTOM_TOOL_ERROR = "TOOL_ERROR";
 const CUSTOM_MEMORY_INJECTED = "MEMORY_INJECTED";
+const CUSTOM_MEMORY_CONTEXT_USED = "MEMORY_CONTEXT_USED";
 const CUSTOM_MEMORY_UPDATED = "MEMORY_UPDATED";
 // Supervisor legacy HITL format (fallback)
 const CUSTOM_INPUT_REQUIRED = "INPUT_REQUIRED";
@@ -368,6 +369,13 @@ export class AGUIStreamAdapter implements StreamAdapter {
 
       case CUSTOM_MEMORY_INJECTED:
         callbacks.onMemoryInjected?.(
+          (value?.memory_ids as string[]) || [],
+          (value?.namespace as string[]) || this.currentNamespace,
+        );
+        return false;
+
+      case CUSTOM_MEMORY_CONTEXT_USED:
+        callbacks.onMemoryContextUsed?.(
           (value?.memory_ids as string[]) || [],
           (value?.namespace as string[]) || this.currentNamespace,
         );
