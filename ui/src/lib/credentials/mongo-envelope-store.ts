@@ -32,7 +32,7 @@ interface CiphertextEnvelope {
 
 export interface MongoEnvelopeCredentialStoreOptions {
   payloadCollection: PayloadCollection;
-  keyWrapper: KeyWrapper;
+  keyWrapper: KeyWrapper | (() => KeyWrapper);
 }
 
 export interface PutSecretInput {
@@ -91,16 +91,26 @@ function asEncryptedPayload(document: Record<string, unknown>): EncryptedPayload
 
 export class MongoEnvelopeCredentialStore {
   private readonly payloadCollection: PayloadCollection;
-  private readonly keyWrapper: KeyWrapper;
+  private readonly keyWrapperFactory: KeyWrapper | (() => KeyWrapper);
+  private keyWrapper?: KeyWrapper;
 
   constructor(options: MongoEnvelopeCredentialStoreOptions) {
     this.payloadCollection = options.payloadCollection;
-    this.keyWrapper = options.keyWrapper;
+    this.keyWrapperFactory = options.keyWrapper;
+  }
+
+  private getKeyWrapper(): KeyWrapper {
+    if (!this.keyWrapper) {
+      this.keyWrapper = typeof this.keyWrapperFactory === "function"
+        ? this.keyWrapperFactory()
+        : this.keyWrapperFactory;
+    }
+    return this.keyWrapper;
   }
 
   async putSecret(input: PutSecretInput): Promise<void> {
     const context = dataKeyContext(input.secretRefId);
-    const wrappedDataKey = await this.keyWrapper.generateDataKey(context);
+    const wrappedDataKey = await this.getKeyWrapper().generateDataKey(context);
     if (!wrappedDataKey.plaintextDataKey) {
       throw createCredentialError({
         reasonCode: "key_wrap_failed",
@@ -142,7 +152,7 @@ export class MongoEnvelopeCredentialStore {
     }
 
     const payload = asEncryptedPayload(document);
-    const dataKey = await this.keyWrapper.unwrapDataKey(
+    const dataKey = await this.getKeyWrapper().unwrapDataKey(
       payload.encryptedDek,
       dataKeyContext(secretRefId),
     );
