@@ -193,3 +193,35 @@ def test_gateway_routing_only_rewrites_declared_gateway_targets(monkeypatch):
 
     assert connections["jira"]["url"] == "http://agentgateway:4000/mcp/jira"
     assert connections["knowledge-base"]["url"] == "http://rag-server:9446/mcp"
+
+
+def test_gateway_all_only_routes_gateway_managed_servers(monkeypatch):
+    """`all` should not send arbitrary manual MCP rows to missing AG routes."""
+    monkeypatch.setenv("AGENT_GATEWAY_MCP_SERVER_IDS", "all")
+    servers = [
+        MCPServerConfig(
+            id="knowledge-base",
+            name="Knowledge Base",
+            transport=TransportType.HTTP,
+            endpoint="http://agentgateway:4000/mcp/knowledge-base",
+            enabled=True,
+            source="agentgateway",
+            agentgateway_target_endpoint="http://rag-server:9446/mcp",
+        ),
+        MCPServerConfig(
+            id="manual-tool",
+            name="Manual Tool",
+            transport=TransportType.HTTP,
+            endpoint="http://mcp-manual:8000/mcp",
+            enabled=True,
+        ),
+    ]
+
+    connections = build_mcp_connections(
+        servers,
+        ["knowledge-base", "manual-tool"],
+        agent_gateway_url="http://agentgateway:4000",
+    )
+
+    assert connections["knowledge-base"]["url"] == "http://agentgateway:4000/mcp/knowledge-base"
+    assert connections["manual-tool"]["url"] == "http://mcp-manual:8000/mcp"

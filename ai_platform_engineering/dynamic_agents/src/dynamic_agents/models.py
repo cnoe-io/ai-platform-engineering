@@ -92,6 +92,18 @@ class MCPServerConfig(MCPServerConfigBase):
 
     id: str = Field(..., alias="_id", description="Unique slug ID")
     config_driven: bool = Field(False, description="Whether this server was loaded from config.yaml")
+    source: Literal["manual", "config", "agentgateway"] | None = Field(
+        None,
+        description="Where this MCP server record came from.",
+    )
+    agentgateway_discovered: bool = Field(
+        False,
+        description="Whether this MCP server was discovered from AgentGateway.",
+    )
+    agentgateway_target_endpoint: str | None = Field(
+        None,
+        description="Upstream MCP endpoint behind the AgentGateway route.",
+    )
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
