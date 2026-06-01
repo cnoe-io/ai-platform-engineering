@@ -1,3 +1,18 @@
+## 0.5.4-dev.2 (2026-06-01)
+
+### Fix
+
+- **admin**: consolidate Keycloak warnings into amber block above invariants
+- **keycloak**: remove manage-realm from caipe-platform desired roles
+- **keycloak**: restore literal em dashes in realm-config.json
+- **keycloak**: add view-realm and manage-realm to caipe-platform service account roles
+
+## 0.5.4-dev.1 (2026-06-01)
+
+### Fix
+
+- **auth**: remove per-request bootstrap admin log spam (#1670)
+
 ## 0.5.4 (2026-05-29)
 
 ### Fix
