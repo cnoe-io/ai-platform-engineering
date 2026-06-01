@@ -229,8 +229,8 @@ export function SkillMdEditor({
   const showEditor = viewMode !== "preview";
   const showPreview = viewMode !== "edit";
 
-  // FilesTab passes height="100%". Mirror the preview pane: constrain
-  // the editor shell and let CodeMirror scroll internally (one bar).
+  // Mirror the preview pane: constrain the editor shell and let 
+  // CodeMirror component scroll internally.
   const fillParent = height === "100%";
 
   // Body layout. We use a simple grid so split mode stays balanced even

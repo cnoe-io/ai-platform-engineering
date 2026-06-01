@@ -115,9 +115,7 @@ export interface RichCodeEditorProps {
   height?: string;
 
   /**
-   * Fill the parent flex/grid cell and scroll inside CodeMirror only
-   * (one scrollbar). Use instead of `height="100%"` when embedded in
-   * a constrained layout like the Files tab.
+   * Fill the parent flex/grid cell and scroll inside CodeMirror component only
    */
   fillContainer?: boolean;
 
@@ -328,6 +326,8 @@ export function RichCodeEditor({
     [onChange],
   );
 
+  const shouldUseEditorStyling = useContainerHeight || height;
+
   return (
     <div
       className={cn(
@@ -341,8 +341,8 @@ export function RichCodeEditor({
         ref={editorRef ?? undefined}
         value={value}
         height={useContainerHeight ? "100%" : height}
-        minHeight={useContainerHeight ? undefined : height ? undefined : minHeight}
-        maxHeight={useContainerHeight ? undefined : height ? undefined : maxHeight}
+        minHeight={shouldUseEditorStyling ? undefined : minHeight}
+        maxHeight={shouldUseEditorStyling ? undefined : maxHeight}
         theme={isDark ? oneDark : "light"}
         extensions={extensions}
         onChange={handleChange}
