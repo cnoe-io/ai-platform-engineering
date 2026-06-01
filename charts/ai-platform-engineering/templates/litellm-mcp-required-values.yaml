@@ -1,0 +1,22 @@
+{{- if .Values.litellmMcp.enabled -}}
+{{- $secret := .Values.litellmMcp.secret | default dict -}}
+{{- $externalSecrets := .Values.litellmMcp.externalSecrets | default dict -}}
+{{- $secretData := $secret.data | default dict -}}
+{{- $externalData := $externalSecrets.data | default list -}}
+{{- $hasInlineToken := or (hasKey $secretData "LITELLM_API_KEY") (hasKey $secretData "LITELLM_TOKEN") (hasKey $secretData "LITELLM_API_TOKEN") -}}
+{{- $hasExternalToken := false -}}
+{{- range $item := $externalData -}}
+{{- if or (eq $item.secretKey "LITELLM_API_KEY") (eq $item.secretKey "LITELLM_TOKEN") (eq $item.secretKey "LITELLM_API_TOKEN") -}}
+{{- $hasExternalToken = true -}}
+{{- end -}}
+{{- end -}}
+{{- if and $secret.create (not $hasInlineToken) -}}
+{{- fail "litellmMcp.secret.data must contain LITELLM_API_KEY, LITELLM_TOKEN, or LITELLM_API_TOKEN when litellmMcp.secret.create=true" -}}
+{{- end -}}
+{{- if and $externalSecrets.enabled (not $hasExternalToken) -}}
+{{- fail "litellmMcp.externalSecrets.data must create LITELLM_API_KEY, LITELLM_TOKEN, or LITELLM_API_TOKEN when litellmMcp.externalSecrets.enabled=true" -}}
+{{- end -}}
+{{- if not (or .Values.litellmMcp.existingSecret $secret.create $externalSecrets.enabled) -}}
+{{- fail "litellmMcp requires a LiteLLM API token source when enabled; set litellmMcp.existingSecret, litellmMcp.secret.create, or litellmMcp.externalSecrets.enabled" -}}
+{{- end -}}
+{{- end -}}

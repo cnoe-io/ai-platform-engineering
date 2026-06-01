@@ -50,7 +50,10 @@ caipe-ui:
 If the Helm release name is not `ai-platform-engineering`, update the endpoint
 host to match the rendered LiteLLM MCP Service name.
 
-The `litellm-mcp-secret` Secret must contain `LITELLM_API_KEY`.
+The `litellm-mcp-secret` Secret must contain `LITELLM_API_KEY`. When
+`litellmMcp.enabled=true`, the chart requires `existingSecret`,
+`secret.create`, or `externalSecrets.enabled` so the MCP server cannot start
+without a LiteLLM API token source.
 
 ## Prod Deployment
 
@@ -88,4 +91,5 @@ If the Helm release name is not `ai-platform-engineering`, update the endpoint
 host to match the rendered LiteLLM MCP Service name.
 
 Use External Secrets or the platform secret manager for `LITELLM_API_KEY` in
-shared environments.
+shared environments. If `litellmMcp.config.LITELLM_API_URL` is left empty, the
+chart renders `https://litellm.prod.outshift.ai`.

@@ -1,4 +1,5 @@
 {{- if .Values.litellmMcp.enabled }}
+{{- $config := .Values.litellmMcp.config | default dict }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -9,7 +10,10 @@ data:
   MCP_MODE: "http"
   MCP_HOST: "0.0.0.0"
   MCP_PORT: {{ .Values.litellmMcp.service.port | quote }}
-  {{- range $key, $value := .Values.litellmMcp.config }}
+  LITELLM_API_URL: {{ (index $config "LITELLM_API_URL" | default "https://litellm.prod.outshift.ai") | quote }}
+  {{- range $key, $value := $config }}
+  {{- if ne $key "LITELLM_API_URL" }}
   {{ $key }}: {{ $value | quote }}
+  {{- end }}
   {{- end }}
 {{- end }}
