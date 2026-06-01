@@ -86,7 +86,7 @@ function fetchIssues() {
   const raw = execFileSync(
     "gh",
     ["api", "--paginate", `repos/${REPO}/issues?state=open&per_page=100`,
-     "--jq", ".[] | select(.pull_request == null) | {number,title,labels:[.labels[].name],updated_at,created_at,comments,assignees:[.assignees[].login]}"],
+     "--jq", ".[] | select(.pull_request == null) | {number,title,labels:[.labels[].name],milestone:(.milestone.title // null),updated_at,created_at,comments,assignees:[.assignees[].login]}"],
     { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 }
   );
   // --jq emits one JSON object per line.
@@ -142,6 +142,7 @@ const issues = fetchIssues().map((i) => {
     area,
     type,
     labels: i.labels,
+    milestone: i.milestone, // target release (GitHub milestone) or null
     assignees: i.assignees,
     age: ageDays,
     stale: now - Date.parse(i.updated_at) > staleMs,
@@ -219,6 +220,7 @@ const html = `<!doctype html>
   .tag.ops { color:var(--ops); border:1px solid var(--ops); }
   .flag { display:inline-block; border-radius:999px; padding:1px 7px; font-size:10px; margin:0 4px 2px 0; }
   .flag.stale { color:var(--warn); border:1px solid rgba(217,155,61,.5); }
+  .flag.ms { color:var(--accent); border:1px solid rgba(76,141,255,.5); }
   .flag.lbl { color:var(--text-3); border:1px solid var(--stroke); }
   .status { color:var(--text-2); font-size:12px; }
   .muted { color:var(--text-3); }
@@ -282,6 +284,7 @@ const html = `<!doctype html>
   <div class="filters">
     <div class="filterline"><span class="flabel">Area</span><span id="areaPills"></span></div>
     <div class="filterline"><span class="flabel">Type</span><span id="typePills"></span></div>
+    <div class="filterline"><span class="flabel">Release</span><span id="relPills"></span></div>
   </div>
   <div class="count" id="count"></div>
   <table>
@@ -298,8 +301,21 @@ const AREA_COLOR = ${JSON.stringify(AREA_COLOR)};
 const ISSUES = ${DATA};
 const RELEASES = ${RELEASES};
 const REL_INIT_N = ${relInitN};
-let fArea = "All", fType = "All";
+const NO_MILESTONE = "\\u0000none"; // sentinel for "Unscheduled" (no milestone)
+let fArea = "All", fType = "All", fRelease = "All";
 let relMode = "bars", relN = REL_INIT_N;
+
+// Distinct milestones present on open issues, version-sorted desc (newest first).
+function milestoneOrder() {
+  const set = new Set(ISSUES.map(i => i.milestone).filter(Boolean));
+  return [...set].sort((a, b) => {
+    const pa = a.split(".").map(Number), pb = b.split(".").map(Number);
+    for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+      const d = (pb[i] || 0) - (pa[i] || 0); if (d) return d;
+    }
+    return a < b ? 1 : -1;
+  });
+}
 function esc(s){ return String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
 function render() {
   const total = ISSUES.length;
@@ -324,13 +340,24 @@ function render() {
   document.getElementById("typePills").innerHTML =
     '<button class="pill '+(fType==="All"?"active":"")+'" data-type="All">All</button>' +
     Object.keys(TYPE_LABEL).map(t => '<button class="pill t-'+t+' '+(fType===t?"active":"")+'" data-type="'+t+'">'+TYPE_LABEL[t]+'</button>').join("");
-  const rows = ISSUES.filter(i => (fArea==="All"||i.area===fArea) && (fType==="All"||i.type===fType)).sort((a,b)=>b.n-a.n);
+  // release (milestone) pills
+  const mers = milestoneOrder();
+  const mCount = m => ISSUES.filter(i => i.milestone === m).length;
+  const noneCount = ISSUES.filter(i => !i.milestone).length;
+  document.getElementById("relPills").innerHTML =
+    '<button class="pill '+(fRelease==="All"?"active":"")+'" data-rel="All">All</button>' +
+    mers.map(m => '<button class="pill '+(fRelease===m?"active":"")+'" data-rel="'+esc(m)+'">'+esc(m)+' ('+mCount(m)+')</button>').join("") +
+    (noneCount ? '<button class="pill '+(fRelease===NO_MILESTONE?"active":"")+'" data-rel="'+NO_MILESTONE+'">Unscheduled ('+noneCount+')</button>' : "");
+  const relMatch = i => fRelease==="All" || (fRelease===NO_MILESTONE ? !i.milestone : i.milestone===fRelease);
+  const rows = ISSUES.filter(i => (fArea==="All"||i.area===fArea) && (fType==="All"||i.type===fType) && relMatch(i)).sort((a,b)=>b.n-a.n);
+  const relTxt = fRelease==="All" ? "" : (fRelease===NO_MILESTONE ? " · Unscheduled" : " · "+fRelease);
   document.getElementById("count").textContent =
-    "Showing "+rows.length+" of "+total + (fArea!=="All"?" · "+fArea:"") + (fType!=="All"?" · "+TYPE_LABEL[fType]:"");
+    "Showing "+rows.length+" of "+total + (fArea!=="All"?" · "+fArea:"") + (fType!=="All"?" · "+TYPE_LABEL[fType]:"") + relTxt;
   document.getElementById("tbody").innerHTML = rows.map(i => {
     const cls = i.stale ? "stale" : (i.type==="bug" ? "bug" : "");
     const lbls = (i.labels||[]).slice(0,4).map(l => '<span class="flag lbl">'+esc(l)+'</span>').join("");
-    const flags = (i.stale?'<span class="flag stale">stale</span>':"") + lbls;
+    const ms = i.milestone ? '<span class="flag ms">'+esc(i.milestone)+'</span>' : "";
+    const flags = (i.stale?'<span class="flag stale">stale</span>':"") + ms + lbls;
     return '<tr class="'+cls+'">'+
       '<td><a href="'+REPO+'/'+i.n+'" target="_blank" rel="noopener">#'+i.n+'</a></td>'+
       '<td><span class="tag '+i.type+'">'+TYPE_LABEL[i.type]+'</span></td>'+
@@ -401,6 +428,7 @@ document.addEventListener("click", e => {
   if (pill) {
     if (pill.dataset.area !== undefined) fArea = pill.dataset.area;
     if (pill.dataset.type !== undefined) fType = pill.dataset.type;
+    if (pill.dataset.rel !== undefined) fRelease = pill.dataset.rel;
     render();
     return;
   }
