@@ -1034,7 +1034,7 @@ async def ingest_url(url_request: UrlIngestRequest, user: UserContext = Depends(
   logger.info(f"Received URL ingestion request: {url_request.url}")
 
   # Sanitize URL — skip public-routability check when operator has opted in
-  sanitized_url = sanitize_url(url_request.url, allow_non_public_urls=url_request.settings.allow_non_public_urls)
+  sanitized_url = sanitize_url(url_request.url, url_request.settings.allow_non_public_urls)
   url_request.url = sanitized_url
 
   # Generate datasource ID and create datasource
