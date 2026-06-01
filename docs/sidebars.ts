@@ -251,6 +251,7 @@ const sidebars: SidebarsConfig = {
         },
         { type: 'doc', id: 'repo-ops/ci', label: 'CI Workflows' },
         { type: 'doc', id: 'repo-ops/releases', label: 'How to Cut a Release' },
+        { type: 'doc', id: 'repo-ops/issue-triage', label: 'Issue Triage Dashboard' },
         {
           type: 'category',
           label: 'Skills',
