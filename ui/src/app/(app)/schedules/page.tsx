@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { formatDistance } from "date-fns";
 import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
@@ -35,7 +36,6 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { humanizeCron } from "@/lib/cron-humanize";
 import { getConfig } from "@/lib/config";
-import { formatRelativeTime } from "@/lib/utils";
 import { useChatStore } from "@/store/chat-store";
 
 interface ScheduleRun {
@@ -88,6 +88,7 @@ interface SchedulesResponse {
   data?: {
     items: ScheduleItem[];
     total: number;
+    server_now?: string;
   };
   error?: string;
 }
@@ -110,20 +111,28 @@ function formatDateTime(value: string | null): string {
   if (!value) return "Never";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString();
+  return new Intl.DateTimeFormat(undefined, {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    timeZoneName: "short",
+  }).format(date);
 }
 
-function formatRelative(value: string | null): string {
+function formatRelative(value: string | null, now: Date): string {
   if (!value) return "Never";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return formatRelativeTime(date);
+  return formatDistance(date, now, { addSuffix: true });
 }
 
-function lastRunLabel(schedule: ScheduleItem): string {
+function lastRunLabel(schedule: ScheduleItem, now: Date): string {
   if (!schedule.last_run?.ts) return "Never";
   const prefix = schedule.last_run.status === "error" ? "Failed" : "Ran";
-  return `${prefix} ${formatRelative(schedule.last_run.ts)}`;
+  return `${prefix} ${formatRelative(schedule.last_run.ts, now)}`;
 }
 
 function changedFieldsLabel(version: ScheduleVersion): string {
@@ -180,16 +189,42 @@ export default function SchedulesPage() {
   const [editCron, setEditCron] = useState("");
   const [editTz, setEditTz] = useState("");
   const [editMessage, setEditMessage] = useState("");
+  const [clockTick, setClockTick] = useState(() => Date.now());
+  const [serverClock, setServerClock] = useState<{
+    serverNowMs: number;
+    clientNowMs: number;
+  } | null>(null);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      setClockTick(Date.now());
+    }, 30_000);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  const relativeNow = useMemo(() => {
+    if (!serverClock) return new Date(clockTick);
+    return new Date(serverClock.serverNowMs + (clockTick - serverClock.clientNowMs));
+  }, [clockTick, serverClock]);
 
   const loadSchedules = useCallback(async () => {
     setError(null);
     setRefreshing(true);
     try {
+      const clientNowMs = Date.now();
       const response = await fetch("/api/schedules", { cache: "no-store" });
       const body = (await response.json()) as SchedulesResponse;
       if (!response.ok || !body.success || !body.data) {
         throw new Error(body.error || "Failed to load schedules");
       }
+      const serverNowMs = body.data.server_now
+        ? Date.parse(body.data.server_now)
+        : Number.NaN;
+      setServerClock({
+        serverNowMs: Number.isNaN(serverNowMs) ? clientNowMs : serverNowMs,
+        clientNowMs,
+      });
+      setClockTick(Date.now());
       setItems(body.data.items);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -759,7 +794,7 @@ export default function SchedulesPage() {
                                   Version {item.version || 1}
                                 </div>
                                 <div className="text-xs text-muted-foreground">
-                                  Created {formatRelative(item.created_at)}
+                                  Created {formatRelative(item.created_at, relativeNow)}
                                 </div>
                               </div>
                             </td>
@@ -770,7 +805,7 @@ export default function SchedulesPage() {
                             </td>
                             <td className="px-4 py-3 align-top">
                               <div className="space-y-1">
-                                <div>{lastRunLabel(item)}</div>
+                                <div>{lastRunLabel(item, relativeNow)}</div>
                                 {item.last_run?.ts && (
                                   <div className="text-xs text-muted-foreground">
                                     {formatDateTime(item.last_run.ts)}

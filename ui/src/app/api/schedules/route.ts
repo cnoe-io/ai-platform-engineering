@@ -132,6 +132,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
           : null,
       })),
       total: docs.length,
+      server_now: new Date().toISOString(),
     });
   });
 });
