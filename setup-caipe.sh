@@ -93,6 +93,16 @@ LITELLM_DB_PASSWORD=""
 LLM_VIA_LITELLM="${LLM_VIA_LITELLM:-false}"
 # Persist LiteLLM virtual keys / spend tracking in the shared Postgres (opt-in).
 ENABLE_LITELLM_DB="${ENABLE_LITELLM_DB:-false}"
+# Captured at finalize time so the proxy's model_list can be built from the real
+# provider while agents/RAG are repointed at the proxy (the working
+# LLM_PROVIDER/EMBEDDINGS_PROVIDER get rewritten to openai/litellm).
+LITELLM_CHAT_SOURCE=""
+LITELLM_EMBED_SOURCE=""
+LITELLM_EMBED_MODEL_REAL=""
+LITELLM_ROUTE_EMBEDDINGS=false
+# Downstream key agents/RAG present to the proxy. The proxy is in-cluster and not
+# internet-exposed; this is a routing token, not an upstream provider secret.
+LITELLM_MASTER_KEY="${LITELLM_MASTER_KEY:-sk-caipe-litellm}"
 VLLM_MODEL="${VLLM_MODEL:-openai/gpt-oss-20b}"
 VLLM_GPU_COUNT="${VLLM_GPU_COUNT:-1}"
 OLLAMA_MODEL="${OLLAMA_MODEL:-llama2}"
@@ -2984,7 +2994,23 @@ create_namespace_and_secrets() {
     fi
   fi
 
-  local secret_args=(
+  local secret_args=()
+
+  if $LLM_VIA_LITELLM; then
+    # Unified mode: agents talk to the in-cluster LiteLLM proxy as plain OpenAI.
+    # The real upstream provider credentials live only in litellm-upstream-secret
+    # (created by deploy_litellm), never in this agent-facing secret. The chat
+    # alias "caipe-chat" is resolved by the proxy's model_list to the real model.
+    local _lep="http://litellm-proxy.caipe.svc.cluster.local:4000/v1"
+    secret_args+=(
+      --from-literal=LLM_PROVIDER="openai"
+      --from-literal=OPENAI_API_KEY="${LITELLM_MASTER_KEY}"
+      --from-literal=OPENAI_ENDPOINT="${_lep}"
+      --from-literal=OPENAI_BASE_URL="${_lep}"
+      --from-literal=OPENAI_MODEL_NAME="caipe-chat"
+    )
+  else
+  secret_args+=(
     --from-literal=LLM_PROVIDER="$LLM_PROVIDER"
   )
 
@@ -3023,6 +3049,7 @@ create_namespace_and_secrets() {
       )
       ;;
   esac
+  fi
 
   # When using non-OpenAI LLM with OpenAI embeddings for RAG, the RAG server
   # needs OPENAI_API_KEY in the same secret.
@@ -4445,10 +4472,176 @@ deploy_vllm() {
   log "vLLM API will be available at http://vllm-router.caipe.svc.cluster.local:80/v1"
 }
 
+# Resolve unified --litellm mode once, after credential collection. Validates
+# the provider is supported, captures the *real* chat/embeddings providers (so
+# deploy_litellm can build the proxy model_list), then rewrites the working
+# LLM_PROVIDER/EMBEDDINGS_PROVIDER so agents (via llm-secret) and RAG (via helm)
+# are repointed at the in-cluster proxy. Self-disables (warn) on unsupported
+# combos so a bare --litellm never breaks an otherwise-valid install.
+_finalize_litellm_mode() {
+  $LLM_VIA_LITELLM || return 0
+  if $ENABLE_VLLM || $ENABLE_OLLAMA; then
+    warn "--litellm ignored: vLLM/Ollama mode already routes through LiteLLM"
+    LLM_VIA_LITELLM=false
+    return 0
+  fi
+  case "$LLM_PROVIDER" in
+    anthropic-claude|openai|aws-bedrock|azure-openai) ;;
+    *)
+      warn "--litellm does not support LLM provider '${LLM_PROVIDER}' yet — continuing without the proxy"
+      LLM_VIA_LITELLM=false
+      return 0
+      ;;
+  esac
+
+  LITELLM_CHAT_SOURCE="$LLM_PROVIDER"
+  LITELLM_EMBED_SOURCE="$EMBEDDINGS_PROVIDER"
+  LITELLM_EMBED_MODEL_REAL="$EMBEDDINGS_MODEL"
+  LITELLM_ENDPOINT="http://litellm-proxy.caipe.svc.cluster.local:4000/v1"
+  LITELLM_API_KEY="$LITELLM_MASTER_KEY"
+
+  # Only OpenAI-compatible embeddings can be fronted by the proxy; other
+  # embeddings providers (bedrock/cohere/huggingface/voyage) keep their native
+  # path so RAG still works.
+  case "$EMBEDDINGS_PROVIDER" in
+    openai|azure-openai)
+      LITELLM_ROUTE_EMBEDDINGS=true
+      EMBEDDINGS_PROVIDER="litellm"
+      EMBEDDINGS_MODEL="caipe-embeddings"
+      ;;
+    *)
+      LITELLM_ROUTE_EMBEDDINGS=false
+      ;;
+  esac
+
+  log "Unified LiteLLM mode ON — chat=${LITELLM_CHAT_SOURCE}, embeddings source=${LITELLM_EMBED_SOURCE} (routed via proxy: ${LITELLM_ROUTE_EMBEDDINGS})"
+}
+
+# Build the proxy model_list for unified mode from the captured real provider and
+# (re)create litellm-upstream-secret with the upstream provider credentials the
+# proxy reads via os.environ/*. Echoes the model_list YAML (6-space indented,
+# ready to drop under `model_list:`) to stdout; creates the Secret as a side
+# effect. Credentials live only in this Secret + the proxy pod — never in the
+# agent-facing llm-secret.
+_litellm_unified_assets() {
+  local up_args=(--from-literal=LITELLM_MASTER_KEY="${LITELLM_MASTER_KEY}")
+  local ml=""
+
+  case "$LITELLM_CHAT_SOURCE" in
+    anthropic-claude)
+      ml+='      - model_name: "caipe-chat"
+        litellm_params:
+          model: "anthropic/'"${ANTHROPIC_MODEL_NAME}"'"
+          api_key: "os.environ/ANTHROPIC_API_KEY"
+'
+      up_args+=(--from-literal=ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY}")
+      ;;
+    openai)
+      ml+='      - model_name: "caipe-chat"
+        litellm_params:
+          model: "openai/'"${OPENAI_MODEL_NAME}"'"
+          api_key: "os.environ/LITELLM_UPSTREAM_OPENAI_API_KEY"
+          api_base: "os.environ/LITELLM_UPSTREAM_OPENAI_BASE"
+'
+      up_args+=(--from-literal=LITELLM_UPSTREAM_OPENAI_API_KEY="${OPENAI_API_KEY}")
+      up_args+=(--from-literal=LITELLM_UPSTREAM_OPENAI_BASE="${OPENAI_ENDPOINT}")
+      ;;
+    aws-bedrock)
+      ml+='      - model_name: "caipe-chat"
+        litellm_params:
+          model: "bedrock/'"${AWS_BEDROCK_MODEL_ID}"'"
+          aws_access_key_id: "os.environ/AWS_ACCESS_KEY_ID"
+          aws_secret_access_key: "os.environ/AWS_SECRET_ACCESS_KEY"
+          aws_region_name: "os.environ/AWS_REGION"
+'
+      up_args+=(--from-literal=AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID}")
+      up_args+=(--from-literal=AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY}")
+      up_args+=(--from-literal=AWS_REGION="${AWS_REGION:-us-east-1}")
+      ;;
+    azure-openai)
+      ml+='      - model_name: "caipe-chat"
+        litellm_params:
+          model: "azure/'"${AZURE_OPENAI_DEPLOYMENT}"'"
+          api_base: "os.environ/AZURE_OPENAI_ENDPOINT"
+          api_key: "os.environ/AZURE_OPENAI_API_KEY"
+          api_version: "os.environ/AZURE_OPENAI_API_VERSION"
+'
+      up_args+=(--from-literal=AZURE_OPENAI_ENDPOINT="${AZURE_OPENAI_ENDPOINT}")
+      up_args+=(--from-literal=AZURE_OPENAI_API_KEY="${AZURE_OPENAI_API_KEY}")
+      up_args+=(--from-literal=AZURE_OPENAI_API_VERSION="${AZURE_OPENAI_API_VERSION:-2025-04-01-preview}")
+      ;;
+  esac
+
+  if $LITELLM_ROUTE_EMBEDDINGS; then
+    case "$LITELLM_EMBED_SOURCE" in
+      openai)
+        ml+='      - model_name: "caipe-embeddings"
+        litellm_params:
+          model: "openai/'"${LITELLM_EMBED_MODEL_REAL:-text-embedding-3-large}"'"
+          api_key: "os.environ/LITELLM_UPSTREAM_EMBED_OPENAI_API_KEY"
+'
+        up_args+=(--from-literal=LITELLM_UPSTREAM_EMBED_OPENAI_API_KEY="${OPENAI_API_KEY}")
+        ;;
+      azure-openai)
+        ml+='      - model_name: "caipe-embeddings"
+        litellm_params:
+          model: "azure/'"${AZURE_OPENAI_DEPLOYMENT}"'"
+          api_base: "os.environ/AZURE_OPENAI_ENDPOINT"
+          api_key: "os.environ/AZURE_OPENAI_API_KEY"
+          api_version: "os.environ/AZURE_OPENAI_API_VERSION"
+'
+        # Azure creds already added by the chat case above when chat is azure;
+        # add them here too for the chat!=azure combination (kubectl de-dupes
+        # only fails on duplicate keys, so guard with the chat source).
+        if [[ "$LITELLM_CHAT_SOURCE" != "azure-openai" ]]; then
+          up_args+=(--from-literal=AZURE_OPENAI_ENDPOINT="${AZURE_OPENAI_ENDPOINT}")
+          up_args+=(--from-literal=AZURE_OPENAI_API_KEY="${AZURE_OPENAI_API_KEY}")
+          up_args+=(--from-literal=AZURE_OPENAI_API_VERSION="${AZURE_OPENAI_API_VERSION:-2025-04-01-preview}")
+        fi
+        ;;
+    esac
+  fi
+
+  kubectl create secret generic litellm-upstream-secret -n caipe \
+    "${up_args[@]}" \
+    --dry-run=client -o yaml | kubectl apply -f - &>/dev/null
+
+  printf '%s' "$ml"
+}
+
 deploy_litellm() {
   step "Deploying LiteLLM Proxy"
 
-  local vllm_api_base="http://vllm-router.caipe.svc.cluster.local:80/v1"
+  local model_list_yaml="" envfrom_yaml="" general_yaml=""
+
+  if $LLM_VIA_LITELLM && ! $ENABLE_VLLM; then
+    # Unified mode: front the real provider, require the routing master key, and
+    # read upstream creds from litellm-upstream-secret (+ optional DB).
+    model_list_yaml="$(_litellm_unified_assets)"
+    general_yaml='    general_settings:
+      master_key: "os.environ/LITELLM_MASTER_KEY"'
+    envfrom_yaml='        envFrom:
+        - secretRef:
+            name: litellm-upstream-secret'
+    if $ENABLE_LITELLM_DB; then
+      envfrom_yaml+='
+        - secretRef:
+            name: caipe-litellm-db'
+    fi
+  else
+    # vLLM mode: proxy the in-cluster vLLM router as an OpenAI-compatible model.
+    local vllm_api_base="http://vllm-router.caipe.svc.cluster.local:80/v1"
+    model_list_yaml="      - model_name: \"${LITELLM_MODEL_NAME}\"
+        litellm_params:
+          model: \"openai/${VLLM_MODEL}\"
+          api_base: \"${vllm_api_base}\"
+          api_key: \"not-needed\"
+      - model_name: \"text-embedding-3-small\"
+        litellm_params:
+          model: \"openai/text-embedding-3-small\"
+          api_base: \"${vllm_api_base}\"
+          api_key: \"not-needed\""
+  fi
 
   kubectl apply -n caipe -f - <<LITELLM_EOF
 ---
@@ -4463,16 +4656,8 @@ metadata:
 data:
   config.yaml: |
     model_list:
-      - model_name: "${LITELLM_MODEL_NAME}"
-        litellm_params:
-          model: "openai/${VLLM_MODEL}"
-          api_base: "${vllm_api_base}"
-          api_key: "not-needed"
-      - model_name: "text-embedding-3-small"
-        litellm_params:
-          model: "openai/text-embedding-3-small"
-          api_base: "${vllm_api_base}"
-          api_key: "not-needed"
+${model_list_yaml}
+${general_yaml}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -4496,19 +4681,20 @@ spec:
       - name: litellm
         image: ghcr.io/berriai/litellm:main-stable
         args: ["--config", "/app/config.yaml", "--port", "4000"]
+${envfrom_yaml}
         ports:
         - containerPort: 4000
           name: http
           protocol: TCP
         livenessProbe:
           httpGet:
-            path: /health
+            path: /health/liveliness
             port: 4000
           initialDelaySeconds: 15
           periodSeconds: 10
         readinessProbe:
           httpGet:
-            path: /health
+            path: /health/readiness
             port: 4000
           initialDelaySeconds: 10
           periodSeconds: 5
@@ -4548,6 +4734,7 @@ spec:
     app: litellm-proxy
 LITELLM_EOF
 
+  kubectl rollout restart deployment/litellm-proxy -n caipe &>/dev/null || true
   log "LiteLLM proxy deployed (endpoint: http://litellm-proxy.caipe.svc.cluster.local:4000)"
 }
 
@@ -6765,6 +6952,12 @@ BANNER
       *) exit 1 ;;
     esac
   done
+
+  # Resolve unified LiteLLM mode before secrets/helm so the agent llm-secret and
+  # RAG embeddings config are repointed at the proxy (must run after
+  # collect_credentials, before create_namespace_and_secrets/provision_secrets).
+  _finalize_litellm_mode
+
   create_namespace_and_secrets
 
   # Shared Postgres must exist before the CAIPE Helm deploy: OpenFGA's migrate
@@ -6783,9 +6976,13 @@ BANNER
     prepare_corporate_ca
   fi
 
-  # Deploy vLLM + LiteLLM before CAIPE so the endpoints are available
+  # Deploy vLLM + LiteLLM before CAIPE so the endpoints are available.
+  # Unified --litellm mode (no vLLM) deploys just the proxy after the shared
+  # Postgres so the optional caipe-litellm-db secret exists when --litellm-db.
   if $ENABLE_VLLM; then
     deploy_vllm
+    deploy_litellm
+  elif $LLM_VIA_LITELLM; then
     deploy_litellm
   fi
 
@@ -6857,6 +7054,10 @@ Options:
   --no-rbac-runtime  Skip the RBAC runtime services
   --shared-postgres     Deploy one shared Postgres backing Keycloak + OpenFGA (persistent RBAC) — default ON
   --no-shared-postgres  Use Keycloak embedded H2 + OpenFGA in-memory (ephemeral; state lost on restart)
+  --litellm             Route chat (+ OpenAI/Azure embeddings) through an in-cluster LiteLLM proxy.
+                        Agents talk to one OpenAI-compatible endpoint; upstream provider creds live
+                        only in the proxy. Supports anthropic/openai/aws-bedrock/azure-openai. Default OFF.
+  --litellm-db          Like --litellm, plus persist LiteLLM virtual keys/spend in the shared Postgres
   --persistence      Enable Redis persistence for checkpoints and cross-thread memory — default ON
                      (deploys langgraph-redis subchart; enables fact extraction)
   --no-persistence   Skip Redis persistence (in-memory checkpointer only)
@@ -7004,6 +7205,9 @@ for arg in "$@"; do
     --no-rbac-runtime) ENABLE_RBAC_RUNTIME=false ;;
     --shared-postgres)    ENABLE_SHARED_POSTGRES=true ;;
     --no-shared-postgres) ENABLE_SHARED_POSTGRES=false ;;
+    --litellm)            LLM_VIA_LITELLM=true ;;
+    --no-litellm)         LLM_VIA_LITELLM=false ;;
+    --litellm-db)         LLM_VIA_LITELLM=true; ENABLE_LITELLM_DB=true ;;
     --persistence)     ENABLE_PERSISTENCE=true ;;
     --no-persistence)  ENABLE_PERSISTENCE=false ;;
     --metallb)         ENABLE_METALLB=true ;;
