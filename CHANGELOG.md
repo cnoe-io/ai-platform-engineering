@@ -1,3 +1,156 @@
+## 0.5.4 (2026-05-29)
+
+### Fix
+
+- **admin**: show KB/agent/tool counts on team cards
+- **admin**: point team KB tab create links to /knowledge-bases
+
+### Refactor
+
+- **ui**: replace native agent/team selects with shared picker components
+- **ui**: DRY up SlackChannelRebacPanel and WebexSpaceRebacPanel into shared ConnectorAdminPanel
+
+## 0.5.3-dev.1 (2026-05-29)
+
+### Fix
+
+- **keycloak**: render configured realm name
+- **compose**: remove duplicate volumes key in openfga-init service
+
+## 0.5.3 (2026-05-29)
+
+### Feat
+
+- **cursor**: add git branch-op permission hook and reframe worktree rule
+
+## 0.5.2-dev.5 (2026-05-29)
+
+### BREAKING CHANGE
+
+- with global.agentgateway.enabled=true, the chart no longer
+renders Gateway API / AgentGateway custom resources by default. Set
+global.agentgateway.routingMode=gateway-api to keep the previous
+CRD/controller-based routing.
+
+### Feat
+
+- **helm**: default AgentGateway routingMode to static (CRD-free)
+- **helm**: make AgentGateway CRDs optional via routingMode
+
+### Fix
+
+- **ui**: recover AgentGateway MCP route path from live pathPrefix shape
+- **helm**: wire CAIPE UI to AgentGateway proxy for CRD-free MCP discovery
+- **ui**: label collapsed nav menu
+- **docs**: repair RBAC broken anchor and unreadable draw.io SVGs
+
+## 0.5.2-dev.4 (2026-05-29)
+
+### Feat
+
+- **docs**: generate versioned docs at build time from release tags
+
+### Fix
+
+- **rag**: bump twisted to 26.4.0 to fix DNS compression DoS
+
+## 0.5.2-dev.3 (2026-05-29)
+
+## 0.5.2-dev.2 (2026-05-29)
+
+### Fix
+
+- **helm**: render SLIM endpoint defaults from release name
+- **helm**: use KEYCLOAK_REALM value in realm URL defaults instead of hardcoded caipe
+- **helm**: fix whitespace trimming causing YAML parse errors in deployment env blocks
+- **helm**: compute release-name service URL defaults in deployment templates
+- **helm**: replace hardcoded release name with {{ .Release.Name }} template
+- **deps**: force uuid >=11.1.1 via overrides in ui and docs
+- **deps**: bump pyjwt 2.10.1 to 2.13.0 in openfga bridge
+- **ui**: collapse top bar on narrow screens
+
+## 0.5.2-dev.1 (2026-05-29)
+
+## 0.5.2 (2026-05-29)
+
+### Fix
+
+- **dynamic-agents**: highlight missing owner team inline
+
+## 0.5.1-dev.12 (2026-05-29)
+
+## 0.5.1-dev.11 (2026-05-29)
+
+### Feat
+
+- **admin**: harden ReBAC assignment operations
+- **slack**: redesign admin Slack onboarding into Configured/Onboard/Advanced tabs
+- **auth**: centralize local-dev auth bypass behind a provider
+
+### Fix
+
+- **admin**: use exact OpenFGA tuple filters in inspector
+- **rbac**: remove legacy RAG group fallback wiring
+- **setup-caipe**: Disable ENABLE_METALLB/ENABLE_INGRESS when user declines
+- **setup-caipe**: use native Anthropic model ID for Claude Haiku 4.5
+
+## 0.5.1-dev.9 (2026-05-29)
+
+### Fix
+
+- **rag-ingestors**: block SSRF and lock TLS dependencies
+
+## 0.5.1-dev.8 (2026-05-29)
+
+### Fix
+
+- **dynamic-agents**: forward user JWT to MCP clients
+
+## 0.5.1-dev.7 (2026-05-29)
+
+### Feat
+
+- **admin**: add Keycloak migration health surfaces
+
+### Fix
+
+- **keycloak**: type management permissions enabled flag
+
+## 0.5.1-dev.6 (2026-05-28)
+
+### Feat
+
+- **agentgateway**: add MCP route bridge for RBAC runtimes
+
+### Fix
+
+- **rbac**: grant baseline MCP gateway caller access
+- **agentgateway**: preserve provider backend auth policies
+
+## 0.5.1-dev.5 (2026-05-28)
+
+## 0.5.1-dev.4 (2026-05-28)
+
+### Feat
+
+- **keycloak**: reconcile strict client secrets
+- **openfga**: add route capabilities to canonical model
+- **ui**: map withAuth routes to RBAC capabilities
+
+### Fix
+
+- **ui**: type explicit withAuth capabilities
+- **ui**: keep withAuth fallback capabilities explicit
+- **credentials**: align OAuth envelope store defaults
+
+## 0.5.1-dev.2 (2026-05-28)
+
+## 0.5.1-dev.1 (2026-05-28)
+
+### Feat
+
+- **ai-review**: overhaul agent and skill rubric criteria and weights (#1608)
+
 ## 0.5.1 (2026-05-27)
 
 ### Feat
@@ -6,9 +159,19 @@
 - **rbac**: add data_source and mcp_tool OpenFGA types + BFF list filter
 - **rbac**: share knowledge bases with teams via OpenFGA reconciler
 - **rbac/ui**: per-tab OpenFGA gates and empty states for Knowledge sidebar
+- **rbac/ui**: gate Graph tab on any-KB-readable + add follow-up spec
+- **rbac**: add data_source and mcp_tool OpenFGA types + BFF list filter
+- **rbac**: share knowledge bases with teams via OpenFGA reconciler
+- **rbac/ui**: per-tab OpenFGA gates and empty states for Knowledge sidebar
 
 ### Fix
 
+- **rbac**: complete RAG OpenFGA access model
+- **rbac**: read KB tuples with valid OpenFGA query
+- **rbac**: grant ingestor on shared knowledge bases
+- **rbac**: classify admin_surfaces schema area for registry guardrails
+- **rbac**: explicit org-admin super-grant on KB / Search / Data Sources / Graph / MCP Tools
+- **rag-ui**: show RAG admin status without exposing email
 - **rbac**: complete RAG OpenFGA access model
 - **rbac**: read KB tuples with valid OpenFGA query
 - **rbac**: grant ingestor on shared knowledge bases
@@ -290,6 +453,19 @@ realm cleanup.
 
 ## 0.4.13-dev.5 (2026-05-19)
 
+### Feat
+
+- **healthchecking**: add startup probes and migrate agents from TCP to HTTP probes
+
+### Fix
+
+- **ui**: drop stale mongo indexes, fix workflow-engine env var, improve error messages
+- **skill-scanner**: return validation errors for malformed skills
+- **probes**: return HTTP 503 from readiness endpoints when dependencies unavailable
+- **supervisor**: register /health and /ready routes on the A2A app
+- **healthchecking**: add startup probes to skill-scanner and langgraph-redis
+- **healthchecking**: liveness probe semantics for dynamic-agents and rag-server
+
 ## 0.4.13-dev.4 (2026-05-19)
 
 ### Fix
@@ -324,7 +500,6 @@ realm cleanup.
 
 - **ci**: always run image builds on tag push regardless of actor
 - **jira**: type MCP client request dispatch
-- **ui**: drop stale mongo indexes, fix workflow-engine env var, improve error messages
 
 ## 0.4.13 (2026-05-18)
 
@@ -350,48 +525,13 @@ realm cleanup.
 ### Feat
 
 - **caipe-ui**: configurable default agent (#1378)
-- **workflows**: gate workflows tab with WORKFLOWS_ENABLED env var
-- **workflows**: add visibility/sharing RBAC with config-access checks on runs
-- **workflows**: add Tool Access picker for step-level tool restrictions
-- **da**: support boolean values in allowed_tools (true=all, false=disabled)
-- **workflows**: include user email/name in trigger_info from API route
-- **workflows**: add cancelled status, waiting_for_input to run cards, hide HITL forms on terminal runs
-- **workflows**: show read-only banner and disable forms for config-driven workflows
-- **workflows**: add config-driven workflow seeding with read-only protection
-- **workflows**: add step context injection, artifact capture, and unavailable resource warnings
-- **workflows**: switch export/import from JSON to YAML
-- **workflows**: add workflow tools for dynamic agents with run cards and trigger info
-- **workflows**: add ReactFlow-based workflow editor with skill isolation fix
-- **workflows**: add workflow run deletion with file cleanup and auto-expiry
-- **da**: make context panel resizable with Show Files button
-- **files**: add generic files API and remove conversation file endpoints
-- **workflows**: add workflow UI components and pages
-- **workflows**: add workflow API routes, stores, and types
-- **workflows**: add server-side workflow infrastructure
-- **rag**: anchor slack document fresh_until to message post time
 
 ### Fix
 
 - **ui**: group admin tabs for default agent settings
-- **da**: remove client_id from log to satisfy CodeQL sensitive data rule
-- **workflows**: fix retry logic and builtin_tools override format
-- **workflows**: dynamic canvas layout to prevent node overlap with on_error badges
-- **workflows**: normalize legacy allowed_tools [] to true in StepToolOverridePicker
-- **da**: simplify curl and fetch_url builtin tool descriptions
-- **workflows**: prevent add-step in config-driven workflows with warning toast
-- **workflows**: correct error.txt detection and add Langfuse session grouping
-- **ui**: workflow editor and run view UX polish
-- **ui**: align run delete button with top row to avoid timestamp overlap
-- **ui**: slow down workflow progress pulse and fix dark mode in tool approval card
-- **hitl**: support multi-tool approval and fix workflow file download
 - **ci**: disable quick-sanity-on-tag workflow instead of deleting it
 - **ci**: remove caipe-webex-bot from grype scan and delete quick-sanity-on-tag workflow
 - **setup**: remove invalid :-  default from array expansions
-
-### Refactor
-
-- **ui**: extract AgentAvatar component and standardize agent prop passing
-- **streaming**: extract shared AG-UI protocol and split consumers
 
 ## 0.4.12-dev.10 (2026-05-14)
 
@@ -417,12 +557,55 @@ realm cleanup.
 
 ## 0.4.12-dev.7 (2026-05-14)
 
+### Feat
+
+- **workflows**: gate workflows tab with WORKFLOWS_ENABLED env var
+- **workflows**: add visibility/sharing RBAC with config-access checks on runs
+- **workflows**: add Tool Access picker for step-level tool restrictions
+- **da**: support boolean values in allowed_tools (true=all, false=disabled)
+- **workflows**: include user email/name in trigger_info from API route
+- **workflows**: add cancelled status, waiting_for_input to run cards, hide HITL forms on terminal runs
+- **workflows**: show read-only banner and disable forms for config-driven workflows
+- **workflows**: add config-driven workflow seeding with read-only protection
+- **workflows**: add step context injection, artifact capture, and unavailable resource warnings
+- **workflows**: switch export/import from JSON to YAML
+- **workflows**: add workflow tools for dynamic agents with run cards and trigger info
+- **workflows**: add ReactFlow-based workflow editor with skill isolation fix
+- **workflows**: add workflow run deletion with file cleanup and auto-expiry
+- **da**: make context panel resizable with Show Files button
+- **files**: add generic files API and remove conversation file endpoints
+- **workflows**: add workflow UI components and pages
+- **workflows**: add workflow API routes, stores, and types
+- **workflows**: add server-side workflow infrastructure
+
+### Fix
+
+- **slack**: update overthink tests to pass is_overthink_message in client_context
+- **slack**: use is_overthink_message context var to always respond to thread @mentions
+- **da**: remove client_id from log to satisfy CodeQL sensitive data rule
+- **workflows**: fix retry logic and builtin_tools override format
+- **workflows**: dynamic canvas layout to prevent node overlap with on_error badges
+- **workflows**: normalize legacy allowed_tools [] to true in StepToolOverridePicker
+- **da**: simplify curl and fetch_url builtin tool descriptions
+- **workflows**: prevent add-step in config-driven workflows with warning toast
+- **workflows**: correct error.txt detection and add Langfuse session grouping
+- **ui**: workflow editor and run view UX polish
+- **ui**: align run delete button with top row to avoid timestamp overlap
+- **ui**: slow down workflow progress pulse and fix dark mode in tool approval card
+- **hitl**: support multi-tool approval and fix workflow file download
+
+### Refactor
+
+- **ui**: extract AgentAvatar component and standardize agent prop passing
+- **streaming**: extract shared AG-UI protocol and split consumers
+
 ## 0.4.12-dev.6 (2026-05-14)
 
 ### Feat
 
 - **ui**: rename Dynamic agents label to Agents in AI Review admin
 - **ui**: add AI Review module for skills and dynamic agents
+- **rag**: anchor slack document fresh_until to message post time
 
 ### Fix
 
@@ -443,8 +626,6 @@ realm cleanup.
 - **deps**: bump vulnerable packages to fix Dependabot CVEs
 - **docs**: fix confirmed broken links across docs
 - **caipe-ui**: add initContainers support to deployment template
-- **slack**: update overthink tests to pass is_overthink_message in client_context
-- **slack**: use is_overthink_message context var to always respond to thread @mentions
 
 ## 0.4.12-dev.3 (2026-05-13)
 
@@ -468,7 +649,6 @@ realm cleanup.
 ### Fix
 
 - **ci**: remove invalid top-level description field from docs workflows
-- **skill-scanner**: return validation errors for malformed skills
 
 ## 0.4.12 (2026-05-13)
 

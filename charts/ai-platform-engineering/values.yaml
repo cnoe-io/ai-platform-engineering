@@ -56,7 +56,7 @@ global:
     apiVersion: "v1beta1"  # API version for ExternalSecret resources. Options: "v1" or "v1beta1". Defaults to "v1beta1" if not specified.
   slim:
     enabled: false
-    endpoint: "http://ai-platform-engineering-slim:46357"
+    endpoint: ""
     transport: "slim"
 
   # RAG Stack configuration
@@ -122,14 +122,44 @@ global:
 
   agentgateway:
     enabled: false
+    # How AgentGateway MCP routing is provisioned. This controls whether the
+    # umbrella chart renders Gateway API / AgentGateway custom resources.
+    #
+    #   static (default): render NO custom resources. MCP routes are written into
+    #     the standalone AgentGateway proxy's static config instead (the
+    #     `agentgateway` subchart must be enabled). This requires no CRDs and no
+    #     cluster-admin controller install, so it is safe on clusters you do not
+    #     own and keeps `helm diff`/`helm upgrade` clean. MCP endpoints are still
+    #     discoverable via the proxy admin /config endpoint (the CAIPE UI
+    #     discover/sync flow reads from there). This is the default so enabling
+    #     AgentGateway never depends on cluster-scoped CRDs.
+    #
+    #   gateway-api: render Gateway, HTTPRoute, AgentgatewayBackend and
+    #     AgentgatewayPolicy custom resources. Requires these CRDs + an
+    #     AgentGateway/Gateway API controller to be installed in the cluster:
+    #       gateways.gateway.networking.k8s.io
+    #       httproutes.gateway.networking.k8s.io
+    #       agentgatewaybackends.agentgateway.dev
+    #       agentgatewaypolicies.agentgateway.dev
+    routingMode: static
     # Set to true only if Istio CRDs are NOT already present in the cluster.
     # If Istio is already installed (any version), leave this false to avoid conflicts.
     installIstioCrds: false
     # Port for the agentgateway proxy listener (Gateway resource)
     proxyPort: 8080
+    # Static routing mode only: listener-level JWT validation for the standalone
+    # proxy. Disabled by default so plain (non-RBAC) installs route MCP traffic
+    # without requiring an IdP. When enabled, mirrors the Gateway API jwtAuth
+    # listener policy.
+    static:
+      jwtAuth:
+        enabled: false
+        issuer: ""
+        jwksUrl: ""
+        audiences: []
     extAuth:
       enabled: false
-      serviceName: "ai-platform-engineering-openfga-authz-bridge"
+      serviceName: ""
       serviceNamespace: ""
       port: 9100
     # Built-in Knowledge Base MCP route. This keeps the Dynamic Agents
@@ -158,7 +188,7 @@ global:
   # OpenFGA service discovery defaults for CAIPE components that perform
   # relationship-based authorization or reconciliation.
   openfga:
-    httpUrl: "http://{{ .Release.Name }}-openfga:8080"
+    httpUrl: ""
     storeName: "caipe-openfga"
 
 agentgateway:
@@ -814,7 +844,7 @@ caipe-ui:
   # ConfigMap for non-sensitive configuration
   config:
     # CAIPE Supervisor URL - automatically configured to use the supervisor-agent service
-    A2A_BASE_URL: "http://ai-platform-engineering-supervisor-agent:8000"
+    A2A_BASE_URL: ""
     # Bootstrap default agent for new chats. Overridden at runtime by Admin → Settings UI.
     # Set to a dynamic agent ID to pre-configure the default without manual admin action.
     # Leave empty to use the supervisor (Platform Engineer) as default.
@@ -847,7 +877,7 @@ caipe-ui:
     # Requires admin role and MongoDB storage mode
     DYNAMIC_AGENTS_ENABLED: "false"
     # Dynamic Agents service URL (only used when DYNAMIC_AGENTS_ENABLED is "true")
-    # DYNAMIC_AGENTS_URL: "http://ai-platform-engineering-dynamic-agents:8001"
+    # DYNAMIC_AGENTS_URL: ""
     # Connections & Secrets credential store. Disabled by default. Use local-cmk
     # only for non-production testing; production must use aws-kms.
     CAIPE_CREDENTIALS_ENABLED: "false"
@@ -861,13 +891,10 @@ caipe-ui:
     # externalSecrets; in Docker Compose, provide them through .env.
     CREDENTIAL_BOOTSTRAP_OAUTH_CONNECTORS: "false"
     # Standalone skill-scanner microservice (cisco-ai-defense/skill-scanner).
-    # Active when global.skillScanner.enabled=true; the in-cluster Service
-    # name is derived from the Helm release name, so the URL is rendered
-    # via `tpl` in the caipe-ui ConfigMap template — `{{ .Release.Name }}`
-    # tracks the actual install name (e.g. `helm install foo ...` resolves
-    # to `foo-skill-scanner`). Override only to point at a scanner running
-    # outside this release (e.g. shared cluster-wide instance).
-    SKILL_SCANNER_URL: "http://{{ .Release.Name }}-skill-scanner:8000"
+    # Active when global.skillScanner.enabled=true. Leave empty to use the
+    # in-cluster default (derived from .Release.Name in the deployment template).
+    # Override only to point at a scanner running outside this release.
+    SKILL_SCANNER_URL: ""
     # MongoDB configuration
     MONGODB_DATABASE: "caipe"
     # OpenFGA relationship authorization. Enable reconciliation only after
@@ -895,14 +922,14 @@ caipe-ui:
     # Slack bot internal admin API used by the Web UI BFF for route reload and
     # one-time static-config-to-MongoDB/OpenFGA migration. The BFF uses the
     # existing OIDC_CLIENT_ID/OIDC_CLIENT_SECRET Keycloak client credentials.
-    SLACK_BOT_ADMIN_URL: "http://ai-platform-engineering-slack-bot:3001"
+    SLACK_BOT_ADMIN_URL: ""
     SLACK_BOT_ADMIN_AUDIENCE: "caipe-slack-bot-admin"
     # SLACK_BOT_ADMIN_TOKEN_URL: "http://keycloak:7080/realms/caipe/protocol/openid-connect/token"
     # SLACK_BOT_ADMIN_SCOPE: "slack:routes:read slack:routes:reload slack:routes:sync"
     SLACK_DEFAULT_TEAM_SLUG: ""
     SLACK_DEFAULT_AGENT_ID: ""
     # Webex bot internal admin API (BFF access-check + route management).
-    WEBEX_BOT_ADMIN_URL: "http://ai-platform-engineering-webex-bot:3002"
+    WEBEX_BOT_ADMIN_URL: ""
     WEBEX_BOT_ADMIN_CLIENT_ID: "caipe-ui"
     WEBEX_BOT_ADMIN_AUDIENCE: "caipe-webex-bot-admin"
     # WEBEX_BOT_ADMIN_TOKEN_URL: "http://keycloak:7080/realms/caipe/protocol/openid-connect/token"
@@ -1079,7 +1106,7 @@ dynamic-agents:
     # `<release>-keycloak`; this default works for the umbrella chart
     # but MUST be overridden when pointing dynamic-agents at an external
     # Keycloak (production IdP / forge.dev / etc.).
-    KEYCLOAK_URL: "http://ai-platform-engineering-keycloak:8080"
+    KEYCLOAK_URL: ""
     # Browser-facing issuer string baked into JWTs (Keycloak's
     # KC_HOSTNAME). Override when the public issuer differs from
     # KEYCLOAK_URL (the typical production topology), e.g.
@@ -1088,11 +1115,14 @@ dynamic-agents:
     # KEYCLOAK_URL, which only works in dev where both URLs coincide;
     # NOTES.txt prints a warning otherwise.
     OIDC_ISSUER: ""
+    # OpenFGA authorization service (in-cluster default matches umbrella chart release name)
+    OPENFGA_HTTP: ""
+    OPENFGA_STORE_NAME: "caipe-openfga"
     # MongoDB configuration (uses same database as CAIPE UI)
     MONGODB_DATABASE: "caipe"
     # Connections & Secrets credential exchange client. Disabled by default.
     CAIPE_CREDENTIALS_ENABLED: "false"
-    CREDENTIAL_API_URL: "http://ai-platform-engineering-caipe-ui:3000/api/credentials"
+    CREDENTIAL_API_URL: ""
     CREDENTIAL_SERVICE_AUDIENCE: "caipe-credential-service"
     USE_IMPERSONATION_TOKENS: "false"
     # MCP server IDs routed through AgentGateway. "all" only applies to
@@ -1135,7 +1165,7 @@ slack-bot:
   config:
     APP_NAME: "CAIPE"
     SLACK_BOT_MODE: "socket"
-    CAIPE_API_URL: "http://ai-platform-engineering-caipe-ui:3000"
+    CAIPE_API_URL: ""
     SLACK_INTEGRATION_SILENCE_ENV: "false"
     # MONGODB_URI: ""                          # Override per environment
     # SLACK_WORKSPACE_URL: ""                  # e.g. "https://mycompany.slack.com"
@@ -1238,7 +1268,7 @@ webex-bot:
 
   config:
     APP_NAME: "CAIPE"
-    CAIPE_API_URL: "http://ai-platform-engineering-caipe-ui:3000"
+    CAIPE_API_URL: ""
     WEBEX_WORKSPACE_ALIAS: "CAIPE-WEBEX"
     WEBEX_AGENT_ROUTES_MODE: "db_prefer"
     WEBEX_THREAD_CONTEXT_ENABLED: "true"
@@ -1250,19 +1280,19 @@ webex-bot:
     WEBEX_ADMIN_API_ENABLED: "false"
     WEBEX_ADMIN_API_HOST: "0.0.0.0"
     WEBEX_ADMIN_API_PORT: "3002"
-    WEBEX_ADMIN_JWT_ISSUER: "http://ai-platform-engineering-keycloak:8080/realms/caipe"
-    WEBEX_ADMIN_JWKS_URL: "http://ai-platform-engineering-keycloak:8080/realms/caipe/protocol/openid-connect/certs"
+    WEBEX_ADMIN_JWT_ISSUER: ""
+    WEBEX_ADMIN_JWKS_URL: ""
     WEBEX_ADMIN_JWT_AUDIENCE: "caipe-webex-bot-admin"
     WEBEX_ADMIN_ALLOWED_CLIENT_IDS: "caipe-ui"
-    KEYCLOAK_URL: "http://ai-platform-engineering-keycloak:8080"
+    KEYCLOAK_URL: ""
     KEYCLOAK_REALM: "caipe"
-    OPENFGA_HTTP: "http://ai-platform-engineering-openfga:8080"
+    OPENFGA_HTTP: ""
     OPENFGA_STORE_NAME: "caipe-openfga"
 
   # Wire OBO secret from Keycloak chart (see keycloak/templates/NOTES.txt).
   keycloakBot:
     clientSecretFromSecret:
-      name: "ai-platform-engineering-keycloak-webex-bot"
+      name: ""
       key: "KC_WEBEX_BOT_CLIENT_SECRET"
 
   existingSecret: "webex-bot-secrets"
@@ -1412,7 +1442,7 @@ openfga-authz-bridge:
     tag: ""
     pullPolicy: IfNotPresent
   openfga:
-    httpUrl: "http://{{ .Release.Name }}-openfga:8080"
+    httpUrl: ""
     storeName: caipe-openfga
     relation: can_call
     object: mcp_gateway:list
@@ -1421,7 +1451,7 @@ openfga-authz-bridge:
       name: ""
       key: CAIPE_AGENT_CONTEXT_HMAC_SECRET
   tokenValidation:
-    jwksUrl: "http://{{ .Release.Name }}-keycloak:8080/realms/caipe/protocol/openid-connect/certs"
+    jwksUrl: ""
     issuer: ""
     audiences: []
     algorithms:
@@ -1456,7 +1486,7 @@ rag-stack:
       pullPolicy: "IfNotPresent"
     env:
       RBAC_TEAM_SCOPE_ENABLED: "true"
-      OPENFGA_HTTP: "http://ai-platform-engineering-openfga:8080"
+      OPENFGA_HTTP: ""
       OPENFGA_STORE_NAME: "caipe-openfga"
       CAIPE_UNSAFE_RBAC_BYPASS: "false"
 

@@ -5,7 +5,7 @@ import traceback
 import uuid
 from urllib.parse import urlparse
 from common import utils
-from fastapi import FastAPI, status, HTTPException, Query, Depends
+from fastapi import FastAPI, status, HTTPException, Query, Depends, Response
 from fastapi.responses import JSONResponse
 from fastapi.encoders import jsonable_encoder
 from fastmcp import FastMCP
@@ -1792,9 +1792,15 @@ if graph_rag_enabled:  # Only add reverse proxy if graph RAG is enabled
 # ============================================================================
 
 
+@app.get("/health")
+async def liveness():
+  """Liveness probe — process health only, no dependency checks."""
+  return {"status": "ok"}
+
+
 @app.get("/healthz")
-async def health_check():
-  """Health check endpoint."""
+async def health_check(response: Response):
+  """Health check endpoint — returns 503 if any required service is not initialized."""
   health_status = "healthy"
   health_details = {}
 
@@ -1829,8 +1835,9 @@ async def health_check():
         "structured_entity_types": await data_graph_db.get_all_entity_types() if data_graph_db else [],
       }
 
-  response = {"status": health_status, "timestamp": int(time.time()), "details": health_details, "config": config}
-  return response
+  if health_status == "unhealthy":
+    response.status_code = 503
+  return {"status": health_status, "timestamp": int(time.time()), "details": health_details, "config": config}
 
 
 async def init_tests(logger: logging.Logger, redis_client: redis.Redis, embeddings: EmbeddingsFactory, milvus_uri: str):

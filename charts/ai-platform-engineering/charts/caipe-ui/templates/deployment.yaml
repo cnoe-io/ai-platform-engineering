@@ -89,6 +89,47 @@ spec:
                   name: {{ .Values.keycloakAdminClient.secretName | quote }}
                   key: {{ .Values.keycloakAdminClient.secretKey | default "OIDC_CLIENT_SECRET" | quote }}
             {{- end }}
+            {{- /* Service URL defaults: env: takes precedence over envFrom (ConfigMap),
+                   so these entries provide release-name-derived defaults while still
+                   allowing operators to override via .Values.config. */}}
+            - name: KEYCLOAK_URL
+              value: {{ index .Values.config "KEYCLOAK_URL" | default (printf "http://%s-keycloak:8080" .Release.Name) | quote }}
+            - name: OIDC_DISCOVERY_URL
+              value: {{ index .Values.config "OIDC_DISCOVERY_URL" | default (printf "http://%s-keycloak:8080/realms/%s" .Release.Name (index .Values.config "KEYCLOAK_REALM" | default "caipe")) | quote }}
+            - name: SLACK_BOT_ADMIN_TOKEN_URL
+              value: {{ index .Values.config "SLACK_BOT_ADMIN_TOKEN_URL" | default (printf "http://%s-keycloak:8080/realms/%s/protocol/openid-connect/token" .Release.Name (index .Values.config "KEYCLOAK_REALM" | default "caipe")) | quote }}
+            - name: OPENFGA_HTTP
+              value: {{ index .Values.config "OPENFGA_HTTP" | default (printf "http://%s-openfga:8080" .Release.Name) | quote }}
+            - name: A2A_BASE_URL
+              value: {{ index .Values.config "A2A_BASE_URL" | default (printf "http://%s-supervisor-agent:8000" .Release.Name) | quote }}
+            - name: BACKEND_SKILLS_URL
+              value: {{ index .Values.config "BACKEND_SKILLS_URL" | default (printf "http://%s-supervisor-agent:8000" .Release.Name) | quote }}
+            - name: SLACK_BOT_ADMIN_URL
+              value: {{ index .Values.config "SLACK_BOT_ADMIN_URL" | default (printf "http://%s-slack-bot:3001" .Release.Name) | quote }}
+            - name: WEBEX_BOT_ADMIN_URL
+              value: {{ index .Values.config "WEBEX_BOT_ADMIN_URL" | default (printf "http://%s-webex-bot:3002" .Release.Name) | quote }}
+            - name: DYNAMIC_AGENTS_URL
+              value: {{ index .Values.config "DYNAMIC_AGENTS_URL" | default (printf "http://%s-dynamic-agents:8001" .Release.Name) | quote }}
+            - name: SKILL_SCANNER_URL
+              value: {{ index .Values.config "SKILL_SCANNER_URL" | default (printf "http://%s-skill-scanner:8000" .Release.Name) | quote }}
+            {{- if (.Values.global.agentgateway).enabled }}
+            {{- /*
+            AgentGateway MCP discovery/sync reads the standalone proxy admin
+            /config endpoint (AGENT_GATEWAY_ADMIN_URL) and registers discovered
+            MCP servers behind the proxy MCP listener (AGENT_GATEWAY_URL). The
+            admin endpoint always lives on the standalone "<release>-agentgateway"
+            Service. The MCP listener is mode-aware: static routing serves MCP on
+            the standalone proxy (port 4000); gateway-api routing serves it on the
+            controller-provisioned "<release>-agentgateway-proxy" Gateway (proxyPort).
+            */ -}}
+            {{- $agwStatic := eq (((.Values.global.agentgateway).routingMode) | default "static") "static" }}
+            {{- $agwMcpHost := ternary (printf "%s-agentgateway" .Release.Name) (printf "%s-agentgateway-proxy" .Release.Name) $agwStatic }}
+            {{- $agwMcpPort := ternary 4000 (int (((.Values.global.agentgateway).proxyPort) | default 8080)) $agwStatic }}
+            - name: AGENT_GATEWAY_ADMIN_URL
+              value: {{ index .Values.config "AGENT_GATEWAY_ADMIN_URL" | default (printf "http://%s-agentgateway:15000" .Release.Name) | quote }}
+            - name: AGENT_GATEWAY_URL
+              value: {{ index .Values.config "AGENT_GATEWAY_URL" | default (printf "http://%s:%v" $agwMcpHost $agwMcpPort) | quote }}
+            {{- end }}
           envFrom:
             # Mount ConfigMap as environment variables (non-sensitive config)
             - configMapRef:
@@ -102,6 +143,10 @@ spec:
             - secretRef:
                 name: {{ include "caipe-ui.fullname" . }}-secret
             {{- end }}
+          {{- with .Values.startupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           {{- with .Values.livenessProbe }}
           livenessProbe:
             {{- toYaml . | nindent 12 }}

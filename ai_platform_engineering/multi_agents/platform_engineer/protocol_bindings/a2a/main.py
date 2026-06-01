@@ -181,6 +181,14 @@ async def _tools_endpoint(request: Request) -> JSONResponse:
 
 app.routes.append(Route("/tools", _tools_endpoint, methods=["GET"]))
 
+
+async def _health_endpoint(request: Request) -> JSONResponse:
+    return JSONResponse({"status": "ok"})
+
+
+app.routes.append(Route("/health", _health_endpoint, methods=["GET"]))
+app.routes.append(Route("/ready", _health_endpoint, methods=["GET"]))
+
 ################################################################################
 # Mount the skills middleware REST API alongside the A2A routes.
 # We mount the FastAPI sub-app at "/" but APPEND it (default) so that

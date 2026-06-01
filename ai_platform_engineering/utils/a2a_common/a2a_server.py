@@ -19,7 +19,10 @@ from a2a.server.tasks import (
     InMemoryTaskStore,
 )
 
+from starlette.applications import Starlette
 from starlette.middleware.cors import CORSMiddleware
+from starlette.responses import JSONResponse
+from starlette.routing import Route
 from ai_platform_engineering.utils.metrics import PrometheusMetricsMiddleware
 
 logger = logging.getLogger(__name__)
@@ -59,10 +62,19 @@ class A2AServer:
             push_sender=push_sender,
         )
 
-        app = A2AStarletteApplication(
+        a2a_app = A2AStarletteApplication(
             agent_card=self.agent_card,
             http_handler=request_handler,
         ).build()
+
+        async def health(request):
+            return JSONResponse({"status": "ok"})
+
+        app = Starlette(routes=[
+            Route("/health", health),
+            Route("/ready", health),
+            *a2a_app.routes,
+        ])
 
         app.add_middleware(
             CORSMiddleware,

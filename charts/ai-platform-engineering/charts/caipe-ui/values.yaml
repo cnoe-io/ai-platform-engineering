@@ -101,11 +101,18 @@ resources: {}
   #   memory: 128Mi
 
 # This is to setup the liveness and readiness probes more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/
+startupProbe:
+  httpGet:
+    path: /api/health
+    port: http
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 30
 livenessProbe:
   httpGet:
     path: /api/health
     port: http
-  initialDelaySeconds: 30
   periodSeconds: 10
   timeoutSeconds: 5
   failureThreshold: 3
@@ -113,7 +120,6 @@ readinessProbe:
   httpGet:
     path: /api/health
     port: http
-  initialDelaySeconds: 5
   periodSeconds: 5
   timeoutSeconds: 3
   failureThreshold: 3
@@ -175,7 +181,7 @@ affinity: {}
 # For sensitive values (OIDC secrets, MongoDB URI, etc.) use existingSecret or externalSecrets below.
 config:
   # CAIPE Supervisor URL - should point to the supervisor-agent service
-  A2A_BASE_URL: "http://ai-platform-engineering-supervisor-agent:8000"
+  A2A_BASE_URL: ""
   # Feature flags
   ENABLE_SUBAGENT_CARDS: "true"
   SSO_ENABLED: "true"
@@ -216,26 +222,31 @@ config:
   # MongoDB configuration
   MONGODB_DATABASE: "caipe"
   # RAG Server URL (if RAG is enabled)
-  # RAG_URL: "http://ai-platform-engineering-rag-server:9446"
+  # RAG_URL: "http://<release-name>-rag-server:9446"
   # Branding configuration
   TAGLINE: "Multi-Agent Workflow Automation"
   DESCRIPTION: "Where Humans and AI agents collaborate to deliver high quality outcomes."
   APP_NAME: "CAIPE"
+  # AgentGateway MCP discovery endpoints. Leave empty to default to the in-cluster
+  # AgentGateway Services (admin /config on "<release>-agentgateway:15000"; MCP
+  # listener mode-aware on the standalone proxy or controller Gateway). Only used
+  # when global.agentgateway.enabled=true. Override for out-of-cluster gateways.
+  AGENT_GATEWAY_ADMIN_URL: ""
+  AGENT_GATEWAY_URL: ""
   # Canonical Slack workspace namespace used by UI-managed Slack ReBAC/routes.
   SLACK_WORKSPACE_ALIAS: "CAIPE"
   # Slack bot internal admin API used for route-cache reload and one-time
   # static-config-to-MongoDB/OpenFGA migration. The Web UI backend uses the
   # existing OIDC_CLIENT_ID/OIDC_CLIENT_SECRET Keycloak client credentials.
-  SLACK_BOT_ADMIN_URL: "http://ai-platform-engineering-slack-bot:3001"
+  SLACK_BOT_ADMIN_URL: ""
   SLACK_BOT_ADMIN_AUDIENCE: "caipe-slack-bot-admin"
-  # SLACK_BOT_ADMIN_TOKEN_URL: "http://keycloak:7080/realms/caipe/protocol/openid-connect/token"
   # SLACK_BOT_ADMIN_SCOPE: "slack:routes:read slack:routes:reload slack:routes:sync"
   SLACK_DEFAULT_TEAM_SLUG: ""
   SLACK_DEFAULT_AGENT_ID: ""
   # Webex bot internal admin API used for route-cache reload and one-time
   # static-config-to-MongoDB/OpenFGA migration. The client secret is sensitive
   # and must come from existingSecret/externalSecrets as WEBEX_BOT_ADMIN_CLIENT_SECRET.
-  WEBEX_BOT_ADMIN_URL: "http://ai-platform-engineering-webex-bot:3002"
+  WEBEX_BOT_ADMIN_URL: ""
   WEBEX_BOT_ADMIN_CLIENT_ID: "caipe-ui"
   WEBEX_BOT_ADMIN_AUDIENCE: "caipe-webex-bot-admin"
   # WEBEX_BOT_ADMIN_TOKEN_URL: "http://keycloak:7080/realms/caipe/protocol/openid-connect/token"
@@ -259,7 +270,7 @@ config:
   # Requires admin role and MongoDB storage mode
   DYNAMIC_AGENTS_ENABLED: "false"
   # Dynamic Agents service URL (only used when DYNAMIC_AGENTS_ENABLED is "true")
-  # DYNAMIC_AGENTS_URL: "http://ai-platform-engineering-dynamic-agents:8001"
+  DYNAMIC_AGENTS_URL: ""
   # Connections & Secrets credential store. Disabled by default. Use local-cmk
   # only for non-production testing; production must use aws-kms.
   CAIPE_CREDENTIALS_ENABLED: "false"
@@ -276,12 +287,20 @@ config:
   # Set when global.skillScanner.enabled=true on the parent chart so the
   # UI can reach the in-cluster scanner Service. Leave empty to disable
   # the safety scan (skills will save with scan_status=unscanned).
-  #
-  # The `{{ .Release.Name }}` template is evaluated by the caipe-ui ConfigMap
-  # template (which runs each `config:` value through `tpl`), so this URL
-  # tracks the actual Helm release name instead of hardcoding the default
-  # `ai-platform-engineering` and silently breaking on `helm install foo …`.
-  SKILL_SCANNER_URL: "http://{{ .Release.Name }}-skill-scanner:8000"
+  SKILL_SCANNER_URL: ""
+  # In-cluster Keycloak service URL (server-side JWKS fetch + admin API)
+  KEYCLOAK_URL: ""
+  KEYCLOAK_REALM: "caipe"
+  KEYCLOAK_RESOURCE_SERVER_ID: "caipe-platform"
+  # Internal OIDC discovery URL for server-side token validation
+  OIDC_DISCOVERY_URL: ""
+  OIDC_CLIENT_ID: "caipe-ui"
+  # Slack bot admin token URL (in-cluster Keycloak token endpoint)
+  SLACK_BOT_ADMIN_TOKEN_URL: ""
+  SLACK_BOT_ADMIN_CLIENT_ID: "caipe-ui"
+  # OpenFGA authorization service
+  OPENFGA_HTTP: ""
+  OPENFGA_STORE_NAME: "caipe-openfga"
   # OIDC group required for basic Web UI admission. Set per deployment; empty disables the group gate.
   OIDC_REQUIRED_GROUP: ""
   # Deprecated: admin access is granted through Identity Group Sync + OpenFGA organization admin relationships.

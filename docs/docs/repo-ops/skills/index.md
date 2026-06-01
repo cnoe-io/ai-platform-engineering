@@ -40,12 +40,11 @@ Audit and sync all documentation surfaces after a release or feature addition.
 |---|---|---|
 | 1 | Release blog posts | A git tag has no matching `docs/releases/` file |
 | 2 | Homepage version string | Helm `--version` in `index.tsx` is behind latest tag |
-| 3 | `lastVersion` config | `docusaurus.config.ts` points at wrong version |
-| 4 | Version snapshot | No `versioned_docs/version-X.Y.Z/` for a tag |
-| 5 | Features page tiles | New feature docs without a tile in `features.tsx` |
-| 6 | Agent docs | Agent directory with no `docs/docs/agents/<name>.md` |
-| 7 | Sidebar | Doc directory not in `sidebars.ts` |
-| 8 | Navbar label | Version label behind latest tag |
+| 3 | Published versions | A released tag is missing from `docs/published-versions.json` |
+| 4 | Features page tiles | New feature docs without a tile in `features.tsx` |
+| 5 | Agent docs | Agent directory with no `docs/docs/agents/<name>.md` |
+| 6 | Sidebar | Doc directory not in `sidebars.ts` |
+| 7 | Navbar label | Version label behind latest tag |
 
 → [View skill source](https://github.com/cnoe-io/ai-platform-engineering/blob/main/.claude/skills/update-docs/SKILL.md)
 

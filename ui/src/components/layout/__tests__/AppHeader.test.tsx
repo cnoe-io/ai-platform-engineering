@@ -425,7 +425,7 @@ describe('AppHeader — nav tabs', () => {
 
       render(<AppHeader />)
 
-      expect(screen.getByRole('button', { name: /more navigation/i })).toHaveClass('w-8')
+      expect(screen.getByRole('button', { name: /more navigation/i })).toHaveTextContent('More')
       expect(screen.getByText('Home')).toBeInTheDocument()
       expect(screen.getByText(/Chat/)).toBeInTheDocument()
       expect(screen.getByText('Skills')).toBeInTheDocument()

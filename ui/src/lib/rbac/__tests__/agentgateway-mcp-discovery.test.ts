@@ -10,6 +10,10 @@ import {
 } from "../agentgateway-mcp-discovery";
 import type { MCPServerConfig } from "@/types/dynamic-agent";
 
+// Mirrors the real agentgateway standalone proxy v0.12 admin /config output,
+// which emits route matches as `{ pathPrefix: "/mcp/<id>" }` (verified live
+// against ghcr.io/agentgateway/agentgateway). Older/Gateway-API-normalized
+// output used `{ type, value }`; the parser accepts both.
 const agentGatewayConfig = {
   binds: [
     {
@@ -17,7 +21,7 @@ const agentGatewayConfig = {
         {
           routes: [
             {
-              matches: [{ path: { type: "PathPrefix", value: "/mcp/rag" } }],
+              matches: [{ path: { pathPrefix: "/mcp/rag" } }],
               backends: [
                 {
                   mcp: {
@@ -29,7 +33,7 @@ const agentGatewayConfig = {
               ],
             },
             {
-              matches: [{ path: { type: "PathPrefix", value: "/mcp/jira" } }],
+              matches: [{ path: { pathPrefix: "/mcp/jira" } }],
               backends: [
                 {
                   mcp: {
@@ -80,6 +84,34 @@ describe("AgentGateway MCP discovery", () => {
     expect(extractAgentGatewayMcpTargets(agentGatewayConfig)).toEqual([
       { id: "rag", route_path: "/mcp/rag", target_endpoint: "http://rag-server:9446/mcp" },
       { id: "jira", route_path: "/mcp/jira", target_endpoint: "http://mcp-jira:8000/mcp" },
+    ]);
+  });
+
+  it("recovers the route path from both pathPrefix and {type,value} match shapes", () => {
+    const mk = (pathMatch: Record<string, unknown>, id: string, host: string) => ({
+      binds: [
+        {
+          listeners: [
+            {
+              routes: [
+                {
+                  matches: [{ path: pathMatch }],
+                  backends: [{ mcp: { targets: [{ name: id, mcp: { host } }] } }],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    // Live agentgateway v0.12 standalone proxy shape.
+    expect(extractAgentGatewayMcpTargets(mk({ pathPrefix: "/mcp/argocd" }, "argocd", "http://mcp-argocd:8000/mcp"))).toEqual([
+      { id: "argocd", route_path: "/mcp/argocd", target_endpoint: "http://mcp-argocd:8000/mcp" },
+    ]);
+    // Gateway-API-normalized shape.
+    expect(extractAgentGatewayMcpTargets(mk({ type: "PathPrefix", value: "/mcp/argocd" }, "argocd", "http://mcp-argocd:8000/mcp"))).toEqual([
+      { id: "argocd", route_path: "/mcp/argocd", target_endpoint: "http://mcp-argocd:8000/mcp" },
     ]);
   });
 

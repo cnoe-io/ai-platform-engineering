@@ -262,14 +262,11 @@ it("uses enabled Dynamic Agents dropdown for Slack channel-agent associations", 
   expect(screen.queryByLabelText("Action")).not.toBeInTheDocument();
 
   await expandChannelRow("incidents");
-  const agentSelect = await screen.findByRole("combobox", { name: "Dynamic Agent" });
-  // Only the route-agent dropdown is on screen on the default Configured tab —
-  // the Preselected Dynamic Agent dropdown lives behind the Onboard tab now.
-  await waitFor(() =>
-    expect(screen.getAllByRole("option", { name: "Test April 2025 (test-april-2025)" })).toHaveLength(1)
-  );
+  // Only the route-agent AgentPicker is on screen on the default Configured tab —
+  // the Preselected Dynamic Agent picker lives behind the Onboard tab now.
+  expect(await screen.findByLabelText("Dynamic Agent")).toBeInTheDocument();
 
-  fireEvent.change(agentSelect, { target: { value: "test-april-2025" } });
+  await pickAgent("Dynamic Agent", "test-april-2025");
   fireEvent.click(screen.getByRole("button", { name: "Create Association" }));
 
   await waitFor(() =>
@@ -380,9 +377,7 @@ it("keeps Slack onboarding defaults simple without bulk apply controls", async (
   // Preselected Team is now a searchable TeamPicker (2026-05-27).
   await screen.findByLabelText("Preselected Team");
   await pickTeam("Preselected Team", "platform-engineering");
-  fireEvent.change(await screen.findByRole("combobox", { name: "Preselected Dynamic Agent" }), {
-    target: { value: "incident-agent" },
-  });
+  await pickAgent("Preselected Dynamic Agent", "incident-agent");
 
   expect(screen.queryByRole("button", { name: "Apply Selection to Managed Channels" })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Refresh lists" })).not.toBeInTheDocument();
@@ -395,9 +390,7 @@ it("discovers bot-member channels and applies defaults after admin consent", asy
 
   await screen.findByLabelText("Preselected Team");
   await pickTeam("Preselected Team", "platform-engineering");
-  fireEvent.change(await screen.findByRole("combobox", { name: "Preselected Dynamic Agent" }), {
-    target: { value: "incident-agent" },
-  });
+  await pickAgent("Preselected Dynamic Agent", "incident-agent");
 
   fireEvent.click(screen.getByRole("button", { name: "Find channels" }));
 
@@ -612,9 +605,7 @@ it("falls back to onboarding default when legacy config is ignored, and leaves a
   fireEvent.click(screen.getByRole("checkbox", { name: /Import #new-alerts/i }));
   expect(screen.getAllByText("Pick an agent").length).toBeGreaterThanOrEqual(1);
 
-  fireEvent.change(screen.getByRole("combobox", { name: "Preselected Dynamic Agent" }), {
-    target: { value: "incident-agent" },
-  });
+  await pickAgent("Preselected Dynamic Agent", "incident-agent");
   fireEvent.click(screen.getByRole("checkbox", { name: /Use existing Slackbot channel agents as defaults/i }));
   fireEvent.click(screen.getByRole("button", { name: "Refresh channels" }));
 
@@ -708,9 +699,7 @@ it("shows discovered channel setup feedback as a toast without shifting the acti
 
   await screen.findByLabelText("Preselected Team");
   await pickTeam("Preselected Team", "platform-engineering");
-  fireEvent.change(await screen.findByRole("combobox", { name: "Preselected Dynamic Agent" }), {
-    target: { value: "incident-agent" },
-  });
+  await pickAgent("Preselected Dynamic Agent", "incident-agent");
 
   fireEvent.click(screen.getByRole("button", { name: "Find channels" }));
 
@@ -751,9 +740,7 @@ it("uses a streamlined setup flow with icons and toast action confirmations", as
   // the existing "Agents" table header — assert the buttons that only
   // appear inside the detail panel to disambiguate.
   expect(await screen.findByText("Diagnostics")).toBeInTheDocument();
-  expect(
-    screen.getByRole("combobox", { name: "Dynamic Agent" }),
-  ).toBeInTheDocument();
+  expect(await screen.findByLabelText("Dynamic Agent")).toBeInTheDocument();
 
   // Onboard view shows the defaults selector + Find channels button.
   await switchToTab("Onboard channels");
@@ -835,11 +822,13 @@ it("labels Slack onboarding default selection and shows current configured value
   // TeamPicker trigger (which also renders `team:<slug>` text) doesn't
   // collide with these assertions.
   const savedTeamLabel = await screen.findByText("Onboarding team");
-  const savedDefaultsRow = savedTeamLabel.closest("div")?.parentElement;
-  expect(savedDefaultsRow).toBeTruthy();
-  expect(within(savedDefaultsRow!).getByText("team:platform-engineering")).toBeInTheDocument();
-  expect(screen.getByText("Onboarding Dynamic Agent")).toBeInTheDocument();
-  expect(screen.getByText("agent:incident-agent")).toBeInTheDocument();
+  // Scope to the "Last saved" info box (two levels up from the label text) to
+  // avoid colliding with TeamPicker's trigger which also renders "team:<slug>".
+  const savedInfoBox = savedTeamLabel.closest("div")?.parentElement?.parentElement;
+  expect(savedInfoBox).toBeTruthy();
+  expect(within(savedInfoBox!).getByText("team:platform-engineering")).toBeInTheDocument();
+  expect(within(savedInfoBox!).getByText("Onboarding Dynamic Agent")).toBeInTheDocument();
+  expect(within(savedInfoBox!).getByText("agent:incident-agent")).toBeInTheDocument();
   // Save button starts disabled because form picks match saved values.
   expect(
     screen.getByRole("button", { name: "Save Slack onboarding defaults" }),
@@ -1029,10 +1018,9 @@ it("clears stale env-provided default Dynamic Agent and warns the admin", async 
   render(<SlackChannelRebacPanel />);
   await switchToTab("Onboard channels");
 
-  const agentSelect = (await screen.findByRole("combobox", {
-    name: "Preselected Dynamic Agent",
-  })) as HTMLSelectElement;
-  await waitFor(() => expect(agentSelect.value).toBe(""));
+  // When the stale agent is detected, AgentPicker falls back to placeholder.
+  const agentTrigger = await screen.findByLabelText("Preselected Dynamic Agent");
+  await waitFor(() => expect(agentTrigger).toHaveTextContent(/Select preselected Dynamic Agent/));
 
   await waitFor(() => {
     const alerts = screen.queryAllByRole("alert");
@@ -1097,10 +1085,7 @@ it("persists Slack onboarding defaults via PUT when the admin clicks Save defaul
   expect(screen.queryByText("Unsaved changes")).not.toBeInTheDocument();
 
   await pickTeam("Preselected Team", "platform-engineering");
-  const agentSelect = screen.getByRole("combobox", {
-    name: "Preselected Dynamic Agent",
-  }) as HTMLSelectElement;
-  fireEvent.change(agentSelect, { target: { value: "incident-agent" } });
+  await pickAgent("Preselected Dynamic Agent", "incident-agent");
 
   // Dirty → button enabled and "Unsaved changes" badge visible.
   await waitFor(() => expect(saveButton).toBeEnabled());
