@@ -57,6 +57,17 @@ config:
       level: info
       format: json
 
+# Config-bridge sidecar (static routing mode only).
+#
+# This feature is configured from the UMBRELLA chart under
+# `global.agentgateway.static.configBridge` (alongside jwtAuth / extAuth /
+# extraMcpTargets), since it depends on the umbrella-rendered static config.
+# See charts/ai-platform-engineering/values.yaml for the full schema.
+#
+# The bridge containers reuse this subchart's `securityContext` and
+# `resources` by default; override via
+# `global.agentgateway.static.configBridge.{securityContext,resources}`.
+
 resources:
   requests:
     cpu: 100m
