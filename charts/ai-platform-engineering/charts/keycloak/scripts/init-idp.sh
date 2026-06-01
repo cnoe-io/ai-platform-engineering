@@ -150,7 +150,7 @@ seed_spec104_main || echo "[init-idp] [spec-104] seed had errors (see above)"
 # BEFORE the early-exit below so dev/CI stacks that don't wire IDP_ISSUER still
 # get the correct role mapping.
 _ensure_caipe_platform_user_roles() {
-  local desired_roles="view-users query-users manage-users query-clients view-clients manage-clients view-authorization manage-authorization"
+  local desired_roles="view-realm manage-realm view-users query-users manage-users query-clients view-clients manage-clients view-authorization manage-authorization"
   echo "[init-idp] Ensuring caipe-platform service account has realm-management roles: ${desired_roles} ..."
   # Spec 103: AUTH may not be set yet when this helper runs from the
   # pre-IdP path (we run it right after persona seeding so dev stacks without
