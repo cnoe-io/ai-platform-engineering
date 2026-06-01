@@ -237,7 +237,6 @@ export async function getAuthenticatedUser(
   let role = 'user';
   if (isBootstrapAdminEmail(session.user.email)) {
     role = 'admin';
-    console.log(`[Auth] User ${session.user.email} is bootstrap admin via BOOTSTRAP_ADMIN_EMAILS`);
   } else if (
     process.env.NODE_ENV === 'test' &&
     session.role === 'admin' &&
