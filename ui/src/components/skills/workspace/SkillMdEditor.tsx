@@ -247,9 +247,8 @@ export function SkillMdEditor({
     <div
       className={cn(
         "flex min-h-0 flex-col gap-2",
-        // When a fixed `height` is supplied (e.g. the FilesTab passes
-        // "100%"), fill the parent and keep scrolling inside the body
-        // panes so the toolbar stays pinned above the editor surface.
+        // When a `height` is supplied, fill the parent and scroll inside body
+        // panes so the toolbar stays pinned above the editor.
         height && "h-full overflow-hidden",
         className,
       )}
