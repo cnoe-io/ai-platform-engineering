@@ -62,6 +62,8 @@ global:
   # RAG Stack configuration
   rag:
     enableGraphRag: true
+    openfga:
+      httpUrl: ""
 
   metrics:
     enabled: true
@@ -1486,7 +1488,6 @@ rag-stack:
       pullPolicy: "IfNotPresent"
     env:
       RBAC_TEAM_SCOPE_ENABLED: "true"
-      OPENFGA_HTTP: ""
       OPENFGA_STORE_NAME: "caipe-openfga"
       CAIPE_UNSAFE_RBAC_BYPASS: "false"
 

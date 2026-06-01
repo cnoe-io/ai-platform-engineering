@@ -72,10 +72,14 @@ spec:
             # Feature flag with global fallback
             - name: ENABLE_GRAPH_RAG
               value: {{ include "rag-server.enableGraphRag" . | quote }}
-            # All other configuration via env map
+            - name: OPENFGA_HTTP
+              value: {{ include "rag-server.openfgaHttpUrl" . | default (printf "http://%s-openfga:8080" .Release.Name) | quote }}
+            # All other configuration via env map (OPENFGA_HTTP handled above)
             {{- range $key, $value := .Values.env }}
+            {{- if ne $key "OPENFGA_HTTP" }}
             - name: {{ $key }}
               value: {{ $value | quote }}
+            {{- end }}
             {{- end }}
           {{- with .Values.startupProbe }}
           startupProbe:
