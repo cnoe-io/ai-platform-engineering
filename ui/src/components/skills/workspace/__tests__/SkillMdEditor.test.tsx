@@ -34,6 +34,10 @@ jest.mock("@/components/skills/workspace/RichCodeEditor", () => {
     lintSource?: LintFn;
     readOnly?: boolean;
     wrap?: boolean;
+    fillContainer?: boolean;
+    minHeight?: string;
+    maxHeight?: string;
+    height?: string;
   };
   const RichCodeEditor = (props: Props) => {
     const [diags, setDiags] = React.useState<
@@ -48,7 +52,12 @@ jest.mock("@/components/skills/workspace/RichCodeEditor", () => {
       Promise.resolve(result).then((d) => setDiags(Array.isArray(d) ? d : []));
     }, [props.value, props.lintSource]);
     return (
-      <div data-rich-editor>
+      <div
+        data-rich-editor
+        data-fill-container={props.fillContainer ? "true" : "false"}
+        data-min-height={props.minHeight ?? ""}
+        data-max-height={props.maxHeight ?? ""}
+      >
         <textarea
           aria-label="rich-editor"
           value={props.value}
@@ -114,6 +123,16 @@ describe("SkillMdEditor — toolbar", () => {
     expect(editor).toHaveAttribute("data-wrap", "off");
     fireEvent.click(screen.getByLabelText("Toggle soft wrap"));
     expect(editor).toHaveAttribute("data-wrap", "on");
+  });
+
+  it("passes fillContainer and drops fixed min/max when height is 100%", () => {
+    render(
+      <SkillMdEditor value="hello" onChange={() => {}} height="100%" />,
+    );
+    const shell = screen.getByLabelText("rich-editor").closest("[data-rich-editor]");
+    expect(shell).toHaveAttribute("data-fill-container", "true");
+    expect(shell).toHaveAttribute("data-min-height", "");
+    expect(shell).toHaveAttribute("data-max-height", "");
   });
 });
 
