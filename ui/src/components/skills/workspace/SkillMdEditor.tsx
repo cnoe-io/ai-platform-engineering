@@ -229,11 +229,15 @@ export function SkillMdEditor({
   const showEditor = viewMode !== "preview";
   const showPreview = viewMode !== "edit";
 
+  // FilesTab passes height="100%". Mirror the preview pane: constrain
+  // the editor shell and let CodeMirror scroll internally (one bar).
+  const fillParent = height === "100%";
+
   // Body layout. We use a simple grid so split mode stays balanced even
   // at narrow widths (each pane gets `min-w-0` so CodeMirror's
   // horizontal scroll doesn't blow out the column).
   const bodyClass = cn(
-    "flex-1 min-h-0",
+    "min-h-0 flex-1 overflow-hidden",
     showEditor && showPreview
       ? "grid grid-cols-1 md:grid-cols-2 gap-2"
       : "flex",
@@ -242,17 +246,17 @@ export function SkillMdEditor({
   return (
     <div
       className={cn(
-        "flex flex-col gap-2",
+        "flex min-h-0 flex-col gap-2",
         // When a fixed `height` is supplied (e.g. the FilesTab passes
-        // "100%"), let the body fill the parent so split mode actually
-        // gets vertical space to render in.
-        height && "h-full",
+        // "100%"), fill the parent and keep scrolling inside the body
+        // panes so the toolbar stays pinned above the editor surface.
+        height && "h-full overflow-hidden",
         className,
       )}
     >
       {!hideToolbar && (
         <div
-          className="flex items-center gap-1 rounded-md border border-border/50 bg-muted/40 px-2 py-1"
+          className="flex shrink-0 items-center gap-1 rounded-md border border-border/50 bg-muted/40 px-2 py-1"
           data-skill-md-toolbar
         >
           {/* View-mode segmented toggle. Lives on the LEFT so it's the
@@ -362,7 +366,12 @@ export function SkillMdEditor({
 
       <div className={bodyClass}>
         {showEditor && (
-          <div className="min-w-0 min-h-0 flex-1">
+          <div
+            className={cn(
+              "min-h-0 min-w-0 flex-1 overflow-hidden rounded-md border border-border/50",
+              fillParent && "flex flex-col",
+            )}
+          >
             <RichCodeEditor
               editorRef={editorRef}
               value={value}
@@ -371,9 +380,9 @@ export function SkillMdEditor({
               readOnly={readOnly}
               wrap={wrap}
               lintSource={lintSource}
-              minHeight={minHeight}
-              maxHeight={maxHeight}
-              height={height}
+              fillContainer={fillParent}
+              minHeight={fillParent ? undefined : minHeight}
+              maxHeight={fillParent ? undefined : maxHeight}
             />
           </div>
         )}

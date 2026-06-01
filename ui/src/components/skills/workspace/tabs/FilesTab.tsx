@@ -417,7 +417,7 @@ export function FilesTab({ form, readOnly = false, review }: FilesTabProps) {
         onChange={(next) =>
           form.setAncillaryFiles((prev) => ({ ...prev, [selected]: next }))
         }
-        height="100%"
+        fillContainer
       />
     );
   }, [selected, form, readOnly]);
@@ -603,7 +603,7 @@ export function FilesTab({ form, readOnly = false, review }: FilesTabProps) {
             readOnly={readOnly}
             className="border-r border-border/50 bg-muted/20"
           />
-          <div className="min-h-0 overflow-auto p-2 relative">
+          <div className="relative flex h-full min-h-0 flex-col overflow-hidden p-2">
             {dragOver && (
               <div className="absolute inset-2 z-10 flex items-center justify-center rounded-md border-2 border-dashed border-primary bg-primary/10 text-sm font-medium text-primary pointer-events-none">
                 Drop files to add to this skill

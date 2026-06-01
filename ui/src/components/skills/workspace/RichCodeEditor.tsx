@@ -13,7 +13,7 @@
  *   - Multi-cursor, rectangular selection
  *   - Soft-wrap toggle (controlled prop)
  *   - Lint gutter + tooltips driven by a caller-supplied `linter` callback
- *   - Theme follows the user's `prefers-color-scheme` (one-dark when dark)
+ *   - Theme follows the app's next-themes selection (one-dark when not light)
  *
  * Designed to be the single editor primitive for both the SKILL.md editor
  * (Workspace's Files tab) and the SkillFolderViewer's editor pane.
@@ -55,6 +55,7 @@ import {
 import { lintGutter, type Diagnostic } from "@codemirror/lint";
 import { linter as cmLinter } from "@codemirror/lint";
 import { oneDark } from "@codemirror/theme-one-dark";
+import { useTheme } from "next-themes";
 
 import { cn } from "@/lib/utils";
 
@@ -112,6 +113,13 @@ export interface RichCodeEditorProps {
   maxHeight?: string;
   /** Force a fixed height (overrides min/max). */
   height?: string;
+
+  /**
+   * Fill the parent flex/grid cell and scroll inside CodeMirror only
+   * (one scrollbar). Use instead of `height="100%"` when embedded in
+   * a constrained layout like the Files tab.
+   */
+  fillContainer?: boolean;
 
   /** Extra classnames on the outer wrapper. */
   className?: string;
@@ -195,25 +203,6 @@ function pickLanguageDescription(opts: {
 }
 
 // ---------------------------------------------------------------------------
-// Theme (light vs dark)
-// ---------------------------------------------------------------------------
-
-function usePrefersDark(): boolean {
-  const [dark, setDark] = useState<boolean>(() => {
-    if (typeof window === "undefined") return false;
-    return window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false;
-  });
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const mql = window.matchMedia("(prefers-color-scheme: dark)");
-    const fn = (e: MediaQueryListEvent) => setDark(e.matches);
-    mql.addEventListener?.("change", fn);
-    return () => mql.removeEventListener?.("change", fn);
-  }, []);
-  return dark;
-}
-
-// ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
@@ -231,11 +220,15 @@ export function RichCodeEditor({
   minHeight = "240px",
   maxHeight = "70vh",
   height,
+  fillContainer = false,
   className,
   editorRef,
 }: RichCodeEditorProps) {
-  const dark = usePrefersDark();
+  const { resolvedTheme } = useTheme();
+  const isDark =
+    resolvedTheme != null && resolvedTheme !== "light";
   const [langSupport, setLangSupport] = useState<LanguageSupport | null>(null);
+  const useContainerHeight = fillContainer || height === "100%";
 
   // Resolve and lazy-load the language for the given filename/language.
   useEffect(() => {
@@ -339,6 +332,7 @@ export function RichCodeEditor({
     <div
       className={cn(
         "rich-code-editor relative overflow-hidden rounded-md border border-border/60 bg-background",
+        useContainerHeight && "flex h-full min-h-0 flex-col",
         className,
       )}
       data-rich-editor
@@ -346,13 +340,14 @@ export function RichCodeEditor({
       <CodeMirror
         ref={editorRef ?? undefined}
         value={value}
-        height={height}
-        minHeight={height ? undefined : minHeight}
-        maxHeight={height ? undefined : maxHeight}
-        theme={dark ? oneDark : "light"}
+        height={useContainerHeight ? "100%" : height}
+        minHeight={useContainerHeight ? undefined : height ? undefined : minHeight}
+        maxHeight={useContainerHeight ? undefined : height ? undefined : maxHeight}
+        theme={isDark ? oneDark : "light"}
         extensions={extensions}
         onChange={handleChange}
         basicSetup={false}
+        className={useContainerHeight ? "min-h-0 flex-1" : undefined}
       />
     </div>
   );
