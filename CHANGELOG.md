@@ -1,3 +1,11 @@
+## 0.5.5-dev.1 (2026-06-01)
+
+### Fix
+
+- **keycloak**: restore manage-realm role for caipe-platform service account (#1678)
+
+## 0.5.5 (2026-06-01)
+
 ## 0.5.4-dev.2 (2026-06-01)
 
 ### Fix
