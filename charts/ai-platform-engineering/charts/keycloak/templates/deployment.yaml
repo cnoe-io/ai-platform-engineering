@@ -57,6 +57,13 @@ spec:
               value: "true"
             - name: KC_METRICS_ENABLED
               value: "true"
+            {{- if .Values.db.passwordSecret.name }}
+            - name: KC_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.db.passwordSecret.name | quote }}
+                  key: {{ .Values.db.passwordSecret.key | quote }}
+            {{- end }}
             {{- range $key, $val := .Values.env }}
             - name: {{ $key }}
               value: {{ $val | quote }}

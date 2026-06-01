@@ -76,6 +76,23 @@ ENABLE_AGENTGATEWAY="${ENABLE_AGENTGATEWAY:-true}"
 # ENABLE_AGENTGATEWAY=true. Set ENABLE_RBAC_RUNTIME=false or pass
 # --no-rbac-runtime to skip.
 ENABLE_RBAC_RUNTIME="${ENABLE_RBAC_RUNTIME:-true}"
+# Shared Postgres: default ON. Deploys a single bitnami/postgresql instance that
+# backs Keycloak and OpenFGA (and optionally LiteLLM) with persistent databases,
+# replacing Keycloak's embedded H2 and OpenFGA's in-memory store (both of which
+# lose all state on pod restart). Only deployed when something actually needs it
+# (RBAC runtime, or --litellm-db). Set ENABLE_SHARED_POSTGRES=false or pass
+# --no-shared-postgres to fall back to the old ephemeral H2/in-memory stores.
+ENABLE_SHARED_POSTGRES="${ENABLE_SHARED_POSTGRES:-true}"
+SHARED_PG_SERVICE="caipe-postgres"
+SHARED_PG_ADMIN_PASSWORD=""
+KEYCLOAK_DB_PASSWORD=""
+OPENFGA_DB_PASSWORD=""
+LITELLM_DB_PASSWORD=""
+# LiteLLM unified front: route all chat + embeddings credentials through a single
+# in-cluster LiteLLM proxy (OpenAI-compatible). Set via --litellm.
+LLM_VIA_LITELLM="${LLM_VIA_LITELLM:-false}"
+# Persist LiteLLM virtual keys / spend tracking in the shared Postgres (opt-in).
+ENABLE_LITELLM_DB="${ENABLE_LITELLM_DB:-false}"
 VLLM_MODEL="${VLLM_MODEL:-openai/gpt-oss-20b}"
 VLLM_GPU_COUNT="${VLLM_GPU_COUNT:-1}"
 OLLAMA_MODEL="${OLLAMA_MODEL:-llama2}"
@@ -3946,6 +3963,129 @@ _patch_rag_server_envfrom() {
 #
 # Mirrors the Langfuse `existing_pw` pattern already in this script
 # (see lines ~2671-2685). assisted-by Claude:claude-opus-4-7
+# True when a shared Postgres should be deployed: opt-in via ENABLE_SHARED_POSTGRES
+# AND at least one consumer that needs persistence (RBAC runtime or LiteLLM DB).
+_shared_postgres_active() {
+  $ENABLE_SHARED_POSTGRES || return 1
+  $ENABLE_RBAC_RUNTIME && return 0
+  $ENABLE_LITELLM_DB && return 0
+  return 1
+}
+
+# Resolve (reuse-or-generate) the admin + per-consumer Postgres passwords and
+# persist them in the caipe-postgres-credentials Secret so re-runs are stable.
+# Hex passwords avoid any URL-encoding pitfalls inside connection strings.
+_resolve_shared_postgres_passwords() {
+  local secret_json
+  secret_json=$(kubectl get secret caipe-postgres-credentials -n caipe -o json 2>/dev/null || true)
+  _pg_field() {
+    local key="$1"
+    [[ -n "$secret_json" ]] || return 0
+    echo "$secret_json" | python3 -c "
+import sys, json, base64
+try:
+    d = json.load(sys.stdin).get('data', {})
+    v = d.get('$key')
+    print(base64.b64decode(v).decode() if v else '')
+except Exception:
+    print('')
+" 2>/dev/null || true
+  }
+
+  SHARED_PG_ADMIN_PASSWORD="$(_pg_field POSTGRES_ADMIN_PASSWORD)"
+  KEYCLOAK_DB_PASSWORD="$(_pg_field KEYCLOAK_DB_PASSWORD)"
+  OPENFGA_DB_PASSWORD="$(_pg_field OPENFGA_DB_PASSWORD)"
+  LITELLM_DB_PASSWORD="$(_pg_field LITELLM_DB_PASSWORD)"
+
+  [[ -n "$SHARED_PG_ADMIN_PASSWORD" ]] || SHARED_PG_ADMIN_PASSWORD="$(openssl rand -hex 24)"
+  [[ -n "$KEYCLOAK_DB_PASSWORD" ]] || KEYCLOAK_DB_PASSWORD="$(openssl rand -hex 24)"
+  [[ -n "$OPENFGA_DB_PASSWORD" ]] || OPENFGA_DB_PASSWORD="$(openssl rand -hex 24)"
+  [[ -n "$LITELLM_DB_PASSWORD" ]] || LITELLM_DB_PASSWORD="$(openssl rand -hex 24)"
+
+  if [[ -n "$secret_json" ]]; then
+    log "Reusing existing Postgres passwords from caipe-postgres-credentials Secret"
+  else
+    log "Generated random Postgres passwords (admin + keycloak/openfga/litellm roles)"
+  fi
+
+  kubectl create secret generic caipe-postgres-credentials \
+    --namespace caipe \
+    --from-literal=POSTGRES_ADMIN_PASSWORD="${SHARED_PG_ADMIN_PASSWORD}" \
+    --from-literal=KEYCLOAK_DB_PASSWORD="${KEYCLOAK_DB_PASSWORD}" \
+    --from-literal=OPENFGA_DB_PASSWORD="${OPENFGA_DB_PASSWORD}" \
+    --from-literal=LITELLM_DB_PASSWORD="${LITELLM_DB_PASSWORD}" \
+    --dry-run=client -o yaml \
+    | kubectl apply -f - &>/dev/null
+}
+
+# Deploy a single shared bitnami/postgresql instance that backs Keycloak,
+# OpenFGA, and (optionally) LiteLLM. Per-consumer roles + databases are created
+# via an initdb script (runs once on an empty data dir). Consumer-facing secrets
+# (caipe-keycloak-db / caipe-openfga-db / caipe-litellm-db) carry exactly the
+# password or connection-string shape each chart expects.
+deploy_shared_postgres() {
+  _resolve_shared_postgres_passwords
+
+  # Consumer-facing secrets (created/refreshed every run so wiring stays correct
+  # even if the chart values change between runs).
+  kubectl create secret generic caipe-keycloak-db \
+    --namespace caipe \
+    --from-literal=KC_DB_PASSWORD="${KEYCLOAK_DB_PASSWORD}" \
+    --dry-run=client -o yaml | kubectl apply -f - &>/dev/null
+
+  local openfga_uri="postgres://openfga:${OPENFGA_DB_PASSWORD}@${SHARED_PG_SERVICE}:5432/openfga?sslmode=disable"
+  kubectl create secret generic caipe-openfga-db \
+    --namespace caipe \
+    --from-literal=OPENFGA_DATASTORE_URI="${openfga_uri}" \
+    --dry-run=client -o yaml | kubectl apply -f - &>/dev/null
+
+  if $ENABLE_LITELLM_DB; then
+    local litellm_uri="postgresql://litellm:${LITELLM_DB_PASSWORD}@${SHARED_PG_SERVICE}:5432/litellm"
+    kubectl create secret generic caipe-litellm-db \
+      --namespace caipe \
+      --from-literal=DATABASE_URL="${litellm_uri}" \
+      --dry-run=client -o yaml | kubectl apply -f - &>/dev/null
+  fi
+
+  if kubectl get statefulset "${SHARED_PG_SERVICE}" -n caipe &>/dev/null; then
+    log "Shared Postgres already present (${SHARED_PG_SERVICE}) — skipping install"
+    return 0
+  fi
+
+  step "Deploying shared Postgres (${SHARED_PG_SERVICE}) for Keycloak/OpenFGA"
+
+  # initdb bootstrap: create a login role + owned database per consumer. Only
+  # runs when the PVC is empty (first install); harmless to define on re-runs.
+  local initdb_file
+  initdb_file=$(mktemp /tmp/caipe-pg-initdb-XXXXXX.sql)
+  cat > "$initdb_file" <<PGINIT
+CREATE ROLE keycloak WITH LOGIN PASSWORD '${KEYCLOAK_DB_PASSWORD}';
+CREATE DATABASE keycloak OWNER keycloak;
+CREATE ROLE openfga WITH LOGIN PASSWORD '${OPENFGA_DB_PASSWORD}';
+CREATE DATABASE openfga OWNER openfga;
+PGINIT
+  if $ENABLE_LITELLM_DB; then
+    cat >> "$initdb_file" <<PGINIT
+CREATE ROLE litellm WITH LOGIN PASSWORD '${LITELLM_DB_PASSWORD}';
+CREATE DATABASE litellm OWNER litellm;
+PGINIT
+  fi
+
+  helm repo add bitnami https://charts.bitnami.com/bitnami &>/dev/null 2>&1 || true
+  helm upgrade --install "${SHARED_PG_SERVICE}" bitnami/postgresql \
+    -n caipe \
+    --set "fullnameOverride=${SHARED_PG_SERVICE}" \
+    --set architecture=standalone \
+    --set "auth.postgresPassword=${SHARED_PG_ADMIN_PASSWORD}" \
+    --set primary.persistence.size=4Gi \
+    --set-file "primary.initdb.scripts.caipe-init\.sql=${initdb_file}" \
+    --timeout 5m &>/dev/null
+  rm -f "$initdb_file"
+
+  kubectl rollout status statefulset/"${SHARED_PG_SERVICE}" -n caipe --timeout=300s &>/dev/null
+  log "Shared Postgres deployed (${SHARED_PG_SERVICE}) with keycloak/openfga databases"
+}
+
 _resolve_mongodb_password() {
   local existing_pw
   existing_pw=$(kubectl get secret caipe-mongodb-credentials -n caipe \
@@ -4420,6 +4560,35 @@ _write_rbac_runtime_values() {
     keycloak_ssl_required="none"
   fi
 
+  # When the shared Postgres is active, point Keycloak (KC_DB_*) and OpenFGA
+  # (datastore.engine=postgres) at it so RBAC state survives pod restarts.
+  # The DB password is injected from the caipe-keycloak-db Secret via the
+  # chart's db.passwordSecret hook (never written into this values file).
+  local kc_db_block="" fga_ds_block=""
+  if _shared_postgres_active; then
+    kc_db_block=$(cat <<KCDB
+  persistence:
+    enabled: false
+  db:
+    passwordSecret:
+      name: "caipe-keycloak-db"
+      key: "KC_DB_PASSWORD"
+  env:
+    KC_DB: "postgres"
+    KC_DB_URL: "jdbc:postgresql://${SHARED_PG_SERVICE}:5432/keycloak"
+    KC_DB_USERNAME: "keycloak"
+KCDB
+)
+    fga_ds_block=$(cat <<FGADB
+  datastore:
+    engine: "postgres"
+    uriSecretRef:
+      name: "caipe-openfga-db"
+      key: "OPENFGA_DATASTORE_URI"
+FGADB
+)
+  fi
+
   cat > "$values_file" <<RBACEOF
 tags:
   keycloak: true
@@ -4440,9 +4609,11 @@ global:
 keycloak:
   realm:
     sslRequired: "${keycloak_ssl_required}"
+${kc_db_block}
 
 openfga:
   enabled: true
+${fga_ds_block}
   init:
     enabled: true
     storeName: "caipe-openfga"
@@ -6596,6 +6767,13 @@ BANNER
   done
   create_namespace_and_secrets
 
+  # Shared Postgres must exist before the CAIPE Helm deploy: OpenFGA's migrate
+  # job + deployment read the caipe-openfga-db Secret, and _write_rbac_runtime_values
+  # wires Keycloak's KC_DB_* env from the passwords resolved here.
+  if _shared_postgres_active; then
+    deploy_shared_postgres
+  fi
+
   if $ENABLE_TRACING; then
     deploy_langfuse
     create_langfuse_api_keys
@@ -6677,6 +6855,8 @@ Options:
   --rbac-runtime     Install in-chart RBAC runtime services: Keycloak, OpenFGA,
                      OpenFGA ext_authz bridge, and standalone AgentGateway — default ON
   --no-rbac-runtime  Skip the RBAC runtime services
+  --shared-postgres     Deploy one shared Postgres backing Keycloak + OpenFGA (persistent RBAC) — default ON
+  --no-shared-postgres  Use Keycloak embedded H2 + OpenFGA in-memory (ephemeral; state lost on restart)
   --persistence      Enable Redis persistence for checkpoints and cross-thread memory — default ON
                      (deploys langgraph-redis subchart; enables fact extraction)
   --no-persistence   Skip Redis persistence (in-memory checkpointer only)
@@ -6822,6 +7002,8 @@ for arg in "$@"; do
     --no-agentgateway) ENABLE_AGENTGATEWAY=false; ENABLE_RBAC_RUNTIME=false ;;
     --rbac-runtime)    ENABLE_RBAC_RUNTIME=true; ENABLE_AGENTGATEWAY=true ;;
     --no-rbac-runtime) ENABLE_RBAC_RUNTIME=false ;;
+    --shared-postgres)    ENABLE_SHARED_POSTGRES=true ;;
+    --no-shared-postgres) ENABLE_SHARED_POSTGRES=false ;;
     --persistence)     ENABLE_PERSISTENCE=true ;;
     --no-persistence)  ENABLE_PERSISTENCE=false ;;
     --metallb)         ENABLE_METALLB=true ;;
