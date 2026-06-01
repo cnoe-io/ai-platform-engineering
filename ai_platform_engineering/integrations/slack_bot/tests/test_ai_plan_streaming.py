@@ -500,6 +500,68 @@ class TestThinkingBuffer:
     assert "Searching..." not in combined
     assert "Analyzing data..." not in combined
 
+  def test_narration_while_tool_active_does_not_leak(self):
+    """Regression (thinking-text leak): with the stream already open (todo mode),
+    narration that arrives *while a tool is still active* must not be streamed
+    into the message body.
+
+    This reproduces the ChatAnthropicBedrock regression: the LLM client emits
+    inter-step text deltas that arrive between TOOL_CALL_START and the matching
+    TOOL_CALL_END (active_tools is non-empty). The old code streamed that text
+    live via appendStream, leaking every "Let me…" segment into the response.
+    Only the final answer, emitted after the last tool completes, should show.
+    """
+    events = [
+      # write_todos opens the stream (todo/plan mode)
+      _tool_start_event("write_todos", "tc-wt"),
+      _tool_args_event("tc-wt", '{"todos": [{"content": "Look it up", "status": "in_progress"}]}'),
+      _tool_end_event("tc-wt"),
+      # A tool starts and, before it ends, the agent streams narration
+      _tool_start_event("search", "tc-1"),
+      _content_event("Now let me search for the answer..."),
+      _text_message_end_event(),
+      _tool_end_event("tc-1"),
+      # Another active-tool narration burst
+      _tool_start_event("search", "tc-2"),
+      _content_event("I notice the pagination is returning the same data..."),
+      _text_message_end_event(),
+      _tool_end_event("tc-2"),
+      # Final answer after the last tool completes
+      _content_event("The answer is 42."),
+      _text_message_end_event(),
+      _done_event(),
+    ]
+    mock_slack = _mock_slack()
+
+    stream_response(
+      sse_client=_mock_sse_client(events),
+      slack_client=mock_slack,
+      channel_id="C1",
+      thread_ts="t1",
+      message_text="hi",
+      team_id="T1",
+      user_id="U123",
+      agent_id="test-agent",
+      conversation_id="conv-1",
+    )
+
+    all_text = []
+    for c in mock_slack.chat_appendStream.call_args_list:
+      for chunk in c.kwargs.get("chunks", []):
+        if chunk.get("type") == "markdown_text":
+          all_text.append(chunk["text"])
+    stop_call = mock_slack.chat_stopStream.call_args
+    for chunk in stop_call.kwargs.get("chunks") or []:
+      if chunk.get("type") == "markdown_text":
+        all_text.append(chunk["text"])
+    combined = "".join(all_text)
+
+    # Only the final answer should be rendered
+    assert "The answer is 42." in combined
+    # Narration emitted while a tool was active must NOT leak
+    assert "Now let me search for the answer..." not in combined
+    assert "I notice the pagination is returning the same data..." not in combined
+
 
 class TestToolThoughtExtraction:
   """Tests for _extract_tool_thought and TOOL_CALL_ARGS thought display."""
