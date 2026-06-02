@@ -203,6 +203,23 @@ Get Ontology Agent REST API address
     {{- printf "http://%s:%s" $host ($port | toString) -}}
 {{- end -}}
 
+{{- define "rag-server.openfgaHttpUrl" -}}
+{{- $url := "" -}}
+{{- $explicit := index (.Values.env | default dict) "OPENFGA_HTTP" | default "" | trim -}}
+{{- if $explicit -}}
+    {{- $url = $explicit -}}
+{{- else -}}
+    {{- with .Values.global -}}
+        {{- with .rag -}}
+            {{- with .openfga -}}
+                {{- $url = (.httpUrl | default "" | trim) -}}
+            {{- end -}}
+        {{- end -}}
+    {{- end -}}
+{{- end -}}
+{{- $url -}}
+{{- end -}}
+
 {{- define "rag-server.appVersion" -}}
 {{- .Values.global.image.tag | default .Chart.AppVersion -}}
 {{- end -}}

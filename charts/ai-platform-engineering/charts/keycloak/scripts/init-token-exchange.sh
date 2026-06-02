@@ -314,9 +314,9 @@ ensure_service_account_impersonation_role() {
     echo "${TAG}   impersonation role already assigned."
   else
     echo "${TAG}   Assigning impersonation role ..."
-    ROLES_RESP=$(curl -sf -H "${AUTH}" \
-      "${KC_URL}/admin/realms/${REALM}/clients/${RM_CLIENT_ID}/roles" 2>/dev/null || echo "[]")
-    IMP_ROLE_ID=$(echo "${ROLES_RESP}" | grep -B1 '"impersonation"' | grep -o '"id" *: *"[^"]*"' | sed 's/.*"\([^"]*\)"/\1/' | head -1)
+    IMP_ROLE_RESP=$(curl -sf -H "${AUTH}" \
+      "${KC_URL}/admin/realms/${REALM}/clients/${RM_CLIENT_ID}/roles/impersonation" 2>/dev/null || echo "{}")
+    IMP_ROLE_ID=$(json_field "${IMP_ROLE_RESP}" "id")
 
     if [ -n "${IMP_ROLE_ID}" ]; then
       curl -sf -X POST -H "${AUTH}" -H "Content-Type: application/json" \

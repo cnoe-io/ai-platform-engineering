@@ -396,23 +396,28 @@ export function KeycloakMigrationHealthPanel({ compact = false }: KeycloakMigrat
       setError(null);
       setReconcileMessage(null);
       try {
-        const result = await readJson<{ applied_counts?: Record<string, number> }>(
+        const result = await readJson<{ applied_counts?: Record<string, number>; warnings?: string[] }>(
           await fetch(`/api/admin/rebac/migrations/${KEYCLOAK_MIGRATION_ID}/apply`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ confirmation: KEYCLOAK_MIGRATION_CONFIRMATION }),
           }),
         );
-        const appliedCount = Object.values(result.applied_counts ?? {}).reduce(
-          (sum, value) => sum + value,
-          0,
-        );
-        // Every "Fix this" and "Reconcile all" click drives the same global
-        // BFF migration, so we phrase the success line the same way regardless
-        // of which surface initiated it.
-        setReconcileMessage(
-          `Reconcile applied${appliedCount ? ` (${appliedCount} updates)` : ""}.`,
-        );
+        const warnings = result.warnings ?? [];
+        if (warnings.length > 0) {
+          setError(`Reconcile completed with errors: ${warnings.join("; ")}`);
+        } else {
+          const appliedCount = Object.values(result.applied_counts ?? {}).reduce(
+            (sum, value) => sum + value,
+            0,
+          );
+          // Every "Fix this" and "Reconcile all" click drives the same global
+          // BFF migration, so we phrase the success line the same way regardless
+          // of which surface initiated it.
+          setReconcileMessage(
+            `Reconcile applied${appliedCount ? ` (${appliedCount} updates)` : ""}.`,
+          );
+        }
         await loadHealth();
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to reconcile Keycloak migration");
@@ -678,6 +683,46 @@ export function KeycloakMigrationHealthPanel({ compact = false }: KeycloakMigrat
               API for anyone debugging the migration itself.
             */}
 
+            {!compact && ((lastRun?.warnings && lastRun.warnings.length > 0) || health.keycloak_values_error) && (
+              <div className="space-y-1 rounded-lg border border-amber-300/60 bg-amber-50 p-3 text-sm text-amber-900">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="font-medium">Warnings</div>
+                  <CopyButton
+                    value={[
+                      ...(lastRun?.warnings ?? []),
+                      ...(health.keycloak_values_error ? [`Keycloak value inspection failed: ${health.keycloak_values_error}`] : []),
+                    ].join("\n")}
+                    label="Copy warnings"
+                    className="shrink-0 text-amber-900 hover:text-amber-900"
+                  />
+                </div>
+                {(lastRun?.warnings ?? []).map((warning, idx) => {
+                  const explanation = explainWarning(warning);
+                  return (
+                    <div
+                      key={warning}
+                      className="flex items-center gap-1.5"
+                      data-testid={`migration-warning-row-${idx}`}
+                    >
+                      <span className="min-w-0 break-words">{warning}</span>
+                      <ExplainerTooltip
+                        explanation={explanation}
+                        testId={`migration-warning-explain-${idx}`}
+                        ariaLabel={`Explain warning: ${explanation.title}`}
+                      />
+                    </div>
+                  );
+                })}
+                {health.keycloak_values_error && (
+                  <div className="flex items-center gap-1.5" data-testid="keycloak-values-error-row">
+                    <span className="min-w-0 break-words">
+                      Keycloak value inspection failed: {health.keycloak_values_error}
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+
             {!compact && health.keycloak_invariants && (
               <InvariantsSection
                 invariants={health.keycloak_invariants}
@@ -748,53 +793,6 @@ export function KeycloakMigrationHealthPanel({ compact = false }: KeycloakMigrat
                     })}
                   </ul>
                 )}
-              </div>
-            )}
-            {!compact && lastRun?.warnings && lastRun.warnings.length > 0 && (
-              <div className="space-y-1 rounded-lg border p-3 text-sm">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="font-medium">Warnings</div>
-                  <CopyButton
-                    value={(lastRun.warnings ?? []).join("\n")}
-                    label="Copy warnings"
-                    className="shrink-0"
-                  />
-                </div>
-                {lastRun.warnings.map((warning, idx) => {
-                  // Each warning row gets a plain-English explainer
-                  // tooltip. The bodies are 2-4 sentences keeping
-                  // technical names (env var, RFC 8693, etc.)
-                  // alongside plain-English glosses, in the same
-                  // wording style as the invariant explainer; see
-                  // `warning-explanations.ts` for the rules.
-                  const explanation = explainWarning(warning);
-                  return (
-                    <div
-                      key={warning}
-                      className="flex items-center gap-1.5 text-muted-foreground"
-                      data-testid={`migration-warning-row-${idx}`}
-                    >
-                      <span className="min-w-0 break-words">{warning}</span>
-                      <ExplainerTooltip
-                        explanation={explanation}
-                        testId={`migration-warning-explain-${idx}`}
-                        ariaLabel={`Explain warning: ${explanation.title}`}
-                      />
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-            {!compact && health.keycloak_values_error && (
-              <div className="flex items-start justify-between gap-2 rounded-lg border border-amber-300/60 bg-amber-50 p-3 text-sm text-amber-900">
-                <span className="min-w-0 whitespace-pre-wrap break-words">
-                  Keycloak value inspection failed: {health.keycloak_values_error}
-                </span>
-                <CopyButton
-                  value={`Keycloak value inspection failed: ${health.keycloak_values_error}`}
-                  label="Copy error"
-                  className="shrink-0 text-amber-900 hover:text-amber-900"
-                />
               </div>
             )}
           </>
