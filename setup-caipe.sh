@@ -4583,7 +4583,11 @@ _warn_if_chart_lacks_keycloak_db() {
   if helm pull "$CAIPE_OCI_REPO" --version "$CAIPE_CHART_VERSION" \
        --untar --untardir "$tmpd" >/dev/null 2>&1; then
     kc_dir=$(find "$tmpd" -type d -name keycloak 2>/dev/null | head -1)
-    if [[ -n "$kc_dir" ]] && ! grep -rqE "KC_DB|\.Values\.database" "$kc_dir" 2>/dev/null; then
+    # Inspect templates/ only — values.yaml ships commented KC_DB examples even on
+    # charts that hardcode start-dev (H2), which would false-negative the check.
+    # The #1686 contract is the deployment template consuming .Values.database /
+    # wiring KC_DB env, so the absence of those in templates/ means H2 fallback.
+    if [[ -d "$kc_dir/templates" ]] && ! grep -rqE "KC_DB|\.Values\.database" "$kc_dir/templates" 2>/dev/null; then
       warn "Chart v${CAIPE_CHART_VERSION} predates the Keycloak database.* contract —"
       warn "  Keycloak will run on embedded H2 (state lost on pod restart) even though"
       warn "  shared Postgres is deployed and its 'keycloak' database is created."
@@ -5178,8 +5182,15 @@ _litellm_unified_assets() {
   # install never dies under `set -u`, and surface the assumption on stderr
   # (this function's stdout is captured as the model_list, so log/warn — which
   # print to stdout — must NOT be used here; use `>&2`).
-  local azure_chat_deploy="${AZURE_OPENAI_DEPLOYMENT:-${AZURE_OPENAI_CHAT_DEPLOYMENT:-${OPENAI_MODEL_NAME:-}}}"
-  local azure_embed_deploy="${AZURE_OPENAI_EMBEDDING_DEPLOYMENT:-${AZURE_OPENAI_DEPLOYMENT:-${EMBEDDINGS_MODEL:-text-embedding-3-large}}}"
+  #
+  # Embeddings: fall back to LITELLM_EMBED_MODEL_REAL (the real upstream model
+  # captured before EMBEDDINGS_MODEL is aliased to "caipe-embeddings"), NOT
+  # EMBEDDINGS_MODEL — by the time this runs EMBEDDINGS_MODEL is the proxy alias.
+  # Chat: there is no separate real azure-chat model var, so only the explicit
+  # deployment vars are honored; an unset deployment is a hard misconfig that the
+  # stderr note flags (the proxy chat model would 404 until it is set).
+  local azure_chat_deploy="${AZURE_OPENAI_DEPLOYMENT:-${AZURE_OPENAI_CHAT_DEPLOYMENT:-}}"
+  local azure_embed_deploy="${AZURE_OPENAI_EMBEDDING_DEPLOYMENT:-${AZURE_OPENAI_DEPLOYMENT:-${LITELLM_EMBED_MODEL_REAL:-text-embedding-3-large}}}"
 
   case "$LITELLM_CHAT_SOURCE" in
     anthropic-claude)
