@@ -8,6 +8,11 @@ from ai_platform_engineering.integrations.slack_bot.utils.platform_settings impo
     resolve_victorops_agent_id,
 )
 
+# Dotted path for string-target monkeypatching of the module-global reader.
+# Using a string keeps a single import style for this module (avoids mixing
+# ``from ... import`` with a function-local ``import ... as ps``).
+_MODULE = "ai_platform_engineering.integrations.slack_bot.utils.platform_settings"
+
 
 class _Collection:
     def __init__(self, doc: dict[str, object] | None) -> None:
@@ -72,27 +77,21 @@ def test_reader_handles_unconfigured_mongo(monkeypatch) -> None:
 
 
 def test_resolve_default_agent_id_prefers_db(monkeypatch) -> None:
-    import ai_platform_engineering.integrations.slack_bot.utils.platform_settings as ps
-
-    monkeypatch.setattr(ps, "_default_reader", PlatformSettingsReader(collection_factory=lambda: _Collection({"default_agent_id": "db-default"})))
+    monkeypatch.setattr(f"{_MODULE}._default_reader", PlatformSettingsReader(collection_factory=lambda: _Collection({"default_agent_id": "db-default"})))
     assert resolve_default_agent_id("env-default") == "db-default"
 
 
 def test_resolve_default_agent_id_falls_back_to_env(monkeypatch) -> None:
-    import ai_platform_engineering.integrations.slack_bot.utils.platform_settings as ps
-
-    monkeypatch.setattr(ps, "_default_reader", PlatformSettingsReader(collection_factory=lambda: _Collection({})))
+    monkeypatch.setattr(f"{_MODULE}._default_reader", PlatformSettingsReader(collection_factory=lambda: _Collection({})))
     assert resolve_default_agent_id("env-default") == "env-default"
     assert resolve_default_agent_id(None) is None
     assert resolve_default_agent_id("  ") is None
 
 
 def test_resolve_victorops_agent_id_prefers_db_then_env(monkeypatch) -> None:
-    import ai_platform_engineering.integrations.slack_bot.utils.platform_settings as ps
-
-    monkeypatch.setattr(ps, "_default_reader", PlatformSettingsReader(collection_factory=lambda: _Collection({"slack_victorops_escalation_agent_id": "db-vo"})))
+    monkeypatch.setattr(f"{_MODULE}._default_reader", PlatformSettingsReader(collection_factory=lambda: _Collection({"slack_victorops_escalation_agent_id": "db-vo"})))
     assert resolve_victorops_agent_id("env-vo") == "db-vo"
 
-    monkeypatch.setattr(ps, "_default_reader", PlatformSettingsReader(collection_factory=lambda: _Collection({})))
+    monkeypatch.setattr(f"{_MODULE}._default_reader", PlatformSettingsReader(collection_factory=lambda: _Collection({})))
     assert resolve_victorops_agent_id("env-vo") == "env-vo"
     assert resolve_victorops_agent_id(None) is None

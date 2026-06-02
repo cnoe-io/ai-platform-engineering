@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 const mockToast = jest.fn();
 jest.mock("@/components/ui/toast", () => ({
@@ -166,9 +166,9 @@ it("organises Webex admin into Configured / Onboard / Advanced tabs, mirrors Sla
   expect(screen.queryByRole("region", { name: "Onboarding Default Selection" })).not.toBeInTheDocument();
   expect(screen.queryByRole("region", { name: "Advanced Setup - Import/Sync with Webex Bot" })).not.toBeInTheDocument();
 
-  // Onboard tab shows defaults + wizard
+  // Onboard tab shows discovery wizard only.
   await switchToTab("Onboard spaces");
-  expect(await screen.findByRole("region", { name: "Onboarding Default Selection" })).toBeInTheDocument();
+  expect(screen.queryByRole("region", { name: "Onboarding Default Selection" })).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Find Webex Spaces with Bot Integration" })).toBeInTheDocument();
   expect(screen.queryByRole("region", { name: "Configured Webex spaces" })).not.toBeInTheDocument();
 
@@ -227,46 +227,11 @@ it("fixes mention-only diagnostic route by lifting listen mode to all", async ()
   );
 });
 
-it("auto-fixes missing routeable agent via PUT with listen:all using the configured default", async () => {
-  const baseFetch = fetchMock.getMockImplementation();
-  fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
-    if (url.endsWith("/diagnostics")) {
-      return response({
-        data: { openfga: { reachable: true, tuple_count: 0 }, warnings: ["No OpenFGA space-agent tuples found."], routes: [], last_runtime_error: null },
-      });
-    }
-    return baseFetch?.(url, init) ?? response({});
-  });
-
-  render(<WebexSpaceRebacPanel />);
-  await expandSpaceRow("Platform Alerts");
-
-  fireEvent.click(await screen.findByRole("button", { name: /Fix missing association with agent:incident-agent/i }));
-
-  await waitFor(() =>
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/admin/webex/spaces/WEBEX-WORKSPACE/space-abc/routes",
-      expect.objectContaining({
-        method: "PUT",
-        body: expect.stringContaining('"agent_id":"incident-agent"'),
-      })
-    )
-  );
-  expect(fetchMock).toHaveBeenCalledWith(
-    "/api/admin/webex/spaces/WEBEX-WORKSPACE/space-abc/routes",
-    expect.objectContaining({ body: expect.stringContaining('"listen":"all"') })
-  );
-});
-
 // ── Discovery + onboarding ─────────────────────────────────────────────────
 
 it("discovers Webex bot spaces, auto-selects new ones, and POSTs per-space defaults on apply", async () => {
   render(<WebexSpaceRebacPanel />);
   await switchToTab("Onboard spaces");
-
-  await screen.findByLabelText("Preselected Team");
-  await pickTeam("Preselected Team", "platform-engineering");
-  await pickAgent("Preselected Dynamic Agent", "incident-agent");
 
   fireEvent.click(screen.getByRole("button", { name: "Find Webex Spaces with Bot Integration" }));
 
@@ -274,6 +239,8 @@ it("discovers Webex bot spaces, auto-selects new ones, and POSTs per-space defau
   expect(await screen.findByText(/2 bot-visible spaces discovered/i)).toBeInTheDocument();
   expect(screen.getByRole("checkbox", { name: /Import Incident War Room/i })).toBeChecked();
   expect(screen.getByRole("checkbox", { name: /Import Platform Alerts/i })).not.toBeChecked();
+  await pickTeam("Team for Incident War Room", "platform-engineering");
+  await pickAgent("Dynamic Agent for Incident War Room", "incident-agent");
 
   fireEvent.click(screen.getByRole("button", { name: /^Set up \d+ spaces?$/ }));
 
@@ -323,59 +290,6 @@ it("allows discovery before global defaults are configured", async () => {
   expect(screen.getByRole("checkbox", { name: /Import Incident War Room/i })).toBeChecked();
 });
 
-// ── Onboarding defaults ────────────────────────────────────────────────────
-
-it("shows saved onboarding defaults and enables Save button only when form differs", async () => {
-  const baseFetch = fetchMock.getMockImplementation();
-  fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
-    if (url === "/api/admin/webex/spaces/defaults" && (!init?.method || init.method === "GET")) {
-      return response({ data: { defaults: { team_slug: "", agent_id: "", source: "unset" } } });
-    }
-    return baseFetch?.(url, init) ?? response({});
-  });
-
-  render(<WebexSpaceRebacPanel />);
-  await switchToTab("Onboard spaces");
-
-  const saveButton = await screen.findByRole("button", { name: "Save Webex onboarding defaults" });
-  expect(saveButton).toBeDisabled();
-  expect(screen.queryByText("Unsaved changes")).not.toBeInTheDocument();
-
-  await pickTeam("Preselected Team", "platform-engineering");
-  await pickAgent("Preselected Dynamic Agent", "incident-agent");
-
-  await waitFor(() => expect(saveButton).toBeEnabled());
-  expect(screen.getByText("Unsaved changes")).toBeInTheDocument();
-
-  fireEvent.click(saveButton);
-
-  await waitFor(() =>
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/admin/webex/spaces/defaults",
-      expect.objectContaining({
-        method: "PUT",
-        body: expect.stringContaining('"team_slug":"platform-engineering"'),
-      })
-    )
-  );
-  await waitFor(() => expect(saveButton).toBeDisabled());
-  expect(screen.queryByText("Unsaved changes")).not.toBeInTheDocument();
-  expect(screen.getByText(/admin@example.com/)).toBeInTheDocument();
-  await waitFor(() => expect(mockToast).toHaveBeenCalledWith("Onboarding defaults saved.", "success"));
-});
-
-it("shows saved onboarding team and agent in the defaults section header row", async () => {
-  render(<WebexSpaceRebacPanel />);
-  await switchToTab("Onboard spaces");
-
-  const savedTeamLabel = await screen.findByText("Onboarding team");
-  const savedInfoBox = savedTeamLabel.closest("div")?.parentElement?.parentElement;
-  expect(savedInfoBox).toBeTruthy();
-  expect(within(savedInfoBox!).getByText("team:platform-engineering")).toBeInTheDocument();
-  expect(within(savedInfoBox!).getByText("agent:incident-agent")).toBeInTheDocument();
-  expect(screen.getByText(/Only changes what is preselected when you onboard spaces/i)).toBeInTheDocument();
-});
-
 // ── Advanced tab ───────────────────────────────────────────────────────────
 
 it("shows Webex-specific runtime status including Thread context tile and triggers YAML sync", async () => {
@@ -387,20 +301,19 @@ it("shows Webex-specific runtime status including Thread context tile and trigge
   expect(screen.getByText("Thread context")).toBeInTheDocument();
   expect(screen.getByText("Enabled, 10 messages / 4000 chars")).toBeInTheDocument();
 
-  const legend = screen.getByRole("region", { name: "Webex bot sync legend" });
-  expect(legend).toHaveTextContent("Route mode: shows whether the Webex bot reads routes from database, YAML, or both.");
-  expect(legend).toHaveTextContent("Thread context: shows whether the bot sends bounded prior Webex thread messages to the selected agent.");
+  expect(screen.getByRole("button", { name: "Help: Route mode" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Help: Thread context" })).toBeInTheDocument();
 
-  fireEvent.click(screen.getByRole("button", { name: "Preview YAML Import" }));
+  fireEvent.click(screen.getByRole("button", { name: "Import from YAML" }));
   await waitFor(() =>
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/admin/webex/runtime/sync-from-config",
       expect.objectContaining({ method: "POST", body: JSON.stringify({ dry_run: true }) })
     )
   );
-  expect(await screen.findByText(/Sync preview: 1 routes planned/i)).toBeInTheDocument();
+  expect(await screen.findByText("Preview complete")).toBeInTheDocument();
 
-  const importButton = await screen.findByRole("button", { name: "Import from YAML Config" });
+  const importButton = await screen.findByRole("button", { name: "Apply Import" });
   await waitFor(() => expect(importButton).not.toBeDisabled());
   fireEvent.click(importButton);
   await waitFor(() =>
@@ -409,14 +322,14 @@ it("shows Webex-specific runtime status including Thread context tile and trigge
       expect.objectContaining({ method: "POST", body: JSON.stringify({ dry_run: false }) })
     )
   );
-  expect(await screen.findByText(/Config sync applied: upserted 1 routes/i)).toBeInTheDocument();
+  expect(await screen.findByText("Apply complete")).toBeInTheDocument();
 });
 
 it("opens sync modal with accurate preview and apply counts", async () => {
   render(<WebexSpaceRebacPanel />);
   await switchToTab("Advanced");
 
-  const previewButton = await screen.findByRole("button", { name: "Preview YAML Import" });
+  const previewButton = await screen.findByRole("button", { name: "Import from YAML" });
   await waitFor(() => expect(previewButton).toBeEnabled());
   fireEvent.click(previewButton);
 
@@ -427,7 +340,7 @@ it("opens sync modal with accurate preview and apply counts", async () => {
   expect(screen.getByText("1 space scanned")).toBeInTheDocument();
   expect(screen.getByText("0 routes upserted")).toBeInTheDocument();
 
-  fireEvent.click(screen.getByRole("button", { name: "Import from YAML Config" }));
+  fireEvent.click(screen.getByRole("button", { name: "Apply Import" }));
   await waitFor(() =>
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/admin/webex/runtime/sync-from-config",
