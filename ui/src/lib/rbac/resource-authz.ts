@@ -31,6 +31,13 @@ export interface ResourceAuthzSession {
   sub?: unknown;
   user?: { email?: string | null } | null;
   role?: string;
+  /**
+   * Set by the Bearer-auth path for OAuth2 client-credentials tokens
+   * (Keycloak service accounts, e.g. the Slack bot). When true the subject
+   * is graphed as `service_account:<sub>` instead of `user:<sub>` so it
+   * matches the relationships those callers are granted in OpenFGA.
+   */
+  isServiceAccount?: boolean;
 }
 
 export interface ResourcePermissionOptions {
@@ -115,9 +122,13 @@ export function resourceObject(type: UniversalRebacResourceType, id: string): st
 }
 
 export function subjectFromSession(session: ResourceAuthzSession): string | null {
-  return typeof session.sub === "string" && session.sub.trim()
-    ? `user:${session.sub.trim()}`
-    : null;
+  if (typeof session.sub !== "string" || !session.sub.trim()) return null;
+  const sub = session.sub.trim();
+  // Service-account (client-credentials) callers are graphed under the
+  // `service_account:` namespace, matching the OpenFGA relationships seeded
+  // for first-party services (e.g. the Slack bot's read grant on
+  // `system_config:platform_settings`). Interactive users stay `user:`.
+  return session.isServiceAccount === true ? `service_account:${sub}` : `user:${sub}`;
 }
 
 export async function requireResourcePermission(
