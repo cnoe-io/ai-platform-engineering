@@ -17,6 +17,8 @@ global:
 
   rag:
     enableGraphRag: true
+    openfga:
+      httpUrl: ""
     ragServer:
       host: "rag-server"
       port: 9446

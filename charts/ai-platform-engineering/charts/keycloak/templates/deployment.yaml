@@ -28,7 +28,7 @@ spec:
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           args:
-            - start-dev
+            - {{ if .Values.database.enabled }}start{{ else }}start-dev{{ end }}
             - --import-realm
             {{- $features := list }}
             {{- if .Values.features.tokenExchange }}
@@ -57,6 +57,29 @@ spec:
               value: "true"
             - name: KC_METRICS_ENABLED
               value: "true"
+            {{- if .Values.database.enabled }}
+            {{- if not .Values.database.host }}
+            {{- fail "keycloak.database.host is required when keycloak.database.enabled is true" }}
+            {{- end }}
+            {{- if not .Values.database.existingSecret }}
+            {{- fail "keycloak.database.existingSecret is required when keycloak.database.enabled is true" }}
+            {{- end }}
+            - name: KC_DB
+              value: postgres
+            - name: KC_DB_URL
+              value: "jdbc:postgresql://{{ .Values.database.host }}:{{ .Values.database.port }}/{{ .Values.database.name }}"
+            - name: KC_DB_USERNAME
+              value: {{ .Values.database.username | quote }}
+            - name: KC_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.database.existingSecret }}
+                  key: {{ .Values.database.existingSecretPasswordKey }}
+            - name: KC_HTTP_ENABLED
+              value: {{ .Values.database.httpEnabled | quote }}
+            - name: KC_HOSTNAME_STRICT
+              value: {{ .Values.database.hostnameStrict | quote }}
+            {{- end }}
             {{- range $key, $val := .Values.env }}
             - name: {{ $key }}
               value: {{ $val | quote }}

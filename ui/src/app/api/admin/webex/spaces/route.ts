@@ -5,6 +5,10 @@ import { getRbacCollection } from "@/lib/rbac/mongo-collections";
 import { checkOpenFgaTuple } from "@/lib/rbac/openfga";
 import { subjectFromSession } from "@/lib/rbac/resource-authz";
 import { listWebexSpaceGrants, webexWorkspaceRef } from "@/lib/rbac/webex-space-grant-store";
+import {
+  computeWebexSpaceHealthSummary,
+  type WebexSpaceHealthSummary,
+} from "@/lib/rbac/webex-space-diagnostics";
 
 interface WebexSpaceTeamMappingDoc {
   webex_workspace_id?: string;
@@ -35,6 +39,11 @@ async function webexSpaceAccess(
 export const GET = withErrorHandler(async (request: NextRequest) => {
     const { session } = await getAuthFromBearerOrSession(request);
     const subject = subjectFromSession(session);
+    // `?health=1` opts the caller in to a per-row diagnostics summary
+    // (warnings count + OpenFGA reachability + last runtime error
+    // timestamp). Mirrors the Slack channels endpoint so the shared
+    // ConnectorAdminPanel can show real per-row health for Webex too.
+    const includeHealth = request.nextUrl.searchParams.get("health") === "1";
     const mappings = await getRbacCollection<WebexSpaceTeamMappingDoc>("webexSpaceTeamMappings");
     const rows = await mappings
       .find({ active: { $ne: false } } as never)
@@ -49,7 +58,18 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
           ? await webexSpaceAccess(subject, workspaceId, row.webex_space_id)
           : { canRead: false, canManage: false };
         if (!access.canRead) return null;
-        const grants = await listWebexSpaceGrants(workspaceId, row.webex_space_id);
+        const [grants, health] = await Promise.all([
+          listWebexSpaceGrants(workspaceId, row.webex_space_id),
+          includeHealth
+            ? computeWebexSpaceHealthSummary(workspaceId, row.webex_space_id).catch(
+                (): WebexSpaceHealthSummary => ({
+                  warnings_count: 0,
+                  openfga_reachable: false,
+                  last_runtime_error_ts: null,
+                }),
+              )
+            : Promise.resolve(undefined),
+        ]);
         return {
           workspace_id: workspaceId,
           space_id: row.webex_space_id,
@@ -58,6 +78,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
           team_slug: row.team_slug,
           active_grants: grants.length,
           can_manage: access.canManage,
+          ...(health ? { health } : {}),
         };
       })
     );

@@ -62,6 +62,8 @@ global:
   # RAG Stack configuration
   rag:
     enableGraphRag: true
+    openfga:
+      httpUrl: ""
 
   metrics:
     enabled: true
@@ -122,11 +124,74 @@ global:
 
   agentgateway:
     enabled: false
+    # How AgentGateway MCP routing is provisioned. This controls whether the
+    # umbrella chart renders Gateway API / AgentGateway custom resources.
+    #
+    #   static (default): render NO custom resources. MCP routes are written into
+    #     the standalone AgentGateway proxy's static config instead (the
+    #     `agentgateway` subchart must be enabled). This requires no CRDs and no
+    #     cluster-admin controller install, so it is safe on clusters you do not
+    #     own and keeps `helm diff`/`helm upgrade` clean. MCP endpoints are still
+    #     discoverable via the proxy admin /config endpoint (the CAIPE UI
+    #     discover/sync flow reads from there). This is the default so enabling
+    #     AgentGateway never depends on cluster-scoped CRDs.
+    #
+    #   gateway-api: render Gateway, HTTPRoute, AgentgatewayBackend and
+    #     AgentgatewayPolicy custom resources. Requires these CRDs + an
+    #     AgentGateway/Gateway API controller to be installed in the cluster:
+    #       gateways.gateway.networking.k8s.io
+    #       httproutes.gateway.networking.k8s.io
+    #       agentgatewaybackends.agentgateway.dev
+    #       agentgatewaypolicies.agentgateway.dev
+    routingMode: static
     # Set to true only if Istio CRDs are NOT already present in the cluster.
     # If Istio is already installed (any version), leave this false to avoid conflicts.
     installIstioCrds: false
     # Port for the agentgateway proxy listener (Gateway resource)
     proxyPort: 8080
+    # Static routing mode only: listener-level JWT validation for the standalone
+    # proxy. Disabled by default so plain (non-RBAC) installs route MCP traffic
+    # without requiring an IdP. When enabled, mirrors the Gateway API jwtAuth
+    # listener policy.
+    static:
+      jwtAuth:
+        enabled: false
+        issuer: ""
+        jwksUrl: ""
+        audiences: []
+      # Dynamic MCP route reconciliation (static routing mode only).
+      #
+      # When enabled, a config-bridge sidecar runs alongside the standalone
+      # AgentGateway proxy and reconciles runtime-added MCP servers (the Mongo
+      # `mcp_servers` collection, source=agentgateway) into the proxy config so
+      # they receive a /mcp/<id> route WITHOUT a `helm upgrade` / values change.
+      #
+      # How it works:
+      #   - The Helm-rendered static config (jwtAuth + extraMcpTargets) is the
+      #     bootstrap/seed; an initContainer seeds a shared emptyDir so the
+      #     proxy always starts with a valid config.
+      #   - The sidecar polls Mongo and writes /mcp/<id> routes into that shared
+      #     file; the proxy hot-reloads on change.
+      #
+      # NOTE: route discovery only — it does NOT affect JWT authentication
+      # (jwtAuth). Ignored in `gateway-api` routing mode (CRDs manage routes).
+      configBridge:
+        enabled: false
+        image:
+          repository: ghcr.io/cnoe-io/agentgateway-config-bridge
+          tag: ""              # defaults to agentgateway subchart appVersion
+          pullPolicy: IfNotPresent
+        pollSeconds: 5
+        mongodb:
+          # MCP-server store connection. Prefer existingSecret over uri.
+          uri: ""              # plain MONGODB_URI (discouraged for real creds)
+          database: caipe
+          existingSecret:
+            name: ""           # e.g. "caipe-ui-mongodb" / your Mongo secret
+            key: MONGODB_URI
+        # securityContext: {}  # optional; defaults to agentgateway.securityContext
+        # resources: {}        # optional; defaults to agentgateway.resources
+        extraEnv: []
     extAuth:
       enabled: false
       serviceName: ""
@@ -1456,7 +1521,6 @@ rag-stack:
       pullPolicy: "IfNotPresent"
     env:
       RBAC_TEAM_SCOPE_ENABLED: "true"
-      OPENFGA_HTTP: ""
       OPENFGA_STORE_NAME: "caipe-openfga"
       CAIPE_UNSAFE_RBAC_BYPASS: "false"
 

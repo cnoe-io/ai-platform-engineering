@@ -314,9 +314,9 @@ ensure_service_account_impersonation_role() {
     echo "${TAG}   impersonation role already assigned."
   else
     echo "${TAG}   Assigning impersonation role ..."
-    ROLES_RESP=$(curl -sf -H "${AUTH}" \
-      "${KC_URL}/admin/realms/${REALM}/clients/${RM_CLIENT_ID}/roles" 2>/dev/null || echo "[]")
-    IMP_ROLE_ID=$(echo "${ROLES_RESP}" | grep -B1 '"impersonation"' | grep -o '"id" *: *"[^"]*"' | sed 's/.*"\([^"]*\)"/\1/' | head -1)
+    IMP_ROLE_RESP=$(curl -sf -H "${AUTH}" \
+      "${KC_URL}/admin/realms/${REALM}/clients/${RM_CLIENT_ID}/roles/impersonation" 2>/dev/null || echo "{}")
+    IMP_ROLE_ID=$(json_field "${IMP_ROLE_RESP}" "id")
 
     if [ -n "${IMP_ROLE_ID}" ]; then
       curl -sf -X POST -H "${AUTH}" -H "Content-Type: application/json" \
@@ -456,6 +456,80 @@ else
 
     attach_policy_to_scope_permission "${RM_CLIENT_ID}" "${IMPERSONATE_PERM_ID}" "${POLICY_ID}" "impersonate permission" || \
       echo "${TAG}   WARNING: could not update impersonate permission."
+  fi
+fi
+
+# ------------------------------------------------------------------
+# 8b. OBO target token-exchange permission on the audience client
+#     (caipe-platform by default)
+#
+# Bots perform On-Behalf-Of (RFC 8693) token-exchange whose *target
+# audience* is the CAIPE UI BFF resource server (caipe-platform). Keycloak
+# gates that exchange with the token-exchange scope-permission on the
+# AUDIENCE client, so BOTH bot client policies must be attached there — not
+# just on each bot's own client permission (handled above).
+#
+# This reconciliation previously lived only in init-idp.sh, which the chart
+# runs exclusively when an upstream IdP broker is configured (idp.enabled=
+# true). For the default in-chart / local-Keycloak install that job never
+# renders, leaving the caipe-platform token-exchange perm with no bot
+# policies and Keycloak's default UNANIMOUS strategy — which fails the bot
+# OBO health invariants on a brand-new install. Reconciling it here, in the
+# job that always runs on tokenExchange.enabled, makes a fresh install pass
+# without depending on the upstream-IdP path. Idempotent; safe to re-run and
+# safe to no-op when the audience/bot clients are absent.
+# assisted-by Claude:claude-opus-4-8
+# ------------------------------------------------------------------
+OBO_AUDIENCE_CLIENT_ID="${CAIPE_PLATFORM_AUDIENCE:-caipe-platform}"
+if [ -n "${RM_CLIENT_ID:-}" ]; then
+  echo "${TAG} Reconciling OBO target token-exchange perm on '${OBO_AUDIENCE_CLIENT_ID}' ..."
+  OBO_AUD_RESP=$(curl -sf -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/clients?clientId=${OBO_AUDIENCE_CLIENT_ID}" 2>/dev/null || echo "[]")
+  OBO_AUD_INTERNAL_ID=$(json_field "${OBO_AUD_RESP}" "id")
+  if [ -z "${OBO_AUD_INTERNAL_ID}" ]; then
+    echo "${TAG}   '${OBO_AUDIENCE_CLIENT_ID}' client not found — skipping OBO target perm."
+  else
+    # Enable management permissions on the audience client (idempotent;
+    # creates the token-exchange scope-permission if absent).
+    OBO_MGMT=$(curl -sf -H "${AUTH}" \
+      "${KC_URL}/admin/realms/${REALM}/clients/${OBO_AUD_INTERNAL_ID}/management/permissions" 2>/dev/null || echo '{"enabled":false}')
+    if [ "$(json_bool "${OBO_MGMT}" "enabled")" != "true" ]; then
+      OBO_MGMT=$(curl -sf -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
+        "${KC_URL}/admin/realms/${REALM}/clients/${OBO_AUD_INTERNAL_ID}/management/permissions" \
+        -d '{"enabled":true}' 2>/dev/null || echo '{}')
+      echo "${TAG}   Management permissions enabled on '${OBO_AUDIENCE_CLIENT_ID}'."
+    fi
+    OBO_TE_PERM_ID=$(echo "${OBO_MGMT}" | grep -o '"token-exchange" *: *"[^"]*"' | sed 's/.*"\([^"]*\)"/\1/' | head -1)
+    if [ -z "${OBO_TE_PERM_ID}" ]; then
+      echo "${TAG}   WARNING: no token-exchange permission on '${OBO_AUDIENCE_CLIENT_ID}' — skipping."
+    else
+      # find-or-create a POSITIVE client policy for a bot, then attach it to
+      # the audience token-exchange perm. attach_policy_to_scope_permission
+      # forces AFFIRMATIVE so multiple bot policies on the SHARED perm don't
+      # cross-DENY under the default UNANIMOUS strategy.
+      _attach_bot_to_obo_target() {
+        _pname="$1"; _bot_internal="$2"; _bot_label="$3"
+        [ -n "${_bot_internal}" ] || return 0
+        _existing=$(curl -sf -H "${AUTH}" \
+          "${KC_URL}/admin/realms/${REALM}/clients/${RM_CLIENT_ID}/authz/resource-server/policy?name=${_pname}&max=1" 2>/dev/null || echo "[]")
+        if echo "${_existing}" | grep -q "\"${_pname}\""; then
+          _pid=$(json_field "${_existing}" "id")
+        else
+          _presp=$(curl -sf -X POST -H "${AUTH}" -H "Content-Type: application/json" \
+            "${KC_URL}/admin/realms/${REALM}/clients/${RM_CLIENT_ID}/authz/resource-server/policy/client" \
+            -d "{\"name\":\"${_pname}\",\"description\":\"Allow ${_bot_label} OBO token exchange to ${OBO_AUDIENCE_CLIENT_ID}\",\"logic\":\"POSITIVE\",\"clients\":[\"${_bot_internal}\"]}" 2>/dev/null || echo '{}')
+          _pid=$(json_field "${_presp}" "id")
+        fi
+        if [ -n "${_pid}" ]; then
+          attach_policy_to_scope_permission "${RM_CLIENT_ID}" "${OBO_TE_PERM_ID}" "${_pid}" "${OBO_AUDIENCE_CLIENT_ID} token-exchange perm (${_bot_label})" || \
+            echo "${TAG}   WARNING: could not attach ${_bot_label} policy to OBO target perm."
+        else
+          echo "${TAG}   WARNING: could not resolve/create policy '${_pname}'."
+        fi
+      }
+      _attach_bot_to_obo_target "caipe-slack-bot-token-exchange-policy" "${BOT_INTERNAL_ID:-}" "caipe-slack-bot"
+      _attach_bot_to_obo_target "caipe-webex-bot-token-exchange-policy" "${WEBEX_INTERNAL_ID:-}" "caipe-webex-bot"
+    fi
   fi
 fi
 

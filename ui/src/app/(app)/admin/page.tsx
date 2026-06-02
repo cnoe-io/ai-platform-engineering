@@ -207,6 +207,12 @@ interface Team {
   // and is no longer read by the page badge — only kept on the type
   // so older fixtures and dialog state shapes continue to compile.
   member_count?: number;
+  // Server-decorated count of distinct KBs assigned to the team, sourced
+  // from the canonical `team_kb_ownership` collection (see
+  // GET /api/admin/teams). The legacy `resources.knowledge_bases` array on
+  // the team document is almost always empty, so the team-card KBs badge
+  // must prefer this field.
+  kb_count?: number;
   members?: Array<{
     user_id: string;
     role: string;
@@ -1615,7 +1621,7 @@ function AdminPage() {
                             <StatChip
                               icon={<Bot className="h-3.5 w-3.5" />}
                               label="Agents"
-                              count={team.resources?.agents?.length}
+                              count={team.resources?.agents?.length ?? 0}
                               onClick={() => openTeamDialog(team, "resources")}
                             />
                             <StatChip
@@ -1624,14 +1630,18 @@ function AdminPage() {
                               count={
                                 team.resources?.tool_wildcard
                                   ? "*"
-                                  : team.resources?.tools?.length
+                                  : (team.resources?.tools?.length ?? 0)
                               }
                               onClick={() => openTeamDialog(team, "resources")}
                             />
                             <StatChip
                               icon={<Database className="h-3.5 w-3.5" />}
                               label="KBs"
-                              count={team.resources?.knowledge_bases?.length}
+                              count={
+                                team.kb_count ??
+                                team.resources?.knowledge_bases?.length ??
+                                0
+                              }
                               onClick={() => openTeamDialog(team, "kbs")}
                             />
                             <StatChip

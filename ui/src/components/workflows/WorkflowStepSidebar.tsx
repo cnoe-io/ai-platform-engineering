@@ -14,12 +14,11 @@ import {
   Loader2,
   MousePointerClick,
   Plus,
-  Search,
   Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { AgentAvatar } from "@/components/dynamic-agents/AgentAvatar";
+import { AgentPicker, type AgentPickerOption } from "@/components/ui/agent-picker";
 import { StepToolOverridePicker } from "./StepToolOverridePicker";
 import type { AgentAvatarAgent } from "@/components/dynamic-agents/AgentAvatar";
 import type { WorkflowStep } from "@/types/workflow-config";
@@ -53,164 +52,6 @@ interface WorkflowStepSidebarProps {
   readOnly?: boolean;
 }
 
-// ---------------------------------------------------------------------------
-// Agent Picker Dropdown
-// ---------------------------------------------------------------------------
-
-function AgentPickerDropdown({
-  agents,
-  selectedAgentId,
-  onSelect,
-  loading,
-}: {
-  agents: SidebarAgent[];
-  selectedAgentId: string;
-  onSelect: (agentId: string) => void;
-  loading: boolean;
-}) {
-  const [open, setOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const containerRef = useRef<HTMLDivElement>(null);
-  const searchInputRef = useRef<HTMLInputElement>(null);
-
-  const selectedAgent = agents.find((a) => a._id === selectedAgentId);
-
-  // Close on click outside
-  useEffect(() => {
-    if (!open) return;
-    const handleClickOutside = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    };
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    setTimeout(() => document.addEventListener("mousedown", handleClickOutside), 0);
-    document.addEventListener("keydown", handleEscape);
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-      document.removeEventListener("keydown", handleEscape);
-    };
-  }, [open]);
-
-  // Auto-focus search on open
-  useEffect(() => {
-    if (open && searchInputRef.current) {
-      setTimeout(() => searchInputRef.current?.focus(), 50);
-    }
-  }, [open]);
-
-  const query = searchQuery.toLowerCase();
-  const filtered = agents.filter(
-    (a) =>
-      a.name.toLowerCase().includes(query) ||
-      (a.description?.toLowerCase().includes(query) ?? false),
-  );
-
-  if (loading) {
-    return (
-      <div className="flex items-center gap-2 h-9 px-3 text-xs text-muted-foreground">
-        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-        Loading agents...
-      </div>
-    );
-  }
-
-  return (
-    <div ref={containerRef} className="relative">
-      {/* Trigger */}
-      <button
-        type="button"
-        onClick={() => {
-          setOpen(!open);
-          setSearchQuery("");
-        }}
-        className={cn(
-          "flex items-center gap-2 w-full h-9 px-3 rounded-md border border-input bg-transparent text-sm",
-          "transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
-        )}
-      >
-        {selectedAgent ? (
-          <>
-            <AgentAvatar
-              agent={selectedAgent}
-              rounded="rounded-full"
-              size="w-5 h-5"
-              iconSize="h-2.5 w-2.5"
-            />
-            <span className="flex-1 text-left truncate">{selectedAgent.name}</span>
-          </>
-        ) : (
-          <span className="flex-1 text-left text-muted-foreground">Select an agent...</span>
-        )}
-        <ChevronDown className={cn("h-3.5 w-3.5 text-muted-foreground transition-transform", open && "rotate-180")} />
-      </button>
-
-      {/* Dropdown */}
-      {open && (
-        <div className="absolute top-full left-0 right-0 mt-1 z-50 rounded-md bg-popover border border-border shadow-lg animate-in fade-in-0 zoom-in-95 slide-in-from-top-2">
-          {/* Search */}
-          <div className="px-2 pt-2 pb-1">
-            <div className="flex items-center gap-2 px-2 py-1.5 rounded-md bg-muted/50 border border-border/50">
-              <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-              <input
-                ref={searchInputRef}
-                type="text"
-                placeholder="Search agents..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-                onKeyDown={(e) => e.stopPropagation()}
-              />
-            </div>
-          </div>
-
-          {/* List */}
-          <div className="overflow-y-auto max-h-64 py-1">
-            {filtered.length === 0 && (
-              <div className="px-3 py-2 text-sm text-muted-foreground">
-                {searchQuery ? `No agents match "${searchQuery}"` : "No agents available"}
-              </div>
-            )}
-            {filtered.map((agent) => {
-              const isSelected = agent._id === selectedAgentId;
-              return (
-                <button
-                  key={agent._id}
-                  onClick={() => {
-                    onSelect(agent._id);
-                    setOpen(false);
-                    setSearchQuery("");
-                  }}
-                  className={cn(
-                    "w-full flex items-center gap-3 px-3 py-2 text-sm text-left transition-colors",
-                    isSelected ? "bg-primary/10 text-primary" : "hover:bg-accent",
-                  )}
-                >
-                  <AgentAvatar
-                    agent={agent}
-                    rounded="rounded-full"
-                    size="w-7 h-7"
-                    iconSize="h-3.5 w-3.5"
-                  />
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium truncate">{agent.name}</div>
-                    {agent.description && (
-                      <div className="text-xs text-muted-foreground truncate">
-                        {agent.description}
-                      </div>
-                    )}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Component
@@ -374,12 +215,20 @@ export function WorkflowStepSidebar({
         {/* Agent */}
         <div className="space-y-2">
           <Label className="text-xs font-semibold">Agent</Label>
-          <AgentPickerDropdown
-            agents={agents}
-            selectedAgentId={step.agent_id}
-            onSelect={(agentId) => onChange({ agent_id: agentId })}
-            loading={agentsLoading}
-          />
+          {agentsLoading ? (
+            <div className="flex items-center gap-2 h-9 px-3 text-xs text-muted-foreground">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              Loading agents...
+            </div>
+          ) : (
+            <AgentPicker
+              value={step.agent_id}
+              onChange={(agentId) => onChange({ agent_id: agentId })}
+              placeholder="Select an agent..."
+              options={agents.map<AgentPickerOption>((a) => ({ value: a._id, label: a.name }))}
+              hideIdSuffix
+            />
+          )}
         </div>
 
         {/* Prompt */}

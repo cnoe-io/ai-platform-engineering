@@ -76,6 +76,67 @@ ENABLE_AGENTGATEWAY="${ENABLE_AGENTGATEWAY:-true}"
 # ENABLE_AGENTGATEWAY=true. Set ENABLE_RBAC_RUNTIME=false or pass
 # --no-rbac-runtime to skip.
 ENABLE_RBAC_RUNTIME="${ENABLE_RBAC_RUNTIME:-true}"
+# Keycloak bootstrap admin password (master realm). The keycloak subchart
+# requires an explicit value — generated admin passwords are disabled because
+# Keycloak persists the bootstrap admin in its database. Resolved/persisted by
+# _resolve_keycloak_admin_password (idempotent, mirrors the MongoDB pattern).
+KEYCLOAK_ADMIN_PASSWORD="${KEYCLOAK_ADMIN_PASSWORD:-}"
+# GitHub social login (Keycloak "github" broker). Lets anyone with a GitHub
+# account sign in alongside local Keycloak users. Empty = ask interactively
+# when a public domain + RBAC runtime are in play; set to true/false to force.
+# Requires a DEDICATED GitHub OAuth App whose Authorization callback URL is
+# https://<domain>/realms/caipe/broker/github/endpoint — do NOT reuse the
+# GITHUB_CLIENT_* connector credentials (different callback/purpose).
+ENABLE_GITHUB_SOCIAL="${ENABLE_GITHUB_SOCIAL:-}"
+GITHUB_SOCIAL_CLIENT_ID="${GITHUB_SOCIAL_CLIENT_ID:-}"
+GITHUB_SOCIAL_CLIENT_SECRET="${GITHUB_SOCIAL_CLIENT_SECRET:-}"
+# Local Keycloak admin login (no upstream IdP / no Cisco SSO). The default
+# in-chart Keycloak install ships no human users, so without this nobody could
+# sign in unless an upstream IdP (Duo/Okta) was brokered. When the RBAC runtime
+# is on with a DNS domain and no upstream IdP is configured, we create a single
+# realm user with a password and grant it org-admin (BOOTSTRAP_ADMIN_EMAILS) so
+# RBAC/auth can be exercised end-to-end with zero external identity setup.
+# Disable with --no-local-admin. The password is generated and persisted in the
+# caipe-local-admin Secret (idempotent re-runs) unless LOCAL_ADMIN_PASSWORD is set.
+ENABLE_LOCAL_ADMIN="${ENABLE_LOCAL_ADMIN:-true}"
+LOCAL_ADMIN_EMAIL="${LOCAL_ADMIN_EMAIL:-admin@caipe.local}"
+LOCAL_ADMIN_PASSWORD="${LOCAL_ADMIN_PASSWORD:-}"
+# Second local realm user that is NOT in BOOTSTRAP_ADMIN_EMAILS, so it logs in as
+# a plain (non-org-admin) user. Lets operators test both RBAC paths — admin
+# surfaces vs a standard chat user denied the admin UI — out of the box. Disable
+# with --no-local-user. Password generated + persisted in the caipe-local-user
+# Secret (idempotent) unless LOCAL_USER_PASSWORD is set. Only provisioned when the
+# local admin is (same _local_admin_active gate).
+ENABLE_LOCAL_USER="${ENABLE_LOCAL_USER:-true}"
+LOCAL_USER_EMAIL="${LOCAL_USER_EMAIL:-user@caipe.local}"
+LOCAL_USER_PASSWORD="${LOCAL_USER_PASSWORD:-}"
+# Shared Postgres: default ON. Deploys a single bitnami/postgresql instance that
+# backs Keycloak and OpenFGA (and optionally LiteLLM) with persistent databases,
+# replacing Keycloak's embedded H2 and OpenFGA's in-memory store (both of which
+# lose all state on pod restart). Only deployed when something actually needs it
+# (RBAC runtime, or --litellm-db). Set ENABLE_SHARED_POSTGRES=false or pass
+# --no-shared-postgres to fall back to the old ephemeral H2/in-memory stores.
+ENABLE_SHARED_POSTGRES="${ENABLE_SHARED_POSTGRES:-true}"
+SHARED_PG_SERVICE="caipe-postgres"
+SHARED_PG_ADMIN_PASSWORD=""
+KEYCLOAK_DB_PASSWORD=""
+OPENFGA_DB_PASSWORD=""
+LITELLM_DB_PASSWORD=""
+# LiteLLM unified front: route all chat + embeddings credentials through a single
+# in-cluster LiteLLM proxy (OpenAI-compatible). Set via --litellm.
+LLM_VIA_LITELLM="${LLM_VIA_LITELLM:-false}"
+# Persist LiteLLM virtual keys / spend tracking in the shared Postgres (opt-in).
+ENABLE_LITELLM_DB="${ENABLE_LITELLM_DB:-false}"
+# Captured at finalize time so the proxy's model_list can be built from the real
+# provider while agents/RAG are repointed at the proxy (the working
+# LLM_PROVIDER/EMBEDDINGS_PROVIDER get rewritten to openai/litellm).
+LITELLM_CHAT_SOURCE=""
+LITELLM_EMBED_SOURCE=""
+LITELLM_EMBED_MODEL_REAL=""
+LITELLM_ROUTE_EMBEDDINGS=false
+# Downstream key agents/RAG present to the proxy. The proxy is in-cluster and not
+# internet-exposed; this is a routing token, not an upstream provider secret.
+LITELLM_MASTER_KEY="${LITELLM_MASTER_KEY:-sk-caipe-litellm}"
 VLLM_MODEL="${VLLM_MODEL:-openai/gpt-oss-20b}"
 VLLM_GPU_COUNT="${VLLM_GPU_COUNT:-1}"
 OLLAMA_MODEL="${OLLAMA_MODEL:-llama2}"
@@ -118,6 +179,18 @@ UI_ENV_FILE=""
 # baseline CAIPE experience). Set ENABLE_DYNAMIC_AGENTS=false or pass
 # --no-dynamic-agents to skip.
 ENABLE_DYNAMIC_AGENTS="${ENABLE_DYNAMIC_AGENTS:-true}"
+# Chat-bot surfaces (the slack-bot / webex-bot deployments — distinct from the
+# slack/webex MCP agents). Default OFF; enabled via --slack-bot / --webex-bot,
+# the ENABLE_SLACK_BOT / ENABLE_WEBEX_BOT env vars, or (for parity with
+# docker-compose.dev.yaml + .env) when the env-file sets ENABLE_SLACK /
+# ENABLE_WEBEX. They wire the slack-bot/webex-bot subcharts onto an existing
+# Keycloak + OpenFGA + MongoDB stack.
+ENABLE_SLACK_BOT="${ENABLE_SLACK_BOT:-false}"
+ENABLE_WEBEX_BOT="${ENABLE_WEBEX_BOT:-false}"
+# Set to "on"/"off" by --slack-bot / --no-slack-bot (and webex equivalents) so an
+# explicit CLI choice wins over the env-file auto-enable. Empty = no CLI flag given.
+_SLACK_BOT_FORCED=""
+_WEBEX_BOT_FORCED=""
 # Agents selected interactively; empty means all defaults are used (non-interactive path)
 SELECTED_AGENTS=()
 CAIPE_DEPLOYMENT_MODE="${CAIPE_DEPLOYMENT_MODE:-all-in-one}"
@@ -187,6 +260,13 @@ ask_yn() {
 wait_for_pods() {
   local ns="$1" timeout="${2:-300}" exclude_pattern="${3:-}" interval=5 elapsed=0
   local show_interval=10 next_show=10
+  # Once the cluster has "settled" (every not-ready pod is CrashLoopBackOff/Error,
+  # i.e. nothing is still converging) we stop waiting and return 0 instead of
+  # burning the full timeout. This is the common case for a credential-less
+  # default install where optional agents (argocd/slack/splunk/…) CrashLoop
+  # without secrets — the platform itself is healthy and post-deploy must still
+  # run. Grace period avoids declaring "settled" during normal startup flapping.
+  local settle_grace=120
   local log_check_after=20 log_check_interval=15 next_log_check=0
   local exclude_awk=""
   local prev_lines=0
@@ -203,15 +283,28 @@ wait_for_pods() {
   }
 
   while [[ $elapsed -lt $timeout ]]; do
-    local total ready
+    local total ready stuck transient
+    # Completed/Succeeded job pods (e.g. Keycloak init hooks) are finished work,
+    # not long-running workloads — exclude them so they don't inflate the total
+    # and make readiness unreachable.
     total=$(kubectl get pods -n "$ns" --no-headers 2>/dev/null \
-      | awk "${exclude_awk}"'$3!="Terminating" {print}' | wc -l | tr -d ' ')
+      | awk "${exclude_awk}"'$3!="Terminating" && $3!="Completed" && $3!="Succeeded" {print}' | wc -l | tr -d ' ')
     ready=$(kubectl get pods -n "$ns" --no-headers 2>/dev/null \
       | awk "${exclude_awk}"'$3=="Running" && $2~"^[0-9]+/[0-9]+$" {split($2,a,"/"); if(a[1]==a[2]) print}' \
       | wc -l | tr -d ' ')
     if [[ "$total" -gt 0 && "$total" -eq "$ready" ]]; then
       _wfp_clear_table
       log "All $total pods in ${ns} are running"
+      return 0
+    fi
+    # Settled? Every not-ready pod is CrashLoopBackOff/Error (nothing converging).
+    stuck=$(kubectl get pods -n "$ns" --no-headers 2>/dev/null \
+      | awk "${exclude_awk}"'$3=="CrashLoopBackOff" || $3=="Error" {print}' | wc -l | tr -d ' ')
+    transient=$(( total - ready - stuck ))
+    if [[ "$total" -gt 0 && $elapsed -ge $settle_grace && "$transient" -le 0 && "$stuck" -gt 0 ]]; then
+      _wfp_clear_table
+      warn "${ready}/${total} pods ready in ${ns}; ${stuck} stuck (CrashLoopBackOff/Error) — continuing"
+      warn "Stuck pods usually lack agent credentials; the core platform is up. Add creds via --env-file to enable them."
       return 0
     fi
 
@@ -1671,7 +1764,11 @@ install_nginx_ingress() {
   step "Installing nginx-ingress controller"
 
   helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx &>/dev/null 2>&1 || true
-  helm repo update &>/dev/null 2>&1
+  # Scope the refresh to just this repo and tolerate failure: a globally
+  # configured but unreachable third-party repo (e.g. a private chartmuseum)
+  # makes `helm repo update` (all repos) return non-zero, which would abort the
+  # whole script under `set -e`. We only need the ingress-nginx index here.
+  helm repo update ingress-nginx &>/dev/null 2>&1 || true
 
   helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
     --namespace ingress-nginx --create-namespace \
@@ -1695,7 +1792,12 @@ install_nginx_ingress() {
   # address. NAT the host's external IP to the ingress IP so external traffic
   # reaches the cluster. On cloud clusters (EKS/GKE/AKS) the cloud LB handles
   # this automatically — skip iptables entirely.
-  if $ENABLE_METALLB && [[ -n "$CAIPE_DOMAIN" ]]; then
+  #
+  # This whole block is Linux-only: it relies on `hostname -I`, /proc/sys, and
+  # iptables, none of which exist on macOS. On Docker Desktop (macOS) the kind
+  # network is not routable from the host regardless, so external DNAT can't
+  # work — local access is via `*.local.me` → 127.0.0.1 and/or port-forward.
+  if $ENABLE_METALLB && [[ -n "$CAIPE_DOMAIN" ]] && [[ "$(uname -s)" == "Linux" ]]; then
     # DNAT requires IP forwarding to be enabled at runtime — not just in sysctl.conf.
     if [[ "$(cat /proc/sys/net/ipv4/ip_forward 2>/dev/null)" != "1" ]]; then
       sudo sysctl -w net.ipv4.ip_forward=1 &>/dev/null \
@@ -1777,6 +1879,8 @@ install_nginx_ingress() {
 
     # Persist iptables rules and ip_forward so they survive a reboot.
     _persist_iptables "$ingress_ip"
+  elif $ENABLE_METALLB && [[ "$(uname -s)" != "Linux" ]]; then
+    log "Skipping iptables DNAT (non-Linux host) — use port-forward or *.local.me → 127.0.0.1 for local access"
   fi
 }
 
@@ -1875,8 +1979,11 @@ setup_tls() {
     [[ "$CAIPE_DOMAIN" == *.local.me ]] && _reason="*.local.me has no public CA"
     _announce_self_signed "${CAIPE_DOMAIN}" "${_reason}"
     log "Generating self-signed certificate for ${CAIPE_DOMAIN}"
-    TLS_CERT_FILE=$(mktemp /tmp/caipe-tls-cert.XXXX.pem)
-    TLS_KEY_FILE=$(mktemp /tmp/caipe-tls-key.XXXX.pem)
+    # Trailing X's only: BSD mktemp (macOS) treats any chars after the X's as a
+    # literal filename (no randomization), which collides on re-runs. The .pem
+    # extension is cosmetic — openssl writes by path, not extension.
+    TLS_CERT_FILE=$(mktemp /tmp/caipe-tls-cert-XXXXXX)
+    TLS_KEY_FILE=$(mktemp /tmp/caipe-tls-key-XXXXXX)
     local _san
     if [[ "$CAIPE_DOMAIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
       _san="IP:${CAIPE_DOMAIN}"
@@ -1902,13 +2009,14 @@ setup_tls() {
 
 _choose_agents() {
   # All available agents with display labels
-  local -a _agent_keys=(argocd aws backstage confluence github jira komodor netutils pagerduty slack splunk webex aigateway)
+  local -a _agent_keys=(argocd aws backstage confluence github gitlab jira komodor netutils pagerduty slack splunk webex aigateway)
   local -a _agent_labels=(
     "ArgoCD        — GitOps / CD pipelines"
     "AWS           — cloud resources & infrastructure"
     "Backstage     — developer portal & catalog"
     "Confluence    — wiki & knowledge base"
     "GitHub        — repos, PRs, issues, Actions"
+    "GitLab        — repos, MRs, pipelines"
     "Jira          — tickets & project tracking"
     "Komodor       — Kubernetes health & incidents"
     "NetUtils      — network diagnostics"
@@ -2556,7 +2664,7 @@ choose_features() {
   done
 
   # Disable all agents NOT in SELECTED_AGENTS
-  local -a _all_agents=(argocd aws backstage confluence github jira komodor netutils pagerduty slack splunk webex aigateway)
+  local -a _all_agents=(argocd aws backstage confluence github gitlab jira komodor netutils pagerduty slack splunk webex aigateway)
   for _agent in "${_all_agents[@]}"; do
     local _selected=false
     for _s in "${SELECTED_AGENTS[@]}"; do [[ "$_agent" == "$_s" ]] && { _selected=true; break; }; done
@@ -2741,6 +2849,10 @@ choose_features() {
           done
         fi
       fi
+
+      # Offer GitHub social login now that the public domain is known (in-chart
+      # Keycloak only). Declining keeps local Keycloak username/password.
+      prompt_github_social
     else
       ENABLE_INGRESS=false
       log "Ingress skipped"
@@ -2801,12 +2913,13 @@ _create_secret_from_env() {
 
 # Maps each Helm agent tag to:  (tag_name  secret_name  env_enable_key  keys...)
 # declare -A can't hold arrays so we use parallel indexed arrays.
-_AGENT_TAGS=(argocd github jira confluence backstage slack pagerduty webex komodor aws splunk)
+_AGENT_TAGS=(argocd github gitlab jira confluence backstage slack pagerduty webex komodor aws splunk)
 
 _agent_enable_key() {
   case "$1" in
     argocd) echo "ENABLE_ARGOCD" ;;
     github) echo "ENABLE_GITHUB" ;;
+    gitlab) echo "ENABLE_GITLAB" ;;
     jira) echo "ENABLE_JIRA" ;;
     confluence) echo "ENABLE_CONFLUENCE" ;;
     backstage) echo "ENABLE_BACKSTAGE" ;;
@@ -2823,6 +2936,7 @@ _agent_secret_keys() {
   case "$1" in
     argocd) echo "ARGOCD_TOKEN ARGOCD_API_URL ARGOCD_VERIFY_SSL" ;;
     github) echo "GITHUB_PERSONAL_ACCESS_TOKEN" ;;
+    gitlab) echo "GITLAB_PERSONAL_ACCESS_TOKEN GITLAB_API_URL" ;;
     jira) echo "ATLASSIAN_TOKEN ATLASSIAN_EMAIL ATLASSIAN_API_URL JIRA_URL JIRA_USERNAME JIRA_API_TOKEN JIRA_SSL_VERIFY" ;;
     confluence) echo "CONFLUENCE_API_TOKEN CONFLUENCE_USERNAME CONFLUENCE_URL CONFLUENCE_API_URL CONFLUENCE_SSL_VERIFY ATLASSIAN_TOKEN ATLASSIAN_EMAIL ATLASSIAN_API_URL ATLASSIAN_VERIFY_SSL" ;;
     backstage) echo "BACKSTAGE_API_TOKEN BACKSTAGE_URL" ;;
@@ -2860,9 +2974,14 @@ provision_agent_secrets() {
     _create_secret_from_env "$env_file" "$secret_name" caipe "${keys[@]}"
     log "Agent ${agent}: secret '${secret_name}' ready"
 
+    # tags.agent-* deploys the agent as its own service (distributed/multi-node);
+    # singleNode.enabledSubAgents.* loads it in-process in all-in-one mode. Set
+    # both so the agent activates regardless of deployment mode (matches the
+    # interactive path, which sets the singleNode flag too).
     HELM_AGENT_ARGS+=(
       --set "tags.agent-${agent}=true"
       --set "agent-${agent}.agentSecrets.secretName=${secret_name}"
+      --set "supervisor-agent.singleNode.enabledSubAgents.${agent}=true"
     )
   done
 }
@@ -2895,10 +3014,25 @@ provision_ui_secret() {
     _patches+=("{\"op\":\"add\",\"path\":\"/data/NEXTAUTH_URL\",\"value\":\"$(echo -n "https://${CAIPE_DOMAIN}" | base64 -w0)\"}")
     # RAG BFF: Next.js server-side calls use the in-cluster service, not localhost
     _patches+=("{\"op\":\"add\",\"path\":\"/data/RAG_SERVER_URL\",\"value\":\"$(echo -n "http://rag-server:${RAG_SERVER_PORT}" | base64 -w0)\"}")
+    # In-chart Keycloak SSO over a public DNS domain: the dev env file points
+    # OIDC at localhost:7080, which is unreachable from the pod (ECONNREFUSED at
+    # signin). Rewrite to the public issuer (browser + token `iss`) while server
+    # discovery uses the in-cluster service (OIDC_DISCOVERY_URL is the issuer
+    # BASE; the app appends /.well-known/openid-configuration). Also clear the
+    # Cisco-specific OIDC_REQUIRED_GROUP=backstage-access copied from the dev env
+    # file so any authenticated Keycloak user is admitted (chart default = empty).
+    if $ENABLE_RBAC_RUNTIME && [[ ! "$CAIPE_DOMAIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+      _patches+=("{\"op\":\"add\",\"path\":\"/data/OIDC_ISSUER\",\"value\":\"$(echo -n "https://${CAIPE_DOMAIN}/realms/caipe" | base64 -w0)\"}")
+      _patches+=("{\"op\":\"add\",\"path\":\"/data/OIDC_DISCOVERY_URL\",\"value\":\"$(echo -n "http://caipe-keycloak:8080/realms/caipe" | base64 -w0)\"}")
+      _patches+=("{\"op\":\"add\",\"path\":\"/data/OIDC_REQUIRED_GROUP\",\"value\":\"$(echo -n "" | base64 -w0)\"}")
+    fi
     kubectl patch secret caipe-ui-secret -n caipe --type='json' \
       -p="[$(IFS=,; echo "${_patches[*]}")]" 2>/dev/null || true
     log "NEXTAUTH_URL overridden to https://${CAIPE_DOMAIN}"
     log "RAG_SERVER_URL overridden to http://rag-server:${RAG_SERVER_PORT} (cluster service)"
+    if $ENABLE_RBAC_RUNTIME && [[ ! "$CAIPE_DOMAIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+      log "OIDC issuer -> https://${CAIPE_DOMAIN}/realms/caipe (discovery via in-cluster caipe-keycloak; group gate cleared)"
+    fi
   fi
 
   log "UI secret 'caipe-ui-secret' ready"
@@ -2926,11 +3060,165 @@ provision_ui_secret() {
   done
 }
 
+# ─── Chat-bot surfaces (slack-bot / webex-bot) ───────────────────────────────
+# These mirror the slack-bot / webex-bot profiles in docker-compose.dev.yaml.
+# They are deployed via the umbrella chart's slack-bot / webex-bot subcharts
+# (tags.slack-bot / tags.webex-bot) wired onto the in-chart Keycloak + OpenFGA +
+# MongoDB stack. Bot tokens go into k8s Secrets (envFrom secretRef); non-secret
+# wiring goes into the subchart `config:` map written by _write_bot_values.
+HELM_BOT_ARGS=()
+
+# Create slack-bot-secrets / webex-bot-secrets from the env file (tokens only).
+# Falls back to the committed dev client secrets (realm-config.json) for the
+# Keycloak OBO/admin clients ONLY in local dev (no public domain), so the bot
+# can do RBAC user-lookup + token-exchange against the in-chart Keycloak.
+provision_bot_secrets() {
+  local env_file="${1:-}"
+  step "Provisioning chat-bot secrets"
+
+  if $ENABLE_SLACK_BOT; then
+    local _slack_keys=(
+      SLACK_BOT_TOKEN SLACK_APP_TOKEN SLACK_SIGNING_SECRET SLACK_CLIENT_SECRET
+      SLACK_LINK_HMAC_SECRET SLACK_INTEGRATION_AUTH_CLIENT_SECRET
+      KEYCLOAK_BOT_CLIENT_SECRET KEYCLOAK_SLACK_BOT_ADMIN_CLIENT_SECRET OAUTH2_CLIENT_SECRET
+    )
+    local _slack_literals=()
+    if [[ -n "$env_file" && -f "$env_file" ]]; then
+      local _k _v
+      for _k in "${_slack_keys[@]}"; do
+        _v=$(_env_get "$env_file" "$_k")
+        [[ -n "$_v" ]] && _slack_literals+=(--from-literal="${_k}=${_v}")
+      done
+    fi
+    # Local-dev OBO/admin defaults (match charts/.../keycloak/realm-config.json).
+    if [[ -z "$CAIPE_DOMAIN" ]]; then
+      _bot_default_literal _slack_literals "${_slack_literals[*]}" KEYCLOAK_BOT_CLIENT_SECRET caipe-slack-bot-dev-secret
+      _bot_default_literal _slack_literals "${_slack_literals[*]}" OAUTH2_CLIENT_SECRET caipe-slack-bot-dev-secret
+      _bot_default_literal _slack_literals "${_slack_literals[*]}" KEYCLOAK_SLACK_BOT_ADMIN_CLIENT_SECRET caipe-platform-dev-secret
+    fi
+    if [[ ${#_slack_literals[@]} -gt 0 ]]; then
+      kubectl create secret generic slack-bot-secrets -n caipe "${_slack_literals[@]}" \
+        --dry-run=client -o yaml | kubectl apply -f - &>/dev/null
+      log "slack-bot: secret 'slack-bot-secrets' ready"
+    else
+      warn "slack-bot enabled but no Slack tokens found in env file — bot will not start until SLACK_BOT_TOKEN/SLACK_APP_TOKEN are provided"
+    fi
+  fi
+
+  if $ENABLE_WEBEX_BOT; then
+    local _webex_keys=(
+      WEBEX_INTEGRATION_BOT_ACCESS_TOKEN WEBEX_TOKEN WEBEX_LINK_HMAC_SECRET
+      WEBEX_INTEGRATION_AUTH_CLIENT_SECRET KEYCLOAK_WEBEX_BOT_CLIENT_SECRET
+    )
+    local _webex_literals=()
+    if [[ -n "$env_file" && -f "$env_file" ]]; then
+      local _k _v
+      for _k in "${_webex_keys[@]}"; do
+        _v=$(_env_get "$env_file" "$_k")
+        [[ -n "$_v" ]] && _webex_literals+=(--from-literal="${_k}=${_v}")
+      done
+    fi
+    if [[ -z "$CAIPE_DOMAIN" ]]; then
+      _bot_default_literal _webex_literals "${_webex_literals[*]}" KEYCLOAK_WEBEX_BOT_CLIENT_SECRET caipe-webex-bot-dev-secret
+    fi
+    if [[ ${#_webex_literals[@]} -gt 0 ]]; then
+      kubectl create secret generic webex-bot-secrets -n caipe "${_webex_literals[@]}" \
+        --dry-run=client -o yaml | kubectl apply -f - &>/dev/null
+      log "webex-bot: secret 'webex-bot-secrets' ready"
+    else
+      warn "webex-bot enabled but no Webex token found in env file — bot will not start until WEBEX_INTEGRATION_BOT_ACCESS_TOKEN is provided"
+    fi
+  fi
+}
+
+# Append --from-literal=KEY=DEFAULT to the named array unless KEY is already
+# present in its current contents. Usage:
+#   _bot_default_literal ARRAY_NAME "${ARRAY[*]}" KEY DEFAULT
+_bot_default_literal() {
+  local _arr_name="$1" _current="$2" _key="$3" _default="$4"
+  case " $_current " in
+    *"--from-literal=${_key}="*) return 0 ;;  # already set from env file
+  esac
+  eval "${_arr_name}+=(--from-literal=\"\${_key}=\${_default}\")"
+}
+
+# Write a Helm values file enabling the requested bot surfaces and pointing
+# them at the in-cluster Keycloak/OpenFGA/MongoDB/UI services (release "caipe").
+# Echoes the values-file path (empty if no bot is enabled). MONGODB_URI is built
+# from the resolved cluster password (same pattern as dynamic-agents).
+_write_bot_values() {
+  $ENABLE_SLACK_BOT || $ENABLE_WEBEX_BOT || { printf '%s' ""; return 0; }
+
+  local values_file
+  values_file=$(mktemp /tmp/caipe-bot-values-XXXXXX)
+  local _mongo_pw="${MONGODB_ROOT_PASSWORD:-MONGODB_ROOT_PASSWORD_UNSET}"
+  local _mongo_uri="mongodb://admin:${_mongo_pw}@caipe-mongodb:27017/caipe?authSource=caipe"
+  local _kc="http://caipe-keycloak:8080"
+  local _issuer="${_kc}/realms/caipe"
+
+  {
+    echo "tags:"
+    $ENABLE_SLACK_BOT && echo "  slack-bot: true"
+    $ENABLE_WEBEX_BOT && echo "  webex-bot: true"
+  } >> "$values_file"
+
+  if $ENABLE_SLACK_BOT; then
+    cat >> "$values_file" <<SLACKEOF
+slack-bot:
+  existingSecret: "slack-bot-secrets"
+  config:
+    CAIPE_API_URL: "http://caipe-caipe-ui:3000"
+    SLACK_BOT_MODE: "socket"
+    SLACK_INTEGRATION_BOT_MODE: "socket"
+    MONGODB_URI: "${_mongo_uri}"
+    MONGODB_DATABASE: "caipe"
+    KEYCLOAK_URL: "${_kc}"
+    KEYCLOAK_REALM: "caipe"
+    OPENFGA_HTTP: "http://caipe-openfga:8080"
+    OPENFGA_STORE_NAME: "caipe-openfga"
+    SLACK_RBAC_ENABLED: "true"
+    SLACK_AGENT_ROUTES_MODE: "db_prefer"
+    SLACK_ADMIN_API_ENABLED: "true"
+    SLACK_ADMIN_API_PORT: "3001"
+    SLACK_ADMIN_JWT_ISSUER: "${_issuer}"
+    SLACK_ADMIN_JWKS_URL: "${_kc}/realms/caipe/protocol/openid-connect/certs"
+    SLACK_ADMIN_JWT_AUDIENCE: "caipe-slack-bot-admin"
+    SLACK_ADMIN_ALLOWED_CLIENT_IDS: "caipe-ui"
+    SLACK_INTEGRATION_ENABLE_AUTH: "true"
+    SLACK_INTEGRATION_AUTH_TOKEN_URL: "${_issuer}/protocol/openid-connect/token"
+    SLACK_INTEGRATION_AUTH_CLIENT_ID: "caipe-slack-bot"
+    KEYCLOAK_BOT_CLIENT_ID: "caipe-slack-bot"
+    KEYCLOAK_SLACK_BOT_ADMIN_CLIENT_ID: "caipe-platform"
+    SLACK_JIT_CREATE_USER: "true"
+SLACKEOF
+  fi
+
+  if $ENABLE_WEBEX_BOT; then
+    cat >> "$values_file" <<WEBEXEOF
+webex-bot:
+  existingSecret: "webex-bot-secrets"
+  config:
+    CAIPE_API_URL: "http://caipe-caipe-ui:3000"
+    MONGODB_URI: "${_mongo_uri}"
+    MONGODB_DATABASE: "caipe"
+    KEYCLOAK_URL: "${_kc}"
+    KEYCLOAK_REALM: "caipe"
+    OPENFGA_HTTP: "http://caipe-openfga:8080"
+    OPENFGA_STORE_NAME: "caipe-openfga"
+    KEYCLOAK_WEBEX_BOT_ADMIN_CLIENT_ID: "caipe-platform"
+WEBEXEOF
+  fi
+
+  printf '%s' "$values_file"
+}
+
 create_namespace_and_secrets() {
   step "Namespace and secrets"
 
   kubectl create namespace caipe --dry-run=client -o yaml | kubectl apply -f - &>/dev/null
   log "Namespace 'caipe' ready"
+
+  _ensure_caipe_platform_secret  # must exist before helm install; see PR #1519
 
   # Rescue embeddings credentials from the existing llm-secret before we
   # overwrite it, so a LLM-provider switch doesn't silently break RAG.
@@ -2967,7 +3255,23 @@ create_namespace_and_secrets() {
     fi
   fi
 
-  local secret_args=(
+  local secret_args=()
+
+  if $LLM_VIA_LITELLM; then
+    # Unified mode: agents talk to the in-cluster LiteLLM proxy as plain OpenAI.
+    # The real upstream provider credentials live only in litellm-upstream-secret
+    # (created by deploy_litellm), never in this agent-facing secret. The chat
+    # alias "caipe-chat" is resolved by the proxy's model_list to the real model.
+    local _lep="http://litellm-proxy.caipe.svc.cluster.local:4000/v1"
+    secret_args+=(
+      --from-literal=LLM_PROVIDER="openai"
+      --from-literal=OPENAI_API_KEY="${LITELLM_MASTER_KEY}"
+      --from-literal=OPENAI_ENDPOINT="${_lep}"
+      --from-literal=OPENAI_BASE_URL="${_lep}"
+      --from-literal=OPENAI_MODEL_NAME="caipe-chat"
+    )
+  else
+  secret_args+=(
     --from-literal=LLM_PROVIDER="$LLM_PROVIDER"
   )
 
@@ -3006,6 +3310,7 @@ create_namespace_and_secrets() {
       )
       ;;
   esac
+  fi
 
   # When using non-OpenAI LLM with OpenAI embeddings for RAG, the RAG server
   # needs OPENAI_API_KEY in the same secret.
@@ -3097,6 +3402,63 @@ create_namespace_and_secrets() {
     fi
     provision_ui_secret "$UI_ENV_FILE"
   fi
+
+  # Keycloak "platform" confidential-client secret for the BFF -> Keycloak Admin
+  # REST wiring. The chart references an existing Secret named
+  # caipe-platform-secret (caipe-ui.keycloakAdminClient.secretName +
+  # keycloak.platformClient.secretRef both default to it) but, unless ESO is
+  # enabled, NOTHING creates it — so the caipe-ui pod stays in
+  # CreateContainerConfigError once SSO is on (SSO is auto-enabled when a domain
+  # is set). Pre-create it whenever the in-chart Keycloak (RBAC runtime) is used.
+  # The value is the caipe-platform client secret; in the committed dev realm
+  # that is caipe-platform-dev-secret (env KEYCLOAK_CLIENT_SECRET).
+  if $ENABLE_RBAC_RUNTIME; then
+    local _platform_client_secret=""
+    if [[ -n "$ENV_FILE" && -f "$ENV_FILE" ]]; then
+      _platform_client_secret=$(_env_get "$ENV_FILE" KEYCLOAK_CLIENT_SECRET)
+    fi
+    [[ -z "$_platform_client_secret" ]] && _platform_client_secret="caipe-platform-dev-secret"
+    kubectl create secret generic caipe-platform-secret -n caipe \
+      --from-literal=OIDC_CLIENT_SECRET="$_platform_client_secret" \
+      --dry-run=client -o yaml | kubectl apply -f - &>/dev/null
+    log "caipe-platform-secret ready (Keycloak platform client -> caipe-ui admin REST)"
+  fi
+
+  # caipe-ui-secret for the DEFAULT (no --ui-env-file) SSO install: NextAuth needs
+  # a stable NEXTAUTH_SECRET to sign sessions, and the UI authenticates to
+  # Keycloak as the caipe-ui confidential client (the committed dev realm ships
+  # secret caipe-ui-dev-secret). With a --ui-env-file these come from
+  # provision_ui_secret; here we synthesize them so a vanilla install can do SSO.
+  # NEXTAUTH_SECRET is generated once and persisted (idempotent re-runs). These
+  # MUST live in the Secret (not config) so the chart's envFrom secretRef wins
+  # over the empty config defaults. assisted-by Claude:claude-opus-4-8
+  if $ENABLE_RBAC_RUNTIME && [[ -z "$UI_ENV_FILE" ]]; then
+    local _ui_nextauth
+    _ui_nextauth=$(kubectl get secret caipe-ui-secret -n caipe \
+      -o jsonpath='{.data.NEXTAUTH_SECRET}' 2>/dev/null | base64 -d 2>/dev/null || true)
+    [[ -z "$_ui_nextauth" ]] && _ui_nextauth="$(openssl rand -hex 32)"
+    local _ui_client_id="${OIDC_CLIENT_ID:-caipe-ui}"
+    local _ui_client_secret="${OIDC_CLIENT_SECRET:-caipe-ui-dev-secret}"
+    # OIDC_CLIENT_ID MUST be provided too: NextAuth's oidc provider throws
+    # "client_id is required" (login error=OAuthSignin) if only the secret is set.
+    # The chart default config.OIDC_CLIENT_ID is empty, so without this the UI can
+    # never start the auth flow. Keep it in the Secret alongside the secret so the
+    # envFrom secretRef wins over the empty config default.
+    kubectl create secret generic caipe-ui-secret -n caipe \
+      --from-literal=NEXTAUTH_SECRET="$_ui_nextauth" \
+      --from-literal=OIDC_CLIENT_ID="$_ui_client_id" \
+      --from-literal=OIDC_CLIENT_SECRET="$_ui_client_secret" \
+      --dry-run=client -o yaml | kubectl apply -f - &>/dev/null
+    HELM_UI_SECRET_ARGS+=(--set "caipe-ui.existingSecret=caipe-ui-secret")
+    log "caipe-ui-secret ready (NextAuth secret + caipe-ui client id/secret; default SSO)"
+  fi
+
+  # Chat-bot surfaces (slack-bot / webex-bot). Token secrets are created here;
+  # the Helm tags + in-cluster config (incl. MONGODB_URI built from the resolved
+  # cluster password) are written by _write_bot_values and applied in deploy_caipe.
+  if $ENABLE_SLACK_BOT || $ENABLE_WEBEX_BOT; then
+    provision_bot_secrets "$ENV_FILE"
+  fi
 }
 
 _fix_langfuse_minio_credentials() {
@@ -3145,7 +3507,9 @@ deploy_langfuse() {
   fi
 
   helm repo add langfuse https://langfuse.github.io/langfuse-k8s &>/dev/null 2>&1 || true
-  helm repo update langfuse &>/dev/null
+  # Scope to the langfuse repo and tolerate failure so an unrelated unreachable
+  # repo in the user's global helm config can't abort the script under `set -e`.
+  helm repo update langfuse &>/dev/null || true
   log "Langfuse Helm repo ready"
 
   kubectl create namespace langfuse --dry-run=client -o yaml | kubectl apply -f - &>/dev/null
@@ -3907,7 +4271,257 @@ SUPERVISOR_INGRESS_EOF
         EXTERNAL_URL="$supervisor_url" &>/dev/null \
         && log "supervisor: EXTERNAL_URL set to ${supervisor_url}"
     fi
+
+    # In-chart Keycloak SSO over a public DNS domain: NextAuth's server-side
+    # callback (token exchange + JWKS) hits the PUBLIC Keycloak endpoints
+    # (KC_HOSTNAME). The UI pod resolves the public host to the public IP and
+    # usually cannot hairpin back to its own ingress (OAuthCallback failure).
+    # Pin the public host to the in-cluster ingress ClusterIP via hostAliases so
+    # server-side calls route internally (TLS SNI/cert still match the host).
+    if $ENABLE_RBAC_RUNTIME && [[ ! "$CAIPE_DOMAIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+      local _ningx_ip
+      _ningx_ip=$(kubectl get svc ingress-nginx-controller -n ingress-nginx \
+        -o jsonpath='{.spec.clusterIP}' 2>/dev/null || true)
+      if [[ -n "$_ningx_ip" ]]; then
+        kubectl patch deploy caipe-caipe-ui -n caipe --type=merge \
+          -p "{\"spec\":{\"template\":{\"spec\":{\"hostAliases\":[{\"ip\":\"${_ningx_ip}\",\"hostnames\":[\"${CAIPE_DOMAIN}\"]}]}}}}" &>/dev/null \
+          && log "caipe-ui hostAliases: ${CAIPE_DOMAIN} -> ${_ningx_ip} (in-cluster ingress; fixes SSO callback)"
+      fi
+    fi
+
+    # Optional GitHub social login broker (configured only when requested).
+    configure_github_idp
+
+    # Default local Keycloak logins (no upstream IdP): an org-admin and a
+    # non-admin user. Self-guards via _local_admin_active (RBAC + DNS domain +
+    # no brokered IdP).
+    provision_local_users
   fi
+}
+
+# Ask the operator whether to enable GitHub social login (Keycloak "github"
+# broker) for public users. Only relevant for an in-chart Keycloak exposed on a
+# public DNS domain. Non-interactive runs honour ENABLE_GITHUB_SOCIAL + the
+# GITHUB_SOCIAL_CLIENT_ID/SECRET env vars and never prompt. If declined or
+# unconfigured, the deployment falls back to local Keycloak username/password.
+# assisted-by Claude:claude-opus-4-8
+prompt_github_social() {
+  $ENABLE_RBAC_RUNTIME || return 0
+  [[ -n "$CAIPE_DOMAIN" ]] || return 0
+  [[ "$CAIPE_DOMAIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] && return 0
+  [[ "$ENABLE_GITHUB_SOCIAL" == "false" ]] && return 0
+  if [[ "$ENABLE_GITHUB_SOCIAL" != "true" ]]; then
+    $NON_INTERACTIVE && return 0
+    local cb="https://${CAIPE_DOMAIN}/realms/caipe/broker/github/endpoint"
+    header "Optional: GitHub social login (public users)"
+    echo -e "  ${DIM}Lets anyone with a GitHub account sign in, in addition to local Keycloak users.${NC}"
+    echo -e "  ${DIM}Requires a DEDICATED GitHub OAuth App with this Authorization callback URL:${NC}"
+    echo -e "  ${BOLD}${cb}${NC}"
+    if ! ask_yn "Set up GitHub social login now?" "n"; then
+      log "GitHub social login: skipped (local Keycloak username/password only)"
+      ENABLE_GITHUB_SOCIAL=false
+      return 0
+    fi
+    ENABLE_GITHUB_SOCIAL=true
+  fi
+  if [[ -z "$GITHUB_SOCIAL_CLIENT_ID" ]]; then
+    prompt "GitHub OAuth App Client ID: "; tty_read -r GITHUB_SOCIAL_CLIENT_ID
+  fi
+  if [[ -z "$GITHUB_SOCIAL_CLIENT_SECRET" ]]; then
+    prompt "GitHub OAuth App Client Secret: "; tty_read -rs GITHUB_SOCIAL_CLIENT_SECRET; echo
+  fi
+  if [[ -z "$GITHUB_SOCIAL_CLIENT_ID" || -z "$GITHUB_SOCIAL_CLIENT_SECRET" ]]; then
+    warn "GitHub social login: missing client id/secret — falling back to local Keycloak"
+    ENABLE_GITHUB_SOCIAL=false
+  fi
+}
+
+# Upsert the Keycloak "github" identity-provider broker via the admin REST API.
+# Runs only when GitHub social login was requested. The admin API is NOT exposed
+# publicly, so we reach it over a temporary port-forward and authenticate with
+# the caipe-platform service account (client_credentials). Idempotent: updates
+# the broker in place when it already exists. assisted-by Claude:claude-opus-4-8
+configure_github_idp() {
+  $ENABLE_GITHUB_SOCIAL || return 0
+  $ENABLE_RBAC_RUNTIME || { warn "GitHub social login requires the in-chart Keycloak (RBAC runtime); skipping"; return 0; }
+  if [[ -z "$GITHUB_SOCIAL_CLIENT_ID" || -z "$GITHUB_SOCIAL_CLIENT_SECRET" ]]; then
+    warn "GitHub social login: client id/secret not set; skipping broker config"
+    return 0
+  fi
+  step "Configuring GitHub social login (Keycloak broker)"
+  local _pf_port=17081
+  kubectl port-forward svc/caipe-keycloak -n caipe ${_pf_port}:8080 >/dev/null 2>&1 &
+  local _pf=$!
+  sleep 4
+  local kc="http://localhost:${_pf_port}"
+  local cs="${KEYCLOAK_CLIENT_SECRET:-}"
+  [[ -z "$cs" && -n "${ENV_FILE:-}" && -f "${ENV_FILE:-}" ]] && cs=$(_env_get "$ENV_FILE" KEYCLOAK_CLIENT_SECRET)
+  [[ -z "$cs" ]] && cs="caipe-platform-dev-secret"
+  local tok
+  tok=$(curl -s "$kc/realms/caipe/protocol/openid-connect/token" \
+    -d grant_type=client_credentials -d client_id=caipe-platform -d client_secret="$cs" \
+    | sed -n 's/.*"access_token":"\([^"]*\)".*/\1/p')
+  if [[ -z "$tok" ]]; then
+    warn "GitHub social login: could not obtain a Keycloak admin token; skipping"
+    kill "$_pf" 2>/dev/null || true
+    return 0
+  fi
+  local body
+  body=$(cat <<JSON
+{"alias":"github","providerId":"github","enabled":true,"trustEmail":true,"storeToken":false,"config":{"clientId":"${GITHUB_SOCIAL_CLIENT_ID}","clientSecret":"${GITHUB_SOCIAL_CLIENT_SECRET}","defaultScope":"read:user user:email"}}
+JSON
+)
+  local exists code
+  exists=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $tok" \
+    "$kc/admin/realms/caipe/identity-provider/instances/github")
+  if [[ "$exists" == "200" ]]; then
+    code=$(curl -s -o /dev/null -w '%{http_code}' -X PUT \
+      -H "Authorization: Bearer $tok" -H "Content-Type: application/json" \
+      "$kc/admin/realms/caipe/identity-provider/instances/github" -d "$body")
+  else
+    code=$(curl -s -o /dev/null -w '%{http_code}' -X POST \
+      -H "Authorization: Bearer $tok" -H "Content-Type: application/json" \
+      "$kc/admin/realms/caipe/identity-provider/instances" -d "$body")
+  fi
+  kill "$_pf" 2>/dev/null || true
+  if [[ "$code" =~ ^20[0-9]$ ]]; then
+    log "GitHub social login enabled (Keycloak 'github' broker)"
+    log "Verify the GitHub OAuth App callback URL is: https://${CAIPE_DOMAIN}/realms/caipe/broker/github/endpoint"
+  else
+    warn "GitHub social login: Keycloak IdP upsert returned HTTP ${code} (check client id/secret)"
+  fi
+}
+
+# True when we should self-provision a local Keycloak admin login. Requires the
+# RBAC runtime + a DNS domain (SSO needs a browser-reachable issuer) and is
+# skipped when an upstream IdP is brokered (IDP_ISSUER set in an env file) —
+# in that case identity comes from the broker, not a local password user.
+# assisted-by Claude:claude-opus-4-8
+_local_admin_active() {
+  $ENABLE_RBAC_RUNTIME || return 1
+  [[ "$ENABLE_LOCAL_ADMIN" != "false" ]] || return 1
+  [[ -n "$CAIPE_DOMAIN" && ! "$CAIPE_DOMAIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || return 1
+  if [[ -n "${UI_ENV_FILE:-}" && -f "${UI_ENV_FILE:-}" ]]; then
+    [[ -z "$(_env_get "$UI_ENV_FILE" IDP_ISSUER)" ]] || return 1
+  fi
+  if [[ -n "${ENV_FILE:-}" && -f "${ENV_FILE:-}" ]]; then
+    [[ -z "$(_env_get "$ENV_FILE" IDP_ISSUER)" ]] || return 1
+  fi
+  return 0
+}
+
+# Create (or refresh) local Keycloak realm users with passwords so the default
+# in-chart Keycloak SSO install is actually loginable without any upstream IdP /
+# Cisco SSO. We provision TWO users so both RBAC paths can be tested out of the
+# box:
+#   • admin@caipe.local — wired into BOOTSTRAP_ADMIN_EMAILS (caipe-ui.config), so
+#     the BFF JWT callback grants it org-admin + reconciles the OpenFGA
+#     super-admin tuple on first login (admin surfaces).
+#   • user@caipe.local  — NOT in BOOTSTRAP_ADMIN_EMAILS, so it logs in as a plain
+#     non-admin user (baseline chat access, denied the admin UI).
+# The Keycloak admin API is not exposed publicly, so we reach it over a single
+# temporary port-forward and authenticate with the master-realm bootstrap admin.
+# Idempotent: resets passwords in place when users exist, and persists each
+# credential in its own Secret (caipe-local-admin / caipe-local-user) so re-runs
+# reuse them. assisted-by Claude:claude-opus-4-8
+provision_local_users() {
+  _local_admin_active || return 0
+  step "Provisioning local Keycloak logins (no upstream IdP)"
+
+  # Master-realm bootstrap admin (creating realm users needs manage-users; the
+  # bootstrap admin has it without depending on the caipe-platform grants). The
+  # chart-owned caipe-keycloak-admin Secret stores keys username/password — fall
+  # back to those (NOT a non-existent admin-password key) when the in-process
+  # KEYCLOAK_ADMIN_PASSWORD isn't set (e.g. an --upgrade/monitor re-entry).
+  local kcadm_user kcadm_pw="${KEYCLOAK_ADMIN_PASSWORD:-}"
+  kcadm_user=$(kubectl get secret caipe-keycloak-admin -n caipe \
+    -o jsonpath='{.data.username}' 2>/dev/null | base64 -d 2>/dev/null || true)
+  [[ -z "$kcadm_user" ]] && kcadm_user="admin"
+  if [[ -z "$kcadm_pw" ]]; then
+    kcadm_pw=$(kubectl get secret caipe-keycloak-admin -n caipe \
+      -o jsonpath='{.data.password}' 2>/dev/null | base64 -d 2>/dev/null || true)
+  fi
+  if [[ -z "$kcadm_pw" ]]; then
+    warn "Local logins: no Keycloak admin password available; skipping"
+    return 0
+  fi
+
+  local _pf_port=17082
+  kubectl port-forward svc/caipe-keycloak -n caipe ${_pf_port}:8080 >/dev/null 2>&1 &
+  local _pf=$!
+  sleep 4
+  local kc="http://localhost:${_pf_port}"
+
+  local tok
+  tok=$(curl -s "$kc/realms/master/protocol/openid-connect/token" \
+    -d grant_type=password -d client_id=admin-cli \
+    --data-urlencode "username=${kcadm_user}" --data-urlencode "password=${kcadm_pw}" \
+    | sed -n 's/.*"access_token":"\([^"]*\)".*/\1/p')
+  if [[ -z "$tok" ]]; then
+    warn "Local logins: could not obtain a Keycloak admin token; skipping"
+    kill "$_pf" 2>/dev/null || true
+    return 0
+  fi
+
+  # Upsert one realm user (idempotent). Args: email password first last.
+  # Echoes the HTTP status code from the create/update call.
+  _kc_upsert_user() {
+    local email="$1" pw="$2" first="$3" last="$4" uid body
+    uid=$(curl -s -H "Authorization: Bearer $tok" \
+      "$kc/admin/realms/caipe/users?email=${email}&exact=true" \
+      | sed -n 's/.*"id":"\([^"]*\)".*/\1/p' | head -1)
+    body=$(cat <<JSON
+{"username":"${email}","email":"${email}","emailVerified":true,"enabled":true,"firstName":"${first}","lastName":"${last}","credentials":[{"type":"password","value":"${pw}","temporary":false}]}
+JSON
+)
+    if [[ -n "$uid" ]]; then
+      curl -s -o /dev/null -w '%{http_code}' -X PUT \
+        -H "Authorization: Bearer $tok" -H "Content-Type: application/json" \
+        "$kc/admin/realms/caipe/users/${uid}" -d "$body"
+    else
+      curl -s -o /dev/null -w '%{http_code}' -X POST \
+        -H "Authorization: Bearer $tok" -H "Content-Type: application/json" \
+        "$kc/admin/realms/caipe/users" -d "$body"
+    fi
+  }
+
+  # ── Admin user (org-admin via BOOTSTRAP_ADMIN_EMAILS) ──
+  local admin_pw code
+  admin_pw=$(kubectl get secret caipe-local-admin -n caipe \
+    -o jsonpath='{.data.password}' 2>/dev/null | base64 -d 2>/dev/null || true)
+  [[ -z "$admin_pw" ]] && admin_pw="${LOCAL_ADMIN_PASSWORD:-$(openssl rand -hex 12)}"
+  code=$(_kc_upsert_user "$LOCAL_ADMIN_EMAIL" "$admin_pw" "CAIPE" "Admin")
+  if [[ "$code" =~ ^20[0-9]$ ]]; then
+    kubectl create secret generic caipe-local-admin -n caipe \
+      --from-literal=email="${LOCAL_ADMIN_EMAIL}" \
+      --from-literal=password="${admin_pw}" \
+      --dry-run=client -o yaml | kubectl apply -f - &>/dev/null
+    LOCAL_ADMIN_PASSWORD="$admin_pw"
+    log "Local admin login ready: ${LOCAL_ADMIN_EMAIL} (org-admin via BOOTSTRAP_ADMIN_EMAILS)"
+  else
+    warn "Local admin: Keycloak user upsert returned HTTP ${code}; sign-in may not work"
+  fi
+
+  # ── Standard (non-admin) user — NOT in BOOTSTRAP_ADMIN_EMAILS ──
+  if [[ "$ENABLE_LOCAL_USER" != "false" ]]; then
+    local user_pw
+    user_pw=$(kubectl get secret caipe-local-user -n caipe \
+      -o jsonpath='{.data.password}' 2>/dev/null | base64 -d 2>/dev/null || true)
+    [[ -z "$user_pw" ]] && user_pw="${LOCAL_USER_PASSWORD:-$(openssl rand -hex 12)}"
+    code=$(_kc_upsert_user "$LOCAL_USER_EMAIL" "$user_pw" "CAIPE" "User")
+    if [[ "$code" =~ ^20[0-9]$ ]]; then
+      kubectl create secret generic caipe-local-user -n caipe \
+        --from-literal=email="${LOCAL_USER_EMAIL}" \
+        --from-literal=password="${user_pw}" \
+        --dry-run=client -o yaml | kubectl apply -f - &>/dev/null
+      LOCAL_USER_PASSWORD="$user_pw"
+      log "Local standard login ready: ${LOCAL_USER_EMAIL} (non-admin — baseline access, no admin UI)"
+    else
+      warn "Local user: Keycloak user upsert returned HTTP ${code}; sign-in may not work"
+    fi
+  fi
+
+  kill "$_pf" 2>/dev/null || true
 }
 
 _patch_rag_server_envfrom() {
@@ -3946,6 +4560,158 @@ _patch_rag_server_envfrom() {
 #
 # Mirrors the Langfuse `existing_pw` pattern already in this script
 # (see lines ~2671-2685). assisted-by Claude:claude-opus-4-7
+# True when a shared Postgres should be deployed: opt-in via ENABLE_SHARED_POSTGRES
+# AND at least one consumer that needs persistence (RBAC runtime or LiteLLM DB).
+_shared_postgres_active() {
+  $ENABLE_SHARED_POSTGRES || return 1
+  $ENABLE_RBAC_RUNTIME && return 0
+  $ENABLE_LITELLM_DB && return 0
+  return 1
+}
+
+# Best-effort guard: chart releases that predate the Keycloak `database.*`
+# contract ignore the shared-Postgres wiring and run Keycloak on embedded H2,
+# so RBAC identity/realm state is lost on every pod restart. Detect that case by
+# inspecting the selected chart's Keycloak templates and warn loudly. OpenFGA
+# persistence is unaffected (its datastore.engine=postgres support predates this).
+# Never fails the install — on any pull/inspect error it simply skips the warning.
+_warn_if_chart_lacks_keycloak_db() {
+  _shared_postgres_active || return 0
+  [[ -n "${CAIPE_CHART_VERSION:-}" ]] || return 0
+  local tmpd kc_dir
+  tmpd=$(mktemp -d 2>/dev/null) || return 0
+  if helm pull "$CAIPE_OCI_REPO" --version "$CAIPE_CHART_VERSION" \
+       --untar --untardir "$tmpd" >/dev/null 2>&1; then
+    kc_dir=$(find "$tmpd" -type d -name keycloak 2>/dev/null | head -1)
+    # Inspect templates/ only — values.yaml ships commented KC_DB examples even on
+    # charts that hardcode start-dev (H2), which would false-negative the check.
+    # The #1686 contract is the deployment template consuming .Values.database /
+    # wiring KC_DB env, so the absence of those in templates/ means H2 fallback.
+    if [[ -d "$kc_dir/templates" ]] && ! grep -rqE "KC_DB|\.Values\.database" "$kc_dir/templates" 2>/dev/null; then
+      warn "Chart v${CAIPE_CHART_VERSION} predates the Keycloak database.* contract —"
+      warn "  Keycloak will run on embedded H2 (state lost on pod restart) even though"
+      warn "  shared Postgres is deployed and its 'keycloak' database is created."
+      warn "  OpenFGA still persists to Postgres. Upgrade to a chart release that wires"
+      warn "  Keycloak to Postgres (CAIPE_CHART_VERSION=<newer>) to make Keycloak durable."
+    fi
+  fi
+  rm -rf "$tmpd" 2>/dev/null
+}
+
+# Resolve (reuse-or-generate) the admin + per-consumer Postgres passwords and
+# persist them in the caipe-postgres-credentials Secret so re-runs are stable.
+# Hex passwords avoid any URL-encoding pitfalls inside connection strings.
+_resolve_shared_postgres_passwords() {
+  local secret_json
+  secret_json=$(kubectl get secret caipe-postgres-credentials -n caipe -o json 2>/dev/null || true)
+  _pg_field() {
+    local key="$1"
+    [[ -n "$secret_json" ]] || return 0
+    echo "$secret_json" | python3 -c "
+import sys, json, base64
+try:
+    d = json.load(sys.stdin).get('data', {})
+    v = d.get('$key')
+    print(base64.b64decode(v).decode() if v else '')
+except Exception:
+    print('')
+" 2>/dev/null || true
+  }
+
+  SHARED_PG_ADMIN_PASSWORD="$(_pg_field POSTGRES_ADMIN_PASSWORD)"
+  KEYCLOAK_DB_PASSWORD="$(_pg_field KEYCLOAK_DB_PASSWORD)"
+  OPENFGA_DB_PASSWORD="$(_pg_field OPENFGA_DB_PASSWORD)"
+  LITELLM_DB_PASSWORD="$(_pg_field LITELLM_DB_PASSWORD)"
+
+  [[ -n "$SHARED_PG_ADMIN_PASSWORD" ]] || SHARED_PG_ADMIN_PASSWORD="$(openssl rand -hex 24)"
+  [[ -n "$KEYCLOAK_DB_PASSWORD" ]] || KEYCLOAK_DB_PASSWORD="$(openssl rand -hex 24)"
+  [[ -n "$OPENFGA_DB_PASSWORD" ]] || OPENFGA_DB_PASSWORD="$(openssl rand -hex 24)"
+  [[ -n "$LITELLM_DB_PASSWORD" ]] || LITELLM_DB_PASSWORD="$(openssl rand -hex 24)"
+
+  if [[ -n "$secret_json" ]]; then
+    log "Reusing existing Postgres passwords from caipe-postgres-credentials Secret"
+  else
+    log "Generated random Postgres passwords (admin + keycloak/openfga/litellm roles)"
+  fi
+
+  kubectl create secret generic caipe-postgres-credentials \
+    --namespace caipe \
+    --from-literal=POSTGRES_ADMIN_PASSWORD="${SHARED_PG_ADMIN_PASSWORD}" \
+    --from-literal=KEYCLOAK_DB_PASSWORD="${KEYCLOAK_DB_PASSWORD}" \
+    --from-literal=OPENFGA_DB_PASSWORD="${OPENFGA_DB_PASSWORD}" \
+    --from-literal=LITELLM_DB_PASSWORD="${LITELLM_DB_PASSWORD}" \
+    --dry-run=client -o yaml \
+    | kubectl apply -f - &>/dev/null
+}
+
+# Deploy a single shared bitnami/postgresql instance that backs Keycloak,
+# OpenFGA, and (optionally) LiteLLM. Per-consumer roles + databases are created
+# via an initdb script (runs once on an empty data dir). Consumer-facing secrets
+# (caipe-keycloak-db / caipe-openfga-db / caipe-litellm-db) carry exactly the
+# password or connection-string shape each chart expects.
+deploy_shared_postgres() {
+  _resolve_shared_postgres_passwords
+
+  # Consumer-facing secrets (created/refreshed every run so wiring stays correct
+  # even if the chart values change between runs).
+  kubectl create secret generic caipe-keycloak-db \
+    --namespace caipe \
+    --from-literal=KC_DB_PASSWORD="${KEYCLOAK_DB_PASSWORD}" \
+    --dry-run=client -o yaml | kubectl apply -f - &>/dev/null
+
+  local openfga_uri="postgres://openfga:${OPENFGA_DB_PASSWORD}@${SHARED_PG_SERVICE}:5432/openfga?sslmode=disable"
+  kubectl create secret generic caipe-openfga-db \
+    --namespace caipe \
+    --from-literal=OPENFGA_DATASTORE_URI="${openfga_uri}" \
+    --dry-run=client -o yaml | kubectl apply -f - &>/dev/null
+
+  if $ENABLE_LITELLM_DB; then
+    local litellm_uri="postgresql://litellm:${LITELLM_DB_PASSWORD}@${SHARED_PG_SERVICE}:5432/litellm"
+    kubectl create secret generic caipe-litellm-db \
+      --namespace caipe \
+      --from-literal=DATABASE_URL="${litellm_uri}" \
+      --dry-run=client -o yaml | kubectl apply -f - &>/dev/null
+  fi
+
+  if kubectl get statefulset "${SHARED_PG_SERVICE}" -n caipe &>/dev/null; then
+    log "Shared Postgres already present (${SHARED_PG_SERVICE}) — skipping install"
+    return 0
+  fi
+
+  step "Deploying shared Postgres (${SHARED_PG_SERVICE}) for Keycloak/OpenFGA"
+
+  # initdb bootstrap: create a login role + owned database per consumer. Only
+  # runs when the PVC is empty (first install); harmless to define on re-runs.
+  local initdb_file
+  initdb_file=$(mktemp /tmp/caipe-pg-initdb-XXXXXX.sql)
+  cat > "$initdb_file" <<PGINIT
+CREATE ROLE keycloak WITH LOGIN PASSWORD '${KEYCLOAK_DB_PASSWORD}';
+CREATE DATABASE keycloak OWNER keycloak;
+CREATE ROLE openfga WITH LOGIN PASSWORD '${OPENFGA_DB_PASSWORD}';
+CREATE DATABASE openfga OWNER openfga;
+PGINIT
+  if $ENABLE_LITELLM_DB; then
+    cat >> "$initdb_file" <<PGINIT
+CREATE ROLE litellm WITH LOGIN PASSWORD '${LITELLM_DB_PASSWORD}';
+CREATE DATABASE litellm OWNER litellm;
+PGINIT
+  fi
+
+  helm repo add bitnami https://charts.bitnami.com/bitnami &>/dev/null 2>&1 || true
+  helm upgrade --install "${SHARED_PG_SERVICE}" bitnami/postgresql \
+    -n caipe \
+    --set "fullnameOverride=${SHARED_PG_SERVICE}" \
+    --set architecture=standalone \
+    --set "auth.postgresPassword=${SHARED_PG_ADMIN_PASSWORD}" \
+    --set primary.persistence.size=4Gi \
+    --set-file "primary.initdb.scripts.caipe-init\.sql=${initdb_file}" \
+    --timeout 5m &>/dev/null
+  rm -f "$initdb_file"
+
+  kubectl rollout status statefulset/"${SHARED_PG_SERVICE}" -n caipe --timeout=300s &>/dev/null
+  log "Shared Postgres deployed (${SHARED_PG_SERVICE}) with keycloak/openfga databases"
+}
+
 _resolve_mongodb_password() {
   local existing_pw
   existing_pw=$(kubectl get secret caipe-mongodb-credentials -n caipe \
@@ -3971,6 +4737,56 @@ _resolve_mongodb_password() {
     --from-literal=MONGODB_DATABASE="caipe" \
     --dry-run=client -o yaml \
     | kubectl apply -f - &>/dev/null
+}
+
+# Resolve (reuse-or-generate) the Keycloak bootstrap admin password and persist
+# it in the caipe-keycloak-admin Secret so re-runs reuse the same value. The
+# keycloak subchart requires keycloak.admin.password (or a secretRef) to be set
+# — it refuses to auto-generate because Keycloak stores the bootstrap admin in
+# its database, so a regenerated value on upgrade would silently drift from the
+# already-bootstrapped admin. Mirrors _resolve_mongodb_password.
+# assisted-by Claude:claude-opus-4-8
+_resolve_keycloak_admin_password() {
+  # The keycloak subchart owns the caipe-keycloak-admin Secret (keys
+  # username/password) and marks it helm.sh/resource-policy: keep, so it
+  # survives uninstalls. We must NOT create our own Secret of that name —
+  # Helm refuses to adopt a non-Helm-owned object. Instead read the existing
+  # chart-owned value for reuse (idempotent across upgrades), or generate a
+  # fresh one on first install and let the chart create+own the Secret.
+  local existing_pw
+  existing_pw=$(kubectl get secret caipe-keycloak-admin -n caipe \
+    -o jsonpath='{.data.password}' 2>/dev/null \
+    | base64 -d 2>/dev/null || true)
+  if [[ -n "$existing_pw" ]]; then
+    KEYCLOAK_ADMIN_PASSWORD="$existing_pw"
+    log "Reusing existing Keycloak admin password from caipe-keycloak-admin Secret"
+  else
+    # Hex avoids characters that would need escaping in YAML / URLs.
+    KEYCLOAK_ADMIN_PASSWORD="$(openssl rand -hex 24)"
+    log "Generated random Keycloak admin password"
+  fi
+}
+
+# Pre-create caipe-platform-secret before helm install. PR #1519 wired a hard
+# secretKeyRef to this Secret in the caipe-ui Deployment unconditionally, so
+# the pod fails with CreateContainerConfigError if it is absent. Reuses the
+# existing value on re-runs; Keycloak init-idp reconciles it into the
+# caipe-platform client on first boot.
+_ensure_caipe_platform_secret() {
+  local existing
+  existing=$(kubectl get secret caipe-platform-secret -n caipe \
+    -o jsonpath='{.data.OIDC_CLIENT_SECRET}' 2>/dev/null \
+    | base64 -d 2>/dev/null || true)
+  if [[ -n "$existing" ]]; then
+    log "Reusing existing caipe-platform-secret"
+    return 0
+  fi
+  kubectl create secret generic caipe-platform-secret \
+    --namespace caipe \
+    --from-literal=OIDC_CLIENT_SECRET="$(openssl rand -hex 32)" \
+    --dry-run=client -o yaml \
+    | kubectl apply -f - &>/dev/null
+  log "Created caipe-platform-secret (OIDC_CLIENT_SECRET, 32-byte random)"
 }
 
 _ensure_dynamic_agents_mongodb() {
@@ -4305,10 +5121,194 @@ deploy_vllm() {
   log "vLLM API will be available at http://vllm-router.caipe.svc.cluster.local:80/v1"
 }
 
+# Resolve unified --litellm mode once, after credential collection. Validates
+# the provider is supported, captures the *real* chat/embeddings providers (so
+# deploy_litellm can build the proxy model_list), then rewrites the working
+# LLM_PROVIDER/EMBEDDINGS_PROVIDER so agents (via llm-secret) and RAG (via helm)
+# are repointed at the in-cluster proxy. Self-disables (warn) on unsupported
+# combos so a bare --litellm never breaks an otherwise-valid install.
+_finalize_litellm_mode() {
+  $LLM_VIA_LITELLM || return 0
+  if $ENABLE_VLLM || $ENABLE_OLLAMA; then
+    warn "--litellm ignored: vLLM/Ollama mode already routes through LiteLLM"
+    LLM_VIA_LITELLM=false
+    return 0
+  fi
+  case "$LLM_PROVIDER" in
+    anthropic-claude|openai|aws-bedrock|azure-openai) ;;
+    *)
+      warn "--litellm does not support LLM provider '${LLM_PROVIDER}' yet — continuing without the proxy"
+      LLM_VIA_LITELLM=false
+      return 0
+      ;;
+  esac
+
+  LITELLM_CHAT_SOURCE="$LLM_PROVIDER"
+  LITELLM_EMBED_SOURCE="$EMBEDDINGS_PROVIDER"
+  LITELLM_EMBED_MODEL_REAL="$EMBEDDINGS_MODEL"
+  LITELLM_ENDPOINT="http://litellm-proxy.caipe.svc.cluster.local:4000/v1"
+  LITELLM_API_KEY="$LITELLM_MASTER_KEY"
+
+  # Only OpenAI-compatible embeddings can be fronted by the proxy; other
+  # embeddings providers (bedrock/cohere/huggingface/voyage) keep their native
+  # path so RAG still works.
+  case "$EMBEDDINGS_PROVIDER" in
+    openai|azure-openai)
+      LITELLM_ROUTE_EMBEDDINGS=true
+      EMBEDDINGS_PROVIDER="litellm"
+      EMBEDDINGS_MODEL="caipe-embeddings"
+      ;;
+    *)
+      LITELLM_ROUTE_EMBEDDINGS=false
+      ;;
+  esac
+
+  log "Unified LiteLLM mode ON — chat=${LITELLM_CHAT_SOURCE}, embeddings source=${LITELLM_EMBED_SOURCE} (routed via proxy: ${LITELLM_ROUTE_EMBEDDINGS})"
+}
+
+# Build the proxy model_list for unified mode from the captured real provider and
+# (re)create litellm-upstream-secret with the upstream provider credentials the
+# proxy reads via os.environ/*. Echoes the model_list YAML (6-space indented,
+# ready to drop under `model_list:`) to stdout; creates the Secret as a side
+# effect. Credentials live only in this Secret + the proxy pod — never in the
+# agent-facing llm-secret.
+_litellm_unified_assets() {
+  local up_args=(--from-literal=LITELLM_MASTER_KEY="${LITELLM_MASTER_KEY}")
+  local ml=""
+
+  # Azure OpenAI routes by *deployment* name, which can differ from the model
+  # name and is absent from many env files (e.g. the docker-compose .env only
+  # carries EMBEDDINGS_MODEL). Resolve sensible fallbacks so a bare azure-openai
+  # install never dies under `set -u`, and surface the assumption on stderr
+  # (this function's stdout is captured as the model_list, so log/warn — which
+  # print to stdout — must NOT be used here; use `>&2`).
+  #
+  # Embeddings: fall back to LITELLM_EMBED_MODEL_REAL (the real upstream model
+  # captured before EMBEDDINGS_MODEL is aliased to "caipe-embeddings"), NOT
+  # EMBEDDINGS_MODEL — by the time this runs EMBEDDINGS_MODEL is the proxy alias.
+  # Chat: there is no separate real azure-chat model var, so only the explicit
+  # deployment vars are honored; an unset deployment is a hard misconfig that the
+  # stderr note flags (the proxy chat model would 404 until it is set).
+  local azure_chat_deploy="${AZURE_OPENAI_DEPLOYMENT:-${AZURE_OPENAI_CHAT_DEPLOYMENT:-}}"
+  local azure_embed_deploy="${AZURE_OPENAI_EMBEDDING_DEPLOYMENT:-${AZURE_OPENAI_DEPLOYMENT:-${LITELLM_EMBED_MODEL_REAL:-text-embedding-3-large}}}"
+
+  case "$LITELLM_CHAT_SOURCE" in
+    anthropic-claude)
+      ml+='      - model_name: "caipe-chat"
+        litellm_params:
+          model: "anthropic/'"${ANTHROPIC_MODEL_NAME}"'"
+          api_key: "os.environ/ANTHROPIC_API_KEY"
+'
+      up_args+=(--from-literal=ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY}")
+      ;;
+    openai)
+      ml+='      - model_name: "caipe-chat"
+        litellm_params:
+          model: "openai/'"${OPENAI_MODEL_NAME}"'"
+          api_key: "os.environ/LITELLM_UPSTREAM_OPENAI_API_KEY"
+          api_base: "os.environ/LITELLM_UPSTREAM_OPENAI_BASE"
+'
+      up_args+=(--from-literal=LITELLM_UPSTREAM_OPENAI_API_KEY="${OPENAI_API_KEY}")
+      up_args+=(--from-literal=LITELLM_UPSTREAM_OPENAI_BASE="${OPENAI_ENDPOINT}")
+      ;;
+    aws-bedrock)
+      ml+='      - model_name: "caipe-chat"
+        litellm_params:
+          model: "bedrock/'"${AWS_BEDROCK_MODEL_ID}"'"
+          aws_access_key_id: "os.environ/AWS_ACCESS_KEY_ID"
+          aws_secret_access_key: "os.environ/AWS_SECRET_ACCESS_KEY"
+          aws_region_name: "os.environ/AWS_REGION"
+'
+      up_args+=(--from-literal=AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID}")
+      up_args+=(--from-literal=AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY}")
+      up_args+=(--from-literal=AWS_REGION="${AWS_REGION:-us-east-1}")
+      ;;
+    azure-openai)
+      [[ -n "$azure_chat_deploy" ]] || echo "  ! azure-openai chat via --litellm: set AZURE_OPENAI_DEPLOYMENT (the Azure deployment name); the proxy chat model may 404 until then" >&2
+      ml+='      - model_name: "caipe-chat"
+        litellm_params:
+          model: "azure/'"${azure_chat_deploy}"'"
+          api_base: "os.environ/AZURE_OPENAI_ENDPOINT"
+          api_key: "os.environ/AZURE_OPENAI_API_KEY"
+          api_version: "os.environ/AZURE_OPENAI_API_VERSION"
+'
+      up_args+=(--from-literal=AZURE_OPENAI_ENDPOINT="${AZURE_OPENAI_ENDPOINT}")
+      up_args+=(--from-literal=AZURE_OPENAI_API_KEY="${AZURE_OPENAI_API_KEY}")
+      up_args+=(--from-literal=AZURE_OPENAI_API_VERSION="${AZURE_OPENAI_API_VERSION:-2025-04-01-preview}")
+      ;;
+  esac
+
+  if $LITELLM_ROUTE_EMBEDDINGS; then
+    case "$LITELLM_EMBED_SOURCE" in
+      openai)
+        ml+='      - model_name: "caipe-embeddings"
+        litellm_params:
+          model: "openai/'"${LITELLM_EMBED_MODEL_REAL:-text-embedding-3-large}"'"
+          api_key: "os.environ/LITELLM_UPSTREAM_EMBED_OPENAI_API_KEY"
+'
+        up_args+=(--from-literal=LITELLM_UPSTREAM_EMBED_OPENAI_API_KEY="${OPENAI_API_KEY}")
+        ;;
+      azure-openai)
+        [[ -n "${AZURE_OPENAI_EMBEDDING_DEPLOYMENT:-${AZURE_OPENAI_DEPLOYMENT:-}}" ]] || echo "  ! azure-openai embeddings via --litellm: AZURE_OPENAI_DEPLOYMENT unset, defaulting deployment to '${azure_embed_deploy}' (the embeddings model name) — set AZURE_OPENAI_EMBEDDING_DEPLOYMENT if your Azure deployment is named differently" >&2
+        ml+='      - model_name: "caipe-embeddings"
+        litellm_params:
+          model: "azure/'"${azure_embed_deploy}"'"
+          api_base: "os.environ/AZURE_OPENAI_ENDPOINT"
+          api_key: "os.environ/AZURE_OPENAI_API_KEY"
+          api_version: "os.environ/AZURE_OPENAI_API_VERSION"
+'
+        # Azure creds already added by the chat case above when chat is azure;
+        # add them here too for the chat!=azure combination (kubectl de-dupes
+        # only fails on duplicate keys, so guard with the chat source).
+        if [[ "$LITELLM_CHAT_SOURCE" != "azure-openai" ]]; then
+          up_args+=(--from-literal=AZURE_OPENAI_ENDPOINT="${AZURE_OPENAI_ENDPOINT}")
+          up_args+=(--from-literal=AZURE_OPENAI_API_KEY="${AZURE_OPENAI_API_KEY}")
+          up_args+=(--from-literal=AZURE_OPENAI_API_VERSION="${AZURE_OPENAI_API_VERSION:-2025-04-01-preview}")
+        fi
+        ;;
+    esac
+  fi
+
+  kubectl create secret generic litellm-upstream-secret -n caipe \
+    "${up_args[@]}" \
+    --dry-run=client -o yaml | kubectl apply -f - &>/dev/null
+
+  printf '%s' "$ml"
+}
+
 deploy_litellm() {
   step "Deploying LiteLLM Proxy"
 
-  local vllm_api_base="http://vllm-router.caipe.svc.cluster.local:80/v1"
+  local model_list_yaml="" envfrom_yaml="" general_yaml=""
+
+  if $LLM_VIA_LITELLM && ! $ENABLE_VLLM; then
+    # Unified mode: front the real provider, require the routing master key, and
+    # read upstream creds from litellm-upstream-secret (+ optional DB).
+    model_list_yaml="$(_litellm_unified_assets)"
+    general_yaml='    general_settings:
+      master_key: "os.environ/LITELLM_MASTER_KEY"'
+    envfrom_yaml='        envFrom:
+        - secretRef:
+            name: litellm-upstream-secret'
+    if $ENABLE_LITELLM_DB; then
+      envfrom_yaml+='
+        - secretRef:
+            name: caipe-litellm-db'
+    fi
+  else
+    # vLLM mode: proxy the in-cluster vLLM router as an OpenAI-compatible model.
+    local vllm_api_base="http://vllm-router.caipe.svc.cluster.local:80/v1"
+    model_list_yaml="      - model_name: \"${LITELLM_MODEL_NAME}\"
+        litellm_params:
+          model: \"openai/${VLLM_MODEL}\"
+          api_base: \"${vllm_api_base}\"
+          api_key: \"not-needed\"
+      - model_name: \"text-embedding-3-small\"
+        litellm_params:
+          model: \"openai/text-embedding-3-small\"
+          api_base: \"${vllm_api_base}\"
+          api_key: \"not-needed\""
+  fi
 
   kubectl apply -n caipe -f - <<LITELLM_EOF
 ---
@@ -4323,16 +5323,8 @@ metadata:
 data:
   config.yaml: |
     model_list:
-      - model_name: "${LITELLM_MODEL_NAME}"
-        litellm_params:
-          model: "openai/${VLLM_MODEL}"
-          api_base: "${vllm_api_base}"
-          api_key: "not-needed"
-      - model_name: "text-embedding-3-small"
-        litellm_params:
-          model: "openai/text-embedding-3-small"
-          api_base: "${vllm_api_base}"
-          api_key: "not-needed"
+${model_list_yaml}
+${general_yaml}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -4356,19 +5348,20 @@ spec:
       - name: litellm
         image: ghcr.io/berriai/litellm:main-stable
         args: ["--config", "/app/config.yaml", "--port", "4000"]
+${envfrom_yaml}
         ports:
         - containerPort: 4000
           name: http
           protocol: TCP
         livenessProbe:
           httpGet:
-            path: /health
+            path: /health/liveliness
             port: 4000
           initialDelaySeconds: 15
           periodSeconds: 10
         readinessProbe:
           httpGet:
-            path: /health
+            path: /health/readiness
             port: 4000
           initialDelaySeconds: 10
           periodSeconds: 5
@@ -4378,12 +5371,15 @@ spec:
           subPath: config.yaml
           readOnly: true
         resources:
+          # litellm:main-stable loads a large dependency tree at startup and is
+          # OOMKilled (exit 137) at 512Mi or 1Gi limits even with no traffic;
+          # ~2Gi is required for it to reach a Ready state. See PR verification.
           requests:
             cpu: 250m
-            memory: 256Mi
+            memory: 512Mi
           limits:
             cpu: "1"
-            memory: 512Mi
+            memory: 2Gi
       volumes:
       - name: config
         configMap:
@@ -4408,16 +5404,82 @@ spec:
     app: litellm-proxy
 LITELLM_EOF
 
+  kubectl rollout restart deployment/litellm-proxy -n caipe &>/dev/null || true
   log "LiteLLM proxy deployed (endpoint: http://litellm-proxy.caipe.svc.cluster.local:4000)"
 }
 
 _write_rbac_runtime_values() {
   local values_file
-  values_file=$(mktemp /tmp/caipe-rbac-runtime-XXXXXX.yaml)
+  values_file=$(mktemp /tmp/caipe-rbac-runtime-XXXXXX)
 
   local keycloak_ssl_required="external"
   if [[ -z "$CAIPE_DOMAIN" ]]; then
     keycloak_ssl_required="none"
+  fi
+
+  # When a public DNS domain is set, make Keycloak browser-reachable and emit a
+  # stable public issuer: expose /realms/caipe + /resources via ingress, force
+  # KC_HOSTNAME so discovery/issuer/endpoints are the public URL (server-side
+  # discovery via the in-cluster service still resolves to public endpoints),
+  # and register the public NextAuth callback on the caipe-ui client. Skipped
+  # for IP domains (Ingress host must be a DNS name) and local installs.
+  local _kc_public_yaml=""
+  if [[ -n "$CAIPE_DOMAIN" && ! "$CAIPE_DOMAIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    _kc_public_yaml=$(cat <<KCPUB
+  env:
+    KC_HOSTNAME: "https://${CAIPE_DOMAIN}"
+    KC_PROXY_HEADERS: "xforwarded"
+    KC_HOSTNAME_STRICT: "false"
+  ingress:
+    enabled: true
+    className: "nginx"
+    hosts:
+      - host: "${CAIPE_DOMAIN}"
+        paths:
+          - path: /realms/caipe
+            pathType: Prefix
+          - path: /resources
+            pathType: Prefix
+    tls:
+      - secretName: caipe-tls
+        hosts:
+          - "${CAIPE_DOMAIN}"
+  uiClient:
+    redirectUris:
+      - "https://${CAIPE_DOMAIN}/*"
+      - "http://localhost:3000/*"
+    webOrigins:
+      - "https://${CAIPE_DOMAIN}"
+KCPUB
+)
+  fi
+
+  # When the shared Postgres is active, point Keycloak at it via the keycloak
+  # chart's database.* contract (the chart renders KC_DB / KC_DB_URL /
+  # KC_DB_USERNAME and injects KC_DB_PASSWORD from existingSecret) and OpenFGA
+  # (datastore.engine=postgres) so RBAC state survives pod restarts. The DB
+  # password comes from the caipe-keycloak-db Secret — never written here.
+  local kc_db_block="" fga_ds_block=""
+  if _shared_postgres_active; then
+    kc_db_block=$(cat <<KCDB
+  database:
+    enabled: true
+    host: "${SHARED_PG_SERVICE}"
+    port: 5432
+    name: keycloak
+    username: keycloak
+    existingSecret: "caipe-keycloak-db"
+    existingSecretPasswordKey: "KC_DB_PASSWORD"
+KCDB
+)
+    fga_ds_block=$(cat <<FGADB
+  datastore:
+    engine: "postgres"
+    uriSecretRef:
+      name: "caipe-openfga-db"
+      key: "OPENFGA_DATASTORE_URI"
+FGADB
+)
   fi
 
   cat > "$values_file" <<RBACEOF
@@ -4438,11 +5500,17 @@ global:
       port: 9100
 
 keycloak:
+  admin:
+    username: "admin"
+    password: "${KEYCLOAK_ADMIN_PASSWORD}"
   realm:
     sslRequired: "${keycloak_ssl_required}"
+${_kc_public_yaml}
+${kc_db_block}
 
 openfga:
   enabled: true
+${fga_ds_block}
   init:
     enabled: true
     storeName: "caipe-openfga"
@@ -4475,6 +5543,12 @@ RBACEOF
   if [[ -n "$UI_ENV_FILE" ]]; then
     local oidc_issuer
     oidc_issuer=$(_env_get "$UI_ENV_FILE" "OIDC_ISSUER")
+    # With a public DNS domain the token `iss` is the public Keycloak URL
+    # (KC_HOSTNAME above), so the authz-bridge must validate against that —
+    # not the localhost:7080 default copied from the dev env file.
+    if [[ -n "$CAIPE_DOMAIN" && ! "$CAIPE_DOMAIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+      oidc_issuer="https://${CAIPE_DOMAIN}/realms/caipe"
+    fi
     if [[ -n "$oidc_issuer" ]]; then
       cat >> "$values_file" <<RBACEOF
     SSO_ENABLED: "true"
@@ -4489,19 +5563,27 @@ RBACEOF
   printf '%s' "$values_file"
 }
 
-deploy_agentgateway() {
-  step "Deploying AgentGateway (${AGENTGATEWAY_VERSION})"
-
-  # 1. Install Gateway API CRDs
+# Install the CRDs that the AgentGateway proxy and Gateway API resources depend
+# on (Gateway API + agentgateway.dev). Idempotent. This MUST run before the
+# CAIPE Helm install when the RBAC runtime is enabled, because the chart renders
+# Gateway / HTTPRoute / AgentgatewayBackend / AgentgatewayPolicy objects that
+# Helm validates against installed CRDs at render time. Also reused by the
+# legacy deploy_agentgateway path. assisted-by Claude:claude-opus-4-8
+_install_agentgateway_crds() {
   log "Installing Gateway API CRDs..."
   kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.4.0/standard-install.yaml 2>&1 \
     | tail -1 || true
-
-  # 2. Install AgentGateway CRDs via Helm
   log "Installing AgentGateway CRDs..."
   helm upgrade -i agentgateway-crds oci://ghcr.io/kgateway-dev/charts/agentgateway-crds \
     --create-namespace --namespace agentgateway-system \
     --version "$AGENTGATEWAY_VERSION" 2>&1 | tail -1 || true
+}
+
+deploy_agentgateway() {
+  step "Deploying AgentGateway (${AGENTGATEWAY_VERSION})"
+
+  # 1-2. Install Gateway API + AgentGateway CRDs
+  _install_agentgateway_crds
 
   # 3. Install AgentGateway control plane
   log "Installing AgentGateway control plane..."
@@ -4629,23 +5711,36 @@ MCP_ROUTE_EOF
 deploy_caipe() {
   step "Deploying CAIPE (v${CAIPE_CHART_VERSION})"
 
+  # Warn early if the selected chart cannot persist Keycloak to the shared
+  # Postgres (chart predates the database.* contract) so the operator is not
+  # surprised by H2-backed Keycloak losing realm state on restart.
+  _warn_if_chart_lacks_keycloak_db
+
   local helm_args=(
     --namespace caipe
     --version "$CAIPE_CHART_VERSION"
     --set tags.caipe-ui=true
     --set tags.agent-weather=false
     --set tags.agent-netutils=true
-    # A2A_BASE_URL: server-side only (Next.js API routes fetching /tools, etc.)
-    # Must use the internal k8s service URL to avoid hairpin routing failures
-    # through the nginx ingress when the pod calls its own cluster domain.
-    --set "caipe-ui.env.A2A_BASE_URL=http://caipe-supervisor-agent:8000"
+    # A2A_BASE_URL: server-side only (Next.js API routes fetching /tools, the
+    # /api/a2a health probe, etc.). Must use the internal k8s service URL to
+    # avoid hairpin routing failures through the nginx ingress when the pod calls
+    # its own cluster domain. NOTE: these MUST be set under caipe-ui.config.* (the
+    # caipe-ui Deployment consumes config via `envFrom: caipe-caipe-ui-config`
+    # and defines no explicit env: entries, so caipe-ui.env.* is silently
+    # ignored). The chart's default config.A2A_BASE_URL hardcodes the DEFAULT
+    # release name (ai-platform-engineering-supervisor-agent); since we install as
+    # release "caipe" the service is caipe-supervisor-agent, so we must override
+    # it or the UI shows the Supervisor permanently OFFLINE.
+    --set "caipe-ui.config.A2A_BASE_URL=http://caipe-supervisor-agent:8000"
     # NEXT_PUBLIC_A2A_BASE_URL: client-side browser fetches (A2A streaming, health)
-    # Must be the externally reachable URL so the browser can connect.
-    --set "caipe-ui.env.NEXT_PUBLIC_A2A_BASE_URL=${CAIPE_DOMAIN:+https://${CAIPE_DOMAIN}/supervisor}"
+    # Must be the externally reachable URL so the browser can connect (via the
+    # /supervisor ingress that routes to caipe-supervisor-agent:8000).
+    --set "caipe-ui.config.NEXT_PUBLIC_A2A_BASE_URL=${CAIPE_DOMAIN:+https://${CAIPE_DOMAIN}/supervisor}"
   )
   # When no domain is set (local dev), default to localhost for port-forward usage
   if [[ -z "$CAIPE_DOMAIN" ]]; then
-    helm_args+=(--set "caipe-ui.env.NEXT_PUBLIC_A2A_BASE_URL=http://localhost:8000")
+    helm_args+=(--set "caipe-ui.config.NEXT_PUBLIC_A2A_BASE_URL=http://localhost:8000")
   fi
 
   # SSO: enable when a public domain is configured (NEXTAUTH_URL is already
@@ -4654,6 +5749,28 @@ deploy_caipe() {
     helm_args+=(--set "caipe-ui.config.SSO_ENABLED=true")
   else
     helm_args+=(--set "caipe-ui.config.SSO_ENABLED=false")
+  fi
+
+  # Default (no --ui-env-file) in-chart Keycloak SSO. The dev/Cisco env file
+  # normally supplies OIDC_ISSUER/NEXTAUTH_URL, so without it the chart defaults
+  # leave OIDC_ISSUER empty (sign-in is impossible) and NEXTAUTH_URL pointing at
+  # localhost. Synthesize them from the DNS domain so a vanilla install does
+  # Keycloak SSO with zero external config. OIDC_DISCOVERY_URL/KEYCLOAK_URL
+  # already default to the in-cluster service in the chart. The matching
+  # NEXTAUTH_SECRET + caipe-ui client secret are created in
+  # create_namespace_and_secrets (caipe-ui-secret). Skipped for IP domains (no
+  # browser-reachable issuer) and when a ui-env-file already provides OIDC.
+  # assisted-by Claude:claude-opus-4-8
+  if $ENABLE_RBAC_RUNTIME && [[ -z "$UI_ENV_FILE" \
+      && -n "$CAIPE_DOMAIN" && ! "$CAIPE_DOMAIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    helm_args+=(
+      --set "caipe-ui.config.NEXTAUTH_URL=https://${CAIPE_DOMAIN}"
+      --set "caipe-ui.config.OIDC_ISSUER=https://${CAIPE_DOMAIN}/realms/caipe"
+      --set "openfga-authz-bridge.tokenValidation.issuer=https://${CAIPE_DOMAIN}/realms/caipe"
+    )
+    if _local_admin_active; then
+      helm_args+=(--set "caipe-ui.config.BOOTSTRAP_ADMIN_EMAILS=${LOCAL_ADMIN_EMAIL}")
+    fi
   fi
 
   # ── Deployment mode ──────────────────────────────────────────────────────
@@ -4709,7 +5826,7 @@ deploy_caipe() {
     # Also carries auth/OIDC config — using a values file avoids --set comma
     # parsing issues with CORS_ORIGINS (Helm splits on unescaped commas).
     local _da_values_file
-    _da_values_file=$(mktemp /tmp/caipe-da-seed-XXXXXX.yaml)
+    _da_values_file=$(mktemp /tmp/caipe-da-seed-XXXXXX)
 
     # Build models list from llm-secret LLM_PROVIDER
     local _provider="${LLM_PROVIDER:-anthropic-claude}"
@@ -4991,10 +6108,27 @@ DAEOF
   fi
 
   if $ENABLE_RBAC_RUNTIME; then
+    # Must run BEFORE _write_rbac_runtime_values (it bakes the password into the
+    # values file) and OUTSIDE the command substitution below, because it logs
+    # to stdout which would otherwise be captured into the values file path.
+    _resolve_keycloak_admin_password
     local _rbac_values_file
     _rbac_values_file=$(_write_rbac_runtime_values)
     helm_args+=(--values "$_rbac_values_file")
     log "RBAC runtime configured (Keycloak, OpenFGA, OpenFGA bridge, AgentGateway)"
+  fi
+
+  # Chat-bot surfaces (slack-bot / webex-bot) — wired onto the in-cluster
+  # Keycloak/OpenFGA/MongoDB/UI. MONGODB_ROOT_PASSWORD is resolved by
+  # _ensure_dynamic_agents_mongodb, which main() runs before deploy_caipe.
+  if $ENABLE_SLACK_BOT || $ENABLE_WEBEX_BOT; then
+    local _bot_values_file
+    _bot_values_file=$(_write_bot_values)
+    if [[ -n "$_bot_values_file" ]]; then
+      helm_args+=(--values "$_bot_values_file")
+      $ENABLE_SLACK_BOT && log "slack-bot surface enabled"
+      $ENABLE_WEBEX_BOT && log "webex-bot surface enabled"
+    fi
   fi
 
   if $ENABLE_INGRESS && [[ -n "$CAIPE_DOMAIN" ]]; then
@@ -5046,10 +6180,14 @@ DAEOF
     exit 1
   fi
   log "CAIPE Helm release deployed"
+  # Non-fatal: a timeout here (e.g. credential-less agents that never become
+  # ready) must NOT abort the script under `set -e` — post_deploy_patches still
+  # needs to run the RBAC reconcile + local-admin provisioning on the healthy
+  # core. wait_for_pods already returns early once the cluster has settled.
   if $ENABLE_RAG; then
-    wait_for_pods caipe 600 "rag-server"
+    wait_for_pods caipe 600 "rag-server" || warn "Proceeding despite not-ready pods (see above)"
   else
-    wait_for_pods caipe 600
+    wait_for_pods caipe 600 || warn "Proceeding despite not-ready pods (see above)"
   fi
 }
 
@@ -5956,6 +7094,32 @@ monitor_port_forwards() {
   run_validation
   run_sanity_tests
 
+  # Surface the default local Keycloak logins (no upstream IdP) in both
+  # interactive and non-interactive modes so the operator can sign in and test
+  # both RBAC paths (org-admin vs non-admin).
+  if _local_admin_active && [[ -n "${LOCAL_ADMIN_PASSWORD:-}" ]]; then
+    echo ""
+    header "Local logins (in-chart Keycloak, no upstream IdP)"
+    echo -e "    URL                ${CYAN}https://${CAIPE_DOMAIN}${NC}"
+    echo ""
+    echo -e "    ${BOLD}Admin${NC} (org-admin / admin UI)"
+    echo -e "      Email            ${BOLD}${LOCAL_ADMIN_EMAIL}${NC}"
+    echo -e "      Password         ${BOLD}${LOCAL_ADMIN_PASSWORD}${NC}"
+    echo -e "      ${DIM}Recover: kubectl get secret caipe-local-admin -n caipe -o jsonpath='{.data.password}' | base64 -d${NC}"
+    if [[ "$ENABLE_LOCAL_USER" != "false" && -n "${LOCAL_USER_PASSWORD:-}" ]]; then
+      echo ""
+      echo -e "    ${BOLD}Standard${NC} (non-admin / chat only, no admin UI)"
+      echo -e "      Email            ${BOLD}${LOCAL_USER_EMAIL}${NC}"
+      echo -e "      Password         ${BOLD}${LOCAL_USER_PASSWORD}${NC}"
+      echo -e "      ${DIM}Recover: kubectl get secret caipe-local-user -n caipe -o jsonpath='{.data.password}' | base64 -d${NC}"
+    fi
+    echo ""
+    echo -e "    ${DIM}Re-print these any time: ./$(basename "$0") creds${NC}"
+    if [[ "$CAIPE_DOMAIN" == *.local.me ]]; then
+      echo -e "    ${DIM}${CAIPE_DOMAIN} resolves to 127.0.0.1 — on a remote host, tunnel 443 (ssh -L 8443:127.0.0.1:443 <host>) or re-run with --domain=<public-dns>.${NC}"
+    fi
+  fi
+
   # In non-interactive (CI) mode, exit after validation — no need to keep
   # port-forwards alive for an interactive session.
   if $NON_INTERACTIVE; then
@@ -6377,7 +7541,7 @@ detect_deployed_features() {
 
   # ── Re-populate HELM_AGENT_ARGS from detected agent selection ─────────────
   if [[ ${#SELECTED_AGENTS[@]} -gt 0 && ${#HELM_AGENT_ARGS[@]} -eq 0 ]]; then
-    local -a _all_agents=(argocd aws backstage confluence github jira komodor netutils pagerduty slack splunk webex aigateway)
+    local -a _all_agents=(argocd aws backstage confluence github gitlab jira komodor netutils pagerduty slack splunk webex aigateway)
     for _a in "${_all_agents[@]}"; do
       local _on=false
       for _s in "${SELECTED_AGENTS[@]}"; do [[ "$_a" == "$_s" ]] && { _on=true; break; }; done
@@ -6578,6 +7742,31 @@ BANNER
       _val=$(_env_get "$ENV_FILE" "$_v")
       [[ -n "$_val" && -z "${!_v:-}" ]] && export "$_v=$_val"
     done
+
+    # Honor feature toggles from --env-file so a single .env reproduces the same
+    # stack as docker-compose.dev.yaml (rag, tracing, graph-rag, slack-bot,
+    # webex-bot). Enable-only semantics: an env-file value of "true" turns a
+    # feature ON; a "false"/unset value never disables something already turned
+    # on via a CLI flag (e.g. --rag, --tracing). Explicit --slack-bot /
+    # --no-slack-bot (and webex) always win over the env-file value.
+    if _env_true "$(_env_get "$ENV_FILE" ENABLE_RAG)"; then ENABLE_RAG=true; fi
+    if _env_true "$(_env_get "$ENV_FILE" ENABLE_GRAPH_RAG)"; then ENABLE_GRAPH_RAG=true; ENABLE_RAG=true; fi
+    if _env_true "$(_env_get "$ENV_FILE" ENABLE_TRACING)"; then ENABLE_TRACING=true; fi
+    # The slack/webex MCP agents (ENABLE_SLACK/ENABLE_WEBEX) and the chat-bot
+    # surfaces share the same .env. docker-compose.dev.yaml runs the bot
+    # surfaces via the slack-bot/webex-bot profiles, so treat ENABLE_SLACK_BOT/
+    # ENABLE_WEBEX_BOT (preferred) — or ENABLE_SLACK/ENABLE_WEBEX as a fallback —
+    # as the trigger to deploy the surface here.
+    if [[ -z "$_SLACK_BOT_FORCED" ]] \
+       && { _env_true "$(_env_get "$ENV_FILE" ENABLE_SLACK_BOT)" \
+            || _env_true "$(_env_get "$ENV_FILE" ENABLE_SLACK)"; }; then
+      ENABLE_SLACK_BOT=true
+    fi
+    if [[ -z "$_WEBEX_BOT_FORCED" ]] \
+       && { _env_true "$(_env_get "$ENV_FILE" ENABLE_WEBEX_BOT)" \
+            || _env_true "$(_env_get "$ENV_FILE" ENABLE_WEBEX)"; }; then
+      ENABLE_WEBEX_BOT=true
+    fi
   fi
 
   # ── Wizard step loop — each step can return 1 to go back ─────────────
@@ -6594,7 +7783,20 @@ BANNER
       *) exit 1 ;;
     esac
   done
+
+  # Resolve unified LiteLLM mode before secrets/helm so the agent llm-secret and
+  # RAG embeddings config are repointed at the proxy (must run after
+  # collect_credentials, before create_namespace_and_secrets/provision_secrets).
+  _finalize_litellm_mode
+
   create_namespace_and_secrets
+
+  # Shared Postgres must exist before the CAIPE Helm deploy: OpenFGA's migrate
+  # job + deployment read the caipe-openfga-db Secret, and _write_rbac_runtime_values
+  # wires Keycloak's KC_DB_* env from the passwords resolved here.
+  if _shared_postgres_active; then
+    deploy_shared_postgres
+  fi
 
   if $ENABLE_TRACING; then
     deploy_langfuse
@@ -6605,9 +7807,13 @@ BANNER
     prepare_corporate_ca
   fi
 
-  # Deploy vLLM + LiteLLM before CAIPE so the endpoints are available
+  # Deploy vLLM + LiteLLM before CAIPE so the endpoints are available.
+  # Unified --litellm mode (no vLLM) deploys just the proxy after the shared
+  # Postgres so the optional caipe-litellm-db secret exists when --litellm-db.
   if $ENABLE_VLLM; then
     deploy_vllm
+    deploy_litellm
+  elif $LLM_VIA_LITELLM; then
     deploy_litellm
   fi
 
@@ -6621,10 +7827,22 @@ BANNER
     setup_tls
   fi
 
-  # Deploy MongoDB before CAIPE so caipe-dynamic-agents can resolve the hostname
-  # on first start (avoiding crash-loop during the pod readiness wait).
-  if $ENABLE_DYNAMIC_AGENTS; then
+  # Deploy MongoDB before CAIPE so caipe-dynamic-agents (and the slack-bot /
+  # webex-bot surfaces) can resolve the hostname on first start (avoiding
+  # crash-loop during the pod readiness wait) and so MONGODB_ROOT_PASSWORD is
+  # resolved before _write_bot_values builds the bot MONGODB_URI.
+  if $ENABLE_DYNAMIC_AGENTS || $ENABLE_SLACK_BOT || $ENABLE_WEBEX_BOT; then
     _ensure_dynamic_agents_mongodb
+  fi
+
+  # When the RBAC runtime is enabled, the CAIPE chart itself renders the
+  # AgentGateway proxy (Gateway, HTTPRoute, AgentgatewayBackend,
+  # AgentgatewayPolicy). Helm validates those against installed CRDs at render
+  # time, so the CRDs must exist BEFORE deploy_caipe. (The legacy non-RBAC
+  # AgentGateway path installs them later inside deploy_agentgateway.)
+  if $ENABLE_RBAC_RUNTIME; then
+    step "Installing AgentGateway + Gateway API CRDs"
+    _install_agentgateway_crds
   fi
 
   deploy_caipe
@@ -6645,6 +7863,42 @@ BANNER
   monitor_port_forwards
 }
 
+# Re-print the default local Keycloak logins from the persisted Secrets. Lets an
+# operator recover credentials any time after install without re-running setup or
+# scrolling back through the install log (caipe-local-admin / caipe-local-user).
+cmd_creds() {
+  local ns="caipe"
+  local domain admin_email admin_pw user_email user_pw
+  domain=$(kubectl get ingress -n "$ns" -o jsonpath='{.items[0].spec.rules[0].host}' 2>/dev/null || true)
+  admin_email=$(kubectl get secret caipe-local-admin -n "$ns" -o jsonpath='{.data.email}' 2>/dev/null | base64 -d 2>/dev/null || true)
+  admin_pw=$(kubectl get secret caipe-local-admin -n "$ns" -o jsonpath='{.data.password}' 2>/dev/null | base64 -d 2>/dev/null || true)
+  user_email=$(kubectl get secret caipe-local-user -n "$ns" -o jsonpath='{.data.email}' 2>/dev/null | base64 -d 2>/dev/null || true)
+  user_pw=$(kubectl get secret caipe-local-user -n "$ns" -o jsonpath='{.data.password}' 2>/dev/null | base64 -d 2>/dev/null || true)
+
+  if [[ -z "$admin_email" && -z "$user_email" ]]; then
+    warn "No local login secrets found (caipe-local-admin / caipe-local-user) in namespace ${ns}."
+    echo -e "  ${DIM}These are created by a default local-SSO install (RBAC + in-chart Keycloak, no upstream IdP).${NC}"
+    echo -e "  ${DIM}If you signed in with an upstream IdP (Cisco SSO / GitHub social), use that login instead.${NC}"
+    return 0
+  fi
+
+  header "CAIPE local logins (in-chart Keycloak)"
+  [[ -n "$domain" ]] && echo -e "    URL                ${CYAN}https://${domain}${NC}" && echo ""
+  if [[ -n "$admin_email" ]]; then
+    echo -e "    ${BOLD}Admin${NC} (org-admin / admin UI)"
+    echo -e "      Email            ${BOLD}${admin_email}${NC}"
+    echo -e "      Password         ${BOLD}${admin_pw}${NC}"
+  fi
+  if [[ -n "$user_email" ]]; then
+    echo ""
+    echo -e "    ${BOLD}Standard${NC} (non-admin / chat only, no admin UI)"
+    echo -e "      Email            ${BOLD}${user_email}${NC}"
+    echo -e "      Password         ${BOLD}${user_pw}${NC}"
+  fi
+  echo ""
+  echo -e "  ${DIM}Source: caipe-local-admin / caipe-local-user Secrets (namespace ${ns}).${NC}"
+}
+
 usage() {
   cat <<EOF
 
@@ -6656,6 +7910,8 @@ Commands:
   port-forward  Start port-forwarding, run validation + sanity tests,
                 monitor with auto-restart and periodic health checks (5m)
   validate      Run validation and sanity tests (A2A, agents, RAG, tracing)
+  creds         Re-print the default local Keycloak logins (admin + standard
+                user) from the persisted Secrets — run any time after install
   cleanup       Interactive teardown: uninstall releases, delete secrets,
                 PVCs, namespaces, and optionally the Kind cluster
   nuke          Non-interactive cleanup (same as: cleanup --yes)
@@ -6677,11 +7933,23 @@ Options:
   --rbac-runtime     Install in-chart RBAC runtime services: Keycloak, OpenFGA,
                      OpenFGA ext_authz bridge, and standalone AgentGateway — default ON
   --no-rbac-runtime  Skip the RBAC runtime services
+  --shared-postgres     Deploy one shared Postgres backing Keycloak + OpenFGA (persistent RBAC) — default ON
+  --no-shared-postgres  Use Keycloak embedded H2 + OpenFGA in-memory (ephemeral; state lost on restart)
+  --litellm             Route chat (+ OpenAI/Azure embeddings) through an in-cluster LiteLLM proxy.
+                        Agents talk to one OpenAI-compatible endpoint; upstream provider creds live
+                        only in the proxy. Supports anthropic/openai/aws-bedrock/azure-openai. Default OFF.
+  --litellm-db          Like --litellm, plus persist LiteLLM virtual keys/spend in the shared Postgres
   --persistence      Enable Redis persistence for checkpoints and cross-thread memory — default ON
                      (deploys langgraph-redis subchart; enables fact extraction)
   --no-persistence   Skip Redis persistence (in-memory checkpointer only)
   --dynamic-agents    Enable the dynamic agents service (custom agent builder UI) — default ON
   --no-dynamic-agents Skip the dynamic agents service (opt out of the default)
+  --slack-bot        Deploy the Slack bot surface (slack-bot subchart). Auto-enabled when
+                     --env-file sets ENABLE_SLACK_BOT/ENABLE_SLACK; needs SLACK_BOT_TOKEN etc.
+  --no-slack-bot     Skip the Slack bot surface (overrides the env-file value)
+  --webex-bot        Deploy the Webex bot surface (webex-bot subchart). Auto-enabled when
+                     --env-file sets ENABLE_WEBEX_BOT/ENABLE_WEBEX; needs WEBEX_INTEGRATION_BOT_ACCESS_TOKEN
+  --no-webex-bot     Skip the Webex bot surface (overrides the env-file value)
   --all-in-one       All-in-One CAIPE: single supervisor with all agents embedded (default)
   --distributed      Distributed CAIPE: each agent runs as its own independent service
   --metallb          Install MetalLB to give LoadBalancer services real IPs in kind clusters — default ON
@@ -6693,9 +7961,32 @@ Options:
                      Default when ingress is enabled and --domain is omitted: ${CAIPE_DOMAIN_DEFAULT}
   --tls-cert=FILE    Path to TLS certificate PEM file (default: auto-generate self-signed)
   --tls-key=FILE     Path to TLS private key PEM file (paired with --tls-cert)
+  --github-social    Enable GitHub social login (Keycloak broker) for public users.
+                     Needs a dedicated GitHub OAuth App; callback URL must be
+                     https://<domain>/realms/caipe/broker/github/endpoint
+                     (interactive runs prompt for this; do NOT reuse GITHUB_CLIENT_*).
+  --no-github-social Skip GitHub social login (local Keycloak login only)
+  --github-social-id=ID         GitHub OAuth App client ID (login broker)
+  --github-social-secret=SECRET GitHub OAuth App client secret (login broker)
+  --local-admin[=EMAIL]         Create a local Keycloak admin login (default ON for
+                     in-chart Keycloak with a DNS domain and no upstream IdP) so RBAC/auth
+                     work with zero external SSO. EMAIL defaults to admin@caipe.local.
+  --no-local-admin   Skip the local admin user (use only with an upstream IdP / GitHub social)
+  --local-admin-password=PW     Set the local admin password (default: generated, persisted
+                     in the caipe-local-admin Secret)
+  --local-user[=EMAIL]          Also create a non-admin local user (default ON alongside the
+                     local admin) so both RBAC paths can be tested — a standard chat user that
+                     is NOT in BOOTSTRAP_ADMIN_EMAILS (no admin UI). EMAIL defaults to user@caipe.local.
+  --no-local-user    Skip the non-admin local user (provision the admin only)
+  --local-user-password=PW      Set the non-admin user password (default: generated, persisted
+                     in the caipe-local-user Secret)
   --env-file=FILE    Path to .env file with agent credentials (ENABLE_ARGOCD=true, ARGOCD_TOKEN=..., etc.)
                      Creates per-agent k8s secrets and enables corresponding agents in Helm.
-                     Values are never written to disk or logged.
+                     Also honors feature toggles to mirror docker-compose.dev.yaml:
+                     ENABLE_RAG, ENABLE_GRAPH_RAG, ENABLE_TRACING, ENABLE_SLACK(_BOT),
+                     ENABLE_WEBEX(_BOT) (enable-only; CLI flags win). Supported agents:
+                     argocd github gitlab jira confluence backstage slack pagerduty webex
+                     komodor aws splunk. Values are never written to disk or logged.
   --ui-env-file=FILE Path to UI .env.local file (OIDC, MongoDB, NextAuth secrets).
                      Creates caipe-ui-secret and wires it into the caipe-ui chart.
   --ingest-url=URL   Ingest a URL into the RAG knowledge base after deploy
@@ -6745,8 +8036,14 @@ Environment variables (all optional):
   HF_TOKEN                HuggingFace token (for vLLM model download)
   VLLM_MODEL              vLLM model (default: openai/gpt-oss-20b)
   VLLM_GPU_COUNT          GPUs per vLLM replica (default: 1)
-  ENABLE_AGENTGATEWAY     Enable AgentGateway (default: false)
-  ENABLE_RBAC_RUNTIME     Enable in-chart RBAC runtime services (default: false)
+  ENABLE_AGENTGATEWAY     Enable AgentGateway (default: true; --no-agentgateway to skip)
+  ENABLE_RBAC_RUNTIME     Enable in-chart RBAC runtime services — Keycloak, OpenFGA,
+                          OpenFGA ext_authz bridge, AgentGateway (default: true;
+                          --no-rbac-runtime to skip)
+  ENABLE_SLACK_BOT        Deploy the Slack bot surface (default: false; --slack-bot,
+                          or set ENABLE_SLACK in --env-file)
+  ENABLE_WEBEX_BOT        Deploy the Webex bot surface (default: false; --webex-bot,
+                          or set ENABLE_WEBEX in --env-file)
   AGENTGATEWAY_VERSION    AgentGateway Helm chart version (default: v2.2.1)
 
 LLM provider credentials are read from (in order):
@@ -6802,6 +8099,9 @@ Examples:
   $(basename "$0") --non-interactive --create-cluster --ingress --domain=my-caipe.example.com                   # kind + MetalLB + ingress + self-signed TLS
   $(basename "$0") --non-interactive --create-cluster --ingress --domain=my-caipe.example.com \
     --tls-cert=/path/to/cert.pem --tls-key=/path/to/key.pem            # kind + MetalLB + ingress + custom TLS
+  $(basename "$0") --non-interactive --create-cluster --ingress --rbac-runtime \
+    --domain=my-caipe.example.com                                      # INTEGRATION TEST: full RBAC stack, zero Cisco/SSO config,
+                                                                        # in-chart Keycloak + auto local admin login (creds printed at end)
 
 EOF
   exit 0
@@ -6822,6 +8122,11 @@ for arg in "$@"; do
     --no-agentgateway) ENABLE_AGENTGATEWAY=false; ENABLE_RBAC_RUNTIME=false ;;
     --rbac-runtime)    ENABLE_RBAC_RUNTIME=true; ENABLE_AGENTGATEWAY=true ;;
     --no-rbac-runtime) ENABLE_RBAC_RUNTIME=false ;;
+    --shared-postgres)    ENABLE_SHARED_POSTGRES=true ;;
+    --no-shared-postgres) ENABLE_SHARED_POSTGRES=false ;;
+    --litellm)            LLM_VIA_LITELLM=true ;;
+    --no-litellm)         LLM_VIA_LITELLM=false ;;
+    --litellm-db)         LLM_VIA_LITELLM=true; ENABLE_LITELLM_DB=true ;;
     --persistence)     ENABLE_PERSISTENCE=true ;;
     --no-persistence)  ENABLE_PERSISTENCE=false ;;
     --metallb)         ENABLE_METALLB=true ;;
@@ -6829,12 +8134,28 @@ for arg in "$@"; do
     --ingress)         ENABLE_INGRESS=true; ENABLE_METALLB=true ;;
     --no-ingress)      ENABLE_INGRESS=false ;;
     --domain=*)        CAIPE_DOMAIN="${arg#--domain=}" ;;
+    --github-social)            ENABLE_GITHUB_SOCIAL=true ;;
+    --no-github-social)         ENABLE_GITHUB_SOCIAL=false ;;
+    --github-social-id=*)       GITHUB_SOCIAL_CLIENT_ID="${arg#--github-social-id=}" ;;
+    --github-social-secret=*)   GITHUB_SOCIAL_CLIENT_SECRET="${arg#--github-social-secret=}" ;;
+    --local-admin)              ENABLE_LOCAL_ADMIN=true ;;
+    --local-admin=*)            ENABLE_LOCAL_ADMIN=true; LOCAL_ADMIN_EMAIL="${arg#--local-admin=}" ;;
+    --no-local-admin)           ENABLE_LOCAL_ADMIN=false ;;
+    --local-admin-password=*)   LOCAL_ADMIN_PASSWORD="${arg#--local-admin-password=}" ;;
+    --local-user)               ENABLE_LOCAL_USER=true ;;
+    --local-user=*)             ENABLE_LOCAL_USER=true; LOCAL_USER_EMAIL="${arg#--local-user=}" ;;
+    --no-local-user)            ENABLE_LOCAL_USER=false ;;
+    --local-user-password=*)    LOCAL_USER_PASSWORD="${arg#--local-user-password=}" ;;
     --tls-cert=*)      TLS_CERT_FILE="${arg#--tls-cert=}" ;;
     --tls-key=*)       TLS_KEY_FILE="${arg#--tls-key=}" ;;
     --env-file=*)      ENV_FILE="${arg#--env-file=}" ;;
     --ui-env-file=*)   UI_ENV_FILE="${arg#--ui-env-file=}" ;;
     --dynamic-agents)    ENABLE_DYNAMIC_AGENTS=true ;;
     --no-dynamic-agents) ENABLE_DYNAMIC_AGENTS=false ;;
+    --slack-bot)       ENABLE_SLACK_BOT=true;  _SLACK_BOT_FORCED=on ;;
+    --no-slack-bot)    ENABLE_SLACK_BOT=false; _SLACK_BOT_FORCED=off ;;
+    --webex-bot)       ENABLE_WEBEX_BOT=true;  _WEBEX_BOT_FORCED=on ;;
+    --no-webex-bot)    ENABLE_WEBEX_BOT=false; _WEBEX_BOT_FORCED=off ;;
     --all-in-one)      CAIPE_DEPLOYMENT_MODE="all-in-one" ;;
     --distributed)     CAIPE_DEPLOYMENT_MODE="distributed" ;;
     --upgrade)         FORCE_UPGRADE=true ;;
@@ -6853,6 +8174,7 @@ case "${args[0]:-setup}" in
   setup)        cmd_setup ;;
   port-forward) cmd_port_forward ;;
   validate)     cmd_validate ;;
+  creds)        cmd_creds ;;
   cleanup)      cmd_cleanup ;;
   nuke)         AUTO_YES=true; cmd_cleanup ;;
   status)       cmd_status ;;
