@@ -118,6 +118,9 @@ Credentials are read from `~/.config/claude.txt` and `~/.config/openai.txt` when
 | `--rag` | Deploy the RAG stack (knowledge base, embeddings) |
 | `--graph-rag` | Deploy Graph RAG (Neo4j + ontology agent; implies `--rag`) |
 | `--tracing` | Deploy Langfuse and enable tracing |
+| `--no-shared-postgres` | Skip the shared Postgres; use Keycloak embedded H2 + OpenFGA in-memory (ephemeral — RBAC state is lost on every pod restart). Persistent Postgres is the default for RBAC installs. |
+| `--litellm` | Route chat (and OpenAI/Azure embeddings) through an in-cluster LiteLLM proxy so agents use one OpenAI-compatible endpoint and upstream provider keys stay in the proxy. Supports anthropic/openai/aws-bedrock/azure-openai. |
+| `--litellm-db` | Like `--litellm`, plus persist LiteLLM virtual keys/spend in the shared Postgres |
 | `--ingest-url=URL` | Ingest a URL into the RAG knowledge base (implies `--rag`; repeatable) |
 | `--auto-heal` | Enable auto-heal loop (every 30s) |
 | `--yes`, `-y` | Auto-confirm cleanup prompts |

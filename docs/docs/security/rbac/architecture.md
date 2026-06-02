@@ -20,6 +20,13 @@ The `0.5.0` umbrella chart can own the RBAC runtime stack for demo and managed e
 
 Production installs must still supply ExternalSecrets and persistent datastore settings; the chart defaults are conservative and disabled by default.
 
+**Persistent RBAC datastores.** By default the Keycloak subchart uses an embedded H2 database and OpenFGA uses an in-memory store — both lose **all identity, realm, and authorization state on pod restart**, which makes RBAC unusable for anything beyond a throwaway demo. To persist RBAC state, point both at PostgreSQL:
+
+- **Keycloak** reads non-secret connection settings from `keycloak.env` (`KC_DB=postgres`, `KC_DB_URL`, `KC_DB_USERNAME`) and the DB password from a Secret via `keycloak.db.passwordSecret.name`/`.key` (rendered as a `secretKeyRef` on `KC_DB_PASSWORD`, so the password never lands in values or release data). With `KC_DB` set, the per-pod `persistence` PVC is unnecessary.
+- **OpenFGA** uses `openfga.datastore.engine=postgres` with `openfga.datastore.uriSecretRef.name`/`.key` supplying the `postgres://…` connection string to both the deployment and the `migrate` Job.
+
+`setup-caipe.sh` wires this automatically: it deploys a single shared `bitnami/postgresql` instance (`caipe-postgres`) with one role+database per consumer (`keycloak`, `openfga`, optional `litellm`), persists generated passwords in the `caipe-postgres-credentials` Secret, and emits the consumer-facing `caipe-keycloak-db` / `caipe-openfga-db` Secrets. This is the default for RBAC installs; `--no-shared-postgres` falls back to the ephemeral H2/in-memory stores.
+
 ---
 
 ## Component 1: Keycloak — HR & The Front Desk
