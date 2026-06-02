@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronRight, FileUp, HelpCircle, RefreshCw, RotateCw, Settings2 } from "lucide-react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -10,82 +10,28 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/components/ui/toast";
-import { AgentPicker, type AgentPickerOption } from "@/components/ui/agent-picker";
-import { TeamPicker, type TeamPickerOption } from "@/components/ui/team-picker";
-import { PromptEditorWorkbench, type PromptSuggestRequest } from "@/components/prompt/PromptEditorWorkbench";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { ConnectorOnboardingWizard } from "./ConnectorOnboardingWizard";
 import type {
   ConnectorAdminAdapter,
   DiagnosticRoute,
   DiscoveredItem,
+  DynamicAgentOption,
   ItemAgentRoute,
   ItemDiagnostics,
   ItemSummary,
-  RouteEscalationConfig,
-  RouteSideConfig,
   RuntimeStatus,
   RuntimeSyncSummary,
   SyncPreviewAgent,
   SyncPreviewChannel,
+  TeamOption,
 } from "./connector-admin-adapter";
-
-interface DynamicAgentOption { _id: string; name: string; model?: { id?: string; provider?: string } }
-interface TeamOption { _id?: string; id?: string; slug: string; name: string }
 
 type PanelView = "channels" | "onboard" | "advanced";
 type SyncModalMode = "preview" | "apply";
 type SyncModalStatus = "idle" | "loading" | "success" | "error";
-type ListenMode = "message" | "mention" | "all";
-const DEFAULT_OVERTHINK_SKIP_MARKERS = "DEFER, LOW_CONFIDENCE";
-
-// Full editable draft of an agent route. Carries every YAML/DB field so the
-// editor is a complete round-trip: editing a route imported from YAML no
-// longer silently drops its bots/overthink/escalation config.
-interface RouteSideDraft {
-  enabled: boolean;
-  listen: ListenMode;
-  allowList: string; // comma/space/newline-separated user_list or bot_list
-  overthinkEnabled: boolean;
-  overthinkSkipMarkers: string; // comma-separated
-  overthinkFollowupPrompt: string;
-}
-interface RouteEscalationDraft {
-  victoropsEnabled: boolean;
-  victoropsTeam: string;
-  emojiEnabled: boolean;
-  emojiName: string;
-  users: string; // comma/space/newline-separated
-  deleteAdmins: string;
-}
-interface RouteDraft {
-  agentId: string;
-  priority: number;
-  usersEnabled: boolean;
-  botsEnabled: boolean;
-  users: RouteSideDraft;
-  bots: RouteSideDraft;
-  escalationEnabled: boolean;
-  escalation: RouteEscalationDraft;
-}
-
-interface SlackUserSuggestion {
-  id: string;
-  label: string;
-  name?: string;
-  display_name?: string;
-  real_name?: string;
-  avatar?: string;
-  is_bot?: boolean;
-}
-interface SlackEmojiSuggestion {
-  name: string;
-  url?: string;
-  alias_for?: string;
-}
 
 function HelpTooltip({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -155,615 +101,6 @@ function AdvancedActionButton({
       </TooltipContent>
     </Tooltip>
   );
-}
-
-function RouteEditorSection({
-  title,
-  description,
-  enabled,
-  onToggle,
-  disabled,
-  children,
-}: {
-  title: string;
-  description?: React.ReactNode;
-  enabled?: boolean;
-  onToggle?: (value: boolean) => void;
-  disabled?: boolean;
-  children: React.ReactNode;
-}) {
-  const hasToggle = typeof enabled === "boolean" && onToggle;
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-1.5 text-sm font-medium">
-          <span>{title}</span>
-          {description && <HelpTooltip label={title}>{description}</HelpTooltip>}
-        </div>
-        {hasToggle && (
-          <label className="flex items-center gap-2 text-xs text-muted-foreground">
-            <input
-              type="checkbox"
-              checked={enabled}
-              disabled={disabled}
-              onChange={(event) => onToggle(event.target.checked)}
-            />
-            Enabled
-          </label>
-        )}
-      </div>
-      {(!hasToggle || enabled) && <div className="space-y-3">{children}</div>}
-    </div>
-  );
-}
-
-function FollowupPromptEditor({
-  value,
-  onChange,
-  disabled,
-  channelName,
-  agentId,
-  model,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-  disabled: boolean;
-  channelName?: string;
-  agentId?: string;
-  model?: { id?: string; provider?: string };
-}) {
-  const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState(value);
-
-  const suggest = async ({ instruction, enhanceExisting, style }: PromptSuggestRequest) => {
-    if (!model?.id || !model.provider) return;
-    const res = await fetch("/api/dynamic-agents/assistant/suggest", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        field: "slack_followup_prompt",
-        context: {
-          name: agentId ? `Slack route for ${agentId}` : "Slack route",
-          slack_channel_name: channelName,
-          slack_agent_id: agentId,
-          ...(enhanceExisting && draft.trim() ? { followup_prompt: draft } : {}),
-        },
-        model: { id: model.id, provider: model.provider },
-        ...(instruction ? { instruction } : {}),
-        prompt_style: style,
-      }),
-    });
-    const payload = await res.json();
-    if (!res.ok || !payload.success) {
-      throw new Error(payload?.error || "Failed to generate follow-up prompt");
-    }
-    return payload.data?.content ?? payload.content;
-  };
-
-  return (
-    <div className="space-y-1.5">
-      <div className="flex items-center gap-1.5">
-        <Label>Follow-up prompt</Label>
-        <HelpTooltip label="Follow-up prompt">
-          Used after overthink skips a Slack reply. If a user later explicitly follows up in that thread, this text is prepended to the agent context so it can answer with the earlier skipped reasoning in mind.
-        </HelpTooltip>
-      </div>
-      <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-background px-3 py-2">
-        <div className="min-w-0 text-sm">
-          {value.trim() ? (
-            <span className="line-clamp-1 text-muted-foreground">{value.trim()}</span>
-          ) : (
-            <span className="text-muted-foreground">No follow-up prompt configured</span>
-          )}
-        </div>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => {
-            setDraft(value);
-            setOpen(true);
-          }}
-          disabled={disabled}
-        >
-          {value.trim() ? "Edit prompt" : "Write prompt"}
-        </Button>
-      </div>
-      <p className="text-xs text-muted-foreground">
-        Optional prompt prepended on humble follow-ups.
-      </p>
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-h-[90vh] max-w-5xl overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Edit follow-up prompt</DialogTitle>
-            <DialogDescription>
-              Write the prompt in a larger editor. AI Suggest will tailor the text for this Slack route.
-            </DialogDescription>
-          </DialogHeader>
-          <PromptEditorWorkbench
-            id="slack-followup-prompt"
-            label="Follow-up prompt"
-            value={draft}
-            onChange={setDraft}
-            placeholder="When confidence is low, briefly explain uncertainty and ask one clarifying question before proceeding..."
-            height={420}
-            onSuggest={suggest}
-            suggestDisabled={!model?.id || !model.provider}
-            suggestTitle={!model?.id || !model.provider ? "Select an agent with model metadata before using AI Suggest" : "Generate follow-up prompt with AI"}
-            suggestInstructionLabel="What should this Slack follow-up prompt cover?"
-            suggestInstructionPlaceholder="e.g., Ask one clarifying question before escalating..."
-          />
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-            <Button
-              type="button"
-              onClick={() => {
-                onChange(draft);
-                setOpen(false);
-              }}
-            >
-              Apply prompt
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
-  );
-}
-
-function SlackUserMultiSelect({
-  label,
-  value,
-  onChange,
-  disabled,
-  placeholder,
-  kind = "all",
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  disabled: boolean;
-  placeholder: string;
-  kind?: "all" | "bots";
-}) {
-  const selectedIds = useMemo(() => splitList(value), [value]);
-  const [query, setQuery] = useState("");
-  const [suggestions, setSuggestions] = useState<SlackUserSuggestion[]>([]);
-  const [lookupStatus, setLookupStatus] = useState<"idle" | "searching" | "ready" | "empty" | "error">("idle");
-  const [lookupMessage, setLookupMessage] = useState("");
-  const [knownUsers, setKnownUsers] = useState<Record<string, SlackUserSuggestion>>({});
-  const userLookupEnabled = !disabled && query.trim().length >= 2;
-
-  useEffect(() => {
-    const trimmed = query.trim();
-    if (!userLookupEnabled) return;
-    let cancelled = false;
-    const timer = window.setTimeout(() => {
-      fetch(`/api/admin/slack/users/lookup?q=${encodeURIComponent(trimmed)}&limit=50${kind === "bots" ? "&kind=bots" : ""}`)
-        .then((res) => (res.ok ? res.json() : Promise.reject(new Error("Slack user lookup failed"))))
-        .then((payload) => {
-          if (cancelled) return;
-          const users = (payload?.data?.users ?? payload?.users ?? []) as SlackUserSuggestion[];
-          const warming = Boolean(payload?.data?.warming ?? payload?.warming);
-          const next = users.filter((user) => !selectedIds.includes(user.id));
-          setSuggestions(next);
-          setLookupStatus(next.length > 0 ? "ready" : "empty");
-          setLookupMessage(warming
-            ? "Slack user directory is loading in the background. Try again in a moment."
-            : "No Slack users found. Press Enter to add the typed ID manually.");
-        })
-        .catch(() => {
-          if (!cancelled) {
-            setSuggestions([]);
-            setLookupStatus("error");
-            setLookupMessage("Slack user lookup failed. Press Enter to add the typed ID manually.");
-          }
-        });
-    }, 250);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [kind, query, selectedIds, userLookupEnabled]);
-
-  const addUser = (user: SlackUserSuggestion) => {
-    setKnownUsers((prev) => ({ ...prev, [user.id]: user }));
-    onChange(joinList([...selectedIds, user.id]));
-    setQuery("");
-    setSuggestions([]);
-    setLookupStatus("idle");
-    setLookupMessage("");
-  };
-  const addRawId = (id: string) => {
-    onChange(joinList([...selectedIds, id]));
-    setQuery("");
-    setSuggestions([]);
-    setLookupStatus("idle");
-    setLookupMessage("");
-  };
-  const closeLookup = () => {
-    setSuggestions([]);
-    setLookupStatus("idle");
-    setLookupMessage("");
-  };
-  const removeId = (id: string) => {
-    onChange(joinList(selectedIds.filter((candidate) => candidate !== id)));
-  };
-
-  return (
-    <div className="space-y-1.5">
-      <Label>{label}</Label>
-      <div className="relative">
-        <div
-          className={cn(
-            "flex min-h-10 w-full flex-wrap items-center gap-1.5 rounded-md border border-input bg-background px-2 py-1.5 text-sm ring-offset-background focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2",
-            disabled && "cursor-not-allowed opacity-50"
-          )}
-          onBlur={(event) => {
-            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-              closeLookup();
-            }
-          }}
-        >
-          {selectedIds.map((id) => {
-            const user = knownUsers[id];
-            const display = user ? `${user.label} (${id})` : id;
-            return (
-              <span
-                key={id}
-                className="inline-flex items-center gap-1 rounded-full border bg-muted/40 px-2 py-0.5 text-xs"
-              >
-                {display}
-              <button
-                type="button"
-                className="text-muted-foreground hover:text-foreground"
-                onClick={() => removeId(id)}
-                disabled={disabled}
-                aria-label={`Remove ${id}`}
-              >
-                ×
-              </button>
-              </span>
-            );
-          })}
-          <input
-            value={query}
-            disabled={disabled}
-            placeholder={selectedIds.length > 0 ? "Search or paste ID" : placeholder}
-            className="min-w-[160px] flex-1 appearance-none border-0 bg-transparent px-1 py-0.5 outline-none ring-0 placeholder:text-muted-foreground focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 disabled:cursor-not-allowed"
-            onChange={(event) => {
-              const next = event.target.value;
-              setQuery(next);
-              setSuggestions([]);
-              setLookupMessage("");
-              setLookupStatus(!disabled && next.trim().length >= 2 ? "searching" : "idle");
-            }}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && query.trim()) {
-                event.preventDefault();
-                addRawId(query.trim());
-              }
-              if (event.key === "Backspace" && !query && selectedIds.length > 0) {
-                removeId(selectedIds[selectedIds.length - 1]);
-              }
-            }}
-          />
-        </div>
-        {userLookupEnabled && lookupStatus !== "idle" && (
-          <div
-            className="absolute left-0 right-0 top-full z-50 mt-1 max-h-48 overflow-auto rounded-md border bg-popover p-1 text-popover-foreground shadow-lg"
-            onMouseDown={(event) => event.preventDefault()}
-          >
-            {lookupStatus === "searching" && (
-              <div className="px-2 py-1.5 text-xs text-muted-foreground">Searching Slack users…</div>
-            )}
-            {lookupStatus === "empty" && (
-              <div className="px-2 py-1.5 text-xs text-muted-foreground">{lookupMessage || "No Slack users found. Press Enter to add the typed ID manually."}</div>
-            )}
-            {lookupStatus === "error" && (
-              <div className="px-2 py-1.5 text-xs text-destructive">{lookupMessage || "Slack user lookup failed. Press Enter to add the typed ID manually."}</div>
-            )}
-            {lookupStatus === "ready" && suggestions.map((user) => (
-              <button
-                key={user.id}
-                type="button"
-                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-muted"
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => addUser(user)}
-              >
-                {user.avatar && <img src={user.avatar} alt="" className="h-5 w-5 rounded" />}
-                <span className="font-medium">{user.label}</span>
-                <span className="text-xs text-muted-foreground">({user.id})</span>
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-      <p className="text-xs text-muted-foreground">Press Enter to add a raw Slack ID if lookup is unavailable.</p>
-    </div>
-  );
-}
-
-function SlackEmojiCombobox({
-  value,
-  onChange,
-  disabled,
-  error,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-  disabled: boolean;
-  error?: string;
-}) {
-  const [query, setQuery] = useState(value);
-  const [suggestions, setSuggestions] = useState<SlackEmojiSuggestion[]>([]);
-  const [lookupStatus, setLookupStatus] = useState<"idle" | "searching" | "ready" | "empty" | "error">("idle");
-  const [lookupMessage, setLookupMessage] = useState("");
-
-  useEffect(() => {
-    setQuery(value);
-  }, [value]);
-
-  useEffect(() => {
-    const trimmed = query.trim().replace(/^:|:$/g, "");
-    if (disabled || trimmed.length < 1) {
-      setSuggestions([]);
-      return;
-    }
-    let cancelled = false;
-    const timer = window.setTimeout(() => {
-      fetch(`/api/admin/slack/emoji?q=${encodeURIComponent(trimmed)}&limit=25`)
-        .then((res) => (res.ok ? res.json() : Promise.reject(new Error("Slack emoji lookup failed"))))
-        .then((payload) => {
-          if (cancelled) return;
-          const emoji = (payload?.data?.emoji ?? payload?.emoji ?? []) as SlackEmojiSuggestion[];
-          const warming = Boolean(payload?.data?.warming ?? payload?.warming);
-          setSuggestions(emoji);
-          setLookupStatus(emoji.length > 0 ? "ready" : "empty");
-          setLookupMessage(warming
-            ? "Slack emoji directory is loading in the background. Try again in a moment."
-            : "No Slack emoji found. You can still type a standard reaction name.");
-        })
-        .catch(() => {
-          if (!cancelled) {
-            setSuggestions([]);
-            setLookupStatus("error");
-            setLookupMessage("Slack emoji lookup failed. You can still type a reaction name.");
-          }
-        });
-    }, 200);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [disabled, query]);
-
-  const commit = (next: string) => {
-    const normalized = next.trim().replace(/^:|:$/g, "");
-    onChange(normalized);
-    setQuery(normalized);
-    setSuggestions([]);
-    setLookupStatus("idle");
-    setLookupMessage("");
-  };
-  const closeLookup = () => {
-    setSuggestions([]);
-    setLookupStatus("idle");
-    setLookupMessage("");
-  };
-
-  return (
-    <div className="space-y-1.5">
-      <Label htmlFor="route-esc-emoji">Emoji name</Label>
-      <div className="relative">
-        <Input
-          id="route-esc-emoji"
-          value={query}
-          disabled={disabled}
-          className={cn(error && "border-destructive focus-visible:ring-destructive")}
-          placeholder="eyes"
-          onChange={(event) => {
-            const next = event.target.value;
-            setQuery(next);
-            setSuggestions([]);
-            setLookupMessage("");
-            setLookupStatus(!disabled && next.trim().replace(/^:|:$/g, "").length >= 1 ? "searching" : "idle");
-            onChange(next.trim().replace(/^:|:$/g, ""));
-          }}
-          onBlur={() => {
-            commit(query);
-            closeLookup();
-          }}
-        />
-        {lookupStatus !== "idle" && (
-          <div
-            className="absolute left-0 right-0 top-full z-50 mt-1 max-h-48 overflow-auto rounded-md border bg-popover p-1 text-popover-foreground shadow-lg"
-            onMouseDown={(event) => event.preventDefault()}
-          >
-            {lookupStatus === "searching" && (
-              <div className="px-2 py-1.5 text-xs text-muted-foreground">Searching Slack emoji…</div>
-            )}
-            {lookupStatus === "empty" && (
-              <div className="px-2 py-1.5 text-xs text-muted-foreground">{lookupMessage || "No Slack emoji found. You can still type a standard reaction name."}</div>
-            )}
-            {lookupStatus === "error" && (
-              <div className="px-2 py-1.5 text-xs text-destructive">{lookupMessage || "Slack emoji lookup failed. You can still type a reaction name."}</div>
-            )}
-            {lookupStatus === "ready" && suggestions.map((emoji) => (
-              <button
-                key={emoji.name}
-                type="button"
-                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-muted"
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => commit(emoji.name)}
-              >
-                {emoji.url && !emoji.alias_for && <img src={emoji.url} alt="" className="h-5 w-5" />}
-                <span className="font-medium">:{emoji.name}:</span>
-                {emoji.alias_for && <span className="text-xs text-muted-foreground">alias of :{emoji.alias_for}:</span>}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-      {error && <p className="text-xs text-destructive">{error}</p>}
-      <p className="text-xs text-muted-foreground">Custom Slack emoji are suggested when available; standard reaction names still work.</p>
-    </div>
-  );
-}
-
-function emptySideDraft(listen: ListenMode = "mention"): RouteSideDraft {
-  return { enabled: false, listen, allowList: "", overthinkEnabled: false, overthinkSkipMarkers: DEFAULT_OVERTHINK_SKIP_MARKERS, overthinkFollowupPrompt: "" };
-}
-function emptyRouteDraft(): RouteDraft {
-  return {
-    agentId: "", priority: 100,
-    usersEnabled: true, botsEnabled: false,
-    users: { ...emptySideDraft("mention"), enabled: true },
-    bots: emptySideDraft("message"),
-    escalationEnabled: false,
-    escalation: { victoropsEnabled: false, victoropsTeam: "", emojiEnabled: false, emojiName: "eyes", users: "", deleteAdmins: "" },
-  };
-}
-
-function splitList(value: string): string[] {
-  return Array.from(new Set(value.split(/[\s,]+/).map((v) => v.trim()).filter(Boolean)));
-}
-function joinList(value: string[] | undefined): string {
-  return (value ?? []).join(", ");
-}
-
-function sideToDraft(side: RouteSideConfig | undefined, fallbackListen: ListenMode, listKey: "user_list" | "bot_list"): RouteSideDraft {
-  if (!side) return emptySideDraft(fallbackListen);
-  return {
-    enabled: side.enabled !== false,
-    listen: side.listen ?? fallbackListen,
-    allowList: joinList(side[listKey]),
-    overthinkEnabled: Boolean(side.overthink?.enabled),
-    overthinkSkipMarkers: joinList(side.overthink?.skip_markers) || DEFAULT_OVERTHINK_SKIP_MARKERS,
-    overthinkFollowupPrompt: side.overthink?.followup_prompt ?? "",
-  };
-}
-
-function routeToDraft(route: ItemAgentRoute): RouteDraft {
-  const esc = route.escalation;
-  return {
-    agentId: route.agent_id,
-    priority: route.priority ?? 100,
-    usersEnabled: route.users ? route.users.enabled !== false : true,
-    botsEnabled: route.bots ? route.bots.enabled !== false : false,
-    users: sideToDraft(route.users, "mention", "user_list"),
-    bots: sideToDraft(route.bots, "message", "bot_list"),
-    escalationEnabled: Boolean(esc && (esc.victorops?.enabled || esc.emoji?.enabled || (esc.users?.length ?? 0) > 0 || (esc.delete_admins?.length ?? 0) > 0)),
-    escalation: {
-      victoropsEnabled: Boolean(esc?.victorops?.enabled),
-      victoropsTeam: esc?.victorops?.team ?? "",
-      emojiEnabled: Boolean(esc?.emoji?.enabled),
-      emojiName: esc?.emoji?.name ?? "eyes",
-      users: joinList(esc?.users),
-      deleteAdmins: joinList(esc?.delete_admins),
-    },
-  };
-}
-
-function sideDraftToConfig(draft: RouteSideDraft, enabled: boolean, listKey: "user_list" | "bot_list"): RouteSideConfig {
-  const list = splitList(draft.allowList);
-  const overthink = draft.overthinkEnabled || draft.overthinkSkipMarkers || draft.overthinkFollowupPrompt
-    ? {
-        enabled: draft.overthinkEnabled,
-        ...(splitList(draft.overthinkSkipMarkers).length > 0 ? { skip_markers: splitList(draft.overthinkSkipMarkers) } : {}),
-        ...(draft.overthinkFollowupPrompt.trim() ? { followup_prompt: draft.overthinkFollowupPrompt.trim() } : {}),
-      }
-    : undefined;
-  return {
-    enabled,
-    listen: draft.listen,
-    ...(list.length > 0 ? { [listKey]: list } : {}),
-    ...(overthink ? { overthink } : {}),
-  };
-}
-
-function draftToRoute(draft: RouteDraft): ItemAgentRoute {
-  const esc = draft.escalation;
-  const escalationUsers = splitList(esc.users);
-  const deleteAdmins = splitList(esc.deleteAdmins);
-  const escalation: RouteEscalationConfig | undefined = draft.escalationEnabled
-    ? {
-        ...(esc.victoropsEnabled || esc.victoropsTeam
-          ? { victorops: { enabled: esc.victoropsEnabled, ...(esc.victoropsTeam.trim() ? { team: esc.victoropsTeam.trim() } : {}) } }
-          : {}),
-        ...(esc.emojiEnabled ? { emoji: { enabled: true, ...(esc.emojiName.trim() ? { name: esc.emojiName.trim() } : {}) } } : {}),
-        ...(escalationUsers.length > 0 ? { users: escalationUsers } : {}),
-        ...(deleteAdmins.length > 0 ? { delete_admins: deleteAdmins } : {}),
-      }
-    : undefined;
-  return {
-    agent_id: draft.agentId.trim(),
-    enabled: true,
-    priority: draft.priority,
-    users: sideDraftToConfig(draft.users, draft.usersEnabled, "user_list"),
-    ...(draft.botsEnabled ? { bots: sideDraftToConfig(draft.bots, true, "bot_list") } : {}),
-    ...(escalation && Object.keys(escalation).length > 0 ? { escalation } : {}),
-  };
-}
-
-function validateRouteDraft(draft: RouteDraft): string[] {
-  const errors: string[] = [];
-  if (!draft.agentId.trim()) {
-    errors.push("Choose a Dynamic Agent.");
-  }
-  if (!Number.isFinite(draft.priority)) {
-    errors.push("Priority must be a valid number.");
-  }
-  if (!draft.usersEnabled && !draft.botsEnabled) {
-    errors.push("Enable Respond to Users, Respond to Bots, or both.");
-  }
-  if (draft.usersEnabled && draft.users.overthinkEnabled && splitList(draft.users.overthinkSkipMarkers).length === 0) {
-    errors.push("User overthink skip markers cannot be empty.");
-  }
-  if (draft.botsEnabled && draft.bots.overthinkEnabled && splitList(draft.bots.overthinkSkipMarkers).length === 0) {
-    errors.push("Bot overthink skip markers cannot be empty.");
-  }
-  if (draft.escalationEnabled) {
-    const esc = draft.escalation;
-    const hasVictorops = esc.victoropsEnabled || esc.victoropsTeam.trim();
-    const hasEmoji = esc.emojiEnabled || esc.emojiName.trim();
-    const hasUsers = splitList(esc.users).length > 0;
-    const hasDeleteAdmins = splitList(esc.deleteAdmins).length > 0;
-    if (!hasVictorops && !hasEmoji && !hasUsers && !hasDeleteAdmins) {
-      errors.push("Configure at least one escalation action, or turn Escalation off.");
-    }
-    if (esc.victoropsEnabled && !esc.victoropsTeam.trim()) {
-      errors.push("VictorOps on-call paging requires a VictorOps team.");
-    }
-    if (esc.emojiEnabled && !esc.emojiName.trim()) {
-      errors.push("Emoji reaction requires an emoji name.");
-    }
-  }
-  return errors;
-}
-
-function routeDraftErrorMap(draft: RouteDraft): Record<string, string> {
-  const errors: Record<string, string> = {};
-  if (!draft.agentId.trim()) errors.agentId = "Choose a Dynamic Agent.";
-  if (!Number.isFinite(draft.priority)) errors.priority = "Priority must be a valid number.";
-  if (!draft.usersEnabled && !draft.botsEnabled) errors.responding = "Enable users, bots, or both.";
-  if (draft.usersEnabled && draft.users.overthinkEnabled && splitList(draft.users.overthinkSkipMarkers).length === 0) {
-    errors.usersSkipMarkers = "Skip markers cannot be empty.";
-  }
-  if (draft.botsEnabled && draft.bots.overthinkEnabled && splitList(draft.bots.overthinkSkipMarkers).length === 0) {
-    errors.botsSkipMarkers = "Skip markers cannot be empty.";
-  }
-  if (draft.escalationEnabled) {
-    const esc = draft.escalation;
-    const hasVictorops = esc.victoropsEnabled || esc.victoropsTeam.trim();
-    const hasEmoji = esc.emojiEnabled || esc.emojiName.trim();
-    const hasUsers = splitList(esc.users).length > 0;
-    const hasDeleteAdmins = splitList(esc.deleteAdmins).length > 0;
-    if (!hasVictorops && !hasEmoji && !hasUsers && !hasDeleteAdmins) errors.escalation = "Configure at least one escalation action, or turn Escalation off.";
-    if (esc.victoropsEnabled && !esc.victoropsTeam.trim()) errors.victoropsTeam = "VictorOps team is required.";
-    if (esc.emojiEnabled && !esc.emojiName.trim()) errors.emojiName = "Emoji name is required.";
-  }
-  return errors;
 }
 
 function apiData<T>(payload: { data?: T } & T): T {
@@ -881,311 +218,6 @@ function SyncPreviewBreakdown({ channels }: { channels: SyncPreviewChannel[] }) 
       </div>
     </div>
   );
-}
-
-// ── Route editor subcomponents ────────────────────────────────────────────────
-
-function RouteSideEditor({
-  title, side, enabled, onToggleEnabled, onChange, listLabel, listPlaceholder, disabled, channelName, agentId, model, error, lookupKind = "all",
-}: {
-  title: string;
-  side: RouteSideDraft;
-  enabled: boolean;
-  onToggleEnabled: (v: boolean) => void;
-  onChange: (next: RouteSideDraft) => void;
-  listLabel: string;
-  listPlaceholder: string;
-  disabled: boolean;
-  channelName?: string;
-  agentId?: string;
-  model?: { id?: string; provider?: string };
-  error?: string;
-  lookupKind?: "all" | "bots";
-}) {
-  const idBase = `route-side-${title.toLowerCase()}`;
-  return (
-    <RouteEditorSection
-      title={`Respond to ${title}`}
-      description={title === "Users"
-        ? "Controls how this agent handles Slack messages from people."
-        : "Controls how this agent handles messages posted by Slack apps or bots."}
-      enabled={enabled}
-      onToggle={onToggleEnabled}
-      disabled={disabled}
-    >
-      <div className="space-y-3">
-        <div className="space-y-1.5">
-          <Label htmlFor={`${idBase}-listen`}>Listen</Label>
-          <select id={`${idBase}-listen`}
-            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-            value={side.listen} disabled={disabled}
-            onChange={(e) => onChange({ ...side, listen: e.target.value as ListenMode })}>
-            <option value="mention">mention</option>
-            <option value="message">message</option>
-            <option value="all">all</option>
-          </select>
-        </div>
-        <SlackUserMultiSelect
-          label={listLabel}
-          value={side.allowList}
-          disabled={disabled}
-          placeholder={listPlaceholder}
-          kind={lookupKind}
-          onChange={(next) => onChange({ ...side, allowList: next })}
-        />
-      </div>
-      <label className="flex items-center gap-2 text-sm">
-        <input type="checkbox" checked={side.overthinkEnabled} disabled={disabled}
-          onChange={(e) => onChange({ ...side, overthinkEnabled: e.target.checked })} />
-        Overthink (re-evaluate before replying)
-      </label>
-      {side.overthinkEnabled && (
-        <div className="space-y-3">
-          <div className="space-y-1.5">
-            <div className="flex items-center gap-1.5">
-              <Label htmlFor={`${idBase}-skip`}>Skip markers</Label>
-              <HelpTooltip label={`${title} skip markers`}>
-                If the agent&apos;s final response contains one of these bracketed markers, for example <code>[DEFER]</code> or <code>[LOW_CONFIDENCE]</code>, the Slack bot does not post the response. You likely do not need to change these defaults.
-              </HelpTooltip>
-            </div>
-            <Input id={`${idBase}-skip`} value={side.overthinkSkipMarkers} disabled={disabled}
-              className={cn(error && "border-destructive focus-visible:ring-destructive")}
-              placeholder={DEFAULT_OVERTHINK_SKIP_MARKERS}
-              onChange={(e) => onChange({ ...side, overthinkSkipMarkers: e.target.value })} />
-            {error && <p className="text-xs text-destructive">{error}</p>}
-            <p className="text-xs text-muted-foreground">
-              Default: {DEFAULT_OVERTHINK_SKIP_MARKERS}. You likely do not need to change this.
-            </p>
-          </div>
-          <FollowupPromptEditor
-            value={side.overthinkFollowupPrompt}
-            disabled={disabled}
-            channelName={channelName}
-            agentId={agentId}
-            model={model}
-            onChange={(next) => onChange({ ...side, overthinkFollowupPrompt: next })}
-          />
-        </div>
-      )}
-    </RouteEditorSection>
-  );
-}
-
-function EscalationEditor({
-  enabled, onToggleEnabled, escalation, onChange, disabled, errors = {},
-}: {
-  enabled: boolean;
-  onToggleEnabled: (v: boolean) => void;
-  escalation: RouteEscalationDraft;
-  onChange: (next: RouteEscalationDraft) => void;
-  disabled: boolean;
-  errors?: Record<string, string | undefined>;
-}) {
-  return (
-    <RouteEditorSection
-      title="Escalation (“Get help” button)"
-      description="Get Help is a button that appears after a user gives the Forge response a thumbs down."
-      enabled={enabled}
-      onToggle={onToggleEnabled}
-      disabled={disabled}
-    >
-      <div className="space-y-4">
-        <div className="space-y-2">
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={escalation.victoropsEnabled} disabled={disabled}
-              onChange={(e) => onChange({ ...escalation, victoropsEnabled: e.target.checked })} />
-            VictorOps on-call paging
-          </label>
-          {escalation.victoropsEnabled && (
-            <div className="space-y-1.5">
-              <Label htmlFor="route-esc-vo-team">VictorOps team</Label>
-              <Input id="route-esc-vo-team" value={escalation.victoropsTeam} disabled={disabled}
-                  className={cn(errors.victoropsTeam && "border-destructive focus-visible:ring-destructive")}
-                placeholder="e.g. dao"
-                onChange={(e) => onChange({ ...escalation, victoropsTeam: e.target.value })} />
-                {errors.victoropsTeam && <p className="text-xs text-destructive">{errors.victoropsTeam}</p>}
-            </div>
-          )}
-        </div>
-        <div className="space-y-2">
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={escalation.emojiEnabled} disabled={disabled}
-              onChange={(e) => onChange({ ...escalation, emojiEnabled: e.target.checked })} />
-            Emoji reaction
-          </label>
-          {escalation.emojiEnabled && (
-            <SlackEmojiCombobox
-              value={escalation.emojiName}
-              disabled={disabled}
-              error={errors.emojiName}
-              onChange={(next) => onChange({ ...escalation, emojiName: next })}
-            />
-          )}
-        </div>
-        <SlackUserMultiSelect
-          label="Ping users"
-          value={escalation.users}
-          disabled={disabled}
-          placeholder="Search Slack users or paste U012ABC"
-          onChange={(next) => onChange({ ...escalation, users: next })}
-        />
-        <SlackUserMultiSelect
-          label="Delete admins"
-          value={escalation.deleteAdmins}
-          disabled={disabled}
-          placeholder="Search Slack users or paste U012ABC"
-          onChange={(next) => onChange({ ...escalation, deleteAdmins: next })}
-        />
-      </div>
-      {errors.escalation && <p className="text-xs text-destructive">{errors.escalation}</p>}
-    </RouteEditorSection>
-  );
-}
-
-function RouteAssociationEditor({
-  selected,
-  dynamicAgents,
-  routeDraft,
-  setRouteDraft,
-  editingRouteAgentId,
-  saveRoute,
-  onCancel,
-  disabled,
-  loading,
-  selectedCanManage,
-}: {
-  selected: ItemSummary | undefined;
-  dynamicAgents: DynamicAgentOption[];
-  routeDraft: RouteDraft;
-  setRouteDraft: (updater: (prev: RouteDraft) => RouteDraft) => void;
-  editingRouteAgentId: string | null;
-  saveRoute: () => Promise<void> | void;
-  onCancel: () => void;
-  disabled: boolean;
-  loading: boolean;
-  selectedCanManage: boolean;
-}) {
-  const formDisabled = disabled || !selectedCanManage;
-  const selectedAgent = dynamicAgents.find((agent) => agent._id === routeDraft.agentId);
-  const [submitAttempted, setSubmitAttempted] = useState(false);
-  const validationErrors = routeDraftErrorMap(routeDraft);
-  const visibleErrors = submitAttempted ? validationErrors : {};
-  const hasErrors = Object.keys(validationErrors).length > 0;
-  return (
-    <div className="space-y-5">
-      <section className="space-y-3">
-        <div className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="connector-route-agent-id" className="block">Dynamic Agent</Label>
-            <AgentPicker
-              id="connector-route-agent-id"
-              ariaLabel="Dynamic Agent"
-              value={routeDraft.agentId}
-              onChange={(value) => setRouteDraft((prev) => ({ ...prev, agentId: value }))}
-              disabled={formDisabled || dynamicAgents.length === 0 || Boolean(editingRouteAgentId)}
-              placeholder={dynamicAgents.length === 0 ? "No enabled Dynamic Agents found" : "Select Dynamic Agent"}
-              options={dynamicAgents.map<AgentPickerOption>((agent) => ({ value: agent._id, label: agent.name || agent._id }))}
-              triggerClassName={cn("h-10", visibleErrors.agentId && "border-destructive focus:ring-destructive")}
-            />
-            {visibleErrors.agentId && <p className="text-xs text-destructive">{visibleErrors.agentId}</p>}
-          </div>
-          <div className="max-w-48 space-y-2">
-            <Label htmlFor="connector-route-priority" className="block">Priority</Label>
-            <Input
-              id="connector-route-priority"
-              type="number"
-              value={routeDraft.priority}
-              className={cn(visibleErrors.priority && "border-destructive focus-visible:ring-destructive")}
-              onChange={(event) => setRouteDraft((prev) => ({ ...prev, priority: Number(event.target.value) }))}
-              disabled={formDisabled}
-            />
-            {visibleErrors.priority && <p className="text-xs text-destructive">{visibleErrors.priority}</p>}
-          </div>
-        </div>
-      </section>
-
-      <div className="border-t" />
-
-      <section className="space-y-3">
-        <div className="flex items-center gap-1.5">
-          <h4 className="text-sm font-semibold">Responding</h4>
-          <HelpTooltip label="Responding">Configure whether this agent handles user messages, bot messages, or both.</HelpTooltip>
-        </div>
-        <div className="space-y-5">
-          {visibleErrors.responding && <p className="text-xs text-destructive">{visibleErrors.responding}</p>}
-          <RouteSideEditor
-            title="Users"
-            side={routeDraft.users}
-            enabled={routeDraft.usersEnabled}
-            onToggleEnabled={(value) => setRouteDraft((prev) => ({ ...prev, usersEnabled: value }))}
-            onChange={(next) => setRouteDraft((prev) => ({ ...prev, users: next }))}
-            listLabel="Only these Slack users"
-            listPlaceholder="Search Slack users or paste U012ABC"
-            disabled={formDisabled}
-            channelName={selected?.item_name || selected?.item_id}
-            agentId={routeDraft.agentId}
-            model={selectedAgent?.model}
-            error={visibleErrors.usersSkipMarkers}
-          />
-          <RouteSideEditor
-            title="Bots"
-            side={routeDraft.bots}
-            enabled={routeDraft.botsEnabled}
-            onToggleEnabled={(value) => setRouteDraft((prev) => ({ ...prev, botsEnabled: value }))}
-            onChange={(next) => setRouteDraft((prev) => ({ ...prev, bots: next }))}
-            listLabel="Only these Slack bots"
-            listPlaceholder="Search Slack bot users or paste an ID"
-            disabled={formDisabled}
-            lookupKind="bots"
-            channelName={selected?.item_name || selected?.item_id}
-            agentId={routeDraft.agentId}
-            model={selectedAgent?.model}
-            error={visibleErrors.botsSkipMarkers}
-          />
-        </div>
-      </section>
-
-      <div className="border-t" />
-
-      <section className="space-y-3">
-        <h4 className="text-sm font-semibold">Escalation</h4>
-        <EscalationEditor
-          enabled={routeDraft.escalationEnabled}
-          onToggleEnabled={(value) => setRouteDraft((prev) => ({ ...prev, escalationEnabled: value }))}
-          escalation={routeDraft.escalation}
-          onChange={(next) => setRouteDraft((prev) => ({ ...prev, escalation: next }))}
-          disabled={formDisabled}
-          errors={visibleErrors}
-        />
-      </section>
-
-      <DialogFooter className="border-t pt-4">
-        <Button type="button" variant="outline" onClick={onCancel} disabled={loading}>Cancel</Button>
-        <Button
-          type="button"
-          onClick={() => {
-            setSubmitAttempted(true);
-            if (!hasErrors) void saveRoute();
-          }}
-          disabled={formDisabled || loading}
-        >
-          {loading ? "Saving..." : editingRouteAgentId ? "Update Agent" : "Add Agent"}
-        </Button>
-      </DialogFooter>
-    </div>
-  );
-}
-
-function routeSummaryBadges(route: ItemAgentRoute): string[] {
-  const badges: string[] = [];
-  if (route.users && route.users.enabled !== false) badges.push(`users:${route.users.listen ?? "mention"}`);
-  if (route.bots && route.bots.enabled !== false) badges.push(`bots:${route.bots.listen ?? "message"}`);
-  if (route.users?.overthink?.enabled || route.bots?.overthink?.enabled) badges.push("overthink");
-  const esc = route.escalation;
-  if (esc && (esc.victorops?.enabled || esc.emoji?.enabled || (esc.users?.length ?? 0) > 0 || (esc.delete_admins?.length ?? 0) > 0)) {
-    badges.push("escalation");
-  }
-  return badges;
 }
 
 function diagnosticsHasIssues(diagnostics: ItemDiagnostics | null): boolean {
@@ -1344,11 +376,11 @@ interface ItemDetailProps {
   selected: ItemSummary;
   diagnostics: ItemDiagnostics | null;
   routes: ItemAgentRoute[];
+  dynamicAgents: DynamicAgentOption[];
   teams: TeamOption[];
-  setChannelTeam: (teamSlug: string) => Promise<void> | void;
-  onCreateRoute: () => void;
-  onEditRoute: (route: ItemAgentRoute) => void;
-  deleteRoute: (route: ItemAgentRoute) => void;
+  onRefresh: (nextRoutes?: ItemAgentRoute[]) => Promise<void> | void;
+  setLoading: (loading: boolean) => void;
+  setMessage: (message: string | null) => void;
   fixDiagnosticRoute: (route: DiagnosticRoute) => Promise<void> | void;
   fixMissingRouteableAgent: () => Promise<void> | void;
   disabled: boolean; loading: boolean; selectedCanManage: boolean; message: string | null;
@@ -1356,9 +388,8 @@ interface ItemDetailProps {
 
 function ItemDetail({
   adapter, selected, diagnostics, routes,
-  teams, setChannelTeam,
-  onCreateRoute, onEditRoute, deleteRoute,
-  fixDiagnosticRoute, fixMissingRouteableAgent, disabled, loading, selectedCanManage, message,
+  dynamicAgents, teams, onRefresh, setLoading, setMessage,
+  fixDiagnosticRoute, fixMissingRouteableAgent, disabled, loading, selectedCanManage,
 }: ItemDetailProps) {
   const diagnosticsMissingRouteableAgent =
     adapter.missingRouteableAgentAutoFix?.isApplicable(selected, diagnostics ?? {
@@ -1381,82 +412,20 @@ function ItemDetail({
         selectedCanManage={selectedCanManage}
       />
 
-      {adapter.manualRouteEditing && (
-        <div className="rounded-md border bg-background/60 p-3">
-          <div className="mb-2 flex items-center justify-between gap-3">
-            <div>
-              <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Team</div>
-              <p className="text-sm text-muted-foreground">
-                Assign a team so this channel can be managed and shown to the right admins.
-              </p>
-            </div>
-            {selected.team_slug ? <Badge variant="secondary">team:{selected.team_slug}</Badge> : <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-800">no team</Badge>}
-          </div>
-          <TeamPicker
-            value={selected.team_slug ?? ""}
-            onChange={(teamSlug) => void setChannelTeam(teamSlug)}
-            disabled={disabled || !selectedCanManage || loading || teams.length === 0}
-            placeholder={teams.length === 0 ? "No teams configured" : "Select team"}
-            searchPlaceholder="Search teams..."
-            ariaLabel={`Team for ${selected.item_name || selected.item_id}`}
-            options={teams.map<TeamPickerOption>((team) => ({ slug: team.slug, name: team.name || team.slug, id: team.id, _id: team._id }))}
-          />
-        </div>
-      )}
-
-      {/* Manual route editing — Slack only */}
-      {adapter.manualRouteEditing && (
-        <div className="space-y-3">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Agents</div>
-              <p className="text-sm text-muted-foreground">
-                {routes.length > 0
-                  ? `${pluralize(routes.length, "agent")} can respond in ${selected.item_name || selected.item_id}.`
-                  : `No agents can respond in ${selected.item_name || selected.item_id} yet.`}
-              </p>
-            </div>
-            <Button
-              type="button"
-              size="sm"
-              onClick={onCreateRoute}
-              disabled={disabled || !selectedCanManage || loading}
-            >
-              Add Agent
-            </Button>
-          </div>
-          {adapter.manualRouteFormHint?.(selected)}
-          {message && <p className="text-sm text-muted-foreground">{message}</p>}
-          {routes.length === 0 ? (
-            <div className="rounded-md border border-dashed bg-muted/20 p-4 text-sm text-muted-foreground">
-              Add an agent to let this {adapter.itemSingular} respond to Slack messages.
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {routes.map((route) => (
-                <div key={route.agent_id} className="flex flex-wrap items-center justify-between gap-3 rounded-md border bg-background/60 px-3 py-2 text-sm">
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-medium">agent:{route.agent_id}</span>
-                      <Badge variant="secondary">priority {route.priority}</Badge>
-                      {routeSummaryBadges(route).map((badge) => <Badge key={badge} variant="outline">{badge}</Badge>)}
-                    </div>
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      Users: {route.users?.listen ?? "mention"}{route.bots ? ` · Bots: ${route.bots.listen ?? "message"}` : ""}{route.escalation ? " · Escalation enabled" : ""}
-                    </div>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-2">
-                    <Button type="button" variant="outline" size="sm" onClick={() => onEditRoute(route)}
-                      disabled={disabled || !selectedCanManage || loading} aria-label={`Edit agent:${route.agent_id}`}>Edit</Button>
-                    <Button type="button" variant="destructive" size="sm" onClick={() => deleteRoute(route)}
-                      disabled={disabled || !selectedCanManage || loading} aria-label={`Delete agent:${route.agent_id}`}>Delete</Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+      {adapter.configuredDetailExtra?.({
+        item: selected,
+        routes,
+        dynamicAgents,
+        teams,
+        disabled,
+        loading,
+        selectedCanManage,
+        setLoading,
+        setMessage,
+        onRefresh,
+        routesFor: adapter.api.routesFor,
+        listApi: adapter.api.list,
+      })}
     </div>
   );
 }
@@ -1479,10 +448,6 @@ export function ConnectorAdminPanel({
   const [diagnostics, setDiagnostics] = useState<ItemDiagnostics | null>(null);
   const [dynamicAgents, setDynamicAgents] = useState<DynamicAgentOption[]>([]);
   const [teams, setTeams] = useState<TeamOption[]>([]);
-  const [routeDraft, setRouteDraft] = useState<RouteDraft>(emptyRouteDraft);
-  const [editingRouteAgentId, setEditingRouteAgentId] = useState<string | null>(null);
-  const [routeEditorOpen, setRouteEditorOpen] = useState(false);
-  const [routePendingDelete, setRoutePendingDelete] = useState<ItemAgentRoute | null>(null);
   const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatus | null>(null);
   const [runtimeSyncSummary, setRuntimeSyncSummary] = useState<RuntimeSyncSummary | null>(null);
   const [runtimeSyncModalOpen, setRuntimeSyncModalOpen] = useState(false);
@@ -1585,133 +550,10 @@ export function ConnectorAdminPanel({
     setRuntimeStatus(adapter.parseRuntimeStatus(data));
   }, [adapter]);
 
-  // ── Effects ─────────────────────────────────────────────────────────────────
-
-  useEffect(() => { void loadItems(); }, [loadItems]);
-  useEffect(() => {
-    void loadDynamicAgents().catch((e) =>
-      setMessage(e instanceof Error ? e.message : "Failed to load Dynamic Agents"));
-  }, [loadDynamicAgents]);
-  useEffect(() => {
-    if (selfService) return;
-    void loadTeams().catch((e) => setMessage(e instanceof Error ? e.message : "Failed to load teams"));
-  }, [loadTeams, selfService]);
-  useEffect(() => {
-    if (selfService) return;
-    void loadRuntimeStatus().catch((e) =>
-      setMessage(e instanceof Error ? e.message : `Failed to load ${adapter.connectorName} bot runtime status`));
-  }, [loadRuntimeStatus, selfService, adapter.connectorName]);
-  const connectorName = adapter.connectorName;
-  const itemSingular = adapter.itemSingular;
-  useEffect(() => {
-    void loadRoutes().catch((e) =>
-      setMessage(e instanceof Error ? e.message : `Failed to load ${connectorName} ${itemSingular} routes`));
-  }, [loadRoutes, connectorName, itemSingular]);
-  useEffect(() => {
-    setDiagnostics(null);
-    void loadDiagnostics().catch((e) =>
-      setMessage(e instanceof Error ? e.message : `Failed to load ${connectorName} runtime diagnostics`));
-  }, [loadDiagnostics, connectorName]);
-
-  // ── Route form helpers ───────────────────────────────────────────────────────
-
-  const resetRouteForm = () => {
-    setRouteDraft(emptyRouteDraft()); setEditingRouteAgentId(null);
-  };
-  const openCreateRoute = () => {
-    resetRouteForm();
-    setRouteEditorOpen(true);
-  };
-  const editRoute = (route: ItemAgentRoute) => {
-    setRouteDraft(routeToDraft(route));
-    setEditingRouteAgentId(route.agent_id);
-    setRouteEditorOpen(true);
-  };
-
-  const saveRoute = async () => {
-    const agentId = routeDraft.agentId.trim();
-    if (!selected || !agentId) return;
-    const validationErrors = validateRouteDraft(routeDraft);
-    if (validationErrors.length > 0) {
-      setMessage(validationErrors.join(" "));
-      return;
-    }
-    setLoading(true); setMessage(null);
-    try {
-      // Build the complete route from the draft so every field (users,
-      // bots, allow lists, overthink, escalation) round-trips. The PUT
-      // handler replaces the channel's routes wholesale and $unsets any
-      // omitted side config, so we MUST resend the full set each save —
-      // hence we preserve the other routes verbatim and swap in this one.
-      const nextRoutes: ItemAgentRoute[] = [
-        ...routes.filter((r) => r.agent_id !== agentId && r.agent_id !== editingRouteAgentId),
-        draftToRoute(routeDraft),
-      ];
-      const res = await fetch(adapter.api.routesFor(selected.workspace_id, selected.item_id), {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ routes: nextRoutes }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      const data = apiData<{ routes: ItemAgentRoute[] }>(await res.json());
-      setRoutes(data.routes ?? []);
-      resetRouteForm();
-      setRouteEditorOpen(false);
-      toast(editingRouteAgentId
-        ? `${adapter.connectorName} ${adapter.itemSingular} agent updated.`
-        : `${adapter.connectorName} ${adapter.itemSingular} agent added.`, "success");
-      await Promise.all([loadItems(), loadDiagnostics()]);
-    } catch (err) {
-      setMessage(err instanceof Error ? err.message : `Failed to save ${adapter.connectorName} agent`);
-    } finally { setLoading(false); }
-  };
-
-  const deleteRouteConfirmed = async () => {
-    if (!selected || !routePendingDelete) return;
-    setLoading(true); setMessage(null);
-    try {
-      const res = await fetch(adapter.api.routesFor(selected.workspace_id, selected.item_id), {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ agent_id: routePendingDelete.agent_id }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      if (editingRouteAgentId === routePendingDelete.agent_id) resetRouteForm();
-      setRoutePendingDelete(null);
-      toast(`${adapter.connectorName} ${adapter.itemSingular} agent removed.`, "success");
-      await Promise.all([loadItems(), loadRoutes(), loadDiagnostics()]);
-    } catch (err) {
-      setMessage(err instanceof Error ? err.message : `Failed to remove ${adapter.connectorName} agent`);
-    } finally { setLoading(false); }
-  };
-
-  const setChannelTeam = async (teamSlug: string) => {
-    if (!selected || !teamSlug) return;
-    setLoading(true); setMessage(null);
-    try {
-      const res = await fetch(`${adapter.api.list}/${encodeURIComponent(selected.workspace_id)}/${encodeURIComponent(selected.item_id)}/team`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          team_slug: teamSlug,
-          channel_name: selected.item_name || selected.item_id,
-        }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      toast(`${adapter.connectorName} ${adapter.itemSingular} team updated.`, "success");
-      await Promise.all([loadItems(), loadDiagnostics()]);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : `Failed to update ${adapter.connectorName} ${adapter.itemSingular} team`;
-      setMessage(msg); toast(msg, "error");
-    } finally { setLoading(false); }
-  };
-
-  // ── Runtime / advanced tab actions ──────────────────────────────────────────
-
   const refreshRuntimeStatus = async () => {
     setLoading(true); setMessage(null);
-    try { await loadRuntimeStatus(); toast(`${adapter.connectorName} bot runtime status refreshed.`, "success"); }
-    catch (err) { setMessage(err instanceof Error ? err.message : "Failed to load runtime status"); }
+    try { await loadRuntimeStatus(); }
+    catch (err) { setMessage(err instanceof Error ? err.message : `Failed to refresh ${adapter.connectorName} bot runtime status`); }
     finally { setLoading(false); }
   };
 
@@ -1751,6 +593,34 @@ export function ConnectorAdminPanel({
       setRuntimeSyncModalError(msg); setRuntimeSyncModalStatus("error"); setMessage(msg);
     } finally { setLoading(false); }
   };
+
+  // ── Effects ─────────────────────────────────────────────────────────────────
+
+  useEffect(() => { void loadItems(); }, [loadItems]);
+  useEffect(() => {
+    void loadDynamicAgents().catch((e) =>
+      setMessage(e instanceof Error ? e.message : "Failed to load Dynamic Agents"));
+  }, [loadDynamicAgents]);
+  useEffect(() => {
+    if (selfService) return;
+    void loadTeams().catch((e) => setMessage(e instanceof Error ? e.message : "Failed to load teams"));
+  }, [loadTeams, selfService]);
+  useEffect(() => {
+    if (selfService) return;
+    void loadRuntimeStatus().catch((e) =>
+      setMessage(e instanceof Error ? e.message : `Failed to load ${adapter.connectorName} bot runtime status`));
+  }, [loadRuntimeStatus, selfService, adapter.connectorName]);
+  const connectorName = adapter.connectorName;
+  const itemSingular = adapter.itemSingular;
+  useEffect(() => {
+    void loadRoutes().catch((e) =>
+      setMessage(e instanceof Error ? e.message : `Failed to load ${connectorName} ${itemSingular} routes`));
+  }, [loadRoutes, connectorName, itemSingular]);
+  useEffect(() => {
+    setDiagnostics(null);
+    void loadDiagnostics().catch((e) =>
+      setMessage(e instanceof Error ? e.message : `Failed to load ${connectorName} runtime diagnostics`));
+  }, [loadDiagnostics, connectorName]);
 
   // ── Diagnostic fix actions ───────────────────────────────────────────────────
 
@@ -2082,11 +952,14 @@ export function ConnectorAdminPanel({
                             <td colSpan={4} className="p-4">
                               <ItemDetail
                                 adapter={adapter} selected={item} diagnostics={diagnostics} routes={routes}
+                                dynamicAgents={dynamicAgents}
                                 teams={teams}
-                                setChannelTeam={setChannelTeam}
-                                onCreateRoute={openCreateRoute}
-                                onEditRoute={editRoute}
-                                deleteRoute={setRoutePendingDelete}
+                                setLoading={setLoading}
+                                setMessage={setMessage}
+                                onRefresh={async (nextRoutes) => {
+                                  if (nextRoutes) setRoutes(nextRoutes);
+                                  await Promise.all([loadItems(), loadRoutes(), loadDiagnostics()]);
+                                }}
                                 fixDiagnosticRoute={fixDiagnosticRoute} fixMissingRouteableAgent={fixMissingRouteableAgent}
                                 disabled={disabled} loading={loading} selectedCanManage={selectedCanManage} message={message}
                               />
@@ -2153,65 +1026,6 @@ export function ConnectorAdminPanel({
           />
         )}
 
-        {/* Route association editor dialog */}
-        <Dialog
-          open={routeEditorOpen}
-          onOpenChange={(open) => {
-            setRouteEditorOpen(open);
-            if (!open && !loading) resetRouteForm();
-          }}
-        >
-          <DialogContent className="max-h-[90vh] max-w-5xl overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>
-                {editingRouteAgentId
-                  ? `Edit agent:${editingRouteAgentId}`
-                  : `Add Agent${selected ? ` to ${selected.item_name || selected.item_id}` : ""}`}
-              </DialogTitle>
-              <DialogDescription>
-                Configure how this Slack channel routes messages to a Dynamic Agent. Optional response and escalation settings stay hidden until enabled.
-              </DialogDescription>
-            </DialogHeader>
-            <RouteAssociationEditor
-              selected={selected}
-              dynamicAgents={dynamicAgents}
-              routeDraft={routeDraft}
-              setRouteDraft={setRouteDraft}
-              editingRouteAgentId={editingRouteAgentId}
-              saveRoute={saveRoute}
-              onCancel={() => {
-                setRouteEditorOpen(false);
-                resetRouteForm();
-              }}
-              disabled={disabled}
-              loading={loading}
-              selectedCanManage={selectedCanManage}
-            />
-          </DialogContent>
-        </Dialog>
-
-        {/* Delete confirmation dialog */}
-        <Dialog open={Boolean(routePendingDelete)} onOpenChange={(open) => { if (!open && !loading) setRoutePendingDelete(null); }}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Remove agent from {adapter.itemSingular}?</DialogTitle>
-              <DialogDescription>
-                {routePendingDelete ? `This removes agent:${routePendingDelete.agent_id} from the selected ${adapter.connectorName} ${adapter.itemSingular}.` : `This removes the selected agent from the ${adapter.connectorName} ${adapter.itemSingular}.`}
-              </DialogDescription>
-            </DialogHeader>
-            <p className="text-sm text-muted-foreground">The OpenFGA tuple will be deleted, and the saved Mongo route metadata for listen mode and priority will be deleted as well.</p>
-            {routePendingDelete && (
-              <div className="rounded-md border bg-muted/30 p-3 text-sm">
-                <div><span className="font-medium">Listen:</span> {routePendingDelete.users?.listen ?? "mention"}</div>
-                <div><span className="font-medium">Priority:</span> {routePendingDelete.priority}</div>
-              </div>
-            )}
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setRoutePendingDelete(null)} disabled={loading}>Cancel</Button>
-              <Button type="button" variant="destructive" onClick={() => void deleteRouteConfirmed()} disabled={loading}>{loading ? "Removing..." : "Remove agent"}</Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
       </CardContent>
     </Card>
   );

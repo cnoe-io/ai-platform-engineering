@@ -51,6 +51,19 @@ export interface ItemAgentRoute {
   escalation?: RouteEscalationConfig;
 }
 
+export interface DynamicAgentOption {
+  _id: string;
+  name: string;
+  model?: { id?: string; provider?: string };
+}
+
+export interface TeamOption {
+  _id?: string;
+  id?: string;
+  slug: string;
+  name: string;
+}
+
 export interface DiagnosticRoute {
   agent_id: string;
   openfga_tuple: boolean;
@@ -181,8 +194,6 @@ export interface ConnectorAdminAdapter {
     advancedSectionDescription?: string;
     // Used in the legend: "shows whether the Slackbot reads…" / "Webex bot reads…"
     botNameInLegend: string;
-    onboardingDefaultsHeading: string;
-    onboardingDefaultsDescription: string;
     discoveryDescription: string;
     discoveryFindLabel: string;
     discoveryRefreshLabel: string;
@@ -191,16 +202,11 @@ export interface ConnectorAdminAdapter {
     discoveryDiscoveredLabel: string;
     selfServiceTitle: string;
     selfServiceDescription: string;
-    // Optional extra text appended to the stale-default warnings.
-    // Slack tells the admin which env var to update; Webex can omit.
-    invalidTeamEnvHint?: string;
-    invalidAgentEnvHint?: string;
   };
   ariaLabels: {
     tablist: string;
     configuredRegion: string;
     advancedRegion: string;
-    onboardingDefaultsRegion: string;
   };
 
   // ── Discovery status text ─────────────────────────────────────────────
@@ -240,12 +246,22 @@ export interface ConnectorAdminAdapter {
     fetchFn: (url: string, init: RequestInit) => Promise<Response>;
   }) => Promise<{ toastMessage: string }>;
 
-  // ── Route editing ─────────────────────────────────────────────────────
-  // Slack shows manual route create/edit/delete. Webex does not.
-  manualRouteEditing: boolean;
-
-  // Hint text above the manual route form (Slack channel semantics copy).
-  manualRouteFormHint?: (item: ItemSummary) => ReactNode;
+  // ── Configured detail extras ──────────────────────────────────────────
+  // Provider-specific controls rendered under shared diagnostics.
+  configuredDetailExtra?: (input: {
+    item: ItemSummary;
+    routes: ItemAgentRoute[];
+    dynamicAgents: DynamicAgentOption[];
+    teams: TeamOption[];
+    disabled: boolean;
+    loading: boolean;
+    selectedCanManage: boolean;
+    setLoading: (loading: boolean) => void;
+    setMessage: (message: string | null) => void;
+    onRefresh: (routes?: ItemAgentRoute[]) => Promise<void> | void;
+    routesFor: (workspaceId: string, itemId: string) => string;
+    listApi: string;
+  }) => ReactNode;
 
   // ── Discovery cache provider ─────────────────────────────────────────
   // Optional — drives the cache-invalidation popover next to the Find button.
@@ -266,13 +282,6 @@ export interface ConnectorAdminAdapter {
     route: DiagnosticRoute;
     routes: ItemAgentRoute[];
   }) => Promise<{ toast: string; nextRoutes?: ItemAgentRoute[] }>;
-
-  // ── Provider-specific feature flags ──────────────────────────────────
-  // Slack only: "Use existing Slackbot channel agents as defaults" checkbox.
-  legacyConfigAgentPrefill?: {
-    description: string;
-    fetchSuggestions: (fetchFn: typeof fetch) => Promise<Record<string, string>>;
-  } | null;
 
   // Webex only: auto-fix card when a space has no routeable agent.
   missingRouteableAgentAutoFix?: {

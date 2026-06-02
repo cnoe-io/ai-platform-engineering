@@ -119,8 +119,6 @@ const WEBEX_ADAPTER: ConnectorAdminAdapter = {
     advancedTabDescription: "One-time YAML import and Webex bot runtime status. Most admins won't need this.",
     advancedHeading: "Advanced Setup - Import/Sync with Webex Bot",
     botNameInLegend: "Webex bot",
-    onboardingDefaultsHeading: "Onboarding Default Selection",
-    onboardingDefaultsDescription: "Only changes what is preselected when you onboard spaces. Each space still needs an explicit setup action.",
     discoveryDescription: "Find Webex spaces where the bot is already installed, then choose what to import.",
     discoveryFindLabel: "Find Webex Spaces with Bot Integration",
     discoveryRefreshLabel: "Refresh Webex Spaces with Bot Integration",
@@ -134,7 +132,6 @@ const WEBEX_ADAPTER: ConnectorAdminAdapter = {
     tablist: "Webex admin views",
     configuredRegion: "Configured Webex spaces",
     advancedRegion: "Advanced Setup - Import/Sync with Webex Bot",
-    onboardingDefaultsRegion: "Onboarding Default Selection",
   },
 
   discoveryStatusText: ({ discoveredCount, newCount, configuredCount, unassignedCount }) => {
@@ -176,8 +173,6 @@ const WEBEX_ADAPTER: ConnectorAdminAdapter = {
       </div>
     </>
   ),
-
-  manualRouteEditing: false,
 
   diagnosticRouteIsFixable: (route: DiagnosticRoute) =>
     (route.route_metadata && !route.openfga_tuple) ||
@@ -241,7 +236,6 @@ const WEBEX_ADAPTER: ConnectorAdminAdapter = {
   },
 
   discoveryAutoSelectNewItems: true,
-  legacyConfigAgentPrefill: null,
 
   missingRouteableAgentAutoFix: {
     title: "Auto-fix missing Webex association",

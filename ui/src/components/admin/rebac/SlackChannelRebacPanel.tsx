@@ -2,6 +2,7 @@
 
 import React from "react";
 import { ConnectorAdminPanel } from "./ConnectorAdminPanel";
+import { SlackConfiguredChannelDetail } from "./slack/SlackConfiguredChannelDetail";
 import { SlackVictoropsAgentSetting } from "./SlackVictoropsAgentSetting";
 import type {
   ConnectorAdminAdapter,
@@ -119,16 +120,12 @@ const SLACK_ADAPTER: ConnectorAdminAdapter = {
     advancedHeading: "Import from Slackbot YAML",
     advancedSectionDescription: "Preview Slackbot YAML seed data before importing channel routes and agent settings into the database.",
     botNameInLegend: "Slackbot",
-    onboardingDefaultsHeading: "Default team and agent for new channels",
-    onboardingDefaultsDescription: "These pre-fill the picker for each discovered channel below. You can override per channel before applying.",
     discoveryDescription: "Find Slack channels where the bot is already installed. Channels the bot has not joined will not appear.",
     discoveryFindLabel: "Find channels",
     discoveryRefreshLabel: "Refresh channels",
     discoveryLoadingLabel: "Finding channels…",
     discoveryEmptyLabel: "No bot-member channels were discovered.",
     discoveryDiscoveredLabel: "bot-member channel",
-    invalidTeamEnvHint: "Update SLACK_DEFAULT_TEAM_SLUG in the environment to make the new choice the default for next time.",
-    invalidAgentEnvHint: "Update SLACK_DEFAULT_AGENT_ID in the environment to make the new choice the default for next time.",
     selfServiceTitle: "My Slack Channel Settings",
     selfServiceDescription: "Manage bot routing behavior only for Slack channels where OpenFGA grants you channel admin access.",
   },
@@ -136,7 +133,6 @@ const SLACK_ADAPTER: ConnectorAdminAdapter = {
     tablist: "Slack admin views",
     configuredRegion: "Configured Slack channels",
     advancedRegion: "Advanced Setup - Import/Sync with Slackbot",
-    onboardingDefaultsRegion: "Default team and agent for new channels",
   },
 
   discoveryStatusText: ({ discoveredCount, newCount, configuredCount, unassignedCount }) =>
@@ -169,12 +165,20 @@ const SLACK_ADAPTER: ConnectorAdminAdapter = {
     </>
   ),
 
-  manualRouteEditing: true,
-  manualRouteFormHint: (item) => (
-    <p className="text-xs text-muted-foreground">
-      Multiple agents can be associated with {item.item_name}. The Slack bot picks the
-      highest-priority agent whose listen mode matches the message (mention vs. plain message).
-    </p>
+  configuredDetailExtra: (ctx) => (
+    <SlackConfiguredChannelDetail
+      selected={ctx.item}
+      routes={ctx.routes}
+      dynamicAgents={ctx.dynamicAgents}
+      teams={ctx.teams}
+      disabled={ctx.disabled}
+      loading={ctx.loading}
+      setLoading={ctx.setLoading}
+      selectedCanManage={ctx.selectedCanManage}
+      onRefresh={ctx.onRefresh}
+      routesFor={ctx.routesFor}
+      listApi={ctx.listApi}
+    />
   ),
 
   diagnosticRouteIsFixable: (route: DiagnosticRoute) => route.route_metadata && !route.openfga_tuple,
@@ -219,21 +223,6 @@ const SLACK_ADAPTER: ConnectorAdminAdapter = {
         ? `Discovered defaults applied: onboarded ${s.channels_onboarded ?? 0} channels, assigned ${s.channels_assigned_team} channels, ensured ${s.channel_grants_ensured} channel grants, ensured ${s.routes_ensured} routes, preserved ${s.routes_preserved ?? 0} existing routes.`
         : `Slack channel association defaults applied: assigned ${s.channels_assigned_team} channels, ensured ${s.channel_grants_ensured} channel grants, ensured ${s.routes_ensured} routes.`,
     };
-  },
-
-  legacyConfigAgentPrefill: {
-    description: "Checked by default for migrations. Uncheck only if you want one selected Dynamic Agent for all discovered channels.",
-    fetchSuggestions: async (fetchFn) => {
-      const res = await fetchFn("/api/admin/slack/runtime/config-defaults", { cache: "no-store" });
-      if (!res.ok) throw new Error(await res.text());
-      const data = apiData<{ channels?: Record<string, { suggested_agent_id?: string | null }> }>(await res.json());
-      const suggestions: Record<string, string> = {};
-      for (const [id, ch] of Object.entries(data.channels ?? {})) {
-        const agentId = ch.suggested_agent_id?.trim();
-        if (agentId) suggestions[id] = agentId;
-      }
-      return suggestions;
-    },
   },
 
   missingRouteableAgentAutoFix: null,
