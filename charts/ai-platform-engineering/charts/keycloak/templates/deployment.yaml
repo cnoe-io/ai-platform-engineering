@@ -58,6 +58,12 @@ spec:
             - name: KC_METRICS_ENABLED
               value: "true"
             {{- if .Values.database.enabled }}
+            {{- if not .Values.database.host }}
+            {{- fail "keycloak.database.host is required when keycloak.database.enabled is true" }}
+            {{- end }}
+            {{- if not .Values.database.existingSecret }}
+            {{- fail "keycloak.database.existingSecret is required when keycloak.database.enabled is true" }}
+            {{- end }}
             - name: KC_DB
               value: postgres
             - name: KC_DB_URL
@@ -70,9 +76,9 @@ spec:
                   name: {{ .Values.database.existingSecret }}
                   key: {{ .Values.database.existingSecretPasswordKey }}
             - name: KC_HTTP_ENABLED
-              value: "true"
+              value: {{ .Values.database.httpEnabled | quote }}
             - name: KC_HOSTNAME_STRICT
-              value: "false"
+              value: {{ .Values.database.hostnameStrict | quote }}
             {{- end }}
             {{- range $key, $val := .Values.env }}
             - name: {{ $key }}

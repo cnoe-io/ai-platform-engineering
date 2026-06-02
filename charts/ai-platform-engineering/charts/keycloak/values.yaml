@@ -375,6 +375,11 @@ database:
   # Required when database.enabled is true.
   existingSecret: ""
   existingSecretPasswordKey: password
+  # Production mode (start) requires KC_HTTP_ENABLED=true and KC_HOSTNAME_STRICT=false
+  # for typical in-cluster deployments where TLS is terminated at the ingress.
+  # Override these if your setup terminates TLS at the pod (e.g. mTLS service mesh).
+  httpEnabled: "true"
+  hostnameStrict: "false"
   # Optional: emit an ExternalSecret to sync the password from Vault / AWS SM.
   # The ESO-managed Secret name must match `existingSecret` above.
   externalSecret:
