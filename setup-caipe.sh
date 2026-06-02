@@ -3218,6 +3218,8 @@ create_namespace_and_secrets() {
   kubectl create namespace caipe --dry-run=client -o yaml | kubectl apply -f - &>/dev/null
   log "Namespace 'caipe' ready"
 
+  _ensure_caipe_platform_secret  # must exist before helm install; see PR #1519
+
   # Rescue embeddings credentials from the existing llm-secret before we
   # overwrite it, so a LLM-provider switch doesn't silently break RAG.
   local _existing_lls
@@ -4734,6 +4736,28 @@ _resolve_keycloak_admin_password() {
     KEYCLOAK_ADMIN_PASSWORD="$(openssl rand -hex 24)"
     log "Generated random Keycloak admin password"
   fi
+}
+
+# Pre-create caipe-platform-secret before helm install. PR #1519 wired a hard
+# secretKeyRef to this Secret in the caipe-ui Deployment unconditionally, so
+# the pod fails with CreateContainerConfigError if it is absent. Reuses the
+# existing value on re-runs; Keycloak init-idp reconciles it into the
+# caipe-platform client on first boot.
+_ensure_caipe_platform_secret() {
+  local existing
+  existing=$(kubectl get secret caipe-platform-secret -n caipe \
+    -o jsonpath='{.data.OIDC_CLIENT_SECRET}' 2>/dev/null \
+    | base64 -d 2>/dev/null || true)
+  if [[ -n "$existing" ]]; then
+    log "Reusing existing caipe-platform-secret"
+    return 0
+  fi
+  kubectl create secret generic caipe-platform-secret \
+    --namespace caipe \
+    --from-literal=OIDC_CLIENT_SECRET="$(openssl rand -hex 32)" \
+    --dry-run=client -o yaml \
+    | kubectl apply -f - &>/dev/null
+  log "Created caipe-platform-secret (OIDC_CLIENT_SECRET, 32-byte random)"
 }
 
 _ensure_dynamic_agents_mongodb() {
