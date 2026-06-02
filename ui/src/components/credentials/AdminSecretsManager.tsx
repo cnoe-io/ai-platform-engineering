@@ -3,6 +3,7 @@
 import React from "react";
 
 import { Button } from "@/components/ui/button";
+import { SaveButton } from "@/components/admin/SaveButton";
 
 interface AdminSecretMetadata {
   id: string;
@@ -148,7 +149,7 @@ export function AdminSecretsManager() {
                 onChange={(event) => setEditDescription(event.target.value)}
               />
             </label>
-            <Button type="submit">Save Changes</Button>
+            <SaveButton type="submit" saving={false} ariaLabel="Save changes" />
           </form>
         </div>
       )}

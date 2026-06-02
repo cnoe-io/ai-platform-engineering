@@ -2,10 +2,12 @@
 
 import React from "react";
 import { ConnectorAdminPanel } from "./ConnectorAdminPanel";
+import { SlackVictoropsAgentSetting } from "./SlackVictoropsAgentSetting";
 import type {
   ConnectorAdminAdapter,
   DiagnosticRoute,
   ItemSummary,
+  RuntimeSyncSummary,
 } from "./connector-admin-adapter";
 
 function apiData<T>(payload: { data?: T } & T): T {
@@ -14,6 +16,12 @@ function apiData<T>(payload: { data?: T } & T): T {
 
 function pluralize(count: number, singular: string, plural = `${singular}s`): string {
   return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function formatSlackChannelName(value: unknown): string {
+  const name = String(value ?? "").trim();
+  if (!name) return "";
+  return name.startsWith("#") ? name : `#${name}`;
 }
 
 const SLACK_ADAPTER: ConnectorAdminAdapter = {
@@ -48,7 +56,7 @@ const SLACK_ADAPTER: ConnectorAdminAdapter = {
     return {
       workspace_id: String(r.workspace_id ?? ""),
       item_id: String(r.channel_id),
-      item_name: `#${String(r.channel_name ?? r.channel_id)}`,
+      item_name: formatSlackChannelName(r.channel_name ?? r.channel_id),
       team_slug: r.team_slug ? String(r.team_slug) : undefined,
       active_grants: Number(r.active_grants ?? 0),
       can_manage: Boolean(r.can_manage),
@@ -66,7 +74,7 @@ const SLACK_ADAPTER: ConnectorAdminAdapter = {
         .filter((ch) => ch.is_member !== false)
         .map((ch) => ({
           id: String(ch.id ?? ""),
-          name: `#${String(ch.name ?? ch.id)}`,
+          name: formatSlackChannelName(ch.name ?? ch.id),
           secondary: [
             String(ch.id ?? ""),
             typeof ch.num_members === "number" ? pluralize(ch.num_members, "member") : "",
@@ -95,6 +103,7 @@ const SLACK_ADAPTER: ConnectorAdminAdapter = {
       routes_planned: Number(d.routes_planned ?? 0),
       routes_upserted: Number(d.routes_upserted ?? 0),
       openfga_tuples_written: Number(d.openfga_tuples_written ?? 0),
+      channels: Array.isArray(d.channels) ? (d.channels as RuntimeSyncSummary["channels"]) : undefined,
     };
   },
 
@@ -106,8 +115,9 @@ const SLACK_ADAPTER: ConnectorAdminAdapter = {
     onboardTabTitle: "Onboard channels",
     onboardTabDescription: "Find Slack channels where the bot is installed and set them up.",
     advancedTabTitle: "Advanced",
-    advancedTabDescription: "One-time YAML import and Slack bot runtime status. Most admins won't need this.",
+    advancedTabDescription: "Superadmin Slack setup and operational controls for platform-wide bot behavior.",
     advancedHeading: "Import from Slackbot YAML",
+    advancedSectionDescription: "Preview Slackbot YAML seed data before importing channel routes and agent settings into the database.",
     botNameInLegend: "Slackbot",
     onboardingDefaultsHeading: "Default team and agent for new channels",
     onboardingDefaultsDescription: "These pre-fill the picker for each discovered channel below. You can override per channel before applying.",
@@ -126,7 +136,6 @@ const SLACK_ADAPTER: ConnectorAdminAdapter = {
     tablist: "Slack admin views",
     configuredRegion: "Configured Slack channels",
     advancedRegion: "Advanced Setup - Import/Sync with Slackbot",
-    advancedLegend: "Slackbot sync legend",
     onboardingDefaultsRegion: "Default team and agent for new channels",
   },
 
@@ -228,6 +237,11 @@ const SLACK_ADAPTER: ConnectorAdminAdapter = {
   },
 
   missingRouteableAgentAutoFix: null,
+
+  // Superadmin VictorOps escalation agent picker, rendered at the bottom of
+  // the Slack Advanced tab. Persists to platform_config and is read by the
+  // Slack bot at runtime.
+  advancedTabExtraSection: ({ disabled }) => <SlackVictoropsAgentSetting disabled={disabled} />,
 };
 
 export function SlackChannelRebacPanel({

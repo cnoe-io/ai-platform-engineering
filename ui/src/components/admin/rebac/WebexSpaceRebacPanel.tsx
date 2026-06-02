@@ -134,7 +134,6 @@ const WEBEX_ADAPTER: ConnectorAdminAdapter = {
     tablist: "Webex admin views",
     configuredRegion: "Configured Webex spaces",
     advancedRegion: "Advanced Setup - Import/Sync with Webex Bot",
-    advancedLegend: "Webex bot sync legend",
     onboardingDefaultsRegion: "Onboarding Default Selection",
   },
 
@@ -152,10 +151,11 @@ const WEBEX_ADAPTER: ConnectorAdminAdapter = {
   syncSummaryItemsLabel: "Spaces",
 
   advancedExtraTiles: (status) => [
-    { label: "Thread context", value: threadContextLabel(status.raw) },
-  ],
-  advancedExtraLegendRows: () => [
-    { label: "Thread context", description: "shows whether the bot sends bounded prior Webex thread messages to the selected agent." },
+    {
+      label: "Thread context",
+      value: threadContextLabel(status.raw),
+      description: "Shows whether the bot sends bounded prior Webex thread messages to the selected agent.",
+    },
   ],
 
   authzDisclaimer: (

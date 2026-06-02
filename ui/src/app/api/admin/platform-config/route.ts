@@ -21,6 +21,7 @@ const OPENFGA_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._~@|*+=,/-]{0,191}$/;
 interface PlatformConfigDoc {
   _id?: string;
   default_agent_id?: unknown;
+  slack_victorops_escalation_agent_id?: unknown;
   release_notes?: unknown;
   discovery_cache_ttl_minutes?: unknown;
 }
@@ -38,6 +39,19 @@ function normalizeDefaultAgentId(value: unknown): string | null {
   if (!trimmed) return null;
   if (!OPENFGA_ID_PATTERN.test(trimmed)) {
     throw new ApiError('default_agent_id is not a valid OpenFGA object id', 400, 'INVALID_DEFAULT_AGENT_ID');
+  }
+  return trimmed;
+}
+
+function normalizeVictoropsAgentId(value: unknown): string | null {
+  if (value == null) return null;
+  if (typeof value !== 'string') {
+    throw new ApiError('slack_victorops_escalation_agent_id must be a string or null', 400, 'INVALID_VICTOROPS_AGENT_ID');
+  }
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (!OPENFGA_ID_PATTERN.test(trimmed)) {
+    throw new ApiError('slack_victorops_escalation_agent_id is not a valid OpenFGA object id', 400, 'INVALID_VICTOROPS_AGENT_ID');
   }
   return trimmed;
 }
@@ -104,11 +118,16 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       normalizeDiscoveryCacheTtlMinutes(process.env.DISCOVERY_CACHE_TTL_MINUTES) ??
       DEFAULT_DISCOVERY_CACHE_TTL_MINUTES;
 
+    const victoropsAgentId = normalizeVictoropsAgentId(doc?.slack_victorops_escalation_agent_id);
+    const victoropsEnvFallback = process.env.SLACK_INTEGRATION_VICTOROPS_AGENT_ID || null;
+
     return NextResponse.json({
       success: true,
       data: {
         default_agent_id: defaultAgentId ?? envFallback,
         source: defaultAgentId ? 'db' : (envFallback ? 'env' : 'fallback'),
+        slack_victorops_escalation_agent_id: victoropsAgentId ?? victoropsEnvFallback,
+        slack_victorops_escalation_agent_source: victoropsAgentId ? 'db' : (victoropsEnvFallback ? 'env' : 'fallback'),
         release_notes: normalizeReleaseNotesConfig(doc?.release_notes),
         discovery_cache_ttl_minutes: discoveryTtlMinutes,
       },
@@ -135,6 +154,16 @@ export const PATCH = withErrorHandler(async (request: NextRequest) => {
     const hasDefaultAgentUpdate = Object.prototype.hasOwnProperty.call(body, 'default_agent_id');
     const nextDefaultAgentId = hasDefaultAgentUpdate ? normalizeDefaultAgentId(body.default_agent_id) : null;
     if (hasDefaultAgentUpdate) update.default_agent_id = nextDefaultAgentId;
+
+    // Slack VictorOps escalation agent (Admin → Integrations → Slack →
+    // Advanced). Unlike the platform default this does NOT grant any user
+    // access — it is only the agent the Slack bot queries for on-call
+    // lookups — so there is no `user:*` tuple to reconcile or ack to require.
+    const hasVictoropsUpdate = Object.prototype.hasOwnProperty.call(body, 'slack_victorops_escalation_agent_id');
+    const nextVictoropsAgentId = hasVictoropsUpdate
+      ? normalizeVictoropsAgentId(body.slack_victorops_escalation_agent_id)
+      : null;
+    if (hasVictoropsUpdate) update.slack_victorops_escalation_agent_id = nextVictoropsAgentId;
 
     if (body.release_notes) {
       update.release_notes = normalizeReleaseNotesConfig(body.release_notes);
@@ -219,6 +248,9 @@ export const PATCH = withErrorHandler(async (request: NextRequest) => {
       data: {
         ...(Object.prototype.hasOwnProperty.call(update, 'default_agent_id')
           ? { default_agent_id: update.default_agent_id }
+          : {}),
+        ...(Object.prototype.hasOwnProperty.call(update, 'slack_victorops_escalation_agent_id')
+          ? { slack_victorops_escalation_agent_id: update.slack_victorops_escalation_agent_id }
           : {}),
         ...(update.release_notes ? { release_notes: update.release_notes } : {}),
         ...(Object.prototype.hasOwnProperty.call(update, 'discovery_cache_ttl_minutes')

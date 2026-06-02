@@ -38,6 +38,10 @@ from sse_client import SSEClient, set_obo_token
 from utils.session_manager import SessionManager
 from utils.scoring import submit_feedback_score
 from utils.config_models import ChannelConfig, get_escalation_config  # noqa: E402
+from utils.platform_settings import (  # noqa: E402
+    resolve_default_agent_id,
+    resolve_victorops_agent_id,
+)
 from utils.slack_agent_routes import (  # noqa: E402
     get_slack_agent_route_resolver,
     slack_agent_route_mode,
@@ -350,8 +354,11 @@ def _get_agent_id(channel_config=None, mapped_agent_id: str | None = None) -> st
     return mapped_agent_id
   if channel_config and hasattr(channel_config, "agent_id") and channel_config.agent_id:
     return channel_config.agent_id
-  if config.defaults.default_agent_id:
-    return config.defaults.default_agent_id
+  # Platform default from Admin → Settings → Default Agent (DB) wins over the
+  # SLACK_INTEGRATION_DEFAULT_AGENT_ID env/YAML fallback.
+  default_agent_id = resolve_default_agent_id(config.defaults.default_agent_id)
+  if default_agent_id:
+    return default_agent_id
   logger.warning("No agent_id configured — using empty string")
   return ""
 
@@ -479,13 +486,26 @@ def _post_route_miss_notice(
     logger.warning("Slack route miss notice failed for channel={} user={}: {}", channel_id, user_id, exc)
 
 
-def _resolve_escalation(channel_config, agent_id: str | None = None):
-  """Return the escalation config for a specific agent binding, or None."""
-  if not channel_config or not agent_id:
+def _resolve_escalation(channel_config, agent_id: str | None = None, channel_id: str | None = None):
+  """Return the escalation config for a specific agent binding, or None.
+
+  Static YAML config is checked first. When the channel has no static binding
+  for ``agent_id`` (e.g. a channel configured entirely through the admin UI),
+  we fall back to the DB-backed route resolver so escalation ("Get help",
+  VictorOps paging) works for UI-managed channels too.
+  """
+  if not agent_id:
     return None
-  for agent in channel_config.agents:
-    if agent.agent_id == agent_id:
-      return get_escalation_config(agent)
+  if channel_config:
+    for agent in channel_config.agents:
+      if agent.agent_id == agent_id:
+        return get_escalation_config(agent)
+  if channel_id and slack_agent_route_mode() != "config":
+    return get_slack_agent_route_resolver().escalation_for(
+      workspace_id=slack_workspace_ref(),
+      channel_id=channel_id,
+      agent_id=agent_id,
+    )
   return None
 
 
@@ -499,8 +519,11 @@ def _get_agent_id_for_dm() -> str:
   """
   if config.defaults.dm_agent_id:
     return config.defaults.dm_agent_id
-  if config.defaults.default_agent_id:
-    return config.defaults.default_agent_id
+  # Platform default from Admin → Settings → Default Agent (DB) wins over the
+  # SLACK_INTEGRATION_DEFAULT_AGENT_ID env/YAML fallback for DMs too.
+  default_agent_id = resolve_default_agent_id(config.defaults.default_agent_id)
+  if default_agent_id:
+    return default_agent_id
   logger.warning("No agent_id configured for DMs — using empty string")
   return ""
 
@@ -604,7 +627,9 @@ def _resolve_dm_agent_for_message(
       prefs_client=_user_preferences_client(),
       authz_client=_dm_authz_client(),
       dm_agent_id=config.defaults.dm_agent_id or None,
-      default_agent_id=config.defaults.default_agent_id or None,
+      # Platform default from Admin → Settings → Default Agent (DB) wins over
+      # the SLACK_INTEGRATION_DEFAULT_AGENT_ID env/YAML fallback.
+      default_agent_id=resolve_default_agent_id(config.defaults.default_agent_id),
       bearer_token=bearer_token,
   )
 
@@ -1091,7 +1116,7 @@ def handle_mention(event, say, client, context=None):
       workspace_id=_event_workspace_id(event),
     )
     agent_match = matches[0] if matches else None
-    agent_id = agent_match.agent_id if agent_match else (config.defaults.default_agent_id or "")
+    agent_id = agent_match.agent_id if agent_match else (resolve_default_agent_id(config.defaults.default_agent_id) or "")
 
     conv_result = sse_client.create_conversation(
       title=message_text[:50].strip() or "Slack Thread",
@@ -1863,7 +1888,7 @@ def handle_caipe_feedback(ack, body, client):
 
       # Add "Get help" button if escalation is configured
       channel_config = config.channels.get(channel_id)
-      esc_config = _resolve_escalation(channel_config, agent_id=agent_id or None)
+      esc_config = _resolve_escalation(channel_config, agent_id=agent_id or None, channel_id=channel_id)
       if esc_config:
         action_elements.append({"type": "button", "text": {"type": "plain_text", "text": "\U0001f64b Get help"}, "action_id": "caipe_escalation_get_help", "value": action_value})
 
@@ -1915,7 +1940,7 @@ def handle_feedback_more_detail(ack, body, client):
     team_id = body.get("team", {}).get("id")
 
     channel_config = config.channels.get(channel_id)
-    esc_config = _resolve_escalation(channel_config, agent_id=agent_id or None)
+    esc_config = _resolve_escalation(channel_config, agent_id=agent_id or None, channel_id=channel_id)
 
     _call_ai(
       client=client,
@@ -1966,7 +1991,7 @@ def handle_feedback_less_verbose(ack, body, client):
     team_id = body.get("team", {}).get("id")
 
     channel_config = config.channels.get(channel_id)
-    esc_config = _resolve_escalation(channel_config, agent_id=agent_id or None)
+    esc_config = _resolve_escalation(channel_config, agent_id=agent_id or None, channel_id=channel_id)
 
     _call_ai(
       client=client,
@@ -2083,22 +2108,24 @@ def handle_escalation_get_help(ack, body, client):
       )
       return
 
-    # Get escalation config for this channel
+    # Get escalation config for this channel. channel_config may be None for a
+    # channel configured entirely through the admin UI — _resolve_escalation
+    # falls back to the DB route resolver in that case.
     channel_config = config.channels.get(channel_id)
-    if not channel_config:
-      return
-    esc_config = _resolve_escalation(channel_config, agent_id=agent_id or None)
+    esc_config = _resolve_escalation(channel_config, agent_id=agent_id or None, channel_id=channel_id)
     if not esc_config:
       return
 
-    # Validate victorops agent is configured before proceeding
-    vo_agent_id = config.defaults.victorops_agent_id
+    # Validate victorops agent is configured before proceeding. The agent set
+    # in Admin → Integrations → Slack → Advanced (DB) wins over the
+    # SLACK_INTEGRATION_VICTOROPS_AGENT_ID env/YAML fallback.
+    vo_agent_id = resolve_victorops_agent_id(config.defaults.victorops_agent_id)
     if esc_config.victorops.enabled and not vo_agent_id:
       client.chat_postEphemeral(
         channel=channel_id,
         user=user_id,
         thread_ts=thread_ts,
-        text="VictorOps escalation is enabled but no agent is configured. Set `SLACK_INTEGRATION_VICTOROPS_AGENT_ID` to enable on-call lookups.",
+        text="VictorOps escalation is enabled but no agent is configured. Set the VictorOps escalation agent in Admin → Integrations → Slack → Advanced (or the `SLACK_INTEGRATION_VICTOROPS_AGENT_ID` env var) to enable on-call lookups.",
       )
       return
 
@@ -2294,7 +2321,7 @@ def handle_wrong_answer_submission(ack, body, client, view):
     correction_prompt = f'The user indicated your previous response was incorrect and provided the following IMPORTANT context: "{correction_text}"\n\nPlease carefully review this feedback and provide a corrected response.'
 
     channel_config = config.channels.get(channel_id)
-    esc_config = _resolve_escalation(channel_config, agent_id=agent_id or None)
+    esc_config = _resolve_escalation(channel_config, agent_id=agent_id or None, channel_id=channel_id)
 
     _call_ai(
       client=client,
