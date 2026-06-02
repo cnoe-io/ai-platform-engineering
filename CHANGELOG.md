@@ -1,3 +1,38 @@
+## 0.5.6-dev.3-chart.1 (2026-06-02)
+
+## 0.5.6-dev.3 (2026-06-02)
+
+### Feat
+
+- **agentgateway**: wire config-bridge sidecar into Helm for dynamic MCP routes
+- **setup**: add opt-in unified LiteLLM front for chat + embeddings
+- **setup**: persist Keycloak + OpenFGA on a shared Postgres
+- **setup**: add `creds` command to re-print local logins
+- **setup**: default local-SSO logins + UI A2A/OIDC fixes
+- **setup**: public-domain SSO wiring + optional GitHub social login
+- **setup**: reproduce docker-compose.dev defaults in setup-caipe.sh
+- **keycloak**: add PostgreSQL database support via database.enabled
+
+### Fix
+
+- **skill-builder**: handle wrapped builtin-tools API response shape
+- **setup-caipe**: correct azure embeddings fallback and keycloak H2 detection
+- **setup-caipe**: harden --litellm azure path, bump proxy memory, warn on H2 keycloak
+- **keycloak**: reconcile bot OBO target on fresh local install
+- **setup-caipe**: pre-create caipe-platform-secret
+- **setup**: pre-create caipe-platform-secret for the UI Keycloak admin client
+- **keycloak**: add fail guards for required database fields; make KC_HTTP_ENABLED and KC_HOSTNAME_STRICT overridable
+
+## 0.5.6-dev.2 (2026-06-01)
+
+### Fix
+
+- **rag**: wire OPENFGA_HTTP default from global.rag.openfga.httpUrl in rag-server
+- **keycloak**: unset stale error field when migration completes successfully (#1680)
+- **keycloak**: use direct role endpoint to look up impersonation role ID in init-token-exchange (#1679)
+
+## 0.5.6 (2026-06-01)
+
 ## 0.5.5-dev.1 (2026-06-01)
 
 ### Fix
