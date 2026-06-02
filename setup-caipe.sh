@@ -1533,10 +1533,10 @@ _collect_ollama_config() {
     warn "Ollama service may not be running. Verify with: curl http://localhost:${OLLAMA_PORT}/api/tags"
   fi
 
-  # Configure OpenAI-compatible endpoint for Ollama
-  # Ollama API listens on http://localhost:11434/api/generate, but we need OpenAI-compatible format
-  # So we'll use the localhost endpoint directly
-  OPENAI_ENDPOINT="http://localhost:${OLLAMA_PORT}"
+  # Ollama exposes an OpenAI-compatible API under /v1.
+  # The OpenAI SDK appends /chat/completions to the base URL, so the base URL
+  # must include the /v1 prefix or requests will 404.
+  OPENAI_ENDPOINT="http://localhost:${OLLAMA_PORT}/v1"
   OPENAI_API_KEY="ollama"
   OPENAI_MODEL_NAME="${OLLAMA_MODEL}"
 
