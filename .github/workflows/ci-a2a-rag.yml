@@ -233,7 +233,7 @@ jobs:
             type=sha,format=short,prefix=
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4
+        uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4
       - name: Clean up before build
         run: |
           echo "Cleaning up Docker system before build..."
@@ -413,7 +413,7 @@ jobs:
 
       - name: Set up QEMU
         if: steps.retag-or-build.outputs.needs_build == 'true'
-        uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4
+        uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4
       - name: Clean up before build
         if: steps.retag-or-build.outputs.needs_build == 'true'
         run: |
