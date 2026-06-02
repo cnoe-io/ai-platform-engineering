@@ -93,9 +93,16 @@ function fetchIssues() {
   return raw.trim().split("\n").filter(Boolean).map((l) => JSON.parse(l));
 }
 
-// Last N final releases (X.Y.Z, no -rc), oldest->newest, with per-area commit
-// counts for the range (prevTag..tag]. Returns [] if git/tags are unavailable
-// (e.g. running outside a clone) so the issues view still renders.
+// Release-bot / version-bump noise we never want counted as feature work.
+const RELEASE_NOISE = /^chore\(release\)|^chore: (bump|release)|^bump|^docs: publish|^chore: bump version/i;
+
+// Last N final releases (X.Y.Z, no -rc), oldest->newest. Each release's area
+// breakdown is built from the *git commit range* (prevTag..tag] — the only
+// reliable per-release signal in this repo. (GitHub's auto release-notes are
+// unreliable here: some tags have no "What's Changed" list and others mis-detect
+// their base and list hundreds of out-of-range PRs.) Commit subjects also can't
+// be mapped back to PR numbers (squash merges carry no `(#N)`), so the drill-down
+// shows commit subjects rather than PR links. Returns [] when git is unavailable.
 function fetchReleases(n) {
   let tags;
   try {
@@ -106,8 +113,7 @@ function fetchReleases(n) {
   } catch {
     return [];
   }
-  // need n ranges => n+1 tags
-  const window = tags.slice(-(n + 1));
+  const window = tags.slice(-(n + 1)); // n ranges => n+1 tags
   const out = [];
   for (let i = 1; i < window.length; i++) {
     const prev = window[i - 1], tag = window[i];
@@ -115,15 +121,13 @@ function fetchReleases(n) {
     try {
       subjects = execFileSync("git", ["log", `${prev}..${tag}`, "--no-merges", "--format=%s"], { encoding: "utf8" })
         .split("\n").filter(Boolean);
-    } catch { /* skip unreachable range */ }
-    // Drop release-bot noise (version bumps / release chores) from the breakdown.
-    subjects = subjects.filter((s) => !/^chore\(release\)|^chore: (bump|release)|bump (chart|app|version)/i.test(s));
+    } catch { /* unreachable range */ }
+    const commits = subjects
+      .filter((s) => !RELEASE_NOISE.test(s))
+      .map((s) => ({ title: s, area: classifyArea([], s) }));
     const byArea = {};
-    for (const s of subjects) {
-      const area = classifyArea([], s); // classify by commit subject (scopes/keywords)
-      byArea[area] = (byArea[area] || 0) + 1;
-    }
-    out.push({ tag, prev, total: subjects.length, byArea });
+    for (const c of commits) byArea[c.area] = (byArea[c.area] || 0) + 1;
+    out.push({ tag, prev, total: commits.length, byArea, commits });
   }
   return out;
 }
@@ -233,6 +237,19 @@ const html = `<!doctype html>
   .relbar { display:flex; height:22px; background:var(--panel-2); border-radius:4px; overflow:hidden; }
   .relseg { height:100%; }
   .relseg:hover { outline:1px solid rgba(255,255,255,.35); outline-offset:-1px; }
+  .relrow.clickable { cursor:pointer; padding:2px 4px; margin:0 -4px; border-radius:6px; }
+  .relrow.clickable:hover { background:var(--panel-2); }
+  .relrow .rtag .caret { color:var(--text-3); margin-left:4px; font-size:10px; }
+  .relrow.open .rtag .caret { color:var(--accent); }
+  .relpanel { margin:2px 0 8px 80px; border-left:2px solid var(--stroke); padding:4px 0 4px 12px; display:flex; flex-direction:column; gap:6px; }
+  .relpanel .pgroup { font-size:11px; color:var(--text-3); text-transform:uppercase; letter-spacing:.04em; margin-top:4px; }
+  .pritem { display:flex; align-items:baseline; gap:8px; font-size:13px; line-height:1.35; }
+  .pritem .prdot { width:8px; height:8px; border-radius:2px; flex:none; transform:translateY(1px); }
+  .pritem a { color:var(--accent); text-decoration:none; font-variant-numeric:tabular-nums; flex:none; }
+  .pritem a:hover { text-decoration:underline; }
+  .pritem .prtitle { color:var(--text); }
+  .pritem .prby { color:var(--text-3); }
+  .relsrc { font-size:11px; color:var(--text-3); font-style:italic; }
   .legend { display:flex; flex-wrap:wrap; gap:10px 16px; margin:10px 0 4px; }
   .legend .item { display:flex; align-items:center; gap:6px; color:var(--text-2); font-size:12px; }
   .legend .sw { width:11px; height:11px; border-radius:3px; display:inline-block; }
@@ -304,6 +321,7 @@ const REL_INIT_N = ${relInitN};
 const NO_MILESTONE = "\\u0000none"; // sentinel for "Unscheduled" (no milestone)
 let fArea = "All", fType = "All", fRelease = "All";
 let relMode = "bars", relN = REL_INIT_N;
+let relExpanded = new Set(); // release tags whose PR drill-down is open
 
 // Distinct milestones present on open issues, version-sorted desc (newest first).
 function milestoneOrder() {
@@ -369,6 +387,21 @@ function render() {
 // Last relN releases, newest first.
 function selectedReleases() { return RELEASES.slice(-relN).reverse(); }
 
+// Drill-down: list a release's commits grouped by area (prev..tag range).
+function renderRelPanel(r) {
+  if (!r.commits || !r.commits.length) {
+    return '<div class="relpanel"><div class="relsrc">No non-bump commits in '+esc(r.prev)+'..'+esc(r.tag)+'.</div></div>';
+  }
+  const groups = AREA_ORDER.filter(a => r.commits.some(c => c.area === a)).map(a => {
+    const items = r.commits.filter(c => c.area === a).map(c =>
+      '<div class="pritem"><span class="prdot" style="background:'+AREA_COLOR[a]+'"></span>'+
+      '<span class="prtitle">'+esc(c.title)+'</span></div>').join("");
+    return '<div class="pgroup">'+esc(a)+'</div>'+items;
+  }).join("");
+  const note = '<div class="relsrc" style="margin-bottom:4px">'+r.total+' commits in '+esc(r.prev)+'..'+esc(r.tag)+'</div>';
+  return '<div class="relpanel">'+note+groups+'</div>';
+}
+
 function renderRelBars(rows) {
   const present = AREA_ORDER.filter(a => rows.some(r => r.byArea[a]));
   const legend = present.map(a =>
@@ -378,9 +411,15 @@ function renderRelBars(rows) {
       const pct = (r.byArea[a] / Math.max(1, r.total) * 100).toFixed(2);
       return '<div class="relseg" style="width:'+pct+'%;background:'+AREA_COLOR[a]+'" title="'+esc(a)+': '+r.byArea[a]+'"></div>';
     }).join("");
-    return '<div class="relrow"><div class="rtag">'+esc(r.tag)+'</div><div class="relbar">'+segs+'</div><div class="rtotal">'+r.total+'</div></div>';
+    const open = relExpanded.has(r.tag);
+    const caret = '<span class="caret">'+(open ? '\\u25be' : '\\u25b8')+'</span>';
+    const row = '<div class="relrow clickable'+(open?' open':'')+'" data-tag="'+esc(r.tag)+'">'+
+      '<div class="rtag">'+esc(r.tag)+caret+'</div>'+
+      '<div class="relbar">'+segs+'</div><div class="rtotal">'+r.total+'</div></div>';
+    return row + (open ? renderRelPanel(r) : "");
   }).join("");
-  return '<div class="legend">'+legend+'</div><div class="relchart">'+bars+'</div>';
+  const hint = '<div class="relsrc" style="margin-bottom:6px">Click a release to see the commits that shipped in it (by area).</div>';
+  return '<div class="legend">'+legend+'</div>'+hint+'<div class="relchart">'+bars+'</div>';
 }
 
 function renderRelPie(rows) {
@@ -433,7 +472,13 @@ document.addEventListener("click", e => {
     return;
   }
   const mode = e.target.closest("#relmode button");
-  if (mode) { relMode = mode.dataset.mode; renderReleases(); }
+  if (mode) { relMode = mode.dataset.mode; renderReleases(); return; }
+  const relrow = e.target.closest(".relrow.clickable");
+  if (relrow) {
+    const tag = relrow.dataset.tag;
+    if (relExpanded.has(tag)) relExpanded.delete(tag); else relExpanded.add(tag);
+    renderReleases();
+  }
 });
 document.addEventListener("input", e => {
   if (e.target.id === "relN") { relN = parseInt(e.target.value, 10); renderReleases(); }
