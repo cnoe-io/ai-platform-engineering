@@ -4569,6 +4569,31 @@ _shared_postgres_active() {
   return 1
 }
 
+# Best-effort guard: chart releases that predate the Keycloak `database.*`
+# contract ignore the shared-Postgres wiring and run Keycloak on embedded H2,
+# so RBAC identity/realm state is lost on every pod restart. Detect that case by
+# inspecting the selected chart's Keycloak templates and warn loudly. OpenFGA
+# persistence is unaffected (its datastore.engine=postgres support predates this).
+# Never fails the install — on any pull/inspect error it simply skips the warning.
+_warn_if_chart_lacks_keycloak_db() {
+  _shared_postgres_active || return 0
+  [[ -n "${CAIPE_CHART_VERSION:-}" ]] || return 0
+  local tmpd kc_dir
+  tmpd=$(mktemp -d 2>/dev/null) || return 0
+  if helm pull "$CAIPE_OCI_REPO" --version "$CAIPE_CHART_VERSION" \
+       --untar --untardir "$tmpd" >/dev/null 2>&1; then
+    kc_dir=$(find "$tmpd" -type d -name keycloak 2>/dev/null | head -1)
+    if [[ -n "$kc_dir" ]] && ! grep -rqE "KC_DB|\.Values\.database" "$kc_dir" 2>/dev/null; then
+      warn "Chart v${CAIPE_CHART_VERSION} predates the Keycloak database.* contract —"
+      warn "  Keycloak will run on embedded H2 (state lost on pod restart) even though"
+      warn "  shared Postgres is deployed and its 'keycloak' database is created."
+      warn "  OpenFGA still persists to Postgres. Upgrade to a chart release that wires"
+      warn "  Keycloak to Postgres (CAIPE_CHART_VERSION=<newer>) to make Keycloak durable."
+    fi
+  fi
+  rm -rf "$tmpd" 2>/dev/null
+}
+
 # Resolve (reuse-or-generate) the admin + per-consumer Postgres passwords and
 # persist them in the caipe-postgres-credentials Secret so re-runs are stable.
 # Hex passwords avoid any URL-encoding pitfalls inside connection strings.
@@ -5147,6 +5172,15 @@ _litellm_unified_assets() {
   local up_args=(--from-literal=LITELLM_MASTER_KEY="${LITELLM_MASTER_KEY}")
   local ml=""
 
+  # Azure OpenAI routes by *deployment* name, which can differ from the model
+  # name and is absent from many env files (e.g. the docker-compose .env only
+  # carries EMBEDDINGS_MODEL). Resolve sensible fallbacks so a bare azure-openai
+  # install never dies under `set -u`, and surface the assumption on stderr
+  # (this function's stdout is captured as the model_list, so log/warn — which
+  # print to stdout — must NOT be used here; use `>&2`).
+  local azure_chat_deploy="${AZURE_OPENAI_DEPLOYMENT:-${AZURE_OPENAI_CHAT_DEPLOYMENT:-${OPENAI_MODEL_NAME:-}}}"
+  local azure_embed_deploy="${AZURE_OPENAI_EMBEDDING_DEPLOYMENT:-${AZURE_OPENAI_DEPLOYMENT:-${EMBEDDINGS_MODEL:-text-embedding-3-large}}}"
+
   case "$LITELLM_CHAT_SOURCE" in
     anthropic-claude)
       ml+='      - model_name: "caipe-chat"
@@ -5179,9 +5213,10 @@ _litellm_unified_assets() {
       up_args+=(--from-literal=AWS_REGION="${AWS_REGION:-us-east-1}")
       ;;
     azure-openai)
+      [[ -n "$azure_chat_deploy" ]] || echo "  ! azure-openai chat via --litellm: set AZURE_OPENAI_DEPLOYMENT (the Azure deployment name); the proxy chat model may 404 until then" >&2
       ml+='      - model_name: "caipe-chat"
         litellm_params:
-          model: "azure/'"${AZURE_OPENAI_DEPLOYMENT}"'"
+          model: "azure/'"${azure_chat_deploy}"'"
           api_base: "os.environ/AZURE_OPENAI_ENDPOINT"
           api_key: "os.environ/AZURE_OPENAI_API_KEY"
           api_version: "os.environ/AZURE_OPENAI_API_VERSION"
@@ -5203,9 +5238,10 @@ _litellm_unified_assets() {
         up_args+=(--from-literal=LITELLM_UPSTREAM_EMBED_OPENAI_API_KEY="${OPENAI_API_KEY}")
         ;;
       azure-openai)
+        [[ -n "${AZURE_OPENAI_EMBEDDING_DEPLOYMENT:-${AZURE_OPENAI_DEPLOYMENT:-}}" ]] || echo "  ! azure-openai embeddings via --litellm: AZURE_OPENAI_DEPLOYMENT unset, defaulting deployment to '${azure_embed_deploy}' (the embeddings model name) — set AZURE_OPENAI_EMBEDDING_DEPLOYMENT if your Azure deployment is named differently" >&2
         ml+='      - model_name: "caipe-embeddings"
         litellm_params:
-          model: "azure/'"${AZURE_OPENAI_DEPLOYMENT}"'"
+          model: "azure/'"${azure_embed_deploy}"'"
           api_base: "os.environ/AZURE_OPENAI_ENDPOINT"
           api_key: "os.environ/AZURE_OPENAI_API_KEY"
           api_version: "os.environ/AZURE_OPENAI_API_VERSION"
@@ -5324,12 +5360,15 @@ ${envfrom_yaml}
           subPath: config.yaml
           readOnly: true
         resources:
+          # litellm:main-stable loads a large dependency tree at startup and is
+          # OOMKilled (exit 137) at 512Mi or 1Gi limits even with no traffic;
+          # ~2Gi is required for it to reach a Ready state. See PR verification.
           requests:
             cpu: 250m
-            memory: 256Mi
+            memory: 512Mi
           limits:
             cpu: "1"
-            memory: 512Mi
+            memory: 2Gi
       volumes:
       - name: config
         configMap:
@@ -5660,6 +5699,11 @@ MCP_ROUTE_EOF
 
 deploy_caipe() {
   step "Deploying CAIPE (v${CAIPE_CHART_VERSION})"
+
+  # Warn early if the selected chart cannot persist Keycloak to the shared
+  # Postgres (chart predates the database.* contract) so the operator is not
+  # surprised by H2-backed Keycloak losing realm state on restart.
+  _warn_if_chart_lacks_keycloak_db
 
   local helm_args=(
     --namespace caipe
