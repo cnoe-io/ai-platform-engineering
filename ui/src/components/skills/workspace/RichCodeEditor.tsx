@@ -326,7 +326,7 @@ export function RichCodeEditor({
     [onChange],
   );
 
-  const shouldUseEditorStyling = useContainerHeight || height;
+  const shouldUseEditorStyling = Boolean(useContainerHeight || height);
 
   return (
     <div
