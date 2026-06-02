@@ -169,6 +169,7 @@ async function recordCompleted(input: {
         updated_at: input.now,
         updated_by: input.actor,
       },
+      $unset: { error: "" },
       $setOnInsert: { created_at: input.now, created_by: input.actor },
     },
     { upsert: true }

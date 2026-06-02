@@ -70,6 +70,20 @@ export const AGENT_SHARED_TEAM_GRANTS_MIGRATION_ID = "agent_shared_team_grants_b
 // it writes the same tuples and OpenFGA no-ops on identical writes.
 export const ADMIN_SURFACE_RAG_DATASOURCES_ADMIN_GRANT_MIGRATION_ID =
   "admin_surface_rag_datasources_admin_grant_v1";
+// assisted-by Cursor Claude:claude-opus-4-8
+// Issue #1513: the Slack admin surface is gated by
+// `requireAdminSurfaceManage(session, "slack")`, which checks
+// `admin_surface:slack#can_manage`. `slack` is in PRIVILEGED_ADMIN_SURFACES
+// so the login bootstrap writes `user:<sub> manager admin_surface:slack`
+// for admins, but any org admin bootstrapped before that seed who has not
+// re-logged-in still lacks the tuple and sees "You do not have permission"
+// on the Slack Channels admin panel. This backfill mirrors the
+// rag_datasources fix: it walks OpenFGA for existing
+// `user:<sub> admin organization:<key>` admins and writes the matching
+// admin-surface manager tuple. Idempotent — OpenFGA no-ops on identical
+// writes.
+export const ADMIN_SURFACE_SLACK_ADMIN_GRANT_MIGRATION_ID =
+  "admin_surface_slack_admin_grant_v1";
 // Walks every existing `team_kb_ownership` doc and writes the canonical
 // `team:<slug>#member reader`, `team:<slug>#member ingestor`, and
 // `team:<slug>#admin manager knowledge_base:<id>` tuples for every
@@ -248,6 +262,21 @@ export const MIGRATION_DEFINITIONS: MigrationDefinition[] = [
     confirmation: "MIGRATE admin_surfaces TO v2",
     required: true,
     implemented: true,
+  },
+  {
+    id: ADMIN_SURFACE_SLACK_ADMIN_GRANT_MIGRATION_ID,
+    release: RELEASE_051,
+    schema_area: "admin_surfaces",
+    from_version: 2,
+    to_version: 3,
+    kind: "explicit",
+    title: "slack admin-surface manager grant",
+    description:
+      "Backfill `user:<sub> manager admin_surface:slack` for every existing org admin so the Slack Channels admin panel (gated by admin_surface:slack#can_manage) works without waiting for each admin to re-login. Fixes #1513.",
+    confirmation: "MIGRATE admin_surfaces TO v3",
+    required: true,
+    implemented: true,
+    dependencies: [ADMIN_SURFACE_RAG_DATASOURCES_ADMIN_GRANT_MIGRATION_ID],
   },
   {
     id: KNOWLEDGE_BASE_SHARED_TEAM_GRANTS_MIGRATION_ID,
@@ -1067,6 +1096,73 @@ export function deriveAdminSurfaceRagDatasourcesAdminGrantPlan(
     })),
     tuple_writes_planned: unique.length,
     confirmation: "MIGRATE admin_surfaces TO v2",
+    tuples: unique,
+  };
+}
+
+/**
+ * Backfill the `user:<sub> manager admin_surface:slack` tuple for every
+ * existing org admin so the Slack Channels admin panel (gated by
+ * `requireAdminSurfaceManage(session, "slack")` →
+ * `admin_surface:slack#can_manage`) works without requiring each admin to
+ * re-login. Mirrors `deriveAdminSurfaceRagDatasourcesAdminGrantPlan`.
+ *
+ * Inputs:
+ *  - `adminSubjects`: list of OpenFGA user subjects (no `user:` prefix)
+ *    derived from the `user:<sub> admin organization:<key>` tuples in
+ *    OpenFGA. Invalid subjects are skipped with a warning.
+ *
+ * Idempotent: re-running this migration writes the same tuples; OpenFGA's
+ * tuple store no-ops on identical writes. Fixes #1513.
+ */
+export function deriveAdminSurfaceSlackAdminGrantPlan(
+  adminSubjects: string[],
+): MigrationRuntimePlan {
+  const tuples: OpenFgaTupleKey[] = [];
+  const warnings: string[] = [];
+  let invalidSubjects = 0;
+  const seen = new Set<string>();
+
+  for (const raw of adminSubjects) {
+    const subject = typeof raw === "string" ? raw.trim() : "";
+    if (!subject) continue;
+    if (!isOpenFgaId(subject)) {
+      invalidSubjects += 1;
+      warnings.push(`Skipping org admin with invalid OpenFGA subject: ${raw}`);
+      continue;
+    }
+    if (seen.has(subject)) continue;
+    seen.add(subject);
+    tuples.push({
+      user: `user:${subject}`,
+      relation: "manager",
+      object: "admin_surface:slack",
+    });
+  }
+
+  const unique = uniqueTuples(tuples);
+  return {
+    migration_id: ADMIN_SURFACE_SLACK_ADMIN_GRANT_MIGRATION_ID,
+    release: RELEASE_051,
+    schema_area: "admin_surfaces",
+    kind: "explicit",
+    from_version: 2,
+    to_version: 3,
+    counts: {
+      admins_scanned: adminSubjects.length,
+      admins_resolved: seen.size,
+      tuples_planned: unique.length,
+      invalid_subjects: invalidSubjects,
+    },
+    warnings,
+    sample_diffs: unique.slice(0, 10).map((tuple, index) => ({
+      collection: "openfga_tuples",
+      id: `${ADMIN_SURFACE_SLACK_ADMIN_GRANT_MIGRATION_ID}:${index}`,
+      before: {},
+      after: { ...tuple },
+    })),
+    tuple_writes_planned: unique.length,
+    confirmation: "MIGRATE admin_surfaces TO v3",
     tuples: unique,
   };
 }
@@ -2442,6 +2538,10 @@ export async function planMigration(migrationId: string, now = new Date().toISOS
   if (migrationId === ADMIN_SURFACE_RAG_DATASOURCES_ADMIN_GRANT_MIGRATION_ID) {
     const subjects = await loadOrgAdminSubjects();
     return deriveAdminSurfaceRagDatasourcesAdminGrantPlan(subjects);
+  }
+  if (migrationId === ADMIN_SURFACE_SLACK_ADMIN_GRANT_MIGRATION_ID) {
+    const subjects = await loadOrgAdminSubjects();
+    return deriveAdminSurfaceSlackAdminGrantPlan(subjects);
   }
   if (migrationId === KNOWLEDGE_BASE_SHARED_TEAM_GRANTS_MIGRATION_ID) {
     const { ownershipDocs, teamSlugByMongoId } =
