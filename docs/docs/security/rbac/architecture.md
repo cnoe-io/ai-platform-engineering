@@ -437,6 +437,26 @@ the signed-in user's expired or expiring connected providers; that endpoint
 persists the refreshed token server-side and returns only non-secret refresh
 metadata.
 
+**Per-user scope selection.** Each user may narrow which OAuth scopes their own
+connection requests. The My Connections row exposes an "Advanced settings"
+panel listing the connector's allowed `scopes` (the connector's `scopes` array
+is both the admin-managed upper bound and the default selection — a user can
+only narrow within it, never exceed it). The connect route accepts an optional
+`?scopes=` selection; `ProviderConnectionService.startConnection` runs the pure
+`boundScopes(connectorScopes, requested)` guard — rejecting any scope outside
+the connector's allowed set or an empty selection with `400 VALIDATION_ERROR`
+so a tampered request cannot escalate, and never minting a zero-scope token.
+The choice is carried through the signed OAuth state cookie and persisted as
+`requestedScopes` (and `grantedScopes` from the token response `scope` claim)
+on the per-user `provider_connections` document. The IdP still encodes the
+granted scopes inside the issued token, so the token is valid without the
+stored copy; persistence exists so relink pre-fills the user's prior choice
+(rather than silently reverting to the full default), the UI can show what a
+connection was granted, and the selection is auditable. Existing connections
+without these fields and connects that do not open Advanced settings behave
+exactly as before (connector default). Changing scopes requires a relink to
+take effect; it does not retroactively alter an existing token.
+
 Raw token exchange is reserved for service callers. `POST /api/credentials/exchange`
 rejects browser-origin/session requests, verifies the service bearer JWT through
 the OIDC JWKS path, requires the credential-service audience header, and can

@@ -677,4 +677,159 @@ describe("ProviderConnections", () => {
     expect(await screen.findByText(/Atlassian connection expired/i)).toBeInTheDocument();
     expect(screen.getByText(/Relink Atlassian to restore access/i)).toBeInTheDocument();
   });
+
+  describe("advanced scope selection", () => {
+    function mockFetch(connectors: unknown[], connections: unknown[]) {
+      global.fetch = jest.fn(async (url) => {
+        if (String(url).includes("/oauth-connectors")) {
+          return response(connectors);
+        }
+        return response(connections);
+      }) as jest.Mock;
+    }
+
+    it("connects with the connector default (no scopes param) until the user narrows the selection", async () => {
+      const open = jest.spyOn(window, "open").mockReturnValue(null);
+      mockFetch(
+        [
+          {
+            id: "connector-2",
+            name: "Atlassian",
+            provider: "atlassian",
+            enabled: true,
+            scopes: ["read:jira-work", "write:jira-work", "offline_access"],
+          },
+        ],
+        [],
+      );
+
+      render(<ProviderConnections />);
+
+      // Default connect omits the scopes param (legacy behavior).
+      const connectLink = await screen.findByRole("link", { name: /connect atlassian/i });
+      connectLink.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+      expect(open).toHaveBeenLastCalledWith(
+        "/api/credentials/oauth/atlassian/connect",
+        expect.any(String),
+        expect.any(String),
+      );
+
+      // Open advanced settings; all allowed scopes are pre-selected.
+      await userEvent.click(screen.getByRole("button", { name: /advanced settings/i }));
+      const writeScope = screen.getByRole("checkbox", { name: /write:jira-work/i });
+      expect(writeScope).toBeChecked();
+      expect(screen.getByRole("checkbox", { name: /^read:jira-work/i })).toBeChecked();
+
+      // Narrow the selection; connect now carries only the chosen scopes.
+      await userEvent.click(writeScope);
+      connectLink.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+      expect(open).toHaveBeenLastCalledWith(
+        `/api/credentials/oauth/atlassian/connect?scopes=${encodeURIComponent("read:jira-work,offline_access")}`,
+        expect.any(String),
+        expect.any(String),
+      );
+
+      open.mockRestore();
+    });
+
+    it("pre-fills the editor from a connection's stored scopes and preserves them on relink", async () => {
+      const open = jest.spyOn(window, "open").mockReturnValue(null);
+      mockFetch(
+        [
+          {
+            id: "connector-2",
+            name: "Atlassian",
+            provider: "atlassian",
+            enabled: true,
+            scopes: ["read:jira-work", "write:jira-work", "offline_access"],
+          },
+        ],
+        [
+          {
+            id: "conn-1",
+            connectorId: "connector-2",
+            provider: "atlassian",
+            status: "connected",
+            requestedScopes: ["read:jira-work", "offline_access"],
+            expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+          },
+        ],
+      );
+
+      render(<ProviderConnections />);
+
+      await userEvent.click(await screen.findByRole("button", { name: /advanced settings/i }));
+      expect(screen.getByRole("checkbox", { name: /^read:jira-work/i })).toBeChecked();
+      expect(screen.getByRole("checkbox", { name: /write:jira-work/i })).not.toBeChecked();
+      expect(screen.getByText(/Connected with: read:jira-work, offline_access/i)).toBeInTheDocument();
+      expect(screen.getByText(/Relink Atlassian for scope changes to take effect/i)).toBeInTheDocument();
+
+      // Relink preserves the stored narrowing.
+      const relink = screen.getByRole("link", { name: /relink atlassian/i });
+      relink.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+      expect(open).toHaveBeenLastCalledWith(
+        `/api/credentials/oauth/atlassian/connect?scopes=${encodeURIComponent("read:jira-work,offline_access")}`,
+        expect.any(String),
+        expect.any(String),
+      );
+
+      open.mockRestore();
+    });
+
+    it("drops a stored scope the connector no longer offers (connector shrink)", async () => {
+      mockFetch(
+        [
+          {
+            id: "connector-2",
+            name: "Atlassian",
+            provider: "atlassian",
+            enabled: true,
+            scopes: ["read:jira-work", "offline_access"],
+          },
+        ],
+        [
+          {
+            id: "conn-1",
+            connectorId: "connector-2",
+            provider: "atlassian",
+            status: "connected",
+            // write:jira-work was removed from the connector since this connected.
+            requestedScopes: ["read:jira-work", "write:jira-work"],
+            expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+          },
+        ],
+      );
+
+      render(<ProviderConnections />);
+
+      await userEvent.click(await screen.findByRole("button", { name: /advanced settings/i }));
+      expect(screen.queryByRole("checkbox", { name: /write:jira-work/i })).not.toBeInTheDocument();
+      expect(screen.getByRole("checkbox", { name: /^read:jira-work/i })).toBeChecked();
+    });
+
+    it("disables Connect when the user clears every scope", async () => {
+      mockFetch(
+        [
+          {
+            id: "connector-1",
+            name: "GitHub",
+            provider: "github",
+            enabled: true,
+            scopes: ["repo"],
+          },
+        ],
+        [],
+      );
+
+      render(<ProviderConnections />);
+
+      await userEvent.click(await screen.findByRole("button", { name: /advanced settings/i }));
+      await userEvent.click(screen.getByRole("checkbox", { name: /^repo/i }));
+      expect(screen.getByText(/Select at least one scope/i)).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: /connect github/i })).toHaveAttribute(
+        "aria-disabled",
+        "true",
+      );
+    });
+  });
 });

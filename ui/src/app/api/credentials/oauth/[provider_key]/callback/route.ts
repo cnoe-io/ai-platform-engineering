@@ -177,6 +177,7 @@ export const GET = withErrorHandler(async (request: NextRequest, context?: { par
       owner: { type: "user", id: ownerId },
       code,
       codeVerifier: parsedState.codeVerifier,
+      requestedScopes: parsedState.requestedScopes,
     });
   } catch (error) {
     return completionPage({
