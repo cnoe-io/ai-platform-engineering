@@ -40,32 +40,19 @@ Each component has its own environment variables - see `env.example` in `ui/` an
 
 AI agents operating in this repository **must** follow these rules on every commit:
 
-1. **Default rule — never generate `Signed-off-by`** — this is a human-only DCO certification. Do not add, suggest, or insert this trailer on behalf of the AI.
-2. **Always suggest `Assisted-by`** when code was materially AI-assisted:
+1. **No AI sign-off** - `Signed-off-by` is a human DCO certification. AI agents must never invent, assume, or add this trailer on their own.
+2. **Explicit human approval is required** - Before creating any commit with `Signed-off-by`, ask whether the human signs off that exact commit and receive an explicit yes in the current chat session.
+3. **No approval means no signed commit** - If explicit sign-off approval is absent or unclear, do not create a signed-off commit. Tell the human that DCO will fail until a human sign-off is added.
+4. **Use only the configured human identity after approval** - If the human explicitly signs off, use the current git identity. Never override it, invent an identity, or sign off as the AI.
+5. **Always include or suggest `Assisted-by`** when code was materially AI-assisted:
  ```
- Assisted-by: Claude:claude-opus-4-7
+ Assisted-by: <agent>:<model>
  ```
-3. **Always remind the human** to add their own `Signed-off-by` before the commit is finalized.
-
-### Explicit-authorization carve-out (this repo only)
-
-The maintainer **Sri Aradhyula `<sraradhy@cisco.com>`** has granted a session-scoped
-authorization for AI agents to invoke `git commit -s` on his behalf when (and only
-when) he has explicitly stated so in the current chat session (e.g. "sign off as me",
-"use `-s` on my behalf", "I delegate DCO sign-off for this session"). Under the
-carve-out:
-
-- The agent uses Sri's configured git identity — never a fictitious identity.
-- `Assisted-by: Claude:<model-version>` is still required.
-- The chat message granting the delegation is the audit record.
-- The delegation is revocable at any time within the session.
-
-Outside that explicit grant, rules 1–3 above apply unchanged. The agent must default
-to the strict rule whenever the authorization is unclear.
+The chat message granting sign-off approval is the audit record.
 
 ## Git Guidelines
 
-- **Sign off every commit** - Use `git commit -s` (DCO requirement).
+- **Sign off every commit after human approval** - Use `git commit -s` only after the human explicitly confirms DCO sign-off for that commit.
 - **Conventional Commits** - Format: `type(scope): description`
   - Types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`
   - Example: `feat(rag): add userinfo caching`
