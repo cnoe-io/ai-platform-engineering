@@ -11,8 +11,8 @@
  */
 
 import * as React from "react";
-import { ShieldCheck, Bot, BookOpen, Loader2, Save } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { ShieldCheck, Bot, BookOpen } from "lucide-react";
+import { SaveButton } from "@/components/admin/SaveButton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ReviewConfigEditor, type ReviewConfigEditorHandle } from "./ReviewConfigEditor";
 
@@ -45,9 +45,11 @@ export function ReviewConfigsTab() {
   const [activeTarget, setActiveTarget] = React.useState(TARGETS[0].target);
   const [savingByTarget, setSavingByTarget] = React.useState<Record<string, boolean>>({});
   const [readyByTarget, setReadyByTarget] = React.useState<Record<string, boolean>>({});
+  const [dirtyByTarget, setDirtyByTarget] = React.useState<Record<string, boolean>>({});
   const editorRefs = React.useRef<Record<string, ReviewConfigEditorHandle | null>>({});
   const activeSaving = savingByTarget[activeTarget] ?? false;
   const activeReady = readyByTarget[activeTarget] ?? false;
+  const activeDirty = dirtyByTarget[activeTarget] ?? false;
 
   const setTargetSaving = React.useCallback((target: string, saving: boolean) => {
     setSavingByTarget((previous) =>
@@ -58,6 +60,12 @@ export function ReviewConfigsTab() {
   const setTargetReady = React.useCallback((target: string, ready: boolean) => {
     setReadyByTarget((previous) =>
       previous[target] === ready ? previous : { ...previous, [target]: ready },
+    );
+  }, []);
+
+  const setTargetDirty = React.useCallback((target: string, dirty: boolean) => {
+    setDirtyByTarget((previous) =>
+      previous[target] === dirty ? previous : { ...previous, [target]: dirty },
     );
   }, []);
 
@@ -78,20 +86,12 @@ export function ReviewConfigsTab() {
             flow. Built-in defaults are seeded automatically on first edit.
           </p>
         </div>
-        <Button
-          type="button"
-          size="sm"
-          onClick={() => void editorRefs.current[activeTarget]?.save()}
-          disabled={!activeReady || activeSaving}
-          className="gap-1.5"
-        >
-          {activeSaving ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <Save className="h-3.5 w-3.5" />
-          )}
-          Save
-        </Button>
+        <SaveButton
+          onSave={() => editorRefs.current[activeTarget]?.save()}
+          saving={activeSaving}
+          dirty={activeDirty}
+          disabled={!activeReady}
+        />
       </div>
 
       <Tabs value={activeTarget} onValueChange={setActiveTarget} className="w-full">
@@ -115,6 +115,7 @@ export function ReviewConfigsTab() {
               showInlineSave={false}
               onSavingChange={(saving) => setTargetSaving(target, saving)}
               onReadyChange={(ready) => setTargetReady(target, ready)}
+              onDirtyChange={(dirtyValue) => setTargetDirty(target, dirtyValue)}
             />
           </TabsContent>
         ))}

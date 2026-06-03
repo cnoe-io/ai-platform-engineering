@@ -110,14 +110,25 @@ function parseSideConfig(value: unknown, field: string): SlackRouteSideConfig | 
     throw new ApiError(`routes[].${field} must be an object`, 400);
   }
   const input = value as Record<string, unknown>;
+  if (typeof input.listen === "string" && !["message", "mention", "all"].includes(input.listen)) {
+    throw new ApiError(`routes[].${field}.listen must be one of: message, mention, all`, 400);
+  }
   return {
     ...(input.enabled !== undefined ? { enabled: Boolean(input.enabled) } : {}),
     ...(typeof input.listen === "string" ? { listen: input.listen as SlackRouteSideConfig["listen"] } : {}),
     ...(Array.isArray(input.user_list) ? { user_list: input.user_list.map(String) } : {}),
     ...(Array.isArray(input.bot_list) ? { bot_list: input.bot_list.map(String) } : {}),
     ...(input.overthink && typeof input.overthink === "object"
-      ? { overthink: { enabled: Boolean((input.overthink as Record<string, unknown>).enabled) } }
+      ? { overthink: parseOverthink(input.overthink as Record<string, unknown>) }
       : {}),
+  };
+}
+
+function parseOverthink(input: Record<string, unknown>): NonNullable<SlackRouteSideConfig["overthink"]> {
+  return {
+    enabled: Boolean(input.enabled),
+    ...(Array.isArray(input.skip_markers) ? { skip_markers: input.skip_markers.map(String) } : {}),
+    ...(typeof input.followup_prompt === "string" ? { followup_prompt: input.followup_prompt } : {}),
   };
 }
 
@@ -129,6 +140,12 @@ function parseEscalation(value: unknown): SlackRouteEscalationConfig | undefined
   const input = value as Record<string, unknown>;
   const emoji = input.emoji as Record<string, unknown> | undefined;
   const victorops = input.victorops as Record<string, unknown> | undefined;
+  if (victorops && Boolean(victorops.enabled) && !(typeof victorops.team === "string" && victorops.team.trim())) {
+    throw new ApiError("routes[].escalation.victorops.team is required when VictorOps is enabled", 400);
+  }
+  if (emoji && Boolean(emoji.enabled) && !(typeof emoji.name === "string" && emoji.name.trim())) {
+    throw new ApiError("routes[].escalation.emoji.name is required when emoji escalation is enabled", 400);
+  }
   return {
     ...(emoji
       ? {
@@ -169,14 +186,19 @@ function parseRoute(
     typeof input.priority === "number" && Number.isFinite(input.priority)
       ? input.priority
       : index;
+  const users = parseSideConfig(input.users, "users");
+  const bots = parseSideConfig(input.bots, "bots");
+  if (users?.enabled === false && bots?.enabled === false) {
+    throw new ApiError(`routes[${index}] must enable users, bots, or both`, 400);
+  }
   return {
     workspace_id: workspaceId,
     channel_id: channelId,
     agent_id: agentId,
     enabled: input.enabled === undefined ? true : Boolean(input.enabled),
     priority,
-    users: parseSideConfig(input.users, "users"),
-    bots: parseSideConfig(input.bots, "bots"),
+    users,
+    bots,
     escalation: parseEscalation(input.escalation),
     created_by: "api",
   };

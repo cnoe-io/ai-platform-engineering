@@ -19,11 +19,49 @@ export interface ItemSummary {
   };
 }
 
+export type RouteListenMode = "message" | "mention" | "all";
+
+export interface RouteOverthinkConfig {
+  enabled?: boolean;
+  skip_markers?: string[];
+  followup_prompt?: string;
+}
+
+export interface RouteSideConfig {
+  enabled?: boolean;
+  listen?: RouteListenMode;
+  user_list?: string[];
+  bot_list?: string[];
+  overthink?: RouteOverthinkConfig;
+}
+
+export interface RouteEscalationConfig {
+  victorops?: { enabled?: boolean; team?: string };
+  emoji?: { enabled?: boolean; name?: string };
+  users?: string[];
+  delete_admins?: string[];
+}
+
 export interface ItemAgentRoute {
   agent_id: string;
   enabled: boolean;
   priority: number;
-  users?: { enabled?: boolean; listen?: "message" | "mention" | "all" };
+  users?: RouteSideConfig;
+  bots?: RouteSideConfig;
+  escalation?: RouteEscalationConfig;
+}
+
+export interface DynamicAgentOption {
+  _id: string;
+  name: string;
+  model?: { id?: string; provider?: string };
+}
+
+export interface TeamOption {
+  _id?: string;
+  id?: string;
+  slug: string;
+  name: string;
 }
 
 export interface DiagnosticRoute {
@@ -52,12 +90,52 @@ export interface RuntimeStatus {
   raw: Record<string, unknown>;
 }
 
+// Per-agent detail shown in the import preview. Mirrors the YAML
+// AgentBinding so admins can review every option that will be written
+// (listen modes, allow lists, overthink, escalation) before importing.
+export interface SyncPreviewAgent {
+  agent_id: string;
+  priority?: number;
+  users?: {
+    enabled?: boolean;
+    listen?: "message" | "mention" | "all";
+    user_list?: string[];
+    overthink?: { enabled?: boolean };
+  };
+  bots?: {
+    enabled?: boolean;
+    listen?: "message" | "mention" | "all";
+    bot_list?: string[];
+    overthink?: { enabled?: boolean };
+  };
+  escalation?: {
+    victorops?: { enabled?: boolean; team?: string };
+    emoji?: { enabled?: boolean; name?: string };
+    users?: string[];
+    delete_admins?: string[];
+  };
+}
+
+// One configured channel in the import preview. `team_slug`/`has_team` are
+// annotated by the BFF from the channel→team mapping (the YAML itself has no
+// team concept), so the UI can flag channels that won't be invokable until a
+// team is assigned via the Onboard tab.
+export interface SyncPreviewChannel {
+  workspace_id?: string;
+  channel_id: string;
+  channel_name?: string;
+  team_slug?: string | null;
+  has_team?: boolean;
+  agents: SyncPreviewAgent[];
+}
+
 export interface RuntimeSyncSummary {
   dry_run: boolean;
   items_seen: number;
   routes_planned: number;
   routes_upserted: number;
   openfga_tuples_written: number;
+  channels?: SyncPreviewChannel[];
 }
 
 export interface DiscoveredItem {
@@ -113,10 +191,9 @@ export interface ConnectorAdminAdapter {
     advancedTabTitle: string;
     advancedTabDescription: string;
     advancedHeading: string;
+    advancedSectionDescription?: string;
     // Used in the legend: "shows whether the Slackbot reads…" / "Webex bot reads…"
     botNameInLegend: string;
-    onboardingDefaultsHeading: string;
-    onboardingDefaultsDescription: string;
     discoveryDescription: string;
     discoveryFindLabel: string;
     discoveryRefreshLabel: string;
@@ -125,17 +202,11 @@ export interface ConnectorAdminAdapter {
     discoveryDiscoveredLabel: string;
     selfServiceTitle: string;
     selfServiceDescription: string;
-    // Optional extra text appended to the stale-default warnings.
-    // Slack tells the admin which env var to update; Webex can omit.
-    invalidTeamEnvHint?: string;
-    invalidAgentEnvHint?: string;
   };
   ariaLabels: {
     tablist: string;
     configuredRegion: string;
     advancedRegion: string;
-    advancedLegend: string;
-    onboardingDefaultsRegion: string;
   };
 
   // ── Discovery status text ─────────────────────────────────────────────
@@ -149,9 +220,7 @@ export interface ConnectorAdminAdapter {
   // ── Advanced tab extras ───────────────────────────────────────────────
   // Webex shows a "Thread context" stat tile; Slack doesn't.
   // Returns extra stat tiles to render after the base 3.
-  advancedExtraTiles?: (status: RuntimeStatus) => Array<{ label: string; value: string }>;
-  // Returns extra legend rows for the Webex "Thread context" legend entry.
-  advancedExtraLegendRows?: () => Array<{ label: string; description: string }>;
+  advancedExtraTiles?: (status: RuntimeStatus) => Array<{ label: string; value: string; description: string }>;
   // How to pluralise the static-config and route-cache tile values.
   staticConfigLabel: (counts: { items: number; routes: number }) => string;
   routeCacheLabel: (count: number) => string;
@@ -177,12 +246,22 @@ export interface ConnectorAdminAdapter {
     fetchFn: (url: string, init: RequestInit) => Promise<Response>;
   }) => Promise<{ toastMessage: string }>;
 
-  // ── Route editing ─────────────────────────────────────────────────────
-  // Slack shows manual route create/edit/delete. Webex does not.
-  manualRouteEditing: boolean;
-
-  // Hint text above the manual route form (Slack channel semantics copy).
-  manualRouteFormHint?: (item: ItemSummary) => ReactNode;
+  // ── Configured detail extras ──────────────────────────────────────────
+  // Provider-specific controls rendered under shared diagnostics.
+  configuredDetailExtra?: (input: {
+    item: ItemSummary;
+    routes: ItemAgentRoute[];
+    dynamicAgents: DynamicAgentOption[];
+    teams: TeamOption[];
+    disabled: boolean;
+    loading: boolean;
+    selectedCanManage: boolean;
+    setLoading: (loading: boolean) => void;
+    setMessage: (message: string | null) => void;
+    onRefresh: (routes?: ItemAgentRoute[]) => Promise<void> | void;
+    routesFor: (workspaceId: string, itemId: string) => string;
+    listApi: string;
+  }) => ReactNode;
 
   // ── Discovery cache provider ─────────────────────────────────────────
   // Optional — drives the cache-invalidation popover next to the Find button.
@@ -204,13 +283,6 @@ export interface ConnectorAdminAdapter {
     routes: ItemAgentRoute[];
   }) => Promise<{ toast: string; nextRoutes?: ItemAgentRoute[] }>;
 
-  // ── Provider-specific feature flags ──────────────────────────────────
-  // Slack only: "Use existing Slackbot channel agents as defaults" checkbox.
-  legacyConfigAgentPrefill?: {
-    description: string;
-    fetchSuggestions: (fetchFn: typeof fetch) => Promise<Record<string, string>>;
-  } | null;
-
   // Webex only: auto-fix card when a space has no routeable agent.
   missingRouteableAgentAutoFix?: {
     title: string;
@@ -223,4 +295,9 @@ export interface ConnectorAdminAdapter {
   // Webex only: extra runtime info rendered on the Advanced tab after
   // the shared controls (e.g. thread-context block).
   advancedTabExtras?: (status: RuntimeStatus) => ReactNode;
+
+  // Slack only: an extra self-contained settings section rendered at the
+  // bottom of the Advanced tab (e.g. the VictorOps escalation agent picker).
+  // Receives whether the panel is disabled so it can gate its own controls.
+  advancedTabExtraSection?: (opts: { disabled: boolean }) => ReactNode;
 }
