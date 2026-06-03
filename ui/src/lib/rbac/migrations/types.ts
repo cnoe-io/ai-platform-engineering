@@ -103,3 +103,23 @@ export interface SchemaVersionBootstrapApplyResult extends SchemaVersionBootstra
   applied_at: string;
   applied_by: string;
 }
+
+export interface MigrationApplyAllItemResult {
+  migration_id: string;
+  schema_area: string;
+  title: string;
+  status: "applied" | "skipped" | "failed";
+  reason?: string;
+  applied_counts?: Record<string, number>;
+}
+
+export interface MigrationApplyAllResult {
+  release: string;
+  bootstrap: SchemaVersionBootstrapApplyResult | null;
+  results: MigrationApplyAllItemResult[];
+  applied_count: number;
+  skipped_count: number;
+  failed_count: number;
+  applied_at: string;
+  applied_by: string;
+}

@@ -10,12 +10,23 @@ import {
   Loader2,
   PlayCircle,
   RefreshCw,
+  Rocket,
   ShieldAlert,
+  SlidersHorizontal,
+  XCircle,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
@@ -100,12 +111,31 @@ interface SchemaVersionBootstrapApplyResult {
   applied_counts: Record<string, number>;
 }
 
+interface MigrationApplyAllItemResult {
+  migration_id: string;
+  schema_area: string;
+  title: string;
+  status: "applied" | "skipped" | "failed";
+  reason?: string;
+  applied_counts?: Record<string, number>;
+}
+
+interface MigrationApplyAllResult {
+  release: string;
+  bootstrap: SchemaVersionBootstrapApplyResult | null;
+  results: MigrationApplyAllItemResult[];
+  applied_count: number;
+  skipped_count: number;
+  failed_count: number;
+}
+
 interface MigrationTabProps {
   isAdmin: boolean;
 }
 
 const SCHEMA_VERSION_BOOTSTRAP_CONFIRMATION = "INITIALIZE SCHEMA VERSIONS TO v1";
 const BULK_MIGRATION_CONFIRMATION = "APPLY SELECTED MIGRATIONS";
+const APPLY_ALL_MIGRATIONS_CONFIRMATION = "APPLY ALL PENDING MIGRATIONS";
 
 async function readJson<T>(response: Response): Promise<T> {
   const body = (await response.json()) as { data?: T; error?: string };
@@ -184,6 +214,10 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
   const [bulkApplying, setBulkApplying] = useState(false);
   const [versionBootstrapApplying, setVersionBootstrapApplying] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [applyAllOpen, setApplyAllOpen] = useState(false);
+  const [applyingAll, setApplyingAll] = useState(false);
+  const [applyAllResult, setApplyAllResult] = useState<MigrationApplyAllResult | null>(null);
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   const visibleMigrations = useMemo(
     () => (showCompleted ? [...migrations, ...completedMigrations] : migrations),
@@ -221,6 +255,14 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
   );
   const allPendingMigrationsSelected =
     selectableBulkMigrations.length > 0 && selectedBulkMigrations.length === selectableBulkMigrations.length;
+
+  // Migrations that exist but are not yet implemented in code — these are
+  // skipped by "Migrate all" and surfaced so the count isn't surprising.
+  const registeredNotImplementedCount = useMemo(
+    () => migrations.filter((migration) => !migration.implemented && migration.status !== "completed").length,
+    [migrations],
+  );
+  const pendingImplementedCount = selectableBulkMigrations.length;
 
   const loadMigrations = useCallback(async (options: { keepSelection?: boolean } = {}) => {
     setLoading(true);
@@ -409,6 +451,35 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
     }
   }
 
+  // One-click "Migrate all to latest": the server initializes unversioned schema
+  // areas to v1, then applies every pending migration in dependency order. No
+  // typed confirmation — the dialog's explicit "Confirm & migrate" is the gate;
+  // the constant is sent automatically so the user never types a phrase.
+  async function runApplyAll() {
+    setError(null);
+    setApplyAllResult(null);
+    setApplyingAll(true);
+    try {
+      const data = await readJson<MigrationApplyAllResult>(
+        await fetch("/api/admin/rebac/migrations/apply-all", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ confirmation: APPLY_ALL_MIGRATIONS_CONFIRMATION }),
+        }),
+      );
+      setApplyAllResult(data);
+      setApplyAllOpen(false);
+      await loadMigrations();
+      if (data.failed_count > 0) {
+        setError(`${data.failed_count} migration(s) failed during Migrate all. See the report below.`);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to migrate all");
+    } finally {
+      setApplyingAll(false);
+    }
+  }
+
   const canApply = Boolean(plan && selectedMigration && confirmation === selectedMigration.confirmation && !applying);
   const canApplySelectedMigrations = Boolean(
     selectedBulkMigrations.length > 0 &&
@@ -502,6 +573,131 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
           </Button>
         </CardHeader>
       </Card>
+
+      <Card className="border-primary/40">
+        <CardHeader className="gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="space-y-1.5">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Rocket className="h-5 w-5 text-primary" />
+              Migrate all to latest
+            </CardTitle>
+            <CardDescription>
+              {pendingImplementedCount > 0
+                ? `Apply all ${pendingImplementedCount} pending migration${pendingImplementedCount === 1 ? "" : "s"} in dependency order, in one step. Missing schema-version metadata is initialized to v1 first.`
+                : "All migrations are up to date — nothing to apply."}
+            </CardDescription>
+          </div>
+          <Button
+            type="button"
+            onClick={() => {
+              setApplyAllResult(null);
+              setApplyAllOpen(true);
+            }}
+            disabled={pendingImplementedCount === 0 || applyingAll || loading}
+          >
+            {applyingAll ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Rocket className="mr-2 h-4 w-4" />}
+            {pendingImplementedCount > 0 ? `Migrate all (${pendingImplementedCount})` : "Up to date"}
+          </Button>
+        </CardHeader>
+        {applyAllResult && (
+          <CardContent className="space-y-3">
+            <div
+              className={cn(
+                "rounded-lg border p-3 text-sm",
+                applyAllResult.failed_count > 0
+                  ? "border-red-300 bg-red-50 text-red-800"
+                  : "border-emerald-300/60 bg-emerald-50 text-emerald-900",
+              )}
+            >
+              <div className="flex items-center gap-2 font-medium">
+                {applyAllResult.failed_count > 0 ? (
+                  <AlertCircle className="h-4 w-4" />
+                ) : (
+                  <CheckCircle2 className="h-4 w-4" />
+                )}
+                Applied {applyAllResult.applied_count}, skipped {applyAllResult.skipped_count}, failed{" "}
+                {applyAllResult.failed_count}.
+              </div>
+              {applyAllResult.bootstrap && applyAllResult.bootstrap.schema_areas.length > 0 && (
+                <div className="mt-1 text-xs">
+                  Initialized {applyAllResult.bootstrap.schema_areas.length} schema area(s) to v1.
+                </div>
+              )}
+            </div>
+            <div className="space-y-1">
+              {applyAllResult.results.map((result) => (
+                <div key={result.migration_id} className="flex items-start gap-2 text-sm">
+                  {result.status === "applied" ? (
+                    <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+                  ) : result.status === "failed" ? (
+                    <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-600" />
+                  ) : (
+                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
+                  )}
+                  <div className="min-w-0">
+                    <span className="font-medium">{result.title}</span>{" "}
+                    <span className="text-muted-foreground">({result.schema_area})</span>
+                    {result.reason && <span className="text-muted-foreground"> — {result.reason}</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        )}
+      </Card>
+
+      <Dialog open={applyAllOpen} onOpenChange={(open) => !applyingAll && setApplyAllOpen(open)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Rocket className="h-5 w-5 text-primary" />
+              Migrate all to latest
+            </DialogTitle>
+            <DialogDescription>
+              This applies schema migrations to live ReBAC data and cannot be undone automatically. Review what will run,
+              then confirm.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[55vh] space-y-3 overflow-auto">
+            {unversionedSchemaAreaNames.length > 0 && (
+              <div className="rounded-md border border-amber-300/60 bg-amber-50 p-2 text-sm text-amber-900">
+                Initialize {unversionedSchemaAreaNames.length} schema area(s) to v1 (writes data_schema_versions only).
+              </div>
+            )}
+            <p className="text-sm font-medium">
+              {pendingImplementedCount} migration{pendingImplementedCount === 1 ? "" : "s"} will run in dependency order:
+            </p>
+            <ul className="space-y-1 text-sm">
+              {selectableBulkMigrations.map((migration) => (
+                <li key={migration.id} className="flex items-start gap-2">
+                  <PlayCircle className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0">
+                    <span className="font-medium">{migration.title}</span>{" "}
+                    <span className="text-muted-foreground">
+                      ({migration.schema_area},{" "}
+                      {formatVersionRange(migration.current_version, migration.target_version)})
+                    </span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+            {registeredNotImplementedCount > 0 && (
+              <p className="text-xs text-muted-foreground">
+                {registeredNotImplementedCount} registered-but-not-implemented migration(s) will be skipped.
+              </p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setApplyAllOpen(false)} disabled={applyingAll}>
+              Cancel
+            </Button>
+            <Button type="button" onClick={runApplyAll} disabled={applyingAll || pendingImplementedCount === 0}>
+              {applyingAll ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Rocket className="mr-2 h-4 w-4" />}
+              Confirm &amp; migrate
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {blockingStatus?.override_active && (
         <Card className="border-amber-300/60 bg-amber-50">
@@ -625,6 +821,17 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
           </CardContent>
         </Card>
       ) : (
+        <>
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-card/40 px-3 py-2">
+            <p className="text-sm text-muted-foreground">
+              Need fine-grained control? Preview, select, and apply migrations one at a time.
+            </p>
+            <Button type="button" variant="ghost" size="sm" onClick={() => setShowAdvanced((value) => !value)}>
+              <SlidersHorizontal className="mr-2 h-4 w-4" />
+              {showAdvanced ? "Hide advanced controls" : "Advanced controls"}
+            </Button>
+          </div>
+          {showAdvanced && (
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(360px,0.8fr)]">
           <div className="space-y-3">
             <div className="space-y-3 rounded-lg border bg-card/60 p-3">
@@ -955,6 +1162,8 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
           </Card>
           </div>
         </div>
+          )}
+        </>
       )}
     </div>
   );
