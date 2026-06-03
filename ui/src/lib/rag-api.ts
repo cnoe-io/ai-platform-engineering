@@ -393,6 +393,13 @@ export interface MCPToolConfig {
   enabled: boolean;
   created_at: number;
   updated_at: number;
+  // Group-based access control (spec 2026-06-03, US6). Mirrors the Python
+  // OwnedResourceMixin on the server's MCPToolConfig; config is the source of
+  // truth, OpenFGA is the derived projection.
+  owner_team_slug?: string | null;
+  shared_with_teams?: string[];
+  creator_subject?: string | null;
+  owner_subject?: string | null;
 }
 
 export interface MCPBuiltinToolsConfig {

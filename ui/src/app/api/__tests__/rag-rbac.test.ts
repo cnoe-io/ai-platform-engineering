@@ -515,6 +515,7 @@ describe('RAG RBAC Integration', () => {
         knowledgeBaseId: 'kb-private',
         ownerSubject: 'alice-sub',
         ownerTeamSlug: null,
+        creatorSubject: 'alice-sub',
       });
     });
 
@@ -560,6 +561,7 @@ describe('RAG RBAC Integration', () => {
         knowledgeBaseId: 'kb-team',
         ownerSubject: 'alice-sub',
         ownerTeamSlug: 'platform',
+        creatorSubject: 'alice-sub',
       });
     });
 
@@ -607,6 +609,14 @@ describe('RAG RBAC Integration', () => {
         { datasource_id: 'kb-allowed', name: 'Allowed KB' },
       ]);
       (global.fetch as jest.Mock)
+        // 1st fetch: the can_call gate resolves the custom-tool set. `search`
+        // is a built-in (absent here) so the gate does not enforce can_call.
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => [{ tool_id: 'infra-search' }],
+        } as Response)
+        // 2nd fetch: the datasource-filter lookup.
         .mockResolvedValueOnce({
           ok: true,
           status: 200,
@@ -619,6 +629,7 @@ describe('RAG RBAC Integration', () => {
             count: 2,
           }),
         } as Response)
+        // 3rd fetch: the invoke forward.
         .mockResolvedValueOnce({
           ok: true,
           status: 200,
@@ -641,7 +652,7 @@ describe('RAG RBAC Integration', () => {
 
       expect(response.status).toBe(200);
       expect(global.fetch).toHaveBeenNthCalledWith(
-        2,
+        3,
         'http://localhost:9446/v1/mcp/invoke',
         expect.objectContaining({
           method: 'POST',

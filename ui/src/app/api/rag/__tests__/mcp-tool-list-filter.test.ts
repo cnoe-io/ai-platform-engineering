@@ -60,6 +60,7 @@ jest.mock("@/lib/rbac/openfga-owned-resources", () => ({
   reconcileKnowledgeBaseRelationships: jest.fn(),
   reconcileDataSourceRelationships: jest.fn(),
   reconcileMcpToolRelationships: jest.fn(),
+  deleteAllMcpToolRelationshipTuples: jest.fn(),
 }));
 
 jest.mock("next-auth", () => ({

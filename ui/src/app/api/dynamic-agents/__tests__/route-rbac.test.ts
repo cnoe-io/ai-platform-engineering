@@ -10,6 +10,7 @@ const mockGetCollection = jest.fn();
 const mockGetUserTeamIds = jest.fn();
 const mockFilterResourcesByPermission = jest.fn();
 const mockRequireResourcePermission = jest.fn();
+const mockCanTransferResourceOwnership = jest.fn();
 const mockReconcileAgentRelationships = jest.fn();
 const mockDeleteAllAgentToolTuples = jest.fn();
 const mockAuthenticateRequest = jest.fn();
@@ -64,6 +65,7 @@ jest.mock("@/lib/mongodb", () => ({
 jest.mock("@/lib/rbac/resource-authz", () => ({
   filterResourcesByPermission: (...args: unknown[]) => mockFilterResourcesByPermission(...args),
   requireResourcePermission: (...args: unknown[]) => mockRequireResourcePermission(...args),
+  canTransferResourceOwnership: (...args: unknown[]) => mockCanTransferResourceOwnership(...args),
 }));
 
 jest.mock("@/lib/rbac/openfga-agent-tools", () => ({
@@ -101,6 +103,7 @@ describe("dynamic agents RBAC routes", () => {
     mockGetUserTeamIds.mockResolvedValue(["team-a"]);
     mockFilterResourcesByPermission.mockImplementation(async (_session, items) => items);
     mockRequireResourcePermission.mockResolvedValue(undefined);
+    mockCanTransferResourceOwnership.mockResolvedValue(true);
     mockReconcileAgentRelationships.mockResolvedValue(undefined);
     mockDeleteAllAgentToolTuples.mockResolvedValue(undefined);
     mockWriteOpenFgaTuples.mockResolvedValue({ enabled: true, writes: 1, deletes: 0 });
@@ -578,6 +581,100 @@ describe("dynamic agents RBAC routes", () => {
       }),
       expect.any(Object),
     );
+  });
+
+  it("transfers ownership to a new team, revoking the old owner's grants (US3)", async () => {
+    // The editor sends owner_team_slug=data-eng (≠ stored platform) +
+    // confirm_not_member. The route guards via canTransferResourceOwnership,
+    // then reconciles with previousOwnerTeamSlug so the old owner is revoked.
+    const existingAgent = {
+      _id: "agent-xfer",
+      name: "Xfer Agent",
+      owner_team_slug: "platform",
+      owner_subject: "alice-sub",
+      shared_with_teams: [],
+      allowed_tools: {},
+      visibility: "team",
+    };
+    const dynamicAgents = {
+      findOne: jest.fn().mockResolvedValue(existingAgent),
+      findOneAndUpdate: jest.fn().mockResolvedValue({ ...existingAgent, owner_team_slug: "data-eng" }),
+    };
+    const teams = {
+      find: jest.fn().mockReturnValue({
+        project: jest.fn().mockReturnThis(),
+        toArray: jest.fn().mockResolvedValue([]),
+      }),
+      findOne: jest.fn().mockResolvedValue({ _id: "data-eng-id", slug: "data-eng" }),
+    };
+    mockGetCollection.mockImplementation(async (name: string) => {
+      if (name === "dynamic_agents") return dynamicAgents;
+      if (name === "teams") return teams;
+      throw new Error(`unexpected collection ${name}`);
+    });
+    mockCanTransferResourceOwnership.mockResolvedValue(true);
+    // Caller IS a member of the destination → no confirm needed.
+    mockRequireResourcePermission.mockResolvedValue(undefined);
+
+    const { PUT } = await import("../route");
+    const response = await PUT(
+      request("/api/dynamic-agents?id=agent-xfer", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ owner_team_slug: "data-eng" }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockCanTransferResourceOwnership).toHaveBeenCalledWith(
+      expect.objectContaining({ sub: "alice-sub" }),
+      { type: "agent", id: "agent-xfer" },
+    );
+    expect(mockReconcileAgentRelationships).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentId: "agent-xfer",
+        ownerTeamSlug: "data-eng",
+        previousOwnerTeamSlug: "platform",
+      }),
+    );
+  });
+
+  it("denies an ownership transfer when the caller can neither manage nor admin (US3)", async () => {
+    const existingAgent = {
+      _id: "agent-xfer",
+      name: "Xfer Agent",
+      owner_team_slug: "platform",
+      owner_subject: "alice-sub",
+      shared_with_teams: [],
+      allowed_tools: {},
+      visibility: "team",
+    };
+    const dynamicAgents = {
+      findOne: jest.fn().mockResolvedValue(existingAgent),
+      findOneAndUpdate: jest.fn(),
+    };
+    mockGetCollection.mockImplementation(async (name: string) => {
+      if (name === "dynamic_agents") return dynamicAgents;
+      if (name === "teams")
+        return { find: jest.fn().mockReturnValue({ project: jest.fn().mockReturnThis(), toArray: jest.fn().mockResolvedValue([]) }), findOne: jest.fn() };
+      throw new Error(`unexpected collection ${name}`);
+    });
+    // requireResourcePermission (agent#write) passes, but the transfer guard denies.
+    mockRequireResourcePermission.mockResolvedValue(undefined);
+    mockCanTransferResourceOwnership.mockResolvedValue(false);
+
+    const { PUT } = await import("../route");
+    const response = await PUT(
+      request("/api/dynamic-agents?id=agent-xfer", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ owner_team_slug: "data-eng" }),
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    expect(dynamicAgents.findOneAndUpdate).not.toHaveBeenCalled();
+    expect(mockReconcileAgentRelationships).not.toHaveBeenCalled();
   });
 
   it("leaves shared_with_teams alone on PUT updates that don't include the field", async () => {

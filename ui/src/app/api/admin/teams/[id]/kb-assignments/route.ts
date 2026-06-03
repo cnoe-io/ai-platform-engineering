@@ -10,7 +10,7 @@ import {
 } from '@/lib/api-middleware';
 import type { TeamKbOwnership, KbPermission } from '@/lib/rbac/types';
 import { writeOpenFgaTuples, type OpenFgaTupleKey, type TeamResourceTupleDiff } from '@/lib/rbac/openfga';
-import { mirrorKnowledgeBaseDiffToDataSource } from '@/lib/rbac/openfga-owned-resources';
+import { reconcileDataSourceRelationships } from '@/lib/rbac/openfga-owned-resources';
 import { findUserRoleInTeam } from '@/lib/rbac/team-membership-store';
 
 function requireMongoDB() {
@@ -135,19 +135,40 @@ function buildKnowledgeBaseTupleDiff(
   };
 }
 
+/**
+ * Collect the distinct datasource ids referenced by a knowledge_base tuple
+ * diff (both writes and deletes), so we can ensure each has its `parent_kb`
+ * inheritance edge.
+ */
+function knowledgeBaseIdsFromDiff(diff: TeamResourceTupleDiff): string[] {
+  const KB_PREFIX = 'knowledge_base:';
+  const ids = new Set<string>();
+  for (const tuple of [...diff.writes, ...diff.deletes]) {
+    if (tuple.object.startsWith(KB_PREFIX)) {
+      ids.add(tuple.object.slice(KB_PREFIX.length));
+    }
+  }
+  return [...ids];
+}
+
 async function writeRequiredKnowledgeBaseTuples(diff: TeamResourceTupleDiff): Promise<void> {
   if (diff.writes.length === 0 && diff.deletes.length === 0) return;
   const result = await writeOpenFgaTuples(diff);
   if (!result.enabled) {
     throw new ApiError('OpenFGA is not configured; KB assignments cannot be persisted safely', 503);
   }
-  // Mirror every knowledge_base grant onto the parallel data_source type.
   // Query-time access (RAG search + BFF filter) is enforced on
-  // `data_source#read`; a knowledge_base-only grant lets the team discover
-  // the KB but returns no search results. The mirror write is idempotent.
-  const dataSourceDiff = mirrorKnowledgeBaseDiffToDataSource(diff);
-  if (dataSourceDiff.writes.length > 0 || dataSourceDiff.deletes.length > 0) {
-    await writeOpenFgaTuples(dataSourceDiff);
+  // `data_source#read`. Rather than mirror every per-team grant onto the
+  // parallel data_source type (the retired PR #1703 approach), the
+  // data_source now inherits read/ingest/manage from its knowledge_base via
+  // the `parent_kb` edge (spec 2026-06-03, US4). We ensure that single
+  // inheritance edge exists for each affected datasource — idempotent, and
+  // O(#datasources) instead of O(#grants).
+  for (const datasourceId of knowledgeBaseIdsFromDiff(diff)) {
+    await reconcileDataSourceRelationships({
+      dataSourceId: datasourceId,
+      parentKnowledgeBaseId: datasourceId,
+    });
   }
 }
 

@@ -30,6 +30,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toast";
+import { TeamOwnershipFields } from "@/components/rbac/TeamOwnershipFields";
 import { useRagPermissions, Permission } from "@/hooks/useRagPermissions";
 import {
   getMCPTools,
@@ -491,6 +492,9 @@ function ToolFormDialog({ open, onClose, onSave, initial, isEdit }: ToolFormDial
   const [allowRuntimeFilters, setAllowRuntimeFilters] = useState(
     initial?.allow_runtime_filters ?? false
   );
+  const [ownerTeamSlug, setOwnerTeamSlug] = useState(initial?.owner_team_slug ?? "");
+  const [sharedTeamSlugs, setSharedTeamSlugs] = useState<string[]>(initial?.shared_with_teams ?? []);
+  const [availableTeams, setAvailableTeams] = useState<Array<{ _id?: string; slug?: string; name?: string }>>([]);
   const [saving, setSaving] = useState(false);
 
   const [availableDatasources, setAvailableDatasources] = useState<string[]>([]);
@@ -507,7 +511,17 @@ function ToolFormDialog({ open, onClose, onSave, initial, isEdit }: ToolFormDial
           : [{ ...DEFAULT_PARALLEL_SEARCH }]
       );
       setAllowRuntimeFilters(initial?.allow_runtime_filters ?? false);
+      setOwnerTeamSlug(initial?.owner_team_slug ?? "");
+      setSharedTeamSlugs(initial?.shared_with_teams ?? []);
       setSaving(false);
+
+      // Load the caller's teams for the owner picker + share multi-select.
+      fetch("/api/dynamic-agents/teams")
+        .then((res) => res.json())
+        .then((data: { success?: boolean; data?: Array<{ _id?: string; slug?: string; name?: string }> }) => {
+          if (data?.success && Array.isArray(data.data)) setAvailableTeams(data.data);
+        })
+        .catch(() => {});
 
       // Fetch datasources and filter keys in parallel
       Promise.all([
@@ -536,6 +550,9 @@ function ToolFormDialog({ open, onClose, onSave, initial, isEdit }: ToolFormDial
       enabled: initial?.enabled ?? true,
       created_at: initial?.created_at ?? 0,
       updated_at: initial?.updated_at ?? 0,
+      owner_team_slug: ownerTeamSlug.trim() || null,
+      shared_with_teams: sharedTeamSlugs,
+      creator_subject: initial?.creator_subject ?? null,
     };
     setSaving(true);
     try {
@@ -590,6 +607,37 @@ function ToolFormDialog({ open, onClose, onSave, initial, isEdit }: ToolFormDial
               rows={3}
             />
           </div>
+
+          {/* Ownership & sharing (spec 2026-06-03, US6). Owner team is set at
+              create and fixed on edit; sharing grants other teams can_call. */}
+          <TeamOwnershipFields
+            ownerTeamSlug={ownerTeamSlug}
+            sharedTeamSlugs={sharedTeamSlugs}
+            creatorSubject={initial?.creator_subject ?? null}
+            isEditing={isEdit}
+            ownerRequired
+            resourceNoun="tool"
+            disabled={saving}
+            availableTeams={availableTeams
+              .filter((t): t is { _id?: string; slug: string; name?: string } => Boolean(t.slug))
+              .map((t) => ({ slug: t.slug, name: t.name ?? t.slug, _id: t._id }))}
+            currentUserTeamSlugs={availableTeams
+              .map((t) => t.slug)
+              .filter((s): s is string => Boolean(s))}
+            onOwnerTeamChange={setOwnerTeamSlug}
+            onSharedTeamsChange={setSharedTeamSlugs}
+            shareHelpText={
+              <>
+                Teams you share with can invoke this tool. Each selected team
+                gets <code>can_call</code> on the tool in OpenFGA.
+              </>
+            }
+            renderGrantDetail={(slug) => (
+              <>
+                members of <code>team:{slug}</code> can call this tool.
+              </>
+            )}
+          />
 
           {/* Parallel Searches */}
           <div className="space-y-2">

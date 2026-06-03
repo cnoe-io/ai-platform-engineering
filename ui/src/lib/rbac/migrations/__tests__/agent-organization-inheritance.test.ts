@@ -11,15 +11,19 @@ jest.mock("@/lib/rbac/openfga", () => ({
 }));
 
 import {
+  CREATOR_FROM_OWNER_BACKFILL_MIGRATION_ID,
   DATA_SOURCE_GRANTS_BACKFILL_MIGRATION_ID,
+  PARENT_KB_INHERITANCE_BACKFILL_MIGRATION_ID,
   deriveAdminSurfaceRagDatasourcesAdminGrantPlan,
   deriveAdminSurfaceSlackAdminGrantPlan,
   deriveAgentOrganizationInheritancePlan,
   deriveAgentSharedTeamGrantsPlan,
+  deriveCreatorFromOwnerBackfillPlan,
   deriveDataSourceGrantsBackfillPlan,
   deriveKnowledgeBaseSharedTeamGrantsPlan,
   deriveMcpToolGrantsBackfillPlan,
   deriveOrganizationMembershipPlan,
+  deriveParentKbInheritanceBackfillPlan,
   deriveSkillHubTeamGrantPlan,
   planMigration,
 } from "../registry";
@@ -626,5 +630,93 @@ describe("mcp_tool grants backfill migration", () => {
     const plan = deriveMcpToolGrantsBackfillPlan([], new Map());
     expect(plan.tuple_writes_planned).toBe(0);
     expect(plan.tuples).toEqual([]);
+  });
+});
+
+describe("parent_kb inheritance backfill migration (US4)", () => {
+  it("writes one parent_kb edge per distinct datasource id, no per-team mirror", () => {
+    const plan = deriveParentKbInheritanceBackfillPlan([
+      { user: "team:platform#member", relation: "reader", object: "knowledge_base:kb-alpha" },
+      { user: "team:platform#admin", relation: "manager", object: "knowledge_base:kb-alpha" },
+      { user: "team:data-eng#member", relation: "ingestor", object: "knowledge_base:kb-beta" },
+      // Non-KB tuples are ignored.
+      { user: "team:x#member", relation: "reader", object: "agent:a-1" },
+    ]);
+    // kb-alpha appears twice but yields ONE edge; kb-beta yields one.
+    expect(plan.tuples).toEqual([
+      { user: "knowledge_base:kb-alpha", relation: "parent_kb", object: "data_source:kb-alpha" },
+      { user: "knowledge_base:kb-beta", relation: "parent_kb", object: "data_source:kb-beta" },
+    ]);
+    expect(plan.counts).toMatchObject({ datasources: 2, tuples_planned: 2 });
+    // No team:*#member tuples on data_source (the retired mirror approach).
+    expect(plan.tuples.some((t) => t.user.startsWith("team:"))).toBe(false);
+  });
+
+  it("skips knowledge_base ids that are not OpenFGA-safe", () => {
+    const plan = deriveParentKbInheritanceBackfillPlan([
+      { user: "team:x#member", relation: "reader", object: "knowledge_base:bad id" },
+    ]);
+    expect(plan.tuples).toEqual([]);
+    expect(plan.warnings.length).toBeGreaterThan(0);
+  });
+
+  it("plans from paginated OpenFGA reads via planMigration", async () => {
+    mockReadOpenFgaTuples.mockResolvedValueOnce({
+      tuples: [
+        { key: { user: "team:platform#member", relation: "reader", object: "knowledge_base:kb-1" } },
+      ],
+      continuationToken: undefined,
+    });
+    const plan = await planMigration(PARENT_KB_INHERITANCE_BACKFILL_MIGRATION_ID);
+    expect(plan.tuples).toEqual([
+      { user: "knowledge_base:kb-1", relation: "parent_kb", object: "data_source:kb-1" },
+    ]);
+  });
+});
+
+describe("creator-from-owner backfill migration (US2)", () => {
+  it("writes a creator tuple for each personal owner on a shareable type, retaining owner", () => {
+    const plan = deriveCreatorFromOwnerBackfillPlan([
+      { user: "user:alice", relation: "owner", object: "agent:a-1" },
+      { user: "user:bob", relation: "owner", object: "knowledge_base:kb-1" },
+      { user: "user:carol", relation: "owner", object: "data_source:ds-1" },
+      { user: "user:dave", relation: "owner", object: "mcp_tool:t-1" },
+      // service_account owners are skipped (creator is [user]).
+      { user: "service_account:svc", relation: "owner", object: "agent:a-2" },
+      // owner on a non-shareable type is ignored.
+      { user: "user:eve", relation: "owner", object: "document:d-1" },
+      // non-owner relations are ignored.
+      { user: "user:frank", relation: "reader", object: "agent:a-1" },
+    ]);
+    expect(plan.tuples).toEqual([
+      { user: "user:alice", relation: "creator", object: "agent:a-1" },
+      { user: "user:bob", relation: "creator", object: "knowledge_base:kb-1" },
+      { user: "user:carol", relation: "creator", object: "data_source:ds-1" },
+      { user: "user:dave", relation: "creator", object: "mcp_tool:t-1" },
+    ]);
+    // Plan never deletes — it only writes creator (owner is retained in the store).
+    expect(plan.tuples.every((t) => t.relation === "creator")).toBe(true);
+  });
+
+  it("emits an empty plan when there are no personal owners", () => {
+    const plan = deriveCreatorFromOwnerBackfillPlan([
+      { user: "service_account:svc", relation: "owner", object: "agent:a-2" },
+    ]);
+    expect(plan.tuple_writes_planned).toBe(0);
+    expect(plan.tuples).toEqual([]);
+  });
+
+  it("plans from a full paginated OpenFGA read via planMigration", async () => {
+    mockReadOpenFgaTuples.mockResolvedValueOnce({
+      tuples: [
+        { key: { user: "user:alice", relation: "owner", object: "agent:a-1" } },
+        { key: { user: "user:alice", relation: "reader", object: "agent:a-1" } },
+      ],
+      continuationToken: undefined,
+    });
+    const plan = await planMigration(CREATOR_FROM_OWNER_BACKFILL_MIGRATION_ID);
+    expect(plan.tuples).toEqual([
+      { user: "user:alice", relation: "creator", object: "agent:a-1" },
+    ]);
   });
 });

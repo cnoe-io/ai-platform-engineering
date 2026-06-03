@@ -103,6 +103,66 @@ def valid_metadata_keys_with_types() -> List[Dict[str, str]]:
 
 
 # ============================================================================
+# Shared group-based access-control mixin
+# ============================================================================
+
+
+class OwnedResourceMixin(BaseModel):
+  """Reusable ownership / sharing fields for group-owned RAG resources.
+
+  Part of spec 2026-06-03-unified-shareable-resource-rbac (User Story 1): any
+  config model that should get the agent-style "one owner team + share with
+  teams" access control composes this mixin. The config is the source of truth;
+  OpenFGA is the derived enforcement projection reconciled from these fields.
+
+  All fields are optional with backward-compatible defaults, so configs
+  persisted before this change deserialize cleanly (no Redis migration needed).
+
+  Field semantics:
+    - ``creator_subject``  Keycloak ``sub`` of the original creator. Provenance
+      only — written once, immutable across transfers, carries NO authority.
+    - ``owner_subject``    Optional personal/service-account owner subject.
+    - ``owner_team_slug``  The single owning team slug (source of truth).
+      Changeable only via the deliberate ownership-transfer flow.
+    - ``shared_with_teams`` Additional team slugs granted access.
+  """
+
+  creator_subject: Optional[str] = Field(
+    default=None,
+    description="Keycloak sub of the creator (audit/provenance only; never grants authority).",
+  )
+  owner_subject: Optional[str] = Field(
+    default=None,
+    description="Optional personal/service-account owner subject.",
+  )
+  owner_team_slug: Optional[str] = Field(
+    default=None,
+    description="The single owning team slug. Source of truth; changeable only via transfer.",
+  )
+  shared_with_teams: List[str] = Field(
+    default_factory=list,
+    description="Additional team slugs granted access (besides the owner team).",
+  )
+
+  @model_validator(mode="after")
+  def _normalize_shared_with_teams(self) -> "OwnedResourceMixin":
+    """Trim, drop blanks, dedupe (preserving order), and remove the owner team
+    from the shared list (union semantics — the owner is granted via its own
+    path, mirroring the reconciler)."""
+    seen: set[str] = set()
+    normalized: List[str] = []
+    owner = (self.owner_team_slug or "").strip() or None
+    for raw in self.shared_with_teams or []:
+      slug = raw.strip() if isinstance(raw, str) else ""
+      if not slug or slug == owner or slug in seen:
+        continue
+      seen.add(slug)
+      normalized.append(slug)
+    self.shared_with_teams = normalized
+    return self
+
+
+# ============================================================================
 # Models for metadata about ingestors, datasources and documents
 # ============================================================================
 
@@ -116,7 +176,10 @@ class IngestorInfo(BaseModel):
   last_seen: Optional[int] = Field(0, description="Last time the ingestor was seen")
 
 
-class DataSourceInfo(BaseModel):
+class DataSourceInfo(OwnedResourceMixin, BaseModel):
+  # OwnedResourceMixin adds creator_subject / owner_subject / owner_team_slug /
+  # shared_with_teams for group-based access control (spec 2026-06-03, US5).
+  # Config is the source of truth; OpenFGA is the derived projection.
   datasource_id: str = Field(
     ...,
     description=(
@@ -242,8 +305,13 @@ class ParallelSearch(BaseModel):
     return data
 
 
-class MCPToolConfig(BaseModel):
-  """Configuration for a custom MCP search tool."""
+class MCPToolConfig(OwnedResourceMixin, BaseModel):
+  """Configuration for a custom MCP search tool.
+
+  OwnedResourceMixin adds creator_subject / owner_subject / owner_team_slug /
+  shared_with_teams for group-based access control (spec 2026-06-03, US6).
+  Config is the source of truth; OpenFGA is the derived projection.
+  """
 
   tool_id: str = Field(..., description="Slug used as the MCP tool name, e.g. 'infra_search'")
   description: str = Field(default="", description="Tool description shown to the LLM agent")

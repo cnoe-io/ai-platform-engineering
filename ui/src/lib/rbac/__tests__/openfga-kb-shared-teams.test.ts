@@ -9,7 +9,7 @@
 
 import {
   buildKnowledgeBaseRelationshipTupleDiff,
-  mirrorKnowledgeBaseDiffToDataSource,
+  buildDataSourceRelationshipTupleDiff,
 } from "@/lib/rbac/openfga-owned-resources";
 
 describe("buildKnowledgeBaseRelationshipTupleDiff — shared teams", () => {
@@ -144,50 +144,35 @@ describe("buildKnowledgeBaseRelationshipTupleDiff — shared teams", () => {
   });
 });
 
-describe("mirrorKnowledgeBaseDiffToDataSource", () => {
-  const KB = "knowledge_base:kb-1";
+describe("data_source inheritance (parent_kb) replaces the PR #1703 mirror", () => {
   const DS = "data_source:kb-1";
 
-  it("rewrites knowledge_base writes/deletes onto the parallel data_source object", () => {
-    const mirrored = mirrorKnowledgeBaseDiffToDataSource({
-      writes: [
-        { user: "team:platform#member", relation: "reader", object: KB },
-        { user: "team:platform#member", relation: "ingestor", object: KB },
-        { user: "team:platform#admin", relation: "manager", object: KB },
-      ],
-      deletes: [{ user: "team:legacy#member", relation: "reader", object: KB }],
+  it("writes ONLY the parent_kb edge for a datasource — no per-team data_source grants", () => {
+    // Post-spec-2026-06-03 (US4): team grants live on knowledge_base:<id>
+    // and the data_source inherits them via `parent_kb`. The datasource
+    // reconcile therefore writes a single inheritance edge and NO mirrored
+    // per-team reader/ingestor/manager tuples.
+    const diff = buildDataSourceRelationshipTupleDiff({
+      dataSourceId: "kb-1",
+      parentKnowledgeBaseId: "kb-1",
     });
-    expect(mirrored.writes).toEqual([
-      { user: "team:platform#member", relation: "reader", object: DS },
-      { user: "team:platform#member", relation: "ingestor", object: DS },
-      { user: "team:platform#admin", relation: "manager", object: DS },
+    expect(diff.writes).toEqual([
+      { user: "knowledge_base:kb-1", relation: "parent_kb", object: DS },
     ]);
-    expect(mirrored.deletes).toEqual([
-      { user: "team:legacy#member", relation: "reader", object: DS },
-    ]);
+    // No team:*#member reader / team:*#admin manager tuples are mirrored.
+    expect(
+      diff.writes.some((t) => t.user.startsWith("team:") && t.object === DS),
+    ).toBe(false);
+    expect(diff.deletes).toEqual([]);
   });
 
-  it("drops tuples that don't target a knowledge_base object", () => {
-    const mirrored = mirrorKnowledgeBaseDiffToDataSource({
-      writes: [
-        { user: "user:alice", relation: "owner", object: "data_source:kb-1" },
-        { user: "team:platform#member", relation: "reader", object: KB },
-      ],
-      deletes: [],
+  it("does not delete the parent_kb edge when a share set changes", () => {
+    const diff = buildDataSourceRelationshipTupleDiff({
+      dataSourceId: "kb-1",
+      parentKnowledgeBaseId: "kb-1",
+      previousSharedTeamSlugs: ["legacy"],
+      nextSharedTeamSlugs: [],
     });
-    expect(mirrored.writes).toEqual([
-      { user: "team:platform#member", relation: "reader", object: DS },
-    ]);
-    expect(mirrored.deletes).toEqual([]);
-  });
-
-  it("preserves user:* wildcard subjects when mirroring", () => {
-    const mirrored = mirrorKnowledgeBaseDiffToDataSource({
-      writes: [{ user: "user:*", relation: "reader", object: KB }],
-      deletes: [],
-    });
-    expect(mirrored.writes).toEqual([
-      { user: "user:*", relation: "reader", object: DS },
-    ]);
+    expect(diff.deletes.some((t) => t.relation === "parent_kb")).toBe(false);
   });
 });

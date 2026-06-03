@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowLeft, Loader2, Globe, Users, ChevronLeft, ChevronRight, Check, Sparkles, Eye, Pencil, GripHorizontal, ChevronDown, AlertCircle } from "lucide-react";
+import { ArrowLeft, Loader2, Globe, Users, ChevronLeft, ChevronRight, Check, Sparkles, Eye, Pencil, GripHorizontal, ChevronDown } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -16,7 +16,8 @@ import { useToast } from "@/components/ui/toast";
 import { useEditorDirtyTracking } from "@/hooks/use-editor-dirty-tracking";
 import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
 import { UnsavedChangesDialog } from "@/components/task-builder/UnsavedChangesDialog";
-import { TeamPicker, TeamMultiPicker, type TeamPickerOption } from "@/components/ui/team-picker";
+import { type TeamPickerOption } from "@/components/ui/team-picker";
+import { TeamOwnershipFields } from "@/components/rbac/TeamOwnershipFields";
 
 // Lazy-load CodeMirror to avoid SSR issues
 const CodeMirrorEditor = React.lazy(() => import("@uiw/react-codemirror"));
@@ -364,6 +365,11 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
     source?.shared_with_teams || []
   );
   const [ownerTeamSlug, setOwnerTeamSlug] = React.useState(source?.owner_team_slug || "");
+  // Ownership transfer (spec 2026-06-03, US3). On edit, the owner picker is
+  // read-only until the user invokes the transfer affordance; these track the
+  // pending transfer so the PUT can send owner_team_slug + confirm_not_member.
+  const [transferRequested, setTransferRequested] = React.useState(false);
+  const [transferConfirmedNotMember, setTransferConfirmedNotMember] = React.useState(false);
   const [allowedTools, setAllowedTools] = React.useState<Record<string, string[] | boolean>>(
     source?.allowed_tools || {}
   );
@@ -919,7 +925,10 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
 
       if (isEditing) {
         // Update existing agent
-        const updateData: DynamicAgentConfigUpdate = {
+        const updateData: DynamicAgentConfigUpdate & {
+          owner_team_slug?: string;
+          confirm_not_member?: boolean;
+        } = {
           name,
           description: description || undefined,
           system_prompt: systemPrompt,
@@ -933,6 +942,15 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
           ui: uiConfig,
           features: features,
           interrupt_on: interruptOn,
+          // Ownership transfer (US3): only send owner_team_slug when the user
+          // actually invoked the transfer affordance, so a normal edit never
+          // trips the route's transfer guard.
+          ...(transferRequested
+            ? {
+                owner_team_slug: ownerTeamSlug,
+                confirm_not_member: transferConfirmedNotMember,
+              }
+            : {}),
           ...(lastReview ? { last_review: lastReview } : {}),
         };
 
@@ -1429,222 +1447,117 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                 </div>
               </div>
 
-              <div
-                className={cn(
-                  "space-y-2 rounded-lg transition-colors",
-                  ownerTeamMissing && "border border-destructive/40 bg-destructive/5 p-3"
+              {/* Owner-team picker + share-with-teams multi-select +
+                  effective-access preview are now the shared
+                  <TeamOwnershipFields> control bundle (spec 2026-06-03,
+                  US1). The agent's visibility toggle is interleaved via
+                  `betweenOwnerAndShare`, the platform-admin warning via
+                  `ownerExtra`, and the agent-specific grant copy via
+                  `renderGrantDetail`, so the UX is unchanged (SC-006). */}
+              <TeamOwnershipFields
+                ownerTeamSlug={ownerTeamSlug}
+                sharedTeamSlugs={sharedWithTeams}
+                isEditing={isEditing}
+                ownerRequired
+                allowTransfer={isEditing}
+                resourceNoun="agent"
+                disabled={loading}
+                showShare={visibility === "team"}
+                currentUserTeamSlugs={availableTeams
+                  .map((team) => team.slug)
+                  .filter((slug): slug is string => Boolean(slug))}
+                onOwnerTeamChange={setOwnerTeamSlug}
+                onSharedTeamsChange={setSharedWithTeams}
+                onTransfer={(_newOwnerSlug, confirmedNotMember) => {
+                  // The component already applied the new slug via
+                  // onOwnerTeamChange; record that this edit is a transfer so
+                  // the PUT sends owner_team_slug + confirm_not_member.
+                  setTransferRequested(true);
+                  setTransferConfirmedNotMember(confirmedNotMember);
+                }}
+                availableTeams={availableTeams
+                  .filter((team): team is typeof team & { slug: string } => Boolean(team.slug))
+                  .map<TeamPickerOption>((team) => ({
+                    slug: team.slug,
+                    name: team.name,
+                    _id: team._id,
+                  }))}
+                ownerTeamOptions={availableTeams
+                  .filter((team): team is typeof team & { slug: string } => Boolean(team.slug))
+                  .map<TeamPickerOption>((team) => ({
+                    slug: team.slug,
+                    name: team.user_role
+                      ? `${team.name} (${team.user_role})`
+                      : team.name,
+                    _id: team._id,
+                    disabled: !team.can_own_agents,
+                  }))}
+                shareHelpText={
+                  <>
+                    Select which teams can access this agent. Each selected
+                    team gets <code>can_use</code> on the agent in OpenFGA, so
+                    every member can DM it and use it in any Slack channel or
+                    Webex space mapped to that team.
+                  </>
+                }
+                renderGrantDetail={(slug) => (
+                  <>
+                    every member of <code>team:{slug}</code> can DM this agent
+                    in a 1:1 chat and use it in any Slack channel or Webex space
+                    that is mapped to <code>team:{slug}</code>.
+                  </>
                 )}
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <Label htmlFor="ownerTeam">
-                    Owner Team {!isEditing && <span className="text-destructive">*</span>}
-                  </Label>
-                  {ownerTeamMissing && (
-                    <span className="rounded-full bg-destructive px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-destructive-foreground">
-                      Required
-                    </span>
-                  )}
-                </div>
-                {/* Native <select> would mount the entire team list
-                    (often 600+ AWS-* SSO entries) directly into the
-                    DOM, making the editor unusable. Switched to the
-                    searchable TeamPicker on 2026-05-27 — same on-disk
-                    contract (slug-string), but the trigger renders
-                    only the current selection and admins can type to
-                    filter. Teams the caller is not a member of are
-                    rendered as `disabled` so they remain visible (the
-                    "why can't I pick this one?" answer) but not
-                    pickable, matching the old <option disabled>. */}
-                <TeamPicker
-                  id="ownerTeam"
-                  value={ownerTeamSlug}
-                  onChange={setOwnerTeamSlug}
-                  disabled={loading || isEditing}
-                  ariaInvalid={ownerTeamMissing}
-                  ariaDescribedBy={
-                    ownerTeamMissing
-                      ? "owner-team-required-message owner-team-help"
-                      : "owner-team-help"
-                  }
-                  triggerClassName={cn(
-                    ownerTeamMissing &&
-                      "border-destructive/70 bg-destructive/5 ring-1 ring-destructive/30 focus:ring-destructive"
-                  )}
-                  placeholder="Select a team that will own this agent"
-                  searchPlaceholder="Search your teams..."
-                  emptyLabel={
-                    availableTeams.length === 0
-                      ? "You are not a member of any teams"
-                      : "No teams match"
-                  }
-                  options={availableTeams
-                    .filter((team): team is typeof team & { slug: string } => Boolean(team.slug))
-                    .map<TeamPickerOption>((team) => ({
-                      slug: team.slug,
-                      name: team.user_role
-                        ? `${team.name} (${team.user_role})`
-                        : team.name,
-                      _id: team._id,
-                      disabled: !team.can_own_agents,
-                    }))}
-                />
-                {ownerTeamMissing && (
-                  <p
-                    id="owner-team-required-message"
-                    role="alert"
-                    className="flex items-start gap-1.5 rounded-md border border-destructive/30 bg-destructive/10 px-2.5 py-2 text-xs text-destructive"
-                  >
-                    <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                    <span>
-                      <span className="font-semibold">Owner Team is required.</span>{" "}
-                      Choose a team before creating this agent.
-                    </span>
-                  </p>
-                )}
-                <p id="owner-team-help" className="text-xs text-muted-foreground">
-                  Owner-team members can use the agent; owner-team admins can manage it.
-                </p>
-                {!isEditing && availableTeams.every((team) => !team.can_own_agents) && (
-                  <p className="text-xs text-destructive">
-                    You need to be a platform admin or a team admin to create a team-owned agent.
-                  </p>
-                )}
-              </div>
-
-              <div className="space-y-2">
-                <Label>Visibility</Label>
-                {isPlatformDefault && (
-                  <p
-                    className="text-xs text-amber-600 dark:text-amber-400"
-                    data-testid="platform-default-visibility-note"
-                  >
-                    This agent is the platform default for new chats, so every signed-in user
-                    can use it. Change the platform default in Admin → Settings before changing
-                    its visibility.
-                  </p>
-                )}
-                <div className="grid grid-cols-2 gap-2">
-                  {VISIBILITY_OPTIONS.map((opt) => {
-                    // When this agent is the platform default, lock the
-                    // selector so the admin can't try to demote
-                    // `global → team` here — the BFF will reject it.
-                    const lockedByPlatformDefault = isPlatformDefault;
-                    return (
-                      <button
-                        key={opt.value}
-                        type="button"
-                        onClick={() => setVisibility(opt.value)}
-                        className={`p-3 rounded-lg border text-left transition-colors ${
-                          visibility === opt.value
-                            ? "border-primary bg-primary/5"
-                            : "border-muted hover:border-primary/50"
-                        } ${lockedByPlatformDefault ? "opacity-60 cursor-not-allowed" : ""}`}
-                        disabled={loading || lockedByPlatformDefault}
-                      >
-                        <div className="flex items-center gap-2 mb-1">
-                          {opt.icon}
-                          <span className="font-medium text-sm">{opt.label}</span>
-                        </div>
-                        <div className="text-xs text-muted-foreground">{opt.description}</div>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {/* Team selector - shown when visibility is "team" */}
-                {visibility === "team" && (
-                  <div className="mt-4 p-3 rounded-lg border bg-muted/30">
-                    <Label className="text-sm">Share with Teams</Label>
-                    <p className="text-xs text-muted-foreground mb-3">
-                      Select which teams can access this agent. Each selected
-                      team gets <code>can_use</code> on the agent in OpenFGA,
-                      so every member can DM it and use it in any Slack
-                      channel or Webex space mapped to that team.
+                ownerExtra={
+                  !isEditing &&
+                  availableTeams.every((team) => !team.can_own_agents) ? (
+                    <p className="text-xs text-destructive">
+                      You need to be a platform admin or a team admin to create a team-owned agent.
                     </p>
-                    {availableTeams.length === 0 ? (
-                      <p className="text-xs text-muted-foreground italic">
-                        You are not a member of any teams.
+                  ) : null
+                }
+                betweenOwnerAndShare={
+                  <div className="space-y-2">
+                    <Label>Visibility</Label>
+                    {isPlatformDefault && (
+                      <p
+                        className="text-xs text-amber-600 dark:text-amber-400"
+                        data-testid="platform-default-visibility-note"
+                      >
+                        This agent is the platform default for new chats, so every signed-in user
+                        can use it. Change the platform default in Admin → Settings before changing
+                        its visibility.
                       </p>
-                    ) : (
-                      // Searchable multi-select — replaces the long
-                      // vertical checklist that became unusable in
-                      // environments with hundreds of AWS-* / SSO-*
-                      // teams (see screenshot 2026-05-27). Selected
-                      // teams render as chips on the trigger; the
-                      // full list is hidden until the popover opens.
-                      // `selected` accepts both canonical slugs and
-                      // legacy Mongo `_id` values for pre-migration
-                      // round-tripping; the picker normalises both
-                      // shapes against the options list.
-                      <TeamMultiPicker
-                        options={availableTeams
-                          .filter((team): team is typeof team & { slug: string } => Boolean(team.slug))
-                          .map<TeamPickerOption>((team) => ({
-                            slug: team.slug,
-                            name: team.name,
-                            _id: team._id,
-                          }))}
-                        selected={sharedWithTeams}
-                        onChange={setSharedWithTeams}
-                        disabled={loading}
-                        placeholder="Pick one or more teams to share with..."
-                        searchPlaceholder="Search your teams..."
-                        emptyLabel="No teams match"
-                      />
                     )}
-
-                    {/* Effective access summary — names exactly what the
-                        next save will write to OpenFGA so the admin
-                        cannot be surprised by transitive grants. The
-                        rendered list mirrors the diff computed in
-                        `reconcileAgentRelationships`. */}
-                    {(() => {
-                      const ownerSlug = ownerTeamSlug?.trim() || null;
-                      const sharedSlugs = sharedWithTeams
-                        .map((entry) => {
-                          const match = availableTeams.find(
-                            (t) => t._id === entry || t.slug === entry,
-                          );
-                          return match?.slug || (typeof entry === "string" ? entry : null);
-                        })
-                        .filter((slug): slug is string => Boolean(slug))
-                        .filter((slug) => slug !== ownerSlug);
-                      const allSlugs = [
-                        ...(ownerSlug ? [{ slug: ownerSlug, kind: "owner" as const }] : []),
-                        ...sharedSlugs.map((slug) => ({ slug, kind: "shared" as const })),
-                      ];
-                      if (allSlugs.length === 0) return null;
-                      return (
-                        <div
-                          role="note"
-                          aria-label="Effective access summary"
-                          className="mt-4 rounded-md border border-amber-300/60 bg-amber-50 p-3 text-xs text-amber-950 dark:bg-amber-950/30 dark:text-amber-200"
-                        >
-                          <div className="font-medium mb-2">
-                            On save, these OpenFGA grants will be written:
-                          </div>
-                          <ul className="space-y-1.5">
-                            {allSlugs.map(({ slug, kind }) => (
-                              <li key={`${kind}-${slug}`}>
-                                <code>team:{slug}#member</code> can use
-                                this agent
-                                {kind === "owner" && " (owner team)"}
-                                <span className="block pl-4 text-amber-900/80 dark:text-amber-300/80">
-                                  every member of <code>team:{slug}</code>{" "}
-                                  can DM this agent in a 1:1 chat and use
-                                  it in any Slack channel or Webex space
-                                  that is mapped to{" "}
-                                  <code>team:{slug}</code>.
-                                </span>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      );
-                    })()}
+                    <div className="grid grid-cols-2 gap-2">
+                      {VISIBILITY_OPTIONS.map((opt) => {
+                        // When this agent is the platform default, lock the
+                        // selector so the admin can't try to demote
+                        // `global → team` here — the BFF will reject it.
+                        const lockedByPlatformDefault = isPlatformDefault;
+                        return (
+                          <button
+                            key={opt.value}
+                            type="button"
+                            onClick={() => setVisibility(opt.value)}
+                            className={`p-3 rounded-lg border text-left transition-colors ${
+                              visibility === opt.value
+                                ? "border-primary bg-primary/5"
+                                : "border-muted hover:border-primary/50"
+                            } ${lockedByPlatformDefault ? "opacity-60 cursor-not-allowed" : ""}`}
+                            disabled={loading || lockedByPlatformDefault}
+                          >
+                            <div className="flex items-center gap-2 mb-1">
+                              {opt.icon}
+                              <span className="font-medium text-sm">{opt.label}</span>
+                            </div>
+                            <div className="text-xs text-muted-foreground">{opt.description}</div>
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
-                )}
-              </div>
+                }
+              />
             </div>
           )}
 
