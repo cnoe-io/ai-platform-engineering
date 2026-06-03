@@ -492,7 +492,7 @@ module.exports = {
 
 ```dockerfile
 # Ensure proper Node version
-FROM node:20-alpine
+FROM node:24-alpine
 
 # Copy package files first
 COPY package*.json ./
