@@ -124,6 +124,74 @@ Enable demo users only in an isolated local/CI RBAC test stack.
 
 ---
 
+## Default Local Logins (`setup-caipe.sh`, no upstream IdP)
+
+`setup-caipe.sh` is the integration-test harness for the published Helm charts:
+it must bring the **full RBAC stack up with zero Cisco config and zero external
+SSO**. The in-chart Keycloak realm ships no human password users, so a vanilla
+install would have nobody who can sign in. To keep the default loginable — and
+to let you exercise **both** RBAC paths out of the box — the script
+auto-provisions two local Keycloak users:
+
+| User | Email (default) | In `BOOTSTRAP_ADMIN_EMAILS`? | Result |
+|------|-----------------|------------------------------|--------|
+| **Admin** | `admin@caipe.local` | yes | org-admin: admin UI + OpenFGA super-admin tuple on first login |
+| **Standard** | `user@caipe.local` | no | non-admin: baseline chat access, denied the admin UI |
+
+Because the default realm has no app-specific realm roles and no admission group
+gate, the only difference between the two is membership in
+`BOOTSTRAP_ADMIN_EMAILS` — making `user@caipe.local` a faithful "standard user
+denied admin" test subject. Both are provisioned whenever **all** of the
+following hold (no flag required):
+
+- the RBAC runtime is enabled (`--rbac-runtime`),
+- a non-IP DNS domain is set (`--domain=<host>`, e.g. the default
+  `caipe.local.me`) so the OIDC issuer is browser-reachable, and
+- **no upstream IdP is brokered** (no `IDP_ISSUER` in a `--ui-env-file`/`--env-file`).
+
+What it wires up automatically (all derived from `--domain`, no `.env` needed):
+
+| Setting | Value | Where |
+|---------|-------|-------|
+| `OIDC_ISSUER` | `https://<domain>/realms/caipe` | `caipe-ui` config |
+| `NEXTAUTH_URL` | `https://<domain>` | `caipe-ui` config |
+| `openfga-authz-bridge` token issuer | `https://<domain>/realms/caipe` | authz-bridge |
+| `NEXTAUTH_SECRET` + `caipe-ui` client secret | generated / `caipe-ui-dev-secret` | `caipe-ui-secret` |
+| `BOOTSTRAP_ADMIN_EMAILS` | local **admin** email only | `caipe-ui` config |
+| Admin realm user | `admin@caipe.local` (password printed at end) | `caipe-local-admin` Secret |
+| Standard realm user | `user@caipe.local` (password printed at end) | `caipe-local-user` Secret |
+
+The admin email is fed into `BOOTSTRAP_ADMIN_EMAILS`, so on first login the BFF
+JWT callback grants it org-admin and reconciles the OpenFGA super-admin tuple —
+giving you a working admin session to exercise RBAC end-to-end. The standard user
+is deliberately left out of `BOOTSTRAP_ADMIN_EMAILS`, so it logs in with baseline
+access only and is denied the admin UI. Both credentials are printed in the
+post-install summary and persisted (idempotent re-runs reuse them):
+
+```bash
+kubectl get secret caipe-local-admin -n caipe -o jsonpath='{.data.password}' | base64 -d
+kubectl get secret caipe-local-user  -n caipe -o jsonpath='{.data.password}' | base64 -d
+```
+
+Or re-print both logins (email + password + UI URL) any time without scrolling
+back through the install log:
+
+```bash
+./setup-caipe.sh creds
+```
+
+Flags:
+- `--no-local-admin` (skip the admin — only when brokering an upstream IdP or
+  GitHub social login), `--local-admin=<email>`, `--local-admin-password=<pw>`.
+- `--no-local-user` (skip the non-admin user), `--local-user=<email>`,
+  `--local-user-password=<pw>`.
+
+> This path is for **local/CI integration testing only**. Shared and production
+> realms should broker a real upstream IdP and must not rely on local password
+> users.
+
+---
+
 ## Verify Role Enforcement
 
 ```bash

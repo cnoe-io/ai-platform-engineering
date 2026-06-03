@@ -362,6 +362,59 @@ describe('GET /api/admin/teams', () => {
     expect(byName['Platform Engineering']).toBe(2);
     expect(byName['Ghost Team']).toBe(0);
   });
+
+  it('decorates each team with kb_count from team_kb_ownership (deduped), defaulting to 0', async () => {
+    // Issue #1642 follow-up: the team-card "KBs" badge must read the
+    // canonical `team_kb_ownership` collection, not the almost-always-empty
+    // legacy `team.resources.knowledge_bases` array. A team with an
+    // ownership row reports its distinct kb_id count; a team without one
+    // reports 0 so the badge renders a number instead of hiding.
+    mockGetServerSession.mockResolvedValue(adminSession());
+
+    const kbTeamId = new ObjectId();
+    const kbTeam = {
+      _id: kbTeamId,
+      name: 'KB Team',
+      slug: 'kb-team',
+      created_at: new Date(),
+      updated_at: new Date(),
+    };
+    const noKbTeam = {
+      _id: new ObjectId(),
+      name: 'No KB Team',
+      slug: 'no-kb-team',
+      created_at: new Date(),
+      updated_at: new Date(),
+    };
+
+    const teamsCol = createMockCollection();
+    teamsCol.find.mockReturnValue({
+      sort: jest.fn().mockReturnValue({
+        toArray: jest.fn().mockResolvedValue([kbTeam, noKbTeam]),
+      }),
+    });
+    mockCollections['teams'] = teamsCol;
+
+    const ownershipCol = createMockCollection();
+    ownershipCol.find = jest.fn().mockReturnValue({
+      // Duplicate kb-a must collapse to a single distinct KB → count 2.
+      toArray: jest.fn().mockResolvedValue([
+        { team_id: kbTeamId.toString(), kb_ids: ['kb-a', 'kb-b', 'kb-a'] },
+      ]),
+    });
+    mockCollections['team_kb_ownership'] = ownershipCol;
+
+    const req = makeRequest('/api/admin/teams');
+    const res = await GET(req);
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    const byName = Object.fromEntries(
+      body.data.teams.map((t: { name: string; kb_count: number }) => [t.name, t.kb_count]),
+    );
+    expect(byName['KB Team']).toBe(2);
+    expect(byName['No KB Team']).toBe(0);
+  });
 });
 
 // ============================================================================

@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { Loader2 } from "lucide-react";
 import { useSession } from "next-auth/react";
+import { TeamPicker, type TeamPickerOption } from "@/components/ui/team-picker";
 
 export interface UserDetailModalProps {
   userId: string;
@@ -70,6 +71,7 @@ export function UserDetailModal({
   const [teamOptions, setTeamOptions] = useState<
     Array<{ teamId: string; label: string }>
   >([]);
+  const [addTeamValue, setAddTeamValue] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -417,28 +419,23 @@ export function UserDetailModal({
                   <label htmlFor="add-team" className="text-sm text-muted-foreground">
                     Add team
                   </label>
-                  <select
+                  <TeamPicker
                     id="add-team"
-                    className="rounded-lg border border-input bg-background px-2 py-1.5 text-sm min-w-[12rem] text-foreground"
-                    defaultValue=""
-                    disabled={busy != null || addableTeams.length === 0}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      e.target.value = "";
-                      if (v) addTeam(v);
+                    value={addTeamValue}
+                    onChange={(v) => {
+                      if (!v) return;
+                      addTeam(v);
+                      setAddTeamValue("");
                     }}
-                  >
-                    <option value="">
-                      {addableTeams.length === 0
-                        ? "No teams to add"
-                        : "Select a team…"}
-                    </option>
-                    {addableTeams.map((t) => (
-                      <option key={t.teamId} value={t.teamId}>
-                        {t.label}
-                      </option>
-                    ))}
-                  </select>
+                    disabled={busy != null || addableTeams.length === 0}
+                    placeholder={addableTeams.length === 0 ? "No teams to add" : "Select a team…"}
+                    searchPlaceholder="Search teams..."
+                    triggerClassName="min-w-[12rem]"
+                    options={addableTeams.map<TeamPickerOption>((t) => ({
+                      slug: t.teamId,
+                      name: t.label,
+                    }))}
+                  />
                 </div>
               )}
             </section>
