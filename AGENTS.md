@@ -102,6 +102,3 @@ Before committing code changes, run relevant checks:
 - MongoDB (server-side via API), Zustand store (client-side) (093-fix-audit-chat-active-preserve)
 - Python + Slack Bolt, Slack SDK, httpx (SSE streaming), Pydantic (config models), requests, loguru, PyYAML — no new dependencies (100-slack-agui-migration)
 - MongoDB (LangGraph checkpointer on dynamic agents side; Slack bot is stateless beyond in-memory TTL caches) (100-slack-agui-migration)
-
-## Recent Changes
-- 093-fix-audit-chat-active-preserve: Added TypeScript (Next.js, React) + Zustand (state management), Next.js App Router
