@@ -2889,6 +2889,13 @@ services:
       KC_REALM: caipe
       KC_BOT_CLIENT_ID: caipe-slack-bot
       KC_SSL_REQUIRED: none
+      # Seed the Slack bot's service-account read grant on
+      # system_config:platform_settings so it can read platform-wide settings
+      # (default agent, VictorOps agent) from the BFF. The BFF graphs the bot's
+      # client-credentials token as service_account:<sub>; without this grant
+      # the read 403s and the bot falls back to env/YAML defaults.
+      OPENFGA_HTTP: http://openfga:8080
+      OPENFGA_STORE_NAME: caipe-openfga
     network_mode: "service:keycloak"
     depends_on:
       keycloak:
@@ -2896,6 +2903,10 @@ services:
       # Run AFTER init-idp.sh so we're configuring token exchange against a
       # realm that already has the slack-bot client wired up by the IdP seed.
       keycloak-init:
+        condition: service_completed_successfully
+      # Need the OpenFGA store + model seeded before we can write the bot's
+      # platform-settings grant tuple.
+      openfga-init:
         condition: service_completed_successfully
     restart: on-failure
     profiles:

@@ -39,6 +39,7 @@ import {
 import type { Team, TeamMember } from "@/types/teams";
 import type { TeamMembershipSource } from "@/types/identity-group-sync";
 import { TeamKbAssignmentPanel } from "@/components/admin/TeamKbAssignmentPanel";
+import { SaveButton } from "@/components/admin/SaveButton";
 
 // Server response shape — mirrors TeamMembershipSyncReport in
 // @/lib/rbac/team-openfga-sync-status.ts (kept local to avoid forcing
@@ -1367,18 +1368,16 @@ export function TeamDetailsDialog({
                   />
                 </div>
                 <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    onClick={handleSaveEdit}
-                    disabled={loading || !editName.trim()}
-                  >
-                    {loading ? (
-                      <Loader2 className="h-4 w-4 animate-spin mr-1" />
-                    ) : (
-                      <Check className="h-4 w-4 mr-1" />
-                    )}
-                    Save
-                  </Button>
+                  <SaveButton
+                    onSave={handleSaveEdit}
+                    saving={loading}
+                    dirty={
+                      editName.trim() !== currentTeam.name ||
+                      editDescription !== (currentTeam.description || "")
+                    }
+                    disabled={!editName.trim()}
+                    ariaLabel="Save team details"
+                  />
                   <Button
                     size="sm"
                     variant="ghost"
@@ -1846,18 +1845,14 @@ export function TeamDetailsDialog({
             )}
 
             <div className="flex justify-end gap-2 pt-2 border-t">
-              <Button
-                size="sm"
-                onClick={handleSaveResources}
-                disabled={resourcesSaving || resourcesLoading || !resourcesData}
-              >
-                {resourcesSaving ? (
-                  <Loader2 className="h-4 w-4 animate-spin mr-1" />
-                ) : (
-                  <Check className="h-4 w-4 mr-1" />
-                )}
-                Save Resources
-              </Button>
+              <SaveButton
+                onSave={handleSaveResources}
+                saving={resourcesSaving}
+                dirty
+                hideDirtyBadge
+                disabled={resourcesLoading || !resourcesData}
+                ariaLabel="Save resources"
+              />
             </div>
           </div>
         )}
@@ -1908,18 +1903,14 @@ export function TeamDetailsDialog({
             )}
 
             <div className="flex justify-end gap-2 pt-2 border-t">
-              <Button
-                size="sm"
-                onClick={handleSaveChannels}
-                disabled={channelsSaving || channelsLoading || !channelsData}
-              >
-                {channelsSaving ? (
-                  <Loader2 className="h-4 w-4 animate-spin mr-1" />
-                ) : (
-                  <Check className="h-4 w-4 mr-1" />
-                )}
-                Save Channels
-              </Button>
+              <SaveButton
+                onSave={handleSaveChannels}
+                saving={channelsSaving}
+                dirty
+                hideDirtyBadge
+                disabled={channelsLoading || !channelsData}
+                ariaLabel="Save channels"
+              />
             </div>
           </div>
         )}
@@ -1967,18 +1958,14 @@ export function TeamDetailsDialog({
             )}
 
             <div className="flex justify-end gap-2 pt-2 border-t">
-              <Button
-                size="sm"
-                onClick={handleSaveWebexSpaces}
-                disabled={webexSpacesSaving || webexSpacesLoading || !webexSpacesData}
-              >
-                {webexSpacesSaving ? (
-                  <Loader2 className="h-4 w-4 animate-spin mr-1" />
-                ) : (
-                  <Check className="h-4 w-4 mr-1" />
-                )}
-                Save Spaces
-              </Button>
+              <SaveButton
+                onSave={handleSaveWebexSpaces}
+                saving={webexSpacesSaving}
+                dirty
+                hideDirtyBadge
+                disabled={webexSpacesLoading || !webexSpacesData}
+                ariaLabel="Save spaces"
+              />
             </div>
           </div>
         )}

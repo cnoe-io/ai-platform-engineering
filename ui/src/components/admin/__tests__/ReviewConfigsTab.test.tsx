@@ -78,7 +78,16 @@ it("keeps the AI Review save action in the page header row", async () => {
   ).toBeInTheDocument();
   const save = within(header).getByRole("button", { name: "Save" });
   expect(save).toBeInTheDocument();
+
+  // Normalized save UX: the header Save is dirty-gated, so it stays disabled
+  // until the form actually diverges from the loaded config.
+  const gradeA = await screen.findByLabelText("A");
+  await waitFor(() => expect(save).toBeDisabled());
+
+  // Make an edit → the form is dirty → Save enables and "Unsaved changes" shows.
+  fireEvent.change(gradeA, { target: { value: "95" } });
   await waitFor(() => expect(save).not.toBeDisabled());
+  expect(within(header).getByText("Unsaved changes")).toBeInTheDocument();
 
   fireEvent.click(save);
 

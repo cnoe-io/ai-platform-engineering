@@ -232,6 +232,15 @@ tokenExchange:
   botClientId: "caipe-slack-bot"
   botClientSecret: ""
   secretRef: ""
+  # init-token-exchange.sh seeds each bot service account's OpenFGA grants
+  # (e.g. read on `system_config:platform_settings`) so the Slack and Webex
+  # bots can make service-to-service reads against the BFF. Without these the
+  # BFF's `service_account:<bot-sub>` checks fail and the bots silently fall
+  # back to their env/YAML defaults. The seed is best-effort and idempotent.
+  # OpenFGA HTTP endpoint for the seed; defaults to the in-cluster service
+  # `<release>-openfga:8080` (matching caipe-ui) when left empty.
+  openfgaHttp: ""
+  openfgaStoreName: "caipe-openfga"
   externalSecret:
     enabled: false
     refreshInterval: "1h"

@@ -478,6 +478,10 @@ export async function getAuthFromBearerOrSession(
       accessToken: token,
       sub: identity.sub,
       org: identity.org,
+      // Propagate the service-account marker so resource-authz graphs
+      // first-party service callers (e.g. the Slack bot) as
+      // `service_account:<sub>` rather than `user:<sub>`.
+      isServiceAccount: identity.isServiceAccount === true,
       user: { email: identity.email, name: identity.name },
     };
     if (process.env.NODE_ENV !== 'test') {

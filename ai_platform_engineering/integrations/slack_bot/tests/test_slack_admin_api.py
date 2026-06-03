@@ -4,9 +4,14 @@ import json
 
 from ai_platform_engineering.integrations.slack_bot.utils.config_models import (
     AgentBinding,
+    BotsConfig,
     ChannelConfig,
     Config,
+    EmojiEscalation,
+    EscalationConfig,
+    OverthinkConfig,
     UsersConfig,
+    VictorOpsEscalation,
 )
 from ai_platform_engineering.integrations.slack_bot.utils.slack_admin_api import (
     SlackAdminTokenValidator,
@@ -160,6 +165,56 @@ def test_sync_from_config_dry_run_plans_without_writes() -> None:
     assert summary["openfga_tuples_written"] == 0
     assert routes.update_calls == []
     assert openfga_writes == []
+
+
+def test_sync_from_config_dry_run_includes_full_channel_breakdown() -> None:
+    config = Config(
+        channels={
+            "C500": ChannelConfig(
+                name="#ops",
+                agents=[
+                    AgentBinding(
+                        agent_id="ops-agent",
+                        users=UsersConfig(
+                            enabled=True,
+                            listen="all",
+                            user_list=["U1", "U2"],
+                            overthink=OverthinkConfig(enabled=True, skip_markers=["DEFER"]),
+                        ),
+                        bots=BotsConfig(enabled=True, listen="message", bot_list=["AlertBot"]),
+                        escalation=EscalationConfig(
+                            victorops=VictorOpsEscalation(enabled=True, team="dao"),
+                            emoji=EmojiEscalation(enabled=True, name="rotating_light"),
+                            users=["U027"],
+                            delete_admins=["U027"],
+                        ),
+                    )
+                ],
+            ),
+        }
+    )
+    service = SlackBotAdminService(config=config, resolver=_Resolver())
+
+    summary = service.sync_from_config(workspace_id="CAIPE", dry_run=True)
+
+    assert len(summary["channels"]) == 1
+    channel = summary["channels"][0]
+    assert channel["channel_id"] == "C500"
+    assert channel["channel_name"] == "#ops"
+    agent = channel["agents"][0]
+    assert agent["agent_id"] == "ops-agent"
+    assert agent["priority"] == 100
+    # Full per-side config is surfaced for the admin preview.
+    assert agent["users"]["listen"] == "all"
+    assert agent["users"]["user_list"] == ["U1", "U2"]
+    assert agent["users"]["overthink"]["enabled"] is True
+    assert agent["users"]["overthink"]["skip_markers"] == ["DEFER"]
+    assert agent["bots"]["listen"] == "message"
+    assert agent["bots"]["bot_list"] == ["AlertBot"]
+    assert agent["escalation"]["victorops"] == {"enabled": True, "team": "dao"}
+    assert agent["escalation"]["emoji"] == {"enabled": True, "name": "rotating_light"}
+    assert agent["escalation"]["users"] == ["U027"]
+    assert agent["escalation"]["delete_admins"] == ["U027"]
 
 
 def test_sync_from_config_upserts_routes_writes_openfga_and_invalidates_cache() -> None:

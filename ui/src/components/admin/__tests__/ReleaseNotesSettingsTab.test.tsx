@@ -81,7 +81,7 @@ describe('ReleaseNotesSettingsTab', () => {
     fireEvent.change(screen.getByLabelText('Toast duration'), {
       target: { value: '12000' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Apply release notes settings' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save release notes settings' }));
 
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledWith(
