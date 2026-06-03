@@ -599,7 +599,13 @@ sys.stdout.write(next((s["id"] for s in stores if s.get("name") == os.environ["S
 # write_openfga_grant <openfga_base_url> <store_id> <user> <relation> <object>
 write_openfga_grant() {
   _ofga="$1"; _store_id="$2"; _user="$3"; _relation="$4"; _object="$5"
-  _tuple="{\"user\":\"${_user}\",\"relation\":\"${_relation}\",\"object\":\"${_object}\"}"
+  # Build JSON via Python to avoid shell-variable injection (e.g. a UUID that
+  # somehow contains '"' or '\' would corrupt bare string interpolation).
+  _tuple=$(python3 -c "
+import json, sys
+u, r, o = sys.argv[1], sys.argv[2], sys.argv[3]
+print(json.dumps({'user': u, 'relation': r, 'object': o}))
+" "${_user}" "${_relation}" "${_object}")
 
   _check=$(curl -sf -X POST "${_ofga}/stores/${_store_id}/check" \
     -H "Content-Type: application/json" \

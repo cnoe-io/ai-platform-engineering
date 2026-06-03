@@ -94,25 +94,30 @@ class _ServiceAccountTokenProvider:
 
     def __init__(self) -> None:
         self._client: Any = None
-        self._init_failed = False
+        # Retry backoff: avoid a permanent latch so transient startup failures
+        # (env var not yet populated, one-time DNS hiccup) recover automatically
+        # after 60 s rather than requiring a pod restart.
+        self._retry_after: float = 0.0
 
     def token(self) -> Optional[str]:
+        import time as _time
+
         if not auth_enabled():
             return None
-        if self._client is None and not self._init_failed:
+        if self._client is None and _time.monotonic() >= self._retry_after:
             try:
                 from .oauth2_client import OAuth2ClientCredentials
 
                 self._client = OAuth2ClientCredentials.from_env()
-            except RuntimeError as exc:
+            except Exception as exc:
                 logger.warning("bff_client: OAuth2 client init failed: %s", exc)
-                self._init_failed = True
+                self._retry_after = _time.monotonic() + 60.0
                 return None
         if self._client is None:
             return None
         try:
             return self._client.get_access_token()
-        except RuntimeError as exc:
+        except Exception as exc:
             logger.warning("bff_client: OAuth2 token fetch failed: %s", exc)
             return None
 
