@@ -26,6 +26,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
+import yaml
+
 
 LOGGER = logging.getLogger("agentgateway-config-bridge")
 SAFE_TARGET_ID = re.compile(r"^[A-Za-z0-9._-]+$")
@@ -259,13 +261,67 @@ def _route_policies_for(target_id: str, base: dict[str, Any]) -> dict[str, Any]:
     return merged
 
 
+def load_builtin_mcp_routes(bootstrap_path: Path | None) -> dict[str, dict[str, Any]]:
+    """Return ``{target_id: route}`` for every ``/mcp/<id>`` route shipped in the
+    static bootstrap config (``deploy/agentgateway/config.yaml``).
+
+    These are the platform's *built-in* MCP servers. Unlike runtime-added servers,
+    they are never written to the ``mcp_servers`` Mongo collection, so the
+    reconciler must treat them as a **protected baseline**: always rendered (from
+    their authoritative bootstrap definition, including any per-route
+    transformations) and never pruned just because they are absent from Mongo.
+
+    Without this, an empty (or freshly reset) ``mcp_servers`` collection makes the
+    reconciler classify all built-in ``/mcp/<id>`` routes as "stale managed
+    routes" and wipe them — leaving AgentGateway with zero MCP routes.
+    """
+
+    if bootstrap_path is None or not bootstrap_path.exists():
+        return {}
+    try:
+        config = yaml.safe_load(bootstrap_path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError) as exc:
+        LOGGER.warning("Could not parse bootstrap config %s: %s", bootstrap_path, exc)
+        return {}
+    if not isinstance(config, dict):
+        return {}
+
+    builtins: dict[str, dict[str, Any]] = {}
+    for bind in asarray_dicts(config.get("binds")):
+        for listener in asarray_dicts(bind.get("listeners")):
+            for route in asarray_dicts(listener.get("routes")):
+                path = _route_path(route)
+                if not _is_managed_mcp_route_path(path):
+                    continue
+                target_id = path[len("/mcp/") :]  # type: ignore[index]
+                if SAFE_TARGET_ID.fullmatch(target_id):
+                    builtins[target_id] = copy.deepcopy(route)
+    return builtins
+
+
+def asarray_dicts(value: Any) -> list[dict[str, Any]]:
+    """Return ``value`` as a list of dicts (empty when not a list of dicts)."""
+
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, dict)]
+
+
 def merge_agentgateway_mcp_routes(
     baseline_config: dict[str, Any],
     targets: Iterable[McpGatewayTarget],
     *,
     route_policies: dict[str, Any] | None = None,
+    builtin_routes: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Return AgentGateway config with one route per desired MCP target."""
+    """Return AgentGateway config with one route per desired MCP target.
+
+    ``builtin_routes`` (id -> route) are statically shipped MCP servers that the
+    reconciler protects: they are always re-rendered from their bootstrap
+    definition and never pruned. Mongo-backed ``targets`` are layered on top as
+    *dynamic* routes that may be added or pruned; a dynamic target sharing an id
+    with a built-in defers to the built-in definition.
+    """
 
     rendered = copy.deepcopy(baseline_config)
     listener = _first_http_listener(rendered)
@@ -275,7 +331,12 @@ def merge_agentgateway_mcp_routes(
         listener["routes"] = routes
 
     policies = route_policies or DEFAULT_MCP_ROUTE_POLICIES
-    desired_by_path = {f"/mcp/{target.id}": target for target in targets}
+    builtin_routes = builtin_routes or {}
+    builtin_ids = set(builtin_routes)
+    builtin_paths = {f"/mcp/{target_id}" for target_id in builtin_ids}
+    # Dynamic (Mongo-managed) targets are everything not shipped as a built-in.
+    dynamic_targets = [target for target in targets if target.id not in builtin_ids]
+    desired_by_path = {f"/mcp/{target.id}": target for target in dynamic_targets}
     target_policies_by_path = {
         path: target_policies
         for route in routes
@@ -284,18 +345,21 @@ def merge_agentgateway_mcp_routes(
         for target_policies in [_target_policies(route)]
         if path in desired_by_path and target_policies
     }
-    # The reconciler owns every ``/mcp/<id>`` route, so drop *all* managed MCP
-    # routes from the baseline and re-render only the desired set below. This
-    # makes deletion automatic: when an ``mcp_servers`` row is removed, its route
-    # is no longer in ``desired_by_path`` and simply isn't re-added — no manual
-    # config/volume reset needed. Non-MCP routes (and any malformed entries) are
-    # always retained.
+    # The reconciler owns every dynamic ``/mcp/<id>`` route, so drop *all* managed
+    # MCP routes from the baseline and re-render the protected built-ins plus the
+    # desired dynamic set below. This makes deletion automatic: when an
+    # ``mcp_servers`` row is removed, its route is no longer in ``desired_by_path``
+    # and simply isn't re-added. Built-in routes are exempt — they are restored
+    # from ``builtin_routes`` regardless of Mongo state. Non-MCP routes (and any
+    # malformed entries) are always retained.
     stale_paths = sorted(
         path
         for route in routes
         if isinstance(route, dict)
         for path in [_route_path(route)]
-        if _is_managed_mcp_route_path(path) and path not in desired_by_path
+        if _is_managed_mcp_route_path(path)
+        and path not in desired_by_path
+        and path not in builtin_paths
     )
     if stale_paths:
         LOGGER.info("Pruning stale AgentGateway MCP routes: %s", stale_paths)
@@ -304,6 +368,9 @@ def merge_agentgateway_mcp_routes(
         for route in routes
         if not (isinstance(route, dict) and _is_managed_mcp_route_path(_route_path(route)))
     ]
+    # Protected built-in routes: always present, rendered from their authoritative
+    # bootstrap definition (preserving per-route transformations/policies).
+    retained_routes.extend(copy.deepcopy(builtin_routes[target_id]) for target_id in sorted(builtin_ids))
     retained_routes.extend(
         _mcp_route(
             target,
@@ -462,6 +529,7 @@ def reconcile_once(
     *,
     config_path: Path,
     admin_config_url: str,
+    bootstrap_path: Path | None = None,
 ) -> dict[str, Any]:
     """Render and write one AgentGateway config generation."""
 
@@ -470,11 +538,13 @@ def reconcile_once(
         admin_config_url,
         allow_minimal_fallback=not config_path.exists(),
     )
-    rendered = merge_agentgateway_mcp_routes(baseline, targets)
+    builtin_routes = load_builtin_mcp_routes(bootstrap_path)
+    rendered = merge_agentgateway_mcp_routes(baseline, targets, builtin_routes=builtin_routes)
     changed = write_config_atomically(config_path, rendered)
     result = {
         "targets": [target.id for target in targets],
         "target_count": len(targets),
+        "builtin_count": len(builtin_routes),
         "changed": changed,
         "config_path": str(config_path),
     }
@@ -505,7 +575,11 @@ def main() -> None:
 
     while True:
         try:
-            reconcile_once(config_path=config_path, admin_config_url=admin_config_url)
+            reconcile_once(
+                config_path=config_path,
+                admin_config_url=admin_config_url,
+                bootstrap_path=bootstrap_path,
+            )
         except Exception:
             LOGGER.exception("AgentGateway MCP config reconciliation failed")
         time.sleep(poll_seconds)
