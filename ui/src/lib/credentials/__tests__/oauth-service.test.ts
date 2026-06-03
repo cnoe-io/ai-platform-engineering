@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, jest } from "@jest/globals";
 
 import {
+  boundScopes,
   OAuthConnectorService,
   type OAuthConnectorDocument,
   ProviderConnectionService,
@@ -221,6 +222,43 @@ describe("OAuthConnectorService", () => {
   });
 });
 
+describe("boundScopes", () => {
+  const connectorScopes = ["read:jira-work", "write:jira-work", "offline_access"];
+
+  it("returns the full connector set when no selection is provided (legacy default)", () => {
+    expect(boundScopes(connectorScopes, undefined)).toEqual(connectorScopes);
+  });
+
+  it("returns the chosen subset ordered by the connector set", () => {
+    expect(boundScopes(connectorScopes, ["offline_access", "read:jira-work"])).toEqual([
+      "read:jira-work",
+      "offline_access",
+    ]);
+  });
+
+  it("trims and de-duplicates the requested selection", () => {
+    expect(boundScopes(connectorScopes, [" read:jira-work ", "read:jira-work"])).toEqual([
+      "read:jira-work",
+    ]);
+  });
+
+  it("rejects a scope outside the connector's allowed set", () => {
+    expect(() => boundScopes(connectorScopes, ["read:jira-work", "admin:org"])).toThrow(
+      /not permitted/,
+    );
+    try {
+      boundScopes(connectorScopes, ["admin:org"]);
+    } catch (error) {
+      expect(error).toMatchObject({ statusCode: 400 });
+    }
+  });
+
+  it("rejects an empty selection (no zero-scope tokens)", () => {
+    expect(() => boundScopes(connectorScopes, [])).toThrow();
+    expect(() => boundScopes(connectorScopes, ["   "])).toThrow();
+  });
+});
+
 describe("ProviderConnectionService", () => {
   it("refreshes provider tokens using connector metadata and stores rotated tokens encrypted", async () => {
     const providerConnections = new MemoryCollection<ProviderConnectionDocument>();
@@ -344,6 +382,108 @@ describe("ProviderConnectionService", () => {
     );
   });
 
+  it("reuses the stored access token when no refresh token was issued (GitHub OAuth App)", async () => {
+    const providerConnections = new MemoryCollection<ProviderConnectionDocument>();
+    providerConnections.docs.push({
+      id: "conn-1",
+      connectorId: "connector-1",
+      provider: "github",
+      owner: { type: "user", id: "alice-sub" },
+      status: "connected",
+      refreshTokenRef: "provider_connection:conn-1:refresh_token",
+      accessTokenRef: "provider_connection:conn-1:access_token",
+    });
+    const connectors = new MemoryCollection<OAuthConnectorDocument>();
+    connectors.docs.push({
+      id: "connector-1",
+      name: "GitHub",
+      provider: "github",
+      clientId: "client-id",
+      clientSecretRef: "oauth_connector:connector-1:client_secret",
+      authorizationUrl: "https://github.com/login/oauth/authorize",
+      tokenUrl: "https://github.com/login/oauth/access_token",
+      scopes: ["repo"],
+      redirectUri: "https://caipe.example.com/api/credentials/oauth/github/callback",
+      enabled: true,
+      createdAt: new Date("2026-01-01T00:00:00Z"),
+      updatedAt: new Date("2026-01-01T00:00:00Z"),
+    });
+    // GitHub OAuth Apps never store a refresh token, so getSecret for the
+    // refresh ref fails while the access token is present and long-lived.
+    const payloadStore = {
+      getSecret: jest.fn(async (ref: string) => {
+        if (ref.endsWith(":refresh_token")) {
+          throw new Error("Credential payload was not found");
+        }
+        return `${ref}:value`;
+      }),
+      putSecret: mockPutSecret(),
+    };
+    const tokenClient = mockTokenClient({ access_token: "should-not-be-used" });
+    const service = new ProviderConnectionService({
+      providerConnectionsCollection: providerConnections,
+      connectorsCollection: connectors,
+      payloadStore,
+      tokenClient,
+    });
+
+    const token = await service.refreshConnection("conn-1");
+
+    expect(token.accessToken).toBe("provider_connection:conn-1:access_token:value");
+    expect(token.expiresIn).toBeUndefined();
+    expect(tokenClient).not.toHaveBeenCalled();
+    expect(payloadStore.putSecret).not.toHaveBeenCalled();
+  });
+
+  it("reuses the stored access token when the provider rejects the refresh grant", async () => {
+    const providerConnections = new MemoryCollection<ProviderConnectionDocument>();
+    providerConnections.docs.push({
+      id: "conn-1",
+      connectorId: "connector-1",
+      provider: "github",
+      owner: { type: "user", id: "alice-sub" },
+      status: "connected",
+      refreshTokenRef: "provider_connection:conn-1:refresh_token",
+      accessTokenRef: "provider_connection:conn-1:access_token",
+    });
+    const connectors = new MemoryCollection<OAuthConnectorDocument>();
+    connectors.docs.push({
+      id: "connector-1",
+      name: "GitHub",
+      provider: "github",
+      clientId: "client-id",
+      clientSecretRef: "oauth_connector:connector-1:client_secret",
+      authorizationUrl: "https://github.com/login/oauth/authorize",
+      tokenUrl: "https://github.com/login/oauth/access_token",
+      scopes: ["repo"],
+      redirectUri: "https://caipe.example.com/api/credentials/oauth/github/callback",
+      enabled: true,
+      createdAt: new Date("2026-01-01T00:00:00Z"),
+      updatedAt: new Date("2026-01-01T00:00:00Z"),
+    });
+    const payloadStore = {
+      getSecret: jest.fn(async (ref: string) => `${ref}:value`),
+      putSecret: mockPutSecret(),
+    };
+    const tokenClient = jest.fn<(tokenUrl: string, body: Record<string, string>) => Promise<TokenResponse>>(
+      async () => {
+        throw new Error("OAuth token exchange failed with 400");
+      },
+    );
+    const service = new ProviderConnectionService({
+      providerConnectionsCollection: providerConnections,
+      connectorsCollection: connectors,
+      payloadStore,
+      tokenClient,
+    });
+
+    const token = await service.refreshConnection("conn-1");
+
+    expect(token.accessToken).toBe("provider_connection:conn-1:access_token:value");
+    expect(tokenClient).toHaveBeenCalledTimes(1);
+    expect(payloadStore.putSecret).not.toHaveBeenCalled();
+  });
+
   it("starts and completes an OAuth connection without exposing provider tokens", async () => {
     const connectors = new MemoryCollection<OAuthConnectorDocument>();
     const connections = new MemoryCollection<ProviderConnectionDocument>();
@@ -416,6 +556,139 @@ describe("ProviderConnectionService", () => {
       secretRefId: "provider_connection:provider-connection-1:refresh_token",
       plaintext: "provider-refresh-token",
     });
+  });
+
+  it("requests only the user's chosen subset and persists requested + granted scopes", async () => {
+    const connectors = new MemoryCollection<OAuthConnectorDocument>();
+    const connections = new MemoryCollection<ProviderConnectionDocument>();
+    const payloadStore = {
+      getSecret: jest.fn(async () => "client-secret"),
+      putSecret: mockPutSecret(),
+    };
+    connectors.docs.push({
+      id: "connector-1",
+      name: "Atlassian",
+      provider: "atlassian",
+      clientId: "client-id",
+      clientSecretRef: "oauth_connector:connector-1:client_secret",
+      authorizationUrl: "https://auth.atlassian.com/authorize",
+      tokenUrl: "https://auth.atlassian.com/oauth/token",
+      scopes: ["read:jira-work", "write:jira-work", "offline_access"],
+      redirectUri: "https://caipe.example.com/api/credentials/oauth/atlassian/callback",
+      enabled: true,
+      createdAt: new Date("2026-01-01T00:00:00Z"),
+      updatedAt: new Date("2026-01-01T00:00:00Z"),
+    });
+    const service = new ProviderConnectionService({
+      providerConnectionsCollection: connections,
+      connectorsCollection: connectors,
+      payloadStore,
+      tokenClient: mockTokenClient({
+        access_token: "provider-access-token",
+        refresh_token: "provider-refresh-token",
+        expires_in: 3600,
+        scope: "read:jira-work offline_access",
+      }),
+      idGenerator: () => "provider-connection-1",
+      now: () => new Date("2026-01-01T00:00:00Z"),
+    });
+
+    const start = await service.startConnection({
+      providerKey: "atlassian",
+      owner: { type: "user", id: "alice-sub" },
+      state: "state-1",
+      codeChallenge: "challenge-1",
+      requestedScopes: ["read:jira-work", "offline_access"],
+    });
+    expect(start.requestedScopes).toEqual(["read:jira-work", "offline_access"]);
+    expect(start.authorizationUrl).toContain("scope=read%3Ajira-work+offline_access");
+    expect(start.authorizationUrl).not.toContain("write%3Ajira-work");
+
+    const completed = await service.completeConnection({
+      providerKey: "atlassian",
+      owner: { type: "user", id: "alice-sub" },
+      code: "provider-code",
+      codeVerifier: "verifier-1",
+      requestedScopes: ["read:jira-work", "offline_access"],
+    });
+
+    expect(completed.requestedScopes).toEqual(["read:jira-work", "offline_access"]);
+    expect(completed.grantedScopes).toEqual(["read:jira-work", "offline_access"]);
+    expect(connections.docs[0]).toMatchObject({
+      requestedScopes: ["read:jira-work", "offline_access"],
+      grantedScopes: ["read:jira-work", "offline_access"],
+    });
+  });
+
+  it("strips GitHub offline_access from the authorization URL even within a chosen subset", async () => {
+    const connectors = new MemoryCollection<OAuthConnectorDocument>();
+    const connections = new MemoryCollection<ProviderConnectionDocument>();
+    connectors.docs.push({
+      id: "connector-1",
+      name: "GitHub",
+      provider: "github",
+      clientId: "client-id",
+      clientSecretRef: "oauth_connector:connector-1:client_secret",
+      authorizationUrl: "https://github.com/login/oauth/authorize",
+      tokenUrl: "https://github.com/login/oauth/access_token",
+      scopes: ["repo", "read:user", "offline_access"],
+      redirectUri: "https://caipe.example.com/api/credentials/oauth/github/callback",
+      enabled: true,
+      createdAt: new Date("2026-01-01T00:00:00Z"),
+      updatedAt: new Date("2026-01-01T00:00:00Z"),
+    });
+    const service = new ProviderConnectionService({
+      providerConnectionsCollection: connections,
+      connectorsCollection: connectors,
+      payloadStore: { getSecret: jest.fn(async () => "client-secret"), putSecret: mockPutSecret() },
+      tokenClient: mockTokenClient({ access_token: "token" }),
+    });
+
+    const start = await service.startConnection({
+      providerKey: "github",
+      owner: { type: "user", id: "alice-sub" },
+      state: "state-1",
+      codeChallenge: "challenge-1",
+      requestedScopes: ["repo", "offline_access"],
+    });
+
+    expect(start.requestedScopes).toEqual(["repo", "offline_access"]);
+    expect(start.authorizationUrl).toContain("scope=repo");
+    expect(start.authorizationUrl).not.toContain("offline_access");
+  });
+
+  it("rejects a connect request for a scope outside the connector's allowed set", async () => {
+    const connectors = new MemoryCollection<OAuthConnectorDocument>();
+    connectors.docs.push({
+      id: "connector-1",
+      name: "Atlassian",
+      provider: "atlassian",
+      clientId: "client-id",
+      clientSecretRef: "oauth_connector:connector-1:client_secret",
+      authorizationUrl: "https://auth.atlassian.com/authorize",
+      tokenUrl: "https://auth.atlassian.com/oauth/token",
+      scopes: ["read:jira-work"],
+      redirectUri: "https://caipe.example.com/api/credentials/oauth/atlassian/callback",
+      enabled: true,
+      createdAt: new Date("2026-01-01T00:00:00Z"),
+      updatedAt: new Date("2026-01-01T00:00:00Z"),
+    });
+    const service = new ProviderConnectionService({
+      providerConnectionsCollection: new MemoryCollection<ProviderConnectionDocument>(),
+      connectorsCollection: connectors,
+      payloadStore: { getSecret: jest.fn(async () => "client-secret"), putSecret: mockPutSecret() },
+      tokenClient: mockTokenClient({ access_token: "token" }),
+    });
+
+    await expect(
+      service.startConnection({
+        providerKey: "atlassian",
+        owner: { type: "user", id: "alice-sub" },
+        state: "state-1",
+        codeChallenge: "challenge-1",
+        requestedScopes: ["read:jira-work", "admin:org"],
+      }),
+    ).rejects.toMatchObject({ statusCode: 400 });
   });
 
   it("uses PagerDuty PKCE token exchange without client_secret", async () => {

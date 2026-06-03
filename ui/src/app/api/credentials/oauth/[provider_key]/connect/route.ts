@@ -29,6 +29,20 @@ export const GET = withErrorHandler(async (request: NextRequest, context?: { par
     throw new ApiError("Authenticated subject is required", 401, "UNAUTHORIZED");
   }
 
+  const requestUrl = new URL(request.url);
+  // Optional per-user scope selection (advanced settings). Accept either a
+  // single comma/space-delimited `?scopes=` or repeated `?scope=` params.
+  // Absent ⇒ connector default (legacy behavior).
+  const scopesParam = requestUrl.searchParams.getAll("scope");
+  const scopesCsv = requestUrl.searchParams.get("scopes");
+  if (scopesCsv) {
+    scopesParam.push(...scopesCsv.split(/[\s,]+/));
+  }
+  const requestedScopes =
+    scopesParam.length > 0
+      ? scopesParam.map((scope) => scope.trim()).filter(Boolean)
+      : undefined;
+
   const state = randomOAuthValue(24);
   const codeVerifier = randomOAuthValue(48);
   const service = await getProviderConnectionService();
@@ -37,14 +51,17 @@ export const GET = withErrorHandler(async (request: NextRequest, context?: { par
     owner: { type: "user", id: ownerId },
     state,
     codeChallenge: pkceChallenge(codeVerifier),
+    requestedScopes,
   });
-  const requestUrl = new URL(request.url);
   const secureCookie = process.env.NODE_ENV === "production" || requestUrl.protocol === "https:";
   const cookie = `${oauthStateCookieName(providerKey)}=${createOAuthStateCookie({
       providerKey,
       ownerId,
       state,
       codeVerifier,
+      // Persist the choice only when the user explicitly selected scopes, so
+      // the callback records requestedScopes and relink can pre-fill them.
+      requestedScopes: requestedScopes ? result.requestedScopes : undefined,
     })}; Path=/; HttpOnly; SameSite=Lax; Max-Age=600${secureCookie ? "; Secure" : ""}`;
   return new Response(null, {
     status: 302,
