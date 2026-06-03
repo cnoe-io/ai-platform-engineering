@@ -1,3 +1,4 @@
+import { createHash } from "crypto";
 import { NextRequest } from "next/server";
 import {
   getAuthFromBearerOrSession,
@@ -82,6 +83,10 @@ const MAX_RATE_LIMIT_RETRIES = 3;
 
 const cache = new Map<string, CacheEntry>();
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function tokenCacheKey(token: string): string {
+  return createHash("sha256").update(token).digest("hex").slice(0, 16);
+}
 
 export function __resetSlackUsersLookupCacheForTests(): void {
   cache.clear();
@@ -176,7 +181,7 @@ async function lookupByEmail(token: string, email: string): Promise<SlackUserRes
 async function walkSlackUsers(token: string): Promise<SlackUserResult[]> {
   const out: SlackUserResult[] = [];
   let cursor = "";
-  const cacheKey = token.slice(-12);
+  const cacheKey = tokenCacheKey(token);
   const startedAt = Date.now();
 
   for (let page = 0; page < MAX_SLACK_PAGES; page++) {
@@ -258,7 +263,7 @@ function refreshSlackUsersCache(token: string, cacheKey: string): Promise<SlackU
 }
 
 export function warmSlackUsersDirectory(token: string): void {
-  const cacheKey = token.slice(-12);
+  const cacheKey = tokenCacheKey(token);
   const cached = cache.get(cacheKey);
   const fresh = cached?.users.length && Date.now() - cached.fetched_at < USER_CACHE_TTL_MS;
   if (!fresh) {
@@ -269,7 +274,7 @@ export function warmSlackUsersDirectory(token: string): void {
 }
 
 export function getSlackUsersDirectoryStatus(token: string) {
-  const cached = cache.get(token.slice(-12));
+  const cached = cache.get(tokenCacheKey(token));
   const now = Date.now();
   const hasSnapshot = Boolean(cached?.users.length);
   const fresh = Boolean(hasSnapshot && cached && now - cached.fetched_at < USER_CACHE_TTL_MS);
@@ -364,7 +369,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   }
 
   const now = Date.now();
-  const cacheKey = token.slice(-12);
+  const cacheKey = tokenCacheKey(token);
   const cached = cache.get(cacheKey);
   const hasSnapshot = Boolean(cached && cached.users.length > 0);
   const cacheFresh = hasSnapshot && now - (cached?.fetched_at ?? 0) < USER_CACHE_TTL_MS;

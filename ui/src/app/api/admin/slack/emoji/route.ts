@@ -1,3 +1,4 @@
+import { createHash } from "crypto";
 import { NextRequest } from "next/server";
 import {
   getAuthFromBearerOrSession,
@@ -41,6 +42,10 @@ const MAX_RATE_LIMIT_RETRIES = 3;
 
 const cache = new Map<string, CacheEntry>();
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function tokenCacheKey(token: string): string {
+  return createHash("sha256").update(token).digest("hex").slice(0, 16);
+}
 
 // Slack's `emoji.list` may omit Unicode categories depending on token/app
 // behavior even when `include_categories=true`; keep common standard reaction
@@ -158,7 +163,7 @@ function refreshSlackEmojiCache(token: string, cacheKey: string): Promise<SlackE
 }
 
 export function warmSlackEmojiDirectory(token: string): void {
-  const cacheKey = token.slice(-12);
+  const cacheKey = tokenCacheKey(token);
   const cached = cache.get(cacheKey);
   const fresh = cached?.emoji.length && Date.now() - cached.fetched_at < EMOJI_CACHE_TTL_MS;
   if (!fresh) {
@@ -169,7 +174,7 @@ export function warmSlackEmojiDirectory(token: string): void {
 }
 
 export function getSlackEmojiDirectoryStatus(token: string) {
-  const cached = cache.get(token.slice(-12));
+  const cached = cache.get(tokenCacheKey(token));
   const now = Date.now();
   const hasSnapshot = Boolean(cached?.emoji.length);
   const fresh = Boolean(hasSnapshot && cached && now - cached.fetched_at < EMOJI_CACHE_TTL_MS);
@@ -230,7 +235,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     : DEFAULT_LIMIT;
 
   const now = Date.now();
-  const cacheKey = token.slice(-12);
+  const cacheKey = tokenCacheKey(token);
   const cached = cache.get(cacheKey);
   const hasSnapshot = Boolean(cached && cached.emoji.length > 0);
   const cacheFresh = hasSnapshot && now - (cached?.fetched_at ?? 0) < EMOJI_CACHE_TTL_MS;
