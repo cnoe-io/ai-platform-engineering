@@ -52,6 +52,8 @@ from server.rbac import (
   get_permissions,
   get_auth_manager,
   _authenticate_from_token,
+  authorize_mcp_tool_create,
+  authorize_mcp_tool_manage,
   check_datasource_access,
   derive_team_for_request,
   get_accessible_datasource_ids,
@@ -1972,8 +1974,14 @@ async def list_mcp_tools(user: UserContext = Depends(require_role(Role.READONLY)
 
 
 @app.post("/v1/mcp/custom-tools", tags=["MCP Tools"])
-async def create_mcp_tool(config: MCPToolConfig, user: UserContext = Depends(require_role(Role.ADMIN))):
-  """Create a new custom MCP search tool. The tool_id must be unique and not reserved."""
+async def create_mcp_tool(config: MCPToolConfig, user: UserContext = Depends(require_authenticated_user)):
+  """Create a new custom MCP search tool. The tool_id must be unique and not reserved.
+
+  Authorization is OpenFGA-based (spec 2026-06-03-unified-shareable-resource-rbac):
+  the caller must be an org admin or a member of the owner team. Coarse-ADMIN
+  service principals are still permitted for backward compatibility.
+  """
+  await authorize_mcp_tool_create(user, getattr(config, "owner_team_slug", None))
   if not metadata_storage:
     raise HTTPException(status_code=500, detail="Server not initialized")
   if config.tool_id in RESERVED_TOOL_IDS:
@@ -1991,8 +1999,14 @@ async def create_mcp_tool(config: MCPToolConfig, user: UserContext = Depends(req
 
 
 @app.put("/v1/mcp/custom-tools/{tool_id}", tags=["MCP Tools"])
-async def update_mcp_tool(tool_id: str, config: MCPToolConfig, user: UserContext = Depends(require_role(Role.ADMIN))):
-  """Update an existing MCP search tool configuration (including the seeded 'search' tool)."""
+async def update_mcp_tool(tool_id: str, config: MCPToolConfig, user: UserContext = Depends(require_authenticated_user)):
+  """Update an existing MCP search tool configuration (including the seeded 'search' tool).
+
+  Authorization is OpenFGA-based: the caller must hold `mcp_tool#can_manage`
+  (owner, owner-team admin, or org admin). Coarse-ADMIN service principals are
+  still permitted for backward compatibility.
+  """
+  await authorize_mcp_tool_manage(user, tool_id)
   if not metadata_storage:
     raise HTTPException(status_code=500, detail="Server not initialized")
   if tool_id in RESERVED_TOOL_IDS:
@@ -2011,8 +2025,14 @@ async def update_mcp_tool(tool_id: str, config: MCPToolConfig, user: UserContext
 
 
 @app.delete("/v1/mcp/custom-tools/{tool_id}", tags=["MCP Tools"])
-async def delete_mcp_tool(tool_id: str, user: UserContext = Depends(require_role(Role.ADMIN))):
-  """Delete a custom MCP search tool. Reserved tool IDs (e.g. 'search') cannot be deleted."""
+async def delete_mcp_tool(tool_id: str, user: UserContext = Depends(require_authenticated_user)):
+  """Delete a custom MCP search tool. Reserved tool IDs (e.g. 'search') cannot be deleted.
+
+  Authorization is OpenFGA-based: the caller must hold `mcp_tool#can_manage`
+  (owner, owner-team admin, or org admin). Coarse-ADMIN service principals are
+  still permitted for backward compatibility.
+  """
+  await authorize_mcp_tool_manage(user, tool_id)
   if not metadata_storage:
     raise HTTPException(status_code=500, detail="Server not initialized")
   if tool_id in RESERVED_TOOL_IDS:
