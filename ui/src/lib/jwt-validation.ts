@@ -240,11 +240,16 @@ function extractIdentity(payload: JWTPayload): JWTIdentity {
     (typeof payload.organization === 'string' ? payload.organization : undefined);
 
   // Keycloak client-credentials tokens carry no interactive user; their
-  // `preferred_username` is `service-account-<clientId>`. Detect that so the
-  // RBAC layer can graph the caller as `service_account:<sub>`.
+  // `preferred_username` is `service-account-<clientId>`. Use two signals so
+  // detection works across IdPs and resists a username like "service-account-*"
+  // being set on a real human account:
+  //   1. preferred_username starts with the Keycloak SA prefix, AND
+  //   2. no interactive-user identity claims (email + name both absent)
+  // A human token always has at least one of email/name; an SA token has neither.
   const preferredUsername =
     typeof payload.preferred_username === 'string' ? payload.preferred_username : '';
-  const isServiceAccount = preferredUsername.startsWith('service-account-');
+  const isServiceAccount =
+    preferredUsername.startsWith('service-account-') && !email && !name;
 
   return { email, name, groups, sub, org, isServiceAccount };
 }
