@@ -774,6 +774,11 @@ def handle_message_events(body, say, client):
   bot_username = None
   if is_bot:
     bot_username = utils.get_username_by_bot_id(bot_id)
+    if not bot_username:
+      logger.warning(f"bots.info lookup failed for bot_id={bot_id}, falling back to event username")
+      bot_username = event.get("username")
+      if not bot_username:
+        logger.warning(f"event.get('username') also returned nothing for bot_id={bot_id}; bot_list filtering may not work correctly")
 
   sender_user_id = event.get("user") if not is_bot else None
   matches = _match_agents(channel_config, is_bot=is_bot, bot_username=bot_username, user_id=sender_user_id, listen="message")
