@@ -1,4 +1,5 @@
 import type { MCPServerConfig } from "@/types/dynamic-agent";
+import { isAgentGatewayBaseEndpoint } from "@/lib/rbac/mcp-endpoint-normalizer";
 
 export type AgentGatewayMcpTargetStatus = "new" | "existing" | "legacy" | "conflict";
 
@@ -91,14 +92,28 @@ export function buildAgentGatewayMcpDiscovery(
   existingServers: MCPServerConfig[],
 ): AgentGatewayMcpDiscovery {
   const existingById = new Map(existingServers.map((server) => [server._id, server]));
+  // Base data-plane URL (e.g. http://agentgateway:4000/mcp) used to recognise
+  // "bare gateway" rows — endpoints that point at AgentGateway but lack the
+  // per-target /mcp/<id> suffix. Those are stale rows the runtime already
+  // self-heals at read time; we treat them as auto-migratable here so one
+  // "Sync" rewrites them in place instead of flagging an unresolvable conflict.
+  const gatewayBaseUrl = agentGatewayMcpEndpointUrl();
   const targets = extractAgentGatewayMcpTargets(config).map((target) => {
     const existing = existingById.get(target.id);
     const endpoint = agentGatewayMcpEndpointUrl(target.route_path);
+    const isHttp = existing?.transport === "http";
+    // A bare gateway endpoint (…/mcp or the gateway origin) is migratable —
+    // distinct from a genuine conflict, which points at a *different* upstream
+    // host and must stay flagged for manual resolution.
+    const isMigratableLegacy =
+      isHttp &&
+      (existing!.endpoint === target.target_endpoint ||
+        isAgentGatewayBaseEndpoint(existing!.endpoint ?? "", gatewayBaseUrl));
     const status: AgentGatewayMcpTargetStatus = !existing
       ? "new"
-      : existing.transport === "http" && existing.endpoint === endpoint
+      : isHttp && existing.endpoint === endpoint
         ? "existing"
-        : existing.transport === "http" && existing.endpoint === target.target_endpoint
+        : isMigratableLegacy
           ? "legacy"
           : "conflict";
 

@@ -194,7 +194,10 @@ const SLACK_ADAPTER: ConnectorAdminAdapter = {
   },
 
   applyOnboarding: async ({ rows, defaultTeamSlug, defaultAgentId, createDefaultRoutes, fetchFn }) => {
-    const selectedImports = rows.filter((r) => r.selected);
+    // Only set up rows that are fully configured (team + agent). Blocked
+    // rows that happen to be selected are skipped rather than sent with
+    // empty team/agent, so one unconfigured channel can't strand the batch.
+    const selectedImports = rows.filter((r) => r.selected && r.teamSlug && r.agentId);
     if (selectedImports.length === 0 && (!defaultTeamSlug || !defaultAgentId)) {
       const missing: string[] = [];
       if (!defaultTeamSlug) missing.push("Preselected Team");

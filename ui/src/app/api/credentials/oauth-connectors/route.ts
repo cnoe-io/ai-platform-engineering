@@ -28,6 +28,10 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         name: connector.name,
         provider: connector.provider,
         enabled: connector.enabled,
+        // The allowed scope set (also the default selection). Non-sensitive;
+        // surfaced so the connect "Advanced settings" editor can render the
+        // per-user scope toggles. Secrets/URLs remain stripped.
+        scopes: connector.scopes,
       })),
   );
 });

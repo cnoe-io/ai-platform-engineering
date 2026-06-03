@@ -39,6 +39,7 @@ describe("/api/credentials/oauth-connectors", () => {
         clientId: "client-id",
         clientSecretConfigured: true,
         enabled: true,
+        scopes: ["repo", "offline_access"],
       },
       {
         id: "connector-2",
@@ -62,6 +63,7 @@ describe("/api/credentials/oauth-connectors", () => {
         name: "GitHub",
         provider: "github",
         enabled: true,
+        scopes: ["repo", "offline_access"],
       },
     ]);
     expect(JSON.stringify(json)).not.toContain("client-id");

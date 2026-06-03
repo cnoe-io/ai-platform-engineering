@@ -79,12 +79,32 @@ class MCPServerConfigBase(BaseModel):
 class MCPCredentialSource(BaseModel):
     """Credential source metadata for MCP server connection setup."""
 
-    kind: Literal["secret_ref", "provider_connection"] = Field(..., description="Credential source type")
+    kind: Literal["secret_ref", "provider_connection", "caller_token"] = Field(
+        ..., description="Credential source type"
+    )
     target: Literal["env", "header"] = Field(..., description="Where to inject the resolved credential")
     name: str = Field(..., description="Environment variable or header name")
     secret_ref: str | None = Field(None, description="Credential secret_ref id")
     provider_connection_id: str | None = Field(None, description="Provider connection id")
     provider: str | None = Field(None, description="Provider key for JWT subject-owned provider connection")
+    fallback_env: str | None = Field(
+        None,
+        description=(
+            "Optional env var read when no per-user credential resolves (e.g. the caller "
+            "has not connected this provider). Enables a static service-account fallback "
+            "so shared-token MCP servers (GitHub/GitLab) stay backward compatible."
+        ),
+    )
+    fallback_client_credentials: bool = Field(
+        False,
+        description=(
+            "When true and no per-request user JWT is available (e.g. background "
+            "reconcile/probe with no caller context), mint a service-to-service "
+            "OAuth2 client-credentials token from Keycloak. Used by backends that "
+            "enforce their own OIDC auth (e.g. the RAG knowledge-base) so they accept "
+            "the caller's user JWT for per-user RBAC and a service token otherwise."
+        ),
+    )
 
 
 class MCPServerConfig(MCPServerConfigBase):

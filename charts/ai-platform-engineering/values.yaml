@@ -197,6 +197,17 @@ global:
       serviceName: ""
       serviceNamespace: ""
       port: 9100
+      # Per-route external-authorization (ext_authz) request timeout applied by
+      # the AgentGateway proxy (static routing). The proxy's built-in default is
+      # 200ms: listing tools fires one ext_authz Check per MCP route
+      # concurrently, and against a cold/loaded OpenFGA those serialize and blow
+      # the 200ms budget, returning fail-closed 403s that surface in the UI as
+      # "MCP server unavailable". 10s is generous headroom while still bounding
+      # a stuck call. Raising this does NOT change the fail-closed posture.
+      # NOTE: the opt-in Gateway-API/CRD routing path (routingMode: gateway-api)
+      # has no AgentgatewayPolicy timeout field; tune it there via the
+      # ext_authz backend `requestTimeout` instead.
+      timeout: "10s"
     # Built-in Knowledge Base MCP route. This keeps the Dynamic Agents
     # `knowledge-base` MCP server ID aligned with the RAG server MCP backend
     # when AgentGateway is enabled in the umbrella chart.

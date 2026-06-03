@@ -184,17 +184,25 @@ export function ConnectorOnboardingWizard({
       )
     : rows;
   const selectedRows = rows.filter((row) => row.selected);
-  const blockedRows = selectedRows.filter((row) => {
-    const readiness = readinessFor(row);
-    return readiness.state === "blocked";
-  });
-  const applyDisabled = disabled || loading || Boolean(error) || selectedRows.length === 0 || blockedRows.length > 0;
+  const blockedRows = selectedRows.filter((row) => readinessFor(row).state === "blocked");
+  // Rows that will actually be set up when the admin clicks Apply: selected
+  // and not blocked (they have both a team and an agent). Blocked rows are
+  // skipped rather than blocking the whole batch, so one unconfigured row
+  // can't strand the rows that are already ready to go.
+  const readyRows = selectedRows.filter((row) => readinessFor(row).state !== "blocked");
+  const applyDisabled = disabled || loading || Boolean(error) || readyRows.length === 0;
   const disabledReason =
     selectedRows.length === 0
       ? `Select at least one ${itemSingular} to set up.`
-      : blockedRows.length > 0
+      : readyRows.length === 0
         ? `${pluralize(blockedRows.length, itemSingular)} need a team or Dynamic Agent before setup.`
         : null;
+  // When some (but not all) selected rows are blocked, we still let the
+  // admin apply the ready ones and just tell them which got skipped.
+  const skipNote =
+    !applyDisabled && blockedRows.length > 0
+      ? `${pluralize(blockedRows.length, itemSingular)} will be skipped (need a team or Dynamic Agent).`
+      : null;
   // Bulk-apply toolbar local state. The picks here only affect rows when
   // the admin clicks the dedicated Apply button — they don't quietly
   // overwrite per-row picks the moment the dropdown changes.
@@ -444,11 +452,14 @@ export function ConnectorOnboardingWizard({
                   <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
                   {loading
                     ? "Setting up..."
-                    : `Set up ${pluralize(selectedRows.length, itemSingular)}`}
+                    : `Set up ${pluralize(readyRows.length, itemSingular)}`}
                 </Button>
               </div>
               {applyDisabled && disabledReason && (
                 <div className="max-w-xs text-right text-xs text-muted-foreground">{disabledReason}</div>
+              )}
+              {skipNote && (
+                <div className="max-w-xs text-right text-xs text-amber-600">{skipNote}</div>
               )}
             </div>
           </div>

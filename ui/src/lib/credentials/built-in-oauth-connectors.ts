@@ -19,7 +19,18 @@ export const BUILT_IN_OAUTH_CONNECTORS: BuiltInOAuthConnectorDescriptor[] = [
     name: "Atlassian Cloud",
     authorizationUrl: "https://auth.atlassian.com/authorize",
     tokenUrl: "https://auth.atlassian.com/oauth/token",
-    scopes: ["offline_access", "read:me", "read:jira-work", "read:confluence-content.all"],
+    // Jira `/rest/api/3/myself` (get_current_user_account_id) needs read:jira-user
+    // (read:me is the Atlassian account endpoint, not the Jira user endpoint).
+    // write:* scopes back the MCP create/update issue, comment, and attachment tools.
+    scopes: [
+      "offline_access",
+      "read:me",
+      "read:jira-work",
+      "read:jira-user",
+      "write:jira-work",
+      "read:confluence-content.all",
+      "write:confluence-content",
+    ],
   },
   {
     provider: "webex",

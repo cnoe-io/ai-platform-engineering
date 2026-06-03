@@ -70,6 +70,11 @@ beforeEach(() => {
           name: "cnoe.io / github.io",
           description: "Canonical datasource label",
         },
+        {
+          datasource_id: "src_https___example_com_docs__abc123",
+          name: "example.com docs",
+          description: "Unassigned datasource",
+        },
       ],
     }),
   })) as unknown as typeof fetch;
@@ -89,6 +94,12 @@ describe("GET /api/admin/openfga/catalog", () => {
         name: "cnoe.io / github.io",
         description: "Canonical datasource label",
         object: "knowledge_base:src_https___cnoe_io_github_io_ai_platform_engineering__e392d7ef8e8b",
+      },
+      {
+        id: "src_https___example_com_docs__abc123",
+        name: "example.com docs",
+        description: "Unassigned datasource",
+        object: "knowledge_base:src_https___example_com_docs__abc123",
       },
     ]);
     expect(global.fetch).toHaveBeenCalledWith(

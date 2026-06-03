@@ -8,6 +8,10 @@ export interface OAuthStatePayload {
   state: string;
   codeVerifier: string;
   issuedAt: number;
+  // The user's per-connection scope selection chosen at connect time. Absent
+  // ⇒ the connector default was used (legacy behavior). Carried through the
+  // signed state cookie so the callback can persist it on the connection.
+  requestedScopes?: string[];
 }
 
 function base64url(input: Buffer | string): string {
@@ -35,6 +39,7 @@ export function createOAuthStateCookie(input: {
   ownerId: string;
   state: string;
   codeVerifier: string;
+  requestedScopes?: string[];
   secret?: string;
   nowMs?: number;
 }): string {
@@ -44,6 +49,7 @@ export function createOAuthStateCookie(input: {
     state: input.state,
     codeVerifier: input.codeVerifier,
     issuedAt: input.nowMs ?? Date.now(),
+    ...(input.requestedScopes ? { requestedScopes: input.requestedScopes } : {}),
   };
   const encoded = base64url(JSON.stringify(payload));
   return `${encoded}.${sign(encoded, input.secret ?? stateSecret())}`;

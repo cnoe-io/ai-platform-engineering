@@ -44,6 +44,32 @@ mcp_servers:
     id: github
     name: GitHub
     transport: http
+    # Per-user GitHub OAuth token when connected; otherwise fall back to the
+    # shared org PAT (GITHUB_PERSONAL_ACCESS_TOKEN) so the tools stay backward
+    # compatible. AgentGateway rewrites X-CAIPE-Provider-Token into the upstream
+    # Authorization: Bearer header.
+    credential_sources:
+      - kind: provider_connection
+        name: X-CAIPE-Provider-Token
+        provider: github
+        target: header
+        fallback_env: GITHUB_PERSONAL_ACCESS_TOKEN
+
+  - description: GitLab repositories and merge requests
+    enabled: true
+    endpoint: ${GITLAB_MCP_URL:-http://localhost:18007/mcp}
+    id: gitlab
+    name: GitLab
+    transport: http
+    # Per-user GitLab OAuth token when connected; otherwise fall back to the
+    # shared org PAT (GITLAB_PERSONAL_ACCESS_TOKEN). AgentGateway rewrites
+    # X-CAIPE-Provider-Token into the upstream Authorization: Bearer header.
+    credential_sources:
+      - kind: provider_connection
+        name: X-CAIPE-Provider-Token
+        provider: gitlab
+        target: header
+        fallback_env: GITLAB_PERSONAL_ACCESS_TOKEN
 
   - description: ArgoCD application and deployment management
     enabled: true
@@ -70,6 +96,11 @@ mcp_servers:
     id: pagerduty
     name: PagerDuty
     transport: http
+    credential_sources:
+      - kind: provider_connection
+        name: X-CAIPE-Provider-Token
+        provider: pagerduty
+        target: header
 
   - description: Knowledge Base tools
     enabled: true
@@ -77,6 +108,15 @@ mcp_servers:
     id: knowledge-base
     name: Knowledge Base
     transport: http
+    # The RAG server enforces its own Keycloak/OIDC auth on /mcp. Forward the
+    # caller's user JWT (per-user RAG group RBAC); in non-user contexts (background
+    # reconcile/probe) mint a caipe-platform service token. The gateway rewrites
+    # X-CAIPE-Provider-Token into the upstream Authorization: Bearer header.
+    credential_sources:
+      - kind: caller_token
+        name: X-CAIPE-Provider-Token
+        target: header
+        fallback_client_credentials: true
 
 # =============================================================================
 # Seed Agents

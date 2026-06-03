@@ -67,6 +67,80 @@ describe("/api/credentials/oauth/[provider_key]", () => {
     expect(response.headers.get("set-cookie")).not.toContain("Secure");
   });
 
+  it("passes the user's chosen scopes to startConnection and stashes them in the state cookie", async () => {
+    mockStartConnection.mockResolvedValue({
+      authorizationUrl: "https://auth.atlassian.com/authorize?state=state-1",
+      connectorId: "connector-1",
+      requestedScopes: ["read:jira-work", "offline_access"],
+    });
+    const { GET } = await import("../connect/route");
+    const response = await GET(
+      new Request(
+        "http://localhost/api/credentials/oauth/atlassian/connect?scopes=read:jira-work,offline_access",
+      ) as never,
+      { params: Promise.resolve({ provider_key: "atlassian" }) },
+    );
+
+    expect(mockStartConnection).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerKey: "atlassian",
+        requestedScopes: ["read:jira-work", "offline_access"],
+      }),
+    );
+    expect(response.status).toBe(302);
+
+    const { parseOAuthStateCookie } = await import("@/lib/credentials/oauth-state");
+    const cookieHeader = response.headers.get("set-cookie") ?? "";
+    const cookieValue = cookieHeader.split("=")[1]?.split(";")[0] ?? "";
+    expect(parseOAuthStateCookie(cookieValue).requestedScopes).toEqual([
+      "read:jira-work",
+      "offline_access",
+    ]);
+  });
+
+  it("omits requestedScopes from the cookie when no advanced selection was made", async () => {
+    mockStartConnection.mockResolvedValue({
+      authorizationUrl: "https://github.example.com/oauth?state=state-1",
+      connectorId: "connector-1",
+      requestedScopes: ["repo"],
+    });
+    const { GET } = await import("../connect/route");
+    const response = await GET(
+      new Request("http://localhost/api/credentials/oauth/github/connect") as never,
+      { params: Promise.resolve({ provider_key: "github" }) },
+    );
+
+    expect(mockStartConnection).toHaveBeenCalledWith(
+      expect.objectContaining({ requestedScopes: undefined }),
+    );
+    const { parseOAuthStateCookie } = await import("@/lib/credentials/oauth-state");
+    const cookieValue = (response.headers.get("set-cookie") ?? "").split("=")[1]?.split(";")[0] ?? "";
+    expect(parseOAuthStateCookie(cookieValue).requestedScopes).toBeUndefined();
+  });
+
+  it("threads the stashed requestedScopes into completeConnection on callback", async () => {
+    mockCompleteConnection.mockResolvedValue({ id: "c1", provider: "atlassian", status: "connected" });
+    const { createOAuthStateCookie, oauthStateCookieName } = await import("@/lib/credentials/oauth-state");
+    const cookie = createOAuthStateCookie({
+      providerKey: "atlassian",
+      ownerId: "alice-sub",
+      state: "state-1",
+      codeVerifier: "verifier-1",
+      requestedScopes: ["read:jira-work", "offline_access"],
+    });
+    const { GET } = await import("../callback/route");
+    await GET(
+      new Request("http://localhost/api/credentials/oauth/atlassian/callback?code=code-1&state=state-1", {
+        headers: { cookie: `${oauthStateCookieName("atlassian")}=${cookie}` },
+      }) as never,
+      { params: Promise.resolve({ provider_key: "atlassian" }) },
+    );
+
+    expect(mockCompleteConnection).toHaveBeenCalledWith(
+      expect.objectContaining({ requestedScopes: ["read:jira-work", "offline_access"] }),
+    );
+  });
+
   it("completes the callback with a closeable browser page", async () => {
     mockCompleteConnection.mockResolvedValue({
       id: "provider-connection-1",
