@@ -3,6 +3,32 @@
 @plugin "@tailwindcss/typography";
 
 /* ========================================
+   STABLE SCROLLBAR GUTTER
+   Reserve space for the vertical scrollbar even when content is short,
+   so collapsing a panel never causes the page to widen by the scrollbar
+   width and re-center.
+   ======================================== */
+html {
+  scrollbar-gutter: stable;
+}
+
+/* ========================================
+   STRETCHED LINK
+   Helper that styles an absolutely positioned <a> overlay that covers
+   the entire Agentic Apps Hub card. The link itself has no visible
+   content (only sr-only text); the visible card body sits above it via
+   `z-10` so existing controls keep working.
+   ======================================== */
+.appcard-stretched-link {
+  background-color: transparent;
+}
+/* Echo hover on the visible title when the stretched link is hovered.
+   Use a slightly higher specificity than Tailwind's text-* utilities. */
+article:has(.appcard-stretched-link:hover) > h2 {
+  color: rgb(207 250 254); /* cyan-100 */
+}
+
+/* ========================================
    TAILWIND v4 THEME — replaces tailwind.config.ts
    ======================================== */
 
@@ -859,4 +885,70 @@ pre code.hljs {
 [data-radix-scroll-area-viewport] > div {
   display: block !important;
   min-width: 0 !important;
+}
+
+/* ========================================
+   AGENTIC SDLC — Resizable grid overrides
+   Theme RGL handles/placeholders to match dark glass UI
+   ======================================== */
+.agentic-sdlc-grid {
+  position: relative;
+}
+
+.agentic-sdlc-grid .react-grid-item {
+  /* Let the inner CollapsiblePanel paint the background; RGL's default
+     borders/backgrounds would clash with the glass-panel look. */
+  background: transparent;
+  transition: transform 200ms ease, box-shadow 150ms ease;
+}
+
+.agentic-sdlc-grid .react-grid-item.react-grid-placeholder {
+  background: hsl(var(--primary) / 0.15) !important;
+  border: 1px dashed hsl(var(--primary) / 0.45);
+  border-radius: 0.75rem;
+  opacity: 1;
+}
+
+.agentic-sdlc-grid .react-grid-item.react-draggable-dragging,
+.agentic-sdlc-grid .react-grid-item.resizing {
+  z-index: 30;
+  box-shadow: 0 10px 30px hsl(0 0% 0% / 0.45);
+}
+
+.agentic-sdlc-grid .react-resizable-handle {
+  background-image: none;
+  width: 18px;
+  height: 18px;
+  bottom: 4px;
+  right: 4px;
+  opacity: 0.7;
+}
+
+.agentic-sdlc-grid .react-resizable-handle::after {
+  content: "";
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 10px;
+  height: 10px;
+  border-right: 2px solid hsl(var(--muted-foreground));
+  border-bottom: 2px solid hsl(var(--muted-foreground));
+  border-bottom-right-radius: 2px;
+}
+
+.agentic-sdlc-grid .react-resizable-handle:hover {
+  opacity: 1;
+}
+
+/* In grid mode, the entire panel header becomes the drag handle. Hint
+   with grab cursor on hover; switch to grabbing while dragging. */
+.agentic-sdlc-grid .collapsible-panel-header {
+  cursor: grab;
+  user-select: none;
+}
+.agentic-sdlc-grid .collapsible-panel-header:active {
+  cursor: grabbing;
+}
+.agentic-sdlc-grid .collapsible-panel-header button {
+  cursor: pointer;
 }

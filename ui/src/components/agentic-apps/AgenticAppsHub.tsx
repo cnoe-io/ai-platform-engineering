@@ -147,7 +147,7 @@ export function AgenticAppsHub({ apps }: AgenticAppsHubProps) {
                   <div
                     className={`absolute -right-20 -top-24 h-48 w-48 rounded-full bg-gradient-to-br ${presentation.glow} opacity-80 blur-3xl transition group-hover:opacity-100`}
                   />
-                  <div className="relative flex items-start justify-between gap-3">
+                  <div className="relative z-10 flex items-start justify-between gap-3">
                     <div
                       aria-label={`${app.displayName} app icon`}
                       className={`flex h-11 w-11 items-center justify-center rounded-2xl border border-white/15 bg-gradient-to-br ${presentation.gradient} text-white shadow-2xl shadow-slate-950/30`}
@@ -211,27 +211,38 @@ export function AgenticAppsHub({ apps }: AgenticAppsHubProps) {
                     </div>
                   </div>
 
-                  <div className="relative mt-4 flex items-center gap-2">
+                  <div className="relative z-10 mt-4 flex items-center gap-2">
                     <span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] ${presentation.badge}`}>
                       {presentation.category}
                     </span>
                   </div>
 
-                  <h2 className="relative mt-3 line-clamp-1 text-lg font-semibold text-white">
+                  {isBlocked ? null : (
+                    <a
+                      href={resolveAgenticAppLaunchUrl(app)}
+                      aria-label={`Launch ${app.displayName}`}
+                      title={`Launch ${app.displayName}`}
+                      className="appcard-stretched-link absolute inset-0 z-0 rounded-[1.35rem] focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/60"
+                    >
+                      <span className="sr-only">Launch {app.displayName}</span>
+                    </a>
+                  )}
+
+                  <h2 className="relative z-10 mt-3 line-clamp-1 text-lg font-semibold text-white">
                     {app.displayName}
                   </h2>
-                  <p className="relative mt-2 line-clamp-3 flex-1 text-xs leading-5 text-slate-300">
+                  <p className="relative z-10 mt-2 line-clamp-3 flex-1 text-xs leading-5 text-slate-300">
                     {app.description}
                   </p>
 
                   {isBlocked ? (
-                    <div className="relative mt-3 rounded-2xl border border-amber-200/20 bg-amber-300/10 px-3 py-2 text-xs text-amber-100">
+                    <div className="relative z-10 mt-3 rounded-2xl border border-amber-200/20 bg-amber-300/10 px-3 py-2 text-xs text-amber-100">
                       <p className="font-semibold">Launch blocked</p>
                       <p className="mt-1 text-amber-100/80">{blockedLabel}</p>
                     </div>
                   ) : null}
 
-                  <div className="relative mt-4 flex flex-wrap gap-1.5">
+                  <div className="relative z-10 mt-4 flex flex-wrap gap-1.5">
                     {app.access.tokenScopes.slice(0, 3).map((scope) => (
                       <span
                         key={scope}

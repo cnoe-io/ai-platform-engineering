@@ -2,17 +2,20 @@
 
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
+import { useMemo } from "react";
 
-import { LiveStatusIndicator } from "@/components/agentic-sdlc/LiveStatusIndicator";
-import { RepoEpicList } from "@/components/agentic-sdlc/RepoEpicList";
+import { AgenticSdlcLayoutHost } from "@/components/agentic-sdlc/AgenticSdlcLayoutHost";
 import { AgenticSdlcSimulationControl } from "@/components/agentic-sdlc/AgenticSdlcSimulationControl";
-import { CollapsiblePanel } from "@/components/agentic-sdlc/CollapsiblePanel";
-import { RepoEventFeed } from "@/components/agentic-sdlc/RepoEventFeed";
+import { CommandPalette } from "@/components/agentic-sdlc/CommandPalette";
+import { LiveStatusIndicator } from "@/components/agentic-sdlc/LiveStatusIndicator";
+import { PanelChooser } from "@/components/agentic-sdlc/PanelChooser";
 import { RepoCatchUpTimeline } from "@/components/agentic-sdlc/RepoCatchUpTimeline";
 import { RepoGitHubSyncControl } from "@/components/agentic-sdlc/RepoGitHubSyncControl";
-import { RepoOperatingMetrics } from "@/components/agentic-sdlc/RepoOperatingMetrics";
-import { RepoSwimLanes } from "@/components/agentic-sdlc/RepoSwimLanes";
+import { ShipLoopRingPanel } from "@/components/agentic-sdlc/panels/ShipLoopRingPanel";
+import { useFaviconHealth } from "@/hooks/use-favicon-health";
 import { useRepoAgenticSdlcLiveRefresh } from "@/hooks/use-repo-agentic-sdlc-live-refresh";
+import { usePanelPreferences } from "@/hooks/use-panel-preferences";
+import { resolvePanelLayout } from "@/lib/agentic-sdlc/panel-preferences";
 
 // assisted-by Codex Codex-sonnet-4-6
 
@@ -24,21 +27,42 @@ interface RepoDetailShellProps {
 export function RepoDetailShell({ owner, repo }: RepoDetailShellProps) {
   const fullName = `${owner}/${repo}`;
   const repoLive = useRepoAgenticSdlcLiveRefresh({ owner, repo, enabled: true });
+  const prefs = usePanelPreferences({ surface: "repo_detail" });
+  const layout = useMemo(
+    () => resolvePanelLayout(prefs.preferences),
+    [prefs.preferences],
+  );
+  useFaviconHealth();
+
+  const heroPanels = layout.hero ?? [];
+  const showHeroRing = heroPanels.includes("ship_loop_ring");
 
   return (
-    <div className="mx-auto flex max-w-[1600px] flex-col gap-3 p-3 md:p-4 lg:px-8">
-      <nav aria-label="Breadcrumb" className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-        <Link href="/apps/agentic-sdlc" className="inline-flex items-center gap-1 hover:text-foreground">
+    <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-3 p-3 md:p-4 lg:px-8">
+      <nav
+        aria-label="Breadcrumb"
+        className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground"
+      >
+        <Link
+          href="/apps/agentic-sdlc"
+          className="inline-flex items-center gap-1 hover:text-foreground"
+        >
           <ArrowLeft className="h-3 w-3" aria-hidden />
           Repos
         </Link>
         <span>/</span>
         <span className="text-foreground">{fullName}</span>
         <span className="ml-auto inline-flex gap-3">
-          <Link href="/apps/agentic-sdlc?tab=metrics" className="hover:text-foreground">
+          <Link
+            href="/apps/agentic-sdlc?tab=metrics"
+            className="hover:text-foreground"
+          >
             Metrics
           </Link>
-          <Link href="/apps/agentic-sdlc?tab=settings" className="hover:text-foreground">
+          <Link
+            href="/apps/agentic-sdlc?tab=settings"
+            className="hover:text-foreground"
+          >
             Settings
           </Link>
         </span>
@@ -49,6 +73,14 @@ export function RepoDetailShell({ owner, repo }: RepoDetailShellProps) {
           aria-hidden
           className="absolute -right-24 -top-28 h-56 w-56 rounded-full bg-primary/20 blur-3xl"
         />
+        {showHeroRing && (
+          <div
+            aria-hidden
+            className="pointer-events-none absolute left-1/2 top-1/2 hidden -translate-x-1/2 -translate-y-1/2 md:block"
+          >
+            <ShipLoopRingPanel owner={owner} repo={repo} variant="mini" />
+          </div>
+        )}
         <div className="relative flex flex-wrap items-start justify-between gap-4">
           <div className="max-w-3xl">
             <p className="text-xs font-semibold uppercase tracking-widest text-primary">
@@ -59,7 +91,9 @@ export function RepoDetailShell({ owner, repo }: RepoDetailShellProps) {
               <span className="text-foreground">{repo}</span>
             </h1>
             <p className="mt-1 max-w-2xl text-xs text-muted-foreground">
-              Live agent lanes, Epics, review pressure, deploy signal, and webhook health.
+              Live agent lanes, Epics, review pressure, deploy signal, and
+              webhook health. Configure the panels you want with the chooser
+              below.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -70,30 +104,28 @@ export function RepoDetailShell({ owner, repo }: RepoDetailShellProps) {
         </div>
       </section>
 
+      <PanelChooser
+        surface="repo_detail"
+        preferences={prefs.preferences}
+        isSaving={prefs.isSaving}
+        lastSavedAt={prefs.lastSavedAt}
+        onToggle={prefs.togglePanel}
+        onMove={prefs.movePanel}
+        onReset={prefs.reset}
+        onToggleGrid={prefs.setGridEnabled}
+        onResetGrid={prefs.resetGrid}
+      />
+
       <AgenticSdlcSimulationControl owner={owner} repo={repo} />
 
-      <section aria-label="Repo operating board">
-        <RepoSwimLanes owner={owner} repo={repo} />
-      </section>
+      <AgenticSdlcLayoutHost
+        surface="repo_detail"
+        prefs={prefs}
+        context={{ owner, repo, fullName }}
+        excludePanelIds={["ship_loop_ring"]}
+      />
 
-      <section className="grid gap-4 xl:grid-cols-[1.5fr_0.8fr]">
-        <CollapsiblePanel
-          title="Epics"
-          subtitle={
-            <span className="flex items-center justify-between gap-3">
-              <span>Drill into active loops and repo-level Epics.</span>
-              <span className="text-[11px] text-muted-foreground/70">{fullName}</span>
-            </span>
-          }
-          className="min-w-0"
-        >
-          <RepoEpicList owner={owner} repo={repo} />
-        </CollapsiblePanel>
-
-        <RepoOperatingMetrics owner={owner} repo={repo} />
-      </section>
-
-      <RepoEventFeed owner={owner} repo={repo} />
+      <CommandPalette />
     </div>
   );
 }
