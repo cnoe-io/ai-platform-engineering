@@ -3,6 +3,7 @@
 import React from "react";
 
 import { Button } from "@/components/ui/button";
+import { SaveButton } from "@/components/admin/SaveButton";
 import { BUILT_IN_OAUTH_CONNECTORS } from "@/lib/credentials/built-in-oauth-connectors";
 
 interface OAuthConnectorMetadata {
@@ -209,7 +210,7 @@ export function OAuthConnectorAdminPanel() {
                 <input className="w-full rounded-md border border-input bg-background px-3 py-2" value={form.redirectUri} onChange={updateForm("redirectUri")} required />
               </label>
             </div>
-            <Button type="submit">Save Connector</Button>
+            <SaveButton type="submit" saving={false} ariaLabel="Save connector" />
           </form>
         </div>
       )}

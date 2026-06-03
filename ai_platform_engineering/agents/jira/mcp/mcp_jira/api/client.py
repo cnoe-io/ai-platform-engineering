@@ -5,9 +5,12 @@ It handles authentication, request formatting, and response parsing.
 """
 
 import os
+import hashlib
 import logging
 import asyncio
+import time
 from typing import Optional, Dict, Tuple, Any
+from urllib.parse import urlparse
 import httpx
 from dotenv import load_dotenv
 from mcp_agent_auth.token import get_request_token
@@ -20,6 +23,19 @@ load_dotenv()
 # Constants
 # Update the base URL to be specific to Jira API
 
+# Atlassian 3LO OAuth access tokens (delivered via the CAIPE credential exchange
+# on X-CAIPE-Provider-Token) are NOT accepted against a site URL such as
+# https://<site>.atlassian.net/rest/...; they only work against the Atlassian
+# API gateway https://api.atlassian.com/ex/jira/<cloudId>/rest/... . Static API
+# tokens (Basic auth) continue to target the site URL. When we authenticate with
+# a provider OAuth token we therefore resolve the cloud id from the accessible-
+# resources endpoint and rewrite the base URL to the gateway form.
+ATLASSIAN_OAUTH_GATEWAY = "https://api.atlassian.com"
+ATLASSIAN_ACCESSIBLE_RESOURCES_URL = "https://api.atlassian.com/oauth/token/accessible-resources"
+# Cache resolved cloud ids per access token so we do not call accessible-resources
+# on every tool invocation. Keyed by a sha256 of the token; short TTL bounds drift.
+_CLOUD_ID_CACHE: Dict[str, Tuple[str, float]] = {}
+_CLOUD_ID_CACHE_TTL_S = 600.0
 
 
 # Configure logging
@@ -115,6 +131,77 @@ def get_env() -> Optional[str]:
         logger.warning("ATLASSIAN_TOKEN is not set and no Authorization header provided.")
     return token
 
+
+def _is_atlassian_gateway_url(url: str) -> bool:
+    """Return True when ``url`` already targets the Atlassian API gateway."""
+    return (urlparse(url).hostname or "").lower() == "api.atlassian.com"
+
+
+async def resolve_oauth_base_url(token: str, timeout: int = 10) -> Optional[str]:
+    """Resolve the Atlassian API gateway base URL for an OAuth (provider) token.
+
+    Atlassian 3LO access tokens must be used against
+    ``https://api.atlassian.com/ex/jira/<cloudId>`` rather than the site URL.
+    The cloud id is read from an explicit ``ATLASSIAN_OAUTH_CLOUD_ID`` override
+    when set, otherwise resolved from the accessible-resources endpoint and
+    cached per token.
+
+    Returns the gateway base URL, or ``None`` if it cannot be resolved (caller
+    then falls back to the configured URL).
+    """
+    explicit_cloud_id = os.getenv("ATLASSIAN_OAUTH_CLOUD_ID")
+    if explicit_cloud_id:
+        return f"{ATLASSIAN_OAUTH_GATEWAY}/ex/jira/{explicit_cloud_id}"
+
+    cache_key = hashlib.sha256(token.encode()).hexdigest()
+    cached = _CLOUD_ID_CACHE.get(cache_key)
+    now = time.monotonic()
+    if cached and cached[1] > now:
+        return f"{ATLASSIAN_OAUTH_GATEWAY}/ex/jira/{cached[0]}"
+
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as resolver_client:
+            response = await resolver_client.get(
+                ATLASSIAN_ACCESSIBLE_RESOURCES_URL,
+                headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+            )
+    except Exception as exc:  # network/transport errors — fall back, don't crash the tool
+        logger.error(f"jira: failed to resolve Atlassian cloud id: {exc}")
+        return None
+
+    if response.status_code != 200:
+        logger.error(
+            "jira: accessible-resources returned %s; cannot resolve cloud id for the OAuth token",
+            response.status_code,
+        )
+        return None
+
+    try:
+        resources = response.json()
+    except ValueError:
+        logger.error("jira: accessible-resources response was not valid JSON")
+        return None
+
+    if not resources:
+        logger.error("jira: OAuth token has no accessible Atlassian sites (empty accessible-resources)")
+        return None
+
+    # Most users have a single site. Multi-site users can pin one via
+    # ATLASSIAN_OAUTH_CLOUD_ID.
+    cloud_id = resources[0].get("id")
+    if not cloud_id:
+        logger.error("jira: accessible-resources entry missing an id")
+        return None
+
+    _CLOUD_ID_CACHE[cache_key] = (cloud_id, now + _CLOUD_ID_CACHE_TTL_S)
+    if len(resources) > 1:
+        logger.info(
+            "jira: OAuth token has %d accessible sites; using the first (set ATLASSIAN_OAUTH_CLOUD_ID to pin)",
+            len(resources),
+        )
+    return f"{ATLASSIAN_OAUTH_GATEWAY}/ex/jira/{cloud_id}"
+
+
 async def make_api_request(
     path: str,
     method: str = "GET",
@@ -165,6 +252,21 @@ async def make_api_request(
     url = str(prerequisites["url"])
     auth_scheme = str(prerequisites.get("auth_scheme") or "basic")
 
+    # OAuth provider tokens must target the Atlassian API gateway, not the site
+    # URL. If the configured URL is still a site URL, resolve the cloud id and
+    # rewrite the base. Static API-token (Basic) requests keep the site URL.
+    if auth_scheme == "bearer" and not _is_atlassian_gateway_url(url):
+        oauth_base_url = await resolve_oauth_base_url(token, timeout=timeout)
+        if oauth_base_url:
+            logger.debug("jira: routing OAuth request to Atlassian gateway base URL")
+            url = oauth_base_url
+        else:
+            logger.warning(
+                "jira: could not resolve Atlassian gateway base URL for the OAuth token; "
+                "falling back to the configured site URL (this will likely fail with 401). "
+                "Set ATLASSIAN_OAUTH_CLOUD_ID or ensure the token has accessible resources."
+            )
+
     if auth_scheme == "bearer":
         authorization = f"Bearer {token}"
     else:
@@ -200,7 +302,12 @@ async def make_api_request(
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
                 url = f"{url}/{path}"
-                logger.debug(f"Full request URL: {url}")
+                # Log only method + path. The full URL is built from the
+                # credential-bearing prerequisites, so logging it risks leaking
+                # the token (and CodeQL flags it as clear-text logging of a
+                # secret). The request path alone is enough to debug routing and
+                # never carries the token.
+                logger.debug(f"Request: {method} {path}")
 
                 if method == "GET":
                     response = await client.get(

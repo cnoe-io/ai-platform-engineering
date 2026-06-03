@@ -27,14 +27,18 @@ export interface SlackChannelResourceGrant {
 
 export type SlackRouteListenMode = "message" | "mention" | "all";
 
+export interface SlackRouteOverthinkConfig {
+  enabled?: boolean;
+  skip_markers?: string[];
+  followup_prompt?: string;
+}
+
 export interface SlackRouteSideConfig {
   enabled?: boolean;
   listen?: SlackRouteListenMode;
   user_list?: string[];
   bot_list?: string[];
-  overthink?: {
-    enabled?: boolean;
-  };
+  overthink?: SlackRouteOverthinkConfig;
 }
 
 export interface SlackRouteEscalationConfig {

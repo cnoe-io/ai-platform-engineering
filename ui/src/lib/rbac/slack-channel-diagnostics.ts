@@ -1,43 +1,25 @@
-import { getCollection } from "@/lib/mongodb";
 import { readOpenFgaTuples } from "@/lib/rbac/openfga";
 import { slackChannelSubjectId } from "@/lib/rbac/slack-channel-grant-store";
 import { listSlackChannelAgentRoutes } from "@/lib/rbac/slack-channel-route-store";
+import {
+  type ConnectorDiagnostics,
+  type ConnectorDiagnosticsAdapter,
+  type ConnectorHealthSummary,
+  type ConnectorRouteMetadata,
+  type ConnectorRuntimeRouteDiagnostic,
+  computeConnectorDiagnostics,
+  computeConnectorHealthSummary,
+} from "@/lib/rbac/connector-diagnostics";
 
-export interface SlackRuntimeRouteDiagnostic {
-  agent_id: string;
-  openfga_tuple: boolean;
-  route_metadata: boolean;
-  listen: "mention" | "message" | "all" | "unknown";
-  priority: number;
-  runtime_matches: { mention: boolean; message: boolean };
-  warnings: string[];
-}
+export type SlackRuntimeRouteDiagnostic = ConnectorRuntimeRouteDiagnostic;
 
-export interface SlackChannelLastRuntimeError {
-  ts?: string;
-  reason_code?: string;
-  message?: string;
-  action?: string;
-}
+export type SlackChannelLastRuntimeError = NonNullable<ConnectorDiagnostics["last_runtime_error"]>;
 
-export interface SlackChannelDiagnostics {
-  workspace_id: string;
+export interface SlackChannelDiagnostics extends Omit<ConnectorDiagnostics, "item_id"> {
   channel_id: string;
-  openfga: {
-    reachable: boolean;
-    tuple_count: number;
-    error?: string;
-  };
-  routes: SlackRuntimeRouteDiagnostic[];
-  warnings: string[];
-  last_runtime_error: SlackChannelLastRuntimeError | null;
 }
 
-export interface SlackChannelHealthSummary {
-  warnings_count: number;
-  openfga_reachable: boolean;
-  last_runtime_error_ts: string | null;
-}
+export type SlackChannelHealthSummary = ConnectorHealthSummary;
 
 function agentIdFromObject(object: string): string | null {
   if (!object.startsWith("agent:")) return null;
@@ -45,29 +27,26 @@ function agentIdFromObject(object: string): string | null {
   return agentId || null;
 }
 
-function listenMatches(
-  listen: SlackRuntimeRouteDiagnostic["listen"],
-  requested: "mention" | "message",
-): boolean {
-  return listen === "all" || listen === requested;
+async function listOpenFgaSlackChannelAgentIds(workspaceId: string, channelId: string): Promise<string[]> {
+  const subject = `slack_channel:${slackChannelSubjectId(workspaceId, channelId)}`;
+  const seen = new Set<string>();
+  let continuationToken: string | undefined;
+  do {
+    const result = await readOpenFgaTuples({
+      pageSize: 100,
+      ...(continuationToken ? { continuationToken } : {}),
+    });
+    for (const tuple of result.tuples) {
+      if (tuple.key.user !== subject || tuple.key.relation !== "user") continue;
+      const agentId = agentIdFromObject(tuple.key.object);
+      if (agentId) seen.add(agentId);
+    }
+    continuationToken = result.continuationToken;
+  } while (continuationToken);
+  return Array.from(seen);
 }
 
-function buildRouteWarning(route: SlackRuntimeRouteDiagnostic): string[] {
-  const warnings: string[] = [];
-  if (!route.openfga_tuple) {
-    warnings.push(
-      `agent:${route.agent_id} has Mongo route metadata, but the OpenFGA tuple is missing; runtime ignores it.`,
-    );
-  }
-  if (!route.route_metadata) {
-    warnings.push(
-      `agent:${route.agent_id} has an OpenFGA tuple but no Mongo route metadata; runtime uses mention-only defaults.`,
-    );
-  }
-  return warnings;
-}
-
-function buildAmbiguousRouteWarnings(routes: SlackRuntimeRouteDiagnostic[]): string[] {
+function buildAmbiguousRouteWarnings(routes: ConnectorRuntimeRouteDiagnostic[]): string[] {
   // Surface real misconfiguration: two enabled routes that match the
   // same incoming message at the same priority. The Slack bot picks
   // first-match-wins among ties, so the result is non-deterministic.
@@ -92,130 +71,44 @@ function buildAmbiguousRouteWarnings(routes: SlackRuntimeRouteDiagnostic[]): str
   return warnings;
 }
 
-async function listOpenFgaChannelAgentIds(workspaceId: string, channelId: string): Promise<string[]> {
-  const subject = `slack_channel:${slackChannelSubjectId(workspaceId, channelId)}`;
-  const seen = new Set<string>();
-  let continuationToken: string | undefined;
-  do {
-    const result = await readOpenFgaTuples({
-      pageSize: 100,
-      ...(continuationToken ? { continuationToken } : {}),
-    });
-    for (const tuple of result.tuples) {
-      if (tuple.key.user !== subject || tuple.key.relation !== "user") continue;
-      const agentId = agentIdFromObject(tuple.key.object);
-      if (agentId) seen.add(agentId);
-    }
-    continuationToken = result.continuationToken;
-  } while (continuationToken);
-  return Array.from(seen);
-}
-
-async function latestRuntimeError(
-  workspaceId: string,
-  channelId: string,
-): Promise<SlackChannelLastRuntimeError | null> {
-  const resourceRef = `slack_channel:${slackChannelSubjectId(workspaceId, channelId)}`;
-  try {
-    const auditEvents = await getCollection("audit_events");
-    const rows = await auditEvents
-      .find({
-        component: "slack_bot",
-        outcome: "error",
-        resource_ref: resourceRef,
-      })
-      .sort({ ts: -1 })
-      .limit(1)
-      .toArray();
-    const event = rows[0] as Record<string, unknown> | undefined;
-    if (!event) return null;
-    return {
-      ts: typeof event.ts === "string" ? event.ts : undefined,
-      reason_code: typeof event.reason_code === "string" ? event.reason_code : undefined,
-      message: typeof event.message === "string" ? event.message : undefined,
-      action: typeof event.action === "string" ? event.action : undefined,
-    };
-  } catch {
-    return null;
-  }
-}
+const SLACK_DIAGNOSTICS_ADAPTER: ConnectorDiagnosticsAdapter = {
+  kind: "slack_channel",
+  botLabel: "Slack bot",
+  runtimeLabel: "Slack runtime",
+  tupleNoun: "channel-agent",
+  auditComponent: "slack_bot",
+  auditResourceRef: (workspaceId, channelId) =>
+    `slack_channel:${slackChannelSubjectId(workspaceId, channelId)}`,
+  listOpenFgaAgentIds: listOpenFgaSlackChannelAgentIds,
+  listRouteMetadata: async (workspaceId, channelId): Promise<ConnectorRouteMetadata[]> => {
+    const rows = await listSlackChannelAgentRoutes(workspaceId, channelId);
+    return rows.map((route) => ({
+      agent_id: route.agent_id,
+      priority: route.priority,
+      users: route.users ? { listen: route.users.listen } : undefined,
+    }));
+  },
+  buildAmbiguousRouteWarnings,
+};
 
 export async function computeSlackChannelDiagnostics(
   workspaceId: string,
   channelId: string,
 ): Promise<SlackChannelDiagnostics> {
-  const metadataRoutes = await listSlackChannelAgentRoutes(workspaceId, channelId);
-  const warnings: string[] = [];
-  let openfgaAgentIds: string[] = [];
-  let openfgaError: string | undefined;
-
-  try {
-    openfgaAgentIds = await listOpenFgaChannelAgentIds(workspaceId, channelId);
-  } catch (error) {
-    openfgaError = error instanceof Error ? error.message : "OpenFGA tuple read failed";
-    warnings.push(`Slack bot cannot read OpenFGA tuples: ${openfgaError}`);
-  }
-
-  const allAgentIds = Array.from(
-    new Set([...openfgaAgentIds, ...metadataRoutes.map((route) => route.agent_id)]),
-  ).sort();
-  const metadataByAgentId = new Map(metadataRoutes.map((route) => [route.agent_id, route]));
-  const openfgaAgentSet = new Set(openfgaAgentIds);
-  const routes = allAgentIds.map((agentId): SlackRuntimeRouteDiagnostic => {
-    const metadata = metadataByAgentId.get(agentId);
-    const listen = (metadata?.users?.listen ?? "mention") as SlackRuntimeRouteDiagnostic["listen"];
-    const priority = typeof metadata?.priority === "number" ? metadata.priority : 100;
-    const route: SlackRuntimeRouteDiagnostic = {
-      agent_id: agentId,
-      openfga_tuple: openfgaAgentSet.has(agentId),
-      route_metadata: Boolean(metadata),
-      listen,
-      priority,
-      runtime_matches: {
-        mention: listenMatches(listen, "mention"),
-        message: listenMatches(listen, "message"),
-      },
-      warnings: [],
-    };
-    route.warnings = buildRouteWarning(route);
-    warnings.push(...route.warnings);
-    return route;
-  });
-
-  warnings.push(...buildAmbiguousRouteWarnings(routes));
-
-  if (!openfgaError && openfgaAgentIds.length === 0) {
-    warnings.push("No OpenFGA channel-agent tuples found. Slack runtime has no agent to dispatch.");
-  }
-
+  const diagnostics = await computeConnectorDiagnostics(SLACK_DIAGNOSTICS_ADAPTER, workspaceId, channelId);
   return {
-    workspace_id: workspaceId,
-    channel_id: channelId,
-    openfga: {
-      reachable: !openfgaError,
-      tuple_count: openfgaAgentIds.length,
-      ...(openfgaError ? { error: openfgaError } : {}),
-    },
-    routes,
-    warnings: Array.from(new Set(warnings)),
-    last_runtime_error: await latestRuntimeError(workspaceId, channelId),
+    workspace_id: diagnostics.workspace_id,
+    channel_id: diagnostics.item_id,
+    openfga: diagnostics.openfga,
+    routes: diagnostics.routes,
+    warnings: diagnostics.warnings,
+    last_runtime_error: diagnostics.last_runtime_error,
   };
 }
 
-/**
- * Compact summary used by the channel list endpoint to show per-row
- * health without forcing the UI to fetch full diagnostics for every
- * channel. Same source of truth as `computeSlackChannelDiagnostics`,
- * just stripped to the fields the list view needs.
- */
 export async function computeSlackChannelHealthSummary(
   workspaceId: string,
   channelId: string,
 ): Promise<SlackChannelHealthSummary> {
-  const diagnostics = await computeSlackChannelDiagnostics(workspaceId, channelId);
-  return {
-    warnings_count: diagnostics.warnings.length,
-    openfga_reachable: diagnostics.openfga.reachable,
-    last_runtime_error_ts: diagnostics.last_runtime_error?.ts ?? null,
-  };
+  return computeConnectorHealthSummary(SLACK_DIAGNOSTICS_ADAPTER, workspaceId, channelId);
 }

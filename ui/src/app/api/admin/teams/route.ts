@@ -80,11 +80,39 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     .map((team) => (typeof team.slug === 'string' ? team.slug : ''))
     .filter((slug): slug is string => slug.length > 0);
   const memberCounts = slugs.length > 0 ? await loadTeamMemberCounts(slugs) : new Map<string, number>();
+
+  // Decorate each team with `kb_count`. The canonical store for team KB
+  // assignments is the `team_kb_ownership` collection (keyed by the team's
+  // string `_id`), NOT the legacy `team.resources.knowledge_bases` array on
+  // the team document. Without this join the Admin team-card "KBs" badge
+  // reads an almost-always-empty field and shows nothing even when a team
+  // has KBs assigned (issue #1642 follow-up). We count distinct kb_ids per
+  // team in a single query, falling back to the legacy doc field when no
+  // ownership row exists yet.
+  const teamIdStrings = allTeams.map((team) => team._id.toString());
+  const kbCounts = new Map<string, number>();
+  if (teamIdStrings.length > 0) {
+    const ownership = await getCollection<{ team_id?: string; kb_ids?: string[] }>('team_kb_ownership');
+    const ownershipRows = await ownership
+      .find({ team_id: { $in: teamIdStrings } }, { projection: { team_id: 1, kb_ids: 1 } })
+      .toArray();
+    for (const row of ownershipRows) {
+      if (typeof row.team_id !== 'string') continue;
+      const ids = Array.isArray(row.kb_ids) ? row.kb_ids : [];
+      kbCounts.set(row.team_id, new Set(ids).size);
+    }
+  }
+
   const teamsWithCounts = allTeams.map((team) => {
     const slug = typeof team.slug === 'string' ? team.slug : '';
+    const idStr = team._id.toString();
+    const legacyKbCount = Array.isArray(team.resources?.knowledge_bases)
+      ? team.resources.knowledge_bases.length
+      : 0;
     return {
       ...team,
       member_count: slug ? memberCounts.get(slug) ?? 0 : 0,
+      kb_count: kbCounts.get(idStr) ?? legacyKbCount,
     };
   });
 

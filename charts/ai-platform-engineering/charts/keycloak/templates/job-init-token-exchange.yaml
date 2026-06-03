@@ -42,6 +42,16 @@ spec:
               value: {{ .Values.tokenExchange.botClientId | quote }}
             - name: KC_SSL_REQUIRED
               value: {{ .Values.realm.sslRequired | quote }}
+            {{- /* The script seeds each bot service account's OpenFGA grants
+                   (e.g. read on system_config:platform_settings) so the bots
+                   can make service-to-service reads against the BFF. The URL
+                   defaults to the in-cluster OpenFGA service, matching the
+                   caipe-ui deployment's `<release>-openfga:8080` convention;
+                   set tokenExchange.openfgaHttp to override. */}}
+            - name: OPENFGA_HTTP
+              value: {{ .Values.tokenExchange.openfgaHttp | default (printf "http://%s-openfga:8080" .Release.Name) | quote }}
+            - name: OPENFGA_STORE_NAME
+              value: {{ .Values.tokenExchange.openfgaStoreName | default "caipe-openfga" | quote }}
             {{- /* When KC_BOT_CLIENT_SECRET is set, init-token-exchange.sh
                    will PUT it to /admin/realms/{realm}/clients/{uuid} so
                    Keycloak's stored secret matches what the slack-bot pod

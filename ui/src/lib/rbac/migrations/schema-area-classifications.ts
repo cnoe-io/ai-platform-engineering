@@ -9,7 +9,7 @@ export const SCHEMA_AREA_CLASSIFICATIONS: Record<string, SchemaAreaClassificatio
   admin_surfaces: {
     classification: "migration",
     description:
-      "Org-admin manager grants on admin_surface:* objects (e.g. admin_surface:rag_datasources). The `admin_surface_rag_datasources_admin_grant_v1` migration backfills these tuples for every existing org admin.",
+      "Org-admin manager grants on admin_surface:* objects (e.g. admin_surface:rag_datasources, admin_surface:slack). The `admin_surface_rag_datasources_admin_grant_v1` and `admin_surface_slack_admin_grant_v1` migrations backfill these tuples for every existing org admin.",
   },
   agent_skills: {
     classification: "baseline_v1",

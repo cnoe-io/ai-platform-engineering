@@ -397,7 +397,7 @@ export function TeamKbAssignmentPanel({
                     <span className="inline-flex items-center gap-1">
                       No knowledge bases exist yet.
                       <a
-                        href="/rag"
+                        href="/knowledge-bases"
                         className="inline-flex items-center gap-0.5 text-primary hover:underline"
                       >
                         Create one
@@ -573,7 +573,7 @@ function EmptyAssignedState({
       </p>
       {!hasAvailableKbs && kbsApiOk && (
         <a
-          href="/rag"
+          href="/knowledge-bases"
           className="mt-1 inline-flex items-center gap-1 text-xs text-primary hover:underline"
         >
           Create a knowledge base

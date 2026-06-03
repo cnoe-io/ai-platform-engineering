@@ -164,7 +164,7 @@ it("loads and saves Webex space bindings from the team dialog", async () => {
   const manualRow = manualId.parentElement;
   expect(manualRow).toBeTruthy();
   fireEvent.click(within(manualRow!).getByRole("button"));
-  fireEvent.click(screen.getByRole("button", { name: "Save Spaces" }));
+  fireEvent.click(screen.getByRole("button", { name: "Save spaces" }));
 
   await waitFor(() =>
     expect(fetchMock).toHaveBeenCalledWith(

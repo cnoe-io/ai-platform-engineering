@@ -307,6 +307,14 @@ ensure_service_account_impersonation_role() {
   fi
   echo "${TAG}   Service account user ID: ${SA_USER_ID}"
 
+  # Stash each bot's service-account user id so the OpenFGA seed section (9)
+  # can grant it the service-to-service relations it needs. This id is the
+  # `sub` the bot's client-credentials token carries, which the BFF graphs
+  # as `service_account:<sub>` when checking resource permissions. Append a
+  # "<sa_user_id>|<clientId>" row per bot to BOT_SA_USER_IDS.
+  BOT_SA_USER_IDS="${BOT_SA_USER_IDS:-}${BOT_SA_USER_IDS:+
+}${SA_USER_ID}|${CLIENT_ID}"
+
   SA_CLIENT_ROLES=$(curl -sf -H "${AUTH}" \
     "${KC_URL}/admin/realms/${REALM}/users/${SA_USER_ID}/role-mappings/clients/${RM_CLIENT_ID}" 2>/dev/null || echo "[]")
 
@@ -314,9 +322,9 @@ ensure_service_account_impersonation_role() {
     echo "${TAG}   impersonation role already assigned."
   else
     echo "${TAG}   Assigning impersonation role ..."
-    ROLES_RESP=$(curl -sf -H "${AUTH}" \
-      "${KC_URL}/admin/realms/${REALM}/clients/${RM_CLIENT_ID}/roles" 2>/dev/null || echo "[]")
-    IMP_ROLE_ID=$(echo "${ROLES_RESP}" | grep -B1 '"impersonation"' | grep -o '"id" *: *"[^"]*"' | sed 's/.*"\([^"]*\)"/\1/' | head -1)
+    IMP_ROLE_RESP=$(curl -sf -H "${AUTH}" \
+      "${KC_URL}/admin/realms/${REALM}/clients/${RM_CLIENT_ID}/roles/impersonation" 2>/dev/null || echo "{}")
+    IMP_ROLE_ID=$(json_field "${IMP_ROLE_RESP}" "id")
 
     if [ -n "${IMP_ROLE_ID}" ]; then
       curl -sf -X POST -H "${AUTH}" -H "Content-Type: application/json" \
@@ -460,6 +468,79 @@ else
 fi
 
 # ------------------------------------------------------------------
+# 8b. OBO target token-exchange permission on the audience client
+#     (caipe-platform by default)
+#
+# Bots perform On-Behalf-Of (RFC 8693) token-exchange whose *target
+# audience* is the CAIPE UI BFF resource server (caipe-platform). Keycloak
+# gates that exchange with the token-exchange scope-permission on the
+# AUDIENCE client, so BOTH bot client policies must be attached there — not
+# just on each bot's own client permission (handled above).
+#
+# This reconciliation previously lived only in init-idp.sh, which the chart
+# runs exclusively when an upstream IdP broker is configured (idp.enabled=
+# true). For the default in-chart / local-Keycloak install that job never
+# renders, leaving the caipe-platform token-exchange perm with no bot
+# policies and Keycloak's default UNANIMOUS strategy — which fails the bot
+# OBO health invariants on a brand-new install. Reconciling it here, in the
+# job that always runs on tokenExchange.enabled, makes a fresh install pass
+# without depending on the upstream-IdP path. Idempotent; safe to re-run and
+# safe to no-op when the audience/bot clients are absent.
+# ------------------------------------------------------------------
+OBO_AUDIENCE_CLIENT_ID="${CAIPE_PLATFORM_AUDIENCE:-caipe-platform}"
+if [ -n "${RM_CLIENT_ID:-}" ]; then
+  echo "${TAG} Reconciling OBO target token-exchange perm on '${OBO_AUDIENCE_CLIENT_ID}' ..."
+  OBO_AUD_RESP=$(curl -sf -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/clients?clientId=${OBO_AUDIENCE_CLIENT_ID}" 2>/dev/null || echo "[]")
+  OBO_AUD_INTERNAL_ID=$(json_field "${OBO_AUD_RESP}" "id")
+  if [ -z "${OBO_AUD_INTERNAL_ID}" ]; then
+    echo "${TAG}   '${OBO_AUDIENCE_CLIENT_ID}' client not found — skipping OBO target perm."
+  else
+    # Enable management permissions on the audience client (idempotent;
+    # creates the token-exchange scope-permission if absent).
+    OBO_MGMT=$(curl -sf -H "${AUTH}" \
+      "${KC_URL}/admin/realms/${REALM}/clients/${OBO_AUD_INTERNAL_ID}/management/permissions" 2>/dev/null || echo '{"enabled":false}')
+    if [ "$(json_bool "${OBO_MGMT}" "enabled")" != "true" ]; then
+      OBO_MGMT=$(curl -sf -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
+        "${KC_URL}/admin/realms/${REALM}/clients/${OBO_AUD_INTERNAL_ID}/management/permissions" \
+        -d '{"enabled":true}' 2>/dev/null || echo '{}')
+      echo "${TAG}   Management permissions enabled on '${OBO_AUDIENCE_CLIENT_ID}'."
+    fi
+    OBO_TE_PERM_ID=$(echo "${OBO_MGMT}" | grep -o '"token-exchange" *: *"[^"]*"' | sed 's/.*"\([^"]*\)"/\1/' | head -1)
+    if [ -z "${OBO_TE_PERM_ID}" ]; then
+      echo "${TAG}   WARNING: no token-exchange permission on '${OBO_AUDIENCE_CLIENT_ID}' — skipping."
+    else
+      # find-or-create a POSITIVE client policy for a bot, then attach it to
+      # the audience token-exchange perm. attach_policy_to_scope_permission
+      # forces AFFIRMATIVE so multiple bot policies on the SHARED perm don't
+      # cross-DENY under the default UNANIMOUS strategy.
+      _attach_bot_to_obo_target() {
+        _pname="$1"; _bot_internal="$2"; _bot_label="$3"
+        [ -n "${_bot_internal}" ] || return 0
+        _existing=$(curl -sf -H "${AUTH}" \
+          "${KC_URL}/admin/realms/${REALM}/clients/${RM_CLIENT_ID}/authz/resource-server/policy?name=${_pname}&max=1" 2>/dev/null || echo "[]")
+        if echo "${_existing}" | grep -q "\"${_pname}\""; then
+          _pid=$(json_field "${_existing}" "id")
+        else
+          _presp=$(curl -sf -X POST -H "${AUTH}" -H "Content-Type: application/json" \
+            "${KC_URL}/admin/realms/${REALM}/clients/${RM_CLIENT_ID}/authz/resource-server/policy/client" \
+            -d "{\"name\":\"${_pname}\",\"description\":\"Allow ${_bot_label} OBO token exchange to ${OBO_AUDIENCE_CLIENT_ID}\",\"logic\":\"POSITIVE\",\"clients\":[\"${_bot_internal}\"]}" 2>/dev/null || echo '{}')
+          _pid=$(json_field "${_presp}" "id")
+        fi
+        if [ -n "${_pid}" ]; then
+          attach_policy_to_scope_permission "${RM_CLIENT_ID}" "${OBO_TE_PERM_ID}" "${_pid}" "${OBO_AUDIENCE_CLIENT_ID} token-exchange perm (${_bot_label})" || \
+            echo "${TAG}   WARNING: could not attach ${_bot_label} policy to OBO target perm."
+        else
+          echo "${TAG}   WARNING: could not resolve/create policy '${_pname}'."
+        fi
+      }
+      _attach_bot_to_obo_target "caipe-slack-bot-token-exchange-policy" "${BOT_INTERNAL_ID:-}" "caipe-slack-bot"
+      _attach_bot_to_obo_target "caipe-webex-bot-token-exchange-policy" "${WEBEX_INTERNAL_ID:-}" "caipe-webex-bot"
+    fi
+  fi
+fi
+
+# ------------------------------------------------------------------
 # Phase 3 of spec 2026-05-24-derive-team-from-channel removed the
 # team-personal client scope, the `active_team=__personal__` hardcoded
 # claim mapper, and the optional-scope binding on the bot client. The
@@ -468,6 +549,117 @@ fi
 # scratch get a clean realm, and any realm that was provisioned by an
 # older version of this script can drop the scope manually if needed.
 # ------------------------------------------------------------------
+
+# ------------------------------------------------------------------
+# 9. Seed the bot service accounts' OpenFGA grants
+# ------------------------------------------------------------------
+# The Slack and Webex bots call first-party BFF endpoints with their own
+# client-credentials (service-account) tokens — not user OBO tokens — for
+# service-to-service reads that have no user in context. The BFF graphs
+# such callers as `service_account:<bot-sub>` (see ui/src/lib/rbac/
+# resource-authz.ts `subjectFromSession`) and gates each endpoint with an
+# OpenFGA check. Nothing else grants the bots' service accounts those
+# relations, so we seed them here where each bot's SA user id is known.
+#
+# Currently one grant, applied to every bot SA: read access to
+# platform-wide settings (default agent, VictorOps agent) consumed via
+# `GET /api/admin/platform-config`. Add rows to SA_GRANTS as the bots take
+# on more service-to-service calls — each grant is applied to all bots in
+# BOT_SA_USER_IDS, so the Webex bot gets parity automatically.
+#
+# Idempotent (check-then-write). Best-effort: a missing store / unreachable
+# OpenFGA logs a warning and returns 0 so it never blocks token exchange —
+# the bots degrade to their env/YAML defaults until the grant lands.
+
+# "<relation> <object>" pairs to grant each bot's service account.
+SA_GRANTS="reader system_config:platform_settings"
+
+# resolve_openfga_store_id <openfga_base_url> <store_name> -> echoes store id
+resolve_openfga_store_id() {
+  _ofga="$1"
+  _store_name="$2"
+  _i=0
+  while [ "${_i}" -lt 30 ]; do
+    if curl -sf "${_ofga}/stores" >/dev/null 2>&1; then
+      break
+    fi
+    _i=$((_i + 1))
+    echo "${TAG}   waiting for OpenFGA (${_i}/30) ..." >&2
+    sleep 2
+  done
+  _stores_json=$(curl -sf "${_ofga}/stores" 2>/dev/null || echo "")
+  [ -z "${_stores_json}" ] && return 0
+  STORES_JSON="${_stores_json}" STORE_NAME="${_store_name}" python3 -c '
+import json, os, sys
+stores = json.loads(os.environ["STORES_JSON"]).get("stores", [])
+sys.stdout.write(next((s["id"] for s in stores if s.get("name") == os.environ["STORE_NAME"]), ""))
+' 2>/dev/null
+}
+
+# write_openfga_grant <openfga_base_url> <store_id> <user> <relation> <object>
+write_openfga_grant() {
+  _ofga="$1"; _store_id="$2"; _user="$3"; _relation="$4"; _object="$5"
+  _tuple="{\"user\":\"${_user}\",\"relation\":\"${_relation}\",\"object\":\"${_object}\"}"
+
+  _check=$(curl -sf -X POST "${_ofga}/stores/${_store_id}/check" \
+    -H "Content-Type: application/json" \
+    -d "{\"tuple_key\":${_tuple}}" 2>/dev/null || echo "")
+  if echo "${_check}" | grep -q '"allowed"[[:space:]]*:[[:space:]]*true'; then
+    echo "${TAG}   ${_user} ${_relation} ${_object} — already present."
+    return 0
+  fi
+
+  _code=$(curl -s -o /tmp/_ofga_write.$$ -w "%{http_code}" \
+    -X POST "${_ofga}/stores/${_store_id}/write" \
+    -H "Content-Type: application/json" \
+    -d "{\"writes\":{\"tuple_keys\":[${_tuple}]}}" 2>/dev/null || echo "000")
+  _body=$(cat /tmp/_ofga_write.$$ 2>/dev/null || echo "")
+  rm -f /tmp/_ofga_write.$$
+  if [ "${_code}" = "200" ] || [ "${_code}" = "201" ]; then
+    echo "${TAG}   ${_user} ${_relation} ${_object} — written."
+  elif echo "${_body}" | grep -q "already exists"; then
+    echo "${TAG}   ${_user} ${_relation} ${_object} — already present (write race)."
+  else
+    echo "${TAG}   WARNING: failed to write ${_user} ${_relation} ${_object} (HTTP ${_code}): ${_body}" >&2
+  fi
+}
+
+seed_openfga_service_account_grants() {
+  OFGA="${OPENFGA_HTTP:-http://openfga:8080}"
+  OFGA="${OFGA%/}"
+  OFGA_STORE_NAME="${OPENFGA_STORE_NAME:-caipe-openfga}"
+
+  if [ -z "${BOT_SA_USER_IDS:-}" ]; then
+    echo "${TAG} WARNING: no bot service-account user ids resolved — skipping OpenFGA grants." >&2
+    return 0
+  fi
+
+  echo "${TAG} Seeding OpenFGA service-account grants at ${OFGA} ..."
+  STORE_ID=$(resolve_openfga_store_id "${OFGA}" "${OFGA_STORE_NAME}")
+  if [ -z "${STORE_ID}" ]; then
+    echo "${TAG}   WARNING: OpenFGA store '${OFGA_STORE_NAME}' unavailable at ${OFGA} — skipping grants (bots fall back to env)." >&2
+    return 0
+  fi
+
+  # Outer loop: each bot's service account ("<sa_user_id>|<clientId>").
+  # Inner loop: each "<relation> <object>" grant, applied to that SA.
+  echo "${BOT_SA_USER_IDS}" | while IFS= read -r sa_row; do
+    [ -z "${sa_row}" ] && continue
+    sa_id="${sa_row%%|*}"
+    client_id="${sa_row##*|}"
+    [ -z "${sa_id}" ] && continue
+    ofga_user="service_account:${sa_id}"
+    echo "${TAG}   ${client_id} -> ${ofga_user}"
+    echo "${SA_GRANTS}" | while IFS= read -r grant; do
+      [ -z "${grant}" ] && continue
+      relation="${grant%% *}"
+      object="${grant##* }"
+      write_openfga_grant "${OFGA}" "${STORE_ID}" "${ofga_user}" "${relation}" "${object}"
+    done
+  done
+}
+
+seed_openfga_service_account_grants
 
 # -------------------------------------------------------------------
 # Strict client-secret mode guard (token-exchange scope: caipe-slack-bot
@@ -482,8 +674,6 @@ fi
 #
 # init-idp.sh has its own copy of this guard scoped to caipe-ui +
 # caipe-platform. Together they cover all four dev placeholders.
-#
-# assisted-by Claude:claude-opus-4-7
 # -------------------------------------------------------------------
 _assert_dev_placeholders_rejected() {
   if [ "${KEYCLOAK_STRICT_CLIENT_SECRETS:-false}" != "true" ]; then

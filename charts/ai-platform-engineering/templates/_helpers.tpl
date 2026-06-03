@@ -157,6 +157,9 @@ Single source of truth for both the Gateway API custom resources
   port:        MCP service port
   protocol:    AgentGateway target protocol (StreamableHTTP | SSE)
   backendAuthKey (optional): env-var reference for upstream backend auth
+  providerTokenAuth (optional): when true, rewrite X-CAIPE-Provider-Token into
+                                the upstream Authorization: Bearer header
+                                (per-user OAuth / org PAT fallback; github/gitlab)
 
 Sources, in order: enabled subagents with mcp.agentgateway.enabled,
 global.agentgateway.knowledgeBaseTarget, global.agentgateway.extraMcpTargets.
@@ -174,7 +177,12 @@ global.agentgateway.knowledgeBaseTarget, global.agentgateway.extraMcpTargets.
 {{- if $sub.enabled -}}
 {{- $entry := dict "id" $name "pathPrefix" (printf "/mcp/%s" $name) "host" (printf "%s-agent-%s-mcp.%s.svc.cluster.local" $root.Release.Name $name $ns) "port" ($mcp.port | default 8000) "protocol" ($sub.protocol | default "StreamableHTTP") -}}
 {{- if or (eq $name "github") (eq $name "gitlab") -}}
-{{- $_ := set $entry "backendAuthKey" (printf "$%s_PERSONAL_ACCESS_TOKEN" (upper $name)) -}}
+{{- /* GitHub/GitLab authenticate per-request: Dynamic Agents forwards the
+caller's OAuth token (or the static org PAT fallback via
+MCPCredentialSource.fallback_env) on X-CAIPE-Provider-Token, and a route-level
+transformation rewrites it into Authorization: Bearer. No static backendAuth
+PAT is injected at the gateway anymore. */ -}}
+{{- $_ := set $entry "providerTokenAuth" true -}}
 {{- end -}}
 {{- $targets = append $targets $entry -}}
 {{- end -}}
@@ -184,7 +192,11 @@ global.agentgateway.knowledgeBaseTarget, global.agentgateway.extraMcpTargets.
 {{- if or (not (hasKey $kb "enabled")) $kb.enabled -}}
 {{- $kbHost := required "global.agentgateway.knowledgeBaseTarget.host is required" $kb.host -}}
 {{- $kbPort := required "global.agentgateway.knowledgeBaseTarget.port is required" $kb.port -}}
-{{- $targets = append $targets (dict "id" "knowledge-base" "pathPrefix" ($kb.pathPrefix | default "/mcp/knowledge-base") "host" (tpl $kbHost $root) "port" $kbPort "protocol" ($kb.protocol | default "StreamableHTTP")) -}}
+{{- /* The RAG server enforces its own Keycloak/OIDC auth on /mcp. Dynamic Agents
+forwards the caller's user JWT (per-user RAG group RBAC) or a caipe-platform
+service token (non-user contexts) on X-CAIPE-Provider-Token, and a route-level
+transformation rewrites it into Authorization: Bearer. */ -}}
+{{- $targets = append $targets (dict "id" "knowledge-base" "pathPrefix" ($kb.pathPrefix | default "/mcp/knowledge-base") "host" (tpl $kbHost $root) "port" $kbPort "protocol" ($kb.protocol | default "StreamableHTTP") "providerTokenAuth" true) -}}
 {{- end -}}
 {{- range $target := ($agw.extraMcpTargets | default list) -}}
 {{- if or (not (hasKey $target "enabled")) $target.enabled -}}

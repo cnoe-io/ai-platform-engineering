@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { Bell, CheckCircle2, Eye, Loader2, Save } from "lucide-react";
+import { Bell, Eye, Loader2 } from "lucide-react";
+import { SaveButton } from "@/components/admin/SaveButton";
 
 import { ReleaseUpgradeDialog } from "@/components/release/ReleaseUpgradeDialog";
 import { Button } from "@/components/ui/button";
@@ -57,17 +58,27 @@ export function ReleaseNotesSettingsTab({ isAdmin }: ReleaseNotesSettingsTabProp
   const [releaseNotes, setReleaseNotes] = useState<ReleaseNotesSettings>(
     normalizeReleaseNotesSettings(null),
   );
+  // Last-persisted snapshot, so the Save button can light up only when the
+  // form actually diverges from what's stored.
+  const [savedReleaseNotes, setSavedReleaseNotes] = useState<ReleaseNotesSettings>(
+    normalizeReleaseNotesSettings(null),
+  );
   const [loadingConfig, setLoadingConfig] = useState(true);
   const [savingReleaseNotes, setSavingReleaseNotes] = useState(false);
   const [releaseNotesSaveResult, setReleaseNotesSaveResult] = useState<"success" | "error" | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
+
+  const releaseNotesDirty =
+    JSON.stringify(releaseNotes) !== JSON.stringify(savedReleaseNotes);
 
   useEffect(() => {
     fetch("/api/admin/platform-config")
       .then((response) => response.json())
       .then((configRes) => {
         if (configRes.success) {
-          setReleaseNotes(normalizeReleaseNotesSettings(configRes.data.release_notes));
+          const loaded = normalizeReleaseNotesSettings(configRes.data.release_notes);
+          setReleaseNotes(loaded);
+          setSavedReleaseNotes(loaded);
         }
       })
       .catch(() => {})
@@ -87,7 +98,9 @@ export function ReleaseNotesSettingsTab({ isAdmin }: ReleaseNotesSettingsTabProp
       });
       const data = await res.json();
       if (data.success) {
-        setReleaseNotes(normalizeReleaseNotesSettings(data.data?.release_notes ?? normalized));
+        const persisted = normalizeReleaseNotesSettings(data.data?.release_notes ?? normalized);
+        setReleaseNotes(persisted);
+        setSavedReleaseNotes(persisted);
         setReleaseNotesSaveResult("success");
         setTimeout(() => setReleaseNotesSaveResult(null), 3000);
       } else {
@@ -240,19 +253,13 @@ export function ReleaseNotesSettingsTab({ isAdmin }: ReleaseNotesSettingsTabProp
 
           {isAdmin && (
             <div className="flex flex-wrap items-center gap-3 pt-2">
-              <Button
-                onClick={() => void saveReleaseNotes()}
-                disabled={savingReleaseNotes}
-                size="sm"
-                className="gap-2"
-              >
-                {savingReleaseNotes ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Save className="h-3.5 w-3.5" />
-                )}
-                Apply release notes settings
-              </Button>
+              <SaveButton
+                onSave={() => saveReleaseNotes()}
+                saving={savingReleaseNotes}
+                dirty={releaseNotesDirty}
+                result={releaseNotesSaveResult}
+                ariaLabel="Save release notes settings"
+              />
               <Button
                 type="button"
                 variant="outline"
@@ -272,15 +279,6 @@ export function ReleaseNotesSettingsTab({ isAdmin }: ReleaseNotesSettingsTabProp
               >
                 Show this on next login for every user
               </Button>
-              {releaseNotesSaveResult === "success" && (
-                <span className="flex items-center gap-1.5 text-sm text-green-600 dark:text-green-400">
-                  <CheckCircle2 className="h-4 w-4" />
-                  Saved
-                </span>
-              )}
-              {releaseNotesSaveResult === "error" && (
-                <span className="text-sm text-destructive">Failed to save release notes settings.</span>
-              )}
             </div>
           )}
         </CardContent>

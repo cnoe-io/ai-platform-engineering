@@ -340,15 +340,41 @@ For Jira MCP, Dynamic Agents keeps the user's Keycloak JWT on `Authorization` fo
 MCP authentication and injects the exchanged Atlassian OAuth token on
 `X-CAIPE-Provider-Token`. Jira treats that header as a provider Bearer token and
 does not require `ATLASSIAN_EMAIL` for that OAuth path; static API-token Basic
-auth remains available when impersonation tokens are disabled.
+auth remains available when impersonation tokens are disabled. Jira MCP also
+auto-resolves the Atlassian `cloudId` and rewrites the OAuth base URL to
+`api.atlassian.com/ex/jira/{cloudId}` so 3LO tokens validate.
+
+The same `X-CAIPE-Provider-Token` exchange now backs PagerDuty, GitHub, and
+GitLab:
+
+- **PagerDuty MCP** uses `Authorization: Bearer <token>` when the provider
+  header is present, and falls back to the static `PAGERDUTY_API_KEY` with the
+  legacy `Token token=` scheme otherwise.
+- **GitHub / GitLab** authenticate per-request. Dynamic Agents resolves the
+  caller's own OAuth token, or — when the caller has not connected — the static
+  org PAT via `MCPCredentialSource.fallback_env`
+  (`GITHUB_PERSONAL_ACCESS_TOKEN` / `GITLAB_PERSONAL_ACCESS_TOKEN`). It forwards
+  whichever token resolves on `X-CAIPE-Provider-Token`, and a route-level
+  AgentGateway transformation rewrites it into the upstream
+  `Authorization: Bearer` header. The old static gateway `backendAuth` PAT is
+  removed; connected users act as themselves while unconnected callers fall back
+  to the org token. This is a route-level header rewrite (a transformation
+  policy), distinct from the unsupported backend-level `extAuthz` response-header
+  injection.
+- **Knowledge Base (RAG)** also rides the `X-CAIPE-Provider-Token` rewrite, but
+  the resolved credential is an *identity* token rather than a provider OAuth
+  token, because the RAG server enforces its own Keycloak/OIDC auth on `/mcp`.
+  Dynamic Agents resolves a `caller_token` source: it forwards the caller's
+  **user JWT** when present (so RAG applies per-user `knowledge_base:<id>` group
+  RBAC), and in non-user contexts (background reconcile/probe, `conv=-`) it mints
+  and caches a **`caipe-platform` client-credentials** service token from
+  Keycloak. The same route-level transformation rewrites the chosen token into the
+  upstream `Authorization: Bearer` header. Without this the gateway dropped the
+  incoming `Authorization` and the RAG server returned `HTTP 401`, surfacing as
+  `MCP server 'knowledge-base' is unavailable`.
 
 `GET /api/credentials/inject/atlassian` is implemented as the future BFF
-contract for AgentGateway-style provider-token injection, but AgentGateway v0.12
-does not support backend-level HTTP `extAuthz` response-header injection. Until
-that gateway capability exists, the active Jira path keeps the exchange in the
-connector/runtime layer: Dynamic Agents resolves the user-specific Atlassian
-token through credential exchange and Jira MCP consumes it from
-`X-CAIPE-Provider-Token`.
+contract for AgentGateway-style provider-token injection.
 
 ## Webex Space ReBAC and Bot Dispatch
 

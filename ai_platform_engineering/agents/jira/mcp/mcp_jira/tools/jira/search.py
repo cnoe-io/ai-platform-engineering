@@ -1,9 +1,6 @@
 """Search operations for Jira MCP"""
 
 import logging
-import json
-import httpx
-import base64
 import asyncio
 from typing import List, Optional, Dict, Any, Annotated
 from pydantic import Field
@@ -48,25 +45,6 @@ async def search(
     # Note: issuetype filters are now allowed in JQL queries
     # When user asks for specific issue types (epics, bugs, etc.), the filter is preserved
 
-    # Get credentials from environment
-    import os
-    email = os.getenv("ATLASSIAN_EMAIL")
-    token = os.getenv("ATLASSIAN_TOKEN")
-    base_url = os.getenv("ATLASSIAN_API_URL")
-
-    if not all([email, token, base_url]):
-        logger.error("Missing required environment variables: ATLASSIAN_EMAIL, ATLASSIAN_TOKEN, ATLASSIAN_API_URL")
-        return "Error: Missing required environment variables: ATLASSIAN_EMAIL, ATLASSIAN_TOKEN, ATLASSIAN_API_URL"
-
-    # Validate URL doesn't contain example.com placeholder
-    from urllib.parse import urlparse as _urlparse
-    _parsed = _urlparse(base_url or "")
-    _hostname = (_parsed.hostname or base_url or "").lower()
-    if base_url and (_hostname in ("example.com", "jira.example.com") or _hostname.endswith(".example.com")):
-        error_msg = f"Invalid ATLASSIAN_API_URL: '{base_url}'. Please set ATLASSIAN_API_URL to your actual Jira instance URL (e.g., https://your-domain.atlassian.net)."
-        logger.error(error_msg)
-        return f"Error: {error_msg}"
-
     # Prepare fields list
     fields_list: Optional[List[str]] = None
     if fields and fields != "*all":
@@ -75,51 +53,39 @@ async def search(
         # Use default fields when none specified
         fields_list = DEFAULT_READ_JIRA_FIELDS
 
-    # Build payload exactly like the minimal example
-    payload_data = {
+    # Build the enhanced-search payload (POST rest/api/3/search/jql).
+    payload_data: Dict[str, Any] = {
         "fieldsByKeys": True,
         "jql": jql,
-        "maxResults": limit
+        "maxResults": limit,
     }
-
-    # Add fields if specified
     if fields_list:
         payload_data["fields"] = fields_list
+    if start_at:
+        payload_data["startAt"] = start_at
+    if next_page_token:
+        payload_data["nextPageToken"] = next_page_token
+    if expand:
+        payload_data["expand"] = expand
+    if reconcile_issues:
+        payload_data["reconcileIssues"] = reconcile_issues
+    if properties:
+        payload_data["properties"] = properties
 
-    # Serialize payload exactly like the example
-    payload = json.dumps(payload_data)
+    # Route through the shared client so this honors the per-user provider token
+    # (X-CAIPE-Provider-Token -> Bearer + Atlassian cloud-id gateway rewrite) and
+    # falls back to the static API token (Basic auth) when impersonation is off.
+    # Credential/URL validation lives in make_api_request -> validate_prerequisites.
+    success, response = await make_api_request(
+        path="rest/api/3/search/jql",
+        method="POST",
+        data=payload_data,
+    )
+    if not success:
+        error_text = response.get("error") if isinstance(response, dict) else str(response)
+        raise ValueError(f"Failed to search Jira issues: {error_text}")
 
-    # Prepare headers exactly like the minimal example
-    headers = {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-        'Authorization': f'Basic {base64.b64encode(f"{email}:{token}".encode()).decode()}'
-    }
-
-    # Use the exact URL from the example
-    url = f"{base_url}/rest/api/3/search/jql"
-
-    try:
-        logger.debug("HTTP REQUEST: POST %s payload=%s", url, payload)
-
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                url,
-                data=payload,  # Use data=payload like the example
-                headers=headers
-            )
-
-            logger.debug("HTTP RESPONSE: status=%s", response.status_code)
-
-            if response.status_code == 200:
-                response_data = response.json()
-                return JiraSearchResult.from_api_response(response_data, requested_fields=fields_list)
-            else:
-                error_data = response.json() if response.content else {}
-                raise ValueError(f"Failed to search Jira issues: {error_data}")
-
-    except Exception as e:
-        raise ValueError(f"Failed to search Jira issues: {str(e)}")
+    return JiraSearchResult.from_api_response(response, requested_fields=fields_list)
 
 
 def search_jira_issues(

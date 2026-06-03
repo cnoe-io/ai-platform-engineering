@@ -1349,7 +1349,7 @@ export function SupervisorChatPanel({ endpoint, conversationId, conversationTitl
     let accumulatedText = "";
     let rawStreamContent = "";
     let eventCounter = 0;
-    let hasReceivedCompleteResult = false;
+    const hasReceivedCompleteResult = false;
     let hitlFormRequested = false;
 
     // Timeline manager — seed with previous message's plan for continuity

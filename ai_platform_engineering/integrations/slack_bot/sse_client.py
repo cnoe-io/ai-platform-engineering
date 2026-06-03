@@ -208,7 +208,6 @@ class SSEClient:
       "Content-Type": "application/json",
       "Accept": "text/event-stream",
       "X-Client-Source": "slack-bot",
-      "User-Agent": "caipe-slack-bot/0.4.0",
     }
     # Precedence: explicit kwarg > per-request OBO ContextVar > SA fallback.
     # The ContextVar middle tier is what makes Spec 104 Story 3 work without

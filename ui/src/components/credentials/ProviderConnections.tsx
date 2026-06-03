@@ -10,6 +10,8 @@ interface ProviderConnection {
   updatedAt?: string | Date;
   connectedAt?: string | Date;
   expiresAt?: string | Date;
+  requestedScopes?: string[];
+  grantedScopes?: string[];
 }
 
 interface OAuthConnector {
@@ -17,6 +19,7 @@ interface OAuthConnector {
   name: string;
   provider: string;
   enabled: boolean;
+  scopes?: string[];
 }
 
 interface ProviderProfileCheckResult {
@@ -77,12 +80,33 @@ async function parseApiResponse<T>(response: Response): Promise<T> {
   return json.data;
 }
 
+/**
+ * Effective per-user scope selection for a connector row, bounded to (and
+ * ordered by) the connector's allowed scopes. Precedence: an in-session
+ * override (user toggled) ⟶ the connection's stored requestedScopes ⟶ the full
+ * allowed set. Intersecting with the allowed set naturally drops any stored
+ * scope the connector no longer offers.
+ */
+function effectiveScopeSelection(
+  connector: OAuthConnector,
+  connection: ProviderConnection | null,
+  override?: string[],
+): string[] {
+  const allowed = connector.scopes ?? [];
+  const base = override ?? connection?.requestedScopes ?? allowed;
+  return allowed.filter((scope) => base.includes(scope));
+}
+
 export function ProviderConnections() {
   const [connections, setConnections] = React.useState<ProviderConnection[]>([]);
   const [connectors, setConnectors] = React.useState<OAuthConnector[]>([]);
   const [error, setError] = React.useState<string | null>(null);
   const [profileChecks, setProfileChecks] = React.useState<Record<string, ProfileCheckState>>({});
   const [autoRefreshStates, setAutoRefreshStates] = React.useState<Record<string, { loading: boolean; error?: string }>>({});
+  const [expandedAdvanced, setExpandedAdvanced] = React.useState<Record<string, boolean>>({});
+  // In-session scope overrides keyed by connector id; set only when the user
+  // toggles a checkbox. Absent ⇒ derive from the stored/default selection.
+  const [scopeOverrides, setScopeOverrides] = React.useState<Record<string, string[]>>({});
   const [diagnosticModal, setDiagnosticModal] = React.useState<{
     connector: OAuthConnector;
     connection: ProviderConnection;
@@ -225,9 +249,19 @@ export function ProviderConnections() {
   }, []);
 
   const handleOAuthConnect = React.useCallback(
-    (event: React.MouseEvent<HTMLAnchorElement>, connector: OAuthConnector) => {
-      const url = `/api/credentials/oauth/${connector.provider}/connect`;
+    (
+      event: React.MouseEvent<HTMLAnchorElement>,
+      connector: OAuthConnector,
+      options?: { scopes?: string[]; sendScopes?: boolean },
+    ) => {
       event.preventDefault();
+      let url = `/api/credentials/oauth/${connector.provider}/connect`;
+      // Only send an explicit scope selection when the user customized it (or
+      // we are preserving a prior custom choice on relink). Otherwise omit the
+      // param so the connector default is used (legacy behavior).
+      if (options?.sendScopes && options.scopes && options.scopes.length > 0) {
+        url += `?scopes=${encodeURIComponent(options.scopes.join(","))}`;
+      }
       const popup = window.open(url, `caipe-oauth-${connector.provider}`, oauthPopupFeatures());
       if (popup) {
         popup.focus?.();
@@ -296,8 +330,31 @@ export function ProviderConnections() {
                   const profileCheck = connection ? profileChecks[connection.id] : undefined;
                   const autoRefreshState = connection ? autoRefreshStates[connection.id] : undefined;
                   const profileLabel = profileProviderLabel(connector.provider, connector.name);
+                  const allowedScopes = connector.scopes ?? [];
+                  const selectedScopes = effectiveScopeSelection(connector, connection, scopeOverrides[connector.id]);
+                  // Send an explicit selection when the user customized it, or
+                  // to preserve a prior custom narrowing on relink.
+                  const hasCustomSelection =
+                    Boolean(scopeOverrides[connector.id]) || Boolean(connection?.requestedScopes);
+                  const selectionEmpty = allowedScopes.length > 0 && selectedScopes.length === 0;
+                  const advancedOpen = Boolean(expandedAdvanced[connector.id]);
+                  const toggleScope = (scope: string) => {
+                    setScopeOverrides((current) => {
+                      const next = current[connector.id]
+                        ? [...current[connector.id]]
+                        : [...selectedScopes];
+                      const index = next.indexOf(scope);
+                      if (index >= 0) {
+                        next.splice(index, 1);
+                      } else {
+                        next.push(scope);
+                      }
+                      return { ...current, [connector.id]: next };
+                    });
+                  };
                   return (
-                    <tr key={connector.id} className="bg-card/45 transition-colors hover:bg-muted/25">
+                    <React.Fragment key={connector.id}>
+                    <tr className="bg-card/45 transition-colors hover:bg-muted/25">
                       <td className="px-5 py-5 align-middle">
                         <div className="flex min-w-0 items-center gap-3">
                           <span
@@ -390,19 +447,97 @@ export function ProviderConnections() {
                         </div>
                       </td>
                       <td className="px-5 py-5 align-middle">
-                        <div className="flex justify-end">
+                        <div className="flex flex-col items-end gap-2">
                           <a
-                            className="inline-flex min-w-[140px] items-center justify-center rounded-xl bg-gradient-to-r from-teal-500 to-cyan-500 px-4 py-2.5 text-center text-sm font-semibold text-white shadow-lg shadow-cyan-950/20 transition hover:from-teal-400 hover:to-cyan-400 hover:shadow-cyan-500/20 focus:outline-none focus:ring-2 focus:ring-cyan-300/60"
+                            className={cx(
+                              "inline-flex min-w-[140px] items-center justify-center rounded-xl bg-gradient-to-r from-teal-500 to-cyan-500 px-4 py-2.5 text-center text-sm font-semibold text-white shadow-lg shadow-cyan-950/20 transition hover:from-teal-400 hover:to-cyan-400 hover:shadow-cyan-500/20 focus:outline-none focus:ring-2 focus:ring-cyan-300/60",
+                              selectionEmpty && "pointer-events-none opacity-50",
+                            )}
                             href={`/api/credentials/oauth/${connector.provider}/connect`}
-                            onClick={(event) => handleOAuthConnect(event, connector)}
+                            aria-disabled={selectionEmpty}
+                            onClick={(event) =>
+                              handleOAuthConnect(event, connector, {
+                                scopes: selectedScopes,
+                                sendScopes: hasCustomSelection,
+                              })
+                            }
                           >
                             <span className="truncate whitespace-nowrap">
                               {connected ? `Relink ${profileLabel}` : `Connect ${profileLabel}`}
                             </span>
                           </a>
+                          {allowedScopes.length > 0 && (
+                            <button
+                              type="button"
+                              className="text-xs font-medium text-muted-foreground underline-offset-2 transition hover:text-foreground hover:underline"
+                              aria-expanded={advancedOpen}
+                              aria-controls={`advanced-scopes-${connector.id}`}
+                              onClick={() =>
+                                setExpandedAdvanced((current) => ({
+                                  ...current,
+                                  [connector.id]: !current[connector.id],
+                                }))
+                              }
+                            >
+                              {advancedOpen ? "Hide advanced settings" : "Advanced settings"}
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
+                    {advancedOpen && allowedScopes.length > 0 && (
+                      <tr className="bg-muted/15">
+                        <td colSpan={6} className="px-5 py-4" id={`advanced-scopes-${connector.id}`}>
+                          <fieldset className="space-y-3">
+                            <legend className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                              {profileLabel} scopes requested
+                            </legend>
+                            <p className="text-xs text-muted-foreground">
+                              Choose which permissions to request for your connection. You can only
+                              narrow within what this connector allows.
+                            </p>
+                            <div className="flex flex-wrap gap-2">
+                              {allowedScopes.map((scope) => {
+                                const checked = selectedScopes.includes(scope);
+                                return (
+                                  <label
+                                    key={scope}
+                                    className={cx(
+                                      "inline-flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-1.5 text-xs transition",
+                                      checked
+                                        ? "border-cyan-400/50 bg-cyan-400/10 text-cyan-700 dark:text-cyan-200"
+                                        : "border-border/70 bg-card/60 text-muted-foreground hover:border-border",
+                                    )}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      className="h-3.5 w-3.5 accent-cyan-500"
+                                      checked={checked}
+                                      onChange={() => toggleScope(scope)}
+                                    />
+                                    <span className="font-mono">{scope}</span>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                            {connection?.requestedScopes && connection.requestedScopes.length > 0 && (
+                              <p className="text-xs text-muted-foreground">
+                                Connected with: {connection.requestedScopes.join(", ")}
+                              </p>
+                            )}
+                            {connected && (
+                              <p className="text-xs text-amber-700 dark:text-amber-300">
+                                Relink {profileLabel} for scope changes to take effect.
+                              </p>
+                            )}
+                            {selectionEmpty && (
+                              <p className="text-xs text-destructive">Select at least one scope.</p>
+                            )}
+                          </fieldset>
+                        </td>
+                      </tr>
+                    )}
+                    </React.Fragment>
                   );
                 })}
               </tbody>

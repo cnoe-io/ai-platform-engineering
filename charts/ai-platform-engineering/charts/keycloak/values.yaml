@@ -232,6 +232,15 @@ tokenExchange:
   botClientId: "caipe-slack-bot"
   botClientSecret: ""
   secretRef: ""
+  # init-token-exchange.sh seeds each bot service account's OpenFGA grants
+  # (e.g. read on `system_config:platform_settings`) so the Slack and Webex
+  # bots can make service-to-service reads against the BFF. Without these the
+  # BFF's `service_account:<bot-sub>` checks fail and the bots silently fall
+  # back to their env/YAML defaults. The seed is best-effort and idempotent.
+  # OpenFGA HTTP endpoint for the seed; defaults to the in-cluster service
+  # `<release>-openfga:8080` (matching caipe-ui) when left empty.
+  openfgaHttp: ""
+  openfgaStoreName: "caipe-openfga"
   externalSecret:
     enabled: false
     refreshInterval: "1h"
@@ -320,18 +329,82 @@ ingress:
   #   hosts:
   #     - idp.local
 
-# ---------- Persistence ----------
-# Keycloak uses an embedded H2 database by default.
-# For prod, configure an external PostgreSQL via KC_DB_* env vars.
-persistence:
+# ---------- Database ----------
+# When disabled (default), Keycloak runs with the embedded H2 database and
+# starts in dev mode — identical behaviour to all prior chart versions.
+# When enabled, Keycloak starts in production mode (KC_DB=postgres) and
+# requires a reachable PostgreSQL instance. The password is sourced from a
+# K8s Secret via secretKeyRef so it never appears in plain env vars.
+#
+# Password secret — two patterns, pick one:
+#
+#   (A) EXISTING SECRET — point `existingSecret` at any K8s Secret that already
+#       holds the password, regardless of how it got there: manual kubectl,
+#       Vault Agent injection, Sealed Secrets, the Zalando Postgres Operator's
+#       auto-created credential Secret, etc. The chart never touches that Secret.
+#
+#   (B) ESO-MANAGED — set `externalSecret.enabled: true` and supply the store /
+#       remoteRef. The chart emits an ExternalSecret CR; set `existingSecret` to
+#       the name ESO will write the K8s Secret to.
+#
+# Example (A) — Zalando operator (auto-creates the Secret):
+#   database:
+#     enabled: true
+#     host: keycloak-postgres-prod
+#     port: 5432
+#     name: keycloak
+#     username: keycloak
+#     existingSecret: keycloak.keycloak-postgres-prod.credentials.postgresql.acid.zalan.do
+#     existingSecretPasswordKey: password
+#
+# Example (B) — ESO from Vault:
+#   database:
+#     enabled: true
+#     host: keycloak-postgres-prod
+#     port: 5432
+#     name: keycloak
+#     username: keycloak
+#     existingSecret: keycloak-db-secret
+#     existingSecretPasswordKey: password
+#     externalSecret:
+#       enabled: true
+#       secretStoreRef:
+#         name: vault-eticloud
+#         kind: ClusterSecretStore
+#       remoteRef:
+#         key: projects/myapp/keycloak-db
+#         property: password
+database:
   enabled: false
+  host: ""
+  port: 5432
+  name: keycloak
+  username: keycloak
+  # Name of an existing K8s Secret containing the DB password.
+  # Required when database.enabled is true.
+  existingSecret: ""
+  existingSecretPasswordKey: password
+  # Production mode (start) requires KC_HTTP_ENABLED=true and KC_HOSTNAME_STRICT=false
+  # for typical in-cluster deployments where TLS is terminated at the ingress.
+  # Override these if your setup terminates TLS at the pod (e.g. mTLS service mesh).
+  httpEnabled: "true"
+  hostnameStrict: "false"
+  # Optional: emit an ExternalSecret to sync the password from Vault / AWS SM.
+  # The ESO-managed Secret name must match `existingSecret` above.
+  externalSecret:
+    enabled: false
+    refreshInterval: "1h"
+    secretStoreRef:
+      name: "vault"
+      kind: "ClusterSecretStore"
+    remoteRef:
+      key: ""
+      property: ""
 
 # ---------- Extra env vars ----------
 env: {}
-  # KC_DB: postgres
-  # KC_DB_URL: "jdbc:postgresql://postgres:5432/keycloak"
-  # KC_DB_USERNAME: keycloak
-  # KC_DB_PASSWORD: changeme
+  # Additional KC_* env vars as plain strings. For secrets use database.existingSecret
+  # or the admin/idp/platformClient secretRef blocks above.
 
 # ---------- Login theme ----------
 theme:

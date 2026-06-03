@@ -13,8 +13,6 @@ from pydantic import BaseModel, Field, model_validator
 
 
 class GlobalDefaults(BaseModel):
-  time_frame: int = 19800
-  max_messages: int = 3
   default_agent_id: str | None = None
   dm_agent_id: str | None = None
   victorops_agent_id: str | None = None

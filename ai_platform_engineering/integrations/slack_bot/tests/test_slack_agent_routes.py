@@ -373,3 +373,60 @@ def test_resolver_explains_openfga_route_read_failure(monkeypatch) -> None:
         )
         == "CAIPE could not read Slack routing relationships from OpenFGA, so I cannot safely dispatch this message. Please try again shortly or ask an admin to check Slack Runtime Diagnostics."
     )
+
+
+def test_escalation_for_returns_db_route_escalation() -> None:
+    collection = _Collection(
+        [
+            {
+                "workspace_id": "CAIPE",
+                "channel_id": "C123",
+                "agent_id": "ui-agent",
+                "enabled": True,
+                "priority": 1,
+                "status": "active",
+                "users": {"enabled": True, "listen": "all"},
+                "escalation": {
+                    "victorops": {"enabled": True, "team": "dao"},
+                    "emoji": {"enabled": True, "name": "rotating_light"},
+                    "users": ["U027"],
+                },
+            },
+        ]
+    )
+    resolver = SlackAgentRouteResolver(
+        collection_factory=lambda: collection,
+        openfga_agent_ids_factory=lambda _workspace_id, _channel_id: ["ui-agent"],
+    )
+
+    esc = resolver.escalation_for(workspace_id="CAIPE", channel_id="C123", agent_id="ui-agent")
+
+    assert esc is not None
+    assert esc.victorops.enabled is True
+    assert esc.victorops.team == "dao"
+    assert esc.emoji.enabled is True
+    assert esc.users == ["U027"]
+
+
+def test_escalation_for_returns_none_when_no_escalation_configured() -> None:
+    collection = _Collection(
+        [
+            {
+                "workspace_id": "CAIPE",
+                "channel_id": "C123",
+                "agent_id": "ui-agent",
+                "enabled": True,
+                "priority": 1,
+                "status": "active",
+                "users": {"enabled": True, "listen": "all"},
+            },
+        ]
+    )
+    resolver = SlackAgentRouteResolver(
+        collection_factory=lambda: collection,
+        openfga_agent_ids_factory=lambda _workspace_id, _channel_id: ["ui-agent"],
+    )
+
+    # Route exists but has no escalation block, and an unknown agent yields None.
+    assert resolver.escalation_for(workspace_id="CAIPE", channel_id="C123", agent_id="ui-agent") is None
+    assert resolver.escalation_for(workspace_id="CAIPE", channel_id="C123", agent_id="other") is None

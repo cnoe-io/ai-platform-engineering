@@ -45,6 +45,11 @@ export interface ProviderConnectionDocument {
   accessTokenRef: string;
   expiresAt?: Date;
   updatedAt?: Date;
+  // What this user asked for at connect time (a subset of the connector's
+  // scopes). Absent on legacy connections ⇒ "used the connector default".
+  requestedScopes?: string[];
+  // What the IdP actually granted (when the token response carries `scope`).
+  grantedScopes?: string[];
 }
 
 export interface ProviderConnectionMetadata {
@@ -55,6 +60,8 @@ export interface ProviderConnectionMetadata {
   status: ProviderConnectionDocument["status"];
   expiresAt?: Date;
   updatedAt?: Date;
+  requestedScopes?: string[];
+  grantedScopes?: string[];
 }
 
 export interface OAuthConnectorServiceOptions {
@@ -79,6 +86,9 @@ export interface TokenClientResponse {
   access_token: string;
   refresh_token?: string;
   expires_in?: number;
+  // Space-delimited scopes the IdP granted (RFC 6749 §5.1). Optional; many
+  // providers echo it back on the token response.
+  scope?: string;
 }
 
 export interface ProviderConnectionServiceOptions {
@@ -152,6 +162,38 @@ function authorizationScopes(provider: string, scopes: string[]): string[] {
     return scopes;
   }
   return scopes.filter((scope) => scope !== "offline_access");
+}
+
+/**
+ * Bound a per-user scope selection to what the connector permits.
+ *
+ * The connector's `scopes` array is both the allowed upper bound and the
+ * default selection: a user may only **narrow** within it (no privilege
+ * escalation). `requested === undefined` preserves today's behavior (request
+ * the full connector set). Out-of-bounds or empty selections are rejected so a
+ * tampered request cannot ask for scopes the connector/OAuth app never allowed,
+ * and we never mint a zero-scope token.
+ */
+export function boundScopes(connectorScopes: string[], requested?: string[]): string[] {
+  const allowed = connectorScopes.map((scope) => scope.trim()).filter(Boolean);
+  if (requested === undefined) {
+    return allowed;
+  }
+  const normalized = Array.from(new Set(requested.map((scope) => scope.trim()).filter(Boolean)));
+  const outOfBounds = normalized.filter((scope) => !allowed.includes(scope));
+  if (outOfBounds.length > 0) {
+    throw new ApiError(
+      `Requested scopes are not permitted by this connector: ${outOfBounds.join(", ")}`,
+      400,
+      "VALIDATION_ERROR",
+    );
+  }
+  // Preserve connector order for stable authorization URLs and tests.
+  const selected = allowed.filter((scope) => normalized.includes(scope));
+  if (selected.length === 0) {
+    throw new ApiError("At least one scope must be selected", 400, "VALIDATION_ERROR");
+  }
+  return selected;
 }
 
 function authorizationCodeTokenBody(input: {
@@ -312,17 +354,19 @@ export class ProviderConnectionService {
     owner: CredentialOwnerRef;
     state: string;
     codeChallenge: string;
-  }): Promise<{ authorizationUrl: string; connectorId: string }> {
+    requestedScopes?: string[];
+  }): Promise<{ authorizationUrl: string; connectorId: string; requestedScopes: string[] }> {
     const connector = await this.findEnabledConnector(nonEmpty(input.providerKey, "providerKey"));
+    const requestedScopes = boundScopes(connector.scopes, input.requestedScopes);
     const url = new URL(connector.authorizationUrl);
     url.searchParams.set("response_type", "code");
     url.searchParams.set("client_id", connector.clientId);
     url.searchParams.set("redirect_uri", connector.redirectUri);
-    url.searchParams.set("scope", authorizationScopes(connector.provider, connector.scopes).join(" "));
+    url.searchParams.set("scope", authorizationScopes(connector.provider, requestedScopes).join(" "));
     url.searchParams.set("state", nonEmpty(input.state, "state"));
     url.searchParams.set("code_challenge", nonEmpty(input.codeChallenge, "codeChallenge"));
     url.searchParams.set("code_challenge_method", "S256");
-    return { authorizationUrl: url.toString(), connectorId: connector.id };
+    return { authorizationUrl: url.toString(), connectorId: connector.id, requestedScopes };
   }
 
   async completeConnection(input: {
@@ -330,6 +374,7 @@ export class ProviderConnectionService {
     owner: CredentialOwnerRef;
     code: string;
     codeVerifier: string;
+    requestedScopes?: string[];
   }): Promise<ProviderConnectionMetadata> {
     const connector = await this.findEnabledConnector(nonEmpty(input.providerKey, "providerKey"));
     const clientSecret = await this.payloadStore.getSecret(connector.clientSecretRef);
@@ -359,6 +404,14 @@ export class ProviderConnectionService {
       });
     }
 
+    const requestedScopes =
+      input.requestedScopes !== undefined
+        ? boundScopes(connector.scopes, input.requestedScopes)
+        : undefined;
+    const grantedScopes = token.scope
+      ? Array.from(new Set(token.scope.split(/[\s,]+/).map((scope) => scope.trim()).filter(Boolean)))
+      : undefined;
+
     const now = this.now();
     const doc: ProviderConnectionDocument = {
       id,
@@ -370,6 +423,8 @@ export class ProviderConnectionService {
       refreshTokenRef,
       expiresAt: token.expires_in ? new Date(now.getTime() + token.expires_in * 1000) : undefined,
       updatedAt: now,
+      ...(requestedScopes ? { requestedScopes } : {}),
+      ...(grantedScopes ? { grantedScopes } : {}),
     };
     await this.providerConnectionsCollection.insertOne(doc);
     return toProviderConnectionMetadata(doc);
@@ -403,19 +458,68 @@ export class ProviderConnectionService {
       throw new ApiError("OAuth connector was not found", 404, "CREDENTIAL_NOT_FOUND");
     }
 
-    const [clientSecret, refreshToken] = await Promise.all([
-      this.payloadStore.getSecret(connector.clientSecretRef),
-      this.payloadStore.getSecret(connection.refreshTokenRef),
-    ]);
-    const token = await this.tokenClient(
-      connector.tokenUrl,
-      refreshTokenBody({
-        provider: connector.provider,
-        clientId: connector.clientId,
-        clientSecret,
-        refreshToken,
-      }),
-    );
+    // The stored access token is the source of truth. Long-lived tokens such as
+    // GitHub OAuth-App tokens never expire and are not issued with a refresh
+    // token, so we must be able to fall back to reusing the stored token when a
+    // refresh-token grant is impossible (no refresh token) or rejected by the
+    // provider (HTTP 400). Failing the exchange here is what forced callers like
+    // dynamic-agents to fall back to a static .env PAT.
+    let storedAccessToken: string | undefined;
+    try {
+      storedAccessToken = await this.payloadStore.getSecret(connection.accessTokenRef);
+    } catch {
+      storedAccessToken = undefined;
+    }
+
+    let refreshToken: string | undefined;
+    try {
+      refreshToken = await this.payloadStore.getSecret(connection.refreshTokenRef);
+    } catch {
+      refreshToken = undefined;
+    }
+
+    const reuseStoredToken = (): { accessToken: string; expiresIn?: number } => {
+      if (!storedAccessToken) {
+        throw new ApiError(
+          "Provider connection requires re-authentication",
+          401,
+          "CREDENTIAL_REAUTH_REQUIRED",
+        );
+      }
+      const expiresAt = connection.expiresAt ? new Date(connection.expiresAt) : undefined;
+      const expiresIn = expiresAt
+        ? Math.max(0, Math.floor((expiresAt.getTime() - this.now().getTime()) / 1000))
+        : undefined;
+      return { accessToken: storedAccessToken, expiresIn };
+    };
+
+    // No usable refresh token (e.g. GitHub never issued one): reuse the stored
+    // access token instead of attempting a doomed refresh grant.
+    if (!refreshToken) {
+      return reuseStoredToken();
+    }
+
+    const clientSecret = await this.payloadStore.getSecret(connector.clientSecretRef);
+    let token: TokenClientResponse;
+    try {
+      token = await this.tokenClient(
+        connector.tokenUrl,
+        refreshTokenBody({
+          provider: connector.provider,
+          clientId: connector.clientId,
+          clientSecret,
+          refreshToken,
+        }),
+      );
+    } catch (error) {
+      // The provider rejected the refresh token (GitHub returns 400 for tokens
+      // that do not support refresh). Reuse the still-valid stored access token
+      // rather than failing the exchange and forcing a static PAT fallback.
+      if (storedAccessToken) {
+        return reuseStoredToken();
+      }
+      throw error;
+    }
 
     await this.payloadStore.putSecret({
       secretRefId: connection.accessTokenRef,
@@ -453,5 +557,7 @@ function toProviderConnectionMetadata(
     status: doc.status,
     expiresAt: doc.expiresAt,
     updatedAt: doc.updatedAt,
+    ...(doc.requestedScopes ? { requestedScopes: doc.requestedScopes } : {}),
+    ...(doc.grantedScopes ? { grantedScopes: doc.grantedScopes } : {}),
   };
 }

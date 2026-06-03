@@ -131,7 +131,11 @@ export function StepToolOverridePicker({
     fetch("/api/dynamic-agents/builtin-tools")
       .then((r) => r.ok ? r.json() : null)
       .then((json) => {
-        if (json?.data) setBuiltinDefs(json.data);
+        // Endpoint returns { data: { tools: [...] } }; accept a bare array too.
+        const tools = Array.isArray(json?.data)
+          ? json.data
+          : (json?.data?.tools ?? []);
+        setBuiltinDefs(tools);
       })
       .catch(() => {});
   }, []);

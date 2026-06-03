@@ -80,6 +80,85 @@ describe("credential key wrappers", () => {
     ).toThrow("dev-local key wrapping is not allowed in production");
   });
 
+  describe("local prod-parity escape hatch (dev-only)", () => {
+    const ENV = "CREDENTIAL_ALLOW_INSECURE_LOCAL_KEY_WRAP";
+    let warnSpy: jest.SpyInstance;
+    let previous: string | undefined;
+
+    beforeEach(() => {
+      previous = process.env[ENV];
+      delete process.env[ENV];
+      warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      if (previous === undefined) {
+        delete process.env[ENV];
+      } else {
+        process.env[ENV] = previous;
+      }
+      warnSpy.mockRestore();
+    });
+
+    it("still rejects local-cmk in production when the opt-in is absent", () => {
+      expect(() =>
+        createLocalCmkKeyWrapper({
+          cmkId: "alias/caipe-local-credentials",
+          nodeEnv: "production",
+        }),
+      ).toThrow("local-cmk key wrapping is not allowed in production");
+    });
+
+    it("still rejects local-cmk in production when the opt-in is set to a non-true value", () => {
+      process.env[ENV] = "false";
+      expect(() =>
+        createLocalCmkKeyWrapper({
+          cmkId: "alias/caipe-local-credentials",
+          nodeEnv: "production",
+        }),
+      ).toThrow("local-cmk key wrapping is not allowed in production");
+    });
+
+    it("allows local-cmk in production via the env opt-in and warns loudly", async () => {
+      process.env[ENV] = "true";
+      const wrapper = createLocalCmkKeyWrapper({
+        cmkId: "alias/caipe-local-credentials",
+        nodeEnv: "production",
+      });
+      const wrapped = await wrapper.wrapDataKey(textEncoder.encode("data-key"));
+      await expect(wrapper.unwrapDataKey(wrapped.encryptedDataKey)).resolves.toEqual(
+        textEncoder.encode("data-key"),
+      );
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("SECURITY WARNING"),
+      );
+    });
+
+    it("allows dev-local in production via the explicit option override", async () => {
+      const wrapper = createDevLocalKeyWrapper({
+        masterKey: "local-cmk-material-for-tests",
+        nodeEnv: "production",
+        allowInsecureProductionKeyWrap: true,
+      });
+      const wrapped = await wrapper.wrapDataKey(textEncoder.encode("data-key"));
+      await expect(wrapper.unwrapDataKey(wrapped.encryptedDataKey)).resolves.toEqual(
+        textEncoder.encode("data-key"),
+      );
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("SECURITY WARNING"));
+    });
+
+    it("option override of false beats a truthy env and still rejects", () => {
+      process.env[ENV] = "true";
+      expect(() =>
+        createDevLocalKeyWrapper({
+          masterKey: "local-cmk-material-for-tests",
+          nodeEnv: "production",
+          allowInsecureProductionKeyWrap: false,
+        }),
+      ).toThrow("dev-local key wrapping is not allowed in production");
+    });
+  });
+
   it("wraps and unwraps data keys with AWS KMS command responses", async () => {
     const plaintextKey = textEncoder.encode("kms-data-key-32-byte-material!!");
     const encryptedKey = textEncoder.encode("kms-wrapped-key");

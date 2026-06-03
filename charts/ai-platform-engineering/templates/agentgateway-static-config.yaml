@@ -55,12 +55,20 @@ data:
               - matches:
                   - path:
                       pathPrefix: {{ $t.pathPrefix | quote }}
-                {{- if $extAuth.enabled }}
+                {{- if or $extAuth.enabled $t.providerTokenAuth }}
                 policies:
+                  {{- if $extAuth.enabled }}
                   extAuthz:
                     host: {{ $extAuthHost | quote }}
                     failureMode:
                       denyWithStatus: 403
+                    # The proxy default ext_authz timeout is 200ms. Concurrent
+                    # per-route Checks against a cold/loaded OpenFGA exceed it
+                    # and fail closed (403 -> "MCP server unavailable").
+                    # Default to a generous 10s; operators tune via
+                    # global.agentgateway.extAuth.timeout. Fail-closed posture
+                    # is unchanged.
+                    timeout: {{ $extAuth.timeout | default "10s" | quote }}
                     protocol:
                       grpc:
                         metadata:
@@ -68,6 +76,19 @@ data:
                   authorization:
                     rules:
                       - allow: 'true'
+                  {{- end }}
+                  {{- if $t.providerTokenAuth }}
+                  # Per-request provider/identity token: rewrite the token that
+                  # Dynamic Agents injects on X-CAIPE-Provider-Token into the
+                  # upstream Authorization header. GitHub/GitLab forward a per-user
+                  # OAuth token (or org PAT fallback); the knowledge-base (RAG)
+                  # route forwards the caller's user JWT or a caipe-platform
+                  # service token.
+                  transformations:
+                    request:
+                      set:
+                        authorization: '"Bearer " + default(request.headers["x-caipe-provider-token"], "")'
+                  {{- end }}
                 {{- end }}
                 backends:
                   - mcp:

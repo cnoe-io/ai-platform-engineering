@@ -13,6 +13,7 @@ jest.mock("@/lib/rbac/openfga", () => ({
 import {
   DATA_SOURCE_GRANTS_BACKFILL_MIGRATION_ID,
   deriveAdminSurfaceRagDatasourcesAdminGrantPlan,
+  deriveAdminSurfaceSlackAdminGrantPlan,
   deriveAgentOrganizationInheritancePlan,
   deriveAgentSharedTeamGrantsPlan,
   deriveDataSourceGrantsBackfillPlan,
@@ -305,6 +306,88 @@ describe("admin_surface:rag_datasources admin grant migration", () => {
       invalid_subjects: 1,
     });
     expect(plan.warnings.some((w: string) => w.includes("bad sub with space"))).toBe(true);
+  });
+});
+
+// assisted-by Cursor Claude:claude-opus-4-8
+//
+// Regression test for #1513: org admins bootstrapped before the
+// admin_surface:slack seed (and who never re-logged-in) lacked the
+// `user:<sub> manager admin_surface:slack` tuple and saw "You do not
+// have permission" on the Slack Channels admin panel. The backfill
+// writes the manager tuple for every existing org admin, mirroring the
+// rag_datasources fix.
+describe("admin_surface:slack admin grant migration", () => {
+  it("writes manager tuples for every org admin and dedupes repeated subjects", () => {
+    const plan = deriveAdminSurfaceSlackAdminGrantPlan([
+      "admin-one",
+      "admin-two",
+      "admin-one", // duplicate
+      "  admin-three  ", // whitespace
+    ]);
+
+    expect(plan.counts).toMatchObject({
+      admins_scanned: 4,
+      admins_resolved: 3,
+      tuples_planned: 3,
+      invalid_subjects: 0,
+    });
+    expect(plan.tuple_writes_planned).toBe(3);
+    expect(plan.confirmation).toBe("MIGRATE admin_surfaces TO v3");
+    expect(plan.sample_diffs).toEqual([
+      {
+        collection: "openfga_tuples",
+        id: "admin_surface_slack_admin_grant_v1:0",
+        before: {},
+        after: {
+          user: "user:admin-one",
+          relation: "manager",
+          object: "admin_surface:slack",
+        },
+      },
+      {
+        collection: "openfga_tuples",
+        id: "admin_surface_slack_admin_grant_v1:1",
+        before: {},
+        after: {
+          user: "user:admin-two",
+          relation: "manager",
+          object: "admin_surface:slack",
+        },
+      },
+      {
+        collection: "openfga_tuples",
+        id: "admin_surface_slack_admin_grant_v1:2",
+        before: {},
+        after: {
+          user: "user:admin-three",
+          relation: "manager",
+          object: "admin_surface:slack",
+        },
+      },
+    ]);
+  });
+
+  it("warns and skips subjects that fail OpenFGA id validation", () => {
+    const plan = deriveAdminSurfaceSlackAdminGrantPlan([
+      "valid-sub",
+      "bad sub with space",
+      "",
+    ]);
+
+    expect(plan.counts).toMatchObject({
+      admins_scanned: 3,
+      admins_resolved: 1,
+      tuples_planned: 1,
+      invalid_subjects: 1,
+    });
+    expect(plan.warnings.some((w: string) => w.includes("bad sub with space"))).toBe(true);
+  });
+
+  it("emits an empty plan when no admins exist", () => {
+    const plan = deriveAdminSurfaceSlackAdminGrantPlan([]);
+    expect(plan.tuple_writes_planned).toBe(0);
+    expect(plan.tuples).toEqual([]);
   });
 });
 

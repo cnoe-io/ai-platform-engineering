@@ -11,6 +11,13 @@ function jsonResponse(payload: unknown, ok = true, status = 200): Response {
   } as Response;
 }
 
+// Per-migration controls (individual cards, select-all, completed toggle) now live
+// behind a collapsed "Advanced controls" disclosure. Tests that assert on that
+// content must expand it first.
+async function openAdvancedControls(): Promise<void> {
+  fireEvent.click(await screen.findByRole("button", { name: /^Advanced controls$/i }));
+}
+
 describe("MigrationTab", () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -184,6 +191,7 @@ describe("MigrationTab", () => {
 
   it("loads release migrations and previews a dry run", async () => {
     render(<MigrationTab isAdmin />);
+    await openAdvancedControls();
 
     expect(await screen.findByText("0.5.1 Schema Migrations")).toBeInTheDocument();
     expect(await screen.findByText(/Runtime migration release/i)).toBeInTheDocument();
@@ -328,6 +336,7 @@ describe("MigrationTab", () => {
 
   it("allows registered migrations to be selected and dry-run", async () => {
     render(<MigrationTab isAdmin />);
+    await openAdvancedControls();
 
     fireEvent.click(await screen.findByText("Universal ReBAC team resources"));
     expect(screen.getByText("Selected migration:")).toBeInTheDocument();
@@ -344,6 +353,7 @@ describe("MigrationTab", () => {
 
   it("requires the typed confirmation before applying", async () => {
     render(<MigrationTab isAdmin />);
+    await openAdvancedControls();
 
     fireEvent.click((await screen.findAllByRole("button", { name: /^Dry run$/i }))[0]);
     await screen.findByText("MIGRATE conversations TO v2");
@@ -372,6 +382,7 @@ describe("MigrationTab", () => {
     Object.assign(navigator, { clipboard: { writeText } });
 
     render(<MigrationTab isAdmin />);
+    await openAdvancedControls();
 
     expect(await screen.findByText("0.5.1 Schema Migrations")).toBeInTheDocument();
     fireEvent.click(await screen.findByLabelText(/Select all pending migrations/i));
@@ -499,6 +510,7 @@ describe("MigrationTab", () => {
     });
 
     render(<MigrationTab isAdmin />);
+    await openAdvancedControls();
 
     expect(await screen.findByText(/1 schema areas are missing version metadata/i)).toBeInTheDocument();
     fireEvent.click(await screen.findByLabelText(/Select all pending migrations/i));
@@ -538,6 +550,7 @@ describe("MigrationTab", () => {
     Object.assign(navigator, { clipboard: { writeText } });
 
     render(<MigrationTab isAdmin />);
+    await openAdvancedControls();
 
     fireEvent.click((await screen.findAllByRole("button", { name: /^Dry run$/i }))[0]);
     await screen.findByText("MIGRATE conversations TO v2");
@@ -554,6 +567,7 @@ describe("MigrationTab", () => {
 
   it("refreshes the migration manifest in-page", async () => {
     render(<MigrationTab isAdmin />);
+    await openAdvancedControls();
 
     expect((await screen.findAllByText("Conversation owner identity v2")).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: /Refresh migrations/i }));
@@ -612,6 +626,7 @@ describe("MigrationTab", () => {
     });
 
     render(<MigrationTab isAdmin />);
+    await openAdvancedControls();
 
     expect(await screen.findByText(/No active migrations/i)).toBeInTheDocument();
     expect(screen.queryByText("Conversation owner identity v2")).not.toBeInTheDocument();
@@ -631,6 +646,7 @@ describe("MigrationTab", () => {
 
   it("does not render the redundant in-tab migration override warning", async () => {
     render(<MigrationTab isAdmin />);
+    await openAdvancedControls();
 
     expect((await screen.findAllByText(/Conversation owner identity v2/i)).length).toBeGreaterThan(0);
     expect(screen.queryByText(/Migration required before using this version/i)).not.toBeInTheDocument();

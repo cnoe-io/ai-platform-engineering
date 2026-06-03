@@ -1431,6 +1431,11 @@ services:
       - CREDENTIAL_KEY_PROVIDER=${CREDENTIAL_KEY_PROVIDER:-local-cmk}
       - CREDENTIAL_KMS_CMK_ID=${CREDENTIAL_KMS_CMK_ID:-}
       - CREDENTIAL_KMS_REGION=${CREDENTIAL_KMS_REGION:-}
+      # DEV-ONLY escape hatch: lets the local (local-cmk/dev-local) key wrapper
+      # run under NODE_ENV=production for prod-parity testing. INSECURE — keys
+      # are wrapped with locally-derived material, not a real KMS/HSM. Never set
+      # this true in a real production deployment.
+      - CREDENTIAL_ALLOW_INSECURE_LOCAL_KEY_WRAP=${CREDENTIAL_ALLOW_INSECURE_LOCAL_KEY_WRAP:-false}
       - CREDENTIAL_SERVICE_AUDIENCE=${CREDENTIAL_SERVICE_AUDIENCE:-caipe-credential-service}
       - CREDENTIAL_BOOTSTRAP_OAUTH_CONNECTORS=${CREDENTIAL_BOOTSTRAP_OAUTH_CONNECTORS:-false}
       - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID:-}
@@ -1623,6 +1628,10 @@ services:
       - CREDENTIAL_KEY_PROVIDER=${CREDENTIAL_KEY_PROVIDER:-local-cmk}
       - CREDENTIAL_KMS_CMK_ID=${CREDENTIAL_KMS_CMK_ID:-}
       - CREDENTIAL_KMS_REGION=${CREDENTIAL_KMS_REGION:-}
+      # DEV-ONLY escape hatch (prod-parity image runs NODE_ENV=production). Lets
+      # the local key wrapper run despite production. INSECURE — never set true
+      # in a real production deployment. See build/Dockerfile.caipe-ui header.
+      - CREDENTIAL_ALLOW_INSECURE_LOCAL_KEY_WRAP=${CREDENTIAL_ALLOW_INSECURE_LOCAL_KEY_WRAP:-false}
       - CREDENTIAL_SERVICE_AUDIENCE=${CREDENTIAL_SERVICE_AUDIENCE:-caipe-credential-service}
       - CREDENTIAL_BOOTSTRAP_OAUTH_CONNECTORS=${CREDENTIAL_BOOTSTRAP_OAUTH_CONNECTORS:-false}
       - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID:-}
@@ -1763,6 +1772,12 @@ services:
       - CREDENTIAL_API_URL=${CREDENTIAL_API_URL:-http://caipe-ui:3000/api/credentials}
       - CREDENTIAL_SERVICE_AUDIENCE=${CREDENTIAL_SERVICE_AUDIENCE:-caipe-credential-service}
       - USE_IMPERSONATION_TOKENS=${USE_IMPERSONATION_TOKENS:-false}
+      # Static service-account fallback for shared-token MCP servers (GitHub/GitLab).
+      # When a caller has NOT connected their personal provider account, DA injects
+      # these org PATs on X-CAIPE-Provider-Token so those tools stay backward
+      # compatible. Connected users always get their own OAuth token instead.
+      - GITHUB_PERSONAL_ACCESS_TOKEN=${GITHUB_PERSONAL_ACCESS_TOKEN:-}
+      - GITLAB_PERSONAL_ACCESS_TOKEN=${GITLAB_PERSONAL_ACCESS_TOKEN:-${GITLAB_TOKEN:-}}
       # Spec 102 Phase 11.4 — require Bearer JWT on every DA request.
       # The BFF (ui/src/lib/da-proxy.ts and the two probe / suggest routes)
       # now always sends Authorization: Bearer alongside the legacy
@@ -2874,6 +2889,13 @@ services:
       KC_REALM: caipe
       KC_BOT_CLIENT_ID: caipe-slack-bot
       KC_SSL_REQUIRED: none
+      # Seed the Slack bot's service-account read grant on
+      # system_config:platform_settings so it can read platform-wide settings
+      # (default agent, VictorOps agent) from the BFF. The BFF graphs the bot's
+      # client-credentials token as service_account:<sub>; without this grant
+      # the read 403s and the bot falls back to env/YAML defaults.
+      OPENFGA_HTTP: http://openfga:8080
+      OPENFGA_STORE_NAME: caipe-openfga
     network_mode: "service:keycloak"
     depends_on:
       keycloak:
@@ -2881,6 +2903,10 @@ services:
       # Run AFTER init-idp.sh so we're configuring token exchange against a
       # realm that already has the slack-bot client wired up by the IdP seed.
       keycloak-init:
+        condition: service_completed_successfully
+      # Need the OpenFGA store + model seeded before we can write the bot's
+      # platform-settings grant tuple.
+      openfga-init:
         condition: service_completed_successfully
     restart: on-failure
     profiles:
@@ -2966,8 +2992,6 @@ services:
       # Seed a dev allow tuple with a Keycloak user `sub`. If unset, OpenFGA
       # starts deny-by-default and you can write tuples later.
       OPENFGA_SEED_SUB: ${OPENFGA_SEED_SUB:-}
-    volumes:
-      - ./charts/ai-platform-engineering/charts/openfga/authorization-model.json:/app/authorization-model.json:ro
     depends_on:
       openfga:
         condition: service_healthy

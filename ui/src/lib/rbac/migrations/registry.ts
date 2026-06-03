@@ -25,6 +25,8 @@ export {
   type SchemaAreaClassificationEntry,
 } from "./schema-area-classifications";
 import type {
+  MigrationApplyAllItemResult,
+  MigrationApplyAllResult,
   MigrationApplyResult,
   MigrationBlockingStatus,
   MigrationDefinition,
@@ -38,6 +40,7 @@ import type {
 
 export const RELEASE_051 = "0.5.1";
 export const SCHEMA_VERSION_BOOTSTRAP_CONFIRMATION = "INITIALIZE SCHEMA VERSIONS TO v1";
+export const APPLY_ALL_MIGRATIONS_CONFIRMATION = "APPLY ALL PENDING MIGRATIONS";
 export const SCHEMA_VERSION_BOOTSTRAP_MIGRATION_ID = "schema_version_bootstrap_v1";
 const UNIVERSAL_REBAC_MIGRATION_ID = "universal_rebac_relationship_backfill_v1";
 const ORGANIZATION_MEMBERSHIP_MIGRATION_ID = "organization_membership_backfill_v1";
@@ -67,6 +70,20 @@ export const AGENT_SHARED_TEAM_GRANTS_MIGRATION_ID = "agent_shared_team_grants_b
 // it writes the same tuples and OpenFGA no-ops on identical writes.
 export const ADMIN_SURFACE_RAG_DATASOURCES_ADMIN_GRANT_MIGRATION_ID =
   "admin_surface_rag_datasources_admin_grant_v1";
+// assisted-by Cursor Claude:claude-opus-4-8
+// Issue #1513: the Slack admin surface is gated by
+// `requireAdminSurfaceManage(session, "slack")`, which checks
+// `admin_surface:slack#can_manage`. `slack` is in PRIVILEGED_ADMIN_SURFACES
+// so the login bootstrap writes `user:<sub> manager admin_surface:slack`
+// for admins, but any org admin bootstrapped before that seed who has not
+// re-logged-in still lacks the tuple and sees "You do not have permission"
+// on the Slack Channels admin panel. This backfill mirrors the
+// rag_datasources fix: it walks OpenFGA for existing
+// `user:<sub> admin organization:<key>` admins and writes the matching
+// admin-surface manager tuple. Idempotent — OpenFGA no-ops on identical
+// writes.
+export const ADMIN_SURFACE_SLACK_ADMIN_GRANT_MIGRATION_ID =
+  "admin_surface_slack_admin_grant_v1";
 // Walks every existing `team_kb_ownership` doc and writes the canonical
 // `team:<slug>#member reader`, `team:<slug>#member ingestor`, and
 // `team:<slug>#admin manager knowledge_base:<id>` tuples for every
@@ -245,6 +262,21 @@ export const MIGRATION_DEFINITIONS: MigrationDefinition[] = [
     confirmation: "MIGRATE admin_surfaces TO v2",
     required: true,
     implemented: true,
+  },
+  {
+    id: ADMIN_SURFACE_SLACK_ADMIN_GRANT_MIGRATION_ID,
+    release: RELEASE_051,
+    schema_area: "admin_surfaces",
+    from_version: 2,
+    to_version: 3,
+    kind: "explicit",
+    title: "slack admin-surface manager grant",
+    description:
+      "Backfill `user:<sub> manager admin_surface:slack` for every existing org admin so the Slack Channels admin panel (gated by admin_surface:slack#can_manage) works without waiting for each admin to re-login. Fixes #1513.",
+    confirmation: "MIGRATE admin_surfaces TO v3",
+    required: true,
+    implemented: true,
+    dependencies: [ADMIN_SURFACE_RAG_DATASOURCES_ADMIN_GRANT_MIGRATION_ID],
   },
   {
     id: KNOWLEDGE_BASE_SHARED_TEAM_GRANTS_MIGRATION_ID,
@@ -1064,6 +1096,73 @@ export function deriveAdminSurfaceRagDatasourcesAdminGrantPlan(
     })),
     tuple_writes_planned: unique.length,
     confirmation: "MIGRATE admin_surfaces TO v2",
+    tuples: unique,
+  };
+}
+
+/**
+ * Backfill the `user:<sub> manager admin_surface:slack` tuple for every
+ * existing org admin so the Slack Channels admin panel (gated by
+ * `requireAdminSurfaceManage(session, "slack")` →
+ * `admin_surface:slack#can_manage`) works without requiring each admin to
+ * re-login. Mirrors `deriveAdminSurfaceRagDatasourcesAdminGrantPlan`.
+ *
+ * Inputs:
+ *  - `adminSubjects`: list of OpenFGA user subjects (no `user:` prefix)
+ *    derived from the `user:<sub> admin organization:<key>` tuples in
+ *    OpenFGA. Invalid subjects are skipped with a warning.
+ *
+ * Idempotent: re-running this migration writes the same tuples; OpenFGA's
+ * tuple store no-ops on identical writes. Fixes #1513.
+ */
+export function deriveAdminSurfaceSlackAdminGrantPlan(
+  adminSubjects: string[],
+): MigrationRuntimePlan {
+  const tuples: OpenFgaTupleKey[] = [];
+  const warnings: string[] = [];
+  let invalidSubjects = 0;
+  const seen = new Set<string>();
+
+  for (const raw of adminSubjects) {
+    const subject = typeof raw === "string" ? raw.trim() : "";
+    if (!subject) continue;
+    if (!isOpenFgaId(subject)) {
+      invalidSubjects += 1;
+      warnings.push(`Skipping org admin with invalid OpenFGA subject: ${raw}`);
+      continue;
+    }
+    if (seen.has(subject)) continue;
+    seen.add(subject);
+    tuples.push({
+      user: `user:${subject}`,
+      relation: "manager",
+      object: "admin_surface:slack",
+    });
+  }
+
+  const unique = uniqueTuples(tuples);
+  return {
+    migration_id: ADMIN_SURFACE_SLACK_ADMIN_GRANT_MIGRATION_ID,
+    release: RELEASE_051,
+    schema_area: "admin_surfaces",
+    kind: "explicit",
+    from_version: 2,
+    to_version: 3,
+    counts: {
+      admins_scanned: adminSubjects.length,
+      admins_resolved: seen.size,
+      tuples_planned: unique.length,
+      invalid_subjects: invalidSubjects,
+    },
+    warnings,
+    sample_diffs: unique.slice(0, 10).map((tuple, index) => ({
+      collection: "openfga_tuples",
+      id: `${ADMIN_SURFACE_SLACK_ADMIN_GRANT_MIGRATION_ID}:${index}`,
+      before: {},
+      after: { ...tuple },
+    })),
+    tuple_writes_planned: unique.length,
+    confirmation: "MIGRATE admin_surfaces TO v3",
     tuples: unique,
   };
 }
@@ -2440,6 +2539,10 @@ export async function planMigration(migrationId: string, now = new Date().toISOS
     const subjects = await loadOrgAdminSubjects();
     return deriveAdminSurfaceRagDatasourcesAdminGrantPlan(subjects);
   }
+  if (migrationId === ADMIN_SURFACE_SLACK_ADMIN_GRANT_MIGRATION_ID) {
+    const subjects = await loadOrgAdminSubjects();
+    return deriveAdminSurfaceSlackAdminGrantPlan(subjects);
+  }
   if (migrationId === KNOWLEDGE_BASE_SHARED_TEAM_GRANTS_MIGRATION_ID) {
     const { ownershipDocs, teamSlugByMongoId } =
       await loadKnowledgeBaseSharedTeamGrantsInputs();
@@ -2720,4 +2823,124 @@ export async function applyMigration(input: {
 
   await recordCompletedMigration({ definition, result, now, actor: input.actor });
   return result;
+}
+
+/**
+ * Order pending migrations so that any declared `dependencies` that are also
+ * pending are applied first. Dependencies that are not in the pending set are
+ * assumed already satisfied (completed) and ignored. Input order (release,
+ * schema_area, from_version) is preserved as a stable tiebreaker, so
+ * from_version chains (e.g. dynamic_agents v2->v3->v4) stay ordered. Cycles are
+ * tolerated (best-effort) rather than throwing.
+ */
+function topoSortPendingMigrations(items: MigrationListItem[]): MigrationListItem[] {
+  const byId = new Map(items.map((item) => [item.id, item]));
+  const visited = new Set<string>();
+  const visiting = new Set<string>();
+  const ordered: MigrationListItem[] = [];
+
+  const visit = (item: MigrationListItem) => {
+    if (visited.has(item.id) || visiting.has(item.id)) return;
+    visiting.add(item.id);
+    for (const dependencyId of item.dependencies ?? []) {
+      const dependency = byId.get(dependencyId);
+      if (dependency) visit(dependency);
+    }
+    visiting.delete(item.id);
+    visited.add(item.id);
+    ordered.push(item);
+  };
+
+  for (const item of items) visit(item);
+  return ordered;
+}
+
+/**
+ * One-click "migrate everything" orchestration. Initializes any unversioned
+ * schema areas to v1, then applies every pending, implemented migration in
+ * dependency order using each migration's own confirmation string. Migrations
+ * that are registered-but-not-implemented are skipped; a failure on one
+ * migration is recorded and the run continues with the rest (each migration is
+ * independently transactional via applyMigration). Returns an aggregated report.
+ */
+export async function applyAllMigrations(input: {
+  actor: string;
+  confirmation: string;
+  now?: string;
+}): Promise<MigrationApplyAllResult> {
+  if (input.confirmation !== APPLY_ALL_MIGRATIONS_CONFIRMATION) {
+    const error = new Error(`Confirmation must exactly match: ${APPLY_ALL_MIGRATIONS_CONFIRMATION}`) as Error & {
+      statusCode?: number;
+      code?: string;
+    };
+    error.statusCode = 400;
+    error.code = "CONFIRMATION_REQUIRED";
+    throw error;
+  }
+
+  const now = input.now ?? new Date().toISOString();
+  const state = await listReleaseMigrations();
+
+  // 1. Initialize any unversioned schema areas to v1 (no-op when none exist).
+  let bootstrap: SchemaVersionBootstrapApplyResult | null = null;
+  const unversionedSchemaAreas = state.schema_versions
+    .filter((schema) => schema.current_version === null)
+    .map((schema) => schema.schema_area);
+  if (unversionedSchemaAreas.length > 0) {
+    bootstrap = await applySchemaVersionBootstrap({
+      confirmation: SCHEMA_VERSION_BOOTSTRAP_CONFIRMATION,
+      actor: input.actor,
+      now,
+    });
+  }
+
+  // 2. Apply every pending migration in dependency order, continuing on error.
+  const ordered = topoSortPendingMigrations(state.migrations);
+  const results: MigrationApplyAllItemResult[] = [];
+  for (const migration of ordered) {
+    if (!migration.implemented) {
+      results.push({
+        migration_id: migration.id,
+        schema_area: migration.schema_area,
+        title: migration.title,
+        status: "skipped",
+        reason: "Registered but not implemented",
+      });
+      continue;
+    }
+    try {
+      const applied = await applyMigration({
+        migrationId: migration.id,
+        actor: input.actor,
+        confirmation: migration.confirmation,
+        now,
+      });
+      results.push({
+        migration_id: migration.id,
+        schema_area: migration.schema_area,
+        title: migration.title,
+        status: "applied",
+        applied_counts: applied.applied_counts,
+      });
+    } catch (err) {
+      results.push({
+        migration_id: migration.id,
+        schema_area: migration.schema_area,
+        title: migration.title,
+        status: "failed",
+        reason: err instanceof Error ? err.message : "Migration failed",
+      });
+    }
+  }
+
+  return {
+    release: state.release,
+    bootstrap,
+    results,
+    applied_count: results.filter((result) => result.status === "applied").length,
+    skipped_count: results.filter((result) => result.status === "skipped").length,
+    failed_count: results.filter((result) => result.status === "failed").length,
+    applied_at: now,
+    applied_by: input.actor,
+  };
 }

@@ -591,6 +591,13 @@ docs-helm-validate: docs-helm-charts docs-build ## End-to-end validation: genera
 	fi
 	@echo "✓ Helm chart docs validation passed"
 
+.PHONY: triage-snapshot
+triage-snapshot: ## Regenerate the open-issues triage dashboard into docs/static/triage/ (requires gh + git)
+	@command -v gh >/dev/null 2>&1 || { echo "ERROR: gh CLI not found. Install: https://cli.github.com/"; exit 1; }
+	@gh auth status --hostname github.com >/dev/null 2>&1 || { echo "ERROR: gh not authenticated for github.com. Run: gh auth login --hostname github.com"; exit 1; }
+	@node scripts/triage/classify-open-issues.mjs --out docs/static/triage/open-issues.html
+	@echo "✓ Wrote docs/static/triage/open-issues.html — served at /triage/open-issues.html (commit to publish)"
+
 ## ========== Security Scanning ==========
 
 IMAGE_TAG ?= localtag
