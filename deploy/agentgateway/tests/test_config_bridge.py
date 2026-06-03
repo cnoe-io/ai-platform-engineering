@@ -369,6 +369,88 @@ def test_seed_config_from_bootstrap_publishes_agentgateway_readable_file(tmp_pat
     assert mode == 0o644
 
 
+SHIPPED_CONFIG_PATH = BRIDGE_PATH.parent / "config.yaml"
+
+
+def _builtin_route(server_id: str, host: str) -> dict:
+    return {
+        "matches": [{"path": {"pathPrefix": f"/mcp/{server_id}"}}],
+        "policies": copy.deepcopy(bridge.DEFAULT_MCP_ROUTE_POLICIES),
+        "backends": [{"mcp": {"targets": [{"name": server_id, "mcp": {"host": host}}]}}],
+    }
+
+
+def test_load_builtin_mcp_routes_parses_shipped_config() -> None:
+    builtins = bridge.load_builtin_mcp_routes(SHIPPED_CONFIG_PATH)
+
+    # Every shipped /mcp/<id> route must be recognised as a protected built-in.
+    assert {"argocd", "github", "jira", "knowledge-base", "slack"} <= set(builtins)
+    # github carries its per-request provider-token transform straight from the
+    # bootstrap definition (YAML anchors/aliases resolved by the parser).
+    github = builtins["github"]
+    assert github["policies"]["transformations"]["request"]["set"]["authorization"] == (
+        '"Bearer " + default(request.headers["x-caipe-provider-token"], "")'
+    )
+
+
+def test_load_builtin_mcp_routes_missing_path_returns_empty() -> None:
+    assert bridge.load_builtin_mcp_routes(None) == {}
+    assert bridge.load_builtin_mcp_routes(Path("/does/not/exist.yaml")) == {}
+
+
+def test_merge_preserves_builtin_routes_when_mongo_empty() -> None:
+    # Empty Mongo (no targets) must NOT wipe the shipped built-in routes — this is
+    # the regression that left AgentGateway serving zero MCP routes.
+    builtins = {
+        "jira": _builtin_route("jira", "http://mcp-jira:8000/mcp"),
+        "github": _builtin_route("github", "http://github-mcp-server:8082/mcp"),
+    }
+    baseline = _baseline_config()  # baseline only has /mcp/rag (a dynamic route)
+
+    rendered = bridge.merge_agentgateway_mcp_routes(baseline, [], builtin_routes=builtins)
+
+    routes = rendered["binds"][0]["listeners"][0]["routes"]
+    paths = {route["matches"][0]["path"]["pathPrefix"] for route in routes}
+    assert "/mcp/jira" in paths
+    assert "/mcp/github" in paths
+    assert "/mcp/rag" not in paths  # dynamic route absent from Mongo is still pruned
+
+
+def test_merge_restores_builtin_even_when_baseline_lost_it() -> None:
+    # Baseline (live config) has already been wiped down to no routes, but the
+    # built-in must come back from its bootstrap definition.
+    builtins = {"argocd": _builtin_route("argocd", "http://mcp-argocd:8000/mcp")}
+    baseline = _baseline_config()
+    baseline["binds"][0]["listeners"][0]["routes"] = []
+
+    rendered = bridge.merge_agentgateway_mcp_routes(baseline, [], builtin_routes=builtins)
+
+    routes = rendered["binds"][0]["listeners"][0]["routes"]
+    argocd = next(r for r in routes if r["matches"][0]["path"]["pathPrefix"] == "/mcp/argocd")
+    assert argocd["backends"][0]["mcp"]["targets"][0]["mcp"]["host"] == "http://mcp-argocd:8000/mcp"
+
+
+def test_merge_dynamic_target_defers_to_builtin_definition() -> None:
+    # A Mongo row sharing an id with a built-in must not produce a duplicate route;
+    # the authoritative bootstrap definition wins.
+    builtins = {"jira": _builtin_route("jira", "http://mcp-jira:8000/mcp")}
+    baseline = _baseline_config()
+    baseline["binds"][0]["listeners"][0]["routes"] = []
+
+    rendered = bridge.merge_agentgateway_mcp_routes(
+        baseline,
+        [bridge.McpGatewayTarget(id="jira", upstream_url="http://rogue-jira:9999/mcp")],
+        builtin_routes=builtins,
+    )
+
+    routes = rendered["binds"][0]["listeners"][0]["routes"]
+    jira_routes = [r for r in routes if r["matches"][0]["path"]["pathPrefix"] == "/mcp/jira"]
+    assert len(jira_routes) == 1
+    assert jira_routes[0]["backends"][0]["mcp"]["targets"][0]["mcp"]["host"] == (
+        "http://mcp-jira:8000/mcp"
+    )
+
+
 def test_reconcile_keeps_existing_config_when_admin_config_is_unavailable(
     tmp_path: Path, monkeypatch
 ) -> None:

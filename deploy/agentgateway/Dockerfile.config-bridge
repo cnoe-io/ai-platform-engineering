@@ -21,7 +21,7 @@ RUN mkdir -p /usr/local/bin \
 RUN groupadd -r -g 1001 appuser && useradd -r -g appuser -u 1001 -m appuser
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv venv --python python3.13 /app/.venv \
-    && UV_HTTP_TIMEOUT=900 uv pip install --python /app/.venv/bin/python pymongo==4.15.5
+    && UV_HTTP_TIMEOUT=900 uv pip install --python /app/.venv/bin/python pymongo==4.15.5 pyyaml==6.0.2
 
 COPY --chown=appuser:appuser config_bridge.py /app/config_bridge.py
 RUN mkdir -p /generated && chown appuser:appuser /generated
