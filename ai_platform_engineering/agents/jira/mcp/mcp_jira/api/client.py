@@ -302,7 +302,12 @@ async def make_api_request(
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
                 url = f"{url}/{path}"
-                logger.debug(f"Full request URL: {url}")
+                # Log only method + path. The full URL is built from the
+                # credential-bearing prerequisites, so logging it risks leaking
+                # the token (and CodeQL flags it as clear-text logging of a
+                # secret). The request path alone is enough to debug routing and
+                # never carries the token.
+                logger.debug(f"Request: {method} {path}")
 
                 if method == "GET":
                     response = await client.get(
