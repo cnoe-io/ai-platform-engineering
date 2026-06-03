@@ -146,7 +146,7 @@ async function proxyAgenticAppRequest(
     return Response.json({ error: "unsupported_runtime" }, { status: 501 });
   }
 
-  if (shouldRedirectTopLevelIframeChromeRequest(request, pkg.manifest)) {
+  if (shouldRedirectTopLevelIframeChromeRequest(request, pkg.manifest, params.path ?? [])) {
     return Response.redirect(new URL(`/apps/embed/${appId}`, request.url), 307);
   }
 
@@ -353,12 +353,20 @@ function buildEnvConfiguredExecutionBinding(manifest: AgenticAppManifest): Execu
 function shouldRedirectTopLevelIframeChromeRequest(
   request: Request,
   manifest: AgenticAppManifest,
+  path: string[],
 ): boolean {
   if (manifest.runtime.chrome !== "iframe") {
     return false;
   }
+  if (isOAuthCallbackPath(path)) {
+    return false;
+  }
   const fetchDest = request.headers.get("sec-fetch-dest")?.toLowerCase();
   return fetchDest === "document";
+}
+
+function isOAuthCallbackPath(path: string[]): boolean {
+  return path.length >= 3 && path[0] === "oauth" && path[path.length - 1] === "callback";
 }
 
 function isDocumentNavigation(request: Request): boolean {

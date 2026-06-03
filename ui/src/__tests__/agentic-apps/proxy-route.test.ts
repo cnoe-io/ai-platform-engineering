@@ -262,6 +262,42 @@ describe("GET /apps/{appId}/{path} execution gateway", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("proxies OAuth callback document navigation for iframe-chrome apps", async () => {
+    const store = storeMocks();
+    store.listAppPackages.mockResolvedValue([]);
+    store.listAppInstallations.mockResolvedValue([]);
+    process.env.AGENTIC_APPS_ENABLED = "finops";
+    process.env.AGENTIC_APP_FINOPS_ORIGIN = "http://localhost:3010";
+
+    const fetchMock = jest.fn().mockResolvedValue(
+      new Response("<html>oauth callback</html>", {
+        status: 200,
+        headers: { "content-type": "text/html" },
+      }),
+    );
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const { GET } = await import("@/app/(app)/apps/[appId]/[[...path]]/route");
+    const res = await GET(
+      new Request("http://0.0.0.0:3000/apps/finops/oauth/webex/callback?code=abc&state=xyz", {
+        headers: { "sec-fetch-dest": "document" },
+      }),
+      {
+        params: Promise.resolve({
+          appId: "finops",
+          path: ["oauth", "webex", "callback"],
+        }),
+      },
+    );
+
+    expect(res.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:3010/oauth/webex/callback?code=abc&state=xyz",
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect(await res.text()).toBe("<html>oauth callback</html>");
+  });
+
   it("keeps iframe requests for iframe-chrome apps on the internal proxy path", async () => {
     const store = storeMocks();
     store.listAppPackages.mockResolvedValue([]);
