@@ -1,9 +1,9 @@
 # Copyright 2025 CNOE Contributors
 # SPDX-License-Identifier: Apache-2.0
-"""Runtime reader for platform-wide settings stored in MongoDB.
+"""Runtime reader for platform-wide settings exposed by the CAIPE UI API.
 
-The admin UI persists a small set of platform-wide settings in the
-``platform_config`` singleton document (``_id: "platform_settings"``):
+The admin UI persists a small set of platform-wide settings and exposes them
+through ``GET /api/admin/platform-config``:
 
 * ``default_agent_id`` — the platform default agent. Governs the Web UI
   *and* Slack (channel fallback + DMs). Set in Admin → Settings →
@@ -16,11 +16,11 @@ Historically the Slack bot only read these from environment variables at
 startup (``SLACK_INTEGRATION_DEFAULT_AGENT_ID`` etc.). This reader lets the
 bot honor the values an admin saves in the UI at runtime, while keeping the
 env/YAML values as a fallback so locked-down or UI-less deployments keep
-working. Resolution is always **DB setting → env/YAML fallback**.
+working. Resolution is always **UI setting → env/YAML fallback**.
 
 The reader is TTL-cached (default 60s) so hot paths (every DM, every
-escalation) don't hit Mongo on each message. It degrades gracefully: if
-Mongo is unconfigured or unreachable, lookups return ``None`` and callers
+escalation) don't hit the UI API on each message. It degrades gracefully: if
+the UI API is unconfigured or unreachable, lookups return ``None`` and callers
 fall back to their env/YAML defaults.
 """
 
@@ -31,9 +31,9 @@ import os
 import time
 from typing import Any, Optional
 
-from pymongo import MongoClient
-from pymongo.collection import Collection
-from pymongo.errors import PyMongoError
+import requests
+
+from .bff_client import bff_headers, resolve_bff_base_url, service_account_token
 
 logger = logging.getLogger("caipe.slack_bot.platform_settings")
 
@@ -43,61 +43,59 @@ VICTOROPS_AGENT_FIELD = "slack_victorops_escalation_agent_id"
 
 
 class PlatformSettingsReader:
-    """Read platform-wide settings from the ``platform_config`` collection.
+    """Read platform-wide settings from the CAIPE UI API.
 
     Values are cached for ``ttl_seconds`` to keep per-message lookups cheap.
-    A missing Mongo configuration or a transient read error is treated as
+    A missing UI API configuration or a transient read error is treated as
     "no override" so callers transparently fall back to env/YAML defaults.
+
+    HTTP plumbing (base URL, canonical headers, service-account token) is
+    shared via :mod:`bff_client`.
     """
 
     def __init__(
         self,
         *,
         ttl_seconds: Optional[int] = None,
-        collection_factory: Any = None,
+        api_url: str | None = None,
+        fetcher: Any = None,
     ) -> None:
         self._ttl = ttl_seconds if ttl_seconds is not None else _ttl_from_env()
-        self._collection_factory = collection_factory
-        self._client: Optional[MongoClient] = None
-        self._db_name = os.environ.get("MONGODB_DATABASE", "caipe")
+        self._api_url = resolve_bff_base_url(api_url)
+        self._fetcher = fetcher or requests.get
         self._cache: Optional[dict[str, Any]] = None
         self._cache_ts: float = 0.0
 
-    def _get_client(self) -> Optional[MongoClient]:
-        uri = os.environ.get("MONGODB_URI", "").strip()
-        if not uri:
-            return None
-        if self._client is None:
-            try:
-                self._client = MongoClient(uri, serverSelectionTimeoutMS=5000, retryWrites=False)
-            except PyMongoError as exc:
-                logger.warning("PlatformSettingsReader: MongoDB client init failed: %s", exc)
-                return None
-        return self._client
-
-    def _get_collection(self) -> Optional[Collection[Any]]:
-        if self._collection_factory is not None:
-            return self._collection_factory()
-        client = self._get_client()
-        if client is None:
-            return None
-        return client[self._db_name]["platform_config"]
+    def _headers(self) -> dict[str, str]:
+        return bff_headers(bearer_token=service_account_token())
 
     def _document(self) -> dict[str, Any]:
         now = time.monotonic()
         if self._cache is not None and now - self._cache_ts < self._ttl:
             return self._cache
 
-        collection = self._get_collection()
         document: dict[str, Any] = {}
-        if collection is not None:
+        if self._api_url:
             try:
-                found = collection.find_one({"_id": PLATFORM_CONFIG_ID})
-                if isinstance(found, dict):
-                    document = found
-            except PyMongoError as exc:
-                logger.warning("PlatformSettingsReader: platform_config read failed: %s", exc)
-                document = {}
+                response = self._fetcher(
+                    f"{self._api_url}/api/admin/platform-config",
+                    headers=self._headers(),
+                    timeout=_timeout_from_env(),
+                )
+                if getattr(response, "status_code", 0) == 200:
+                    payload = response.json()
+                    data = payload.get("data") if isinstance(payload, dict) else None
+                    if isinstance(data, dict):
+                        document = data
+                else:
+                    logger.warning(
+                        "PlatformSettingsReader: platform-config API returned status=%s",
+                        getattr(response, "status_code", "unknown"),
+                    )
+            except requests.RequestException as exc:
+                logger.warning("PlatformSettingsReader: platform-config API read failed: %s", exc)
+            except ValueError as exc:
+                logger.warning("PlatformSettingsReader: platform-config API returned invalid JSON: %s", exc)
 
         self._cache = document
         self._cache_ts = now
@@ -128,6 +126,13 @@ def _ttl_from_env() -> int:
         return max(0, int(os.environ.get("SLACK_PLATFORM_SETTINGS_TTL_SECONDS", "60")))
     except ValueError:
         return 60
+
+
+def _timeout_from_env() -> float:
+    try:
+        return max(0.1, float(os.environ.get("SLACK_PLATFORM_SETTINGS_TIMEOUT_SECONDS", "3")))
+    except ValueError:
+        return 3.0
 
 
 _default_reader: Optional[PlatformSettingsReader] = None
