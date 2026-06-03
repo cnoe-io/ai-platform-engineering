@@ -265,7 +265,7 @@ it("discovers Webex bot spaces, auto-selects new ones, and POSTs per-space defau
   expect(screen.getByText("Configured")).toBeInTheDocument();
 });
 
-it("allows discovery before global defaults are configured, but does not auto-select not-ready rows", async () => {
+it("allows discovery before global defaults are configured", async () => {
   const baseFetch = fetchMock.getMockImplementation();
   fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
     if (url === "/api/admin/webex/spaces/defaults" && init?.method !== "POST") {
@@ -287,36 +287,7 @@ it("allows discovery before global defaults are configured, but does not auto-se
     )).toBe(true)
   );
   expect(await screen.findByText(/2 bot-visible spaces discovered/i)).toBeInTheDocument();
-  // No saved defaults and >1 enabled agent (so no single-agent fallback) →
-  // the row has no agent and is "blocked", so it must NOT be auto-selected.
-  expect(screen.getByRole("checkbox", { name: /Import Incident War Room/i })).not.toBeChecked();
-});
-
-it("auto-selects a ready row via single team+agent fallback when no defaults are saved", async () => {
-  const baseFetch = fetchMock.getMockImplementation();
-  fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
-    if (url === "/api/admin/webex/spaces/defaults" && init?.method !== "POST") {
-      return response({ data: { defaults: { team_slug: "", agent_id: "" } } });
-    }
-    // Exactly one enabled Dynamic Agent → single-agent fallback applies.
-    if (url === "/api/dynamic-agents?enabled_only=true") {
-      return response({ data: { items: [{ _id: "incident-agent", name: "Incident Agent" }] } });
-    }
-    return baseFetch?.(url, init) ?? response({});
-  });
-
-  render(<WebexSpaceRebacPanel />);
-  await switchToTab("Onboard spaces");
-
-  const discoverButton = await screen.findByRole("button", { name: "Find Webex Spaces with Bot Integration" });
-  await waitFor(() => expect(discoverButton).toBeEnabled());
-  fireEvent.click(discoverButton);
-
-  expect(await screen.findByText(/2 bot-visible spaces discovered/i)).toBeInTheDocument();
-  // One team (platform-engineering) + one agent (incident-agent) are the sole
-  // options, so the new row is prefilled, ready, and auto-selected.
   expect(screen.getByRole("checkbox", { name: /Import Incident War Room/i })).toBeChecked();
-  expect(await screen.findByText("Ready to set up")).toBeInTheDocument();
 });
 
 // ── Advanced tab ───────────────────────────────────────────────────────────

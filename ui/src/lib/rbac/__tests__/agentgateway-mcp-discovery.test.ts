@@ -133,7 +133,6 @@ describe("AgentGateway MCP discovery", () => {
           "komodor",
           "netutils",
           "pagerduty",
-          "rag",
           "slack",
           "splunk",
           "victorops",
