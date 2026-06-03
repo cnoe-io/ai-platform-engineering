@@ -170,6 +170,13 @@ describe("/api/rag/kbs/[id]/sharing", () => {
           { key: { user: "team:legacy-team#admin", relation: "manager", object: "knowledge_base:kb-1" } },
         ],
       });
+      // No owner persisted in config (pre-migration datasource).
+      const fetchSpy = jest.spyOn(global, "fetch").mockResolvedValue(
+        new Response(JSON.stringify({ datasources: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
 
       const res = await PUT(
         makeRequest({ team_slugs: ["data-eng", "", "ml-ops", "data-eng"] }),
@@ -182,6 +189,7 @@ describe("/api/rag/kbs/[id]/sharing", () => {
       expect(mockReconcileKnowledgeBaseRelationships).toHaveBeenCalledWith(
         expect.objectContaining({
           knowledgeBaseId: "kb-1",
+          ownerTeamSlug: null,
           nextSharedTeamSlugs: ["data-eng", "ml-ops"],
           previousSharedTeamSlugs: ["legacy-team"],
         }),
@@ -202,6 +210,51 @@ describe("/api/rag/kbs/[id]/sharing", () => {
         { type: "knowledge_base", id: "kb-1", action: "admin" },
         { bypassForOrgAdmin: true },
       );
+      fetchSpy.mockRestore();
+    });
+
+    it("preserves the owner team's grant when updating shared teams", async () => {
+      // OpenFGA reader tuples include the owner team (platform) — because the
+      // owner is granted via the same reader/manager pair as a shared team —
+      // plus a currently-shared team being removed in this update.
+      mockReadOpenFgaTuples.mockResolvedValueOnce({
+        tuples: [
+          { key: { user: "team:platform#member", relation: "reader", object: "knowledge_base:kb-1" } },
+          { key: { user: "team:old-share#member", relation: "reader", object: "knowledge_base:kb-1" } },
+        ],
+      });
+      // Config (source of truth) says platform is the owner team.
+      const fetchSpy = jest.spyOn(global, "fetch").mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            datasources: [{ datasource_id: "kb-1", owner_team_slug: "platform" }],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      );
+
+      // Caller shares with data-eng and (redundantly) lists the owner team.
+      const res = await PUT(
+        makeRequest({ team_slugs: ["data-eng", "platform"] }),
+        { params: Promise.resolve({ id: "kb-1" }) },
+      );
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      // Owner is deduped out of the shared list in the response.
+      expect(body.shared_team_slugs).toEqual(["data-eng"]);
+
+      // The reconciler must receive the owner team so it stays in the desired
+      // set; otherwise `platform` (in previous, absent from next) would be
+      // revoked — the bug this test guards against. `old-share` IS revoked.
+      expect(mockReconcileKnowledgeBaseRelationships).toHaveBeenCalledWith(
+        expect.objectContaining({
+          knowledgeBaseId: "kb-1",
+          ownerTeamSlug: "platform",
+          nextSharedTeamSlugs: ["data-eng"],
+          previousSharedTeamSlugs: ["old-share", "platform"],
+        }),
+      );
+      fetchSpy.mockRestore();
     });
 
     it("rejects malformed JSON bodies", async () => {

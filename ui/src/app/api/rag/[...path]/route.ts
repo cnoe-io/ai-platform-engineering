@@ -10,6 +10,7 @@ import type { RbacScope } from '@/lib/rbac/types';
 import {
   filterResourcesByPermission,
   requireResourcePermission,
+  canTransferResourceOwnership,
   type ResourcePermissionAction,
 } from '@/lib/rbac/resource-authz';
 import {
@@ -159,6 +160,10 @@ interface AuthorizedRagContext {
     sharedTeamSlugs: string[];
     /** Previously-persisted shared teams, read from config for the revoke diff. */
     previousSharedTeamSlugs: string[];
+    /** Previously-persisted owner team, read from config. When the owner team
+     *  changes, this is passed to the reconciler so the old team's grants are
+     *  revoked instead of orphaned. */
+    previousOwnerTeamSlug: string | null;
   };
 }
 
@@ -247,14 +252,23 @@ async function requireMcpToolCallPermission(
   if (!toolName) return;
 
   // Only custom tools have an mcp_tool object. Resolve the custom-tool set
-  // from the RAG server; a tool_name not in it is built-in → not gated.
+  // from the RAG server; a tool_name not in it is built-in → not gated. The
+  // gate is FAIL-CLOSED: if we cannot determine whether `tool_name` is a
+  // custom tool (listing error/parse failure), we deny rather than forward,
+  // so a transient RAG-server error cannot be used to bypass `can_call`.
   let customToolIds: Set<string>;
   try {
     const response = await fetch(`${getRagServerUrl()}/v1/mcp/custom-tools`, {
       method: 'GET',
       headers,
     });
-    if (!response.ok) return; // fail-open on listing error — RAG server still role-checks
+    if (!response.ok) {
+      throw new ApiError(
+        'Unable to verify tool-call permission. Please retry.',
+        503,
+        'mcp_tool#call_unavailable',
+      );
+    }
     const data = await response.json();
     const list = Array.isArray(data) ? data : [];
     customToolIds = new Set(
@@ -263,8 +277,13 @@ async function requireMcpToolCallPermission(
         .map((t) => (typeof t.tool_id === 'string' ? t.tool_id : ''))
         .filter(Boolean),
     );
-  } catch {
-    return;
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+    throw new ApiError(
+      'Unable to verify tool-call permission. Please retry.',
+      503,
+      'mcp_tool#call_unavailable',
+    );
   }
   if (!customToolIds.has(toolName)) return; // built-in tool — not gated
 
@@ -310,7 +329,18 @@ async function reconcileMcpToolForOwnership(pending: {
   creatorSubject: string | null;
   sharedTeamSlugs: string[];
   previousSharedTeamSlugs: string[];
+  previousOwnerTeamSlug: string | null;
 }): Promise<void> {
+  // Pass the previous owner team when it differs from the next owner so the
+  // reconciler revokes the old team's grants on an ownership change (the
+  // mcp_tool builder treats it symmetrically with shared-team removals).
+  // Without this, changing owner_team_slug would orphan the old team's
+  // reader/user/manager tuples, leaving stale access.
+  const previousOwnerTeamSlug =
+    pending.previousOwnerTeamSlug &&
+    pending.previousOwnerTeamSlug !== pending.ownerTeamSlug
+      ? pending.previousOwnerTeamSlug
+      : undefined;
   await reconcileMcpToolRelationships({
     toolId: pending.toolId,
     ownerSubject: pending.ownerSubject,
@@ -318,6 +348,7 @@ async function reconcileMcpToolForOwnership(pending: {
     creatorSubject: pending.creatorSubject,
     nextSharedTeamSlugs: pending.sharedTeamSlugs,
     previousSharedTeamSlugs: pending.previousSharedTeamSlugs,
+    previousOwnerTeamSlug,
   });
 }
 
@@ -425,32 +456,87 @@ async function getAuthorizedRagContext(
       extractMcpToolId(pathSegments) ??
       (isRecord(body) ? normalizeString(body.tool_id) : null);
     if (toolId) {
-      const ownerTeamSlug = isRecord(body) ? normalizeString(body.owner_team_slug) : null;
-      if (ownerTeamSlug) {
-        await requireResourcePermission(
-          { sub: session.sub, role: session.role, user: session.user },
-          { type: 'team', id: ownerTeamSlug, action: 'use' },
-        );
-      }
       const ownerSubject = normalizeString(session.sub);
       const sharedTeamSlugs = isRecord(body)
         ? normalizeSlugList(body.shared_with_teams)
         : [];
-      // Read the previously-persisted shared set from config so the
-      // reconciler can emit revoke deletes for unshared teams (mirrors the
-      // agent route's previous-set read). Creator is set-once: keep the
-      // existing one if present.
+      // Config is the source of truth: read the previous owner/creator/shared
+      // so we can keep set-once fields, emit revoke deletes for removed teams,
+      // and detect an ownership transfer (mirrors the agent route).
       const previous = await loadMcpToolConfig(toolId, {
         accessToken: session.accessToken,
         org: session.org,
       });
+
+      const authzSession = { sub: session.sub, role: session.role, user: session.user };
+      const requestedOwnerTeamSlug = isRecord(body)
+        ? normalizeString(body.owner_team_slug)
+        : null;
+      const previousOwnerTeamSlug = previous.ownerTeamSlug;
+      // Keep the existing owner when the request omits it — the RAG server
+      // replaces the whole config on PUT, so an omitted owner must not be
+      // dropped (which would also wrongly revoke the owner team's grants).
+      const nextOwnerTeamSlug = requestedOwnerTeamSlug ?? previousOwnerTeamSlug;
+
+      const isOwnerChange =
+        requestedOwnerTeamSlug !== null &&
+        previousOwnerTeamSlug !== null &&
+        requestedOwnerTeamSlug !== previousOwnerTeamSlug;
+
+      if (isOwnerChange) {
+        // Ownership transfer (spec 2026-06-03, US3): the owner team is
+        // immutable on a normal edit and may only be reassigned by an
+        // owner-team admin or org admin. Mirrors the dynamic-agents guard.
+        const allowed = await canTransferResourceOwnership(authzSession, {
+          type: 'mcp_tool',
+          id: toolId,
+        });
+        if (!allowed) {
+          throw new ApiError(
+            'Only an owner-team admin or org admin can transfer this tool.',
+            403,
+            'TRANSFER_FORBIDDEN',
+          );
+        }
+        // A transfer to a team the caller is not a member of requires explicit
+        // confirmation (the <TeamOwnershipFields> not-a-member prompt).
+        let canUseDestination = false;
+        try {
+          await requireResourcePermission(authzSession, {
+            type: 'team',
+            id: requestedOwnerTeamSlug,
+            action: 'use',
+          });
+          canUseDestination = true;
+        } catch {
+          canUseDestination = false;
+        }
+        const confirmedNotMember = isRecord(body) && body.confirm_not_member === true;
+        if (!canUseDestination && !confirmedNotMember) {
+          throw new ApiError(
+            'You are not a member of the destination team. Confirm the transfer to proceed.',
+            409,
+            'TRANSFER_NOT_MEMBER_UNCONFIRMED',
+          );
+        }
+      } else if (requestedOwnerTeamSlug && previousOwnerTeamSlug === null) {
+        // First-set (create / pre-ownership tool): the caller must belong to
+        // the owner team they assign.
+        await requireResourcePermission(authzSession, {
+          type: 'team',
+          id: requestedOwnerTeamSlug,
+          action: 'use',
+        });
+      }
+
       pendingMcpToolOwnership = {
         toolId,
         ownerSubject,
-        ownerTeamSlug,
+        ownerTeamSlug: nextOwnerTeamSlug,
         creatorSubject: previous.creatorSubject ?? ownerSubject,
         sharedTeamSlugs,
         previousSharedTeamSlugs: previous.sharedTeamSlugs,
+        previousOwnerTeamSlug,
       };
     }
   }
@@ -860,9 +946,15 @@ export async function PUT(
     const targetPath = path.join('/');
     const targetUrl = `${ragServerUrl}/${targetPath}`;
 
+    // Parse the JSON body when present. Mirror the POST handler: attempt a
+    // parse whenever content-length is absent-but-nonempty OR positive, because
+    // the ownership/transfer logic below needs the body fields and some clients
+    // omit content-length on small JSON payloads. A parse failure leaves body
+    // undefined.
     let body: unknown = undefined;
     const contentLength = request.headers.get('content-length');
-    if (contentLength && parseInt(contentLength) > 0) {
+    const hasBody = contentLength === null || parseInt(contentLength) > 0;
+    if (hasBody) {
       try {
         body = await request.json();
       } catch {

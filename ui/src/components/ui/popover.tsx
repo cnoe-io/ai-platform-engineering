@@ -238,6 +238,7 @@ export function PopoverContent({
   const node = (
     <div
       ref={contentRef}
+      data-popover-content=""
       style={{
         position: "fixed",
         top: coords?.top ?? -9999,

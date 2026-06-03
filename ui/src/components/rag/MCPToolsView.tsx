@@ -565,9 +565,28 @@ function ToolFormDialog({ open, onClose, onSave, initial, isEdit }: ToolFormDial
   const toolIdValid = isEdit || (toolId.length > 0 && TOOL_ID_REGEX.test(toolId));
   const canSave = toolIdValid && parallelSearches.length > 0 && parallelSearches.every((ps) => ps.label.trim().length > 0);
 
+  // The team owner/share pickers render their dropdown in a portal to
+  // `document.body` (so it can escape this dialog's `overflow-y-auto`
+  // clipping). A Radix *modal* Dialog would then trap focus away from the
+  // portaled search box (no typing) and treat row clicks as "interact
+  // outside" (no selecting). Running the dialog non-modal disables the focus
+  // trap, and the guard below keeps the dialog open while the user is
+  // interacting with that portaled popover.
+  const keepOpenForPopover = (event: { detail?: { originalEvent?: Event } } & Event) => {
+    const original = event.detail?.originalEvent;
+    const target = (original?.target ?? event.target) as HTMLElement | null;
+    if (target?.closest?.("[data-popover-content]")) {
+      event.preventDefault();
+    }
+  };
+
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()} modal={false}>
+      <DialogContent
+        className="max-w-xl max-h-[90vh] overflow-y-auto"
+        onInteractOutside={keepOpenForPopover}
+        onFocusOutside={keepOpenForPopover}
+      >
         <DialogHeader>
           <DialogTitle>{isEdit ? "Edit MCP Tool" : "Create MCP Tool"}</DialogTitle>
         </DialogHeader>
