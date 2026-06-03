@@ -27,6 +27,15 @@ export interface JWTIdentity {
   /** Stable subject identifier from the JWT (`sub` claim). */
   sub?: string;
   /**
+   * True when the token was minted via the OAuth2 client-credentials grant
+   * (a Keycloak *service account*, e.g. the Slack bot) rather than an
+   * interactive user login. First-party services authenticate this way and
+   * must be graphed in OpenFGA as `service_account:<sub>` instead of
+   * `user:<sub>` — see `subjectFromSession`. Keycloak stamps such tokens with
+   * `preferred_username = "service-account-<clientId>"`.
+   */
+  isServiceAccount?: boolean;
+  /**
    * Tenant/organization identifier. Sourced from `org`, `tenant_id`, or
    * `organization` claims (in priority order). Surfaces from the bearer
    * path into the Web UI backend session so audit/RBAC can attribute decisions to
@@ -230,7 +239,14 @@ function extractIdentity(payload: JWTPayload): JWTIdentity {
     (typeof payload.tenant_id === 'string' ? payload.tenant_id : undefined) ||
     (typeof payload.organization === 'string' ? payload.organization : undefined);
 
-  return { email, name, groups, sub, org };
+  // Keycloak client-credentials tokens carry no interactive user; their
+  // `preferred_username` is `service-account-<clientId>`. Detect that so the
+  // RBAC layer can graph the caller as `service_account:<sub>`.
+  const preferredUsername =
+    typeof payload.preferred_username === 'string' ? payload.preferred_username : '';
+  const isServiceAccount = preferredUsername.startsWith('service-account-');
+
+  return { email, name, groups, sub, org, isServiceAccount };
 }
 
 /**

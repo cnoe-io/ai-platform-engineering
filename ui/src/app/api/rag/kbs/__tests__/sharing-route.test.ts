@@ -51,16 +51,21 @@ jest.mock("@/lib/rbac/resource-authz", () => ({
 
 const mockReconcileKnowledgeBaseRelationships = jest.fn();
 const mockBuildKnowledgeBaseRelationshipTupleDiff = jest.fn();
+const mockMirrorKnowledgeBaseDiffToDataSource = jest.fn();
 jest.mock("@/lib/rbac/openfga-owned-resources", () => ({
   reconcileKnowledgeBaseRelationships: (...args: unknown[]) =>
     mockReconcileKnowledgeBaseRelationships(...args),
   buildKnowledgeBaseRelationshipTupleDiff: (...args: unknown[]) =>
     mockBuildKnowledgeBaseRelationshipTupleDiff(...args),
+  mirrorKnowledgeBaseDiffToDataSource: (...args: unknown[]) =>
+    mockMirrorKnowledgeBaseDiffToDataSource(...args),
 }));
 
 const mockReadOpenFgaTuples = jest.fn();
+const mockWriteOpenFgaTupleDiff = jest.fn();
 jest.mock("@/lib/rbac/openfga", () => ({
   readOpenFgaTuples: (...args: unknown[]) => mockReadOpenFgaTuples(...args),
+  writeOpenFgaTupleDiff: (...args: unknown[]) => mockWriteOpenFgaTupleDiff(...args),
 }));
 
 import { getServerSession } from "next-auth";
@@ -86,6 +91,8 @@ describe("/api/rag/kbs/[id]/sharing", () => {
       deletes: 0,
     });
     mockBuildKnowledgeBaseRelationshipTupleDiff.mockReturnValue({ writes: [], deletes: [] });
+    mockMirrorKnowledgeBaseDiffToDataSource.mockReturnValue({ writes: [], deletes: [] });
+    mockWriteOpenFgaTupleDiff.mockResolvedValue({ enabled: true, writes: 0, deletes: 0 });
     mockReadOpenFgaTuples.mockResolvedValue({ tuples: [] });
     (getServerSession as jest.Mock).mockResolvedValue({
       accessToken: "tok",
@@ -155,6 +162,15 @@ describe("/api/rag/kbs/[id]/sharing", () => {
           nextSharedTeamSlugs: ["data-eng", "ml-ops"],
           previousSharedTeamSlugs: ["legacy-team"],
         }),
+      );
+
+      // The KB diff is mirrored onto the data_source type and written, so
+      // the shared teams can query (not just discover) the datasource.
+      expect(mockMirrorKnowledgeBaseDiffToDataSource).toHaveBeenCalledWith(
+        mockBuildKnowledgeBaseRelationshipTupleDiff.mock.results[0].value,
+      );
+      expect(mockWriteOpenFgaTupleDiff).toHaveBeenCalledWith(
+        mockMirrorKnowledgeBaseDiffToDataSource.mock.results[0].value,
       );
 
       expect(mockRequireResourcePermission).toHaveBeenCalledWith(

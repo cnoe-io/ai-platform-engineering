@@ -93,6 +93,9 @@ export const GET = withErrorHandler(async (request: NextRequest) =>
       }
     }
     const datasourceById = await loadDatasourceNames(auth.session?.accessToken);
+    for (const id of datasourceById.keys()) {
+      kbIds.add(id);
+    }
 
     const universal = await listRebacCatalog();
     const universalByType = universal.resources.reduce<Record<string, unknown[]>>((acc, resource) => {

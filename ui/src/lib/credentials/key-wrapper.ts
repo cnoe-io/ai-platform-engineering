@@ -31,6 +31,28 @@ export interface DevLocalKeyWrapperOptions {
   nodeEnv?: string;
   keyProvider?: Exclude<CredentialKeyProvider, "aws-kms">;
   cmkId?: string | null;
+  /**
+   * Local prod-parity escape hatch. When the runtime is NODE_ENV=production the
+   * local (`dev-local`/`local-cmk`) wrappers refuse to run, because they derive
+   * the key-encryption key from local material instead of a real KMS/HSM and
+   * must never silently protect credentials in a real production deployment.
+   *
+   * Setting this to `true` (or env `CREDENTIAL_ALLOW_INSECURE_LOCAL_KEY_WRAP=true`)
+   * relaxes that guard so a developer can exercise the credential store against
+   * the prod-parity UI image locally. It is INSECURE and must never be enabled
+   * in a real production environment.
+   */
+  allowInsecureProductionKeyWrap?: boolean;
+}
+
+/** Env var name for the local prod-parity key-wrap escape hatch (dev-only). */
+export const ALLOW_INSECURE_LOCAL_KEY_WRAP_ENV = "CREDENTIAL_ALLOW_INSECURE_LOCAL_KEY_WRAP";
+
+function insecureLocalKeyWrapAllowed(optionOverride?: boolean): boolean {
+  if (typeof optionOverride === "boolean") {
+    return optionOverride;
+  }
+  return process.env[ALLOW_INSECURE_LOCAL_KEY_WRAP_ENV]?.trim().toLowerCase() === "true";
 }
 
 export interface AwsKmsKeyWrapperOptions {
@@ -110,7 +132,18 @@ function kmsFailure(error: unknown, fallbackReason: "decrypt_failed" | "key_wrap
 export function createDevLocalKeyWrapper(options: DevLocalKeyWrapperOptions): KeyWrapper {
   const keyProvider = options.keyProvider ?? "dev-local";
   if ((options.nodeEnv ?? process.env.NODE_ENV) === "production") {
-    throw new Error(`${keyProvider} key wrapping is not allowed in production`);
+    if (!insecureLocalKeyWrapAllowed(options.allowInsecureProductionKeyWrap)) {
+      throw new Error(`${keyProvider} key wrapping is not allowed in production`);
+    }
+    // Explicit dev-only opt-in: warn loudly on every wrapper construction so
+    // this can never be mistaken for a safe production posture.
+    console.warn(
+      `[credentials] SECURITY WARNING: ${keyProvider} key wrapping is running under ` +
+        `NODE_ENV=production because ${ALLOW_INSECURE_LOCAL_KEY_WRAP_ENV}=true. Credential ` +
+        `data keys are wrapped with locally-derived material, NOT a real KMS/HSM. This is ` +
+        `intended for LOCAL prod-parity testing ONLY — never enable it in a real ` +
+        `production deployment.`,
+    );
   }
 
   const kek = deriveDevLocalKek(options.masterKey);
@@ -157,12 +190,17 @@ export function createDevLocalKeyWrapper(options: DevLocalKeyWrapperOptions): Ke
   };
 }
 
-export function createLocalCmkKeyWrapper(options: { cmkId: string; nodeEnv?: string }): KeyWrapper {
+export function createLocalCmkKeyWrapper(options: {
+  cmkId: string;
+  nodeEnv?: string;
+  allowInsecureProductionKeyWrap?: boolean;
+}): KeyWrapper {
   return createDevLocalKeyWrapper({
     masterKey: deriveLocalCmkMaterial(options.cmkId),
     nodeEnv: options.nodeEnv,
     keyProvider: "local-cmk",
     cmkId: options.cmkId,
+    allowInsecureProductionKeyWrap: options.allowInsecureProductionKeyWrap,
   });
 }
 

@@ -5,6 +5,7 @@ import {
   openFgaRelationForResourceAction,
   resourceObject,
   requireResourcePermission,
+  subjectFromSession,
 } from "../resource-authz";
 
 describe("resource-authz", () => {
@@ -31,6 +32,47 @@ describe("resource-authz", () => {
 
     expect(resourceObject("llm_model", modelId)).toBe(`llm_model:b64_${encoded}`);
     expect(resourceObject("mcp_server", "jira")).toBe("mcp_server:jira");
+  });
+
+  describe("subjectFromSession", () => {
+    it("graphs interactive users under the user: namespace", () => {
+      expect(subjectFromSession({ sub: " alice-sub " })).toBe("user:alice-sub");
+      expect(subjectFromSession({ sub: "bob", isServiceAccount: false })).toBe("user:bob");
+    });
+
+    it("graphs client-credentials callers under the service_account: namespace", () => {
+      expect(subjectFromSession({ sub: " bot-sub ", isServiceAccount: true })).toBe(
+        "service_account:bot-sub",
+      );
+    });
+
+    it("returns null when the subject is missing or blank", () => {
+      expect(subjectFromSession({})).toBeNull();
+      expect(subjectFromSession({ sub: "   " })).toBeNull();
+      expect(subjectFromSession({ sub: 123 as unknown })).toBeNull();
+    });
+  });
+
+  it("checks a service-account tuple for client-credentials callers", async () => {
+    // Mirrors the Slack/Webex bot reading platform settings with their
+    // service-account token: the seeded grant is on service_account:<sub>,
+    // so the check must use that namespace, not user:<sub>.
+    await expect(
+      requireResourcePermission(
+        { sub: "bot-sub", isServiceAccount: true },
+        { type: "system_config", id: "platform_settings", action: "read" },
+        {
+          check: async (tuple) => {
+            expect(tuple).toEqual({
+              user: "service_account:bot-sub",
+              relation: "can_read",
+              object: "system_config:platform_settings",
+            });
+            return { allowed: true };
+          },
+        },
+      ),
+    ).resolves.toBeUndefined();
   });
 
   it("requires a stable subject and fails closed when missing", async () => {

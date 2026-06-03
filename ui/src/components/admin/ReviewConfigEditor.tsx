@@ -14,7 +14,6 @@
 import * as React from "react";
 import {
   Loader2,
-  Save,
   Trash2,
   Plus,
   AlertCircle,
@@ -22,6 +21,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useToast } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
+import { SaveButton } from "@/components/admin/SaveButton";
 import {
   Card,
   CardContent,
@@ -56,6 +56,8 @@ export interface ReviewConfigEditorProps {
   onSavingChange?: (saving: boolean) => void;
   /** Lets a parent header button avoid saving while the editor is still loading. */
   onReadyChange?: (ready: boolean) => void;
+  /** Lets a parent header button gate itself on unsaved changes. */
+  onDirtyChange?: (dirty: boolean) => void;
 }
 
 export interface ReviewConfigEditorHandle {
@@ -129,6 +131,7 @@ export const ReviewConfigEditor = React.forwardRef<ReviewConfigEditorHandle, Rev
       showInlineSave = true,
       onSavingChange,
       onReadyChange,
+      onDirtyChange,
     },
     ref,
   ) {
@@ -137,10 +140,14 @@ export const ReviewConfigEditor = React.forwardRef<ReviewConfigEditorHandle, Rev
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [state, setState] = React.useState<FormState>(emptyState);
+  // Last-persisted snapshot so the Save button only enables on real edits.
+  const [savedState, setSavedState] = React.useState<FormState>(emptyState);
   const [availableModels, setAvailableModels] = React.useState<
     { model_id: string; name: string; provider: string }[]
   >([]);
   const [modelsLoading, setModelsLoading] = React.useState(true);
+
+  const dirty = JSON.stringify(state) !== JSON.stringify(savedState);
 
   React.useEffect(() => {
     onSavingChange?.(saving);
@@ -149,6 +156,10 @@ export const ReviewConfigEditor = React.forwardRef<ReviewConfigEditorHandle, Rev
   React.useEffect(() => {
     onReadyChange?.(!loading);
   }, [loading, onReadyChange]);
+
+  React.useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
 
   // Mirror DynamicAgentEditor: pull the platform's configured LLMs so admins
   // pick from the same dropdown instead of typing free-form ids/providers.
@@ -202,7 +213,9 @@ export const ReviewConfigEditor = React.forwardRef<ReviewConfigEditorHandle, Rev
         const body = (await res.json()) as unknown;
         const cfg = unwrapApiBody<ReviewConfig>(body);
         if (cancelled) return;
-        setState(configToState(cfg));
+        const loaded = configToState(cfg);
+        setState(loaded);
+        setSavedState(loaded);
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : String(err));
@@ -301,7 +314,9 @@ export const ReviewConfigEditor = React.forwardRef<ReviewConfigEditorHandle, Rev
         throw new Error(msg);
       }
       const saved = unwrapApiBody<ReviewConfig>(body);
-      setState(configToState(saved));
+      const persisted = configToState(saved);
+      setState(persisted);
+      setSavedState(persisted);
       toast("Review config saved", "success");
       onSaved?.(saved);
     } catch (err) {
@@ -353,22 +368,12 @@ export const ReviewConfigEditor = React.forwardRef<ReviewConfigEditorHandle, Rev
   return (
     <div className="space-y-4">
       {showInlineSave && (
-        <div className="flex items-center justify-end">
-          <Button
-            type="button"
-            size="sm"
-            onClick={handleSave}
-            disabled={saving}
-            className="gap-1.5"
-          >
-            {saving ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Save className="h-3.5 w-3.5" />
-            )}
-            Save
-          </Button>
-        </div>
+        <SaveButton
+          onSave={handleSave}
+          saving={saving}
+          dirty={dirty}
+          wrapperClassName="justify-end"
+        />
       )}
 
       {error && (

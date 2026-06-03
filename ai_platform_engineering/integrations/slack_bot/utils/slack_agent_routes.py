@@ -18,7 +18,13 @@ from pymongo.collection import Collection
 from pymongo.errors import PyMongoError
 from pydantic import ValidationError
 
-from .config_models import AgentBinding, BotsConfig, EscalationConfig, UsersConfig
+from .config_models import (
+    AgentBinding,
+    BotsConfig,
+    EscalationConfig,
+    UsersConfig,
+    get_escalation_config,
+)
 
 logger = logging.getLogger("caipe.slack_bot.slack_agent_routes")
 DEFAULT_OPENFGA_HTTP = "http://openfga:8080"
@@ -275,6 +281,32 @@ class SlackAgentRouteResolver:
             elif _side_matches(binding.users, listen, user_id, "user_list"):
                 matches.append(binding)
         return matches
+
+    def escalation_for(
+        self,
+        *,
+        workspace_id: str,
+        channel_id: str,
+        agent_id: str,
+    ) -> EscalationConfig | None:
+        """Return the escalation config for a DB-backed channel/agent route.
+
+        Channel escalation lives on the agent route just like in static YAML
+        config. The escalation/feedback action handlers read static config
+        first; this lets them fall back to DB routes so "Get help" works for
+        channels configured entirely through the admin UI.
+        """
+
+        if not agent_id:
+            return None
+        for route in self._cached_routes(workspace_id, channel_id):
+            if route.get("agent_id") != agent_id:
+                continue
+            binding = _route_to_agent_binding(route)
+            if binding is None:
+                return None
+            return get_escalation_config(binding)
+        return None
 
     def explain_no_route_match(
         self,

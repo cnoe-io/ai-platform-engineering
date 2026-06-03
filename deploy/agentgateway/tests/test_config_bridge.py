@@ -127,12 +127,47 @@ def test_merge_agentgateway_mcp_routes_adds_missing_route_without_mutating_basel
     assert baseline == original
     routes = rendered["binds"][0]["listeners"][0]["routes"]
     route_paths = [route["matches"][0]["path"]["pathPrefix"] for route in routes]
-    assert route_paths == ["/mcp/rag", "/mcp/knowledge-base"]
-    assert routes[1]["backends"][0]["mcp"]["targets"][0] == {
+    # The baseline's /mcp/rag route is not in the desired set, so it is pruned;
+    # only the desired knowledge-base route remains (reconciler owns /mcp/* routes).
+    assert route_paths == ["/mcp/knowledge-base"]
+    assert routes[0]["backends"][0]["mcp"]["targets"][0] == {
         "name": "knowledge-base",
         "mcp": {"host": "http://rag-server:9446/mcp"},
     }
-    assert routes[1]["policies"] == bridge.DEFAULT_MCP_ROUTE_POLICIES
+    # knowledge-base carries the per-request provider-token transform (RAG OIDC),
+    # shallow-merged onto the shared default route policies.
+    assert routes[0]["policies"] == {
+        **bridge.DEFAULT_MCP_ROUTE_POLICIES,
+        **bridge.PROVIDER_TOKEN_BEARER_TRANSFORM,
+    }
+
+
+def test_merge_agentgateway_mcp_routes_prunes_removed_targets_and_keeps_non_mcp() -> None:
+    # Baseline has two managed MCP routes (rag + jira) plus a non-MCP route.
+    baseline = _baseline_config()
+    listener_routes = baseline["binds"][0]["listeners"][0]["routes"]
+    listener_routes.append(
+        {
+            "matches": [{"path": {"pathPrefix": "/mcp/jira"}}],
+            "policies": bridge.DEFAULT_MCP_ROUTE_POLICIES,
+            "backends": [
+                {"mcp": {"targets": [{"name": "jira", "mcp": {"host": "http://mcp-jira:8000/mcp"}}]}}
+            ],
+        }
+    )
+    listener_routes.append({"matches": [{"path": {"pathPrefix": "/healthz"}}], "backends": []})
+
+    # Desired set keeps only jira → /mcp/rag must be pruned, /healthz must survive.
+    rendered = bridge.merge_agentgateway_mcp_routes(
+        baseline,
+        [bridge.McpGatewayTarget(id="jira", upstream_url="http://mcp-jira:8000/mcp")],
+    )
+
+    routes = rendered["binds"][0]["listeners"][0]["routes"]
+    route_paths = [route["matches"][0]["path"]["pathPrefix"] for route in routes]
+    assert "/mcp/rag" not in route_paths
+    assert "/mcp/jira" in route_paths
+    assert "/healthz" in route_paths  # non-MCP routes are never pruned
 
 
 def test_merge_agentgateway_mcp_routes_replaces_stale_route_target() -> None:
@@ -178,7 +213,10 @@ def test_merge_agentgateway_mcp_routes_replaces_stale_route_target() -> None:
     )
 
 
-def test_merge_agentgateway_mcp_routes_preserves_existing_target_policies() -> None:
+def test_merge_agentgateway_mcp_routes_drops_stale_backend_auth_for_transform_servers() -> None:
+    # GitHub/GitLab moved from a static backendAuth PAT to a per-request
+    # transformation. A stale backendAuth preserved from the live config must be
+    # dropped so callers authenticate with their own (or the org fallback) token.
     baseline = _baseline_config()
     baseline["binds"][0]["listeners"][0]["routes"].append(
         {
@@ -221,10 +259,16 @@ def test_merge_agentgateway_mcp_routes_preserves_existing_target_policies() -> N
     )
     target = route["backends"][0]["mcp"]["targets"][0]
     assert target["mcp"]["host"] == "http://github-mcp-server:8082/mcp"
-    assert target["policies"]["backendAuth"]["key"] == "$GITHUB_PERSONAL_ACCESS_TOKEN"
+    assert "policies" not in target
+    transform = route["policies"]["transformations"]["request"]["set"]
+    assert transform["authorization"] == (
+        '"Bearer " + default(request.headers["x-caipe-provider-token"], "")'
+    )
+    assert "extAuthz" in route["policies"]
+    assert "authorization" in route["policies"]
 
 
-def test_merge_agentgateway_mcp_routes_applies_default_provider_target_policies() -> None:
+def test_merge_agentgateway_mcp_routes_applies_provider_token_transform() -> None:
     baseline = _baseline_config()
 
     rendered = bridge.merge_agentgateway_mcp_routes(
@@ -243,7 +287,37 @@ def test_merge_agentgateway_mcp_routes_applies_default_provider_target_policies(
         if route["matches"][0]["path"]["pathPrefix"] == "/mcp/gitlab"
     )
     target = route["backends"][0]["mcp"]["targets"][0]
-    assert target["policies"]["backendAuth"]["key"] == "$GITLAB_PERSONAL_ACCESS_TOKEN"
+    assert "policies" not in target
+    transform = route["policies"]["transformations"]["request"]["set"]
+    assert transform["authorization"] == (
+        '"Bearer " + default(request.headers["x-caipe-provider-token"], "")'
+    )
+
+
+def test_merge_agentgateway_mcp_routes_applies_knowledge_base_transform() -> None:
+    # knowledge-base (RAG) enforces its own OIDC auth, so the bridge must apply the
+    # same X-CAIPE-Provider-Token -> Authorization rewrite used by github/gitlab.
+    baseline = _baseline_config()
+
+    rendered = bridge.merge_agentgateway_mcp_routes(
+        baseline,
+        [
+            bridge.McpGatewayTarget(
+                id="knowledge-base",
+                upstream_url="http://rag-server:9446/mcp",
+            )
+        ],
+    )
+
+    route = next(
+        route
+        for route in rendered["binds"][0]["listeners"][0]["routes"]
+        if route["matches"][0]["path"]["pathPrefix"] == "/mcp/knowledge-base"
+    )
+    transform = route["policies"]["transformations"]["request"]["set"]
+    assert transform["authorization"] == (
+        '"Bearer " + default(request.headers["x-caipe-provider-token"], "")'
+    )
 
 
 def test_write_config_atomically_publishes_agentgateway_readable_file(tmp_path: Path) -> None:

@@ -21,7 +21,7 @@ import { gradientThemes } from "@/lib/gradient-themes";
 const DYNAMIC_AGENTS_URL =
   process.env.DYNAMIC_AGENTS_URL || "http://localhost:8100";
 
-type SuggestField = "description" | "system_prompt" | "theme";
+type SuggestField = "description" | "system_prompt" | "theme" | "slack_followup_prompt";
 
 interface SuggestFieldRequest {
   field: SuggestField;
@@ -36,6 +36,9 @@ interface SuggestFieldRequest {
       name: string;
       description?: string;
     }>;
+    slack_channel_name?: string;
+    slack_agent_id?: string;
+    followup_prompt?: string;
   };
   model: { id: string; provider: string };
   /** @deprecated Use model.id / model.provider instead */
@@ -136,6 +139,34 @@ function buildPrompts(body: SuggestFieldRequest): {
       };
     }
 
+    case "slack_followup_prompt": {
+      const instructionPart = instruction
+        ? ` Additional guidance from the admin: ${instruction}`
+        : "";
+      const existingPart = context.followup_prompt
+        ? ` Existing follow-up prompt to improve:\n${context.followup_prompt}\n\n`
+        : "";
+      const channelPart = context.slack_channel_name
+        ? ` for Slack channel "${context.slack_channel_name}"`
+        : "";
+      const agentPart = context.slack_agent_id
+        ? ` routed to agent:${context.slack_agent_id}`
+        : "";
+      const isConcise = body.prompt_style !== "comprehensive";
+      return {
+        system_prompt:
+          "You are an expert Slack bot conversation designer. " +
+          "Write follow-up prompt text that is prepended when the bot re-evaluates or humbly follows up before replying. " +
+          "The text should guide the selected agent's behavior in Slack, be safe for production, and avoid mentioning implementation details. " +
+          "Output ONLY the prompt content — no wrapping, no preamble, no explanation.",
+        user_message:
+          `${existingPart}Write a ${isConcise ? "concise" : "detailed"} Slack follow-up prompt${channelPart}${agentPart}.${instructionPart} ` +
+          (isConcise
+            ? "Focus on tone, uncertainty handling, and when to ask a clarifying question."
+            : "Cover tone, uncertainty handling, clarification behavior, escalation boundaries, and how to keep Slack replies brief."),
+      };
+    }
+
     case "theme": {
       const themeList = gradientThemes
         .map((t) => `- ${t.id}: ${t.label} — ${t.description}`)
@@ -190,9 +221,9 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       );
     }
 
-    if (!["description", "system_prompt", "theme"].includes(body.field)) {
+    if (!["description", "system_prompt", "theme", "slack_followup_prompt"].includes(body.field)) {
       throw new ApiError(
-        `Invalid field: ${body.field}. Must be one of: description, system_prompt, theme`,
+        `Invalid field: ${body.field}. Must be one of: description, system_prompt, theme, slack_followup_prompt`,
         400
       );
     }

@@ -188,7 +188,7 @@ type tool
 type knowledge_base
   relations
     define owner: [user, service_account]
-    define reader: [user, service_account, team#member, team#admin, external_group#member, slack_channel, webex_space]
+    define reader: [user, user:*, service_account, team#member, team#admin, external_group#member, slack_channel, webex_space]
     define ingestor: [user, service_account, team#member, team#admin, external_group#member]
     define manager: [user, service_account, team#admin, organization#admin]
     define auditor: [user, service_account, team#admin]
@@ -208,7 +208,7 @@ type knowledge_base
 type data_source
   relations
     define owner: [user, service_account]
-    define reader: [user, service_account, team#member, team#admin, external_group#member]
+    define reader: [user, user:*, service_account, team#member, team#admin, external_group#member]
     define ingestor: [user, service_account, team#member, team#admin, external_group#member]
     define manager: [user, service_account, team#admin, organization#admin]
     define auditor: [user, service_account, team#admin]

@@ -1,0 +1,520 @@
+"use client";
+
+import { HelpCircle } from "lucide-react";
+import { useEffect, useState } from "react";
+
+import { PromptEditorWorkbench, type PromptSuggestRequest } from "@/components/prompt/PromptEditorWorkbench";
+import { AgentPicker, type AgentPickerOption } from "@/components/ui/agent-picker";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { TeamPicker, type TeamPickerOption } from "@/components/ui/team-picker";
+import { useToast } from "@/components/ui/toast";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
+import type { DynamicAgentOption, ItemAgentRoute, ItemSummary, TeamOption } from "../connector-admin-adapter";
+import { SlackEmojiCombobox } from "./SlackEmojiCombobox";
+import { SlackUserTokenInput } from "./SlackUserTokenInput";
+import {
+  DEFAULT_OVERTHINK_SKIP_MARKERS,
+  draftToRoute,
+  emptyRouteDraft,
+  routeDraftErrorMap,
+  routeToDraft,
+  type ListenMode,
+  type RouteDraft,
+  type RouteEscalationDraft,
+  type RouteSideDraft,
+} from "./slack-route-draft";
+
+function HelpTooltip({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button type="button" aria-label={`Help: ${label}`} className="inline-flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          <HelpCircle className="h-3.5 w-3.5" aria-hidden="true" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="max-w-xs whitespace-normal break-words text-xs">{children}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+function RouteEditorSection({ title, description, enabled, onToggle, disabled, children }: {
+  title: string;
+  description?: React.ReactNode;
+  enabled?: boolean;
+  onToggle?: (value: boolean) => void;
+  disabled?: boolean;
+  children: React.ReactNode;
+}) {
+  const hasToggle = typeof enabled === "boolean" && onToggle;
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-1.5 text-sm font-medium">
+          <span>{title}</span>
+          {description && <HelpTooltip label={title}>{description}</HelpTooltip>}
+        </div>
+        {hasToggle && (
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            <input type="checkbox" checked={enabled} disabled={disabled} onChange={(event) => onToggle(event.target.checked)} />
+            Enabled
+          </label>
+        )}
+      </div>
+      {(!hasToggle || enabled) && <div className="space-y-3">{children}</div>}
+    </div>
+  );
+}
+
+function FollowupPromptEditor({ value, onChange, disabled, channelName, agentId, model }: {
+  value: string;
+  onChange: (value: string) => void;
+  disabled: boolean;
+  channelName?: string;
+  agentId?: string;
+  model?: { id?: string; provider?: string };
+}) {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState(value);
+
+  const suggest = async ({ instruction, enhanceExisting, style }: PromptSuggestRequest) => {
+    if (!model?.id || !model.provider) return;
+    const res = await fetch("/api/dynamic-agents/assistant/suggest", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        field: "slack_followup_prompt",
+        context: {
+          name: agentId ? `Slack route for ${agentId}` : "Slack route",
+          slack_channel_name: channelName,
+          slack_agent_id: agentId,
+          ...(enhanceExisting && draft.trim() ? { followup_prompt: draft } : {}),
+        },
+        model: { id: model.id, provider: model.provider },
+        ...(instruction ? { instruction } : {}),
+        prompt_style: style,
+      }),
+    });
+    const payload = await res.json();
+    if (!res.ok || !payload.success) throw new Error(payload?.error || "Failed to generate follow-up prompt");
+    return payload.data?.content ?? payload.content;
+  };
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-1.5">
+        <Label>Follow-up prompt</Label>
+        <HelpTooltip label="Follow-up prompt">Used after overthink skips a Slack reply. If a user later explicitly follows up in that thread, this text is prepended to the agent context so it can answer with the earlier skipped reasoning in mind.</HelpTooltip>
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-background px-3 py-2">
+        <div className="min-w-0 text-sm">
+          {value.trim() ? <span className="line-clamp-1 text-muted-foreground">{value.trim()}</span> : <span className="text-muted-foreground">No follow-up prompt configured</span>}
+        </div>
+        <Button type="button" variant="outline" size="sm" onClick={() => { setDraft(value); setOpen(true); }} disabled={disabled}>
+          {value.trim() ? "Edit prompt" : "Write prompt"}
+        </Button>
+      </div>
+      <p className="text-xs text-muted-foreground">Optional prompt prepended on humble follow-ups.</p>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-h-[90vh] max-w-5xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Edit follow-up prompt</DialogTitle>
+            <DialogDescription>Write the prompt in a larger editor. AI Suggest will tailor the text for this Slack route.</DialogDescription>
+          </DialogHeader>
+          <PromptEditorWorkbench
+            id="slack-followup-prompt"
+            label="Follow-up prompt"
+            value={draft}
+            onChange={setDraft}
+            placeholder="When confidence is low, briefly explain uncertainty and ask one clarifying question before proceeding..."
+            height={420}
+            onSuggest={suggest}
+            suggestDisabled={!model?.id || !model.provider}
+            suggestTitle={!model?.id || !model.provider ? "Select an agent with model metadata before using AI Suggest" : "Generate follow-up prompt with AI"}
+            suggestInstructionLabel="What should this Slack follow-up prompt cover?"
+            suggestInstructionPlaceholder="e.g., Ask one clarifying question before escalating..."
+          />
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+            <Button type="button" onClick={() => { onChange(draft); setOpen(false); }}>Apply prompt</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function RouteSideEditor({ title, side, enabled, onToggleEnabled, onChange, listLabel, listPlaceholder, disabled, channelName, agentId, model, error, lookupKind = "all" }: {
+  title: string;
+  side: RouteSideDraft;
+  enabled: boolean;
+  onToggleEnabled: (v: boolean) => void;
+  onChange: (next: RouteSideDraft) => void;
+  listLabel: string;
+  listPlaceholder: string;
+  disabled: boolean;
+  channelName?: string;
+  agentId?: string;
+  model?: { id?: string; provider?: string };
+  error?: string;
+  lookupKind?: "all" | "bots";
+}) {
+  const idBase = `route-side-${title.toLowerCase()}`;
+  return (
+    <RouteEditorSection
+      title={`Respond to ${title}`}
+      description={title === "Users" ? "Controls how this agent handles Slack messages from people." : "Controls how this agent handles messages posted by Slack apps or bots."}
+      enabled={enabled}
+      onToggle={onToggleEnabled}
+      disabled={disabled}
+    >
+      <div className="space-y-3">
+        <div className="space-y-1.5">
+          <Label htmlFor={`${idBase}-listen`}>Listen</Label>
+          <select id={`${idBase}-listen`} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={side.listen} disabled={disabled} onChange={(e) => onChange({ ...side, listen: e.target.value as ListenMode })}>
+            <option value="mention">mention</option>
+            <option value="message">message</option>
+            <option value="all">all</option>
+          </select>
+        </div>
+        <SlackUserTokenInput label={listLabel} value={side.allowList} disabled={disabled} placeholder={listPlaceholder} kind={lookupKind} onChange={(next) => onChange({ ...side, allowList: next })} />
+      </div>
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={side.overthinkEnabled} disabled={disabled} onChange={(e) => onChange({ ...side, overthinkEnabled: e.target.checked })} />
+        Overthink (re-evaluate before replying)
+      </label>
+      {side.overthinkEnabled && (
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-1.5">
+              <Label htmlFor={`${idBase}-skip`}>Skip markers</Label>
+              <HelpTooltip label={`${title} skip markers`}>If the agent&apos;s final response contains one of these bracketed markers, for example <code>[DEFER]</code> or <code>[LOW_CONFIDENCE]</code>, the Slack bot does not post the response. You likely do not need to change these defaults.</HelpTooltip>
+            </div>
+            <Input id={`${idBase}-skip`} value={side.overthinkSkipMarkers} disabled={disabled} className={cn(error && "border-destructive focus-visible:ring-destructive")} placeholder={DEFAULT_OVERTHINK_SKIP_MARKERS} onChange={(e) => onChange({ ...side, overthinkSkipMarkers: e.target.value })} />
+            {error && <p className="text-xs text-destructive">{error}</p>}
+            <p className="text-xs text-muted-foreground">Default: {DEFAULT_OVERTHINK_SKIP_MARKERS}. You likely do not need to change this.</p>
+          </div>
+          <FollowupPromptEditor value={side.overthinkFollowupPrompt} disabled={disabled} channelName={channelName} agentId={agentId} model={model} onChange={(next) => onChange({ ...side, overthinkFollowupPrompt: next })} />
+        </div>
+      )}
+    </RouteEditorSection>
+  );
+}
+
+function EscalationEditor({ enabled, onToggleEnabled, escalation, onChange, disabled, errors = {} }: {
+  enabled: boolean;
+  onToggleEnabled: (v: boolean) => void;
+  escalation: RouteEscalationDraft;
+  onChange: (next: RouteEscalationDraft) => void;
+  disabled: boolean;
+  errors?: Record<string, string | undefined>;
+}) {
+  return (
+    <RouteEditorSection title="Escalation (“Get help” button)" description="Get Help is a button that appears after a user gives the Forge response a thumbs down." enabled={enabled} onToggle={onToggleEnabled} disabled={disabled}>
+      <div className="space-y-4">
+        <div className="space-y-2">
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={escalation.victoropsEnabled} disabled={disabled} onChange={(e) => onChange({ ...escalation, victoropsEnabled: e.target.checked })} />
+            VictorOps on-call paging
+          </label>
+          {escalation.victoropsEnabled && (
+            <div className="space-y-1.5">
+              <Label htmlFor="route-esc-vo-team">VictorOps team</Label>
+              <Input id="route-esc-vo-team" value={escalation.victoropsTeam} disabled={disabled} className={cn(errors.victoropsTeam && "border-destructive focus-visible:ring-destructive")} placeholder="e.g. dao" onChange={(e) => onChange({ ...escalation, victoropsTeam: e.target.value })} />
+              {errors.victoropsTeam && <p className="text-xs text-destructive">{errors.victoropsTeam}</p>}
+            </div>
+          )}
+        </div>
+        <div className="space-y-2">
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={escalation.emojiEnabled} disabled={disabled} onChange={(e) => onChange({ ...escalation, emojiEnabled: e.target.checked })} />
+            Emoji reaction
+          </label>
+          {escalation.emojiEnabled && <SlackEmojiCombobox value={escalation.emojiName} disabled={disabled} error={errors.emojiName} onChange={(next) => onChange({ ...escalation, emojiName: next })} />}
+        </div>
+        <SlackUserTokenInput label="Ping users" value={escalation.users} disabled={disabled} placeholder="Search Slack users or paste U012ABC" onChange={(next) => onChange({ ...escalation, users: next })} />
+        <SlackUserTokenInput label="Delete admins" value={escalation.deleteAdmins} disabled={disabled} placeholder="Search Slack users or paste U012ABC" onChange={(next) => onChange({ ...escalation, deleteAdmins: next })} />
+      </div>
+      {errors.escalation && <p className="text-xs text-destructive">{errors.escalation}</p>}
+    </RouteEditorSection>
+  );
+}
+
+function SlackRouteEditorDialog({
+  open,
+  onOpenChange,
+  selected,
+  dynamicAgents,
+  routes,
+  onSaved,
+  disabled,
+  loading,
+  setLoading,
+  selectedCanManage,
+  editingRoute,
+  routesFor,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  selected: ItemSummary | undefined;
+  dynamicAgents: DynamicAgentOption[];
+  routes: ItemAgentRoute[];
+  onSaved: (routes: ItemAgentRoute[]) => Promise<void> | void;
+  disabled: boolean;
+  loading: boolean;
+  setLoading: (loading: boolean) => void;
+  selectedCanManage: boolean;
+  editingRoute: ItemAgentRoute | null;
+  routesFor: (workspaceId: string, itemId: string) => string;
+}) {
+  const { toast } = useToast();
+  const [routeDraft, setRouteDraft] = useState<RouteDraft>(emptyRouteDraft());
+  const [submitAttempted, setSubmitAttempted] = useState(false);
+  const selectedAgent = dynamicAgents.find((agent) => agent._id === routeDraft.agentId);
+  const validationErrors = routeDraftErrorMap(routeDraft);
+  const visibleErrors = submitAttempted ? validationErrors : {};
+  const hasErrors = Object.keys(validationErrors).length > 0;
+  const formDisabled = disabled || !selectedCanManage;
+
+  useEffect(() => {
+    if (open) {
+      setRouteDraft(editingRoute ? routeToDraft(editingRoute) : emptyRouteDraft());
+      setSubmitAttempted(false);
+    }
+  }, [editingRoute, open]);
+
+  const saveRoute = async () => {
+    const agentId = routeDraft.agentId.trim();
+    if (!selected || !agentId) return;
+    if (hasErrors) return;
+    setLoading(true);
+    try {
+      const nextRoutes: ItemAgentRoute[] = [
+        ...routes.filter((route) => route.agent_id !== agentId && route.agent_id !== editingRoute?.agent_id),
+        draftToRoute(routeDraft),
+      ];
+      const res = await fetch(routesFor(selected.workspace_id, selected.item_id), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ routes: nextRoutes }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const payload = await res.json();
+      const savedRoutes = (payload.data?.routes ?? payload.routes ?? []) as ItemAgentRoute[];
+      await onSaved(savedRoutes);
+      onOpenChange(false);
+      toast(editingRoute ? "Slack channel agent updated." : "Slack channel agent added.", "success");
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Failed to save Slack channel agent", "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[90vh] max-w-5xl overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>{editingRoute ? `Edit agent:${editingRoute.agent_id}` : `Add Agent${selected ? ` to ${selected.item_name || selected.item_id}` : ""}`}</DialogTitle>
+          <DialogDescription>Configure how this Slack channel routes messages to a Dynamic Agent. Optional response and escalation settings stay hidden until enabled.</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-5">
+          <section className="space-y-3">
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="connector-route-agent-id" className="block">Dynamic Agent</Label>
+                <AgentPicker
+                  id="connector-route-agent-id"
+                  ariaLabel="Dynamic Agent"
+                  value={routeDraft.agentId}
+                  onChange={(value) => setRouteDraft((prev) => ({ ...prev, agentId: value }))}
+                  disabled={formDisabled || dynamicAgents.length === 0 || Boolean(editingRoute)}
+                  placeholder={dynamicAgents.length === 0 ? "No enabled Dynamic Agents found" : "Select Dynamic Agent"}
+                  options={dynamicAgents.map<AgentPickerOption>((agent) => ({ value: agent._id, label: agent.name || agent._id }))}
+                  triggerClassName={cn("h-10", visibleErrors.agentId && "border-destructive focus:ring-destructive")}
+                />
+                {visibleErrors.agentId && <p className="text-xs text-destructive">{visibleErrors.agentId}</p>}
+              </div>
+              <div className="max-w-48 space-y-2">
+                <Label htmlFor="connector-route-priority" className="block">Priority</Label>
+                <Input id="connector-route-priority" type="number" value={routeDraft.priority} className={cn(visibleErrors.priority && "border-destructive focus-visible:ring-destructive")} onChange={(event) => setRouteDraft((prev) => ({ ...prev, priority: Number(event.target.value) }))} disabled={formDisabled} />
+                {visibleErrors.priority && <p className="text-xs text-destructive">{visibleErrors.priority}</p>}
+              </div>
+            </div>
+          </section>
+          <div className="border-t" />
+          <section className="space-y-3">
+            <div className="flex items-center gap-1.5">
+              <h4 className="text-sm font-semibold">Responding</h4>
+              <HelpTooltip label="Responding">Configure whether this agent handles user messages, bot messages, or both.</HelpTooltip>
+            </div>
+            <div className="space-y-5">
+              {visibleErrors.responding && <p className="text-xs text-destructive">{visibleErrors.responding}</p>}
+              <RouteSideEditor title="Users" side={routeDraft.users} enabled={routeDraft.usersEnabled} onToggleEnabled={(value) => setRouteDraft((prev) => ({ ...prev, usersEnabled: value }))} onChange={(next) => setRouteDraft((prev) => ({ ...prev, users: next }))} listLabel="Only these Slack users" listPlaceholder="Search Slack users or paste U012ABC" disabled={formDisabled} channelName={selected?.item_name || selected?.item_id} agentId={routeDraft.agentId} model={selectedAgent?.model} error={visibleErrors.usersSkipMarkers} />
+              <RouteSideEditor title="Bots" side={routeDraft.bots} enabled={routeDraft.botsEnabled} onToggleEnabled={(value) => setRouteDraft((prev) => ({ ...prev, botsEnabled: value }))} onChange={(next) => setRouteDraft((prev) => ({ ...prev, bots: next }))} listLabel="Only these Slack bots" listPlaceholder="Search Slack bot users or paste an ID" disabled={formDisabled} lookupKind="bots" channelName={selected?.item_name || selected?.item_id} agentId={routeDraft.agentId} model={selectedAgent?.model} error={visibleErrors.botsSkipMarkers} />
+            </div>
+          </section>
+          <div className="border-t" />
+          <section className="space-y-3">
+            <h4 className="text-sm font-semibold">Escalation</h4>
+            <EscalationEditor enabled={routeDraft.escalationEnabled} onToggleEnabled={(value) => setRouteDraft((prev) => ({ ...prev, escalationEnabled: value }))} escalation={routeDraft.escalation} onChange={(next) => setRouteDraft((prev) => ({ ...prev, escalation: next }))} disabled={formDisabled} errors={visibleErrors} />
+          </section>
+          <DialogFooter className="border-t pt-4">
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>Cancel</Button>
+            <Button type="button" onClick={() => { setSubmitAttempted(true); if (!hasErrors) void saveRoute(); }} disabled={formDisabled || loading}>
+              {loading ? "Saving..." : editingRoute ? "Update Agent" : "Add Agent"}
+            </Button>
+          </DialogFooter>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function routeSummaryBadges(route: ItemAgentRoute): string[] {
+  const badges: string[] = [];
+  if (route.users && route.users.enabled !== false) badges.push(`users:${route.users.listen ?? "mention"}`);
+  if (route.bots && route.bots.enabled !== false) badges.push(`bots:${route.bots.listen ?? "message"}`);
+  if (route.users?.overthink?.enabled || route.bots?.overthink?.enabled) badges.push("overthink");
+  const esc = route.escalation;
+  if (esc && (esc.victorops?.enabled || esc.emoji?.enabled || (esc.users?.length ?? 0) > 0 || (esc.delete_admins?.length ?? 0) > 0)) badges.push("escalation");
+  return badges;
+}
+
+export function SlackConfiguredChannelDetail({
+  selected,
+  routes,
+  dynamicAgents,
+  teams,
+  disabled,
+  loading,
+  setLoading,
+  selectedCanManage,
+  onRefresh,
+  routesFor,
+  listApi,
+}: {
+  selected: ItemSummary;
+  routes: ItemAgentRoute[];
+  dynamicAgents: DynamicAgentOption[];
+  teams: TeamOption[];
+  disabled: boolean;
+  loading: boolean;
+  setLoading: (loading: boolean) => void;
+  selectedCanManage: boolean;
+  onRefresh: (routes?: ItemAgentRoute[]) => Promise<void> | void;
+  routesFor: (workspaceId: string, itemId: string) => string;
+  listApi: string;
+}) {
+  const { toast } = useToast();
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editingRoute, setEditingRoute] = useState<ItemAgentRoute | null>(null);
+  const [routePendingDelete, setRoutePendingDelete] = useState<ItemAgentRoute | null>(null);
+
+  const setChannelTeam = async (teamSlug: string) => {
+    if (!teamSlug) return;
+    setLoading(true);
+    try {
+      const res = await fetch(`${listApi}/${encodeURIComponent(selected.workspace_id)}/${encodeURIComponent(selected.item_id)}/team`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ team_slug: teamSlug, channel_name: selected.item_name || selected.item_id }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      toast("Slack channel team updated.", "success");
+      await onRefresh();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Failed to update Slack channel team", "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const deleteRouteConfirmed = async () => {
+    if (!routePendingDelete) return;
+    setLoading(true);
+    try {
+      const res = await fetch(routesFor(selected.workspace_id, selected.item_id), {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agent_id: routePendingDelete.agent_id }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      setRoutePendingDelete(null);
+      toast("Slack channel agent removed.", "success");
+      await onRefresh();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Failed to remove Slack channel agent", "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-md border bg-background/60 p-3">
+        <div className="mb-2 flex items-center justify-between gap-3">
+          <div>
+            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Team</div>
+            <p className="text-sm text-muted-foreground">Assign a team so this channel can be managed and shown to the right admins.</p>
+          </div>
+          {selected.team_slug ? <Badge variant="secondary">team:{selected.team_slug}</Badge> : <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-800">no team</Badge>}
+        </div>
+        <TeamPicker value={selected.team_slug ?? ""} onChange={(teamSlug) => void setChannelTeam(teamSlug)} disabled={disabled || !selectedCanManage || loading || teams.length === 0} placeholder={teams.length === 0 ? "No teams configured" : "Select team"} searchPlaceholder="Search teams..." ariaLabel={`Team for ${selected.item_name || selected.item_id}`} options={teams.map<TeamPickerOption>((team) => ({ slug: team.slug, name: team.name || team.slug, id: team.id, _id: team._id }))} />
+      </div>
+
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Agents</div>
+            <p className="text-sm text-muted-foreground">{routes.length > 0 ? `${routes.length} agent${routes.length === 1 ? "" : "s"} can respond in ${selected.item_name || selected.item_id}.` : `No agents can respond in ${selected.item_name || selected.item_id} yet.`}</p>
+          </div>
+          <Button type="button" size="sm" onClick={() => { setEditingRoute(null); setEditorOpen(true); }} disabled={disabled || !selectedCanManage || loading}>Add Agent</Button>
+        </div>
+        <p className="text-xs text-muted-foreground">Multiple agents can be associated with {selected.item_name}. The Slack bot picks the highest-priority agent whose listen mode matches the message (mention vs. plain message).</p>
+        {routes.length === 0 ? (
+          <div className="rounded-md border border-dashed bg-muted/20 p-4 text-sm text-muted-foreground">Add an agent to let this channel respond to Slack messages.</div>
+        ) : (
+          <div className="space-y-2">
+            {routes.map((route) => (
+              <div key={route.agent_id} className="flex flex-wrap items-center justify-between gap-3 rounded-md border bg-background/60 px-3 py-2 text-sm">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-medium">agent:{route.agent_id}</span>
+                    <Badge variant="secondary">priority {route.priority}</Badge>
+                    {routeSummaryBadges(route).map((badge) => <Badge key={badge} variant="outline">{badge}</Badge>)}
+                  </div>
+                  <div className="mt-1 text-xs text-muted-foreground">Users: {route.users?.listen ?? "mention"}{route.bots ? ` · Bots: ${route.bots.listen ?? "message"}` : ""}{route.escalation ? " · Escalation enabled" : ""}</div>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <Button type="button" variant="outline" size="sm" onClick={() => { setEditingRoute(route); setEditorOpen(true); }} disabled={disabled || !selectedCanManage || loading} aria-label={`Edit agent:${route.agent_id}`}>Edit</Button>
+                  <Button type="button" variant="destructive" size="sm" onClick={() => setRoutePendingDelete(route)} disabled={disabled || !selectedCanManage || loading} aria-label={`Delete agent:${route.agent_id}`}>Delete</Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <SlackRouteEditorDialog open={editorOpen} onOpenChange={setEditorOpen} selected={selected} dynamicAgents={dynamicAgents} routes={routes} onSaved={onRefresh} disabled={disabled} loading={loading} setLoading={setLoading} selectedCanManage={selectedCanManage} editingRoute={editingRoute} routesFor={routesFor} />
+
+      <Dialog open={Boolean(routePendingDelete)} onOpenChange={(open) => { if (!open && !loading) setRoutePendingDelete(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Remove agent from channel?</DialogTitle>
+            <DialogDescription>{routePendingDelete ? `This removes agent:${routePendingDelete.agent_id} from the selected Slack channel.` : "This removes the selected agent from the Slack channel."}</DialogDescription>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">The OpenFGA tuple will be deleted, and the saved Mongo route metadata for listen mode and priority will be deleted as well.</p>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setRoutePendingDelete(null)} disabled={loading}>Cancel</Button>
+            <Button type="button" variant="destructive" onClick={() => void deleteRouteConfirmed()} disabled={loading}>{loading ? "Removing..." : "Remove agent"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

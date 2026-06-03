@@ -111,6 +111,11 @@ The Teams dialog Knowledge Bases tab reads `team_kb_ownership` through `/api/adm
 
 **Graph tab gate + info banner + per-KB ontology filtering follow-up (PR 5, 2026-05-27).** The Graph tab at `/knowledge-bases/graph` now consults `useKbTabGates` (the PR 2 hook). Non-admins with zero readable KBs see the `NoKbAccessEmpty` empty state. When the tab is rendered the new `GraphInfoBanner` reminds the user — including org admins under PR 1's super-grant — that the ontology graph is currently global: it is stored in Neo4j keyed only by `_datasource_id` and is not filtered per KB. Per-KB filtering needs new RAG-server work (a `kb_ids` filter on the `/v1/graphrag/*` endpoints plus an OpenFGA-driven membership probe in the BFF) and is tracked by `docs/docs/specs/2026-05-27-per-kb-ontology-graph-filtering/spec.md`.
 
+**Share/assign paths mirror `data_source` + `user:*` public datasources (2026-06-03).** Two correctness fixes to the RAG access model:
+
+* **Share→`data_source` mirror.** PR 3/PR 4 wrote `knowledge_base:<id>` tuples from the Share-with-Teams panel (`PUT /api/rag/kbs/[id]/sharing`) and the team KB-assignment route (`/api/admin/teams/[id]/kb-assignments`), but query-time enforcement reads `data_source:<id>#can_read`. A KB-only grant therefore made a datasource *discoverable* but not *searchable*. Both routes now mirror every `knowledge_base` grant onto the parallel `data_source` object via `mirrorKnowledgeBaseDiffToDataSource` (`ui/src/lib/rbac/openfga-owned-resources.ts`). The create path already dual-wrote both types; this closes the same gap for the share/assign paths. Mirroring is idempotent (`writeOpenFgaTuples` pre-checks each tuple), so it is safe on datasources that pre-date the change. This makes the one-time `data_source_grants_backfill_v1` migration the bootstrap and the mirror the ongoing guarantee.
+* **`user:*` public datasources.** The `reader` relation on both `knowledge_base` and `data_source` now accepts the typed wildcard `user:*` (added to `deploy/openfga/model.fga` and the Helm-packaged JSON model). The new admin route `POST /api/admin/rag/public-datasources` writes `user:* reader` on both objects (and `GET` reports state from the `data_source` tuple). This is the supported mechanism for keeping pre-RBAC ("public") datasources broadly readable without maintaining an everyone-team roster. The route is gated by `admin_surface` admin (`withOpenFgaAdminAuth`) — making a datasource world-readable is a privileged action and is not delegated to team admins. Surfaced in **Settings → Knowledge Bases / RAG Team Access** ("Public datasources" section), which also now lists a team's current per-datasource grants with per-row revoke.
+
 **`data_source` and `mcp_tool` OpenFGA types + reconcilers + BFF list filter (PR 4, 2026-05-27).** `deploy/openfga/model.fga` and the Helm-packaged JSON authorization model include two RAG resource types; local Docker Compose mounts the same chart JSON model used by Helm so there is only one JSON artifact to keep current:
 
 ```text
@@ -400,7 +405,12 @@ The bots' DM dispatch chain is:
    BFF).
 3. **Deployment `dm_agent_id`** (`SLACK_INTEGRATION_DM_AGENT_ID` /
    `WEBEX_INTEGRATION_DM_AGENT_ID`).
-4. **Deployment `default_agent_id`** (fallback).
+4. **Platform default agent** (fallback). The Slack bot resolves this from
+   `platform_config.default_agent_id` (set in Admin → Settings → Default
+   Agent, the same value the Web UI uses) and falls back to the
+   `SLACK_INTEGRATION_DEFAULT_AGENT_ID` env/YAML value when the DB is unset
+   or unreachable. So the platform default now governs Slack channel
+   fallback and DMs in addition to the Web UI.
 
 Every candidate is re-checked via `POST /api/user/check_agent_access`
 before being returned. A stale override that fails the PDP is auto-cleared
@@ -437,6 +447,26 @@ the signed-in user's expired or expiring connected providers; that endpoint
 persists the refreshed token server-side and returns only non-secret refresh
 metadata.
 
+**Per-user scope selection.** Each user may narrow which OAuth scopes their own
+connection requests. The My Connections row exposes an "Advanced settings"
+panel listing the connector's allowed `scopes` (the connector's `scopes` array
+is both the admin-managed upper bound and the default selection — a user can
+only narrow within it, never exceed it). The connect route accepts an optional
+`?scopes=` selection; `ProviderConnectionService.startConnection` runs the pure
+`boundScopes(connectorScopes, requested)` guard — rejecting any scope outside
+the connector's allowed set or an empty selection with `400 VALIDATION_ERROR`
+so a tampered request cannot escalate, and never minting a zero-scope token.
+The choice is carried through the signed OAuth state cookie and persisted as
+`requestedScopes` (and `grantedScopes` from the token response `scope` claim)
+on the per-user `provider_connections` document. The IdP still encodes the
+granted scopes inside the issued token, so the token is valid without the
+stored copy; persistence exists so relink pre-fills the user's prior choice
+(rather than silently reverting to the full default), the UI can show what a
+connection was granted, and the selection is auditable. Existing connections
+without these fields and connects that do not open Advanced settings behave
+exactly as before (connector default). Changing scopes requires a relink to
+take effect; it does not retroactively alter an existing token.
+
 Raw token exchange is reserved for service callers. `POST /api/credentials/exchange`
 rejects browser-origin/session requests, verifies the service bearer JWT through
 the OIDC JWKS path, requires the credential-service audience header, and can
@@ -457,16 +487,88 @@ user:<service-sub> can_use secret_ref:provider_connection:<connection_id>
 
 This keeps Dynamic Agents and MCP runtimes on a narrow service-to-service path
 while preserving OpenFGA as the PDP for delegated provider-token use. Dynamic
-Agents uses this path behind `USE_IMPERSONATION_TOKENS=true`; Jira MCP receives
-the exchanged Atlassian token on `X-CAIPE-Provider-Token`, leaving the normal
-`Authorization` header reserved for Keycloak MCP authentication.
+Agents uses this path behind `USE_IMPERSONATION_TOKENS=true` and forwards every
+exchanged provider token to the MCP runtime on `X-CAIPE-Provider-Token`, leaving
+the normal `Authorization` header reserved for Keycloak MCP authentication.
 
-`GET /api/credentials/inject/atlassian` is available as a BFF-side injector
-contract for future AgentGateway integrations, but AgentGateway v0.12 does not
-support backend-level HTTP `extAuthz` response-header injection. The active Jira
-path therefore keeps injection in the runtime connector: Dynamic Agents calls
-credential exchange with the user's Keycloak JWT and passes the resulting
-Atlassian token to Jira MCP on `X-CAIPE-Provider-Token`.
+Per-provider token handling:
+
+| Provider | MCP auth | Notes |
+|----------|----------|-------|
+| Atlassian (Jira/Confluence) | Bearer | MCP rewrites the OAuth base URL to `api.atlassian.com/ex/jira/{cloudId}` (cloud-ID auto-resolved & cached) before calling the API. |
+| PagerDuty | Bearer (OAuth) **or** `Token token=` (static API key) | MCP picks `Authorization: Bearer <token>` when `X-CAIPE-Provider-Token` is present, otherwise falls back to the static `PAGERDUTY_API_KEY` with the legacy `Token token=` scheme. |
+| GitHub / GitLab | Bearer | Upstream expects `Authorization: Bearer <token>`. See the hybrid (per-user OAuth + org PAT fallback) flow below. |
+| Knowledge Base (RAG) | Bearer (Keycloak) | The RAG server enforces its own Keycloak/OIDC auth on `/mcp`. Dynamic Agents forwards the caller's **user JWT** (per-user RAG group RBAC); in non-user contexts (background reconcile/probe) it mints a **`caipe-platform` client-credentials** service token. See the hybrid flow below. |
+
+#### GitHub / GitLab hybrid (per-user OAuth with org-PAT fallback)
+
+GitHub and GitLab upstreams authenticate with `Authorization: Bearer <token>`
+and historically used a single static org PAT injected at AgentGateway via a
+`backendAuth` policy. That made every caller act as the org service account. The
+hybrid model lets connected users act as themselves while unconnected callers
+transparently fall back to the org token:
+
+1. Dynamic Agents resolves the credential for each `credential_sources` entry.
+   When the caller has connected their personal GitHub/GitLab account, it
+   exchanges that per-user OAuth token. When no per-user connection resolves, it
+   reads the static org PAT from `MCPCredentialSource.fallback_env`
+   (`GITHUB_PERSONAL_ACCESS_TOKEN` / `GITLAB_PERSONAL_ACCESS_TOKEN` on the
+   Dynamic Agents pod).
+2. Either way, the resolved token is forwarded to AgentGateway on
+   `X-CAIPE-Provider-Token`.
+3. A route-level AgentGateway **transformation** rewrites that header into the
+   upstream `Authorization: Bearer` header:
+   `'"Bearer " + default(request.headers["x-caipe-provider-token"], "")'`.
+   The static `backendAuth` PAT is no longer configured at the gateway — the org
+   PAT now lives only on Dynamic Agents as a fallback.
+
+This is a header rewrite (route-level transformation), not the backend-level
+`extAuthz` response-header injection that AgentGateway does not support. The
+`X-CAIPE-Provider-Token` → `Authorization` transformation is configured in the
+standalone static config (`deploy/agentgateway/config.yaml`,
+`deploy/agentgateway/config.caipe-rbac.yaml`), the Docker Compose config bridge
+(`deploy/agentgateway/config_bridge.py`), and both Helm routing paths
+(`templates/agentgateway-static-config.yaml` for static routing,
+`templates/agentgateway-mcp.yaml` as an `AgentgatewayPolicy` for the
+Gateway-API path).
+
+`GET /api/credentials/inject/atlassian` remains available as a BFF-side injector
+contract for future AgentGateway integrations.
+
+#### Knowledge Base (RAG) hybrid (user JWT with `caipe-platform` service-token fallback)
+
+The `knowledge-base` MCP server is backed by the RAG server, which enforces its
+own Keycloak/OIDC authentication on `/mcp` (validating issuer, audience —
+`caipe-platform` — signature, and expiry). AgentGateway does not forward the
+incoming `Authorization` header to MCP backends by default, so the RAG server
+previously received no token and returned `HTTP 401`, surfacing in the UI as
+`MCP server 'knowledge-base' is unavailable`. The hybrid model supplies the right
+identity for each call path:
+
+1. Dynamic Agents resolves a `caller_token` `credential_sources` entry for
+   `knowledge-base`. When a per-request user JWT is present (the caller's Keycloak
+   token in `current_user_token`, set by `JwtAuthMiddleware`), it forwards that
+   user JWT so the RAG server can apply **per-user group RBAC**
+   (`team:<slug>#member reader knowledge_base:<id>`).
+2. When there is **no** user context — e.g. the background tool reconcile/probe
+   (`conv=-`) — Dynamic Agents mints (and caches until ~30 s before expiry) a
+   **`caipe-platform` OAuth2 client-credentials** service token via Keycloak
+   (`MCP_SERVICE_OIDC_*`, defaulting to `INGESTOR_OIDC_CLIENT_*` / `KEYCLOAK_URL`).
+3. Either token is forwarded to AgentGateway on `X-CAIPE-Provider-Token`, and the
+   same route-level transformation used by GitHub/GitLab rewrites it into the
+   upstream `Authorization: Bearer` header:
+   `'"Bearer " + default(request.headers["x-caipe-provider-token"], "")'`.
+
+The transform is configured for the `knowledge-base` route in the standalone
+static config (`deploy/agentgateway/config.yaml`,
+`deploy/agentgateway/config.caipe-rbac.yaml`), the config bridge
+(`deploy/agentgateway/config_bridge.py` —
+`DEFAULT_MCP_ROUTE_POLICY_OVERRIDES["knowledge-base"]`), and the Helm static
+routing path (`knowledgeBaseTarget` carries `providerTokenAuth: true` in
+`_helpers.tpl`). The token-resolution logic lives in
+`ai_platform_engineering/dynamic_agents/src/dynamic_agents/services/mcp_client.py`
+(`caller_token` kind + `mint_service_client_credentials_token`) and the seed row
+ships in `dynamic_agents/services/config.yaml`.
 
 ### OpenFGA Relationship Backfill
 
@@ -530,7 +632,11 @@ user:* user agent:<default_agent_id>
 Default-agent resolution matches the Admin Settings feature: persisted
 `platform_config.default_agent_id` first, then `DEFAULT_AGENT_ID`, then the
 supervisor fallback. Supervisor fallback is not a Dynamic Agent and does not
-produce a default-agent OpenFGA tuple. The backfill is still the bulk repair path
+produce a default-agent OpenFGA tuple. The Slack bot honors the same
+`platform_config.default_agent_id` at runtime (via its
+`PlatformSettingsReader`, with `SLACK_INTEGRATION_DEFAULT_AGENT_ID` as the
+env/YAML fallback), so the one Admin → Settings → Default Agent value governs
+the Web UI, Slack channel fallback, and Slack DMs. The backfill is still the bulk repair path
 for existing environments, but the Web UI also reconciles this typed-wildcard
 grant when an admin saves a default Dynamic Agent, when an admitted user logs in,
 and before the chat-available Dynamic Agent picker filters candidates through
@@ -686,6 +792,10 @@ For migrations, the Slack Channels panel includes **Slack Channel Association De
 
 The Slack Channels panel also includes **Slack Bot Runtime Sync** for the running bot process. Browser requests still terminate at the Web UI backend: `caipe-ui` checks the signed-in user's `admin_ui#admin` permission, obtains a Keycloak client-credentials token for the Slack bot admin audience, and calls the Slack bot's internal admin API. The Slack bot verifies that token with Keycloak JWKS before returning route-cache status, clearing its in-memory route cache, or upserting static YAML channel-agent routes into `slack_channel_agent_routes` and OpenFGA. Local no-SSO development can opt into an explicit dev-token path with `SLACK_BOT_ADMIN_DEV_AUTH_ENABLED=true` on the Web UI and `SLACK_ADMIN_DEV_AUTH_ENABLED=true` on the bot, with matching dev token values; this bypasses Keycloak only for the internal Slack bot admin API and must not be enabled in shared environments. The sync operation is intentionally **upsert-only**: it creates missing records and updates matching channel/agent metadata, but it does not delete existing UI-managed associations that are absent from static config.
 
+The **Preview YAML Import** dry run returns the full per-channel/agent breakdown of what an import will write — channel name, each agent's listen modes, `user_list`/`bot_list`, overthink, and escalation (VictorOps/emoji/users/delete_admins) — and the Web UI backend annotates each channel with the team it is currently mapped to (from `channel_team_mappings`), flagging channels with no team so admins can see, before importing, which channels will still need a team assignment (via the Onboard tab) to become invokable. The static YAML is treated as a seed: once a channel exists in the DB, the per-channel route editor in the Configured tab can view and edit every field (users/bots enable + listen + allow lists, overthink, and escalation) and round-trips them through `PUT /api/admin/slack/channels/{workspaceId}/{channelId}/routes` without dropping the fields the import wrote. To reduce ID-copying mistakes, the editor uses Web UI backend lookups (`/api/admin/slack/users/lookup` and `/api/admin/slack/emoji`) for Slack user IDs and custom emoji names; those calls keep `SLACK_BOT_TOKEN` server-side, return minimal display fields, and fall back to raw ID/name entry when Slack lookup scopes are missing. Escalation configured on a DB route (not just static YAML) is honored at runtime: the bot's escalation/feedback handlers fall back to `SlackAgentRouteResolver.escalation_for(...)` when a channel has no static binding, so "Get help" works for UI-managed channels.
+
+The **Advanced** tab also exposes a superadmin **VictorOps escalation agent** picker, persisted as `platform_config.slack_victorops_escalation_agent_id` via `PATCH /api/admin/platform-config`. The bot reads it at runtime (DB value first, `SLACK_INTEGRATION_VICTOROPS_AGENT_ID` env/YAML as fallback) when VictorOps escalation fires. Unlike the platform default agent, this setting grants no user access — it is only the agent the bot queries for on-call lookups — so it writes no OpenFGA tuple and requires no public-access acknowledgement.
+
 Webex space ReBAC follows the same team-ownership shape with Webex-specific types and storage:
 `webex_space:<workspace_alias>--<space_id> user agent:<id>` is the OpenFGA source
 of truth, while `webex_space_agent_routes` stores dependent dispatch metadata
@@ -757,16 +867,22 @@ Legacy Keycloak realm roles may still appear in old local data, but they are not
 | `CAIPE_AGENT_CONTEXT_HMAC_SECRET`                             | Shared secret used by Dynamic Agents and the OpenFGA authz bridge to sign/verify `agent_id` context for per-agent MCP tool enforcement                             | Store only in runtime secrets. When unset, AgentGateway still enforces the coarse user `mcp_gateway:list` gate, but the bridge cannot enforce derived `agent:<id> can_call tool:<server>/<tool>` decisions.                                              |
 | `CAIPE_CREDENTIALS_ENABLED` / `CREDENTIAL_STORE_BACKEND`       | Enables the Connections & Secrets surface and selects the MongoDB envelope credential backend                                                                      | Defaults disabled. Browsers can create or rotate credential values, but raw retrieval is limited to server-to-server callers.                                                                                                                      |
 | `CREDENTIAL_KEY_PROVIDER` / `CREDENTIAL_KMS_CMK_ID` / `CREDENTIAL_KMS_REGION` | Selects the credential data-key wrapper. Local development uses `local-cmk`; production should use `aws-kms` with a real CMK.                                     | `local-cmk` and legacy `dev-local` fail closed in production. Do not put real CMK secrets in ConfigMaps; production KMS access must come from runtime identity and least-privilege key policy.                                                       |
+| `CREDENTIAL_ALLOW_INSECURE_LOCAL_KEY_WRAP`                    | **Dev-only escape hatch.** When `true`, lets the `local-cmk`/`dev-local` key wrappers run even under `NODE_ENV=production` so the credential store works on the prod-parity UI image (`caipe-ui-prod`) for local testing. Defaults `false`. | **Insecure** — data keys are wrapped with locally-derived material, not a real KMS/HSM. The wrapper logs a loud `SECURITY WARNING` on every construction. Must never be `true` in a real production deployment; use `CREDENTIAL_KEY_PROVIDER=aws-kms` there instead. |
 | `CREDENTIAL_BOOTSTRAP_OAUTH_CONNECTORS` / `GITHUB_*` / `CONFLUENCE_*` / `WEBEX_*` / `PAGERDUTY_*` / `GITLAB_*` | Lets the `caipe-ui` TypeScript startup bootstrap idempotently seed global GitHub, Atlassian/Confluence, Webex, PagerDuty, and GitLab OAuth connector records from environment variables | Docker Compose reads these from `.env`; Kubernetes must source them through ESO/ExternalSecret. Provider client secrets must never be placed in ConfigMaps or logs and are immediately written through MongoDB envelope encryption.                   |
 | `CREDENTIAL_SERVICE_AUDIENCE` / `CREDENTIAL_API_URL`           | Audience and service URL used by Dynamic Agents and other internal services when retrieving secret refs or exchanging provider connections                         | Must match the issued service/OBO token audience. Browser-origin, session-only, and wrong-audience retrieval/exchange requests are denied before credential lookup.                                                                               |
+| `USE_IMPERSONATION_TOKENS`                                    | When `true`, Dynamic Agents resolves MCP `credential_sources` through the server-to-server credential exchange (per-user OAuth tokens) instead of session cookies   | Required for the per-user Jira/PagerDuty/GitHub/GitLab provider-token flows. Leave `false` to keep only the coarse user-level AgentGateway/OpenFGA gate.                                                                                          |
+| `GITHUB_PERSONAL_ACCESS_TOKEN` / `GITLAB_PERSONAL_ACCESS_TOKEN` (on **Dynamic Agents**) | Static org-PAT fallback read via `MCPCredentialSource.fallback_env` when a caller has not connected their personal GitHub/GitLab account                            | Keeps GitHub/GitLab tools backward compatible for unconnected callers. The PAT now lives only on Dynamic Agents (no longer a gateway `backendAuth` key); connected users always get their own OAuth token instead. Source from runtime secrets.   |
 | `MONGODB_URI` / `MONGODB_DATABASE`                            | Enables Python OpenFGA audit writers, including Dynamic Agents and `openfga-authz-bridge`, to persist durable `openfga_rebac` rows into `audit_events`             | Store `MONGODB_URI` in runtime secrets for Helm/production; dev compose uses the local MongoDB service.                                                                                                                                          |
 | `SLACK_AGENT_ROUTES_MODE`                                     | Slack bot route source: `db_prefer` (default; prefer OpenFGA-backed UI-managed channel-agent routes, fall back to static config), `config`, or `db_only`             | `db_prefer` and `db_only` require OpenFGA access; MongoDB is used only to enrich tuple-backed routes with listen/priority metadata. Use `config` only for static-only environments that should ignore UI-managed channel routes.                  |
 | `SLACK_INTEGRATION_SILENCE_ENV`                               | Initial setup switch that makes the Slack bot ignore inbound payloads before handlers can send user-visible Slack responses                                           | Use only during bootstrap or broken-route setup windows. Admin/runtime diagnostics remain the place to inspect OpenFGA route health while end-user channel noise is suppressed.                                                                  |
 | `SLACK_WORKSPACE_ALIAS`                                       | Canonical Slack workspace namespace used by the Web UI backend, Slack bot, Mongo route/grant rows, and OpenFGA `slack_channel:<alias>--<channel_id>` subjects      | Configure per deployment (for example, `CAIPE` or `Splunk`). The Slack bot maps incoming Slack `team_id` values to this alias before route and ReBAC lookups.                                                                                       |
-| `SLACK_BOT_TOKEN`                                             | Web UI backend Slack Web API token used only for admin channel discovery in the Slack Channel Setup flow                                                           | Source from Vault/ExternalSecret, normally the same bot token used by `slack-bot`. Never place the value in ConfigMaps or logs.                                                                                                                   |
-| `DISCOVERY_CACHE_TTL_MINUTES`                                 | Bootstrap default for the in-process cache TTL on `/api/admin/slack/available-channels` and `/api/admin/webex/available-spaces`; defaults to `60` and is overridden at runtime by `platform_config.discovery_cache_ttl_minutes`     | Admins set the live value via the **Discovery cache** popover next to the connector discovery button on `Admin → Integrations → Slack` and `Admin → Integrations → Webex` (range `0`–`1440`; `0` disables caching). The env var only sets the bootstrap value when no DB override exists. The same popover exposes a per-provider *Refresh from Slack/Webex now* button that drops the snapshot immediately for ad-hoc bot-membership changes. |
+| `SLACK_BOT_TOKEN`                                             | Web UI backend Slack Web API token used for admin Slack discovery and editor lookups (`available-channels`, `users/lookup`, `emoji`)                               | Source from Vault/ExternalSecret, normally the same bot token used by `slack-bot`. Never place the value in ConfigMaps or logs. User lookup needs `users:read` (and `users:read.email` for email lookup/profile email matching); emoji suggestions need `emoji:read`. |
+| `DISCOVERY_CACHE_TTL_MINUTES`                                 | Bootstrap default for the in-process cache TTL on `/api/admin/slack/available-channels`, `/api/admin/slack/users/lookup`, `/api/admin/slack/emoji`, and `/api/admin/webex/available-spaces`; defaults to `60` and is overridden at runtime by `platform_config.discovery_cache_ttl_minutes`     | Admins set the live value via the **Discovery cache** popover next to the connector discovery button on `Admin → Integrations → Slack` and `Admin → Integrations → Webex` (range `0`–`1440`; `0` disables caching). The env var only sets the bootstrap value when no DB override exists. The same popover exposes a per-provider *Refresh from Slack/Webex now* button that drops the snapshot immediately for ad-hoc bot-membership changes. |
 | `SLACK_AGENT_ROUTES_ENABLED`                                  | Legacy rollout alias; when `true` and `SLACK_AGENT_ROUTES_MODE` is unset, behaves as `SLACK_AGENT_ROUTES_MODE=db_prefer`                                           | Prefer `SLACK_AGENT_ROUTES_MODE` for new deployments so the fallback behavior is explicit.                                                                                                                                                       |
 | `SLACK_AGENT_ROUTES_TTL_SECONDS`                              | Slack bot in-process cache TTL for OpenFGA-backed channel agent routes; defaults to `60`                                                                           | Short TTLs make UI route changes visible faster at the cost of more OpenFGA reads and Mongo metadata joins.                                                                                                                                      |
+| `SLACK_INTEGRATION_DEFAULT_AGENT_ID` / `SLACK_INTEGRATION_DM_AGENT_ID` | Env/YAML fallback for the Slack bot's channel fallback and DM agent. Overridden at runtime by `platform_config.default_agent_id` (Admin → Settings → Default Agent) | These are now bootstrap fallbacks only — the platform default agent set in the UI takes precedence so the same value governs Web UI and Slack. |
+| `SLACK_INTEGRATION_VICTOROPS_AGENT_ID`                        | Env/YAML fallback for the agent the Slack bot queries for VictorOps on-call lookups; overridden at runtime by `platform_config.slack_victorops_escalation_agent_id` | Superadmins set the live value in **Admin → Integrations → Slack → Advanced**. The env var only applies when no DB value is saved. |
+| `SLACK_PLATFORM_SETTINGS_TTL_SECONDS`                         | Slack bot in-process cache TTL for `platform_config` settings (default + VictorOps agents); defaults to `60`                                                       | Short TTLs surface UI setting changes faster at the cost of more Mongo reads. |
 | `CAIPE_PLATFORM_AUDIENCE`                                     | Audience requested by Slack/Webex OBO exchanges for bot → CAIPE UI BFF access checks; defaults to `caipe-platform`                                                | Keep this aligned with the Keycloak client accepted by the Web UI backend. Do not use `agentgateway` for bot pre-dispatch access checks because the next hop is the BFF.                                                                          |
 | `WEBEX_THREAD_CONTEXT_ENABLED`                                | Enables Webex bot thread-context fetch before Dynamic Agent dispatch; defaults to `true`                                                                           | Reads only messages visible to the bot in the same Webex thread and sends bounded context to the authorized agent under the user's OBO path. Set to `false` where message-history minimization is required.                                     |
 | `WEBEX_THREAD_CONTEXT_MAX_MESSAGES`                           | Caps prior Webex thread replies fetched with the Webex Messages API; defaults to `10`                                                                              | Keep this low to limit prompt size and data exposure.                                                                                                                                                                                            |
@@ -886,6 +1002,32 @@ For observability and compliance, the bridge also writes a best-effort
 authorization result: missing subject, OpenFGA allow, OpenFGA deny, and
 OpenFGA unavailable. These writes never affect the allow/deny response returned
 to AgentGateway.
+
+### ext_authz Timeout
+
+The `extAuthz` policy fails **closed** (`denyWithStatus: 403`) so any error or
+timeout reaching the `openfga-authz-bridge` denies the request — never
+fail-open. The proxy's built-in `ext_authz` timeout is **200ms**, which is too
+tight in practice: enumerating tools fires one `ext_authz` Check per MCP route
+**concurrently**, and against a cold or loaded OpenFGA those checks serialize
+and individually exceed 200ms, returning fail-closed 403s that surface in the UI
+as "MCP server unavailable" even for healthy, authorized servers.
+
+The shipped default raises this to **10s** (generous headroom; still bounds a
+stuck call) on the default **static** routing path:
+
+| Knob | Default | Where |
+|------|---------|-------|
+| `global.agentgateway.extAuth.timeout` | `10s` | Helm static routing — rendered into the `extAuthz.timeout` field of the AgentGateway static ConfigMap (`agentgateway-static-config.yaml`). Operator-tunable. |
+| `extAuthz.timeout` (bootstrap) + `DEFAULT_MCP_ROUTE_POLICIES` (config-bridge) | `10s` | Local Docker Compose dev path (`deploy/agentgateway/config.yaml`, `deploy/agentgateway/config_bridge.py`) — kept in parity with the chart. |
+
+Raising the timeout does **not** change the fail-closed posture: a genuine
+OpenFGA `DENY` (or an unreachable bridge after the timeout) still returns 403.
+
+> **Gateway-API / CRD routing (opt-in):** the `AgentgatewayPolicy.traffic.extAuth`
+> resource has **no** timeout field, so this knob does not apply when
+> `routingMode: gateway-api`. Tune the budget there via the `ext_authz` backend's
+> `requestTimeout` (or a route-level request timeout) instead.
 
 ### Data-Plane Ingress
 
@@ -1105,7 +1247,7 @@ The dev PDP model keeps the coarse AgentGateway gate and adds admin-configured t
 | `agent:<agent_id>`             | base `user`, `manager`; derived `can_use`, `can_manage` | Team Resources agent Use / Manage checkboxes write base relations                                      |
 | `tool:<server>_`* and `tool:*` | base `caller`; derived `can_call`                     | Team Resources MCP-server prefix checkboxes and the All Tools wildcard write base relations            |
 | `knowledge_base:<id>`          | base `reader`, `ingestor`, `manager`; derived `can_read`, `can_ingest`, `can_admin` | Team Knowledge Base assignments and **Settings → Knowledge Bases** write `team:<slug>#member reader/ingestor` for read and ingest, and `team:<slug>#admin manager` for admin, before persisting Mongo assignment metadata. KB pages, sharing, and KB-scoped routes check these relationships. |
-| `data_source:<id>`             | base `reader`, `ingestor`, `manager`; derived `can_read`, `can_ingest`, `can_manage` | Datasource component grants are reconciled alongside Knowledge Base grants when a KB-backed datasource is created or shared. Datasource lists, search filters, and ingest/reload operations check these relationships so read and write can differ per datasource. |
+| `data_source:<id>`             | base `reader` (incl. `user:*` wildcard), `ingestor`, `manager`; derived `can_read`, `can_ingest`, `can_manage` | Datasource component grants are reconciled alongside Knowledge Base grants when a KB-backed datasource is created, shared, or assigned to a team (every `knowledge_base:<id>` grant is mirrored onto the matching `data_source:<id>` so the team can actually search, not just discover). Datasource lists, search filters, and ingest/reload operations check these relationships so read and write can differ per datasource. A `user:* reader data_source:<id>` tuple (written by `POST /api/admin/rag/public-datasources`) makes a datasource readable by every authenticated user. |
 | `skill:<id>`                   | base `reader`, `user`, `writer`, `manager`; derived `can_read`, `can_use`, `can_write`, `can_manage` | Team Resources skill selection writes `user` relationships for local and Skill Hub catalog ids; `/api/skills` filters by `can_read`/`can_use`. |
 | `conversation:<id>`            | base `owner`, `reader`, `writer`, `sharer`, `manager`; derived `can_read`, `can_write`, `can_share`, `can_delete` | Chat list/read/write/share and Dynamic Agent stream/invoke/resume/cancel paths check implicit Mongo ownership first, then explicit OpenFGA conversation access. |
 | `mcp_server:agentgateway`      | base `reader`, `writer`, `manager`; derived `can_discover`, `can_read`, `can_manage` | AgentGateway discovery uses `can_discover`; selected-server sync/onboarding uses `can_manage`. |
