@@ -38,7 +38,7 @@ A user opens "My Connections", expands **Advanced settings** on a provider, sees
 
 **Why this priority**: This is the core ask — self-service, per-user scope choice at connect time.
 
-**Independent Test**: With a connector that permits scopes {A, B, C} (default {A, B}), connect choosing {A, C}; assert the authorization URL `scope` param is exactly `A C`.
+**Independent Test**: With a connector that permits scopes `{A, B, C}` (default `{A, B}`), connect choosing `{A, C}`; assert the authorization URL `scope` param is exactly `A C`.
 
 **Acceptance Scenarios**:
 
@@ -54,7 +54,7 @@ After connecting with a custom scope set, the user later relinks (e.g. to re-con
 
 **Why this priority**: Without persistence, relink silently reverts to the global default — a least-privilege and trust regression (this is the "do we need to store it?" answer made concrete).
 
-**Independent Test**: Connect with {A, C}; reload; open Advanced settings on that connection and assert {A, C} is pre-selected; relink and assert the authorization URL again requests {A, C}.
+**Independent Test**: Connect with `{A, C}`; reload; open Advanced settings on that connection and assert `{A, C}` is pre-selected; relink and assert the authorization URL again requests `{A, C}`.
 
 **Acceptance Scenarios**:
 
