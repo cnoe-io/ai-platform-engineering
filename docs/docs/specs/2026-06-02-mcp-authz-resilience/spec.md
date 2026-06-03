@@ -95,7 +95,7 @@ When a server still cannot load after retries, the user sees a message that tell
 
 - **ext_authz timeout setting**: The per-route external-authorization request timeout applied by the gateway; default 10s; configurable; applies to the default static install path and the dev compose path.
 - **MCP server load outcome**: The result of attempting to load a server's tools — available, transiently-unavailable (not ready, retryable), or permanently-failed (needs attention).
-- **Failure classification**: The mapping from an observed connection/authorization error to {transient, permanent, denied}.
+- **Failure classification**: The mapping from an observed connection/authorization error to `{transient, permanent, denied}`.
 
 ## Success Criteria *(mandatory)*
 
