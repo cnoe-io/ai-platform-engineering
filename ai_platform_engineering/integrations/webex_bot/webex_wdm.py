@@ -10,6 +10,7 @@ import logging
 import os
 import threading
 import uuid
+from collections import deque
 from typing import Any
 
 from .utils.webex_ids import canonicalize_webex_space_id, public_webex_room_id_from_uuid
@@ -90,6 +91,16 @@ class WebexWdmRuntime:
         self._device_name = device_name
         self._bot_email: str | None = None
         self._bot_person_id: str | None = None
+        # Self-link of the WDM device we are currently registered as, so we
+        # can reuse it across reconnects instead of leaking a new device.
+        self._device_url: str | None = None
+        # Bounded de-duplication of recently handled message ids. Webex can
+        # redeliver the same activity (e.g. across registered devices or on
+        # reconnect); without this guard the bot processes and replies to the
+        # same message more than once.
+        self._seen_message_ids: deque[str] = deque()
+        self._seen_message_id_set: set[str] = set()
+        self._seen_message_limit = 512
 
     async def run_forever(self) -> None:
         """Connect to Webex WDM and reconnect with capped exponential backoff."""
@@ -151,6 +162,41 @@ class WebexWdmRuntime:
             )
 
     async def _get_websocket_url(self, session: Any) -> str | None:
+        # Reuse an existing WDM registration instead of creating a brand-new
+        # device on every reconnect. Webex fans every message out to ALL
+        # registered devices, so leaking a device per reconnect makes the bot
+        # receive (and reply to) the same message multiple times. We keep a
+        # single device for this bot and prune any extras we previously leaked.
+        existing = await self._list_own_devices(session)
+        if existing:
+            existing.sort(key=lambda d: str(d.get("modificationTime") or ""), reverse=True)
+            primary = existing[0]
+            for stale in existing[1:]:
+                await self._delete_device(session, stale.get("url"))
+            url = primary.get("webSocketUrl")
+            if url:
+                self._device_url = primary.get("url")
+                logger.info(
+                    "Reusing existing Webex WDM device (pruned %d stale device(s))",
+                    max(0, len(existing) - 1),
+                )
+                return url
+        return await self._register_device(session)
+
+    async def _list_own_devices(self, session: Any) -> list[dict[str, Any]]:
+        async with session.get(WEBEX_WDM_DEVICES_URL) as response:
+            if response.status != 200:
+                logger.warning("Webex WDM device listing returned status=%s", response.status)
+                return []
+            payload = await response.json()
+        devices = payload.get("devices") or []
+        return [
+            device
+            for device in devices
+            if device.get("name") == self._device_name and device.get("webSocketUrl")
+        ]
+
+    async def _register_device(self, session: Any) -> str | None:
         device_data = {
             "name": self._device_name,
             "deviceName": self._device_name,
@@ -163,18 +209,20 @@ class WebexWdmRuntime:
         async with session.post(WEBEX_WDM_DEVICES_URL, json=device_data) as response:
             if response.status in (200, 201):
                 payload = await response.json()
+                self._device_url = payload.get("url")
                 return payload.get("webSocketUrl")
             logger.warning("Webex WDM device registration returned status=%s", response.status)
+            return None
 
-        async with session.get(WEBEX_WDM_DEVICES_URL) as response:
-            if response.status != 200:
-                logger.warning("Webex WDM device listing returned status=%s", response.status)
-                return None
-            payload = await response.json()
-            devices = payload.get("devices") or []
-            if not devices:
-                return None
-            return devices[0].get("webSocketUrl")
+    async def _delete_device(self, session: Any, device_url: str | None) -> None:
+        if not device_url:
+            return
+        try:
+            async with session.delete(device_url) as response:
+                if response.status not in (200, 202, 204):
+                    logger.warning("Webex WDM device delete returned status=%s", response.status)
+        except Exception as exc:  # noqa: BLE001 - device cleanup is best-effort
+            logger.warning("Webex WDM device delete failed (type=%s)", type(exc).__name__)
 
     async def _handle_websocket_message(self, session: Any, message: str | bytes) -> None:
         try:
@@ -196,6 +244,10 @@ class WebexWdmRuntime:
             logger.warning("Ignoring Webex WDM activity without message id")
             return
 
+        if self._already_handled(message_id):
+            logger.debug("Ignoring duplicate Webex WDM activity message_id=%s", message_id)
+            return
+
         message_detail = await self._fetch_message_detail(session, message_id)
         if message_detail is None:
             return
@@ -214,6 +266,18 @@ class WebexWdmRuntime:
             result.ignored,
             result.reason_code,
         )
+
+    def _already_handled(self, message_id: str) -> bool:
+        """Return True if this message id was handled recently (and record it)."""
+
+        if message_id in self._seen_message_id_set:
+            return True
+        self._seen_message_ids.append(message_id)
+        self._seen_message_id_set.add(message_id)
+        while len(self._seen_message_ids) > self._seen_message_limit:
+            oldest = self._seen_message_ids.popleft()
+            self._seen_message_id_set.discard(oldest)
+        return False
 
     async def _fetch_message_detail(self, session: Any, message_id: str) -> dict[str, Any] | None:
         async with session.get(f"{WEBEX_API_BASE_URL}/messages/{message_id}") as response:

@@ -35,6 +35,13 @@ DEFAULT_MCP_ROUTE_POLICIES: dict[str, Any] = {
     "extAuthz": {
         "host": "openfga-authz-bridge:9100",
         "failureMode": {"denyWithStatus": 403},
+        # AgentGateway's default ext_authz timeout is 200ms. Listing tools fires one
+        # ext_authz Check per MCP route concurrently; under a cold OpenFGA/Postgres
+        # these serialize (75-150ms each) and blow that 200ms budget, producing
+        # fail-closed 403s that surface as "MCP server unavailable". The bridge
+        # always answers well under 10s. Keep this in sync with
+        # deploy/agentgateway/config.yaml (bootstrap seed).
+        "timeout": "10s",
         "protocol": {
             "grpc": {
                 "metadata": {
@@ -50,17 +57,41 @@ DEFAULT_MCP_ROUTE_POLICIES: dict[str, Any] = {
     },
 }
 
-DEFAULT_MCP_TARGET_POLICIES: dict[str, dict[str, Any]] = {
-    "github": {
-        "backendAuth": {
-            "key": "$GITHUB_PERSONAL_ACCESS_TOKEN",
+# Target-level (per-backend) policies. GitHub/GitLab no longer use a static
+# `backendAuth` PAT here; they authenticate per-request through the route-level
+# transformation below (see DEFAULT_MCP_ROUTE_POLICY_OVERRIDES).
+DEFAULT_MCP_TARGET_POLICIES: dict[str, dict[str, Any]] = {}
+
+# Route-level policy overrides shallow-merged onto DEFAULT_MCP_ROUTE_POLICIES for
+# specific servers. GitHub/GitLab upstreams expect `Authorization: Bearer <token>`.
+# Dynamic Agents resolves the caller's own OAuth token (or, when the caller has
+# not connected, the static org PAT via MCPCredentialSource.fallback_env) and
+# forwards it on `X-CAIPE-Provider-Token`. This transformation rewrites that
+# header into the upstream Authorization header, so connected users act as
+# themselves while unconnected callers transparently fall back to the org token.
+# Standalone config uses the `transformations` (plural) policy key with the
+# `set` map form; CEL `default(...)` keeps the expression total when the header
+# is absent. Keep in sync with deploy/agentgateway/config.yaml (bootstrap seed).
+PROVIDER_TOKEN_BEARER_TRANSFORM: dict[str, Any] = {
+    "transformations": {
+        "request": {
+            "set": {
+                "authorization": (
+                    '"Bearer " + default(request.headers["x-caipe-provider-token"], "")'
+                ),
+            },
         },
     },
-    "gitlab": {
-        "backendAuth": {
-            "key": "$GITLAB_PERSONAL_ACCESS_TOKEN",
-        },
-    },
+}
+
+# knowledge-base (RAG) reuses the same transform: the RAG server enforces its own
+# Keycloak/OIDC auth on /mcp, so Dynamic Agents forwards the caller's user JWT (for
+# per-user RAG group RBAC) or a caipe-platform service token (non-user contexts) on
+# X-CAIPE-Provider-Token, which this rewrites into the upstream Authorization header.
+DEFAULT_MCP_ROUTE_POLICY_OVERRIDES: dict[str, dict[str, Any]] = {
+    "github": PROVIDER_TOKEN_BEARER_TRANSFORM,
+    "gitlab": PROVIDER_TOKEN_BEARER_TRANSFORM,
+    "knowledge-base": PROVIDER_TOKEN_BEARER_TRANSFORM,
 }
 
 
@@ -147,6 +178,16 @@ def _first_http_listener(config: dict[str, Any]) -> dict[str, Any]:
     return listener
 
 
+def _is_managed_mcp_route_path(path: str | None) -> bool:
+    """True for per-target ``/mcp/<id>`` routes this reconciler owns.
+
+    Such routes are derived 1:1 from ``mcp_servers`` documents, so the reconciler
+    is their single source of truth and may add *or* remove them. Non-MCP routes
+    (anything not under ``/mcp/``) are never pruned.
+    """
+    return isinstance(path, str) and path.startswith("/mcp/")
+
+
 def _route_path(route: dict[str, Any]) -> str | None:
     matches = route.get("matches")
     if not isinstance(matches, list):
@@ -208,6 +249,16 @@ def _mcp_route(
     }
 
 
+def _route_policies_for(target_id: str, base: dict[str, Any]) -> dict[str, Any]:
+    """Merge any per-server route-policy override onto the base MCP route policy."""
+
+    merged = copy.deepcopy(base)
+    override = DEFAULT_MCP_ROUTE_POLICY_OVERRIDES.get(target_id)
+    if override:
+        merged.update(copy.deepcopy(override))
+    return merged
+
+
 def merge_agentgateway_mcp_routes(
     baseline_config: dict[str, Any],
     targets: Iterable[McpGatewayTarget],
@@ -233,17 +284,42 @@ def merge_agentgateway_mcp_routes(
         for target_policies in [_target_policies(route)]
         if path in desired_by_path and target_policies
     }
+    # The reconciler owns every ``/mcp/<id>`` route, so drop *all* managed MCP
+    # routes from the baseline and re-render only the desired set below. This
+    # makes deletion automatic: when an ``mcp_servers`` row is removed, its route
+    # is no longer in ``desired_by_path`` and simply isn't re-added — no manual
+    # config/volume reset needed. Non-MCP routes (and any malformed entries) are
+    # always retained.
+    stale_paths = sorted(
+        path
+        for route in routes
+        if isinstance(route, dict)
+        for path in [_route_path(route)]
+        if _is_managed_mcp_route_path(path) and path not in desired_by_path
+    )
+    if stale_paths:
+        LOGGER.info("Pruning stale AgentGateway MCP routes: %s", stale_paths)
     retained_routes = [
         route
         for route in routes
-        if not (isinstance(route, dict) and _route_path(route) in desired_by_path)
+        if not (isinstance(route, dict) and _is_managed_mcp_route_path(_route_path(route)))
     ]
     retained_routes.extend(
         _mcp_route(
             target,
-            policies,
-            target_policies=target_policies_by_path.get(f"/mcp/{target.id}")
-            or DEFAULT_MCP_TARGET_POLICIES.get(target.id),
+            _route_policies_for(target.id, policies),
+            # Servers handled by a route-level transformation must NOT carry a
+            # target-level backendAuth (drop any stale PAT preserved from the
+            # live config); their auth comes from the X-CAIPE-Provider-Token
+            # transformation merged in by _route_policies_for above.
+            target_policies=(
+                None
+                if target.id in DEFAULT_MCP_ROUTE_POLICY_OVERRIDES
+                else (
+                    target_policies_by_path.get(f"/mcp/{target.id}")
+                    or DEFAULT_MCP_TARGET_POLICIES.get(target.id)
+                )
+            ),
         )
         for target in sorted(desired_by_path.values(), key=lambda t: t.id)
     )
