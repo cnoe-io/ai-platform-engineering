@@ -829,12 +829,12 @@ async def get_tools_with_resilience(
 
     async def connect_single_server(
         server_id: str, connection_config: dict[str, Any]
-    ) -> tuple[str, list | BaseException, int]:
+    ) -> tuple[str, list | Exception, int]:
         """Connect to one server, retrying only transient failures.
 
         Returns (server_id, tools-or-exception, attempts_made).
         """
-        last_exc: BaseException | None = None
+        last_exc: Exception | None = None
         for attempt in range(1, max(1, max_attempts) + 1):
             try:
                 single_client = MultiServerMCPClient(
@@ -843,7 +843,7 @@ async def get_tools_with_resilience(
                 )
                 server_tools = await single_client.get_tools()
                 return server_id, server_tools, attempt
-            except BaseException as e:  # noqa: BLE001 - re-raised/returned below
+            except Exception as e:  # noqa: BLE001 - re-raised/returned below
                 last_exc = e
                 error_msg = _extract_error_message(e)
                 status = classify_load_error(error_msg)
@@ -871,7 +871,7 @@ async def get_tools_with_resilience(
     failed_status: dict[str, str] = {}
 
     for server_id, result, attempts in results:
-        if isinstance(result, BaseException):
+        if isinstance(result, Exception):
             error_msg = _extract_error_message(result)
             status = classify_load_error(error_msg)
             failed_servers.append(server_id)
