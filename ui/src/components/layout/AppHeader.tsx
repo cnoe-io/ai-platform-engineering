@@ -674,7 +674,7 @@ export function AppHeader() {
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex-1">
                       <div className="text-base font-bold text-white mb-1">System Status</div>
-                      <div className="text-xs text-white/80">{config.appName} Supervisor & RAG Server</div>
+                      <div className="text-xs text-white/80">{config.appName} Agents & Knowledge Services</div>
                     </div>
                     <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/20 backdrop-blur-sm">
                       <span className={cn(

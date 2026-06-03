@@ -513,4 +513,115 @@ describe("admin platform-config route", () => {
       { upsert: true },
     );
   });
+
+  // ---------------------------------------------------------------------
+  // slack_victorops_escalation_agent_id
+  //
+  // The agent the Slack bot queries for VictorOps on-call lookups. Set in
+  // Admin → Integrations → Slack → Advanced. Unlike default_agent_id it does
+  // NOT grant any user access, so there's no OpenFGA tuple to reconcile and
+  // no public-access ack to require.
+  // ---------------------------------------------------------------------
+
+  it("returns slack_victorops_escalation_agent_id from Mongo with source", async () => {
+    mockGetCollection.mockResolvedValue({
+      findOne: jest.fn().mockResolvedValue({
+        _id: "platform_settings",
+        slack_victorops_escalation_agent_id: "oncall-agent",
+      }),
+      updateOne: jest.fn(),
+    });
+    const { GET } = await import("../route");
+
+    const body = await (await GET(request("/api/admin/platform-config"))).json();
+
+    expect(body.data.slack_victorops_escalation_agent_id).toBe("oncall-agent");
+    expect(body.data.slack_victorops_escalation_agent_source).toBe("db");
+  });
+
+  it("falls back to SLACK_INTEGRATION_VICTOROPS_AGENT_ID env for the victorops agent", async () => {
+    process.env.SLACK_INTEGRATION_VICTOROPS_AGENT_ID = "env-oncall";
+    mockGetCollection.mockResolvedValue({
+      findOne: jest.fn().mockResolvedValue(null),
+      updateOne: jest.fn(),
+    });
+    try {
+      const { GET } = await import("../route");
+      const body = await (await GET(request("/api/admin/platform-config"))).json();
+      expect(body.data.slack_victorops_escalation_agent_id).toBe("env-oncall");
+      expect(body.data.slack_victorops_escalation_agent_source).toBe("env");
+    } finally {
+      delete process.env.SLACK_INTEGRATION_VICTOROPS_AGENT_ID;
+    }
+  });
+
+  it("persists slack_victorops_escalation_agent_id on PATCH without writing OpenFGA tuples", async () => {
+    const updateOne = jest.fn().mockResolvedValue({ acknowledged: true });
+    mockGetCollection.mockResolvedValue({
+      findOne: jest.fn().mockResolvedValue({ _id: "platform_settings" }),
+      updateOne,
+    });
+    const { PATCH } = await import("../route");
+
+    const response = await PATCH(
+      request("/api/admin/platform-config", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        // No acknowledge_public_access required for this field.
+        body: JSON.stringify({ slack_victorops_escalation_agent_id: "oncall-agent" }),
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.slack_victorops_escalation_agent_id).toBe("oncall-agent");
+    expect(updateOne).toHaveBeenCalledWith(
+      { _id: "platform_settings" },
+      expect.objectContaining({
+        $set: expect.objectContaining({ slack_victorops_escalation_agent_id: "oncall-agent" }),
+      }),
+      { upsert: true },
+    );
+    expect(mockWriteOpenFgaTuples).not.toHaveBeenCalled();
+  });
+
+  it("allows clearing the victorops agent with null", async () => {
+    const updateOne = jest.fn().mockResolvedValue({ acknowledged: true });
+    mockGetCollection.mockResolvedValue({
+      findOne: jest.fn().mockResolvedValue({ _id: "platform_settings", slack_victorops_escalation_agent_id: "oncall-agent" }),
+      updateOne,
+    });
+    const { PATCH } = await import("../route");
+
+    const response = await PATCH(
+      request("/api/admin/platform-config", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slack_victorops_escalation_agent_id: null }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(updateOne).toHaveBeenCalledWith(
+      { _id: "platform_settings" },
+      expect.objectContaining({
+        $set: expect.objectContaining({ slack_victorops_escalation_agent_id: null }),
+      }),
+      { upsert: true },
+    );
+  });
+
+  it("rejects an invalid victorops agent id with a 400", async () => {
+    const { PATCH } = await import("../route");
+
+    await expect(
+      PATCH(
+        request("/api/admin/platform-config", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ slack_victorops_escalation_agent_id: "bad id with spaces" }),
+        }),
+      ),
+    ).rejects.toThrow(/slack_victorops_escalation_agent_id/);
+  });
 });

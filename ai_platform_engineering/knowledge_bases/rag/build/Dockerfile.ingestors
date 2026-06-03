@@ -46,45 +46,53 @@ RUN find /app/ingestors/.venv -type d -name "__pycache__" -exec rm -rf {} + 2>/d
     rm -rf /app/ingestors/.venv/include 2>/dev/null || true
 
 
-# Then, use a final image without uv
-FROM python:3.13-slim-bookworm
-# It is important to use the image that matches the builder, as the path to the
-# Python executable must be the same, e.g., using `python:3.13-slim-bookworm`
-# will fail.
+# Then, use a final image without uv. We use Chainguard Wolfi (a minimal,
+# continuously-patched distro) instead of Debian Bookworm to eliminate the large
+# backlog of OS-package CVEs that ship with the python:3.13-slim-bookworm base.
+# Wolfi's python-3.13 provides the same CPython 3.13 interpreter at the same
+# /usr/local/bin/python3 path the builder venv expects.
+FROM cgr.dev/chainguard/wolfi-base
 
 # Re-declare ARG after FROM to make it available in this stage
 ARG VARIANT=default
 
-# Install system dependencies:
-# - AWS CLI v2 for EKS authentication (k8s ingestor)
-# - Debian Chromium (default variant only, not slim) for Playwright full-browser launches
-RUN apt-get update && \
-    apt-get upgrade -y --no-install-recommends && \
-    apt-get install -y --no-install-recommends \
-    # For AWS CLI installation
-    curl unzip && \
-    # Conditionally install Playwright dependencies (default variant)
+# Install system dependencies from the Wolfi package repository:
+# - python-3.13            : system CPython matching the builder
+# - ca-certificates-bundle : TLS trust store
+# - curl / unzip           : AWS CLI v2 download + extraction
+# - bash                   : login shell for the non-root user
+# - shadow                 : provides groupadd/useradd for non-root user creation
+# - chromium (default var) : distro browser for Playwright full-browser launches.
+#                            Wolfi's chromium apk resolves its own runtime libs,
+#                            so the long manual Debian lib list is no longer needed.
+RUN echo "https://packages.wolfi.dev/os" > /etc/apk/repositories && \
+    apk update && \
+    apk add --no-cache \
+        python-3.13 \
+        ca-certificates-bundle \
+        curl \
+        unzip \
+        bash \
+        shadow && \
     if [ "$VARIANT" != "slim" ]; then \
-        apt-get install -y --no-install-recommends \
-        chromium \
-        libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 \
-        libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 \
-        libgbm1 libasound2 libpango-1.0-0 libcairo2 libatspi2.0-0; \
+        apk add --no-cache chromium; \
     fi && \
-    # Install AWS CLI v2 (detect architecture)
+    # Ensure /usr/local/bin/python3 (the path baked into the builder venv) exists
+    if [ ! -e /usr/local/bin/python3 ]; then \
+        mkdir -p /usr/local/bin && \
+        ln -sf "$(command -v python3.13 || command -v python3)" /usr/local/bin/python3; \
+    fi && \
+    ln -sf /usr/local/bin/python3 /usr/local/bin/python && \
+    # Install AWS CLI v2 (detect architecture) for EKS authentication (k8s ingestor)
     ARCH=$(uname -m) && \
     if [ "$ARCH" = "aarch64" ]; then \
         curl "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o "awscliv2.zip"; \
     else \
         curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"; \
     fi && \
-    unzip awscliv2.zip && \
+    unzip -q awscliv2.zip && \
     ./aws/install && \
-    rm -rf awscliv2.zip aws && \
-    # Keep curl and unzip — needed later for Chrome for Testing download
-    apt-get autoremove -y && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+    rm -rf awscliv2.zip aws
 
 # Create a non-root user
 RUN groupadd --gid 1001 app && \
@@ -98,14 +106,14 @@ WORKDIR /app/ingestors
 # Place executables in the environment at the front of the path
 ENV PATH="/app/ingestors/.venv/bin:$PATH"
 
-# Use Debian Chromium instead of Playwright's bundled full Chromium, which can
+# Use the distro Chromium instead of Playwright's bundled full Chromium, which can
 # lag security updates. PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH tells Playwright to
-# use the distro browser while retaining Playwright's headless shell.
-# A fixed symlink /opt/chrome/chrome makes the ENV path arch-independent.
+# use the distro browser. A fixed symlink /opt/chrome/chrome makes the ENV path
+# arch-independent and decoupled from the exact Wolfi chromium install location.
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright
 RUN if [ "$VARIANT" != "slim" ]; then \
         mkdir -p /opt/chrome && \
-        ln -sf /usr/bin/chromium /opt/chrome/chrome && \
+        ln -sf "$(command -v chromium || echo /usr/bin/chromium)" /opt/chrome/chrome && \
         playwright install chromium && \
         rm -rf /opt/playwright/chromium-[0-9]*; \
     fi

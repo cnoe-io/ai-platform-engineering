@@ -48,16 +48,37 @@ RUN find /app/dynamic_agents/.venv -type d -name "__pycache__" -exec rm -rf {} +
 # =============================================================================
 # Stage 2: Runtime - Minimal secure image
 # =============================================================================
-FROM python:3.13-slim-bookworm
+# Wolfi (Chainguard) base: continuously patched, glibc-based packages with ~0
+# CVEs. Replaces python:3.13-slim-bookworm to eliminate the Debian
+# system-package CVEs (perl-base, libtiff6, krb5, systemd, libgcrypt20, etc.)
+# and the base interpreter/pip CVEs. Mirrors build/agents/Dockerfile.a2a.
+FROM cgr.dev/chainguard/wolfi-base
 
-# Patch system packages to address CVEs; install curl for the curl builtin tool
-RUN apt-get update && apt-get upgrade -y --no-install-recommends \
-    && apt-get install -y --no-install-recommends curl \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
+# Override APK repo to public Wolfi OS packages (no auth required).
+# cgr.dev/chainguard/wolfi-base defaults to apk.cgr.dev/chainguard which
+# requires Chainguard credentials; packages.wolfi.dev/os is free and public.
+RUN echo "https://packages.wolfi.dev/os" > /etc/apk/repositories
+
+# glibc-based Python 3.13 (matches the builder ABI so manylinux wheels load
+# correctly). `curl` is kept for the curl builtin tool; `ca-certificates-bundle`
+# ensures outbound TLS (Bedrock/LLM) works; `shadow` provides useradd/groupadd.
+# Retry to tolerate transient mirror blips.
+RUN for i in 1 2 3; do \
+        apk add --no-cache python-3.13 ca-certificates-bundle curl shadow && break; \
+        [ $i -lt 3 ] && sleep $((i * 10)); \
+    done && \
+    apk upgrade --no-cache
+
+# The builder stage (uv:python3.13-bookworm-slim) places Python at
+# /usr/local/bin/python3.13; Wolfi places it at /usr/bin/python3.13. These
+# symlinks keep the venv's internal python symlinks valid in the final image.
+RUN mkdir -p /usr/local/bin \
+    && ln -sf /usr/bin/python3.13 /usr/local/bin/python3.13 \
+    && ln -sf /usr/bin/python3.13 /usr/local/bin/python3 \
+    && ln -sf /usr/bin/python3.13 /usr/local/bin/python
 
 # Create non-root user (UID/GID 1001 for Kubernetes compatibility)
-RUN groupadd --gid 1001 app && \
-    useradd --uid 1001 --gid app --shell /bin/bash --create-home app
+RUN groupadd -g 1001 app && useradd -u 1001 -g app -m app
 
 # Copy application from builder
 COPY --from=builder --chown=app:app /app /app

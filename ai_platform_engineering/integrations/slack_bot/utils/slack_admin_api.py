@@ -240,6 +240,11 @@ class SlackBotAdminService:
             "routes_planned": len(planned),
             "routes_upserted": 0,
             "openfga_tuples_written": 0,
+            # Full per-channel/agent breakdown so the admin UI preview can show
+            # exactly what an import will write (listen modes, allow lists,
+            # overthink, escalation) instead of bare counts. The TS layer
+            # enriches each channel with its current team mapping before render.
+            "channels": self._planned_channels(workspace_ref),
             "updated_at": now,
             "actor": actor or {},
         }
@@ -292,6 +297,29 @@ class SlackBotAdminService:
                 planned.append(_route_from_agent_binding(workspace_ref, channel_id, agent, index))
         return planned
 
+    def _planned_channels(self, workspace_ref: str) -> list[dict[str, Any]]:
+        """Return a human-reviewable breakdown of what an import will write.
+
+        One entry per channel, each with the full per-agent config (listen
+        modes, allow lists, overthink, escalation). Drives the admin UI
+        "Slack Bot Config Sync Preview" so admins can see every option being
+        imported, not just route counts.
+        """
+        channels: list[dict[str, Any]] = []
+        for channel_id, channel in self._config.channels.items():
+            channels.append(
+                {
+                    "workspace_id": workspace_ref,
+                    "channel_id": channel_id,
+                    "channel_name": channel.name,
+                    "agents": [
+                        _planned_agent_detail(agent, index)
+                        for index, agent in enumerate(channel.agents)
+                    ],
+                }
+            )
+        return channels
+
     def _write_openfga_tuple(self, tuple_key: dict[str, str]) -> None:
         if self._openfga_writer is not None:
             self._openfga_writer(tuple_key)
@@ -307,6 +335,27 @@ class SlackBotAdminService:
         )
         if response.status_code >= 400 and "already" not in response.text.lower():
             response.raise_for_status()
+
+
+def _planned_agent_detail(agent: AgentBinding, index: int) -> dict[str, Any]:
+    """Serialize a single AgentBinding for the import preview.
+
+    Unlike ``_route_from_agent_binding`` (which builds the persisted route
+    doc), this keeps the full ``overthink`` block and always includes the
+    ``users``/``bots``/``escalation`` keys when present so the UI can render
+    a complete picture of what gets imported.
+    """
+    detail: dict[str, Any] = {
+        "agent_id": agent.agent_id,
+        "priority": (index + 1) * 100,
+    }
+    if agent.users is not None:
+        detail["users"] = agent.users.model_dump(exclude_none=True)
+    if agent.bots is not None:
+        detail["bots"] = agent.bots.model_dump(exclude_none=True)
+    if agent.escalation is not None:
+        detail["escalation"] = agent.escalation.model_dump(exclude_none=True)
+    return detail
 
 
 def _route_from_agent_binding(

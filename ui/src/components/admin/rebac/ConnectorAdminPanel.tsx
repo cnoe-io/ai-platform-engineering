@@ -1,7 +1,7 @@
 "use client";
 
+import { ChevronRight, FileUp, HelpCircle, RefreshCw, RotateCw, Settings2 } from "lucide-react";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronRight, FileUp, RefreshCw, RotateCw, Settings2, Sparkles } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -10,33 +10,98 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/toast";
-import { AgentPicker, type AgentPickerOption } from "@/components/ui/agent-picker";
-import { TeamPicker, type TeamPickerOption } from "@/components/ui/team-picker";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { ConnectorOnboardingWizard } from "./ConnectorOnboardingWizard";
 import type {
   ConnectorAdminAdapter,
   DiagnosticRoute,
   DiscoveredItem,
+  DynamicAgentOption,
   ItemAgentRoute,
   ItemDiagnostics,
   ItemSummary,
   RuntimeStatus,
   RuntimeSyncSummary,
+  SyncPreviewAgent,
+  SyncPreviewChannel,
+  TeamOption,
 } from "./connector-admin-adapter";
-
-interface DynamicAgentOption { _id: string; name: string }
-interface TeamOption { _id?: string; id?: string; slug: string; name: string }
-interface AssociationDefaults {
-  team_slug: string; agent_id: string; create_routes?: boolean;
-  updated_at?: string; updated_by?: string; source?: "db" | "env" | "unset";
-}
 
 type PanelView = "channels" | "onboard" | "advanced";
 type SyncModalMode = "preview" | "apply";
 type SyncModalStatus = "idle" | "loading" | "success" | "error";
+
+function HelpTooltip({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label={`Help: ${label}`}
+          className="inline-flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <HelpCircle className="h-3.5 w-3.5" aria-hidden="true" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="max-w-xs whitespace-normal break-words text-xs">
+        {children}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+function RuntimeTile({
+  label,
+  description,
+  children,
+}: {
+  label: string;
+  description: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-md border bg-background/60 p-3">
+      <div className="flex items-center gap-1 text-xs text-muted-foreground">
+        <span>{label}</span>
+        <HelpTooltip label={label}>{description}</HelpTooltip>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function AdvancedActionButton({
+  label,
+  description,
+  icon,
+  onClick,
+  disabled,
+  variant = "outline",
+}: {
+  label: string;
+  description: React.ReactNode;
+  icon: React.ReactNode;
+  onClick: () => void;
+  disabled?: boolean;
+  variant?: React.ComponentProps<typeof Button>["variant"];
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button type="button" variant={variant} onClick={onClick} disabled={disabled}>
+          {icon}
+          {label}
+          <HelpCircle className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="max-w-xs whitespace-normal break-words text-xs">
+        {description}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
 
 function apiData<T>(payload: { data?: T } & T): T {
   return (payload.data ?? payload) as T;
@@ -48,6 +113,262 @@ function pluralize(count: number, singular: string, plural = `${singular}s`): st
   return `${count} ${count === 1 ? singular : plural}`;
 }
 
+// ── Sync preview breakdown ────────────────────────────────────────────────────
+// Renders the full per-channel/agent detail returned by the import preview so
+// admins can see every option (teams, listen modes, allow lists, overthink,
+// escalation) before writing anything.
+
+function summarizeEscalation(esc: SyncPreviewAgent["escalation"]): string[] {
+  if (!esc) return [];
+  const parts: string[] = [];
+  if (esc.victorops?.enabled) parts.push(`VictorOps${esc.victorops.team ? ` (${esc.victorops.team})` : ""}`);
+  if (esc.emoji?.enabled) parts.push(`emoji :${esc.emoji.name || "eyes"}:`);
+  if (esc.users && esc.users.length > 0) parts.push(`ping ${pluralize(esc.users.length, "user")}`);
+  if (esc.delete_admins && esc.delete_admins.length > 0) parts.push(`${pluralize(esc.delete_admins.length, "delete admin")}`);
+  return parts;
+}
+
+function SyncPreviewSide({ label, side }: {
+  label: string;
+  side: SyncPreviewAgent["users"] | SyncPreviewAgent["bots"];
+}) {
+  if (!side) return null;
+  const listLabel = label === "Users" ? "user_list" : "bot_list";
+  const list = label === "Users"
+    ? (side as SyncPreviewAgent["users"])?.user_list
+    : (side as SyncPreviewAgent["bots"])?.bot_list;
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <span className="text-xs font-medium text-muted-foreground">{label}</span>
+      <Badge variant={side.enabled === false ? "outline" : "secondary"}>
+        {side.enabled === false ? "disabled" : `listen: ${side.listen ?? "—"}`}
+      </Badge>
+      {side.overthink?.enabled && <Badge variant="outline">overthink</Badge>}
+      {Array.isArray(list) && list.length > 0 && (
+        <span className="text-xs text-muted-foreground">{listLabel}: {list.length}</span>
+      )}
+    </div>
+  );
+}
+
+function SyncPreviewBreakdown({ channels }: { channels: SyncPreviewChannel[] }) {
+  if (channels.length === 0) return null;
+  const noTeamCount = channels.filter((c) => c.has_team === false).length;
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          What will be imported
+        </div>
+        {noTeamCount > 0 && (
+          <span className="text-[11px] text-amber-700 dark:text-amber-400">
+            {pluralize(noTeamCount, "channel")} without a team
+          </span>
+        )}
+      </div>
+      {noTeamCount > 0 && (
+        <div className="rounded-md border border-amber-300/60 bg-amber-50 p-2 text-xs text-amber-950 dark:bg-amber-950/30 dark:text-amber-200">
+          Channels marked <span className="font-medium">no team</span> import their agent routes, but the
+          agent won&apos;t be invokable until the channel is assigned a team on the Onboard tab — Slack
+          requires both a channel grant and a team grant.
+        </div>
+      )}
+      <div className="max-h-72 space-y-2 overflow-auto rounded-md border bg-background/40 p-2">
+        {channels.map((channel) => (
+          <div key={`${channel.workspace_id ?? ""}/${channel.channel_id}`} className="rounded-md border bg-background/60 p-2.5 text-sm">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-medium">{channel.channel_name || channel.channel_id}</span>
+              <span className="text-xs text-muted-foreground">{channel.channel_id}</span>
+              {channel.has_team ? (
+                <Badge variant="secondary">team:{channel.team_slug}</Badge>
+              ) : (
+                <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-800">no team</Badge>
+              )}
+              <span className="ml-auto text-xs text-muted-foreground">{pluralize(channel.agents.length, "agent")}</span>
+            </div>
+            {channel.agents.length > 0 && (
+              <div className="mt-2 space-y-2">
+                {channel.agents.map((agent) => {
+                  const escalation = summarizeEscalation(agent.escalation);
+                  return (
+                    <div key={agent.agent_id} className="rounded border bg-muted/20 p-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-medium">agent:{agent.agent_id}</span>
+                        {typeof agent.priority === "number" && (
+                          <span className="text-xs text-muted-foreground">priority {agent.priority}</span>
+                        )}
+                      </div>
+                      <div className="mt-1.5 flex flex-col gap-1.5">
+                        <SyncPreviewSide label="Users" side={agent.users} />
+                        <SyncPreviewSide label="Bots" side={agent.bots} />
+                        {escalation.length > 0 && (
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="text-xs font-medium text-muted-foreground">Escalation</span>
+                            {escalation.map((part) => <Badge key={part} variant="outline">{part}</Badge>)}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function diagnosticsHasIssues(diagnostics: ItemDiagnostics | null): boolean {
+  if (!diagnostics) return false;
+  return (
+    diagnostics.warnings.length > 0 ||
+    diagnostics.openfga.reachable === false ||
+    Boolean(diagnostics.last_runtime_error?.message) ||
+    diagnostics.routes.length === 0 ||
+    diagnostics.routes.some((route) => route.warnings.length > 0 || !route.openfga_tuple)
+  );
+}
+
+function DiagnosticsPanel({
+  adapter,
+  selected,
+  diagnostics,
+  missingRouteableAgent,
+  autoFixAgentId,
+  fixDiagnosticRoute,
+  fixMissingRouteableAgent,
+  disabled,
+  loading,
+  selectedCanManage,
+}: {
+  adapter: ConnectorAdminAdapter;
+  selected: ItemSummary;
+  diagnostics: ItemDiagnostics | null;
+  missingRouteableAgent: boolean;
+  autoFixAgentId: string;
+  fixDiagnosticRoute: (route: DiagnosticRoute) => Promise<void> | void;
+  fixMissingRouteableAgent: () => Promise<void> | void;
+  disabled: boolean;
+  loading: boolean;
+  selectedCanManage: boolean;
+}) {
+  const hasIssues = diagnosticsHasIssues(diagnostics);
+  const diagnosticsKey = `${selected.workspace_id}/${selected.item_id}/${diagnostics ? "loaded" : "loading"}/${hasIssues ? "issues" : "ok"}`;
+  const [openState, setOpenState] = useState({ key: diagnosticsKey, open: hasIssues });
+  const open = openState.key === diagnosticsKey ? openState.open : hasIssues;
+
+  const summary = !diagnostics
+    ? "Loading diagnostics..."
+    : hasIssues
+      ? `${diagnostics.warnings.length || diagnostics.routes.filter((route) => route.warnings.length > 0 || !route.openfga_tuple).length || 1} issue${diagnostics.warnings.length === 1 ? "" : "s"}`
+      : `${diagnostics.openfga.tuple_count} tuple${diagnostics.openfga.tuple_count === 1 ? "" : "s"} · ${diagnostics.routes.length} route${diagnostics.routes.length === 1 ? "" : "s"} · healthy`;
+
+  return (
+    <div className="rounded-md border bg-background/60">
+      <button
+        type="button"
+        className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left"
+        onClick={() => setOpenState({ key: diagnosticsKey, open: !open })}
+        aria-expanded={open}
+      >
+        <div>
+          <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Diagnostics</div>
+          <div className="text-sm text-muted-foreground">{summary}</div>
+        </div>
+        <Badge variant={hasIssues ? "outline" : "secondary"} className={hasIssues ? "border-amber-300 bg-amber-50 text-amber-800" : ""}>
+          {hasIssues ? "review" : "healthy"}
+        </Badge>
+      </button>
+      {open && (
+        <div className="space-y-3 border-t p-3">
+          {!diagnostics ? (
+            <p className="text-sm text-muted-foreground">Loading diagnostics...</p>
+          ) : (
+            <>
+              <div className="grid gap-2 text-sm md:grid-cols-3">
+                <div className="rounded-md border bg-background/60 p-3">
+                  <div className="text-xs text-muted-foreground">OpenFGA</div>
+                  <div className="font-medium">{diagnostics.openfga.reachable ? "reachable" : "unreachable"}</div>
+                  <div className="text-xs text-muted-foreground">{diagnostics.openfga.tuple_count} {adapter.itemSingular}-agent tuples</div>
+                </div>
+                <div className="rounded-md border bg-background/60 p-3">
+                  <div className="text-xs text-muted-foreground">Runtime routes</div>
+                  <div className="font-medium">{diagnostics.routes.length}</div>
+                  <div className="text-xs text-muted-foreground">OpenFGA-backed candidates</div>
+                </div>
+                <div className="rounded-md border bg-background/60 p-3">
+                  <div className="text-xs text-muted-foreground">Last error</div>
+                  <div className="font-medium">{diagnostics.last_runtime_error?.reason_code ?? "none"}</div>
+                  <div className="text-xs text-muted-foreground">{diagnostics.last_runtime_error?.ts ?? "No recent runtime error"}</div>
+                </div>
+              </div>
+              {diagnostics.warnings.length > 0 && (
+                <div className="space-y-1 rounded-md border border-amber-300/60 bg-amber-50 p-3 text-sm text-amber-950 dark:bg-amber-950/30 dark:text-amber-200">
+                  <div className="text-xs font-medium uppercase tracking-wide">Issues found</div>
+                  {diagnostics.warnings.map((warning) => <div key={warning}>{warning}</div>)}
+                </div>
+              )}
+              {missingRouteableAgent && adapter.missingRouteableAgentAutoFix && (
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-cyan-500/40 bg-cyan-50 p-3 text-sm text-cyan-950 dark:bg-cyan-950/30 dark:text-cyan-100">
+                  <div>
+                    <div className="font-medium">{adapter.missingRouteableAgentAutoFix.title}</div>
+                    <div className="text-xs">{adapter.missingRouteableAgentAutoFix.description}</div>
+                  </div>
+                  <Button
+                    type="button" variant="outline" size="sm"
+                    onClick={() => void fixMissingRouteableAgent()}
+                    disabled={disabled || !selectedCanManage || loading || !autoFixAgentId}
+                  >
+                    {adapter.missingRouteableAgentAutoFix.buttonLabel(autoFixAgentId)}
+                  </Button>
+                  {!autoFixAgentId && (
+                    <div className="basis-full text-xs">{adapter.missingRouteableAgentAutoFix.noAgentHelpText}</div>
+                  )}
+                </div>
+              )}
+              {diagnostics.last_runtime_error?.message && (
+                <div className="rounded-md border border-destructive/40 p-3 text-sm text-destructive">
+                  {diagnostics.last_runtime_error.message}
+                </div>
+              )}
+              {diagnostics.routes.length > 0 && (
+                <div className="space-y-2">
+                  {diagnostics.routes.map((route) => (
+                    <div key={route.agent_id} className="flex flex-wrap items-center gap-2 rounded-md border bg-background/60 p-3 text-sm">
+                      <span className="font-medium">agent:{route.agent_id}</span>
+                      <Badge variant={route.openfga_tuple ? "default" : "outline"}>
+                        {route.openfga_tuple ? "OpenFGA tuple" : "missing tuple"}
+                      </Badge>
+                      <Badge variant={route.route_metadata ? "secondary" : "outline"}>
+                        {route.route_metadata ? `listen:${route.listen}` : "default metadata"}
+                      </Badge>
+                      <span className="text-xs text-muted-foreground">
+                        mention {route.runtime_matches.mention ? "yes" : "no"} / message {route.runtime_matches.message ? "yes" : "no"}
+                      </span>
+                      {adapter.diagnosticRouteIsFixable(route) && (
+                        <Button
+                          type="button" variant="outline" size="sm" className="ml-auto"
+                          onClick={() => void fixDiagnosticRoute(route)}
+                          disabled={disabled || !selectedCanManage || loading}
+                          aria-label={`Fix agent:${route.agent_id} routing`}
+                        >
+                          Fix it
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── ItemDetail subcomponent ───────────────────────────────────────────────────
 
 interface ItemDetailProps {
@@ -56,189 +377,55 @@ interface ItemDetailProps {
   diagnostics: ItemDiagnostics | null;
   routes: ItemAgentRoute[];
   dynamicAgents: DynamicAgentOption[];
-  defaultAgentId: string;
-  routeAgentId: string; setRouteAgentId: (v: string) => void;
-  routeListen: "message" | "mention" | "all"; setRouteListen: (v: "message" | "mention" | "all") => void;
-  routePriority: number; setRoutePriority: (v: number) => void;
-  editingRouteAgentId: string | null;
-  resetRouteForm: () => void;
-  editRoute: (route: ItemAgentRoute) => void;
-  saveRoute: () => Promise<void> | void;
-  deleteRoute: (route: ItemAgentRoute) => void;
+  teams: TeamOption[];
+  onRefresh: (nextRoutes?: ItemAgentRoute[]) => Promise<void> | void;
+  setLoading: (loading: boolean) => void;
+  setMessage: (message: string | null) => void;
   fixDiagnosticRoute: (route: DiagnosticRoute) => Promise<void> | void;
   fixMissingRouteableAgent: () => Promise<void> | void;
   disabled: boolean; loading: boolean; selectedCanManage: boolean; message: string | null;
 }
 
 function ItemDetail({
-  adapter, selected, diagnostics, routes, dynamicAgents, defaultAgentId,
-  routeAgentId, setRouteAgentId, routeListen, setRouteListen, routePriority, setRoutePriority,
-  editingRouteAgentId, resetRouteForm, editRoute, saveRoute, deleteRoute,
-  fixDiagnosticRoute, fixMissingRouteableAgent, disabled, loading, selectedCanManage, message,
+  adapter, selected, diagnostics, routes,
+  dynamicAgents, teams, onRefresh, setLoading, setMessage,
+  fixDiagnosticRoute, fixMissingRouteableAgent, disabled, loading, selectedCanManage,
 }: ItemDetailProps) {
   const diagnosticsMissingRouteableAgent =
     adapter.missingRouteableAgentAutoFix?.isApplicable(selected, diagnostics ?? {
       openfga: { reachable: false, tuple_count: 0 }, routes: [], warnings: [],
     }) ?? false;
-  const autoFixAgentId = (defaultAgentId || "").trim();
+  const autoFixAgentId = "";
 
   return (
     <div className="space-y-4">
-      {/* Diagnostics */}
-      <div className="space-y-3">
-        <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          Diagnostics
-        </div>
-        {!diagnostics ? (
-          <p className="text-sm text-muted-foreground">Loading diagnostics...</p>
-        ) : (
-          <>
-            <div className="grid gap-2 text-sm md:grid-cols-3">
-              <div className="rounded-md border bg-background/60 p-3">
-                <div className="text-xs text-muted-foreground">OpenFGA</div>
-                <div className="font-medium">{diagnostics.openfga.reachable ? "reachable" : "unreachable"}</div>
-                <div className="text-xs text-muted-foreground">{diagnostics.openfga.tuple_count} {adapter.itemSingular}-agent tuples</div>
-              </div>
-              <div className="rounded-md border bg-background/60 p-3">
-                <div className="text-xs text-muted-foreground">Runtime routes</div>
-                <div className="font-medium">{diagnostics.routes.length}</div>
-                <div className="text-xs text-muted-foreground">OpenFGA-backed candidates</div>
-              </div>
-              <div className="rounded-md border bg-background/60 p-3">
-                <div className="text-xs text-muted-foreground">Last error</div>
-                <div className="font-medium">{diagnostics.last_runtime_error?.reason_code ?? "none"}</div>
-                <div className="text-xs text-muted-foreground">{diagnostics.last_runtime_error?.ts ?? "No recent runtime error"}</div>
-              </div>
-            </div>
-            {diagnostics.warnings.length > 0 && (
-              <div className="space-y-1 rounded-md border border-amber-300/60 bg-amber-50 p-3 text-sm text-amber-950 dark:bg-amber-950/30 dark:text-amber-200">
-                <div className="text-xs font-medium uppercase tracking-wide">Issues found</div>
-                {diagnostics.warnings.map((w) => <div key={w}>{w}</div>)}
-              </div>
-            )}
-            {diagnosticsMissingRouteableAgent && adapter.missingRouteableAgentAutoFix && (
-              <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-cyan-500/40 bg-cyan-50 p-3 text-sm text-cyan-950 dark:bg-cyan-950/30 dark:text-cyan-100">
-                <div>
-                  <div className="font-medium">{adapter.missingRouteableAgentAutoFix.title}</div>
-                  <div className="text-xs">{adapter.missingRouteableAgentAutoFix.description}</div>
-                </div>
-                <Button
-                  type="button" variant="outline" size="sm"
-                  onClick={() => void fixMissingRouteableAgent()}
-                  disabled={disabled || !selectedCanManage || loading || !autoFixAgentId}
-                >
-                  {adapter.missingRouteableAgentAutoFix.buttonLabel(autoFixAgentId)}
-                </Button>
-                {!autoFixAgentId && (
-                  <div className="basis-full text-xs">{adapter.missingRouteableAgentAutoFix.noAgentHelpText}</div>
-                )}
-              </div>
-            )}
-            {diagnostics.last_runtime_error?.message && (
-              <div className="rounded-md border border-destructive/40 p-3 text-sm text-destructive">
-                {diagnostics.last_runtime_error.message}
-              </div>
-            )}
-            {diagnostics.routes.length > 0 && (
-              <div className="space-y-2">
-                {diagnostics.routes.map((route) => (
-                  <div key={route.agent_id} className="flex flex-wrap items-center gap-2 rounded-md border bg-background/60 p-3 text-sm">
-                    <span className="font-medium">agent:{route.agent_id}</span>
-                    <Badge variant={route.openfga_tuple ? "default" : "outline"}>
-                      {route.openfga_tuple ? "OpenFGA tuple" : "missing tuple"}
-                    </Badge>
-                    <Badge variant={route.route_metadata ? "secondary" : "outline"}>
-                      {route.route_metadata ? `listen:${route.listen}` : "default metadata"}
-                    </Badge>
-                    <span className="text-xs text-muted-foreground">
-                      mention {route.runtime_matches.mention ? "yes" : "no"} / message {route.runtime_matches.message ? "yes" : "no"}
-                    </span>
-                    {adapter.diagnosticRouteIsFixable(route) && (
-                      <Button
-                        type="button" variant="outline" size="sm" className="ml-auto"
-                        onClick={() => void fixDiagnosticRoute(route)}
-                        disabled={disabled || !selectedCanManage || loading}
-                        aria-label={`Fix agent:${route.agent_id} routing`}
-                      >
-                        Fix it
-                      </Button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </>
-        )}
-      </div>
+      <DiagnosticsPanel
+        adapter={adapter}
+        selected={selected}
+        diagnostics={diagnostics}
+        missingRouteableAgent={diagnosticsMissingRouteableAgent}
+        autoFixAgentId={autoFixAgentId}
+        fixDiagnosticRoute={fixDiagnosticRoute}
+        fixMissingRouteableAgent={fixMissingRouteableAgent}
+        disabled={disabled}
+        loading={loading}
+        selectedCanManage={selectedCanManage}
+      />
 
-      {/* Manual route editing — Slack only */}
-      {adapter.manualRouteEditing && (
-        <div className="space-y-3">
-          <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Agents</div>
-          {adapter.manualRouteFormHint?.(selected)}
-          <div className="grid gap-3 md:grid-cols-4">
-            <div className="space-y-2 md:col-span-2">
-              <Label htmlFor="connector-route-agent-id">Dynamic Agent</Label>
-              <AgentPicker
-                id="connector-route-agent-id"
-                ariaLabel="Dynamic Agent"
-                value={routeAgentId}
-                onChange={setRouteAgentId}
-                disabled={disabled || !selectedCanManage || dynamicAgents.length === 0}
-                placeholder={dynamicAgents.length === 0 ? "No enabled Dynamic Agents found" : "Select Dynamic Agent"}
-                options={dynamicAgents.map<AgentPickerOption>((a) => ({ value: a._id, label: a.name || a._id }))}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="connector-route-listen">Listen</Label>
-              <select
-                id="connector-route-listen"
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                value={routeListen}
-                onChange={(e) => setRouteListen(e.target.value as "message" | "mention" | "all")}
-                disabled={disabled || !selectedCanManage}
-              >
-                <option value="mention">mention</option>
-                <option value="message">message</option>
-                <option value="all">all</option>
-              </select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="connector-route-priority">Priority</Label>
-              <Input id="connector-route-priority" type="number" value={routePriority}
-                onChange={(e) => setRoutePriority(Number(e.target.value))}
-                disabled={disabled || !selectedCanManage} />
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button onClick={() => void saveRoute()} disabled={disabled || !selectedCanManage || loading || !routeAgentId.trim()}>
-              {loading ? "Saving..." : editingRouteAgentId ? "Update Association" : "Create Association"}
-            </Button>
-            {editingRouteAgentId && (
-              <Button type="button" variant="outline" onClick={resetRouteForm} disabled={loading}>Cancel edit</Button>
-            )}
-          </div>
-          {message && <p className="text-sm text-muted-foreground">{message}</p>}
-          {routes.length > 0 && (
-            <div className="space-y-2">
-              {routes.map((route) => (
-                <div key={route.agent_id} className="flex flex-wrap items-center justify-between gap-3 rounded-md border bg-background/60 p-3 text-sm">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span>agent:{route.agent_id}</span>
-                    <Badge>{route.users?.listen ?? "mention"} / priority {route.priority}</Badge>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button type="button" variant="outline" size="sm" onClick={() => editRoute(route)}
-                      disabled={disabled || !selectedCanManage || loading} aria-label={`Edit agent:${route.agent_id}`}>Edit</Button>
-                    <Button type="button" variant="destructive" size="sm" onClick={() => deleteRoute(route)}
-                      disabled={disabled || !selectedCanManage || loading} aria-label={`Delete agent:${route.agent_id}`}>Delete</Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+      {adapter.configuredDetailExtra?.({
+        item: selected,
+        routes,
+        dynamicAgents,
+        teams,
+        disabled,
+        loading,
+        selectedCanManage,
+        setLoading,
+        setMessage,
+        onRefresh,
+        routesFor: adapter.api.routesFor,
+        listApi: adapter.api.list,
+      })}
     </div>
   );
 }
@@ -261,32 +448,20 @@ export function ConnectorAdminPanel({
   const [diagnostics, setDiagnostics] = useState<ItemDiagnostics | null>(null);
   const [dynamicAgents, setDynamicAgents] = useState<DynamicAgentOption[]>([]);
   const [teams, setTeams] = useState<TeamOption[]>([]);
-  const [routeAgentId, setRouteAgentId] = useState("");
-  const [editingRouteAgentId, setEditingRouteAgentId] = useState<string | null>(null);
-  const [routePendingDelete, setRoutePendingDelete] = useState<ItemAgentRoute | null>(null);
-  const [defaultTeamSlug, setDefaultTeamSlug] = useState("");
-  const [defaultAgentId, setDefaultAgentId] = useState("");
-  const [invalidDefaultTeamSlug, setInvalidDefaultTeamSlug] = useState<string | null>(null);
-  const [invalidDefaultAgentId, setInvalidDefaultAgentId] = useState<string | null>(null);
-  const [configuredDefaults, setConfiguredDefaults] = useState<AssociationDefaults | null>(null);
-  const [useSlackbotConfigDefaults, setUseSlackbotConfigDefaults] = useState(true);
   const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatus | null>(null);
   const [runtimeSyncSummary, setRuntimeSyncSummary] = useState<RuntimeSyncSummary | null>(null);
   const [runtimeSyncModalOpen, setRuntimeSyncModalOpen] = useState(false);
   const [runtimeSyncModalMode, setRuntimeSyncModalMode] = useState<SyncModalMode>("preview");
   const [runtimeSyncModalStatus, setRuntimeSyncModalStatus] = useState<SyncModalStatus>("idle");
   const [runtimeSyncModalError, setRuntimeSyncModalError] = useState<string | null>(null);
-  const [createDefaultRoutes, setCreateDefaultRoutes] = useState(true);
-  const [savingDefaults, setSavingDefaults] = useState(false);
   const [discoverLoading, setDiscoverLoading] = useState(false);
   const [discoverError, setDiscoverError] = useState<string | null>(null);
   const [discoveredItems, setDiscoveredItems] = useState<DiscoveredItem[]>([]);
   const [discoveredRows, setDiscoveredRows] = useState<Array<DiscoveredItem & { selected: boolean; team_slug: string; agent_id: string; is_existing: boolean }>>([]);
-  const [routeListen, setRouteListen] = useState<"message" | "mention" | "all">("mention");
-  const [routePriority, setRoutePriority] = useState(100);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [view, setView] = useState<PanelView>("channels");
+  const [configuredSearch, setConfiguredSearch] = useState("");
   const [discoverySearch, setDiscoverySearch] = useState("");
 
   const selected = useMemo(
@@ -297,22 +472,22 @@ export function ConnectorAdminPanel({
   const unassignedCount = useMemo(() => items.filter((item) => !item.team_slug).length, [items]);
   const configuredItemIds = useMemo(() => new Set(items.map((item) => item.item_id)), [items]);
   const configuredItemsById = useMemo(() => new Map(items.map((item) => [item.item_id, item])), [items]);
+  const filteredConfiguredItems = useMemo(() => {
+    const query = configuredSearch.trim().toLowerCase();
+    if (!query) return items;
+    return items.filter((item) =>
+      [
+        item.item_name,
+        item.item_id,
+        item.workspace_id,
+        item.team_slug ?? "",
+      ].some((value) => value.toLowerCase().includes(query)),
+    );
+  }, [configuredSearch, items]);
   const sortedDynamicAgents = useMemo(
     () => [...dynamicAgents].sort((a, b) => agentLabel(a).localeCompare(agentLabel(b))),
     [dynamicAgents],
   );
-  const dynamicAgentIds = useMemo(() => new Set(dynamicAgents.map((a) => a._id)), [dynamicAgents]);
-  const teamSlugSet = useMemo(() => new Set(teams.map((t) => t.slug).filter(Boolean) as string[]), [teams]);
-  const fallbackAgentId = useMemo(() => {
-    if (defaultAgentId && dynamicAgentIds.has(defaultAgentId)) return defaultAgentId;
-    return "";
-  }, [defaultAgentId, dynamicAgentIds]);
-  const associationDefaultsDirty = useMemo(() => {
-    const savedTeam = configuredDefaults?.team_slug ?? "";
-    const savedAgent = configuredDefaults?.agent_id ?? "";
-    const savedCreateRoutes = typeof configuredDefaults?.create_routes === "boolean" ? configuredDefaults.create_routes : true;
-    return savedTeam !== defaultTeamSlug || savedAgent !== defaultAgentId || savedCreateRoutes !== createDefaultRoutes;
-  }, [configuredDefaults, defaultTeamSlug, defaultAgentId, createDefaultRoutes]);
   const discoveredNewCount = useMemo(
     () => discoveredItems.filter((item) => !configuredItemIds.has(item.id)).length,
     [configuredItemIds, discoveredItems],
@@ -368,41 +543,6 @@ export function ConnectorAdminPanel({
     setTeams(data.teams ?? []);
   }, []);
 
-  const loadAssociationDefaults = useCallback(async () => {
-    const res = await fetch(adapter.api.defaults);
-    if (!res.ok) throw new Error(await res.text());
-    const data = apiData<{ defaults: AssociationDefaults }>(await res.json());
-    setConfiguredDefaults(data.defaults ?? null);
-    if (data.defaults) {
-      setDefaultTeamSlug(data.defaults.team_slug ?? "");
-      setDefaultAgentId(data.defaults.agent_id ?? "");
-      if (typeof data.defaults.create_routes === "boolean") setCreateDefaultRoutes(data.defaults.create_routes);
-    }
-  }, [adapter]);
-
-  const saveAssociationDefaults = useCallback(async () => {
-    setSavingDefaults(true); setMessage(null);
-    try {
-      const res = await fetch(adapter.api.defaults, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ team_slug: defaultTeamSlug, agent_id: defaultAgentId, create_routes: createDefaultRoutes }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      const data = apiData<{ defaults: AssociationDefaults }>(await res.json());
-      setConfiguredDefaults(data.defaults ?? null);
-      if (data.defaults) {
-        setDefaultTeamSlug(data.defaults.team_slug ?? "");
-        setDefaultAgentId(data.defaults.agent_id ?? "");
-        if (typeof data.defaults.create_routes === "boolean") setCreateDefaultRoutes(data.defaults.create_routes);
-      }
-      toast("Onboarding defaults saved.", "success");
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Failed to save onboarding defaults";
-      setMessage(msg); toast(msg, "error");
-    } finally { setSavingDefaults(false); }
-  }, [adapter, defaultTeamSlug, defaultAgentId, createDefaultRoutes, toast]);
-
   const loadRuntimeStatus = useCallback(async () => {
     const res = await fetch(adapter.api.runtimeStatus);
     if (!res.ok) throw new Error(await res.text());
@@ -410,117 +550,10 @@ export function ConnectorAdminPanel({
     setRuntimeStatus(adapter.parseRuntimeStatus(data));
   }, [adapter]);
 
-  // ── Effects ─────────────────────────────────────────────────────────────────
-
-  useEffect(() => { void loadItems(); }, [loadItems]);
-  useEffect(() => {
-    void loadDynamicAgents().catch((e) =>
-      setMessage(e instanceof Error ? e.message : "Failed to load Dynamic Agents"));
-  }, [loadDynamicAgents]);
-  useEffect(() => {
-    if (selfService) return;
-    void loadTeams().catch((e) => setMessage(e instanceof Error ? e.message : "Failed to load teams"));
-  }, [loadTeams, selfService]);
-  useEffect(() => {
-    if (selfService) return;
-    void loadAssociationDefaults().catch((e) =>
-      setMessage(e instanceof Error ? e.message : `Failed to load ${adapter.connectorName} association defaults`));
-  }, [loadAssociationDefaults, selfService, adapter.connectorName]);
-  useEffect(() => {
-    if (selfService) return;
-    void loadRuntimeStatus().catch((e) =>
-      setMessage(e instanceof Error ? e.message : `Failed to load ${adapter.connectorName} bot runtime status`));
-  }, [loadRuntimeStatus, selfService, adapter.connectorName]);
-  const connectorName = adapter.connectorName;
-  const itemSingular = adapter.itemSingular;
-  useEffect(() => {
-    void loadRoutes().catch((e) =>
-      setMessage(e instanceof Error ? e.message : `Failed to load ${connectorName} ${itemSingular} routes`));
-  }, [loadRoutes, connectorName, itemSingular]);
-  useEffect(() => {
-    setDiagnostics(null);
-    void loadDiagnostics().catch((e) =>
-      setMessage(e instanceof Error ? e.message : `Failed to load ${connectorName} runtime diagnostics`));
-  }, [loadDiagnostics, connectorName]);
-
-  // Validate default agent/team after catalog loads
-  useEffect(() => {
-    if (selfService || dynamicAgents.length === 0 || !defaultAgentId) return;
-    if (!dynamicAgentIds.has(defaultAgentId)) {
-      setInvalidDefaultAgentId(defaultAgentId); setDefaultAgentId("");
-    } else if (invalidDefaultAgentId) { setInvalidDefaultAgentId(null); }
-  }, [selfService, dynamicAgents.length, dynamicAgentIds, defaultAgentId, invalidDefaultAgentId]);
-  useEffect(() => {
-    if (selfService || teams.length === 0 || !defaultTeamSlug) return;
-    if (!teamSlugSet.has(defaultTeamSlug)) {
-      setInvalidDefaultTeamSlug(defaultTeamSlug); setDefaultTeamSlug("");
-    } else if (invalidDefaultTeamSlug) { setInvalidDefaultTeamSlug(null); }
-  }, [selfService, teams.length, teamSlugSet, defaultTeamSlug, invalidDefaultTeamSlug]);
-
-  // ── Route form helpers ───────────────────────────────────────────────────────
-
-  const resetRouteForm = () => {
-    setRouteAgentId(""); setRouteListen("mention"); setRoutePriority(100); setEditingRouteAgentId(null);
-  };
-  const editRoute = (route: ItemAgentRoute) => {
-    setRouteAgentId(route.agent_id);
-    setRouteListen(route.users?.listen ?? "mention");
-    setRoutePriority(route.priority ?? 100);
-    setEditingRouteAgentId(route.agent_id);
-  };
-
-  const saveRoute = async () => {
-    if (!selected || !routeAgentId.trim()) return;
-    setLoading(true); setMessage(null);
-    try {
-      const agentId = routeAgentId.trim();
-      const nextRoutes: ItemAgentRoute[] = [
-        ...routes.filter((r) => r.agent_id !== agentId && r.agent_id !== editingRouteAgentId),
-        { agent_id: agentId, enabled: true, priority: routePriority, users: { enabled: true, listen: routeListen } },
-      ];
-      const res = await fetch(adapter.api.routesFor(selected.workspace_id, selected.item_id), {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ routes: nextRoutes }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      const data = apiData<{ routes: ItemAgentRoute[] }>(await res.json());
-      setRoutes(data.routes ?? []);
-      resetRouteForm();
-      toast(editingRouteAgentId
-        ? `${adapter.connectorName} ${adapter.itemSingular}-agent association updated.`
-        : `${adapter.connectorName} ${adapter.itemSingular}-agent association created.`, "success");
-      await Promise.all([loadItems(), loadDiagnostics()]);
-    } catch (err) {
-      setMessage(err instanceof Error ? err.message : `Failed to save ${adapter.connectorName} association`);
-    } finally { setLoading(false); }
-  };
-
-  const deleteRouteConfirmed = async () => {
-    if (!selected || !routePendingDelete) return;
-    setLoading(true); setMessage(null);
-    try {
-      const res = await fetch(adapter.api.routesFor(selected.workspace_id, selected.item_id), {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ agent_id: routePendingDelete.agent_id }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      if (editingRouteAgentId === routePendingDelete.agent_id) resetRouteForm();
-      setRoutePendingDelete(null);
-      toast(`${adapter.connectorName} ${adapter.itemSingular}-agent association deleted.`, "success");
-      await Promise.all([loadItems(), loadRoutes(), loadDiagnostics()]);
-    } catch (err) {
-      setMessage(err instanceof Error ? err.message : `Failed to delete ${adapter.connectorName} association`);
-    } finally { setLoading(false); }
-  };
-
-  // ── Runtime / advanced tab actions ──────────────────────────────────────────
-
   const refreshRuntimeStatus = async () => {
     setLoading(true); setMessage(null);
-    try { await loadRuntimeStatus(); toast(`${adapter.connectorName} bot runtime status refreshed.`, "success"); }
-    catch (err) { setMessage(err instanceof Error ? err.message : "Failed to load runtime status"); }
+    try { await loadRuntimeStatus(); }
+    catch (err) { setMessage(err instanceof Error ? err.message : `Failed to refresh ${adapter.connectorName} bot runtime status`); }
     finally { setLoading(false); }
   };
 
@@ -548,16 +581,46 @@ export function ConnectorAdminPanel({
       const raw = apiData<Record<string, unknown>>(await res.json());
       const summary = adapter.parseRuntimeSyncSummary(raw);
       setRuntimeSyncSummary(summary); setRuntimeSyncModalStatus("success");
-      toast(dryRun
-        ? `Sync preview: ${summary.routes_planned} routes planned from ${summary.items_seen} ${adapter.itemPlural}.`
-        : `Config sync applied: upserted ${summary.routes_upserted} routes and wrote ${summary.openfga_tuples_written} OpenFGA tuples.`,
-        "success");
+      if (!dryRun) {
+        toast(
+          `Config sync applied: upserted ${summary.routes_upserted} routes and wrote ${summary.openfga_tuples_written} OpenFGA tuples.`,
+          "success"
+        );
+      }
       await Promise.all([loadRuntimeStatus(), loadItems(), loadRoutes(), loadDiagnostics()]);
     } catch (err) {
       const msg = err instanceof Error ? err.message : `Failed to sync ${adapter.connectorName} bot config`;
       setRuntimeSyncModalError(msg); setRuntimeSyncModalStatus("error"); setMessage(msg);
     } finally { setLoading(false); }
   };
+
+  // ── Effects ─────────────────────────────────────────────────────────────────
+
+  useEffect(() => { void loadItems(); }, [loadItems]);
+  useEffect(() => {
+    void loadDynamicAgents().catch((e) =>
+      setMessage(e instanceof Error ? e.message : "Failed to load Dynamic Agents"));
+  }, [loadDynamicAgents]);
+  useEffect(() => {
+    if (selfService) return;
+    void loadTeams().catch((e) => setMessage(e instanceof Error ? e.message : "Failed to load teams"));
+  }, [loadTeams, selfService]);
+  useEffect(() => {
+    if (selfService) return;
+    void loadRuntimeStatus().catch((e) =>
+      setMessage(e instanceof Error ? e.message : `Failed to load ${adapter.connectorName} bot runtime status`));
+  }, [loadRuntimeStatus, selfService, adapter.connectorName]);
+  const connectorName = adapter.connectorName;
+  const itemSingular = adapter.itemSingular;
+  useEffect(() => {
+    void loadRoutes().catch((e) =>
+      setMessage(e instanceof Error ? e.message : `Failed to load ${connectorName} ${itemSingular} routes`));
+  }, [loadRoutes, connectorName, itemSingular]);
+  useEffect(() => {
+    setDiagnostics(null);
+    void loadDiagnostics().catch((e) =>
+      setMessage(e instanceof Error ? e.message : `Failed to load ${connectorName} runtime diagnostics`));
+  }, [loadDiagnostics, connectorName]);
 
   // ── Diagnostic fix actions ───────────────────────────────────────────────────
 
@@ -576,25 +639,7 @@ export function ConnectorAdminPanel({
 
   const fixMissingRouteableAgent = async () => {
     if (!selected) return;
-    const agentId = (defaultAgentId || "").trim();
-    if (!agentId) { toast(`Select a Dynamic Agent or configure a default Dynamic Agent to auto-fix this ${adapter.itemSingular}.`, "warning"); return; }
-    setLoading(true); setMessage(null);
-    try {
-      const nextRoutes: ItemAgentRoute[] = [
-        ...routes.filter((r) => r.agent_id !== agentId),
-        { agent_id: agentId, enabled: true, priority: 100, users: { enabled: true, listen: "all" } },
-      ];
-      const res = await fetch(adapter.api.routesFor(selected.workspace_id, selected.item_id), {
-        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ routes: nextRoutes }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      const data = apiData<{ routes: ItemAgentRoute[] }>(await res.json());
-      setRoutes(data.routes ?? []);
-      await Promise.all([loadItems(), loadRoutes(), loadDiagnostics()]);
-      toast(`Created ${adapter.connectorName} association for agent:${agentId}.`, "success");
-    } catch (err) {
-      setMessage(err instanceof Error ? err.message : "Failed to auto-fix association");
-    } finally { setLoading(false); }
+    toast(`Add an agent manually for this ${adapter.itemSingular}.`, "warning");
   };
 
   // ── Discovery / onboarding ───────────────────────────────────────────────────
@@ -605,9 +650,6 @@ export function ConnectorAdminPanel({
       const discovered: DiscoveredItem[] = [];
       let cursor: string | null = null;
       let page = 0;
-      const legacySuggestions = adapter.legacyConfigAgentPrefill && useSlackbotConfigDefaults
-        ? await adapter.legacyConfigAgentPrefill.fetchSuggestions(fetch).catch(() => ({}))
-        : {};
       do {
         const url = adapter.api.discoveryUrl(page, cursor);
         const res = await fetch(url, { cache: "no-store" });
@@ -623,17 +665,12 @@ export function ConnectorAdminPanel({
         const existing = configuredItemsById.get(item.id);
         const isExisting = configuredItemIds.has(item.id);
         const isSetupComplete = Boolean(existing?.team_slug && (existing.active_grants ?? 0) > 0);
-        const resolvedAgentId = (() => {
-          const leg = legacySuggestions[item.id]?.trim();
-          if (leg && dynamicAgentIds.has(leg)) return leg;
-          return fallbackAgentId;
-        })();
         // Slack: never auto-select (admin opts in per row).
         // Webex: auto-select new items when there are new ones to onboard.
         const autoSelect = adapter.discoveryAutoSelectNewItems
           ? (hasNewItems ? !isExisting : true)
           : false;
-        return { ...item, selected: autoSelect, team_slug: defaultTeamSlug, agent_id: resolvedAgentId, is_existing: isSetupComplete };
+        return { ...item, selected: autoSelect, team_slug: "", agent_id: "", is_existing: isSetupComplete };
       }));
       toast(`Found ${pluralize(discovered.length, adapter.copy.discoveryDiscoveredLabel)}.`, "success");
     } catch (err) {
@@ -654,7 +691,7 @@ export function ConnectorAdminPanel({
     try {
       const result = await adapter.applyOnboarding({
         rows: discoveredRows.map((r) => ({ id: r.id, name: r.name, teamSlug: r.team_slug, agentId: r.agent_id, selected: r.selected })),
-        defaultTeamSlug, defaultAgentId, createDefaultRoutes, fetchFn: fetch,
+        defaultTeamSlug: "", defaultAgentId: "", createDefaultRoutes: true, fetchFn: fetch,
       });
       await Promise.all([loadItems(), loadRoutes(), loadDiagnostics()]);
       const appliedIds = new Set(discoveredRows.filter((r) => r.selected).map((r) => r.id));
@@ -720,62 +757,67 @@ export function ConnectorAdminPanel({
 
         {/* Advanced tab */}
         {!selfService && view === "advanced" && (
-          <div role="region" aria-label={adapter.ariaLabels.advancedRegion}
-            data-section-tone="slate"
-            className="rounded-md border border-slate-500/20 bg-slate-500/5 p-4 space-y-3">
-            <div>
-              <h3 className="inline-flex items-center gap-2 text-base font-semibold tracking-tight">
-                <Settings2 className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-                {adapter.copy.advancedHeading}
-              </h3>
-              <p className="text-xs text-muted-foreground">{adapter.copy.advancedTabDescription}</p>
-            </div>
-            <div className={`grid gap-2 text-sm ${adapter.advancedExtraTiles ? "md:grid-cols-4" : "md:grid-cols-3"}`}>
-              <div className="rounded-md border bg-background/60 p-3">
-                <div className="text-xs text-muted-foreground">Route mode</div>
-                <div className="font-medium">{runtimeStatus?.route_mode ?? "unknown"}</div>
+          <div role="region" aria-label={adapter.ariaLabels.advancedRegion} className="space-y-3">
+            <div
+              data-section-tone="slate"
+              className="rounded-md border border-slate-500/20 bg-slate-500/5 p-4 space-y-3"
+            >
+              <div>
+                <h3 className="inline-flex items-center gap-2 text-base font-semibold tracking-tight">
+                  <Settings2 className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+                  {adapter.copy.advancedHeading}
+                </h3>
+                <p className="text-xs text-muted-foreground">
+                  {adapter.copy.advancedSectionDescription ?? adapter.copy.advancedTabDescription}
+                </p>
               </div>
-              <div className="rounded-md border bg-background/60 p-3">
-                <div className="text-xs text-muted-foreground">Static config</div>
-                <div className="font-medium">{runtimeStatus ? adapter.staticConfigLabel({ items: Object.values(runtimeStatus.static_config)[0] ?? 0, routes: Object.values(runtimeStatus.static_config)[1] ?? 0 }) : "unknown"}</div>
+              <div className={`grid gap-2 text-sm ${adapter.advancedExtraTiles ? "md:grid-cols-4" : "md:grid-cols-3"}`}>
+                <RuntimeTile
+                  label="Route mode"
+                  description={`Shows whether the ${adapter.copy.botNameInLegend} reads routes from database, YAML, or both.`}
+                >
+                  <div className="font-medium">{runtimeStatus?.route_mode ?? "unknown"}</div>
+                </RuntimeTile>
+                <RuntimeTile
+                  label="Static config"
+                  description={`Counts ${adapter.itemPlural}/routes currently loaded from ${adapter.copy.botNameInLegend} YAML.`}
+                >
+                  <div className="font-medium">{runtimeStatus ? adapter.staticConfigLabel({ items: Object.values(runtimeStatus.static_config)[0] ?? 0, routes: Object.values(runtimeStatus.static_config)[1] ?? 0 }) : "unknown"}</div>
+                </RuntimeTile>
+                <RuntimeTile
+                  label="Route cache"
+                  description={`Shows cached runtime ${adapter.itemSingular} routes and how soon they expire.`}
+                >
+                  <div className="font-medium">{runtimeStatus ? adapter.routeCacheLabel(runtimeStatus.route_cache.cache_size) : "unknown"}</div>
+                  <div className="text-xs text-muted-foreground">TTL {runtimeStatus?.route_cache.ttl_seconds ?? "?"}s</div>
+                </RuntimeTile>
+                {runtimeStatus && adapter.advancedExtraTiles?.(runtimeStatus).map((tile) => (
+                  <RuntimeTile key={tile.label} label={tile.label} description={tile.description}>
+                    <div className="font-medium">{tile.value}</div>
+                  </RuntimeTile>
+                ))}
               </div>
-              <div className="rounded-md border bg-background/60 p-3">
-                <div className="text-xs text-muted-foreground">Route cache</div>
-                <div className="font-medium">{runtimeStatus ? adapter.routeCacheLabel(runtimeStatus.route_cache.cache_size) : "unknown"}</div>
-                <div className="text-xs text-muted-foreground">TTL {runtimeStatus?.route_cache.ttl_seconds ?? "?"}s</div>
-              </div>
-              {runtimeStatus && adapter.advancedExtraTiles?.(runtimeStatus).map((tile) => (
-                <div key={tile.label} className="rounded-md border bg-background/60 p-3">
-                  <div className="text-xs text-muted-foreground">{tile.label}</div>
-                  <div className="font-medium">{tile.value}</div>
+              <div className="flex flex-wrap items-center gap-2">
+                <AdvancedActionButton
+                  label="Refresh Runtime Status"
+                  description="Reloads these status numbers from the running bot."
+                  icon={<RefreshCw className="h-4 w-4" aria-hidden="true" />}
+                  onClick={() => void refreshRuntimeStatus()}
+                  disabled={disabled || loading}
+                />
+                <AdvancedActionButton
+                  label="Reload Bot Cache"
+                  description="Refreshes the running bot after UI route changes."
+                  icon={<RotateCw className="h-4 w-4" aria-hidden="true" />}
+                  onClick={() => void reloadBotRoutes()}
+                  disabled={disabled || loading}
+                />
+                <div className="inline-flex items-center gap-1">
+                  <Button type="button" onClick={() => void syncBotConfig(true)} disabled={disabled || loading}><FileUp className="h-4 w-4" aria-hidden="true" />Import from YAML</Button>
                 </div>
-              ))}
-            </div>
-            <div role="region" aria-label={adapter.ariaLabels.advancedLegend}
-              className="grid gap-2 rounded-md border bg-background/50 p-3 text-xs text-muted-foreground md:grid-cols-2">
-              <div><span className="font-medium text-foreground">Route mode:</span> shows whether the {adapter.copy.botNameInLegend} reads routes from database, YAML, or both.</div>
-              <div><span className="font-medium text-foreground">Static config:</span> counts {adapter.itemPlural}/routes currently loaded from {adapter.copy.botNameInLegend} YAML.</div>
-              <div><span className="font-medium text-foreground">Route cache:</span> shows cached runtime {adapter.itemSingular} routes and how soon they expire.</div>
-              {adapter.advancedExtraLegendRows?.().map((row) => (
-                <div key={row.label}><span className="font-medium text-foreground">{row.label}:</span> {row.description}</div>
-              ))}
-              <div><span className="font-medium text-foreground">Refresh Runtime Status:</span> reloads these status numbers from the running bot.</div>
-              <div><span className="font-medium text-foreground">Reload Bot Cache:</span> refreshes the running bot after UI route changes.</div>
-              <div><span className="font-medium text-foreground">Preview YAML Import:</span> shows planned changes without writing them.</div>
-              <div className="md:col-span-2"><span className="font-medium text-foreground">Import from YAML Config:</span> writes YAML routes into CAIPE/OpenFGA.</div>
-            </div>
-            {runtimeSyncSummary && (
-              <div className="rounded-md border bg-muted/20 p-3 text-xs text-muted-foreground">
-                <div>{runtimeSyncSummary.dry_run ? `Sync preview: ${runtimeSyncSummary.routes_planned} routes planned.` : `Config sync applied: upserted ${runtimeSyncSummary.routes_upserted} routes.`}</div>
-                Last sync {runtimeSyncSummary.dry_run ? "preview" : "apply"}: {runtimeSyncSummary.routes_planned} planned, {runtimeSyncSummary.routes_upserted} upserted, {runtimeSyncSummary.openfga_tuples_written} OpenFGA tuples.
               </div>
-            )}
-            <div className="flex flex-wrap items-center gap-2">
-              <Button type="button" variant="outline" onClick={() => void refreshRuntimeStatus()} disabled={disabled || loading}><RefreshCw className="h-4 w-4" aria-hidden="true" />Refresh Runtime Status</Button>
-              <Button type="button" variant="outline" onClick={() => void reloadBotRoutes()} disabled={disabled || loading}><RotateCw className="h-4 w-4" aria-hidden="true" />Reload Bot Cache</Button>
-              <Button type="button" variant="outline" onClick={() => void syncBotConfig(true)} disabled={disabled || loading}><FileUp className="h-4 w-4" aria-hidden="true" />Preview YAML Import</Button>
-              <Button type="button" onClick={() => void syncBotConfig(false)} disabled={disabled || loading}><FileUp className="h-4 w-4" aria-hidden="true" />Import from YAML Config</Button>
             </div>
+            {adapter.advancedTabExtraSection?.({ disabled })}
           </div>
         )}
 
@@ -795,7 +837,7 @@ export function ConnectorAdminPanel({
                 </div>
                 <div className="text-xs text-muted-foreground">
                   {runtimeSyncModalStatus === "loading" ? `Contacting the ${adapter.connectorName} bot admin API...`
-                    : "Static config sync is upsert-only and leaves existing UI-managed associations in place."}
+                    : "Static config sync is upsert-only and leaves existing UI-managed channel agents in place."}
                 </div>
               </div>
               {runtimeSyncModalError && <div className="rounded-md border border-destructive/40 p-3 text-sm text-destructive">{runtimeSyncModalError}</div>}
@@ -807,107 +849,18 @@ export function ConnectorAdminPanel({
                   <div className="rounded-md border p-3"><div className="text-xs text-muted-foreground">OpenFGA tuples</div><div className="font-medium">{pluralize(runtimeSyncSummary.openfga_tuples_written, "OpenFGA tuple")} written</div></div>
                 </div>
               )}
+              {runtimeSyncSummary?.channels && runtimeSyncSummary.channels.length > 0 && (
+                <SyncPreviewBreakdown channels={runtimeSyncSummary.channels} />
+              )}
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setRuntimeSyncModalOpen(false)} disabled={runtimeSyncModalStatus === "loading"}>Close</Button>
               {runtimeSyncModalMode === "preview" && runtimeSyncModalStatus === "success" && (
-                <Button type="button" onClick={() => void syncBotConfig(false)} disabled={disabled || loading}><FileUp className="h-4 w-4" aria-hidden="true" />Import from YAML Config</Button>
+                <Button type="button" onClick={() => void syncBotConfig(false)} disabled={disabled || loading}><FileUp className="h-4 w-4" aria-hidden="true" />Apply Import</Button>
               )}
             </DialogFooter>
           </DialogContent>
         </Dialog>
-
-        {/* Onboarding defaults — shown on Onboard tab */}
-        {!selfService && view === "onboard" && (
-          <div role="region" aria-label={adapter.ariaLabels.onboardingDefaultsRegion}
-            data-section-tone="teal"
-            className="rounded-md border border-teal-500/25 bg-teal-500/5 p-4 space-y-4">
-            <div>
-              <h3 className="inline-flex items-center gap-2 text-base font-semibold tracking-tight">
-                <Sparkles className="h-4 w-4 text-primary" aria-hidden="true" />
-                {adapter.copy.onboardingDefaultsHeading}
-              </h3>
-              <p className="text-xs text-muted-foreground">{adapter.copy.onboardingDefaultsDescription}</p>
-            </div>
-            <div className="rounded-md border border-teal-500/15 bg-background/60 p-3 text-xs">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="font-medium text-foreground">Last saved</span>
-                {configuredDefaults?.source === "env" && <span className="text-[10px] uppercase tracking-wide text-muted-foreground">from environment variable</span>}
-                {configuredDefaults?.source === "db" && configuredDefaults.updated_at && (
-                  <span className="text-[10px] text-muted-foreground">
-                    {new Date(configuredDefaults.updated_at).toLocaleString()}
-                    {configuredDefaults.updated_by ? ` · ${configuredDefaults.updated_by}` : ""}
-                  </span>
-                )}
-                {configuredDefaults?.source === "unset" && <span className="text-[10px] text-muted-foreground">never saved</span>}
-              </div>
-              <div className="mt-2 grid gap-2 md:grid-cols-2">
-                <div><div className="text-muted-foreground">Onboarding team</div><code>{configuredDefaults?.team_slug ? `team:${configuredDefaults.team_slug}` : "not configured"}</code></div>
-                <div><div className="text-muted-foreground">Onboarding Dynamic Agent</div><code>{configuredDefaults?.agent_id ? `agent:${configuredDefaults.agent_id}` : "not configured"}</code></div>
-              </div>
-            </div>
-            <div className="grid gap-3 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor={`${adapter.connectorName.toLowerCase()}-default-team`}>Preselected Team</Label>
-                <TeamPicker
-                  id={`${adapter.connectorName.toLowerCase()}-default-team`}
-                  value={defaultTeamSlug} onChange={setDefaultTeamSlug}
-                  disabled={disabled || teams.length === 0}
-                  placeholder={teams.length === 0 ? "No teams configured" : "Select preselected team"}
-                  searchPlaceholder="Search teams..."
-                  options={teams.map<TeamPickerOption>((t) => ({ slug: t.slug, name: t.name || t.slug, id: t.id, _id: t._id }))}
-                />
-                {invalidDefaultTeamSlug && (
-                  <p className="text-xs text-amber-700 dark:text-amber-400" role="alert">
-                    The saved default team <code>team:{invalidDefaultTeamSlug}</code> doesn&apos;t match any current team. Pick one above.
-                    {adapter.copy.invalidTeamEnvHint ? ` ${adapter.copy.invalidTeamEnvHint}` : ""}
-                  </p>
-                )}
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor={`${adapter.connectorName.toLowerCase()}-default-agent`}>Preselected Dynamic Agent</Label>
-                <AgentPicker
-                  id={`${adapter.connectorName.toLowerCase()}-default-agent`}
-                  ariaLabel="Preselected Dynamic Agent"
-                  value={defaultAgentId}
-                  onChange={setDefaultAgentId}
-                  disabled={disabled || dynamicAgents.length === 0}
-                  placeholder={dynamicAgents.length === 0 ? "No enabled Dynamic Agents found" : "Select preselected Dynamic Agent"}
-                  options={sortedDynamicAgents.map<AgentPickerOption>((a) => ({ value: a._id, label: a.name || a._id }))}
-                />
-                {invalidDefaultAgentId && (
-                  <p className="text-xs text-amber-700 dark:text-amber-400" role="alert">
-                    The saved default Dynamic Agent <code>agent:{invalidDefaultAgentId}</code> wasn&apos;t found (or is disabled). Pick one above.
-                    {adapter.copy.invalidAgentEnvHint ? ` ${adapter.copy.invalidAgentEnvHint}` : ""}
-                  </p>
-                )}
-              </div>
-            </div>
-            {/* Legacy Slackbot YAML prefill checkbox — Slack only */}
-            {adapter.legacyConfigAgentPrefill && (
-              <label className="flex items-start gap-2 rounded-md border border-teal-500/15 bg-background/60 p-3 text-sm">
-                <input type="checkbox" checked={useSlackbotConfigDefaults}
-                  onChange={(e) => setUseSlackbotConfigDefaults(e.target.checked)} disabled={disabled} />
-                <span>
-                  <span className="font-medium">Use existing Slackbot channel agents as defaults</span>
-                  <span className="block text-xs text-muted-foreground">{adapter.legacyConfigAgentPrefill.description}</span>
-                </span>
-              </label>
-            )}
-            <div className="flex flex-wrap items-center justify-end gap-2">
-              {associationDefaultsDirty && <span role="status" className="text-[11px] text-amber-700 dark:text-amber-400">Unsaved changes</span>}
-              <Button type="button" size="sm" variant="default"
-                onClick={() => void saveAssociationDefaults()}
-                disabled={disabled || savingDefaults || !associationDefaultsDirty}
-                aria-label={`Save ${adapter.connectorName} onboarding defaults`}>
-                {savingDefaults ? "Saving…" : "Save defaults"}
-              </Button>
-            </div>
-            {(teams.length === 0 || dynamicAgents.length === 0) && (
-              <p className="text-xs text-muted-foreground">Configure a team or Dynamic Agent in the admin UI, then reload this page.</p>
-            )}
-          </div>
-        )}
 
         {/* Empty state */}
         {!selfService && view === "channels" && items.length === 0 && (
@@ -921,6 +874,27 @@ export function ConnectorAdminPanel({
         {(selfService || view === "channels") && items.length > 0 && (
           <div role="region" aria-label={adapter.ariaLabels.configuredRegion}
             className="rounded-md border bg-background/60 overflow-hidden">
+            <div className="flex flex-col gap-2 border-b bg-background/80 p-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="text-sm font-medium">
+                {filteredConfiguredItems.length === items.length
+                  ? `${items.length} configured ${adapter.itemPlural}`
+                  : `${filteredConfiguredItems.length} of ${items.length} ${adapter.itemPlural}`}
+              </div>
+              <div className="flex w-full gap-2 sm:max-w-sm">
+                <Input
+                  value={configuredSearch}
+                  onChange={(event) => setConfiguredSearch(event.target.value)}
+                  placeholder={`Search ${adapter.itemPlural}`}
+                  aria-label={`Search configured ${adapter.itemPlural}`}
+                  className="h-8"
+                />
+                {configuredSearch && (
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setConfiguredSearch("")}>
+                    Clear
+                  </Button>
+                )}
+              </div>
+            </div>
             <div className="overflow-auto" style={{ maxHeight: "min(70vh, 100vh - 320px)" }}>
               <table className="w-full text-sm">
                 <thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
@@ -932,18 +906,25 @@ export function ConnectorAdminPanel({
                   </tr>
                 </thead>
                 <tbody>
-                  {items.map((item) => {
+                  {filteredConfiguredItems.length === 0 && (
+                    <tr>
+                      <td colSpan={4} className="px-3 py-6 text-center text-sm text-muted-foreground">
+                        No configured {adapter.itemPlural} match “{configuredSearch.trim()}”.
+                      </td>
+                    </tr>
+                  )}
+                  {filteredConfiguredItems.map((item) => {
                     const key = adapter.itemKey(item);
                     const isSelected = key === selectedKey;
                     const grants = item.active_grants ?? 0;
                     const warningsCount = isSelected && diagnostics
                       ? diagnostics.warnings.length : item.health?.warnings_count;
-                    const health = typeof warningsCount === "number"
-                      ? warningsCount > 0
-                        ? { label: `${warningsCount} issue${warningsCount === 1 ? "" : "s"}`, className: "border-amber-300 bg-amber-50 text-amber-800" }
-                        : { label: "healthy", className: "border-emerald-300 bg-emerald-50 text-emerald-700" }
-                      : !item.team_slug
-                        ? { label: "no team", className: "border-amber-300 bg-amber-50 text-amber-800" }
+                    const health = !item.team_slug
+                      ? { label: "no team", className: "border-amber-300 bg-amber-50 text-amber-800" }
+                      : typeof warningsCount === "number"
+                        ? warningsCount > 0
+                          ? { label: `${warningsCount} issue${warningsCount === 1 ? "" : "s"}`, className: "border-amber-300 bg-amber-50 text-amber-800" }
+                          : { label: "healthy", className: "border-emerald-300 bg-emerald-50 text-emerald-700" }
                         : grants === 0
                           ? { label: "no agents", className: "border-amber-300 bg-amber-50 text-amber-800" }
                           : { label: "checking…", className: "border-slate-300 bg-slate-50 text-slate-600" };
@@ -971,12 +952,14 @@ export function ConnectorAdminPanel({
                             <td colSpan={4} className="p-4">
                               <ItemDetail
                                 adapter={adapter} selected={item} diagnostics={diagnostics} routes={routes}
-                                dynamicAgents={dynamicAgents} defaultAgentId={defaultAgentId}
-                                routeAgentId={routeAgentId} setRouteAgentId={setRouteAgentId}
-                                routeListen={routeListen} setRouteListen={setRouteListen}
-                                routePriority={routePriority} setRoutePriority={setRoutePriority}
-                                editingRouteAgentId={editingRouteAgentId} resetRouteForm={resetRouteForm}
-                                editRoute={editRoute} saveRoute={saveRoute} deleteRoute={setRoutePendingDelete}
+                                dynamicAgents={dynamicAgents}
+                                teams={teams}
+                                setLoading={setLoading}
+                                setMessage={setMessage}
+                                onRefresh={async (nextRoutes) => {
+                                  if (nextRoutes) setRoutes(nextRoutes);
+                                  await Promise.all([loadItems(), loadRoutes(), loadDiagnostics()]);
+                                }}
                                 fixDiagnosticRoute={fixDiagnosticRoute} fixMissingRouteableAgent={fixMissingRouteableAgent}
                                 disabled={disabled} loading={loading} selectedCanManage={selectedCanManage} message={message}
                               />
@@ -1043,28 +1026,6 @@ export function ConnectorAdminPanel({
           />
         )}
 
-        {/* Delete confirmation dialog */}
-        <Dialog open={Boolean(routePendingDelete)} onOpenChange={(open) => { if (!open && !loading) setRoutePendingDelete(null); }}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Delete {adapter.itemSingular}-agent association?</DialogTitle>
-              <DialogDescription>
-                {routePendingDelete ? `This removes agent:${routePendingDelete.agent_id} from the selected ${adapter.connectorName} ${adapter.itemSingular}.` : `This removes the selected agent from the ${adapter.connectorName} ${adapter.itemSingular}.`}
-              </DialogDescription>
-            </DialogHeader>
-            <p className="text-sm text-muted-foreground">The OpenFGA tuple will be deleted, and the saved Mongo route metadata for listen mode and priority will be deleted as well.</p>
-            {routePendingDelete && (
-              <div className="rounded-md border bg-muted/30 p-3 text-sm">
-                <div><span className="font-medium">Listen:</span> {routePendingDelete.users?.listen ?? "mention"}</div>
-                <div><span className="font-medium">Priority:</span> {routePendingDelete.priority}</div>
-              </div>
-            )}
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setRoutePendingDelete(null)} disabled={loading}>Cancel</Button>
-              <Button type="button" variant="destructive" onClick={() => void deleteRouteConfirmed()} disabled={loading}>{loading ? "Deleting..." : "Delete association"}</Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
       </CardContent>
     </Card>
   );

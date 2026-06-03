@@ -4,9 +4,10 @@
 // assisted-by Cursor claude-opus-4-7
 
 import React, { useEffect, useState } from "react";
-import { AlertTriangle, CheckCircle2, Info, Loader2, Save } from "lucide-react";
+import { AlertTriangle, Info, Loader2 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { SaveButton } from "@/components/admin/SaveButton";
 import {
   Dialog,
   DialogContent,
@@ -139,8 +140,10 @@ export function PlatformSettingsTab({ isAdmin }: PlatformSettingsTabProps) {
         <CardHeader>
           <CardTitle>Default Agent</CardTitle>
           <CardDescription>
-            Select which agent new chats open with. Admins can override this at runtime;
-            it takes precedence over the <code>DEFAULT_AGENT_ID</code> Helm value.
+            Select which agent new chats open with across the Web UI <em>and</em> Slack
+            (channel fallback when no route matches, and direct messages). Admins can
+            override this at runtime; it takes precedence over the <code>DEFAULT_AGENT_ID</code>
+            Helm value.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -223,30 +226,14 @@ export function PlatformSettingsTab({ isAdmin }: PlatformSettingsTabProps) {
           </div>
 
           {isAdmin && (
-            <div className="flex items-center gap-3 pt-2">
-              <Button
-                onClick={handleSaveClick}
-                disabled={saving || selectedAgentId === savedAgentId}
-                size="sm"
-                className="gap-2"
-                data-testid="default-agent-save"
-              >
-                {saving ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Save className="h-3.5 w-3.5" />
-                )}
-                Save
-              </Button>
-              {saveResult === 'success' && (
-                <span className="flex items-center gap-1.5 text-sm text-green-600 dark:text-green-400">
-                  <CheckCircle2 className="h-4 w-4" />
-                  Saved
-                </span>
-              )}
-              {saveResult === 'error' && (
-                <span className="text-sm text-destructive">Failed to save. Try again.</span>
-              )}
+            <div className="pt-2">
+              <SaveButton
+                onSave={handleSaveClick}
+                saving={saving}
+                dirty={selectedAgentId !== savedAgentId}
+                result={saveResult}
+                testId="default-agent-save"
+              />
             </div>
           )}
         </CardContent>

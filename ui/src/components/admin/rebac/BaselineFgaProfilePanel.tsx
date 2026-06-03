@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
+import { SaveButton } from "@/components/admin/SaveButton";
 
 interface BaselineGrantDefinition {
   id: string;
@@ -227,6 +228,20 @@ export function BaselineFgaProfilePanel({ isAdmin }: { isAdmin: boolean }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  // Snapshot of the last-saved editable state so the Save button only enables
+  // once the profiles or team assignments actually change.
+  const [savedSnapshot, setSavedSnapshot] = useState<string>("");
+
+  const snapshotOf = (
+    nextBundle: BaselineProfileBundle | null,
+    assignments: TeamAssignment[],
+  ): string =>
+    JSON.stringify({
+      profiles: nextBundle?.profiles ?? [],
+      global_member_profile_id: nextBundle?.global_member_profile_id ?? null,
+      global_admin_profile_id: nextBundle?.global_admin_profile_id ?? null,
+      team_assignments: assignments,
+    });
 
   useEffect(() => {
     let cancelled = false;
@@ -244,6 +259,7 @@ export function BaselineFgaProfilePanel({ isAdmin }: { isAdmin: boolean }) {
         setMemberGrants(data.available_grants.member);
         setAdminGrants(data.available_grants.admin);
         setTeamAssignments(data.team_assignments ?? []);
+        setSavedSnapshot(snapshotOf(nextBundle, data.team_assignments ?? []));
         setSelectedProfileId(nextBundle.global_member_profile_id || nextBundle.profiles[0]?.id || ORG_MEMBER_PROFILE_ID);
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : "Could not load baseline profiles");
@@ -267,6 +283,7 @@ export function BaselineFgaProfilePanel({ isAdmin }: { isAdmin: boolean }) {
   const availableGrants = grantsForSelectedRole.filter((grant) => !selectedGrantIds.has(grant.id));
   const memberProfiles = bundle?.profiles.filter((profile) => profile.role === "member") ?? [];
   const adminProfiles = bundle?.profiles.filter((profile) => profile.role === "admin") ?? [];
+  const dirty = Boolean(bundle) && snapshotOf(bundle, teamAssignments) !== savedSnapshot;
 
   function updateProfile(profileId: string, update: (profile: BaselineProfileDefinition) => BaselineProfileDefinition) {
     setBundle((current) => {
@@ -344,8 +361,10 @@ export function BaselineFgaProfilePanel({ isAdmin }: { isAdmin: boolean }) {
       if (!response.ok) throw new Error(payload.error || `Baseline profile save failed: ${response.status}`);
       const data = apiData<BaselineProfileResponse>(payload);
       const nextBundle = bundleFromResponse(data);
+      const nextAssignments = data.team_assignments ?? teamAssignments;
       setBundle(nextBundle);
-      setTeamAssignments(data.team_assignments ?? teamAssignments);
+      setTeamAssignments(nextAssignments);
+      setSavedSnapshot(snapshotOf(nextBundle, nextAssignments));
       if (data.available_grants.member.length > 0) setMemberGrants(data.available_grants.member);
       if (data.available_grants.admin.length > 0) setAdminGrants(data.available_grants.admin);
       if (data.reconciliation?.mode === "all") {
@@ -473,10 +492,13 @@ export function BaselineFgaProfilePanel({ isAdmin }: { isAdmin: boolean }) {
                     </span>
                   </span>
                 </label>
-                <Button onClick={saveProfile} disabled={!isAdmin || saving} className="gap-2">
-                  {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-                  Save default grant profiles
-                </Button>
+                <SaveButton
+                  onSave={saveProfile}
+                  saving={saving}
+                  dirty={dirty}
+                  disabled={!isAdmin}
+                  ariaLabel="Save default grant profiles"
+                />
               </div>
               {!isAdmin && (
                 <p className="text-sm text-muted-foreground">
