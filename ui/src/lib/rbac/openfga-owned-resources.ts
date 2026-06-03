@@ -305,6 +305,46 @@ export async function reconcileKnowledgeBaseRelationships(
 }
 
 /**
+ * Mirror a `knowledge_base:<id>` tuple diff onto the parallel
+ * `data_source:<id>` graph.
+ *
+ * Why this exists: query-time enforcement (RAG server `inject_kb_filter`
+ * and the BFF `data_source#read` filter) reads the **`data_source`** type,
+ * while the user-facing Share-with-Teams and admin team-KB-assignment
+ * surfaces historically wrote **`knowledge_base`** tuples only. A KB-only
+ * grant is therefore invisible to search. Since a `data_source` is 1:1
+ * with its `knowledge_base` (same id — see
+ * [buildDataSourceRelationshipTupleDiff]), every KB grant must be mirrored
+ * so the team can actually query the datasource, not just discover it.
+ *
+ * The relation set is identical on both types (`reader`, `ingestor`,
+ * `manager`), so the mirror is a pure object-prefix rewrite. Tuples that
+ * don't target `knowledge_base:` are dropped (e.g. a `user:<sub> owner`
+ * tuple is handled by the create path's explicit dual-write, not here).
+ *
+ * `writeOpenFgaTuples` is idempotent (it pre-checks each tuple), so
+ * mirroring is safe even when a datasource pre-dates this change and only
+ * has `knowledge_base` tuples today.
+ */
+export function mirrorKnowledgeBaseDiffToDataSource(
+  diff: TeamResourceTupleDiff
+): TeamResourceTupleDiff {
+  const KB_PREFIX = "knowledge_base:";
+  const rewrite = (tuples: OpenFgaTupleKey[]): OpenFgaTupleKey[] =>
+    tuples
+      .filter((tuple) => tuple.object.startsWith(KB_PREFIX))
+      .map((tuple) => ({
+        user: tuple.user,
+        relation: tuple.relation,
+        object: `data_source:${tuple.object.slice(KB_PREFIX.length)}`,
+      }));
+  return {
+    writes: uniqueTuples(rewrite(diff.writes)),
+    deletes: uniqueTuples(rewrite(diff.deletes)),
+  };
+}
+
+/**
  * Build a data_source tuple diff with the same owner + shared-teams
  * semantics as `buildKnowledgeBaseRelationshipTupleDiff`. The relation
  * pair on a shared team is the same (`team:<slug>#member reader`,

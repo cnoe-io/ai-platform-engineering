@@ -71,6 +71,49 @@ describe("/api/admin/openfga/tuples", () => {
     );
   });
 
+  it("post-filters userset-only reads because OpenFGA requires an object tuple filter", async () => {
+    mockReadOpenFgaTuples.mockResolvedValue({
+      tuples: [
+        {
+          key: {
+            user: "team:platform#member",
+            relation: "ingestor",
+            object: "data_source:kb-alpha",
+          },
+        },
+        {
+          key: {
+            user: "team:other#member",
+            relation: "ingestor",
+            object: "data_source:kb-beta",
+          },
+        },
+      ],
+      continuationToken: undefined,
+    });
+    const { GET } = await import("../tuples/route");
+
+    const response = await GET(
+      request("/api/admin/openfga/tuples?user=team%3Aplatform%23member&limit=25"),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(mockReadOpenFgaTuples).toHaveBeenCalledWith({
+      pageSize: 25,
+      continuationToken: undefined,
+    });
+    expect(body.data.tuples).toEqual([
+      {
+        key: {
+          user: "team:platform#member",
+          relation: "ingestor",
+          object: "data_source:kb-alpha",
+        },
+      },
+    ]);
+  });
+
   it("passes exact tuple filters through to OpenFGA instead of reading a broad page", async () => {
     mockReadOpenFgaTuples.mockResolvedValue({
       tuples: [

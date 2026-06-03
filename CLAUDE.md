@@ -138,6 +138,8 @@ The RBAC reference is split into four focused files (plus an `index.md` landing 
 - MongoDB (server-side via API), Zustand store (client-side) (093-fix-audit-chat-active-preserve)
 - Python 3.13 + FastMCP 3.2.3, Starlette (transitive via FastMCP), PyJWT, requests (101-mcp-auth-caller-key)
 - N/A (middleware is stateless; JwksCache is in-process memory) (101-mcp-auth-caller-key)
+- TypeScript (Next.js 16 / React 19) for BFF + admin UI; Python 3.13 for the RAG server enforcement path. OpenFGA DSL + JSON authorization model. + OpenFGA (ReBAC PDP, tuple-to-userset / `X from Y`), tuple read/write/check via `ui/src/lib/rbac/openfga.ts`; FastAPI/Starlette RAG server (`server/rbac.py`). (feat/rag-datasource-access-fixes)
+- OpenFGA tuple store (persisted). **Migration required** — additive `parent_kb` backfill. See *Database migrations*. (feat/rag-datasource-access-fixes)
 
 ## Recent Changes
 - 093-fix-audit-chat-active-preserve: Added TypeScript (Next.js 16, React 19) + Zustand (state management), Next.js App Router

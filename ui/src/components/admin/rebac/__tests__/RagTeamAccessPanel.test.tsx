@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import { RagTeamAccessPanel } from "../RagTeamAccessPanel";
 
@@ -64,33 +64,6 @@ function jsonResponse(payload: unknown): Response {
   } as Response;
 }
 
-it("saves RAG datasource admin access as an admin surface tuple", async () => {
-  render(<RagTeamAccessPanel isAdmin />);
-
-  expect(await screen.findByText("RAG Team Access")).toBeInTheDocument();
-  // Team picker is now a searchable TeamPicker (2026-05-27) so the
-  // options aren't in the DOM until the popover opens. Confirm the
-  // selected team is rendered on the trigger label instead.
-  expect(await screen.findByLabelText("Team")).toHaveTextContent(/Platform/);
-  fireEvent.click(await screen.findByRole("checkbox", { name: /Data Sources admin/ }));
-  fireEvent.click(screen.getByRole("button", { name: "Save RAG Team Access" }));
-
-  expect(await screen.findByText("RAG team access saved to OpenFGA")).toBeInTheDocument();
-  expect(fetchMock).toHaveBeenCalledWith(
-    "/api/admin/openfga/relationship",
-    expect.objectContaining({
-      method: "POST",
-      body: JSON.stringify({
-        teamSlug: "platform",
-        resourceType: "admin_surface",
-        resourceId: "rag_datasources",
-        relation: "manager",
-        operation: "grant",
-      }),
-    })
-  );
-});
-
 it("grants a selected knowledge base to the selected team", async () => {
   render(<RagTeamAccessPanel isAdmin />);
 
@@ -113,5 +86,81 @@ it("grants a selected knowledge base to the selected team", async () => {
         kb_permissions: { "kb-alpha": "admin" },
       }),
     })
+  );
+});
+
+it("renders the team's current datasource grants and revokes one", async () => {
+  fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+    if (url === "/api/admin/openfga/catalog") {
+      return jsonResponse({
+        data: {
+          status: { configured: true, reconcile_enabled: true, store_name: "caipe-openfga" },
+          teams: [{ id: "team-1", slug: "platform", name: "Platform", members: [], resources: {} }],
+          resources: {
+            agents: [],
+            tools: [],
+            knowledge_bases: [{ id: "kb-alpha", name: "KB Alpha", description: "", object: "knowledge_base:kb-alpha" }],
+          },
+        },
+      });
+    }
+    // admin_surface probe (limit=1) → not an admin team
+    if (url.includes("admin_surface%3Arag_datasources") || url.includes("admin_surface:rag_datasources")) {
+      return jsonResponse({ data: { tuples: [] } });
+    }
+    // member/admin userset grant reads
+    if (url.startsWith("/api/admin/openfga/tuples") && url.includes("%23member")) {
+      return jsonResponse({
+        data: { tuples: [{ key: { user: "team:platform#member", relation: "ingestor", object: "data_source:kb-alpha" } }] },
+      });
+    }
+    if (url.startsWith("/api/admin/openfga/tuples")) {
+      return jsonResponse({ data: { tuples: [] } });
+    }
+    if (url.startsWith("/api/admin/rag/public-datasources")) {
+      return jsonResponse({ data: { datasource_id: "kb-alpha", public: false } });
+    }
+    if (url.includes("/kb-assignments") && init?.method === "DELETE") {
+      return jsonResponse({ data: { removed_datasource_id: "kb-alpha" } });
+    }
+    return jsonResponse({ data: {} });
+  });
+
+  render(<RagTeamAccessPanel isAdmin />);
+
+  // The grant row surfaces with its highest permission (ingest). The
+  // lowercase "ingest" badge text is unique to the grant list (the add
+  // form's <option> renders "Ingest"); the Revoke button only exists per
+  // grant row.
+  const revokeButton = await screen.findByRole("button", { name: "Revoke" });
+  expect(screen.getByText("ingest")).toBeInTheDocument();
+
+  fireEvent.click(revokeButton);
+
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/admin/teams/team-1/kb-assignments?datasource_id=kb-alpha",
+      expect.objectContaining({ method: "DELETE" }),
+    ),
+  );
+});
+
+it("saves public datasource state on demand (button, not auto-save)", async () => {
+  render(<RagTeamAccessPanel isAdmin />);
+
+  const publicCheckbox = await screen.findByRole("checkbox", {
+    name: /Readable by all authenticated users/,
+  });
+  fireEvent.click(publicCheckbox);
+  fireEvent.click(screen.getByRole("button", { name: "Save Public Access" }));
+
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/admin/rag/public-datasources",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ datasource_id: "kb-alpha", public: true }),
+      }),
+    ),
   );
 });
