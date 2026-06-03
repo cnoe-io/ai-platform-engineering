@@ -44,9 +44,10 @@ export const GET = withErrorHandler(async (request: NextRequest) =>
       ...(exactRelationFilter(relation) ? { relation: exactRelationFilter(relation) } : {}),
       ...(exactTupleField(object) ? { object: exactTupleField(object) } : {}),
     };
+    const openFgaTuple = tuple.object ? tuple : undefined;
 
     const result = await readOpenFgaTuples({
-      ...(Object.keys(tuple).length > 0 ? { tuple } : {}),
+      ...(openFgaTuple ? { tuple: openFgaTuple } : {}),
       pageSize: limitFromQuery(request),
       continuationToken: params.get("continuation_token") || undefined,
     });

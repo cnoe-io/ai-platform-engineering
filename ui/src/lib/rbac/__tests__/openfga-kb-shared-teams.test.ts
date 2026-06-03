@@ -7,7 +7,10 @@
  * shared list is a no-op, and invalid slugs are silently dropped.
  */
 
-import { buildKnowledgeBaseRelationshipTupleDiff } from "@/lib/rbac/openfga-owned-resources";
+import {
+  buildKnowledgeBaseRelationshipTupleDiff,
+  mirrorKnowledgeBaseDiffToDataSource,
+} from "@/lib/rbac/openfga-owned-resources";
 
 describe("buildKnowledgeBaseRelationshipTupleDiff — shared teams", () => {
   const KB = "knowledge_base:kb-1";
@@ -138,5 +141,53 @@ describe("buildKnowledgeBaseRelationshipTupleDiff — shared teams", () => {
     const b = buildKnowledgeBaseRelationshipTupleDiff(input);
     expect(a).toEqual(b);
     expect(a.deletes).toEqual([]);
+  });
+});
+
+describe("mirrorKnowledgeBaseDiffToDataSource", () => {
+  const KB = "knowledge_base:kb-1";
+  const DS = "data_source:kb-1";
+
+  it("rewrites knowledge_base writes/deletes onto the parallel data_source object", () => {
+    const mirrored = mirrorKnowledgeBaseDiffToDataSource({
+      writes: [
+        { user: "team:platform#member", relation: "reader", object: KB },
+        { user: "team:platform#member", relation: "ingestor", object: KB },
+        { user: "team:platform#admin", relation: "manager", object: KB },
+      ],
+      deletes: [{ user: "team:legacy#member", relation: "reader", object: KB }],
+    });
+    expect(mirrored.writes).toEqual([
+      { user: "team:platform#member", relation: "reader", object: DS },
+      { user: "team:platform#member", relation: "ingestor", object: DS },
+      { user: "team:platform#admin", relation: "manager", object: DS },
+    ]);
+    expect(mirrored.deletes).toEqual([
+      { user: "team:legacy#member", relation: "reader", object: DS },
+    ]);
+  });
+
+  it("drops tuples that don't target a knowledge_base object", () => {
+    const mirrored = mirrorKnowledgeBaseDiffToDataSource({
+      writes: [
+        { user: "user:alice", relation: "owner", object: "data_source:kb-1" },
+        { user: "team:platform#member", relation: "reader", object: KB },
+      ],
+      deletes: [],
+    });
+    expect(mirrored.writes).toEqual([
+      { user: "team:platform#member", relation: "reader", object: DS },
+    ]);
+    expect(mirrored.deletes).toEqual([]);
+  });
+
+  it("preserves user:* wildcard subjects when mirroring", () => {
+    const mirrored = mirrorKnowledgeBaseDiffToDataSource({
+      writes: [{ user: "user:*", relation: "reader", object: KB }],
+      deletes: [],
+    });
+    expect(mirrored.writes).toEqual([
+      { user: "user:*", relation: "reader", object: DS },
+    ]);
   });
 });

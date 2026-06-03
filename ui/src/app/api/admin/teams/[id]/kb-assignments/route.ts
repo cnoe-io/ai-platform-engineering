@@ -10,6 +10,7 @@ import {
 } from '@/lib/api-middleware';
 import type { TeamKbOwnership, KbPermission } from '@/lib/rbac/types';
 import { writeOpenFgaTuples, type OpenFgaTupleKey, type TeamResourceTupleDiff } from '@/lib/rbac/openfga';
+import { mirrorKnowledgeBaseDiffToDataSource } from '@/lib/rbac/openfga-owned-resources';
 import { findUserRoleInTeam } from '@/lib/rbac/team-membership-store';
 
 function requireMongoDB() {
@@ -139,6 +140,14 @@ async function writeRequiredKnowledgeBaseTuples(diff: TeamResourceTupleDiff): Pr
   const result = await writeOpenFgaTuples(diff);
   if (!result.enabled) {
     throw new ApiError('OpenFGA is not configured; KB assignments cannot be persisted safely', 503);
+  }
+  // Mirror every knowledge_base grant onto the parallel data_source type.
+  // Query-time access (RAG search + BFF filter) is enforced on
+  // `data_source#read`; a knowledge_base-only grant lets the team discover
+  // the KB but returns no search results. The mirror write is idempotent.
+  const dataSourceDiff = mirrorKnowledgeBaseDiffToDataSource(diff);
+  if (dataSourceDiff.writes.length > 0 || dataSourceDiff.deletes.length > 0) {
+    await writeOpenFgaTuples(dataSourceDiff);
   }
 }
 

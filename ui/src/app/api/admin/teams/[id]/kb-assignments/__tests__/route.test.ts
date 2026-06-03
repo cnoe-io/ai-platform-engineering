@@ -182,6 +182,19 @@ describe("/api/admin/teams/[id]/kb-assignments", () => {
         { user: "team:platform#member", relation: "reader", object: "knowledge_base:old-ds" },
       ],
     });
+    // The same grants must be mirrored onto the data_source type so the
+    // team can actually query the datasource (enforcement reads
+    // data_source#read, not knowledge_base#read).
+    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
+      writes: [
+        { user: "team:platform#member", relation: "reader", object: "data_source:new-read-ds" },
+        { user: "team:platform#member", relation: "ingestor", object: "data_source:new-ingest-ds" },
+        { user: "team:platform#admin", relation: "manager", object: "data_source:new-admin-ds" },
+      ],
+      deletes: [
+        { user: "team:platform#member", relation: "reader", object: "data_source:old-ds" },
+      ],
+    });
     expect(mockCollections.team_kb_ownership.updateOne).toHaveBeenCalled();
   });
 
@@ -208,6 +221,12 @@ describe("/api/admin/teams/[id]/kb-assignments", () => {
       writes: [],
       deletes: [
         { user: "team:platform#member", relation: "ingestor", object: "knowledge_base:old-ds" },
+      ],
+    });
+    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
+      writes: [],
+      deletes: [
+        { user: "team:platform#member", relation: "ingestor", object: "data_source:old-ds" },
       ],
     });
   });

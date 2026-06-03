@@ -30,8 +30,9 @@ import { requireResourcePermission } from "@/lib/rbac/resource-authz";
 import {
   reconcileKnowledgeBaseRelationships,
   buildKnowledgeBaseRelationshipTupleDiff,
+  mirrorKnowledgeBaseDiffToDataSource,
 } from "@/lib/rbac/openfga-owned-resources";
-import { readOpenFgaTuples } from "@/lib/rbac/openfga";
+import { readOpenFgaTuples, writeOpenFgaTupleDiff } from "@/lib/rbac/openfga";
 
 const OPENFGA_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._~@|*+=,/-]{0,191}$/;
 
@@ -203,7 +204,6 @@ export async function PUT(
       nextSharedTeamSlugs: nextSlugs,
       previousSharedTeamSlugs: previousSlugs,
     });
-    void diff;
 
     const result = await reconcileKnowledgeBaseRelationships({
       knowledgeBaseId: id,
@@ -211,10 +211,20 @@ export async function PUT(
       previousSharedTeamSlugs: previousSlugs,
     });
 
+    // Mirror the same grants onto the `data_source` type so the shared
+    // teams can actually QUERY the datasource. Query-time enforcement
+    // checks `data_source#read`, not `knowledge_base#read`; without this
+    // the shared team could see the KB in lists but get zero search
+    // results. See `mirrorKnowledgeBaseDiffToDataSource`.
+    const dataSourceResult = await writeOpenFgaTupleDiff(
+      mirrorKnowledgeBaseDiffToDataSource(diff),
+    );
+
     return NextResponse.json({
       knowledge_base_id: id,
       shared_team_slugs: nextSlugs,
       reconcile: result,
+      data_source_reconcile: dataSourceResult,
     });
   } catch (error) {
     if (error instanceof ApiError) return handleApiError(error);
