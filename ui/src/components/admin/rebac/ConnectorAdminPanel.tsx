@@ -619,6 +619,17 @@ export function ConnectorAdminPanel({
       } while (cursor);
       setDiscoveredItems(discovered);
       const hasNewItems = discovered.some((item) => !configuredItemIds.has(item.id));
+      // Smart fallback for automatic team/agent selection: when the admin
+      // hasn't saved onboarding defaults but there's exactly one manageable
+      // team and/or one enabled agent, prefill that sole option so discovered
+      // rows come up "Ready to set up" instead of blocked on "Pick team/agent".
+      // Only for connectors that auto-select (Webex); Slack stays fully
+      // opt-in per row, so it must not prefill team/agent here.
+      const enableSmartFallback = Boolean(adapter.discoveryAutoSelectNewItems);
+      const soleTeamSlug = enableSmartFallback && teams.length === 1 ? (teams[0].slug ?? "") : "";
+      const soleAgentId = enableSmartFallback && sortedDynamicAgents.length === 1 ? sortedDynamicAgents[0]._id : "";
+      const effectiveTeamSlug = defaultTeamSlug || soleTeamSlug;
+      const effectiveAgentId = fallbackAgentId || soleAgentId;
       setDiscoveredRows(discovered.map((item) => {
         const existing = configuredItemsById.get(item.id);
         const isExisting = configuredItemIds.has(item.id);
@@ -626,14 +637,17 @@ export function ConnectorAdminPanel({
         const resolvedAgentId = (() => {
           const leg = legacySuggestions[item.id]?.trim();
           if (leg && dynamicAgentIds.has(leg)) return leg;
-          return fallbackAgentId;
+          return effectiveAgentId;
         })();
-        // Slack: never auto-select (admin opts in per row).
-        // Webex: auto-select new items when there are new ones to onboard.
+        // Only auto-select rows that are actually ready to onboard (have both
+        // a team and an agent). Auto-selecting blocked rows produced a wall of
+        // un-appliable "Pick team and agent" rows. Slack never auto-selects
+        // (discoveryAutoSelectNewItems is unset → opt-in per row).
+        const isReady = Boolean(effectiveTeamSlug && resolvedAgentId);
         const autoSelect = adapter.discoveryAutoSelectNewItems
-          ? (hasNewItems ? !isExisting : true)
+          ? isReady && (hasNewItems ? !isExisting : true)
           : false;
-        return { ...item, selected: autoSelect, team_slug: defaultTeamSlug, agent_id: resolvedAgentId, is_existing: isSetupComplete };
+        return { ...item, selected: autoSelect, team_slug: effectiveTeamSlug, agent_id: resolvedAgentId, is_existing: isSetupComplete };
       }));
       toast(`Found ${pluralize(discovered.length, adapter.copy.discoveryDiscoveredLabel)}.`, "success");
     } catch (err) {

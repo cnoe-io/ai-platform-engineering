@@ -150,6 +150,48 @@ def _render_system_prompt(
         raise SystemPromptRenderError(f"System prompt template rendering failed: {exc}") from exc
 
 
+def _build_mcp_warning_lines(
+    permanent: list[str], permanent_error: str, transient: list[str]
+) -> list[str]:
+    """Build system-prompt warning lines for failed MCP servers, split by class.
+
+    Permanent failures keep the actionable "needs attention" framing with their
+    error detail; transient (still-warming) servers read as "starting up" and are
+    being retried. A genuine denial flows through the permanent path's error
+    string and is never relabeled as transient.
+    """
+    lines: list[str] = []
+    if permanent:
+        lines.append(
+            "**MCP servers that failed to load (tools unavailable — needs attention):**"
+        )
+        lines.append(f"  {permanent_error}")
+    if transient:
+        lines.append(
+            "**MCP servers still starting up (will be retried; tools may appear shortly):** "
+            + ", ".join(transient)
+        )
+    return lines
+
+
+def _mcp_warning_events(permanent: list[str], transient: list[str]) -> list[str]:
+    """Build streamed warning messages for failed MCP servers, split by class.
+
+    Permanent failures keep the "Tools from this server will not work." wording;
+    transient servers get a "starting up ... will be retried" message instead.
+    """
+    messages: list[str] = []
+    for server_name in permanent:
+        messages.append(
+            f"MCP server '{server_name}' is unavailable. Tools from this server will not work."
+        )
+    for server_name in transient:
+        messages.append(
+            f"MCP server '{server_name}' is starting up and not ready yet — it will be retried."
+        )
+    return messages
+
+
 class AgentRuntime:
     """Runtime for a single dynamic agent instance."""
 
@@ -262,6 +304,11 @@ class AgentRuntime:
         self._missing_tools: list[str] = []
         self._failed_servers: list[str] = []  # Just server names
         self._failed_servers_error: str = ""  # Error message for display
+        # Failed servers split by classification (see classify_load_error):
+        # transient = still warming up / retryable; permanent = needs attention.
+        self._failed_servers_transient: list[str] = []
+        self._failed_servers_permanent: list[str] = []
+        self._failed_servers_permanent_error: str = ""  # "id: error; ..." for permanent only
         self._failed_skills: list[str] = []  # Skill IDs that failed to load
         self._failed_skills_error: str = ""  # Error message for display
         self._failed_workflows: list[str] = []  # Workflow config IDs not found
@@ -360,19 +407,34 @@ class AgentRuntime:
             else:
                 # This connects to each server independently so one failure doesn't affect others
                 t_mcp = time.monotonic()
-                all_tools, failed_servers, failed_errors = await get_tools_with_resilience(connections)
+                all_tools, failed_servers, failed_errors, failed_status = await get_tools_with_resilience(
+                    connections
+                )
                 logger.info(
                     f"[init] MCP tools fetched in {time.monotonic() - t_mcp:.2f}s "
                     f"(agent='{self.config.name}', servers={len(connections)}, "
                     f"failed={len(failed_servers)})"
                 )
 
-                # Store failed servers for warning events
+                # Store failed servers for warning events, split by classification
+                # so transient (still-warming) servers read as "starting up" while
+                # permanent failures read as "needs attention". A genuine denial is
+                # surfaced through the existing diagnostic message, never relabeled.
                 if failed_servers:
                     self._failed_servers = failed_servers
-                    # Combine error messages for display
+                    self._failed_servers_transient = [
+                        s for s in failed_servers if failed_status.get(s) == "transient"
+                    ]
+                    self._failed_servers_permanent = [
+                        s for s in failed_servers if failed_status.get(s) != "transient"
+                    ]
+                    # Combine error messages for display (all + per-class)
                     error_parts = [f"{s}: {failed_errors.get(s, 'Unknown error')}" for s in failed_servers]
                     self._failed_servers_error = "; ".join(error_parts)
+                    self._failed_servers_permanent_error = "; ".join(
+                        f"{s}: {failed_errors.get(s, 'Unknown error')}"
+                        for s in self._failed_servers_permanent
+                    )
 
                 # 1b. Filter MCP tools by allowlist
                 tools, missing = filter_tools_by_allowed(all_tools, self.config.allowed_tools)
@@ -584,9 +646,13 @@ class AgentRuntime:
 
         # 10c. Append warnings about failed resources so the agent is aware of limitations
         warning_lines: list[str] = []
-        if self._failed_servers:
-            warning_lines.append("**MCP servers that failed to load (tools from these servers are unavailable):**")
-            warning_lines.append(f"  {self._failed_servers_error}")
+        warning_lines.extend(
+            _build_mcp_warning_lines(
+                self._failed_servers_permanent,
+                self._failed_servers_permanent_error,
+                self._failed_servers_transient,
+            )
+        )
         if self._failed_skills:
             warning_lines.append(f"**Skills that failed to load:** {', '.join(self._failed_skills)}")
             warning_lines.append(f"  Reason: {self._failed_skills_error}")
@@ -890,9 +956,14 @@ class AgentRuntime:
             )
             if connections:
                 # Use resilient connection so one failing server doesn't break the subagent
-                all_tools, failed, failed_errors = await get_tools_with_resilience(connections)
+                all_tools, failed, failed_errors, failed_status = await get_tools_with_resilience(
+                    connections
+                )
                 if failed:
-                    error_parts = [f"{s}: {failed_errors.get(s, 'Unknown error')}" for s in failed]
+                    error_parts = [
+                        f"{s}: {failed_errors.get(s, 'Unknown error')} [{failed_status.get(s, 'unknown')}]"
+                        for s in failed
+                    ]
                     logger.warning(f"Subagent '{subagent_config.name}': failed MCP servers: {'; '.join(error_parts)}")
                 mcp_tools, _ = filter_tools_by_allowed(all_tools, subagent_config.allowed_tools)
                 tools.extend(mcp_tools)
@@ -1058,10 +1129,14 @@ class AgentRuntime:
             yield frame
 
         # ── Core lifecycle: warnings ──
-        for server_name in self._failed_servers:
-            for frame in encoder.on_warning(
-                f"MCP server '{server_name}' is unavailable. Tools from this server will not work.",
-            ):
+        # Permanent failures keep the actionable "will not work" wording; transient
+        # (still-warming) servers read as "starting up" and are retried — never the
+        # permanent wording. Genuine denials surface through the permanent path's
+        # diagnostic error string rather than being relabeled as "starting up".
+        for warning_message in _mcp_warning_events(
+            self._failed_servers_permanent, self._failed_servers_transient
+        ):
+            for frame in encoder.on_warning(warning_message):
                 yield frame
 
         if self._failed_skills:

@@ -119,6 +119,30 @@ spec:
         - name: {{ $backendName }}
           group: agentgateway.dev
           kind: AgentgatewayBackend
+{{- if or (eq $name "github") (eq $name "gitlab") }}
+---
+# GitHub/GitLab authenticate per-request. Dynamic Agents forwards the caller's
+# OAuth token (or the static org PAT fallback via MCPCredentialSource.fallback_env)
+# on X-CAIPE-Provider-Token; this transformation rewrites it into the upstream
+# Authorization: Bearer header so connected users act as themselves while
+# unconnected callers transparently fall back to the org token. No static
+# backendAuth PAT is configured at the gateway.
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  name: {{ $name }}-provider-token-auth
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: {{ $routeName }}
+  traffic:
+    transformation:
+      request:
+        set:
+          - name: authorization
+            value: '"Bearer " + default(request.headers["x-caipe-provider-token"], "")'
+{{- end }}
 {{- end }}
 {{- end }}
 {{- end }}

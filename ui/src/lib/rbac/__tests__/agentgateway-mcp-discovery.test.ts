@@ -186,6 +186,54 @@ describe("AgentGateway MCP discovery", () => {
     );
   });
 
+  it("classifies a bare-gateway endpoint as an auto-migratable legacy row", () => {
+    // Stale rows written before per-target routing stored the catch-all
+    // `http://agentgateway:4000/mcp`. The runtime self-heals these, and Sync
+    // should migrate them in place rather than flagging an unresolvable conflict.
+    process.env.AGENT_GATEWAY_URL = "http://agentgateway:4000";
+    const discovery = buildAgentGatewayMcpDiscovery(agentGatewayConfig, [
+      existingServer("jira", "http://agentgateway:4000/mcp"),
+      // Trailing slash + the gateway origin with no /mcp suffix are the same shape.
+      existingServer("rag", "http://agentgateway:4000"),
+    ]);
+
+    expect(discovery.targets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "jira",
+          endpoint: "http://agentgateway:4000/mcp/jira",
+          status: "legacy",
+          existing_endpoint: "http://agentgateway:4000/mcp",
+        }),
+        expect.objectContaining({
+          id: "rag",
+          endpoint: "http://agentgateway:4000/mcp/rag",
+          status: "legacy",
+          existing_endpoint: "http://agentgateway:4000",
+        }),
+      ]),
+    );
+  });
+
+  it("keeps a different upstream host as a conflict (not auto-migrated)", () => {
+    // A row pointing at a *different* upstream than the discovered target is a
+    // genuine conflict the operator must resolve — never silently overwritten.
+    process.env.AGENT_GATEWAY_URL = "http://agentgateway:4000";
+    const discovery = buildAgentGatewayMcpDiscovery(agentGatewayConfig, [
+      existingServer("jira", "http://some-other-host:9999/mcp"),
+    ]);
+
+    expect(discovery.targets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "jira",
+          status: "conflict",
+          existing_endpoint: "http://some-other-host:9999/mcp",
+        }),
+      ]),
+    );
+  });
+
   it("normalizes AgentGateway admin config URLs", () => {
     process.env.AGENT_GATEWAY_ADMIN_URL = "http://agentgateway:15000/";
 

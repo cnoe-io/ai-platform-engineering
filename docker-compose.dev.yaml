@@ -1431,6 +1431,11 @@ services:
       - CREDENTIAL_KEY_PROVIDER=${CREDENTIAL_KEY_PROVIDER:-local-cmk}
       - CREDENTIAL_KMS_CMK_ID=${CREDENTIAL_KMS_CMK_ID:-}
       - CREDENTIAL_KMS_REGION=${CREDENTIAL_KMS_REGION:-}
+      # DEV-ONLY escape hatch: lets the local (local-cmk/dev-local) key wrapper
+      # run under NODE_ENV=production for prod-parity testing. INSECURE — keys
+      # are wrapped with locally-derived material, not a real KMS/HSM. Never set
+      # this true in a real production deployment.
+      - CREDENTIAL_ALLOW_INSECURE_LOCAL_KEY_WRAP=${CREDENTIAL_ALLOW_INSECURE_LOCAL_KEY_WRAP:-false}
       - CREDENTIAL_SERVICE_AUDIENCE=${CREDENTIAL_SERVICE_AUDIENCE:-caipe-credential-service}
       - CREDENTIAL_BOOTSTRAP_OAUTH_CONNECTORS=${CREDENTIAL_BOOTSTRAP_OAUTH_CONNECTORS:-false}
       - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID:-}
@@ -1623,6 +1628,10 @@ services:
       - CREDENTIAL_KEY_PROVIDER=${CREDENTIAL_KEY_PROVIDER:-local-cmk}
       - CREDENTIAL_KMS_CMK_ID=${CREDENTIAL_KMS_CMK_ID:-}
       - CREDENTIAL_KMS_REGION=${CREDENTIAL_KMS_REGION:-}
+      # DEV-ONLY escape hatch (prod-parity image runs NODE_ENV=production). Lets
+      # the local key wrapper run despite production. INSECURE — never set true
+      # in a real production deployment. See build/Dockerfile.caipe-ui header.
+      - CREDENTIAL_ALLOW_INSECURE_LOCAL_KEY_WRAP=${CREDENTIAL_ALLOW_INSECURE_LOCAL_KEY_WRAP:-false}
       - CREDENTIAL_SERVICE_AUDIENCE=${CREDENTIAL_SERVICE_AUDIENCE:-caipe-credential-service}
       - CREDENTIAL_BOOTSTRAP_OAUTH_CONNECTORS=${CREDENTIAL_BOOTSTRAP_OAUTH_CONNECTORS:-false}
       - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID:-}
@@ -1763,6 +1772,12 @@ services:
       - CREDENTIAL_API_URL=${CREDENTIAL_API_URL:-http://caipe-ui:3000/api/credentials}
       - CREDENTIAL_SERVICE_AUDIENCE=${CREDENTIAL_SERVICE_AUDIENCE:-caipe-credential-service}
       - USE_IMPERSONATION_TOKENS=${USE_IMPERSONATION_TOKENS:-false}
+      # Static service-account fallback for shared-token MCP servers (GitHub/GitLab).
+      # When a caller has NOT connected their personal provider account, DA injects
+      # these org PATs on X-CAIPE-Provider-Token so those tools stay backward
+      # compatible. Connected users always get their own OAuth token instead.
+      - GITHUB_PERSONAL_ACCESS_TOKEN=${GITHUB_PERSONAL_ACCESS_TOKEN:-}
+      - GITLAB_PERSONAL_ACCESS_TOKEN=${GITLAB_PERSONAL_ACCESS_TOKEN:-${GITLAB_TOKEN:-}}
       # Spec 102 Phase 11.4 — require Bearer JWT on every DA request.
       # The BFF (ui/src/lib/da-proxy.ts and the two probe / suggest routes)
       # now always sends Authorization: Bearer alongside the legacy
