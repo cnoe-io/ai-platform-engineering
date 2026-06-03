@@ -175,6 +175,40 @@ describe('SupervisorTimeline', () => {
       // Completion counter shows 2/3
       expect(screen.getByText('2/3')).toBeInTheDocument()
     })
+
+    it('collapses consecutive identical tool calls into one row with a count badge', () => {
+      // Chatty agent fires the same tool many times in a row (e.g. AWS aws_cli_execute)
+      const segments: SupervisorTimelineSegment[] = [
+        makeToolSegment('tool-1', 'AWS', 'aws_cli_execute', 'completed'),
+        makeToolSegment('tool-2', 'AWS', 'aws_cli_execute', 'completed'),
+        makeToolSegment('tool-3', 'AWS', 'aws_cli_execute', 'completed'),
+      ]
+
+      render(<SupervisorTimeline segments={segments} isStreaming={true} />)
+
+      // Header still reflects the TRUE number of calls (3 tools, 3/3 done)
+      expect(screen.getByText('3 tools')).toBeInTheDocument()
+      expect(screen.getByText('3/3')).toBeInTheDocument()
+
+      // But only ONE row is rendered for the repeated tool, with a ×3 badge
+      expect(screen.getAllByText('aws_cli_execute')).toHaveLength(1)
+      expect(screen.getByText('\u00d73')).toBeInTheDocument()
+    })
+
+    it('keeps non-consecutive repeats of the same tool separate', () => {
+      const segments: SupervisorTimelineSegment[] = [
+        makeToolSegment('tool-1', 'AWS', 'aws_cli_execute', 'completed'),
+        makeToolSegment('tool-2', 'Slack', 'send_message', 'completed'),
+        makeToolSegment('tool-3', 'AWS', 'aws_cli_execute', 'completed'),
+      ]
+
+      render(<SupervisorTimeline segments={segments} isStreaming={true} />)
+
+      // Interrupted by a different tool, so the two AWS calls stay as separate rows
+      expect(screen.getAllByText('aws_cli_execute')).toHaveLength(2)
+      // No count badge since neither group has >1 consecutive call
+      expect(screen.queryByText('\u00d72')).not.toBeInTheDocument()
+    })
   })
 
   describe('final answer rendering', () => {
