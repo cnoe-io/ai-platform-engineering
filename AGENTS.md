@@ -48,6 +48,10 @@ AI agents operating in this repository **must** follow these rules on every comm
  ```
  Assisted-by: <agent>:<model>
  ```
+ Example:
+ ```
+ Assisted-by: Claude:claude-opus-4-7
+ ```
 The chat message granting sign-off approval is the audit record.
 
 ## Git Guidelines
