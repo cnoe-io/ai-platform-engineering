@@ -1,4 +1,97 @@
-## 0.5.6-dev.3-chart.1 (2026-06-02)
+## 0.5.7-dev.14 (2026-06-04)
+
+### Feat
+
+- **rbac**: org-level ingest/search capabilities + FGA coverage guarantee (#1716)
+
+### Fix
+
+- **deps**: bump uv 0.11.6 -> 0.11.18 in agent sub-packages (#1718)
+
+## 0.5.7-dev.13 (2026-06-04)
+
+### Feat
+
+- **rbac**: grant org-admin to super-admins team members
+- **rbac**: org-wide and team-invoke sharing for custom MCP tools
+
+### Fix
+
+- **rag**: authorize custom MCP tool writes via OpenFGA instead of coarse admin
+- **rbac**: harden shareable-resource access control for RAG MCP tools and KB sharing
+
+## 0.5.7-dev.12 (2026-06-04)
+
+## 0.5.7-dev.11 (2026-06-04)
+
+### Feat
+
+- **rbac**: unify group-based access control across agents, RAG datasources, and MCP tools
+
+### Fix
+
+- **deps**: bump aiohttp to 3.14.0 and uv to 0.11.18 for security advisories
+- **agentgateway**: protect built-in MCP routes from config-bridge pruning
+
+## 0.5.7-dev.10 (2026-06-03)
+
+## 0.5.7-dev.9 (2026-06-03)
+
+### Feat
+
+- **ui**: one-click "Migrate all to latest" for schema migrations (#1658)
+
+### Fix
+
+- Markdown editor scroll behaviour and theming (#1685)
+- **ui**: collapse consecutive identical tool chips in timeline (#1692)
+
+## 0.5.7-dev.8 (2026-06-03)
+
+### Feat
+
+- **credentials**: per-user OAuth scope selection at connect time
+
+### Fix
+
+- **mcp**: provider-token auth, knowledge-base RAG, and authz resilience (#1702)
+- **docs**: escape brace sets in OAuth scope-selection spec for MDX
+
+## 0.5.7-dev.7 (2026-06-03)
+
+### Feat
+
+- **rbac**: fix RAG datasource access gap, add public datasources, reorg KB admin (#1703)
+
+## 0.5.7-dev.6 (2026-06-03)
+
+### Feat
+
+- **slack-ui**: config parity, channel-admin editing, and admin save UX (#1696)
+
+### Fix
+
+- **rag**: migrate rag-server image to wolfi-base
+- **dynamic-agents**: migrate image to wolfi-base
+
+## 0.5.7-dev.2 (2026-06-03)
+
+### Fix
+
+- **rag**: migrate ingestors image to Chainguard Wolfi base
+
+## 0.5.7-dev.1 (2026-06-02)
+
+### Feat
+
+- **docs**: add release (milestone) filter to triage dashboard
+- **docs**: add open-issues triage dashboard + generator
+
+### Fix
+
+- **triage**: base release breakdown on accurate git commit ranges + per-release drill-down
+
+## 0.5.7 (2026-06-02)
 
 ## 0.5.6-dev.3 (2026-06-02)
 
@@ -81,6 +174,10 @@
 
 - **cursor**: add git branch-op permission hook and reframe worktree rule
 
+### Fix
+
+- **rbac**: backfill admin_surface:slack manager grant for org admins
+
 ## 0.5.2-dev.5 (2026-05-29)
 
 ### BREAKING CHANGE
@@ -101,6 +198,7 @@ CRD/controller-based routing.
 - **helm**: wire CAIPE UI to AgentGateway proxy for CRD-free MCP discovery
 - **ui**: label collapsed nav menu
 - **docs**: repair RBAC broken anchor and unreadable draw.io SVGs
+- **rag**: migrate agent-ontology image to wolfi-base
 
 ## 0.5.2-dev.4 (2026-05-29)
 
