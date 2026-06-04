@@ -691,6 +691,27 @@ enabled Dynamic Agent with `visibility: "global"` before filtering. That keeps t
 runtime picker OpenFGA-only without requiring an admin to manually provision
 default-agent or global-agent tuples.
 
+**Visibility is the source of truth for the wildcard grant (2026-06-04 fix).**
+The `user:* user agent:<id>` "everyone can use" grant is now reconciled from
+`visibility` on **both** create and edit, closing a `global → team` demote leak:
+
+- `POST /api/dynamic-agents` passes `globalUserAccess: visibility === "global"`.
+- `PUT /api/dynamic-agents` passes `globalUserAccess: finalVisibility === "global"`
+  **and** `previousGlobalUserAccess: currentVisibility === "global"`, so demoting
+  an agent from `global` to `team` (or transferring it while scoping to a team)
+  deletes the wildcard tuple instead of leaving everyone with `can_use`.
+- The chat-available picker (`GET /api/dynamic-agents/available`) is self-healing:
+  it writes the wildcard for `global` agents and **revokes** it for every
+  non-global agent that is **not** the configured platform default. `filterTupleDiff`
+  drops deletes for tuples that never existed, so this is safe to run on every
+  request and cleans up agents demoted before this fix shipped.
+
+Before this fix, a non-default agent flipped from `global` to `team` kept its
+`user:* user agent:<id>` grant (Mongo said `team`, OpenFGA still said "everyone"),
+so non-owner-team members retained `can_use` and could both see and chat with it.
+The platform-default path already revoked its own wildcard on default change,
+which is why removing an agent as the platform default correctly restricted it.
+
 #### Default agent is public by design
 
 Selecting an agent in **Admin → Settings → Default Agent** writes the

@@ -297,15 +297,60 @@ describe("dynamic agents RBAC routes", () => {
     const response = await GET(request("/api/dynamic-agents/available"));
 
     expect(response.status).toBe(200);
+    // Global agents get the wildcard written; non-global, non-default
+    // agents get any stale wildcard revoked (self-healing sweep for the
+    // global → team demote leak — spec 2026-06-04).
     expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
       writes: [{ user: "user:*", relation: "user", object: "agent:global-agent" }],
-      deletes: [],
+      deletes: [{ user: "user:*", relation: "user", object: "agent:team-agent" }],
     });
     expect(mockFilterResourcesByPermission).toHaveBeenCalledWith(
       session,
       agents,
       { type: "agent", action: "use", id: expect.any(Function) },
     );
+  });
+
+  it("does NOT revoke the wildcard for a non-global agent that is the platform default", async () => {
+    const agents = [
+      { _id: "team-default", name: "Team Default", enabled: true, visibility: "team" },
+      { _id: "team-other", name: "Team Other", enabled: true, visibility: "team" },
+    ];
+    mockGetCollection.mockImplementation(async (name: string) => {
+      if (name === "platform_config") {
+        return { findOne: jest.fn().mockResolvedValue({ default_agent_id: "team-default" }) };
+      }
+      if (name === "dynamic_agents") {
+        return {
+          find: jest.fn().mockReturnValue({
+            sort: jest.fn().mockReturnThis(),
+            toArray: jest.fn().mockResolvedValue(agents),
+          }),
+        };
+      }
+      throw new Error(`unexpected collection ${name}`);
+    });
+    const { GET } = await import("../available/route");
+
+    const response = await GET(request("/api/dynamic-agents/available"));
+
+    expect(response.status).toBe(200);
+    // The platform default keeps its wildcard (written by the default-grant
+    // step) even though it is `team` visibility; only the *other* non-global
+    // agent is swept.
+    const sweepCall = mockWriteOpenFgaTuples.mock.calls.find(
+      ([arg]) =>
+        Array.isArray(arg?.deletes) &&
+        arg.deletes.some(
+          (t: { object?: string }) => t.object === "agent:team-other",
+        ),
+    );
+    expect(sweepCall).toBeDefined();
+    const deletedObjects = (sweepCall![0].deletes as Array<{ object: string }>).map(
+      (t) => t.object,
+    );
+    expect(deletedObjects).toContain("agent:team-other");
+    expect(deletedObjects).not.toContain("agent:team-default");
   });
 
   it("filters agent editor LLM models through OpenFGA llm_model read checks", async () => {
@@ -1054,13 +1099,17 @@ describe("dynamic agents RBAC routes", () => {
     expect(mockReconcileAgentRelationships).not.toHaveBeenCalled();
   });
 
-  it("allows demoting an agent that is not the platform default", async () => {
+  it("allows demoting an agent that is not the platform default and revokes the user:* wildcard", async () => {
     const findOneAndUpdate = jest.fn().mockResolvedValue({ _id: "agent-1", visibility: "team" });
     mockGetCollection.mockResolvedValue({
       findOne: jest.fn().mockResolvedValue({
         _id: "agent-1",
         name: "Other",
         visibility: "global",
+        // Already owned by team-a so the demote is a pure visibility change
+        // (no ownership transfer / first-set), isolating the wildcard-revoke
+        // behaviour under test from the post-#1726 transfer guard.
+        owner_team_slug: "team-a",
         allowed_tools: {},
       }),
       findOneAndUpdate,
@@ -1078,6 +1127,50 @@ describe("dynamic agents RBAC routes", () => {
 
     expect(response.status).toBe(200);
     expect(findOneAndUpdate).toHaveBeenCalled();
+    // Regression (2026-06-04): a global → team demote MUST revoke the
+    // everyone-can-use wildcard, otherwise non-owner-team members keep
+    // `can_use` (the SRE-agent leak). The reconciler is told the agent
+    // WAS global and is NOT anymore.
+    expect(mockReconcileAgentRelationships).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentId: "agent-1",
+        globalUserAccess: false,
+        previousGlobalUserAccess: true,
+      }),
+    );
+  });
+
+  it("promoting team → global writes the user:* wildcard", async () => {
+    const findOneAndUpdate = jest.fn().mockResolvedValue({ _id: "agent-2", visibility: "global" });
+    mockGetCollection.mockResolvedValue({
+      findOne: jest.fn().mockResolvedValue({
+        _id: "agent-2",
+        name: "Promote Me",
+        visibility: "team",
+        owner_team_slug: "team-a",
+        allowed_tools: {},
+      }),
+      findOneAndUpdate,
+    });
+    mockIsPlatformDefaultAgent.mockResolvedValue(false);
+    const { PUT } = await import("../route");
+
+    const response = await PUT(
+      request("/api/dynamic-agents?id=agent-2", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ visibility: "global" }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockReconcileAgentRelationships).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentId: "agent-2",
+        globalUserAccess: true,
+        previousGlobalUserAccess: false,
+      }),
+    );
   });
 
   it("does not invoke the platform-default guard when visibility is unchanged", async () => {

@@ -532,6 +532,11 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       ownerTeamSlug,
       nextSharedTeamSlugs: sharedTeamSlugs,
       previousSharedTeamSlugs: [],
+      // Encode `visibility === 'global'` as the wildcard `user:* user
+      // agent:<id>` grant so a freshly-created global agent is usable by
+      // every member without waiting for the list-time repair in
+      // available/route.ts. Fresh create has no previous state to revoke.
+      globalUserAccess: visibility === "global",
     });
 
     try {
@@ -724,6 +729,14 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
       previousOwnerTeamSlug: transferPreviousOwner,
       nextSharedTeamSlugs: sharedTeamSlugs,
       previousSharedTeamSlugs,
+      // Keep the wildcard `user:* user agent:<id>` grant in sync with
+      // visibility on every edit. Without this a `global → team` demote
+      // would update Mongo but leave the everyone-can-use grant behind,
+      // so non-owner-team members keep `can_use` (the SRE-agent leak).
+      // `currentVisibility` may be the legacy 'private' value on old docs;
+      // only an exact 'global' match counts as a previous wildcard grant.
+      globalUserAccess: finalVisibility === "global",
+      previousGlobalUserAccess: currentVisibility === "global",
     });
 
     const updated = await collection.findOneAndUpdate(
