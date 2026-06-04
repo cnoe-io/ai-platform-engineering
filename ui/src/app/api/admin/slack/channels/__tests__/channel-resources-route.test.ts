@@ -259,6 +259,11 @@ describe("Slack channel ReBAC APIs", () => {
   });
 
   it("replaces channel resource grants and writes channel OpenFGA tuples", async () => {
+    // Not an org admin (organization:caipe denied) so the per-channel can_manage
+    // check is what authorizes the actor — exercise that path explicitly.
+    mockCheckOpenFgaTuple.mockImplementation(async (tuple: { relation: string; object: string }) => ({
+      allowed: tuple.object === `slack_channel:${workspaceAlias}--${channelId}`,
+    }));
     mockReadOpenFgaTuples.mockResolvedValue({
       tuples: [
         {
@@ -305,7 +310,9 @@ describe("Slack channel ReBAC APIs", () => {
   });
 
   it("does not update Slack channel grants when the actor cannot manage the team-owned channel", async () => {
-    mockCheckOpenFgaTuple.mockResolvedValueOnce({ allowed: false });
+    // Deny every probe: not an org admin (organization:caipe) AND no per-channel
+    // can_manage grant — so the actor is genuinely unauthorized → 403.
+    mockCheckOpenFgaTuple.mockResolvedValue({ allowed: false });
     const { PUT } = await import("../[workspaceId]/[channelId]/resources/route");
 
     const response = await PUT(
