@@ -195,6 +195,38 @@ describe("POST /v1/mcp/invoke — can_call gate", () => {
     );
     expect(res.status).toBe(200);
   });
+
+  it("fails CLOSED (503, no forward) when the custom-tools listing errors", async () => {
+    await asUser("alice-sub");
+    // The custom-tools listing fails — we cannot tell if `tool_name` is a
+    // custom tool, so the gate must DENY rather than forward (deny-by-default),
+    // so a transient error can't be used to bypass `can_call`.
+    const forward = jest.fn();
+    global.fetch = jest.fn((url: string | URL) => {
+      const u = String(url);
+      if (u.includes("/v1/mcp/custom-tools")) {
+        return Promise.resolve({ ok: false, status: 500, json: async () => ({}) } as Response);
+      }
+      forward();
+      return Promise.resolve({ ok: true, status: 200, json: async () => ({}) } as Response);
+    }) as jest.Mock;
+    mockCheckOpenFgaTuple.mockResolvedValue({ allowed: false });
+
+    const { POST } = await import("@/app/api/rag/[...path]/route");
+    const res = await POST(
+      ragRequest("/api/rag/v1/mcp/invoke", {
+        method: "POST",
+        body: JSON.stringify({ tool_name: "infra-search", arguments: {} }),
+        headers: { "content-type": "application/json" },
+      }),
+      INVOKE,
+    );
+    expect(res.status).toBe(503);
+    const body = await res.json();
+    expect(body.code).toBe("mcp_tool#call_unavailable");
+    // Critically: the invocation was never forwarded to the RAG server.
+    expect(forward).not.toHaveBeenCalled();
+  });
 });
 
 describe("DELETE /v1/mcp/custom-tools/<id> — orphan tuple cleanup", () => {

@@ -258,11 +258,28 @@ export async function PUT(
         "INVALID_BODY",
       );
     }
-    const nextSlugs = normalizeTeamSlugs((body as { team_slugs?: unknown }).team_slugs);
+    const requestedSlugs = normalizeTeamSlugs((body as { team_slugs?: unknown }).team_slugs);
     const previousSlugs = await loadSharedTeamSlugs(id);
+
+    // The owner team is granted via the same `reader`/`manager` tuples as a
+    // shared team, so `loadSharedTeamSlugs` includes it in `previousSlugs`.
+    // We must pass the owner team to the reconciler (from the config — the
+    // source of truth) so it stays in the desired set; otherwise it would be
+    // in `previous \ next` and the reconciler would REVOKE the owner team's
+    // own access on every sharing update. The owner is also deduped out of
+    // the shared list (union semantics — the reconciler grants it via the
+    // owner path).
+    const { ownerTeamSlug } = await loadOwnerFromConfig(id, {
+      accessToken: session.accessToken,
+      org: session.org,
+    });
+    const nextSlugs = ownerTeamSlug
+      ? requestedSlugs.filter((slug) => slug !== ownerTeamSlug)
+      : requestedSlugs;
 
     const result = await reconcileKnowledgeBaseRelationships({
       knowledgeBaseId: id,
+      ownerTeamSlug,
       nextSharedTeamSlugs: nextSlugs,
       previousSharedTeamSlugs: previousSlugs,
     });
