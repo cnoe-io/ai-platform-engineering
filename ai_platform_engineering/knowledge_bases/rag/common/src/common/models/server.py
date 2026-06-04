@@ -95,6 +95,11 @@ class UrlIngestRequest(BaseModel):
   description: str = Field("", description="Description for this data source")
   settings: ScrapySettings = Field(default_factory=lambda: ScrapySettings(), description="Scraping configuration (crawl mode, JS rendering, rate limiting, etc.)")
   reload_interval: Optional[int] = Field(None, description="Auto-reload interval in seconds. If not specified, uses global WEBLOADER_RELOAD_INTERVAL (default 24h). Minimum: 60 seconds.")
+  # Owning team for the new data source (spec 2026-06-03-explicit-ingest-capability).
+  # Required for non-org-admin authors; the server authorizes creation against
+  # the org `can_ingest` capability + owning-team membership and writes ownership
+  # tuples so the team gets read/ingest. None means personal/admin-owned.
+  owner_team_slug: Optional[str] = Field(None, description="Slug of the team that will own this new data source. Required for non-org-admin authors.")
 
   # DEPRECATED fields - will be removed in a future version.
   # Use 'settings' object instead.
@@ -124,6 +129,10 @@ class ConfluenceIngestRequest(BaseModel):
   get_child_pages: bool = Field(False, description="Whether to ingest direct child pages of this page")
   allowed_title_patterns: Optional[List[str]] = Field(None, description="Regex patterns for page titles to include (whitelist). If set, only pages whose title matches at least one pattern are ingested.")
   denied_title_patterns: Optional[List[str]] = Field(None, description="Regex patterns for page titles to exclude (blacklist). Pages whose title matches any pattern are skipped. Checked after allowed_title_patterns.")
+  # Owning team for a NEW Confluence space data source (spec 2026-06-03).
+  # Required for non-org-admin authors when the space is created for the first
+  # time; ignored when appending pages to an existing space. None = personal.
+  owner_team_slug: Optional[str] = Field(None, description="Slug of the team that will own this new data source. Required for non-org-admin authors creating a new Confluence space.")
 
 
 class ConfluenceReloadRequest(BaseModel):

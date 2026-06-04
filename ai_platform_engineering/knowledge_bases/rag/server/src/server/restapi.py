@@ -54,6 +54,9 @@ from server.rbac import (
   _authenticate_from_token,
   authorize_mcp_tool_create,
   authorize_mcp_tool_manage,
+  authorize_datasource_create,
+  authorize_search,
+  write_datasource_ownership,
   check_datasource_access,
   derive_team_for_request,
   get_accessible_datasource_ids,
@@ -1134,6 +1137,11 @@ async def query_documents(
 ):
   """Query for relevant documents using semantic search in the unified collection."""
 
+  # Explicit org-level search capability (spec 2026-06-03-explicit-search-capability).
+  # Defense-in-depth alongside the BFF gate; the per-datasource ACL below
+  # (inject_kb_filter) still narrows results to readable sources.
+  await authorize_search(user)
+
   # Enforce max results limit
   if query_request.limit > max_results_per_query:
     raise HTTPException(status_code=400, detail=f"Query limit exceeds maximum allowed of {max_results_per_query} results.")
@@ -1184,7 +1192,9 @@ async def ingest_url(
 
   # Generate datasource ID and create datasource
   datasource_id = utils.generate_datasource_id_from_url(url_request.url)
-  await check_datasource_access(request, user, datasource_id, "ingest")
+  # Creating a NEW data source requires the explicit org-level author capability
+  # plus owning-team membership (spec 2026-06-03), not just per-KB ingest.
+  await authorize_datasource_create(request, user, datasource_id, url_request.owner_team_slug)
 
   # Check if datasource already exists (for web, each URL is unique)
   existing_datasource = await metadata_storage.get_datasource_info(datasource_id)
@@ -1237,6 +1247,10 @@ async def ingest_url(
 
   await metadata_storage.store_datasource_info(datasource_info)
   logger.info(f"Created datasource: {datasource_id}")
+
+  # Write ownership tuples so the owning team (or the author) gets access to
+  # the brand-new data source (spec 2026-06-03). Best-effort; non-fatal.
+  await write_datasource_ownership(datasource_id, url_request.owner_team_slug, user)
 
   # Queue the request for the ingestor
   ingestor_request = IngestorRequest(ingestor_id=generate_ingestor_id(WEBLOADER_INGESTOR_NAME, WEBLOADER_INGESTOR_TYPE), command=WebIngestorCommand.INGEST_URL, payload=url_request.model_dump())
@@ -1322,13 +1336,19 @@ async def ingest_confluence_page(
   # Generate space-level datasource ID
   domain = urlparse(confluence_request.url).netloc.replace(".", "_").replace("-", "_")
   datasource_id = f"src_confluence___{domain}__{space_key}"
-  await check_datasource_access(request, user, datasource_id, "ingest")
 
   # Build page config for this ingestion
   page_config = {"page_id": page_id, "source": confluence_request.url, "get_child_pages": confluence_request.get_child_pages}
 
-  # Check if datasource already exists
+  # Check if datasource already exists. Appending a page to an existing space
+  # is an "ingest into KB X" operation (per-KB check); creating a NEW space is
+  # the explicit org-level author capability + owning-team gate (spec 2026-06-03).
   existing_datasource = await metadata_storage.get_datasource_info(datasource_id)
+  if existing_datasource:
+    await check_datasource_access(request, user, datasource_id, "ingest")
+  else:
+    await authorize_datasource_create(request, user, datasource_id, confluence_request.owner_team_slug)
+
   if existing_datasource:
     if not existing_datasource.metadata:
       existing_datasource.metadata = {}
@@ -1383,6 +1403,10 @@ async def ingest_confluence_page(
 
     await metadata_storage.store_datasource_info(datasource_info)
     logger.info(f"Created datasource: {datasource_id}")
+
+    # Write ownership tuples for the brand-new Confluence space (spec
+    # 2026-06-03). Best-effort; non-fatal.
+    await write_datasource_ownership(datasource_id, confluence_request.owner_team_slug, user)
 
   # Check if there is already a job for this datasource in progress or pending
   existing_jobs = await jobmanager.get_jobs_by_datasource(datasource_id)
@@ -2119,6 +2143,12 @@ async def invoke_mcp_tool(request: MCPToolInvokeRequest, user: UserContext = Dep
     raise HTTPException(status_code=400, detail="MCP is not enabled")
   if not agent_tools:
     raise HTTPException(status_code=500, detail="MCP tools not initialized")
+
+  # Explicit org-level search capability (spec 2026-06-03-explicit-search-capability).
+  # Gates BOTH built-in (search/fetch_document) and custom search tools here, so
+  # holding `mcp_tool#can_call` on a shared tool does not, by itself, permit
+  # search. The per-tool `can_call` gate (BFF) and per-datasource ACL still apply.
+  await authorize_search(user)
 
   # Find the tool
   registered_tools = await mcp.list_tools()

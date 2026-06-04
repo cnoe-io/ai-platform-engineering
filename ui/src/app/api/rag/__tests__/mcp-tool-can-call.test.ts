@@ -119,7 +119,11 @@ describe("POST /v1/mcp/invoke — can_call gate", () => {
   it("denies a non-member invoking a custom tool with 403", async () => {
     await asUser("mallory-sub");
     mockCustomToolsList(["infra-search"]);
-    mockCheckOpenFgaTuple.mockResolvedValue({ allowed: false });
+    // Holds the org search capability (so the search gate passes) but lacks
+    // can_call on this specific tool → denied at the per-tool gate.
+    mockCheckOpenFgaTuple.mockImplementation(async (tuple: { relation: string }) =>
+      tuple.relation === "can_search" ? { allowed: true } : { allowed: false },
+    );
 
     const { POST } = await import("@/app/api/rag/[...path]/route");
     const res = await POST(
@@ -139,7 +143,8 @@ describe("POST /v1/mcp/invoke — can_call gate", () => {
     await asUser("alice-sub");
     mockCustomToolsList(["infra-search"]);
     mockCheckOpenFgaTuple.mockImplementation(async (tuple: { relation: string; object: string }) =>
-      tuple.relation === "can_call" && tuple.object === "mcp_tool:infra-search"
+      tuple.relation === "can_search" ||
+      (tuple.relation === "can_call" && tuple.object === "mcp_tool:infra-search")
         ? { allowed: true }
         : { allowed: false },
     );
@@ -159,8 +164,11 @@ describe("POST /v1/mcp/invoke — can_call gate", () => {
   it("does NOT gate a built-in tool name (no mcp_tool object)", async () => {
     await asUser("alice-sub");
     mockCustomToolsList(["infra-search"]); // 'search' is NOT in the custom list
-    // can_call would deny, but the built-in must not be gated → invocation proceeds.
-    mockCheckOpenFgaTuple.mockResolvedValue({ allowed: false });
+    // can_call would deny, but the built-in must not be gated by the per-tool
+    // gate. The caller holds the org search capability so the search gate passes.
+    mockCheckOpenFgaTuple.mockImplementation(async (tuple: { relation: string }) =>
+      tuple.relation === "can_search" ? { allowed: true } : { allowed: false },
+    );
 
     const { POST } = await import("@/app/api/rag/[...path]/route");
     const res = await POST(
@@ -210,7 +218,14 @@ describe("POST /v1/mcp/invoke — can_call gate", () => {
       forward();
       return Promise.resolve({ ok: true, status: 200, json: async () => ({}) } as Response);
     }) as jest.Mock;
-    mockCheckOpenFgaTuple.mockResolvedValue({ allowed: false });
+    // The caller HOLDS the org `can_search` capability (so we pass the outer
+    // search-capability gate and actually reach the fail-closed path under test),
+    // but every narrower grant is denied. The custom-tools listing error must
+    // then DENY with 503 (call_unavailable) rather than forward — a transient
+    // listing error cannot be used to bypass `can_call`.
+    mockCheckOpenFgaTuple.mockImplementation(async (tuple: { relation: string }) =>
+      tuple.relation === "can_search" ? { allowed: true } : { allowed: false },
+    );
 
     const { POST } = await import("@/app/api/rag/[...path]/route");
     const res = await POST(
@@ -226,6 +241,95 @@ describe("POST /v1/mcp/invoke — can_call gate", () => {
     expect(body.code).toBe("mcp_tool#call_unavailable");
     // Critically: the invocation was never forwarded to the RAG server.
     expect(forward).not.toHaveBeenCalled();
+  });
+});
+
+describe("search capability gate (spec 2026-06-03-explicit-search-capability)", () => {
+  const INVOKE = { params: Promise.resolve({ path: ["v1", "mcp", "invoke"] }) };
+  const QUERY = { params: Promise.resolve({ path: ["v1", "query"] }) };
+
+  it("denies /v1/mcp/invoke when caller lacks can_search EVEN WITH can_call (the violation)", async () => {
+    await asUser("generic-sub");
+    mockCustomToolsList(["caipe_kb"]);
+    // The reported leak: caller can_call (e.g. org-wide share) but their team
+    // has no search capability → must be denied at the search gate.
+    mockCheckOpenFgaTuple.mockImplementation(async (tuple: { relation: string }) =>
+      tuple.relation === "can_call" ? { allowed: true } : { allowed: false },
+    );
+
+    const { POST } = await import("@/app/api/rag/[...path]/route");
+    const res = await POST(
+      ragRequest("/api/rag/v1/mcp/invoke", {
+        method: "POST",
+        body: JSON.stringify({ tool_name: "caipe_kb", arguments: {} }),
+        headers: { "content-type": "application/json" },
+      }),
+      INVOKE,
+    );
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.code).toBe("organization#can_search");
+  });
+
+  it("denies the built-in search tool when caller lacks can_search", async () => {
+    await asUser("generic-sub");
+    mockCustomToolsList(["caipe_kb"]); // 'search' is built-in
+    mockCheckOpenFgaTuple.mockResolvedValue({ allowed: false });
+
+    const { POST } = await import("@/app/api/rag/[...path]/route");
+    const res = await POST(
+      ragRequest("/api/rag/v1/mcp/invoke", {
+        method: "POST",
+        body: JSON.stringify({ tool_name: "search", arguments: {} }),
+        headers: { "content-type": "application/json" },
+      }),
+      INVOKE,
+    );
+    expect(res.status).toBe(403);
+    expect((await res.json()).code).toBe("organization#can_search");
+  });
+
+  it("denies POST /v1/query when caller lacks can_search", async () => {
+    await asUser("generic-sub");
+    mockCheckOpenFgaTuple.mockResolvedValue({ allowed: false });
+    global.fetch = jest.fn(() =>
+      Promise.resolve({ ok: true, status: 200, json: async () => [] } as Response),
+    ) as jest.Mock;
+
+    const { POST } = await import("@/app/api/rag/[...path]/route");
+    const res = await POST(
+      ragRequest("/api/rag/v1/query", {
+        method: "POST",
+        body: JSON.stringify({ query: "hello" }),
+        headers: { "content-type": "application/json" },
+      }),
+      QUERY,
+    );
+    expect(res.status).toBe(403);
+    expect((await res.json()).code).toBe("organization#can_search");
+  });
+
+  it("org admins bypass the search gate on /v1/query", async () => {
+    await asUser("admin-sub");
+    mockCheckOpenFgaTuple.mockImplementation(async (tuple: { relation: string; object: string }) =>
+      tuple.relation === "can_manage" && tuple.object === "organization:caipe"
+        ? { allowed: true }
+        : { allowed: false },
+    );
+    global.fetch = jest.fn(() =>
+      Promise.resolve({ ok: true, status: 200, json: async () => [] } as Response),
+    ) as jest.Mock;
+
+    const { POST } = await import("@/app/api/rag/[...path]/route");
+    const res = await POST(
+      ragRequest("/api/rag/v1/query", {
+        method: "POST",
+        body: JSON.stringify({ query: "hello" }),
+        headers: { "content-type": "application/json" },
+      }),
+      QUERY,
+    );
+    expect(res.status).toBe(200);
   });
 });
 

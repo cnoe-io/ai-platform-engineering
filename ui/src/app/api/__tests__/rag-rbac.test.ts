@@ -29,6 +29,7 @@ const mockFilterResourcesByPermission = jest.fn();
 const mockReconcileKnowledgeBaseRelationships = jest.fn();
 const mockReconcileDataSourceRelationships = jest.fn();
 const mockReconcileMcpToolRelationships = jest.fn();
+const mockCheckOpenFgaTuple = jest.fn();
 
 jest.mock('@/lib/api-middleware', () => {
   class ApiError extends Error {
@@ -60,6 +61,13 @@ jest.mock('@/lib/rbac/resource-authz', () => ({
   filterResourcesByPermission: (...args: unknown[]) => mockFilterResourcesByPermission(...args),
 }));
 
+// Override only checkOpenFgaTuple (used by the org-level can_search/can_manage gates
+// in the rag proxy). Other openfga exports keep their real implementations.
+jest.mock('@/lib/rbac/openfga', () => ({
+  ...jest.requireActual('@/lib/rbac/openfga'),
+  checkOpenFgaTuple: (...args: unknown[]) => mockCheckOpenFgaTuple(...args),
+}));
+
 jest.mock('@/lib/rbac/openfga-owned-resources', () => ({
   reconcileKnowledgeBaseRelationships: (...args: unknown[]) => mockReconcileKnowledgeBaseRelationships(...args),
   reconcileDataSourceRelationships: (...args: unknown[]) => mockReconcileDataSourceRelationships(...args),
@@ -79,6 +87,9 @@ describe('RAG RBAC Integration', () => {
     mockReconcileKnowledgeBaseRelationships.mockResolvedValue({ enabled: true, writes: 3, deletes: 0 });
     mockReconcileDataSourceRelationships.mockResolvedValue({ enabled: true, writes: 3, deletes: 0 });
     mockReconcileMcpToolRelationships.mockResolvedValue({ enabled: true, writes: 3, deletes: 0 });
+    // Org-level capability gates (can_search / can_manage) default to allowed; the
+    // explicit search-capability denial path is covered in mcp-tool-can-call.test.ts.
+    mockCheckOpenFgaTuple.mockResolvedValue({ allowed: true });
     // Reset env vars
     process.env.RBAC_READONLY_GROUPS = 'readers';
     process.env.RBAC_INGESTONLY_GROUPS = 'ingestors';
@@ -608,6 +619,11 @@ describe('RAG RBAC Integration', () => {
       mockFilterResourcesByPermission.mockResolvedValue([
         { datasource_id: 'kb-allowed', name: 'Allowed KB' },
       ]);
+      // Non-admin user WITH org search capability: grant can_search but deny the
+      // org-admin (can_manage) bypass so datasource constraining still runs.
+      mockCheckOpenFgaTuple.mockImplementation(async (tuple: { relation?: string }) => ({
+        allowed: tuple?.relation === 'can_search',
+      }));
       (global.fetch as jest.Mock)
         // 1st fetch: the can_call gate resolves the custom-tool set. `search`
         // is a built-in (absent here) so the gate does not enforce can_call.

@@ -4,10 +4,15 @@
 /**
  * Tests for GET /api/rbac/kb-tab-gates.
  *
- * Covers the Knowledge sidebar tab-gating contract:
- * - Org admins short-circuit and see every tab.
+ * Covers the Knowledge sidebar tab-gating contract (spec 2026-06-03 — explicit
+ * ingest capability):
+ * - Org admins short-circuit and see every tab (+ can_ingest).
  * - Non-admins with at least one readable KB see Search / Data Sources /
  *   Graph / MCP Tools.
+ * - `can_ingest` is now an EXPLICIT org-level capability check
+ *   (`organization#can_ingest`), DECOUPLED from per-KB ingest grants: a user
+ *   may read+ingest several KBs yet still get `can_ingest: false` unless their
+ *   team was opted in.
  * - Non-admins with zero readable KBs see no tabs and have_any_kb=false.
  * - The `RAG_ADMIN_BYPASS_DISABLED` env var disables the org-admin
  *   short-circuit and forces a per-resource path.
@@ -34,19 +39,37 @@ jest.mock("@/lib/rbac/organization", () => ({
 
 const mockFilterResourcesByPermission = jest.fn();
 jest.mock("@/lib/rbac/resource-authz", () => ({
-  filterResourcesByPermission: (...args: unknown[]) => mockFilterResourcesByPermission(...args),
+  filterResourcesByPermission: (...args: unknown[]) =>
+    mockFilterResourcesByPermission(...args),
 }));
 
 import { getServerSession } from "next-auth";
 import { isBootstrapAdmin } from "@/lib/auth-config";
 import { GET } from "@/app/api/rbac/kb-tab-gates/route";
 
+/**
+ * Make the OpenFGA check mock relation-aware: `can_manage` drives the
+ * org-admin short-circuit; `can_ingest` drives the explicit author capability.
+ */
+function setOrgChecks(opts: {
+  can_manage?: boolean;
+  can_ingest?: boolean;
+  can_search?: boolean;
+}) {
+  mockCheckOpenFgaTuple.mockImplementation(async (tuple: { relation: string }) => {
+    if (tuple.relation === "can_manage") return { allowed: Boolean(opts.can_manage) };
+    if (tuple.relation === "can_ingest") return { allowed: Boolean(opts.can_ingest) };
+    if (tuple.relation === "can_search") return { allowed: Boolean(opts.can_search) };
+    return { allowed: false };
+  });
+}
+
 describe("GET /api/rbac/kb-tab-gates", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     (isBootstrapAdmin as jest.Mock).mockReturnValue(false);
-    mockCheckOpenFgaTuple.mockResolvedValue({ allowed: false });
-    mockFilterResourcesByPermission.mockImplementation(async (_session, resources) => resources);
+    setOrgChecks({ can_manage: false, can_ingest: false, can_search: false });
+    mockFilterResourcesByPermission.mockResolvedValue([]);
     delete process.env.RAG_ADMIN_BYPASS_DISABLED;
     process.env.RAG_SERVER_URL = "http://rag.test";
     global.fetch = jest.fn(() =>
@@ -64,13 +87,13 @@ describe("GET /api/rbac/kb-tab-gates", () => {
     expect(res.status).toBe(401);
   });
 
-  it("org admin (OpenFGA) sees every tab and reports kb_count=-1", async () => {
+  it("org admin (OpenFGA) sees every tab, kb_count=-1, can_ingest=true", async () => {
     (getServerSession as jest.Mock).mockResolvedValue({
       accessToken: "tok",
       sub: "admin-sub",
       user: { email: "admin@example.com" },
     });
-    mockCheckOpenFgaTuple.mockResolvedValue({ allowed: true });
+    setOrgChecks({ can_manage: true });
 
     const res = await GET();
     expect(res.status).toBe(200);
@@ -84,6 +107,8 @@ describe("GET /api/rbac/kb-tab-gates", () => {
         mcp_tools: true,
         has_any_kb: true,
         kb_count: -1,
+        can_ingest: true,
+        can_search: true,
       },
       org_admin_bypass: true,
     });
@@ -104,23 +129,24 @@ describe("GET /api/rbac/kb-tab-gates", () => {
     const body = await res.json();
     expect(body.org_admin_bypass).toBe(true);
     expect(body.gates.has_any_kb).toBe(true);
+    expect(body.gates.can_ingest).toBe(true);
     // OpenFGA is never queried when bootstrap-admin short-circuits.
     expect(mockCheckOpenFgaTuple).not.toHaveBeenCalled();
   });
 
-  it("non-admin with one readable KB sees all tabs and kb_count=1", async () => {
+  it("non-admin who can read AND holds the org author capability gets can_ingest=true", async () => {
     (getServerSession as jest.Mock).mockResolvedValue({
       accessToken: "tok",
       sub: "alice-sub",
       user: { email: "alice@example.com" },
     });
-    mockCheckOpenFgaTuple.mockResolvedValue({ allowed: false });
+    setOrgChecks({ can_manage: false, can_ingest: true, can_search: true });
     (global.fetch as jest.Mock).mockResolvedValueOnce({
       ok: true,
       status: 200,
       json: async () => ({ datasources: [{ datasource_id: "kb-alpha" }] }),
     });
-    mockFilterResourcesByPermission.mockResolvedValueOnce([{ datasource_id: "kb-alpha" }]);
+    mockFilterResourcesByPermission.mockResolvedValue([{ datasource_id: "kb-alpha" }]);
 
     const res = await GET();
     const body = await res.json();
@@ -133,15 +159,45 @@ describe("GET /api/rbac/kb-tab-gates", () => {
       mcp_tools: true,
       has_any_kb: true,
       kb_count: 1,
+      can_ingest: true,
+      can_search: true,
     });
-    // The KB-count probe MUST NOT take the org-admin shortcut — the
-    // ReBAC count is exactly what we want to report to the sidebar.
+    // Read visibility is the ONLY datasource enumeration; ingest is a single
+    // org-capability check (no per-KB ingest enumeration).
+    expect(mockFilterResourcesByPermission).toHaveBeenCalledTimes(1);
     expect(mockFilterResourcesByPermission).toHaveBeenCalledWith(
       expect.any(Object),
       [{ datasource_id: "kb-alpha" }],
       expect.objectContaining({ type: "knowledge_base", action: "read" }),
       { bypassForOrgAdmin: false },
     );
+    expect(mockCheckOpenFgaTuple).toHaveBeenCalledWith(
+      expect.objectContaining({ relation: "can_ingest", object: "organization:caipe" }),
+    );
+  });
+
+  it("non-admin reader WITHOUT the org author capability gets can_ingest=false", async () => {
+    (getServerSession as jest.Mock).mockResolvedValue({
+      accessToken: "tok",
+      sub: "reader-sub",
+      user: { email: "reader@example.com" },
+    });
+    setOrgChecks({ can_manage: false, can_ingest: false });
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ datasources: [{ datasource_id: "kb-alpha" }] }),
+    });
+    // Reader can read several KBs but holds no org author capability.
+    mockFilterResourcesByPermission.mockResolvedValue([{ datasource_id: "kb-alpha" }]);
+
+    const res = await GET();
+    const body = await res.json();
+
+    expect(body.gates.has_any_kb).toBe(true);
+    expect(body.gates.kb_count).toBe(1);
+    expect(body.gates.can_ingest).toBe(false);
+    expect(body.gates).not.toHaveProperty("ingest_kb_count");
   });
 
   it("non-admin with zero readable KBs sees no tabs and has_any_kb=false", async () => {
@@ -155,7 +211,8 @@ describe("GET /api/rbac/kb-tab-gates", () => {
       status: 200,
       json: async () => ({ datasources: [{ datasource_id: "kb-x" }, { datasource_id: "kb-y" }] }),
     });
-    mockFilterResourcesByPermission.mockResolvedValueOnce([]);
+    setOrgChecks({ can_manage: false, can_ingest: false });
+    mockFilterResourcesByPermission.mockResolvedValue([]);
 
     const res = await GET();
     const body = await res.json();
@@ -167,7 +224,88 @@ describe("GET /api/rbac/kb-tab-gates", () => {
       mcp_tools: false,
       has_any_kb: false,
       kb_count: 0,
+      can_ingest: false,
+      can_search: false,
     });
+  });
+
+  it("search requires the explicit can_search capability even with readable KBs", async () => {
+    (getServerSession as jest.Mock).mockResolvedValue({
+      accessToken: "tok",
+      sub: "viewer-sub",
+      user: { email: "viewer@example.com" },
+    });
+    // Reads a KB and can_ingest, but NOT can_search → Search tab stays off.
+    setOrgChecks({ can_manage: false, can_ingest: true, can_search: false });
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ datasources: [{ datasource_id: "kb-alpha" }] }),
+    });
+    mockFilterResourcesByPermission.mockResolvedValue([{ datasource_id: "kb-alpha" }]);
+
+    const res = await GET();
+    const body = await res.json();
+    expect(body.gates.has_any_kb).toBe(true);
+    expect(body.gates.can_search).toBe(false);
+    expect(body.gates.search).toBe(false);
+    // Other read-driven tabs remain visible.
+    expect(body.gates.data_sources).toBe(true);
+  });
+
+  it("search is on when the user holds can_search AND has readable KBs", async () => {
+    (getServerSession as jest.Mock).mockResolvedValue({
+      accessToken: "tok",
+      sub: "searcher-sub",
+      user: { email: "searcher@example.com" },
+    });
+    setOrgChecks({ can_manage: false, can_ingest: false, can_search: true });
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ datasources: [{ datasource_id: "kb-alpha" }] }),
+    });
+    mockFilterResourcesByPermission.mockResolvedValue([{ datasource_id: "kb-alpha" }]);
+
+    const res = await GET();
+    const body = await res.json();
+    expect(body.gates.can_search).toBe(true);
+    expect(body.gates.search).toBe(true);
+    expect(mockCheckOpenFgaTuple).toHaveBeenCalledWith(
+      expect.objectContaining({ relation: "can_search", object: "organization:caipe" }),
+    );
+  });
+
+  it("search stays off when can_search is held but no KB is readable", async () => {
+    (getServerSession as jest.Mock).mockResolvedValue({
+      accessToken: "tok",
+      sub: "empty-sub",
+      user: { email: "empty@example.com" },
+    });
+    setOrgChecks({ can_manage: false, can_ingest: false, can_search: true });
+    mockFilterResourcesByPermission.mockResolvedValue([]);
+
+    const res = await GET();
+    const body = await res.json();
+    expect(body.gates.can_search).toBe(true);
+    expect(body.gates.has_any_kb).toBe(false);
+    expect(body.gates.search).toBe(false);
+  });
+
+  it("can_ingest is independent of readable KBs (capability without read access)", async () => {
+    (getServerSession as jest.Mock).mockResolvedValue({
+      accessToken: "tok",
+      sub: "author-sub",
+      user: { email: "author@example.com" },
+    });
+    // Holds the author capability but currently reads no KBs.
+    setOrgChecks({ can_manage: false, can_ingest: true });
+    mockFilterResourcesByPermission.mockResolvedValue([]);
+
+    const res = await GET();
+    const body = await res.json();
+    expect(body.gates.has_any_kb).toBe(false);
+    expect(body.gates.can_ingest).toBe(true);
   });
 
   it("RAG_ADMIN_BYPASS_DISABLED=true disables the org-admin short-circuit", async () => {
@@ -177,18 +315,21 @@ describe("GET /api/rbac/kb-tab-gates", () => {
       sub: "admin-sub",
       user: { email: "admin@example.com" },
     });
-    mockCheckOpenFgaTuple.mockResolvedValue({ allowed: true });
+    // Even though can_manage would be true, the kill switch forces non-admin.
+    setOrgChecks({ can_manage: true, can_ingest: true });
     (global.fetch as jest.Mock).mockResolvedValueOnce({
       ok: true,
       status: 200,
       json: async () => ({ datasources: [{ datasource_id: "kb-1" }] }),
     });
-    mockFilterResourcesByPermission.mockResolvedValueOnce([{ datasource_id: "kb-1" }]);
+    mockFilterResourcesByPermission.mockResolvedValue([{ datasource_id: "kb-1" }]);
 
     const res = await GET();
     const body = await res.json();
     expect(body.org_admin_bypass).toBe(false);
     expect(body.gates.kb_count).toBe(1);
+    expect(body.gates.can_ingest).toBe(true);
+    // Single upstream RAG enumeration for read visibility.
     expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 
@@ -198,6 +339,7 @@ describe("GET /api/rbac/kb-tab-gates", () => {
       sub: "alice-sub",
       user: { email: "alice@example.com" },
     });
+    setOrgChecks({ can_manage: false, can_ingest: false });
     (global.fetch as jest.Mock).mockResolvedValueOnce({
       ok: false,
       status: 500,
@@ -207,6 +349,7 @@ describe("GET /api/rbac/kb-tab-gates", () => {
     const body = await res.json();
     expect(body.gates.has_any_kb).toBe(false);
     expect(body.gates.kb_count).toBe(0);
+    expect(body.gates.can_ingest).toBe(false);
   });
 
   it("returns empty gates when the session has no access token", async () => {
@@ -217,6 +360,7 @@ describe("GET /api/rbac/kb-tab-gates", () => {
     const res = await GET();
     const body = await res.json();
     expect(body.gates.has_any_kb).toBe(false);
+    expect(body.gates.can_ingest).toBe(false);
     expect(body.org_admin_bypass).toBe(false);
   });
 });

@@ -211,6 +211,24 @@ export interface KbTabGatesMap {
   has_any_kb: boolean;
   /** Number of `knowledge_base:<id>` objects the user can `can_read`. -1 means "unknown / admin bypass". */
   kb_count: number;
+  /**
+   * Explicit "data source author" capability (spec 2026-06-03). True iff the
+   * user holds `organization#can_ingest` — i.e. they belong to a team an org
+   * admin opted in via the ingest-capability toggle, or they are an org admin.
+   * Drives whether the create/ingest UI ("Add Data Source") is shown. This is
+   * deliberately DECOUPLED from per-KB `ingestor` (which only means "push into
+   * KB X").
+   */
+  can_ingest: boolean;
+  /**
+   * Explicit "search" capability (spec 2026-06-03-explicit-search-capability).
+   * True iff the user holds `organization#can_search` — i.e. they belong to a
+   * team an org admin opted in via the search-capability toggle, or they are an
+   * org admin. Drives whether the Search tab is usable and whether the data
+   * path (`/v1/query`, `/v1/mcp/invoke`) is permitted. Layered ABOVE the
+   * narrower per-tool `mcp_tool#can_call` and per-datasource `data_source#can_read`.
+   */
+  can_search: boolean;
 }
 
 /** Per-KB permission level for team-KB ownership (FR-038) */

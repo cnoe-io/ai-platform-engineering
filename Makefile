@@ -680,6 +680,8 @@ test-rbac-lint: ## Lint the RBAC matrix + realm-config-extras (T009/T011/T012). 
 	 fi
 	@echo "[test-rbac-lint] running keycloak init-script symlink guard…"
 	@bash scripts/check-keycloak-init-symlinks.sh
+	@echo "[test-rbac-lint] running FGA create-path ownership linter (spec 2026-06-04 Layer 3)…"
+	@PYTHONPATH=. uv run python scripts/validate-fga-create-paths.py
 
 test-rbac-up: ## Boot the e2e stack (Keycloak + UI + supervisor + agents + mongo) and seed personas via init-idp.sh.
 	@echo "[test-rbac-up] starting stack with profiles: $(E2E_PROFILES)"
