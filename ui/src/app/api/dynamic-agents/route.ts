@@ -30,8 +30,8 @@ import {
 import {
   filterResourcesByPermission,
   requireResourcePermission,
-  canTransferResourceOwnership,
 } from "@/lib/rbac/resource-authz";
+import { resolveShareableOwnershipWrite } from "@/lib/rbac/shareable-resource";
 import { caipeOrgKey } from "@/lib/rbac/organization";
 import { isPlatformDefaultAgent } from "@/lib/rbac/platform-default";
 
@@ -665,49 +665,49 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     updateData.updated_at = new Date().toISOString();
 
     // Ownership transfer (spec 2026-06-03, US3): owner_team_slug is immutable
-    // on a normal edit, but the editor can transfer it to another team. When
-    // the request carries a different owner_team_slug, require the caller to
-    // be an owner-team admin (can_manage on the agent) or org admin, validate
-    // the destination team membership, and pass the previous owner so the
-    // reconciler revokes the old team's grants. The creator tuple is untouched.
+    // on a normal edit, but the editor can transfer it to another team. The
+    // transfer DECISION (guard: owner-team admin or org admin; not-a-member
+    // confirmation; previous-owner revoke) is the single shared path used by
+    // the RAG datasource + MCP tool routes too — see
+    // `resolveShareableOwnershipWrite`. The agent persists to Mongo and writes
+    // its own org-admin/tool-caller tuples via `reconcileAgentRelationships`,
+    // so we use the resolver for the decision only and apply persistence here.
     const previousOwnerTeamSlug = normalizeString(agent.owner_team_slug);
-    const requestedOwnerTeamSlug = normalizeString(body.owner_team_slug);
-    let nextOwnerTeamSlug = previousOwnerTeamSlug;
-    let transferPreviousOwner: string | undefined;
-    if (
-      requestedOwnerTeamSlug &&
-      previousOwnerTeamSlug &&
-      requestedOwnerTeamSlug !== previousOwnerTeamSlug
-    ) {
-      const allowed = await canTransferResourceOwnership(
-        { sub: session.sub, role: session.role, user: session.user },
-        { type: "agent", id },
-      );
-      if (!allowed) {
-        throw new ApiError(
-          "Only an owner-team admin or org admin can transfer this agent.",
-          403,
-          "TRANSFER_FORBIDDEN",
-        );
-      }
-      const destinationTeam = await loadOwnerTeam({ slug: requestedOwnerTeamSlug });
+    const resolvedOwnership = await resolveShareableOwnershipWrite(
+      {
+        objectType: "agent",
+        objectId: id,
+        session: { sub: session.sub, role: session.role, user: session.user },
+        requestedOwnerTeamSlug: normalizeString(body.owner_team_slug),
+        requestedSharedTeamSlugs: sharedTeamSlugs,
+        confirmedNotMember: body.confirm_not_member === true,
+        loadPrevious: async () => ({
+          ownerTeamSlug: previousOwnerTeamSlug,
+          sharedTeamSlugs: previousSharedTeamSlugs,
+          creatorSubject: normalizeString(agent.owner_subject),
+        }),
+        persist: async () => {},
+        canUseOwnerTeam: async (slug) => {
+          const team = await loadOwnerTeam({ slug });
+          return team ? canUseOwnerTeam(session, team) : false;
+        },
+      },
+      {
+        ownerTeamSlug: previousOwnerTeamSlug,
+        sharedTeamSlugs: previousSharedTeamSlugs,
+        creatorSubject: normalizeString(agent.owner_subject),
+      },
+    );
+    const nextOwnerTeamSlug = resolvedOwnership.ownerTeamSlug;
+    const transferPreviousOwner = resolvedOwnership.transferred
+      ? resolvedOwnership.previousOwnerTeamSlug ?? undefined
+      : undefined;
+    if (resolvedOwnership.transferred) {
+      const destinationTeam = await loadOwnerTeam({ slug: nextOwnerTeamSlug! });
       if (!destinationTeam) {
         throw new ApiError("Destination team not found", 404, "OWNER_TEAM_NOT_FOUND");
       }
-      const canUseDestination = await canUseOwnerTeam(session, destinationTeam);
-      // A not-a-member transfer is allowed only when the client explicitly
-      // confirmed it (the <TeamOwnershipFields> not-a-member prompt sets this).
-      const confirmedNotMember = body.confirm_not_member === true;
-      if (!canUseDestination && !confirmedNotMember) {
-        throw new ApiError(
-          "You are not a member of the destination team. Confirm the transfer to proceed.",
-          409,
-          "TRANSFER_NOT_MEMBER_UNCONFIRMED",
-        );
-      }
-      nextOwnerTeamSlug = requestedOwnerTeamSlug;
-      transferPreviousOwner = previousOwnerTeamSlug;
-      updateData.owner_team_slug = requestedOwnerTeamSlug;
+      updateData.owner_team_slug = nextOwnerTeamSlug ?? undefined;
       updateData.owner_team_id = teamIdString(destinationTeam) ?? undefined;
     }
 

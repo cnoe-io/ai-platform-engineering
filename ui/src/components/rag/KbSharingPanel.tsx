@@ -39,7 +39,12 @@ export function KbSharingPanel({ knowledgeBaseId }: KbSharingPanelProps) {
   const [originalShared, setOriginalShared] = React.useState<string[]>([]);
   const [selected, setSelected] = React.useState<string[]>([]);
   const [ownerTeamSlug, setOwnerTeamSlug] = React.useState<string | null>(null);
+  const [originalOwner, setOriginalOwner] = React.useState<string | null>(null);
   const [creatorSubject, setCreatorSubject] = React.useState<string | null>(null);
+  // Ownership transfer (US3): on edit the owner picker is read-only until the
+  // user invokes the transfer affordance; these track the pending transfer.
+  const [transferRequested, setTransferRequested] = React.useState(false);
+  const [transferConfirmedNotMember, setTransferConfirmedNotMember] = React.useState(false);
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -70,7 +75,10 @@ export function KbSharingPanel({ knowledgeBaseId }: KbSharingPanelProps) {
       setOriginalShared(slugs);
       setSelected(slugs);
       setOwnerTeamSlug(data.owner_team_slug ?? null);
+      setOriginalOwner(data.owner_team_slug ?? null);
       setCreatorSubject(data.creator_subject ?? null);
+      setTransferRequested(false);
+      setTransferConfirmedNotMember(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load sharing");
     } finally {
@@ -88,10 +96,18 @@ export function KbSharingPanel({ knowledgeBaseId }: KbSharingPanelProps) {
     setError(null);
     setInfo(null);
     try {
+      // Send owner_team_slug + confirm_not_member only when the user invoked
+      // the transfer affordance, so a share-only save never trips the BFF's
+      // not-a-member transfer gate.
       const res = await fetch(`/api/rag/kbs/${encodeURIComponent(knowledgeBaseId)}/sharing`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ team_slugs: selected }),
+        body: JSON.stringify({
+          team_slugs: selected,
+          ...(transferRequested
+            ? { owner_team_slug: ownerTeamSlug, confirm_not_member: transferConfirmedNotMember }
+            : {}),
+        }),
       });
       if (!res.ok) {
         const detail = await res.json().catch(() => null);
@@ -101,19 +117,28 @@ export function KbSharingPanel({ knowledgeBaseId }: KbSharingPanelProps) {
       const next = Array.isArray(data.shared_team_slugs) ? data.shared_team_slugs : selected;
       setOriginalShared(next);
       setSelected(next);
-      setInfo("Sharing updated.");
+      if (data.owner_team_slug !== undefined) {
+        setOwnerTeamSlug(data.owner_team_slug ?? null);
+        setOriginalOwner(data.owner_team_slug ?? null);
+      }
+      setTransferRequested(false);
+      setTransferConfirmedNotMember(false);
+      setInfo(transferRequested ? "Ownership transferred." : "Sharing updated.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save sharing");
     } finally {
       setSaving(false);
     }
-  }, [knowledgeBaseId, selected]);
+  }, [knowledgeBaseId, selected, transferRequested, transferConfirmedNotMember, ownerTeamSlug]);
 
   const isDirty = React.useMemo(() => {
+    // A pending ownership transfer (owner changed via the transfer affordance)
+    // makes the form dirty even when the shared set is unchanged.
+    if (transferRequested && ownerTeamSlug !== originalOwner) return true;
     if (originalShared.length !== selected.length) return true;
     const a = new Set(originalShared);
     return selected.some((slug) => !a.has(slug));
-  }, [originalShared, selected]);
+  }, [originalShared, selected, transferRequested, ownerTeamSlug, originalOwner]);
 
   const options = React.useMemo<TeamPickerOption[]>(
     () =>
@@ -135,15 +160,20 @@ export function KbSharingPanel({ knowledgeBaseId }: KbSharingPanelProps) {
       </div>
 
       {/* Shared <TeamOwnershipFields> (spec 2026-06-03, US1/US5). The KB
-          already exists here, so the owner team is read-only (isEditing);
-          transfer is wired in Phase 7. The component renders the owner team,
+          already exists, so the owner team is read-only until the user invokes
+          the transfer affordance (US3). The component renders the owner team,
           the share multi-select, and the effective-access preview. */}
       <TeamOwnershipFields
         ownerTeamSlug={ownerTeamSlug ?? ""}
         sharedTeamSlugs={selected}
         creatorSubject={creatorSubject}
         isEditing
+        allowTransfer
         resourceNoun="knowledge base"
+        onTransfer={(_newOwnerSlug, confirmedNotMember) => {
+          setTransferRequested(true);
+          setTransferConfirmedNotMember(confirmedNotMember);
+        }}
         disabled={loading || saving}
         availableTeams={options}
         currentUserTeamSlugs={options.map((o) => o.slug)}

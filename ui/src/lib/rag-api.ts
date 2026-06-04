@@ -411,6 +411,13 @@ export interface MCPToolConfig {
   shared_with_org?: boolean;
   creator_subject?: string | null;
   owner_subject?: string | null;
+  /**
+   * Transfer-only signal (not persisted): set when the editor reassigns
+   * owner_team_slug to a team the caller is not a member of and the user
+   * confirmed the not-a-member prompt. The BFF reads it to authorize the
+   * transfer; it is never stored on the config.
+   */
+  confirm_not_member?: boolean;
 }
 
 export interface MCPBuiltinToolsConfig {

@@ -10,9 +10,10 @@ import type { RbacScope } from '@/lib/rbac/types';
 import {
   filterResourcesByPermission,
   requireResourcePermission,
-  canTransferResourceOwnership,
+  type ResourceAuthzSession,
   type ResourcePermissionAction,
 } from '@/lib/rbac/resource-authz';
+import { resolveShareableOwnershipWrite } from '@/lib/rbac/shareable-resource';
 import {
   reconcileDataSourceRelationships,
   reconcileKnowledgeBaseRelationships,
@@ -190,6 +191,16 @@ function normalizeSlugList(raw: unknown): string[] {
     out.push(trimmed);
   }
   return out;
+}
+
+/** Boolean membership check (`team:<slug>#can_use`) for the shared resolver. */
+async function canUseTeam(session: ResourceAuthzSession, slug: string): Promise<boolean> {
+  try {
+    await requireResourcePermission(session, { type: 'team', id: slug, action: 'use' });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -382,16 +393,10 @@ async function reconcileMcpToolForOwnership(pending: {
   sharedWithOrg: boolean;
   previousSharedWithOrg: boolean;
 }): Promise<void> {
-  // Pass the previous owner team when it differs from the next owner so the
-  // reconciler revokes the old team's grants on an ownership change (the
-  // mcp_tool builder treats it symmetrically with shared-team removals).
-  // Without this, changing owner_team_slug would orphan the old team's
-  // reader/user/manager tuples, leaving stale access.
-  const previousOwnerTeamSlug =
-    pending.previousOwnerTeamSlug &&
-    pending.previousOwnerTeamSlug !== pending.ownerTeamSlug
-      ? pending.previousOwnerTeamSlug
-      : undefined;
+  // `previousOwnerTeamSlug` is already non-null only on a transfer (set by the
+  // shared `resolveShareableOwnershipWrite` decision), so the reconciler
+  // revokes the old team's grants instead of orphaning them.
+  const previousOwnerTeamSlug = pending.previousOwnerTeamSlug ?? undefined;
   await reconcileMcpToolRelationships({
     toolId: pending.toolId,
     ownerSubject: pending.ownerSubject,
@@ -510,90 +515,47 @@ async function getAuthorizedRagContext(
       (isRecord(body) ? normalizeString(body.tool_id) : null);
     if (toolId) {
       const ownerSubject = normalizeString(session.sub);
-      const sharedTeamSlugs = isRecord(body)
-        ? normalizeSlugList(body.shared_with_teams)
-        : [];
-      const sharedWithOrg = isRecord(body) && body.shared_with_org === true;
+      const authzSession = { sub: session.sub, role: session.role, user: session.user };
       // Config is the source of truth: read the previous owner/creator/shared
-      // (and org-wide) state so we can keep set-once fields, emit revoke deletes
-      // for removed teams/org grants, and detect an ownership transfer (mirrors
-      // the agent route). Creator is set-once: keep the existing one if present.
+      // (and org-wide) state so the shared resolver can keep set-once fields,
+      // emit revoke deletes for removed teams/org grants, and detect an
+      // ownership transfer.
       const previous = await loadMcpToolConfig(toolId, {
         accessToken: session.accessToken,
         org: session.org,
       });
 
-      const authzSession = { sub: session.sub, role: session.role, user: session.user };
-      const requestedOwnerTeamSlug = isRecord(body)
-        ? normalizeString(body.owner_team_slug)
-        : null;
-      const previousOwnerTeamSlug = previous.ownerTeamSlug;
-      // Keep the existing owner when the request omits it — the RAG server
-      // replaces the whole config on PUT, so an omitted owner must not be
-      // dropped (which would also wrongly revoke the owner team's grants).
-      const nextOwnerTeamSlug = requestedOwnerTeamSlug ?? previousOwnerTeamSlug;
-
-      const isOwnerChange =
-        requestedOwnerTeamSlug !== null &&
-        previousOwnerTeamSlug !== null &&
-        requestedOwnerTeamSlug !== previousOwnerTeamSlug;
-
-      if (isOwnerChange) {
-        // Ownership transfer (spec 2026-06-03, US3): the owner team is
-        // immutable on a normal edit and may only be reassigned by an
-        // owner-team admin or org admin. Mirrors the dynamic-agents guard.
-        const allowed = await canTransferResourceOwnership(authzSession, {
-          type: 'mcp_tool',
-          id: toolId,
-        });
-        if (!allowed) {
-          throw new ApiError(
-            'Only an owner-team admin or org admin can transfer this tool.',
-            403,
-            'TRANSFER_FORBIDDEN',
-          );
-        }
-        // A transfer to a team the caller is not a member of requires explicit
-        // confirmation (the <TeamOwnershipFields> not-a-member prompt).
-        let canUseDestination = false;
-        try {
-          await requireResourcePermission(authzSession, {
-            type: 'team',
-            id: requestedOwnerTeamSlug,
-            action: 'use',
-          });
-          canUseDestination = true;
-        } catch {
-          canUseDestination = false;
-        }
-        const confirmedNotMember = isRecord(body) && body.confirm_not_member === true;
-        if (!canUseDestination && !confirmedNotMember) {
-          throw new ApiError(
-            'You are not a member of the destination team. Confirm the transfer to proceed.',
-            409,
-            'TRANSFER_NOT_MEMBER_UNCONFIRMED',
-          );
-        }
-      } else if (requestedOwnerTeamSlug && previousOwnerTeamSlug === null) {
-        // First-set (create / pre-ownership tool): the caller must belong to
-        // the owner team they assign.
-        await requireResourcePermission(authzSession, {
-          type: 'team',
-          id: requestedOwnerTeamSlug,
-          action: 'use',
-        });
-      }
+      // Single decision path shared with the agent + KB routes: creator
+      // set-once, transfer guard (owner-team admin/org admin) + not-a-member
+      // confirm, first-set membership, shared-team + org-scope diff. The MCP
+      // proxy persists config via the upstream body (pre-call) and reconciles
+      // OpenFGA post-success, so we resolve here and apply each half in phase.
+      const resolved = await resolveShareableOwnershipWrite(
+        {
+          objectType: 'mcp_tool',
+          objectId: toolId,
+          session: authzSession,
+          requestedOwnerTeamSlug: isRecord(body) ? normalizeString(body.owner_team_slug) : null,
+          requestedSharedTeamSlugs: isRecord(body) ? normalizeSlugList(body.shared_with_teams) : null,
+          requestedSharedWithOrg: isRecord(body) ? body.shared_with_org === true : null,
+          confirmedNotMember: isRecord(body) && body.confirm_not_member === true,
+          loadPrevious: async () => previous,
+          persist: async () => {},
+          canUseOwnerTeam: (slug) => canUseTeam(authzSession, slug),
+        },
+        previous,
+      );
 
       pendingMcpToolOwnership = {
         toolId,
         ownerSubject,
-        ownerTeamSlug: nextOwnerTeamSlug,
-        creatorSubject: previous.creatorSubject ?? ownerSubject,
-        sharedTeamSlugs,
-        previousSharedTeamSlugs: previous.sharedTeamSlugs,
-        previousOwnerTeamSlug,
-        sharedWithOrg,
-        previousSharedWithOrg: previous.sharedWithOrg,
+        ownerTeamSlug: resolved.ownerTeamSlug,
+        creatorSubject: resolved.creatorSubject ?? ownerSubject,
+        sharedTeamSlugs: resolved.sharedTeamSlugs,
+        previousSharedTeamSlugs: resolved.previousSharedTeamSlugs,
+        previousOwnerTeamSlug: resolved.transferred ? resolved.previousOwnerTeamSlug : null,
+        sharedWithOrg: resolved.sharedWithOrg,
+        previousSharedWithOrg: resolved.previousSharedWithOrg,
       };
     }
   }

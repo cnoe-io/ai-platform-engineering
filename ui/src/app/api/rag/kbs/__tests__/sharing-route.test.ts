@@ -24,11 +24,10 @@ jest.mock("@/lib/auth-config", () => ({
 
 const mockRequireRbacPermission = jest.fn();
 jest.mock("@/lib/api-middleware", () => {
-  class ApiError extends Error {
-    constructor(message: string, public statusCode = 500, public code?: string) {
-      super(message);
-    }
-  }
+  // Real ApiError so the route's `instanceof ApiError` matches errors thrown
+  // by shared modules (shareable-resource.ts → @/lib/api-error). Production
+  // api-middleware re-exports this same class.
+  const { ApiError } = jest.requireActual("@/lib/api-error");
   return {
     ApiError,
     requireRbacPermission: (...args: unknown[]) => mockRequireRbacPermission(...args),
@@ -45,8 +44,11 @@ jest.mock("@/lib/api-middleware", () => {
 });
 
 const mockRequireResourcePermission = jest.fn();
+const mockCanTransferResourceOwnership = jest.fn();
 jest.mock("@/lib/rbac/resource-authz", () => ({
   requireResourcePermission: (...args: unknown[]) => mockRequireResourcePermission(...args),
+  canTransferResourceOwnership: (...args: unknown[]) =>
+    mockCanTransferResourceOwnership(...args),
 }));
 
 const mockReconcileKnowledgeBaseRelationships = jest.fn();
@@ -80,6 +82,7 @@ describe("/api/rag/kbs/[id]/sharing", () => {
     jest.clearAllMocks();
     mockRequireRbacPermission.mockResolvedValue(undefined);
     mockRequireResourcePermission.mockResolvedValue(undefined);
+    mockCanTransferResourceOwnership.mockResolvedValue(true);
     mockReconcileKnowledgeBaseRelationships.mockResolvedValue({
       enabled: true,
       writes: 2,
@@ -283,6 +286,95 @@ describe("/api/rag/kbs/[id]/sharing", () => {
         params: Promise.resolve({ id: "kb-1" }),
       });
       expect(res.status).toBe(403);
+    });
+
+    describe("ownership transfer (US3)", () => {
+      // Mock the RAG server: GET /v1/datasources returns the current config
+      // (owner = platform); POST /v1/datasource is the owner re-upsert.
+      function mockRagConfig(currentOwner: string) {
+        return jest.spyOn(global, "fetch").mockImplementation((url: string | URL) => {
+          const u = String(url);
+          if (u.endsWith("/v1/datasources")) {
+            return Promise.resolve(
+              new Response(
+                JSON.stringify({
+                  datasources: [
+                    { datasource_id: "kb-1", owner_team_slug: currentOwner, creator_subject: "alice-sub" },
+                  ],
+                }),
+                { status: 200, headers: { "content-type": "application/json" } },
+              ),
+            );
+          }
+          // POST /v1/datasource upsert (owner persist) → 202.
+          return Promise.resolve(new Response(null, { status: 202 }));
+        });
+      }
+
+      it("transfers ownership to a new team when authorized, persisting + revoking the old owner", async () => {
+        mockReadOpenFgaTuples.mockResolvedValue({ tuples: [] });
+        mockCanTransferResourceOwnership.mockResolvedValue(true);
+        mockRequireResourcePermission.mockResolvedValue(undefined); // member of destination
+        const fetchSpy = mockRagConfig("platform");
+
+        const res = await PUT(
+          makeRequest({ owner_team_slug: "data-eng", team_slugs: [] }),
+          { params: Promise.resolve({ id: "kb-1" }) },
+        );
+
+        expect(res.status).toBe(200);
+        const body = await res.json();
+        expect(body.owner_team_slug).toBe("data-eng");
+        // Reconcile carried the previous owner so its grants are revoked.
+        expect(mockReconcileKnowledgeBaseRelationships).toHaveBeenCalledWith(
+          expect.objectContaining({
+            knowledgeBaseId: "kb-1",
+            ownerTeamSlug: "data-eng",
+            previousOwnerTeamSlug: "platform",
+          }),
+        );
+        // Owner was persisted to the datasource config via the upsert.
+        expect(fetchSpy).toHaveBeenCalledWith(
+          expect.stringContaining("/v1/datasource"),
+          expect.objectContaining({ method: "POST" }),
+        );
+        fetchSpy.mockRestore();
+      });
+
+      it("denies a transfer when the caller is neither owner-team admin nor org admin", async () => {
+        mockReadOpenFgaTuples.mockResolvedValue({ tuples: [] });
+        mockCanTransferResourceOwnership.mockResolvedValue(false);
+        const fetchSpy = mockRagConfig("platform");
+
+        const res = await PUT(
+          makeRequest({ owner_team_slug: "data-eng" }),
+          { params: Promise.resolve({ id: "kb-1" }) },
+        );
+        expect(res.status).toBe(403);
+        const body = await res.json();
+        expect(body.code).toBe("TRANSFER_FORBIDDEN");
+        fetchSpy.mockRestore();
+      });
+
+      it("requires not-a-member confirmation for a transfer to a team the caller isn't in", async () => {
+        mockReadOpenFgaTuples.mockResolvedValue({ tuples: [] });
+        mockCanTransferResourceOwnership.mockResolvedValue(true);
+        // Not a member of the destination team.
+        const ApiErrorClass = jest.requireMock("@/lib/api-middleware").ApiError;
+        mockRequireResourcePermission.mockImplementation(async (_s: unknown, t: { type: string }) => {
+          if (t.type === "team") throw new ApiErrorClass("not a member", 403);
+        });
+        const fetchSpy = mockRagConfig("platform");
+
+        const res = await PUT(
+          makeRequest({ owner_team_slug: "data-eng" }),
+          { params: Promise.resolve({ id: "kb-1" }) },
+        );
+        expect(res.status).toBe(409);
+        const body = await res.json();
+        expect(body.code).toBe("TRANSFER_NOT_MEMBER_UNCONFIRMED");
+        fetchSpy.mockRestore();
+      });
     });
   });
 });

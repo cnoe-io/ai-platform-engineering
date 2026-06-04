@@ -32,14 +32,16 @@ const mockRequireResourcePermission = jest.fn();
 const mockFilterResourcesByPermission = jest.fn();
 const mockRequireRbacPermission = jest.fn();
 const mockCheckOpenFgaTuple = jest.fn();
+const mockCanTransferResourceOwnership = jest.fn();
 const mockReconcileMcpToolRelationships = jest.fn();
 
 jest.mock("@/lib/api-middleware", () => {
-  class ApiError extends Error {
-    constructor(message: string, public statusCode = 500, public code?: string) {
-      super(message);
-    }
-  }
+  // Use the REAL ApiError so the route's `error instanceof ApiError` check
+  // matches errors thrown by shared modules (shareable-resource.ts imports
+  // ApiError from @/lib/api-error). In production api-middleware re-exports the
+  // same class; a local stand-in here would make instanceof fail and surface
+  // clean 4xx errors as 502.
+  const { ApiError } = jest.requireActual("@/lib/api-error");
   return {
     ApiError,
     requireRbacPermission: (...args: unknown[]) => mockRequireRbacPermission(...args),
@@ -57,6 +59,12 @@ jest.mock("@/lib/api-middleware", () => {
 jest.mock("@/lib/rbac/resource-authz", () => ({
   requireResourcePermission: (...args: unknown[]) => mockRequireResourcePermission(...args),
   filterResourcesByPermission: (...args: unknown[]) => mockFilterResourcesByPermission(...args),
+  // The shared `resolveShareableOwnershipWrite` decision (in shareable-resource.ts)
+  // calls this for transfers. These cases are first-set/share-only (no owner
+  // CHANGE), so it's never the deciding gate here; default-allow keeps the
+  // import resolvable. Actual transfer authorization is covered in
+  // mcp-tool-ownership.test.ts and shareable-resource-write.test.ts.
+  canTransferResourceOwnership: (...args: unknown[]) => mockCanTransferResourceOwnership(...args),
 }));
 
 jest.mock("@/lib/rbac/openfga", () => ({
@@ -86,6 +94,7 @@ beforeEach(() => {
   mockRequireResourcePermission.mockResolvedValue(undefined);
   // Default: not org admin.
   mockCheckOpenFgaTuple.mockResolvedValue({ allowed: false });
+  mockCanTransferResourceOwnership.mockResolvedValue(true);
   mockReconcileMcpToolRelationships.mockResolvedValue({ enabled: true, writes: 0, deletes: 0 });
 });
 
