@@ -167,27 +167,23 @@ def test_deduplicated_event_returns_200(monkeypatch: pytest.MonkeyPatch) -> None
     assert second.status == 200
 
 
-def test_rbac_deny_posts_ephemeral_and_returns_200(
+def test_rbac_deny_logs_warning_and_returns_200(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Regression test for the silent-drop bug we hit on 2026-05-27.
+    """A denied request must log a warning, post nothing, and return 200.
 
-    Scenario reproduced in dev: a generic user (eti-sre-cicd.gen@cisco.com,
-    Slack id U0B67AHR0RZ) posted "how can you help?" in channel C0B6F5VRK6V
-    which is mapped to the `eti-sre-admins` team — but the user is not a
-    member of that team. `_rbac_enrich_context` correctly returned
-    ``("deny", <reason>)`` but the middleware then:
+    When ``_rbac_enrich_context`` returns a ``("deny", <reason>)`` tuple the
+    middleware must:
 
-      1. Logged nothing at INFO level — denials were invisible.
-      2. Posted the denial via ``chat_postMessage`` (visible to the whole
-         channel) instead of ``chat_postEphemeral``.
-      3. Returned ``None`` without calling ``next()``, which produced the
-         bolt-python "middleware skipped calling next()" warning AND let
-         Slack retry the same envelope up to 4 times.
-
-    This test enables RBAC and stubs ``_rbac_enrich_context`` to return the
-    deny tuple, then asserts all three regressions are fixed: ephemeral
-    posting, INFO-level deny log, and ``BoltResponse(200)`` return.
+      1. NOT call ``next()`` — denied requests don't reach listeners.
+      2. NOT post the denial back to Slack (neither ephemeral nor channel).
+         Posting is noisy and leaks RBAC config details; the denial is
+         surfaced only in the slack-bot logs.
+      3. Log the denial at WARNING level so it's visible in the logs (the
+         only artifact, now that we don't post it back).
+      4. Return ``BoltResponse(200)`` so Slack doesn't retry the envelope up
+         to 4 times (which also produced bolt-python's "middleware skipped
+         calling next()" warning).
     """
     app_module = _load_slack_app(
         monkeypatch, silence_env=False, rbac_enabled=True
@@ -205,9 +201,13 @@ def test_rbac_deny_posts_ephemeral_and_returns_200(
     class _CapturingLogger(_Logger):
         def __init__(self) -> None:
             self.info_calls: list[tuple[str, tuple[object, ...]]] = []
+            self.warning_calls: list[tuple[str, tuple[object, ...]]] = []
 
         def info(self, msg: object, *args: object, **_kwargs: object) -> None:
             self.info_calls.append((str(msg), args))
+
+        def warning(self, msg: object, *args: object, **_kwargs: object) -> None:
+            self.warning_calls.append((str(msg), args))
 
     log = _CapturingLogger()
     next_called = False
@@ -235,31 +235,25 @@ def test_rbac_deny_posts_ephemeral_and_returns_200(
     # 1. Downstream handlers must NOT run when access is denied.
     assert next_called is False, "denied requests must not reach listeners"
 
-    # 2. The denial must be visible only to the requesting user (ephemeral),
-    #    not broadcast to the whole channel.
-    assert len(client.ephemeral_posts) == 1, (
-        f"expected one ephemeral denial, got {client.ephemeral_posts!r} "
-        f"and channel posts {client.channel_posts!r}"
+    # 2. The denial must NOT be posted to Slack at all — neither ephemeral nor
+    #    channel-wide. Denials are surfaced only in the slack-bot logs (posting
+    #    is noisy and leaks RBAC config details).
+    assert client.ephemeral_posts == [], (
+        f"denials must not be posted to Slack; got ephemeral {client.ephemeral_posts!r}"
     )
-    post = client.ephemeral_posts[0]
-    assert post["channel"] == "C0B6F5VRK6V"
-    assert post["user"] == "U0B67AHR0RZ"
-    assert "access" in str(post["text"]).lower()
     assert client.channel_posts == [], (
-        "denials must NEVER be posted with chat_postMessage — that leaks "
-        "the denial to everyone in the channel."
+        f"denials must not be posted to Slack; got channel {client.channel_posts!r}"
     )
 
-    # 3. Deny path must log at INFO level so denials are visible in slack-bot
-    #    logs. Without this regression test the only log artifact was Bolt's
-    #    generic "skipped calling next()" warning.
+    # 3. Deny path must log at WARNING level so denials are visible in slack-bot
+    #    logs (the only artifact now that we don't post the denial back).
     deny_logs = [
-        call for call in log.info_calls
+        call for call in log.warning_calls
         if "RBAC denied" in call[0]
     ]
     assert deny_logs, (
-        f"deny path must log 'RBAC denied ...' at INFO; got info calls: "
-        f"{log.info_calls!r}"
+        f"deny path must log 'RBAC denied ...' at WARNING; got warning calls: "
+        f"{log.warning_calls!r}"
     )
 
     # 4. Return BoltResponse(200) so Slack does not retry the envelope.

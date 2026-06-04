@@ -24,6 +24,7 @@ import {
   reconcileConfigDrivenLlmModelRelationships,
   reconcileConfigDrivenMcpServerRelationships,
 } from "@/lib/rbac/openfga-owned-resources";
+import { reconcileAgentRelationships } from "@/lib/rbac/openfga-agent-tools";
 import type {
   DynamicAgentConfig,
   MCPServerConfig,
@@ -173,6 +174,18 @@ async function seedAgents(
     const existing = await collection.findOne({ _id: agentId });
     const createdAt = existing?.created_at ?? now;
 
+    // Optional `owner_team` (slug) in the config makes the seeded agent owned by
+    // a team, which is what lets it be used in Slack channels mapped to that
+    // team — the bot's channel ReBAC check probes `team:<slug>#member can_use
+    // agent:<id>`, and only the OpenFGA reconcile below writes that tuple.
+    // `visibility: global` alone grants `user:*`, which does NOT satisfy a
+    // team-subject check.
+    const ownerTeamSlug =
+      (agentData.owner_team as string | undefined)?.trim() || null;
+    const sharedTeamSlugs = (
+      (agentData.shared_with_teams as string[] | undefined) ?? []
+    ).filter((slug) => slug && slug !== ownerTeamSlug);
+
     const doc = {
       _id: agentId,
       name: (agentData.name as string) ?? agentId,
@@ -189,7 +202,8 @@ async function seedAgents(
           },
       visibility: ((agentData.visibility as string) ?? "global") as VisibilityType,
       shared_with_teams:
-        (agentData.shared_with_teams as string[]) ?? undefined,
+        sharedTeamSlugs.length > 0 ? sharedTeamSlugs : undefined,
+      owner_team_slug: ownerTeamSlug ?? undefined,
       subagents: (agentData.subagents as SubAgentRef[]) ?? [],
       skills: (agentData.skills as string[]) ?? [],
       builtin_tools:
@@ -207,6 +221,34 @@ async function seedAgents(
     };
 
     await collection.replaceOne({ _id: agentId }, doc, { upsert: true });
+
+    // Write the OpenFGA ownership/share tuples (team#member→can_use,
+    // team#admin→can_manage) so an owner/shared team can actually use the agent
+    // — including in Slack channels mapped to that team. Without this, a seeded
+    // agent's team grants live only in Mongo and the PDP denies. Mirrors what
+    // the agent editor (POST /api/dynamic-agents) does. Best-effort: a failure
+    // here shouldn't abort seeding the rest of the config.
+    if (ownerTeamSlug) {
+      try {
+        await reconcileAgentRelationships({
+          agentId,
+          previousAllowedTools: {},
+          nextAllowedTools: doc.allowed_tools,
+          ownerSubject: null,
+          organizationId: caipeOrgKey(),
+          ownerTeamSlug,
+          nextSharedTeamSlugs: sharedTeamSlugs,
+          previousSharedTeamSlugs: [],
+          failClosed: false,
+        });
+      } catch (error) {
+        console.warn(
+          `[seed-config] Failed to reconcile OpenFGA team grants for agent ${agentId}:`,
+          error,
+        );
+      }
+    }
+
     console.log(`[seed-config] Seeded agent: ${agentId}`);
     count++;
   }
