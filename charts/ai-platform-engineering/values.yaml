@@ -339,8 +339,8 @@ extraDeploy: []
 skillsLiveSkillsName: ""       # Variant name (looks up data/skills/live-skills.<name>.md)
 skillsLiveSkills: ""           # Inline custom live-skills skill (overrides everything)
 
-######### Sub-agent MCP server configurations #########
-# Each mcp-* block configures one agent's MCP server (alias from Chart.yaml).
+######### MCP server configurations #########
+# Each mcp-* block configures one MCP server (alias from Chart.yaml).
 
 mcp-argocd:
   nameOverride: "mcp-argocd"
