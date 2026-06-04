@@ -32,21 +32,6 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       conversation_id: { $in: conversationIds },
     });
 
-    // Calculate total tokens
-    const messageStats = await messages
-      .aggregate([
-        { $match: { conversation_id: { $in: conversationIds } } },
-        {
-          $group: {
-            _id: null,
-            total_tokens: { $sum: '$metadata.tokens_used' },
-          },
-        },
-      ])
-      .toArray();
-
-    const totalTokens = messageStats[0]?.total_tokens || 0;
-
     // This week stats
     const oneWeekAgo = new Date();
     oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
@@ -90,7 +75,6 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     const stats: UserStats = {
       total_conversations: totalConversations,
       total_messages: totalMessages,
-      total_tokens_used: totalTokens,
       conversations_this_week: conversationsThisWeek,
       messages_this_week: messagesThisWeek,
       favorite_agents: favoriteAgents,

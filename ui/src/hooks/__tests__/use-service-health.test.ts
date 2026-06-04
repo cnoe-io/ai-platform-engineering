@@ -1,11 +1,11 @@
-import { renderHook, waitFor } from '@testing-library/react';
+import { renderHook } from '@testing-library/react';
 
 jest.mock('../use-prometheus', () => ({
   useBatchPrometheus: jest.fn(),
 }));
 
 import { useBatchPrometheus } from '../use-prometheus';
-import { useServiceHealth, type HealthStatus } from '../use-service-health';
+import { useServiceHealth } from '../use-service-health';
 
 const mockUseBatchPrometheus = useBatchPrometheus as jest.Mock;
 
@@ -28,6 +28,19 @@ function promResult(value: string) {
   return {
     status: 'success' as const,
     data: { resultType: 'vector', result: [{ metric: {}, value: [Date.now() / 1000, value] }] },
+  };
+}
+
+const emptyResult = { status: 'success' as const, data: { resultType: 'vector', result: [] } };
+
+/** Build a full results map with sensible empty defaults, overridable per-key. */
+function results(overrides: Record<string, unknown> = {}) {
+  return {
+    da_up: emptyResult,
+    turn_success_rate: emptyResult,
+    turn_rate_5m: emptyResult,
+    agent_turns: emptyResult,
+    ...overrides,
   };
 }
 
@@ -61,196 +74,105 @@ describe('useServiceHealth', () => {
     expect(result.current.configured).toBe(false);
   });
 
-  it('reports supervisor as healthy when up=1', () => {
-    mockBatchReturn({
-      results: {
-        supervisor_up: promResult('1'),
-        enabled_agents: { status: 'success', data: { resultType: 'vector', result: [] } },
-        supervisor_success_rate: { status: 'success', data: { resultType: 'vector', result: [] } },
-        request_rate_5m: { status: 'success', data: { resultType: 'vector', result: [] } },
-        agent_statuses: { status: 'success', data: { resultType: 'vector', result: [] } },
-      },
-    });
+  it('reports Dynamic Agents as healthy when up=1', () => {
+    mockBatchReturn({ results: results({ da_up: promResult('1') }) });
     const { result } = renderHook(() => useServiceHealth());
 
-    const supervisor = result.current.services.find(s => s.name === 'Supervisor Agent');
-    expect(supervisor?.status).toBe('healthy');
-    expect(supervisor?.detail).toBe('Running');
+    const da = result.current.services.find(s => s.name === 'Dynamic Agents');
+    expect(da?.status).toBe('healthy');
+    expect(da?.detail).toBe('Running');
   });
 
-  it('reports supervisor as down when up=0', () => {
-    mockBatchReturn({
-      results: {
-        supervisor_up: promResult('0'),
-        enabled_agents: { status: 'success', data: { resultType: 'vector', result: [] } },
-        supervisor_success_rate: { status: 'success', data: { resultType: 'vector', result: [] } },
-        request_rate_5m: { status: 'success', data: { resultType: 'vector', result: [] } },
-        agent_statuses: { status: 'success', data: { resultType: 'vector', result: [] } },
-      },
-    });
+  it('reports Dynamic Agents as down when up=0', () => {
+    mockBatchReturn({ results: results({ da_up: promResult('0') }) });
     const { result } = renderHook(() => useServiceHealth());
 
-    const supervisor = result.current.services.find(s => s.name === 'Supervisor Agent');
-    expect(supervisor?.status).toBe('down');
-    expect(supervisor?.detail).toBe('Not responding');
+    const da = result.current.services.find(s => s.name === 'Dynamic Agents');
+    expect(da?.status).toBe('down');
+    expect(da?.detail).toBe('Not responding');
   });
 
-  it('reports supervisor as unknown when no data', () => {
-    mockBatchReturn({
-      results: {
-        supervisor_up: { status: 'success', data: { resultType: 'vector', result: [] } },
-        enabled_agents: { status: 'success', data: { resultType: 'vector', result: [] } },
-        supervisor_success_rate: { status: 'success', data: { resultType: 'vector', result: [] } },
-        request_rate_5m: { status: 'success', data: { resultType: 'vector', result: [] } },
-        agent_statuses: { status: 'success', data: { resultType: 'vector', result: [] } },
-      },
-    });
+  it('reports Dynamic Agents as unknown when no data', () => {
+    mockBatchReturn({ results: results() });
     const { result } = renderHook(() => useServiceHealth());
 
-    const supervisor = result.current.services.find(s => s.name === 'Supervisor Agent');
-    expect(supervisor?.status).toBe('unknown');
-    expect(supervisor?.detail).toBe('No data');
+    const da = result.current.services.find(s => s.name === 'Dynamic Agents');
+    expect(da?.status).toBe('unknown');
+    expect(da?.detail).toBe('No data');
   });
 
-  it('reports sub-agent count', () => {
+  it('reports active agent count and per-agent turn activity', () => {
     mockBatchReturn({
-      results: {
-        supervisor_up: promResult('1'),
-        enabled_agents: promResult('5'),
-        supervisor_success_rate: { status: 'success', data: { resultType: 'vector', result: [] } },
-        request_rate_5m: { status: 'success', data: { resultType: 'vector', result: [] } },
-        agent_statuses: { status: 'success', data: { resultType: 'vector', result: [] } },
-      },
-    });
-    const { result } = renderHook(() => useServiceHealth());
-
-    const subAgents = result.current.services.find(s => s.name === 'Sub-agents');
-    expect(subAgents?.status).toBe('healthy');
-    expect(subAgents?.detail).toBe('5 agents enabled');
-    expect(subAgents?.value).toBe(5);
-  });
-
-  it('reports sub-agents as down when count is 0', () => {
-    mockBatchReturn({
-      results: {
-        supervisor_up: promResult('1'),
-        enabled_agents: promResult('0'),
-        supervisor_success_rate: { status: 'success', data: { resultType: 'vector', result: [] } },
-        request_rate_5m: { status: 'success', data: { resultType: 'vector', result: [] } },
-        agent_statuses: { status: 'success', data: { resultType: 'vector', result: [] } },
-      },
-    });
-    const { result } = renderHook(() => useServiceHealth());
-
-    const subAgents = result.current.services.find(s => s.name === 'Sub-agents');
-    expect(subAgents?.status).toBe('down');
-  });
-
-  it('reports individual agent statuses', () => {
-    mockBatchReturn({
-      results: {
-        supervisor_up: promResult('1'),
-        enabled_agents: promResult('2'),
-        supervisor_success_rate: { status: 'success', data: { resultType: 'vector', result: [] } },
-        request_rate_5m: { status: 'success', data: { resultType: 'vector', result: [] } },
-        agent_statuses: {
+      results: results({
+        da_up: promResult('1'),
+        agent_turns: {
           status: 'success',
           data: {
             resultType: 'vector',
             result: [
-              { metric: { agent_name: 'argocd' }, value: [Date.now() / 1000, '1'] },
+              { metric: { agent_name: 'argocd' }, value: [Date.now() / 1000, '42'] },
               { metric: { agent_name: 'github' }, value: [Date.now() / 1000, '0'] },
             ],
           },
         },
-      },
+      }),
     });
     const { result } = renderHook(() => useServiceHealth());
+
+    const active = result.current.services.find(s => s.name === 'Active Agents');
+    expect(active?.status).toBe('healthy');
+    expect(active?.value).toBe(1);
 
     const argocd = result.current.services.find(s => s.name === 'Agent: argocd');
     expect(argocd?.status).toBe('healthy');
-    expect(argocd?.detail).toBe('Enabled');
+    expect(argocd?.detail).toBe('42 turns');
 
     const github = result.current.services.find(s => s.name === 'Agent: github');
-    expect(github?.status).toBe('down');
-    expect(github?.detail).toBe('Disabled');
+    expect(github?.status).toBe('unknown');
+    expect(github?.detail).toBe('0 turns');
   });
 
-  it('reports success rate as healthy when >= 95%', () => {
-    mockBatchReturn({
-      results: {
-        supervisor_up: promResult('1'),
-        enabled_agents: { status: 'success', data: { resultType: 'vector', result: [] } },
-        supervisor_success_rate: promResult('98.5'),
-        request_rate_5m: { status: 'success', data: { resultType: 'vector', result: [] } },
-        agent_statuses: { status: 'success', data: { resultType: 'vector', result: [] } },
-      },
-    });
+  it('reports turn success rate as healthy when >= 95%', () => {
+    mockBatchReturn({ results: results({ da_up: promResult('1'), turn_success_rate: promResult('98.5') }) });
     const { result } = renderHook(() => useServiceHealth());
 
-    const successRate = result.current.services.find(s => s.name === 'Success Rate');
-    expect(successRate?.status).toBe('healthy');
-    expect(successRate?.detail).toBe('98.5%');
+    const rate = result.current.services.find(s => s.name === 'Turn Success Rate');
+    expect(rate?.status).toBe('healthy');
+    expect(rate?.detail).toBe('98.5%');
   });
 
-  it('reports success rate as degraded when between 80-95%', () => {
-    mockBatchReturn({
-      results: {
-        supervisor_up: promResult('1'),
-        enabled_agents: { status: 'success', data: { resultType: 'vector', result: [] } },
-        supervisor_success_rate: promResult('87.3'),
-        request_rate_5m: { status: 'success', data: { resultType: 'vector', result: [] } },
-        agent_statuses: { status: 'success', data: { resultType: 'vector', result: [] } },
-      },
-    });
+  it('reports turn success rate as degraded when between 80-95%', () => {
+    mockBatchReturn({ results: results({ da_up: promResult('1'), turn_success_rate: promResult('87.3') }) });
     const { result } = renderHook(() => useServiceHealth());
 
-    const successRate = result.current.services.find(s => s.name === 'Success Rate');
-    expect(successRate?.status).toBe('degraded');
+    const rate = result.current.services.find(s => s.name === 'Turn Success Rate');
+    expect(rate?.status).toBe('degraded');
   });
 
-  it('reports success rate as down when < 80%', () => {
-    mockBatchReturn({
-      results: {
-        supervisor_up: promResult('1'),
-        enabled_agents: { status: 'success', data: { resultType: 'vector', result: [] } },
-        supervisor_success_rate: promResult('65.0'),
-        request_rate_5m: { status: 'success', data: { resultType: 'vector', result: [] } },
-        agent_statuses: { status: 'success', data: { resultType: 'vector', result: [] } },
-      },
-    });
+  it('reports turn success rate as down when < 80%', () => {
+    mockBatchReturn({ results: results({ da_up: promResult('1'), turn_success_rate: promResult('65.0') }) });
     const { result } = renderHook(() => useServiceHealth());
 
-    const successRate = result.current.services.find(s => s.name === 'Success Rate');
-    expect(successRate?.status).toBe('down');
+    const rate = result.current.services.find(s => s.name === 'Turn Success Rate');
+    expect(rate?.status).toBe('down');
   });
 
-  it('reports request rate', () => {
-    mockBatchReturn({
-      results: {
-        supervisor_up: promResult('1'),
-        enabled_agents: { status: 'success', data: { resultType: 'vector', result: [] } },
-        supervisor_success_rate: { status: 'success', data: { resultType: 'vector', result: [] } },
-        request_rate_5m: promResult('3.14'),
-        agent_statuses: { status: 'success', data: { resultType: 'vector', result: [] } },
-      },
-    });
+  it('reports turn rate', () => {
+    mockBatchReturn({ results: results({ da_up: promResult('1'), turn_rate_5m: promResult('3.14') }) });
     const { result } = renderHook(() => useServiceHealth());
 
-    const reqRate = result.current.services.find(s => s.name === 'Request Rate');
-    expect(reqRate?.status).toBe('healthy');
-    expect(reqRate?.detail).toBe('3.14 req/s');
+    const turnRate = result.current.services.find(s => s.name === 'Turn Rate');
+    expect(turnRate?.status).toBe('healthy');
+    expect(turnRate?.detail).toBe('3.14 turns/s');
   });
 
   it('computes overall as healthy when all services healthy', () => {
     mockBatchReturn({
-      results: {
-        supervisor_up: promResult('1'),
-        enabled_agents: promResult('3'),
-        supervisor_success_rate: promResult('99'),
-        request_rate_5m: promResult('2.5'),
-        agent_statuses: { status: 'success', data: { resultType: 'vector', result: [] } },
-      },
+      results: results({
+        da_up: promResult('1'),
+        turn_success_rate: promResult('99'),
+        turn_rate_5m: promResult('2.5'),
+      }),
     });
     const { result } = renderHook(() => useServiceHealth());
 
@@ -259,13 +181,11 @@ describe('useServiceHealth', () => {
 
   it('computes overall as down when any service is down', () => {
     mockBatchReturn({
-      results: {
-        supervisor_up: promResult('0'),
-        enabled_agents: promResult('3'),
-        supervisor_success_rate: promResult('99'),
-        request_rate_5m: promResult('2.5'),
-        agent_statuses: { status: 'success', data: { resultType: 'vector', result: [] } },
-      },
+      results: results({
+        da_up: promResult('0'),
+        turn_success_rate: promResult('99'),
+        turn_rate_5m: promResult('2.5'),
+      }),
     });
     const { result } = renderHook(() => useServiceHealth());
 
@@ -274,13 +194,11 @@ describe('useServiceHealth', () => {
 
   it('computes overall as degraded when success rate is degraded', () => {
     mockBatchReturn({
-      results: {
-        supervisor_up: promResult('1'),
-        enabled_agents: promResult('3'),
-        supervisor_success_rate: promResult('85'),
-        request_rate_5m: promResult('2.5'),
-        agent_statuses: { status: 'success', data: { resultType: 'vector', result: [] } },
-      },
+      results: results({
+        da_up: promResult('1'),
+        turn_success_rate: promResult('85'),
+        turn_rate_5m: promResult('2.5'),
+      }),
     });
     const { result } = renderHook(() => useServiceHealth());
 

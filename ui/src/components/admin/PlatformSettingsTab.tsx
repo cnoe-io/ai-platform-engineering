@@ -41,9 +41,9 @@ export function PlatformSettingsTab({ isAdmin }: PlatformSettingsTabProps) {
     // OpenFGA) runs before we read the platform default. Otherwise a fresh
     // viewer can race: platform-config returns default_agent_id="hello-world",
     // but their agents list doesn't include it yet, the <select> can't bind
-    // to a non-existent option and silently falls through to the "Default
-    // CAIPE Supervisor" placeholder option — making it look like the
-    // platform default is the supervisor when it really isn't.
+    // to a non-existent option and silently falls through to the
+    // "No default agent" placeholder option — making it look like there's
+    // no platform default when there really is one.
     let cancelled = false;
     (async () => {
       const agentsRes = await fetch('/api/dynamic-agents/available')
@@ -115,8 +115,8 @@ export function PlatformSettingsTab({ isAdmin }: PlatformSettingsTabProps) {
   // When the saved/selected agent isn't in the viewer's `available` list,
   // we still inject a synthetic <option> for it so:
   //   1. <select> binds correctly (otherwise it silently falls through to
-  //      the first option — the "Default CAIPE Supervisor" placeholder — and
-  //      misleads the viewer into thinking the supervisor is the default).
+  //      the first option — the "No default agent" placeholder — and
+  //      misleads the viewer into thinking no default is configured).
   //   2. The viewer sees the actual configured agent id, even if they don't
   //      have `agent#use` on it (e.g. read-only admins, federated SSO users
   //      whose OpenFGA bootstrap hasn't fully reconciled yet).
@@ -158,7 +158,7 @@ export function PlatformSettingsTab({ isAdmin }: PlatformSettingsTabProps) {
               </p>
               <p className="text-xs">
                 The platform default is the agent new users land on in direct messages and the
-                Web UI before any team grants kick in. Choose <em>Default CAIPE Supervisor</em> if
+                Web UI before any team grants kick in. Choose <em>No default agent</em> if
                 you don&apos;t want any agent to be public by default — users will only see agents
                 their teams have granted them.
               </p>
@@ -204,7 +204,7 @@ export function PlatformSettingsTab({ isAdmin }: PlatformSettingsTabProps) {
               disabled={!isAdmin}
               className="w-full max-w-sm h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-60 md:ml-4"
             >
-              <option value="">Default CAIPE Supervisor</option>
+              <option value="">No default agent</option>
               {agents.map((a) => (
                 <option key={a._id} value={a._id}>
                   {a.name}
@@ -277,7 +277,7 @@ export function PlatformSettingsTab({ isAdmin }: PlatformSettingsTabProps) {
               <DialogHeader>
                 <DialogTitle>Remove platform default agent?</DialogTitle>
                 <DialogDescription>
-                  New chats will fall back to the supervisor. Users will no longer have automatic
+                  New chats will no longer open with a default agent. Users will no longer have automatic
                   access to the previous default agent unless their team grants it. Continue?
                 </DialogDescription>
               </DialogHeader>

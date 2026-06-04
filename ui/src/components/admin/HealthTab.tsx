@@ -142,7 +142,7 @@ export function HealthTab({
                   {platformServices.length} platform services healthy
                   {agentServices.length > 0 && (
                     <> · {agentServices.filter((s) => s.status === "healthy").length} of{" "}
-                    {agentServices.length} agents enabled</>
+                    {agentServices.length} agents active</>
                   )}
                 </p>
               </div>
@@ -233,7 +233,7 @@ export function HealthTab({
         <Card>
           <CardHeader>
             <CardTitle>Agent Status</CardTitle>
-            <CardDescription>Individual sub-agent availability</CardDescription>
+            <CardDescription>Per-agent turn activity</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">

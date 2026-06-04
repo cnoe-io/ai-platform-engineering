@@ -148,7 +148,6 @@ function makeUserStats(overrides: Record<string, any> = {}) {
   return {
     total_conversations: 42,
     total_messages: 256,
-    total_tokens_used: 15000,
     conversations_this_week: 7,
     messages_this_week: 35,
     favorite_agents: [
