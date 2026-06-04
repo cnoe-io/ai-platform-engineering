@@ -538,7 +538,11 @@ export function SkillsGallery({
         const body = await res.json().catch(() => ({}));
         throw new Error(body?.error || `Clone failed (${res.status})`);
       }
-      const data = await res.json();
+      const json = await res.json();
+      // Clone returns the success-envelope shape ({ success, data: { id, name } })
+      // via successResponse(); unwrap it (falling back to the flat shape) so we
+      // never navigate to /skills/workspace/undefined.
+      const data = json?.data ?? json;
       await loadSkills();
       toast(`Cloned to "${data.name}"`, "success");
       // Drop the user straight into the new skill's workspace —
