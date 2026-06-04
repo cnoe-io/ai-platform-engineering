@@ -74,6 +74,45 @@ describe("buildDataSourceRelationshipTupleDiff", () => {
     expect(userNames).toContain("team:valid-team#admin");
     expect(userNames).not.toContain("team:bad slug#member");
   });
+
+  // The data_source inherits read/ingest/manage from its KB via the
+  // `parent_kb` tuple-to-userset edge (spec 2026-06-03, US4) instead of
+  // mirroring per-team grants onto both graphs.
+  it("emits the parent_kb inheritance edge when parentKnowledgeBaseId is set", () => {
+    const diff = buildDataSourceRelationshipTupleDiff({
+      dataSourceId: "ds-1",
+      parentKnowledgeBaseId: "kb-1",
+    });
+    expect(diff.writes).toContainEqual({
+      user: "knowledge_base:kb-1",
+      relation: "parent_kb",
+      object: DS,
+    });
+    // The inheritance edge is write-only — never a delete.
+    expect(diff.deletes).not.toContainEqual(
+      expect.objectContaining({ relation: "parent_kb" }),
+    );
+  });
+
+  it("does NOT emit a parent_kb edge when parentKnowledgeBaseId is absent", () => {
+    const diff = buildDataSourceRelationshipTupleDiff({
+      dataSourceId: "ds-1",
+      ownerTeamSlug: "platform",
+    });
+    const parentEdges = [...diff.writes, ...diff.deletes].filter(
+      (t) => t.relation === "parent_kb",
+    );
+    expect(parentEdges).toEqual([]);
+  });
+
+  it("silently drops an invalid parentKnowledgeBaseId", () => {
+    const diff = buildDataSourceRelationshipTupleDiff({
+      dataSourceId: "ds-1",
+      parentKnowledgeBaseId: "bad kb id with spaces",
+    });
+    const parentEdges = diff.writes.filter((t) => t.relation === "parent_kb");
+    expect(parentEdges).toEqual([]);
+  });
 });
 
 describe("buildMcpToolRelationshipTupleDiff", () => {
