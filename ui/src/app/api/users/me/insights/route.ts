@@ -58,20 +58,6 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         }),
       ]);
 
-    // Total tokens
-    const tokenAgg = await messages
-      .aggregate([
-        { $match: { conversation_id: { $in: conversationIds } } },
-        {
-          $group: {
-            _id: null,
-            total_tokens: { $sum: { $ifNull: ['$metadata.tokens_used', 0] } },
-          },
-        },
-      ])
-      .toArray();
-    const totalTokens = tokenAgg[0]?.total_tokens || 0;
-
     // ═══════════════════════════════════════════════════════════════
     // SKILL USAGE (aggregate workflow_runs by category)
     // ═══════════════════════════════════════════════════════════════
@@ -336,7 +322,6 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       overview: {
         total_conversations: totalConversations,
         total_messages: totalMessages,
-        total_tokens_used: totalTokens,
         conversations_this_week: conversationsThisWeek,
         messages_this_week: messagesThisWeek,
         avg_messages_per_conversation: avgMessagesPerConversation,

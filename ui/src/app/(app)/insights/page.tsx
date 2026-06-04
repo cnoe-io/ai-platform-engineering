@@ -49,7 +49,6 @@ interface InsightsData {
   overview: {
     total_conversations: number;
     total_messages: number;
-    total_tokens_used: number;
     conversations_this_week: number;
     messages_this_week: number;
     avg_messages_per_conversation: number;
@@ -259,14 +258,6 @@ function InsightsPage() {
             value={data.prompt_patterns.total_prompts}
             icon={FileText}
             color="text-blue-500"
-          />
-          <StatCard
-            title="Tokens Used"
-            value={data.overview.total_tokens_used > 1000
-              ? `${(data.overview.total_tokens_used / 1000).toFixed(1)}k`
-              : data.overview.total_tokens_used}
-            icon={Zap}
-            color="text-orange-500"
           />
           <StatCard
             title="Avg Msgs/Chat"

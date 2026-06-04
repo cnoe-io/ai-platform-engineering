@@ -880,6 +880,11 @@ const storeImplementation = (set: any, get: any) => ({
                 ...(msg.taskId && { task_id: msg.taskId }),
                 ...(msg.isInterrupted && { is_interrupted: msg.isInterrupted }),
                 ...(msg.turnStatus && { turn_status: msg.turnStatus }),
+                // agent_name + latency_ms power the Insights "Favorite Agents"
+                // and response-time analytics. Set on the finalized assistant
+                // message by DynamicAgentChatPanel.finalizeStreamLoop.
+                ...(msg.agentName && { agent_name: msg.agentName }),
+                ...(msg.latencyMs != null && { latency_ms: msg.latencyMs }),
               },
               stream_events: serializedStreamEvents,
             });
@@ -1320,7 +1325,7 @@ if (typeof window !== 'undefined') {
             localInterrupted: local?.isInterrupted,
             mongoInterrupted: mongo?.metadata?.is_interrupted,
             localEvents: local?.streamEvents?.length || 0,
-            mongoEvents: (mongo?.stream_events || mongo?.a2a_events)?.length || 0,
+            mongoEvents: mongo?.stream_events?.length || 0,
           });
         }
         console.table(rows);
@@ -1345,7 +1350,7 @@ if (typeof window !== 'undefined') {
         is_final: m.metadata?.is_final,
         is_interrupted: m.metadata?.is_interrupted,
         task_id: m.metadata?.task_id?.substring(0, 8),
-        events: (m.stream_events || m.a2a_events)?.length || 0,
+        events: m.stream_events?.length || 0,
       })));
       return items;
     },

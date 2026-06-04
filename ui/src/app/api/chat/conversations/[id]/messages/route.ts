@@ -123,7 +123,6 @@ export const POST = withErrorHandler(async (
             ...(body.metadata?.task_id && { task_id: body.metadata.task_id }),
             ...(body.metadata?.timeline_segments && { timeline_segments: body.metadata.timeline_segments }),
           },
-          ...(body.a2a_events !== undefined && { a2a_events: body.a2a_events }),
           ...(body.stream_events !== undefined && { stream_events: body.stream_events }),
           ...(body.artifacts !== undefined && { artifacts: body.artifacts }),
           updated_at: now,

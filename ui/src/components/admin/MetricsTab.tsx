@@ -1,11 +1,10 @@
 "use client";
 
 import React, { useState } from "react";
-import { Activity, Wrench, Zap, RefreshCw } from "lucide-react";
+import { Activity, Wrench, Zap, RefreshCw, Cpu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   MetricStatCard,
-  ActiveAgentsCard,
   TimeseriesChart,
   BarMetricChart,
   DonutChart,
@@ -40,6 +39,10 @@ function toolWithAgent(metric: Record<string, string>): string {
   return agent ? `${tool} (${agent})` : tool;
 }
 
+// All charts below query the `da_*` metrics emitted by the Dynamic Agents
+// service (ai_platform_engineering/dynamic_agents/.../metrics). The legacy
+// supervisor/A2A series (agent_requests_total, subagent_invocations_total,
+// mcp_tool_calls_observed_total, …) were removed with the supervisor.
 export function MetricsTab() {
   const [rangePreset, setRangePreset] = useState<DateRangePreset>("1h");
   const [customRange, setCustomRange] = useState<DateRange | undefined>();
@@ -84,24 +87,30 @@ export function MetricsTab() {
           ══════════════════════════════════════════════════════ */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4" key={`stats-${refreshKey}`}>
         <MetricStatCard
-          title="User Conversations"
-          query="sum(agent_requests_total)"
+          title="Agent Turns"
+          query="sum(da_turns_total)"
           icon={<Activity className="h-4 w-4 text-muted-foreground" />}
-          subtitle="Total requests handled by supervisor"
+          subtitle="Total conversation turns handled"
           refreshInterval={30_000}
         />
         <MetricStatCard
-          title="Success Rate"
-          query='sum(agent_requests_total{status="success"}) / sum(agent_requests_total) * 100'
+          title="Turn Success Rate"
+          query='sum(da_turns_total{status="success"}) / sum(da_turns_total) * 100'
           icon={<Zap className="h-4 w-4 text-muted-foreground" />}
           format={(v) => `${v.toFixed(1)}%`}
-          subtitle="End-to-end completion rate"
+          subtitle="Turns completing without error"
           refreshInterval={30_000}
         />
-        <ActiveAgentsCard refreshInterval={30_000} />
         <MetricStatCard
-          title="MCP Tool Calls"
-          query="sum(mcp_tool_calls_observed_total)"
+          title="In-flight Requests"
+          query="sum(da_active_requests)"
+          icon={<Cpu className="h-4 w-4 text-muted-foreground" />}
+          subtitle="Requests currently being processed"
+          refreshInterval={15_000}
+        />
+        <MetricStatCard
+          title="Tool Calls"
+          query="sum(da_tool_calls_total)"
           icon={<Wrench className="h-4 w-4 text-muted-foreground" />}
           subtitle="Tools invoked across all agents"
           refreshInterval={30_000}
@@ -109,14 +118,14 @@ export function MetricsTab() {
       </div>
 
       {/* ══════════════════════════════════════════════════════
-          REQUEST METRICS
+          TURN METRICS
           ══════════════════════════════════════════════════════ */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4" key={`charts-${refreshKey}-${rangePreset}-${customRange?.from}`}>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4" key={`turns-${refreshKey}-${rangePreset}-${customRange?.from}`}>
         <TimeseriesChart
-          title="Supervisor Request Rate"
-          description="User requests per second processed by the supervisor, by outcome"
-          query="sum(rate(agent_requests_total[5m])) by (status)"
-          labelKey="status"
+          title="Turn Rate by Agent"
+          description="Conversation turns per second, by agent"
+          query="sum(rate(da_turns_total[5m])) by (agent_name)"
+          labelKey="agent_name"
           rangeMinutes={rangeMinutes}
           step={step}
           formatValue={smartRateFormat}
@@ -124,9 +133,9 @@ export function MetricsTab() {
         />
 
         <TimeseriesChart
-          title="End-to-End Duration (p95)"
-          description="95th percentile time from user request to final response"
-          query="histogram_quantile(0.95, sum(rate(agent_request_duration_seconds_bucket[5m])) by (le))"
+          title="Turn Duration (p95)"
+          description="95th percentile end-to-end turn duration"
+          query="histogram_quantile(0.95, sum(rate(da_turn_duration_seconds_bucket[5m])) by (le))"
           type="line"
           rangeMinutes={rangeMinutes}
           step={step}
@@ -135,65 +144,33 @@ export function MetricsTab() {
         />
       </div>
 
-      {/* ══════════════════════════════════════════════════════
-          SUB-AGENT METRICS (SUPERVISOR VIEW)
-          These metrics are tracked by the supervisor when it invokes sub-agents.
-          Includes all sub-agents like Jarvis that don't emit their own metrics.
-          ══════════════════════════════════════════════════════ */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <TimeseriesChart
-          title="Sub-agent Invocation Rate (Supervisor)"
-          description="How often the supervisor calls each sub-agent (includes Jarvis)"
-          query="sum(rate(subagent_invocations_total[5m])) by (agent_name)"
-          labelKey="agent_name"
-          rangeMinutes={rangeMinutes}
-          step={step}
-          formatValue={smartRateFormat}
-          refreshInterval={60_000}
-        />
-
         <BarMetricChart
-          title="Sub-agent Usage (Supervisor View)"
-          description="Total invocations tracked by supervisor (includes Jarvis)"
-          query="sum by (agent_name) (subagent_invocations_total)"
+          title="Turns by Agent"
+          description="Total turns handled per agent"
+          query="sum by (agent_name) (da_turns_total)"
           labelKey="agent_name"
           layout="horizontal"
           refreshInterval={60_000}
         />
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <TimeseriesChart
-          title="Sub-agent Duration (p95)"
-          description="95th percentile round-trip time per sub-agent call"
-          query="histogram_quantile(0.95, sum(rate(subagent_invocation_duration_seconds_bucket[5m])) by (le, agent_name))"
-          labelKey="agent_name"
-          type="line"
-          rangeMinutes={rangeMinutes}
-          step={step}
-          formatValue={smartDurationFormat}
-          refreshInterval={60_000}
-        />
 
         <DonutChart
-          title="Sub-agent Invocation Status"
-          description="Success vs failure distribution across all sub-agents"
-          query="sum by (status) (subagent_invocations_total)"
+          title="Turn Status Distribution"
+          description="Success vs interrupted/cancelled across all turns"
+          query="sum by (status) (da_turns_total)"
           labelKey="status"
           refreshInterval={60_000}
         />
       </div>
 
       {/* ══════════════════════════════════════════════════════
-          SUB-AGENT DIRECT METRICS (A2A)
-          These metrics are emitted by sub-agents themselves.
-          Note: Jarvis doesn't emit these metrics directly.
+          LLM CALL METRICS
           ══════════════════════════════════════════════════════ */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <TimeseriesChart
-          title="Sub-agent A2A Request Rate"
-          description="Requests reported by sub-agents themselves (excludes Jarvis)"
-          query="sum(rate(subagent_requests_total[5m])) by (agent_name, status)"
+          title="LLM Call Rate"
+          description="Model calls per second, by agent and outcome"
+          query="sum(rate(da_llm_calls_total[5m])) by (agent_name, status)"
           labelKey="agent_name"
           labelTransform={(m) => `${m.agent_name || "unknown"} (${m.status || "?"})`}
           rangeMinutes={rangeMinutes}
@@ -202,24 +179,27 @@ export function MetricsTab() {
           refreshInterval={60_000}
         />
 
-        <BarMetricChart
-          title="Sub-agent A2A Usage Distribution"
-          description="Total requests reported by sub-agents (excludes Jarvis)"
-          query="sum by (agent_name) (subagent_requests_total)"
+        <TimeseriesChart
+          title="LLM Call Duration (p95)"
+          description="95th percentile model call latency"
+          query="histogram_quantile(0.95, sum(rate(da_llm_call_duration_seconds_bucket[5m])) by (le, agent_name))"
           labelKey="agent_name"
-          layout="horizontal"
+          type="line"
+          rangeMinutes={rangeMinutes}
+          step={step}
+          formatValue={smartDurationFormat}
           refreshInterval={60_000}
         />
       </div>
 
       {/* ══════════════════════════════════════════════════════
-          MCP TOOL METRICS
+          TOOL CALL METRICS
           ══════════════════════════════════════════════════════ */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <TimeseriesChart
-          title="MCP Tool Call Rate"
-          description="Tool calls per second observed by the supervisor"
-          query="sum(rate(mcp_tool_calls_observed_total[5m])) by (tool_name, agent_name)"
+          title="Tool Call Rate"
+          description="Tool calls per second, by tool and agent"
+          query="sum(rate(da_tool_calls_total[5m])) by (tool_name, agent_name)"
           labelKey="tool_name"
           labelTransform={toolWithAgent}
           rangeMinutes={rangeMinutes}
@@ -229,9 +209,9 @@ export function MetricsTab() {
         />
 
         <BarMetricChart
-          title="Top MCP Tools"
+          title="Top Tools"
           description="Most-called tools with their owning agent"
-          query="topk(10, sum by (tool_name, agent_name) (mcp_tool_calls_observed_total))"
+          query="topk(10, sum by (tool_name, agent_name) (da_tool_calls_total))"
           labelKey="tool_name"
           labelTransform={toolWithAgent}
           layout="horizontal"
@@ -241,21 +221,21 @@ export function MetricsTab() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <TimeseriesChart
-          title="MCP Tool Execution Rate"
-          description="Actual tool executions reported by each sub-agent"
-          query="sum(rate(mcp_tool_execution_total[5m])) by (tool_name, agent_name)"
+          title="Tool Call Duration (p95)"
+          description="95th percentile tool execution latency"
+          query="histogram_quantile(0.95, sum(rate(da_tool_call_duration_seconds_bucket[5m])) by (le, tool_name))"
           labelKey="tool_name"
-          labelTransform={toolWithAgent}
+          type="line"
           rangeMinutes={rangeMinutes}
           step={step}
-          formatValue={smartRateFormat}
+          formatValue={smartDurationFormat}
           refreshInterval={60_000}
         />
 
         <DonutChart
-          title="MCP Tool Execution Status"
-          description="Success vs error distribution for tool executions"
-          query="sum by (status) (mcp_tool_execution_total)"
+          title="Tool Call Status"
+          description="Success vs error distribution for tool calls"
+          query="sum by (status) (da_tool_calls_total)"
           labelKey="status"
           refreshInterval={60_000}
         />

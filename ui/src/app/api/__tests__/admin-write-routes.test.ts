@@ -780,6 +780,13 @@ describe('POST /api/admin/migrate-conversations', () => {
     expect(insertedConv._id).toBe('conv-123');
     expect(insertedConv.title).toBe('Test Conversation');
     expect(insertedConv.owner_id).toBe('admin@example.com');
+    // Canonical top-level client_type so the conversation isn't mistaken for Slack.
+    expect(insertedConv.client_type).toBe('webui');
+    // Migrated messages must carry source:'web' + owner_id so the admin stats
+    // route (which filters web traffic on metadata.source) counts them.
+    const insertedMsgs = messagesCol.insertMany.mock.calls[0][0];
+    expect(insertedMsgs[0].metadata.source).toBe('web');
+    expect(insertedMsgs[0].owner_id).toBe('admin@example.com');
   });
 
   it('skips existing conversations', async () => {

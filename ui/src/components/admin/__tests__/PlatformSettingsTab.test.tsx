@@ -61,11 +61,11 @@ describe('PlatformSettingsTab', () => {
     mockFetch();
   });
 
-  it('labels the supervisor option as Default CAIPE Supervisor', async () => {
+  it('labels the empty default option as No default agent', async () => {
     render(<PlatformSettingsTab isAdmin />);
 
     await waitFor(() => {
-      expect(screen.getByRole('option', { name: 'Default CAIPE Supervisor' })).toBeInTheDocument();
+      expect(screen.getByRole('option', { name: 'No default agent' })).toBeInTheDocument();
     });
   });
 
@@ -113,18 +113,17 @@ describe('PlatformSettingsTab', () => {
   });
 
   it('injects a synthetic <option> so the <select> binds to the configured agent even when it is not in the agents list', async () => {
-    // This is the bug we keep regressing: the supervisor placeholder is the
-    // first <option>, so when value="hello-world" matches NO option in the
-    // dropdown, the browser silently falls through to "Default CAIPE
-    // Supervisor" — making it look like the platform default is the
-    // supervisor when it really isn't. The fix injects a synthetic option
-    // for the missing id so binding still works.
+    // This is the bug we keep regressing: the "No default agent" placeholder
+    // is the first <option>, so when value="hello-world" matches NO option in
+    // the dropdown, the browser silently falls through to "No default agent" —
+    // making it look like no platform default is configured when one is. The
+    // fix injects a synthetic option for the missing id so binding still works.
     mockFetch({ config: { success: true, data: { default_agent_id: 'hello-world' } } });
 
     render(<PlatformSettingsTab isAdmin={false} />);
 
     const select = (await screen.findByRole('combobox')) as HTMLSelectElement;
-    // Bound value must reflect the configured agent, NOT the empty supervisor placeholder.
+    // Bound value must reflect the configured agent, NOT the empty placeholder.
     expect(select.value).toBe('hello-world');
     // And the synthetic option must be in the DOM with a clear label.
     const synthetic = screen.getByTestId('default-agent-missing-option');
@@ -171,7 +170,7 @@ describe('PlatformSettingsTab', () => {
     });
   });
 
-  it('saves the supervisor fallback as a null default_agent_id after clear confirmation', async () => {
+  it('saves a null default_agent_id after clear confirmation', async () => {
     mockFetch({ config: { success: true, data: { default_agent_id: 'sre' } } });
 
     render(<PlatformSettingsTab isAdmin />);
@@ -182,7 +181,7 @@ describe('PlatformSettingsTab', () => {
 
     // Lighter "Remove default" confirmation appears first.
     const removeDefaultButton = await screen.findByRole('button', { name: /remove default/i });
-    expect(screen.getByText(/fall back to the supervisor/i)).toBeInTheDocument();
+    expect(screen.getByText(/no longer open with a default agent/i)).toBeInTheDocument();
     fireEvent.click(removeDefaultButton);
 
     await waitFor(() => {
