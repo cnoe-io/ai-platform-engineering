@@ -3,20 +3,20 @@ tags:
   complete: false
   caipe-ui: false
   dynamic-agents: false
-  agent-argocd: false
-  agent-aws: false
-  agent-backstage: false
-  agent-confluence: false
-  agent-github: false
-  agent-gitlab: false
-  agent-jira: false
-  agent-komodor: false
-  agent-pagerduty: false
-  agent-slack: false
-  agent-splunk: false
-  agent-victorops: false
-  agent-webex: false
-  agent-netutils: false
+  mcp-argocd: false
+  mcp-aws: false
+  mcp-backstage: false
+  mcp-confluence: false
+  mcp-github: false
+  mcp-gitlab: false
+  mcp-jira: false
+  mcp-komodor: false
+  mcp-pagerduty: false
+  mcp-slack: false
+  mcp-splunk: false
+  mcp-victorops: false
+  mcp-webex: false
+  mcp-netutils: false
   rag-stack: false
   slack-bot: false
   webex-bot: false
@@ -64,7 +64,7 @@ global:
   # "explicitly false" from the default "false"). To enable VPA selectively, keep global.vpa.enabled=false
   # and set vpa.enabled=true on individual agents instead.
   # Override global defaults per-agent with non-enabled fields:
-  #   agent-github:
+  #   mcp-github:
   #     vpa:
   #       maxAllowed:
   #         cpu: 2
@@ -85,8 +85,8 @@ global:
 
   # VPA config for MCP server Deployments. Each MCP server runs as its own
   # Deployment and gets its own VPA resource.
-  # Override per-agent by setting mcp.vpa under the relevant agent-* section. Example:
-  #   agent-github:
+  # Override per-agent by setting mcp.vpa under the relevant mcp-* section. Example:
+  #   mcp-github:
   #     mcp:
   #       vpa:
   #         enabled: false   # disable VPA for github MCP only
@@ -203,7 +203,7 @@ global:
       port: 9446
       protocol: StreamableHTTP
       pathPrefix: /mcp/knowledge-base
-    # Additional MCP routes that are not rendered from `agent-*` subcharts.
+    # Additional MCP routes that are not rendered from `mcp-*` subcharts.
     # Use this for platform MCP endpoints such as RAG/Knowledge Base.
     # Each item renders one AgentgatewayBackend and one HTTPRoute:
     #   /mcp/<id> -> static host:port using the requested MCP protocol.
@@ -313,11 +313,11 @@ extraDeploy: []
 skillsLiveSkillsName: ""       # Variant name (looks up data/skills/live-skills.<name>.md)
 skillsLiveSkills: ""           # Inline custom live-skills skill (overrides everything)
 
-######### Sub-agent MCP server configurations #########
-# Each agent-* block configures one agent's MCP server (alias from Chart.yaml).
+######### MCP server configurations #########
+# Each mcp-* block configures one MCP server (alias from Chart.yaml).
 
-agent-argocd:
-  nameOverride: "agent-argocd"
+mcp-argocd:
+  nameOverride: "mcp-argocd"
   image:
     repository: "ghcr.io/cnoe-io/agent-argocd"
     pullPolicy: "IfNotPresent"
@@ -336,8 +336,8 @@ agent-argocd:
       enabled: false
       protocol: StreamableHTTP # SSE or StreamableHTTP
 
-agent-backstage:
-  nameOverride: "agent-backstage"
+mcp-backstage:
+  nameOverride: "mcp-backstage"
   image:
     repository: "ghcr.io/cnoe-io/agent-backstage"
     pullPolicy: "IfNotPresent"
@@ -353,8 +353,8 @@ agent-backstage:
       enabled: false
       protocol: StreamableHTTP
 
-agent-confluence:
-  nameOverride: "agent-confluence"
+mcp-confluence:
+  nameOverride: "mcp-confluence"
   image:
     repository: "ghcr.io/cnoe-io/agent-confluence"
     pullPolicy: "IfNotPresent"
@@ -371,16 +371,16 @@ agent-confluence:
     env:
       TRANSPORT: "streamable-http"
 
-agent-github:
-  nameOverride: "agent-github"
+mcp-github:
+  nameOverride: "mcp-github"
   image:
     repository: "ghcr.io/cnoe-io/agent-github"
     pullPolicy: "IfNotPresent"
   mcp:
     useRemoteMcpServer: true
 
-agent-gitlab:
-  nameOverride: "agent-gitlab"
+mcp-gitlab:
+  nameOverride: "mcp-gitlab"
   image:
     repository: "ghcr.io/cnoe-io/agent-gitlab"
     pullPolicy: "IfNotPresent"
@@ -429,8 +429,8 @@ agent-gitlab:
       #
       # GITLAB_DENIED_TOOLS_REGEX: "^(delete_|remove_|create_|fork_|new_|update_|edit_|merge_|push_|publish_|retry_|cancel_|play_|promote_|upload_|resolve_|bulk_)|^(execute_graphql)$"
 
-agent-jira:
-  nameOverride: "agent-jira"
+mcp-jira:
+  nameOverride: "mcp-jira"
   image:
     repository: "ghcr.io/cnoe-io/agent-jira"
     pullPolicy: "IfNotPresent"
@@ -446,8 +446,8 @@ agent-jira:
       enabled: false
       protocol: StreamableHTTP
 
-agent-pagerduty:
-  nameOverride: "agent-pagerduty"
+mcp-pagerduty:
+  nameOverride: "mcp-pagerduty"
   image:
     repository: "ghcr.io/cnoe-io/agent-pagerduty"
     pullPolicy: "IfNotPresent"
@@ -463,8 +463,8 @@ agent-pagerduty:
       enabled: false
       protocol: StreamableHTTP
 
-agent-slack:
-  nameOverride: "agent-slack"
+mcp-slack:
+  nameOverride: "mcp-slack"
   image:
     repository: "ghcr.io/cnoe-io/agent-slack"
     pullPolicy: "IfNotPresent"
@@ -486,8 +486,8 @@ agent-slack:
       # or restrict to specific channel IDs: "C123,C456" (whitelist), "!C789" (blacklist)
       # SLACK_MCP_ADD_MESSAGE_TOOL: "false"
 
-agent-aws:
-  nameOverride: "agent-aws"
+mcp-aws:
+  nameOverride: "mcp-aws"
   image:
     repository: "ghcr.io/cnoe-io/agent-aws"
     pullPolicy: "IfNotPresent"
@@ -516,8 +516,8 @@ agent-aws:
     # -- Block kubectl port-forward (tunnel internal services). Defaults to false (off).
     RESTRICT_KUBECTL_PORT_FORWARD: "false"
 
-agent-splunk:
-  nameOverride: "agent-splunk"
+mcp-splunk:
+  nameOverride: "mcp-splunk"
   image:
     repository: "ghcr.io/cnoe-io/agent-splunk"
     pullPolicy: "IfNotPresent"
@@ -533,8 +533,8 @@ agent-splunk:
       enabled: false
       protocol: StreamableHTTP
 
-agent-victorops:
-  nameOverride: "agent-victorops"
+mcp-victorops:
+  nameOverride: "mcp-victorops"
   image:
     repository: "ghcr.io/cnoe-io/agent-victorops"
     pullPolicy: "IfNotPresent"
@@ -549,8 +549,8 @@ agent-victorops:
       enabled: false
       protocol: StreamableHTTP
 
-agent-webex:
-  nameOverride: "agent-webex"
+mcp-webex:
+  nameOverride: "mcp-webex"
   image:
     repository: "ghcr.io/cnoe-io/agent-webex"
     pullPolicy: "IfNotPresent"
@@ -566,8 +566,8 @@ agent-webex:
       enabled: false
       protocol: StreamableHTTP
 
-agent-komodor:
-  nameOverride: "agent-komodor"
+mcp-komodor:
+  nameOverride: "mcp-komodor"
   image:
     repository: "ghcr.io/cnoe-io/agent-komodor"
     pullPolicy: "IfNotPresent"
@@ -583,8 +583,8 @@ agent-komodor:
       enabled: false
       protocol: StreamableHTTP
 
-agent-netutils:
-  nameOverride: "agent-netutils"
+mcp-netutils:
+  nameOverride: "mcp-netutils"
   agentSecrets:
     requiresSecret: false
   image:

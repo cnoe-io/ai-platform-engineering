@@ -151,11 +151,11 @@ global.agentgateway.knowledgeBaseTarget, global.agentgateway.extraMcpTargets.
 {{- $targets := list -}}
 {{- range $name, $enabled := (include "ai-platform-engineering.enabledSubAgents" $root | fromYaml) -}}
 {{- if $enabled -}}
-{{- $agentValues := index $root.Values (printf "agent-%s" $name) | default dict -}}
+{{- $agentValues := index $root.Values (printf "mcp-%s" $name) | default dict -}}
 {{- $mcp := $agentValues.mcp | default dict -}}
 {{- $sub := $mcp.agentgateway | default dict -}}
 {{- if $sub.enabled -}}
-{{- $entry := dict "id" $name "pathPrefix" (printf "/mcp/%s" $name) "host" (printf "%s-agent-%s-mcp.%s.svc.cluster.local" $root.Release.Name $name $ns) "port" ($mcp.port | default 8000) "protocol" ($sub.protocol | default "StreamableHTTP") -}}
+{{- $entry := dict "id" $name "pathPrefix" (printf "/mcp/%s" $name) "host" (printf "%s-mcp-%s-mcp.%s.svc.cluster.local" $root.Release.Name $name $ns) "port" ($mcp.port | default 8000) "protocol" ($sub.protocol | default "StreamableHTTP") -}}
 {{- if or (eq $name "github") (eq $name "gitlab") -}}
 {{- /* GitHub/GitLab authenticate per-request: Dynamic Agents forwards the
 caller's OAuth token (or the static org PAT fallback via

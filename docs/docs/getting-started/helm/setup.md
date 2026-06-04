@@ -122,8 +122,8 @@ helm install ai-platform-engineering oci://ghcr.io/cnoe-io/charts/ai-platform-en
   --namespace ai-platform-engineering \
   --create-namespace \
   --set-string tags.basic=true \
-  --set-string tags.agent-pagerduty=true \
-  --set-string tags.agent-aws=true
+  --set-string tags.mcp-pagerduty=true \
+  --set-string tags.mcp-aws=true
 ```
 
 ### Pick only the agents you need
@@ -135,12 +135,12 @@ helm install ai-platform-engineering oci://ghcr.io/cnoe-io/charts/ai-platform-en
   --version 0.2.32 \
   --namespace ai-platform-engineering \
   --create-namespace \
-  --set-string tags.agent-backstage=true \
-  --set-string tags.agent-slack=true \
+  --set-string tags.mcp-backstage=true \
+  --set-string tags.mcp-slack=true \
   --set-string tags.rag-stack=true
 ```
 
-**Note:** For the RAG stack use `tags.rag-stack=true`. For other agents use `tags.agent-<name>=true` (e.g. `tags.agent-github=true`). See [Chart components](#chart-components) for the full list.
+**Note:** For the RAG stack use `tags.rag-stack=true`. For other MCP servers use `tags.mcp-<name>=true` (e.g. `tags.mcp-github=true`). See [Chart components](#chart-components) for the full list.
 
 ### Use a values file
 
@@ -175,21 +175,21 @@ helm install ai-platform-engineering oci://ghcr.io/cnoe-io/charts/ai-platform-en
 | **rag-stack** | 0.0.1 | RAG (Retrieval-Augmented Generation) stack |
 ### Agent components
 
-All agent subcharts use version **0.2.2**. Enable with `tags.agent-<name>=true` (or `tags.rag-stack=true` for RAG).
+All MCP server subcharts use version **0.2.2**. Enable with `tags.mcp-<name>=true` (or `tags.rag-stack=true` for RAG).
 
-| Agent | Tag | Profiles | Description |
-|-------|-----|----------|-------------|
-| **agent-argocd** | `agent-argocd` | basic, complete | ArgoCD GitOps integration |
-| **agent-aws** | `agent-aws` | complete | AWS cloud resource management |
-| **agent-backstage** | `agent-backstage` | basic, complete | Backstage developer portal |
-| **agent-confluence** | `agent-confluence` | complete | Confluence documentation |
-| **agent-github** | `agent-github` | basic, complete | GitHub repos and workflows |
-| **agent-jira** | `agent-jira` | complete | Jira issue tracking |
-| **agent-komodor** | `agent-komodor` | complete | Komodor Kubernetes troubleshooting |
-| **agent-pagerduty** | `agent-pagerduty` | complete | PagerDuty incidents |
-| **agent-slack** | `agent-slack` | complete | Slack messaging |
-| **agent-splunk** | `agent-splunk` | complete | Splunk log analytics |
-| **agent-webex** | `agent-webex` | complete | Webex collaboration |
+| MCP Server | Tag | Profiles | Description |
+|------------|-----|----------|-------------|
+| **mcp-argocd** | `mcp-argocd` | basic, complete | ArgoCD GitOps integration |
+| **mcp-aws** | `mcp-aws` | complete | AWS cloud resource management |
+| **mcp-backstage** | `mcp-backstage` | basic, complete | Backstage developer portal |
+| **mcp-confluence** | `mcp-confluence` | complete | Confluence documentation |
+| **mcp-github** | `mcp-github` | basic, complete | GitHub repos and workflows |
+| **mcp-jira** | `mcp-jira` | complete | Jira issue tracking |
+| **mcp-komodor** | `mcp-komodor` | complete | Komodor Kubernetes troubleshooting |
+| **mcp-pagerduty** | `mcp-pagerduty` | complete | PagerDuty incidents |
+| **mcp-slack** | `mcp-slack` | complete | Slack messaging |
+| **mcp-splunk** | `mcp-splunk` | complete | Splunk log analytics |
+| **mcp-webex** | `mcp-webex` | complete | Webex collaboration |
 | **rag-stack** | `rag-stack` | complete | RAG knowledge base and embeddings |
 
 ---
@@ -230,7 +230,7 @@ spec:
         parameters:
           - name: tags.basic
             value: "true"
-          - name: tags.agent-aws
+          - name: tags.mcp-aws
             value: "true"
 ```
 
