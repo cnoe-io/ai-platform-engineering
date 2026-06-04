@@ -1,7 +1,12 @@
 import { ObjectId } from "mongodb";
 
 import { getCollection } from "@/lib/mongodb";
-import { writeOpenFgaTupleDiff, type OpenFgaTupleKey } from "@/lib/rbac/openfga";
+import {
+  writeOpenFgaTupleDiff,
+  type OpenFgaReconcileResult,
+  type OpenFgaTupleKey,
+} from "@/lib/rbac/openfga";
+import { reconcileShareableResource } from "@/lib/rbac/openfga-owned-resources";
 
 interface TeamDoc {
   _id?: ObjectId | string;
@@ -86,6 +91,42 @@ export function buildSkillTeamGrantTuples(
     }
   }
   return tuples;
+}
+
+export interface ReconcileSkillTeamSharesInput {
+  skillId: string;
+  /** Team refs (slug or ObjectId) the skill was shared with before this write. */
+  previousTeamRefs?: string[] | null;
+  /** Team refs the skill should be shared with after this write ([] = revoke all). */
+  nextTeamRefs?: string[] | null;
+}
+
+/**
+ * Reconcile a single skill's team-share grants through the shared shareable-
+ * resource reconciler (spec 2026-06-03, the same tuple-core agents / RAG KBs /
+ * MCP tools use). Unlike the write-only `grantSkillsToTeams` (kept for bulk
+ * import / hub-refresh fan-out where there is no previous state), this diffs
+ * `previousTeamRefs` against `nextTeamRefs` so un-sharing or re-sharing a skill
+ * genuinely REVOKES the dropped `team:<slug>#member user skill:<id>` tuples
+ * instead of orphaning them. Skills are user-owned (no owner team), so
+ * `ownerTeamSlug` is null and only the shared-team set is reconciled with the
+ * skill member relation `user`.
+ */
+export async function reconcileSkillTeamShares(
+  input: ReconcileSkillTeamSharesInput,
+): Promise<OpenFgaReconcileResult> {
+  const [previousSharedTeamSlugs, nextSharedTeamSlugs] = await Promise.all([
+    resolveTeamSlugs(normalizeList(input.previousTeamRefs)),
+    resolveTeamSlugs(normalizeList(input.nextTeamRefs)),
+  ]);
+  return reconcileShareableResource({
+    objectType: "skill",
+    objectId: input.skillId,
+    ownerTeamSlug: null,
+    nextSharedTeamSlugs,
+    previousSharedTeamSlugs,
+    memberRelations: ["user"],
+  });
 }
 
 export async function grantSkillsToTeams(

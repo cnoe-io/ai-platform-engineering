@@ -30,7 +30,7 @@ import {
   filterResourcesByPermission,
   requireResourcePermission,
 } from "@/lib/rbac/resource-authz";
-import { grantSkillsToTeams } from "@/lib/rbac/skill-team-grants";
+import { reconcileSkillTeamShares } from "@/lib/rbac/skill-team-grants";
 
 /**
  * Persisted agent skill configs (CRUD)
@@ -332,11 +332,23 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     );
 
     await syncSkillResource("create", id, body.name, visibility);
+    // Reconcile the skill's team-share grants through the shared shareable-
+    // resource reconciler so a team-visible skill is usable by its shared
+    // teams. Fresh create has no previous shares to revoke. Config (Mongo) is
+    // the source of truth, so an OpenFGA hiccup must not fail the create.
     if (visibility === "team") {
-      await grantSkillsToTeams({
-        teamRefs: body.shared_with_teams,
-        skillIds: [id],
-      });
+      try {
+        await reconcileSkillTeamShares({
+          skillId: id,
+          previousTeamRefs: [],
+          nextTeamRefs: body.shared_with_teams,
+        });
+      } catch (error) {
+        console.warn(
+          "[AgentSkill] Failed to reconcile team shares on create:",
+          error instanceof Error ? error.message : String(error),
+        );
+      }
     }
 
     triggerSupervisorRefresh();
@@ -505,6 +517,45 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
           trigger: "update",
           actor: user.email,
         });
+      }
+    }
+
+    // Reconcile the skill's team-share grants on edit. Previously the update
+    // path wrote NOTHING to OpenFGA, so changing `shared_with_teams` (or
+    // demoting away from `team` visibility) updated Mongo but left the old
+    // `team:<slug>#member user skill:<id>` grants in place — un-shared teams
+    // kept access. Diffing previous → next through the shared reconciler now
+    // revokes dropped teams and grants newly added ones. Config is the source
+    // of truth, so an OpenFGA failure is logged but does not fail the update.
+    if (beforeUpdate) {
+      const previousTeamRefs = Array.isArray(beforeUpdate.shared_with_teams)
+        ? beforeUpdate.shared_with_teams
+        : [];
+      let nextTeamRefs: string[];
+      if (body.visibility !== undefined && body.visibility !== "team") {
+        // Demoted out of team visibility → revoke every team share.
+        nextTeamRefs = [];
+      } else if (
+        Object.prototype.hasOwnProperty.call(body, "shared_with_teams")
+      ) {
+        nextTeamRefs = Array.isArray(body.shared_with_teams)
+          ? body.shared_with_teams
+          : [];
+      } else {
+        // Sharing untouched by this patch → keep the existing set (no-op diff).
+        nextTeamRefs = previousTeamRefs;
+      }
+      try {
+        await reconcileSkillTeamShares({
+          skillId: id,
+          previousTeamRefs,
+          nextTeamRefs,
+        });
+      } catch (error) {
+        console.warn(
+          "[AgentSkill] Failed to reconcile team shares on update:",
+          error instanceof Error ? error.message : String(error),
+        );
       }
     }
     console.log(`[AgentSkill] Updated agent config "${id}" by ${user.email}`);
