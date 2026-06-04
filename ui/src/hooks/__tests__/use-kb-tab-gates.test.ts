@@ -33,6 +33,8 @@ describe("useKbTabGates", () => {
       mcp_tools: true,
       has_any_kb: true,
       kb_count: -1,
+      can_ingest: true,
+      can_search: true,
     });
     expect(global.fetch).not.toHaveBeenCalled();
   });

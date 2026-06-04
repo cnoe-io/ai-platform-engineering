@@ -39,6 +39,8 @@ import {
 import type { Team, TeamMember } from "@/types/teams";
 import type { TeamMembershipSource } from "@/types/identity-group-sync";
 import { TeamKbAssignmentPanel } from "@/components/admin/TeamKbAssignmentPanel";
+import { IngestCapabilityToggle } from "@/components/admin/IngestCapabilityToggle";
+import { SearchCapabilityToggle } from "@/components/admin/SearchCapabilityToggle";
 import { SaveButton } from "@/components/admin/SaveButton";
 
 // Server response shape — mirrors TeamMembershipSyncReport in
@@ -1972,7 +1974,23 @@ export function TeamDetailsDialog({
 
         {/* Knowledge Bases Mode (Spec 102/103 — RAG team-scoped access) */}
         {activeMode === "kbs" && (
-          <div className="py-2 flex-1 min-h-0 overflow-y-auto">
+          <div className="py-2 flex-1 min-h-0 overflow-y-auto space-y-4">
+            {/* Explicit "data source author" capability (spec 2026-06-03) —
+                gates whether members may create brand-new data sources, kept
+                separate from the per-KB assignment below. */}
+            <IngestCapabilityToggle
+              teamId={currentTeam._id}
+              teamName={currentTeam.name}
+            />
+
+            {/* Explicit "search" capability (spec
+                2026-06-03-explicit-search-capability) — gates whether members
+                may use Search (query + invoke search tools), separate from
+                per-tool sharing and per-KB read grants below. */}
+            <SearchCapabilityToggle
+              teamId={currentTeam._id}
+              teamName={currentTeam.name}
+            />
             <TeamKbAssignmentPanel
               teamId={currentTeam._id}
               teamName={currentTeam.name}

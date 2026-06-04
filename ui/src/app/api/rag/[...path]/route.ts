@@ -325,6 +325,50 @@ async function requireMcpToolCallPermission(
   }
 }
 
+/**
+ * Enforce the explicit org-level `can_search` capability on the search data
+ * path (spec 2026-06-03-explicit-search-capability). Applies to BOTH `/v1/query`
+ * and `/v1/mcp/invoke` (built-in `search`/`fetch_document` AND custom search
+ * tools like `caipe_kb`). This is the feature-level gate, layered ABOVE the
+ * narrower per-tool `mcp_tool#can_call` and per-datasource `data_source#can_read`
+ * checks — holding `can_call` on a shared tool does NOT, by itself, permit
+ * search. Org admins bypass (kill-switchable). Fails closed on OpenFGA error.
+ */
+async function requireSearchCapability(
+  session: AuthorizedRagContext['session'],
+  pathSegments: string[],
+): Promise<void> {
+  const targetPath = pathSegments.join('/');
+  if (targetPath !== 'v1/query' && targetPath !== 'v1/mcp/invoke') return;
+
+  // Org admins bypass (same convention as the other RAG surfaces).
+  if (await isOrgAdminSession(session)) return;
+
+  const subject = normalizeString(session.sub);
+  if (!subject) {
+    throw new ApiError('A stable principal is required to search.', 401, 'NO_SUBJECT');
+  }
+
+  let allowed = false;
+  try {
+    const result = await checkOpenFgaTuple({
+      user: `user:${subject}`,
+      relation: 'can_search',
+      object: organizationObjectId(),
+    });
+    allowed = result.allowed === true;
+  } catch {
+    allowed = false;
+  }
+  if (!allowed) {
+    throw new ApiError(
+      'You do not have permission to search. Ask an administrator to enable search for your team.',
+      403,
+      'organization#can_search',
+    );
+  }
+}
+
 /** Reconcile the OpenFGA projection for an MCP tool create/update, including
  *  the creator tuple and the owner ∪ shared team-grant diff (spec US6). */
 async function reconcileMcpToolForOwnership(pending: {
@@ -854,6 +898,11 @@ export async function POST(
 
     const { headers, session, pendingKnowledgeBaseOwnership, pendingMcpToolOwnership } =
       await getAuthorizedRagContext('POST', path, request, body);
+
+    // Enforce the org-level `can_search` capability on the search data path
+    // (spec 2026-06-03-explicit-search-capability) BEFORE the narrower per-tool
+    // gate. Covers `/v1/query` and `/v1/mcp/invoke` (built-in + custom tools).
+    await requireSearchCapability(session, path);
 
     // Enforce `mcp_tool#can_call` before forwarding a custom-tool invocation
     // (spec 2026-06-03, US6 / FR-029). Built-in tools have no mcp_tool object
