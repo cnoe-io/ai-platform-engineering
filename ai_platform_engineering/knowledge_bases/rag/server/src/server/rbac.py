@@ -538,6 +538,97 @@ async def _openfga_check_org_admin(user_context: UserContext) -> bool:
   return await _openfga_check_object(user_context, "can_manage", "organization", _caipe_org_key())
 
 
+# ============================================================================
+# Custom MCP tool authorization (spec 2026-06-03-unified-shareable-resource-rbac)
+# ============================================================================
+#
+# Custom MCP tool management (POST/PUT/DELETE /v1/mcp/custom-tools) is a
+# group-owned, shareable resource. Authorization for human callers is resolved
+# through OpenFGA on the `mcp_tool` type — NOT the legacy coarse `require_role`
+# gate, which can never elevate a human above READONLY (see `rbac.py` role
+# assignment and `rag/README.md`: "tool authorization comes from OpenFGA
+# relationships"). Service principals already carrying the coarse ADMIN role
+# (admin client-credentials tokens, CAIPE_UNSAFE_RBAC_BYPASS) keep working so
+# existing automation is not regressed.
+# assisted-by Cursor claude-opus-4.8
+
+
+async def authorize_mcp_tool_manage(user_context: UserContext, tool_id: str) -> None:
+  """Authorize an update/delete of an existing custom MCP tool.
+
+  Allowed when the caller:
+  - already holds the coarse ADMIN role (admin client-credentials token or the
+    emergency CAIPE_UNSAFE_RBAC_BYPASS), preserving prior behavior; OR
+  - is an organization admin in OpenFGA (`organization#can_manage`); OR
+  - can manage this tool in OpenFGA (`mcp_tool:<tool_id>#can_manage` — i.e. the
+    tool owner, an owner-team admin, or an org admin).
+
+  Fails CLOSED: raises ``HTTPException(403)`` when the caller is not authorized
+  and ``HTTPException(503)`` when the OpenFGA PDP is unavailable or not
+  configured, so a PDP outage can never silently grant a write.
+  """
+  if has_permission(user_context.role, Role.ADMIN):
+    return
+  if not _openfga_http_url() or not _openfga_user(user_context):
+    raise HTTPException(
+      status_code=503,
+      detail="Authorization service is temporarily unavailable",
+    )
+  try:
+    if await _openfga_check_org_admin(user_context):
+      return
+    if await _openfga_check_object(user_context, "can_manage", "mcp_tool", tool_id):
+      return
+  except Exception as exc:  # noqa: BLE001 — fail closed on PDP errors
+    logger.warning("OpenFGA mcp_tool can_manage check failed: %s", exc)
+    raise HTTPException(
+      status_code=503,
+      detail="Authorization service is temporarily unavailable",
+    ) from exc
+  raise HTTPException(
+    status_code=403,
+    detail="You do not have permission to manage this MCP tool. Only the tool's owner, an owner-team admin, or an organization admin may modify it.",
+  )
+
+
+async def authorize_mcp_tool_create(user_context: UserContext, owner_team_slug: Optional[str]) -> None:
+  """Authorize creation of a new custom MCP tool.
+
+  The tool does not exist yet, so there are no per-resource tuples to check.
+  Authorization mirrors the BFF first-set rule (spec US6): the caller must be
+  an organization admin OR a member of the team they are assigning as owner
+  (``team:<owner_team_slug>#can_use``). Coarse-ADMIN service principals are
+  allowed first to preserve prior automation behavior.
+
+  Fails CLOSED with 403 (not authorized) / 503 (PDP unavailable).
+  """
+  if has_permission(user_context.role, Role.ADMIN):
+    return
+  if not _openfga_http_url() or not _openfga_user(user_context):
+    raise HTTPException(
+      status_code=503,
+      detail="Authorization service is temporarily unavailable",
+    )
+  normalized_owner = owner_team_slug.strip() if isinstance(owner_team_slug, str) else None
+  try:
+    if await _openfga_check_org_admin(user_context):
+      return
+    if normalized_owner and await _openfga_check_object(
+      user_context, "can_use", "team", normalized_owner
+    ):
+      return
+  except Exception as exc:  # noqa: BLE001 — fail closed on PDP errors
+    logger.warning("OpenFGA mcp_tool create authorization failed: %s", exc)
+    raise HTTPException(
+      status_code=503,
+      detail="Authorization service is temporarily unavailable",
+    ) from exc
+  raise HTTPException(
+    status_code=403,
+    detail="You must be an organization admin or a member of the owner team to create this MCP tool.",
+  )
+
+
 async def _openfga_list_objects(
   user_context: UserContext,
   relation: str,

@@ -94,18 +94,49 @@ describe("buildShareableResourceTupleDiff", () => {
     );
   });
 
-  it("honors extraMemberRelations (mcp_tool gets reader + user)", () => {
+  it("honors extraMemberRelations (mcp_tool gets reader + user + caller)", () => {
     const diff = buildShareableResourceTupleDiff({
       objectType: "mcp_tool",
       objectId: "t-1",
       ownerTeamSlug: "platform",
-      extraMemberRelations: ["user"],
+      extraMemberRelations: ["user", "caller"],
     });
     expect(diff.writes).toEqual([
       { user: "team:platform#member", relation: "reader", object: "mcp_tool:t-1" },
       { user: "team:platform#member", relation: "user", object: "mcp_tool:t-1" },
+      { user: "team:platform#member", relation: "caller", object: "mcp_tool:t-1" },
       { user: "team:platform#admin", relation: "manager", object: "mcp_tool:t-1" },
     ]);
+  });
+
+  it("grants org members the member relations when sharedWithOrg is true", () => {
+    const diff = buildShareableResourceTupleDiff({
+      objectType: "mcp_tool",
+      objectId: "t-1",
+      ownerTeamSlug: "platform",
+      extraMemberRelations: ["user", "caller"],
+      sharedWithOrg: true,
+    });
+    expect(diff.writes).toEqual(
+      expect.arrayContaining([
+        { user: "organization:caipe#member", relation: "reader", object: "mcp_tool:t-1" },
+        { user: "organization:caipe#member", relation: "user", object: "mcp_tool:t-1" },
+        { user: "organization:caipe#member", relation: "caller", object: "mcp_tool:t-1" },
+      ]),
+    );
+    expect(diff.deletes).toEqual([]);
+  });
+
+  it("leaves org tuples untouched when sharedWithOrg is undefined", () => {
+    const diff = buildShareableResourceTupleDiff({
+      objectType: "data_source",
+      objectId: "ds-1",
+      ownerTeamSlug: "platform",
+    });
+    const orgTuples = [...diff.writes, ...diff.deletes].filter((t) =>
+      t.user.startsWith("organization:"),
+    );
+    expect(orgTuples).toEqual([]);
   });
 
   it("is idempotent and dedupes when owner is also in the shared list", () => {

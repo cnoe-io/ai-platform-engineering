@@ -7,6 +7,7 @@ import {
   type TeamResourceTupleDiff,
 } from "./openfga";
 import { openFgaResourceId } from "./openfga-resource-ids";
+import { organizationObjectId } from "./organization";
 
 const OPENFGA_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._~@|*+=,/-]{0,191}$/;
 
@@ -101,6 +102,10 @@ export interface McpToolRelationshipInput extends OwnedResourceInput {
   nextSharedTeamSlugs?: readonly string[] | null;
   previousSharedTeamSlugs?: readonly string[] | null;
   previousOwnerTeamSlug?: string | null;
+  /** Org-wide sharing: grant every `organization#member` reader/user/caller. */
+  sharedWithOrg?: boolean;
+  /** Prior org-wide state, so a `true` → `false` flip emits revoke deletes. */
+  previousSharedWithOrg?: boolean;
 }
 
 export interface KnowledgeBaseRelationshipInput extends OwnedResourceInput {
@@ -168,7 +173,7 @@ export interface TeamGrantTuplesInput {
   /**
    * The relations a team MEMBER receives on this object (admins always get
    * `manager` in addition). Defaults to `["reader"]`. The agent type passes
-   * `["user"]`; `mcp_tool` passes `["reader", "user"]`.
+   * `["user"]`; `mcp_tool` passes `["reader", "user", "caller"]`.
    */
   memberRelations?: readonly string[];
   ownerTeamSlug?: string | null;
@@ -261,6 +266,16 @@ export interface ShareableResourceInput {
   memberRelations?: readonly string[];
   /** data_source only → writes `data_source:<id> parent_kb knowledge_base:<parentKnowledgeBaseId>`. */
   parentKnowledgeBaseId?: string | null;
+  /**
+   * Organization-wide sharing (mcp_tool, US6 follow-up). When `true`, every
+   * `organization#member` is granted the same member relations on the object
+   * (e.g. reader/user/caller). When it flips from `true` → `false` set
+   * `previousSharedWithOrg: true` so the reconciler emits the revoke deletes.
+   * Leave both undefined for types that don't support org-wide sharing — the
+   * emission is then a no-op and the diff is unchanged.
+   */
+  sharedWithOrg?: boolean;
+  previousSharedWithOrg?: boolean;
 }
 
 /**
@@ -301,8 +316,25 @@ export function buildShareableResourceTupleDiff(
     previousSharedTeamSlugs: input.previousSharedTeamSlugs,
   });
   writes.push(...teamGrants.writes);
+  const deletes: OpenFgaTupleKey[] = [...teamGrants.deletes];
 
-  // 4. data_source inheritance edge (the model's first tuple-to-userset).
+  // 4. organization-wide grant (opt-in; only emitted when the flag is
+  // involved so other types stay byte-for-byte unchanged). Org members get the
+  // same member relations as a shared team (reader/user/caller for mcp_tool).
+  if (input.sharedWithOrg === true || input.previousSharedWithOrg === true) {
+    const orgMember = `${organizationObjectId()}#member`;
+    if (input.sharedWithOrg) {
+      for (const relation of memberRelations) {
+        writes.push({ user: orgMember, relation, object });
+      }
+    } else if (input.previousSharedWithOrg) {
+      for (const relation of memberRelations) {
+        deletes.push({ user: orgMember, relation, object });
+      }
+    }
+  }
+
+  // 5. data_source inheritance edge (the model's first tuple-to-userset).
   if (
     input.parentKnowledgeBaseId &&
     isValidOpenFgaId(input.parentKnowledgeBaseId)
@@ -314,8 +346,8 @@ export function buildShareableResourceTupleDiff(
     });
   }
 
-  // creator and parent_kb are never in a delete set — only team grants are.
-  return { writes: uniqueTuples(writes), deletes: teamGrants.deletes };
+  // creator and parent_kb are never in a delete set — only team + org grants are.
+  return { writes: uniqueTuples(writes), deletes: uniqueTuples(deletes) };
 }
 
 export async function reconcileShareableResource(
@@ -504,10 +536,17 @@ export async function reconcileDataSourceRelationships(
 
 /**
  * Build an mcp_tool tuple diff. Non-admin team members get `reader` +
- * `user` on the tool (so they can call it via the RAG server), and team
- * admins get `manager` (so they can update or delete it via
- * `PUT/DELETE /v1/mcp/custom-tools/<tool_id>`). Mirrors the
- * relation set on the `mcp_tool` type in [deploy/openfga/model.fga].
+ * `user` + `caller` on the tool, and team admins get `manager` (so they
+ * can update or delete it via `PUT/DELETE /v1/mcp/custom-tools/<tool_id>`).
+ * Mirrors the relation set on the `mcp_tool` type in
+ * [deploy/openfga/model.fga].
+ *
+ * IMPORTANT: invocation is gated on `can_call = caller or can_manage or
+ * owner` (both at the BFF `mcp_tool#can_call` gate and conceptually in the
+ * model). The `user` relation only grants `can_use`, NOT `can_call`, so a
+ * member granted just `reader` + `user` could *see/use* the tool but not
+ * *invoke* it. Shared/owner team members must therefore also get `caller`,
+ * otherwise sharing a tool with a team leaves its members unable to call it.
  */
 export function buildMcpToolRelationshipTupleDiff(
   input: McpToolRelationshipInput
@@ -524,10 +563,13 @@ export function buildMcpToolRelationshipTupleDiff(
     nextSharedTeamSlugs: input.nextSharedTeamSlugs,
     previousSharedTeamSlugs: input.previousSharedTeamSlugs,
     previousOwnerTeamSlug: input.previousOwnerTeamSlug,
-    // mcp_tool exposes a `user` relation in addition to `reader`,
-    // because the can_call permission grants invocation. Member-level
-    // grants need both, mirroring `mcp_server` invokers.
-    extraMemberRelations: ["user"],
+    sharedWithOrg: input.sharedWithOrg,
+    previousSharedWithOrg: input.previousSharedWithOrg,
+    // `reader` (default) → can_read, `user` → can_use, `caller` → can_call.
+    // All three are required so shared team members can both see AND invoke
+    // the tool (the invoke path checks `can_call`). Org-wide grants reuse the
+    // same relation set.
+    extraMemberRelations: ["user", "caller"],
   });
 }
 

@@ -118,7 +118,8 @@ export const DATA_SOURCE_GRANTS_BACKFILL_MIGRATION_ID =
   "data_source_grants_backfill_v1";
 // `mcp_tool_grants_backfill_v1` walks Mongo `team_rag_tools` and
 // writes `team:<slug>#member reader mcp_tool:<tool_id>` (plus the
-// matching `user` relation, mirroring `mcp_server` invokers). For
+// matching `user` + `caller` relations so members can use AND
+// invoke the tool via can_call). For
 // teams without an explicit owner team it's a no-op — admins keep
 // access via the `organization#admin → manager` model edge documented
 // in [deploy/openfga/model.fga].
@@ -344,7 +345,7 @@ export const MIGRATION_DEFINITIONS: MigrationDefinition[] = [
     kind: "explicit",
     title: "mcp_tool grants backfill",
     description:
-      "Walks Mongo `team_rag_tools` and writes the canonical `team:<slug>#member reader mcp_tool:<tool_id>` + `team:<slug>#member user mcp_tool:<tool_id>` + `team:<slug>#admin manager mcp_tool:<tool_id>` tuples so every team that already owned a RAG custom MCP tool keeps access through the BFF's per-tool filter. Idempotent.",
+      "Walks Mongo `team_rag_tools` and writes the canonical `team:<slug>#member reader mcp_tool:<tool_id>` + `team:<slug>#member user mcp_tool:<tool_id>` + `team:<slug>#member caller mcp_tool:<tool_id>` + `team:<slug>#admin manager mcp_tool:<tool_id>` tuples so every team that already owned a RAG custom MCP tool keeps access through the BFF's per-tool filter (including invoke via can_call). Idempotent.",
     confirmation: "MIGRATE team_rag_tools TO mcp_tool_v1",
     required: true,
     implemented: true,
@@ -1515,7 +1516,7 @@ export function deriveCreatorFromOwnerBackfillPlan(
  * Backfill `mcp_tool:<tool_id>` grants for every Mongo `team_rag_tools`
  * row. Mirrors the runtime reconciler used by
  * `reconcileMcpToolRelationships`: the owner team's members get
- * `reader` + `user`, the owner team's admins get `manager`.
+ * `reader` + `user` + `caller`, the owner team's admins get `manager`.
  *
  * Inputs:
  *  - `ownershipDocs`: rows from the `team_rag_tools` collection. Each
@@ -1562,6 +1563,9 @@ export function deriveMcpToolGrantsBackfillPlan(
       const object = `mcp_tool:${toolId}`;
       tuples.push({ user: `team:${slug}#member`, relation: "reader", object });
       tuples.push({ user: `team:${slug}#member`, relation: "user", object });
+      // `caller` → can_call: required so members can actually INVOKE the tool
+      // (the `user` relation only grants can_use, not can_call).
+      tuples.push({ user: `team:${slug}#member`, relation: "caller", object });
       tuples.push({ user: `team:${slug}#admin`, relation: "manager", object });
       perRowResolved = true;
     }

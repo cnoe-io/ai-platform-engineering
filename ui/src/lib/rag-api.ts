@@ -16,6 +16,11 @@
 
 export interface DataSourceInfo {
   datasource_id: string;
+  /**
+   * Human-friendly display label. Auto-derived on creation, editable by admins.
+   * Falls back to `datasource_id` for legacy rows. NEVER an authorization key.
+   */
+  name?: string | null;
   ingestor_id: string;
   source_type: string;
   description: string;
@@ -398,6 +403,12 @@ export interface MCPToolConfig {
   // truth, OpenFGA is the derived projection.
   owner_team_slug?: string | null;
   shared_with_teams?: string[];
+  /**
+   * When true, every organization member may call/use this tool. The OpenFGA
+   * projection grants `organization#member` reader/user/caller (in addition to
+   * the owner and shared teams).
+   */
+  shared_with_org?: boolean;
   creator_subject?: string | null;
   owner_subject?: string | null;
 }

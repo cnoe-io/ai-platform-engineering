@@ -270,9 +270,9 @@ type mcp_tool
   relations
     define creator: [user]
     define owner: [user, service_account]
-    define reader: [user, service_account, team#member, team#admin, external_group#member]
-    define user: [user, service_account, team#member, team#admin, external_group#member]
-    define caller: [user, service_account, team#member, team#admin, external_group#member, agent]
+    define reader: [user, service_account, team#member, team#admin, external_group#member, organization#member]
+    define user: [user, service_account, team#member, team#admin, external_group#member, organization#member]
+    define caller: [user, service_account, team#member, team#admin, external_group#member, organization#member, agent]
     define manager: [user, service_account, team#admin, organization#admin]
     define auditor: [user, service_account, team#admin]
     define can_discover: can_read
