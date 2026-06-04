@@ -20,7 +20,7 @@ from ai_platform_engineering.utils.a2a_common.base_langgraph_agent import BaseLa
 from ai_platform_engineering.utils.github_app_token_provider import get_github_token, is_github_app_mode
 from ai_platform_engineering.utils.subagent_prompts import load_subagent_prompt_config
 from ai_platform_engineering.utils.token_sanitizer import sanitize_output
-from agent_github.tools import get_gh_cli_tool  # type: ignore[import-untyped]
+from agent_github.tools import get_gh_cli_tool, get_gh_file_contents_tool  # type: ignore[import-untyped]
 
 logger = logging.getLogger(__name__)
 
@@ -175,10 +175,12 @@ class GitHubAgent(BaseLangGraphAgent):
         return _prompt_config.tool_processing_message
 
     def get_additional_tools(self) -> list:
-        """Provide gh CLI tool for GitHub operations.
+        """Provide gh CLI tools for GitHub operations.
 
         In multi-node mode (MCP_MODE=http) gh CLI is the primary tool for
         repository operations, workflow logs, and other GitHub interactions.
+        A small gh-backed file contents helper covers the ergonomic gap where
+        gh does not have a first-class command for reading a single repo file.
 
         In single-node mode (MCP_MODE=stdio) the go-based github-mcp-server
         provides full MCP coverage; gh CLI is only used as a fallback if
@@ -189,6 +191,10 @@ class GitHubAgent(BaseLangGraphAgent):
         if gh_tool:
             tools.append(gh_tool)
             logger.info("GitHub agent: Added gh CLI tool (gh_cli_execute)")
+        gh_file_tool = get_gh_file_contents_tool()
+        if gh_file_tool:
+            tools.append(gh_file_tool)
+            logger.info("GitHub agent: Added gh file contents tool (gh_get_file_contents)")
         return tools
 
     def _wrap_mcp_tools(self, tools: list, context_id: str) -> list:
@@ -302,10 +308,13 @@ class GitHubAgent(BaseLangGraphAgent):
             # This should rarely trigger since tool errors are handled at tool level
             # Note: CancelledError is handled in base class, won't reach here
             logger.error(f"Unexpected GitHub agent error: {str(e)}", exc_info=True)
+            error_content = (
+                f"❌ An unexpected error occurred: {sanitize_output(str(e))}\n\n"
+                "Please try again or contact support if the issue persists."
+            )
             yield {
                 'is_task_complete': True,
                 'require_user_input': False,
                 'kind': 'error',
-                'content': f"❌ An unexpected error occurred: {sanitize_output(str(e))}\n\nPlease try again or contact support if the issue persists.",
+                'content': error_content,
             }
-
