@@ -26,6 +26,8 @@ import {
 } from "@/lib/rbac/team-membership-sync";
 import { upsertTeamMembershipSource } from "@/lib/rbac/team-membership-source-store";
 import { loadActiveTeamMembers } from "@/lib/rbac/team-membership-store";
+import { writeOpenFgaTuples } from "@/lib/rbac/openfga";
+import { organizationObjectId } from "@/lib/rbac/organization";
 import type { TeamMembershipSource } from "@/types/identity-group-sync";
 
 export const SUPER_ADMINS_TEAM_SLUG = "super-admins";
@@ -87,6 +89,40 @@ interface TeamDoc {
   members?: TeamMemberDoc[];
 }
 
+/**
+ * Idempotently grant every admin of the Super Admins team organization-admin
+ * rights by writing the userset tuple
+ * `team:super-admins#admin -> admin -> organization:<key>`.
+ *
+ * The OpenFGA model already declares `organization#admin: [..., team#admin]`,
+ * so this single tuple makes membership in `super-admins` confer full
+ * org-admin (which `can_manage organization` resolves through). Because the
+ * team model implies `member` from `admin`, and the bootstrap seeds every
+ * Super Admin as `team#admin`, this covers all members of the team.
+ *
+ * `writeOpenFgaTuples` filters out tuples that already exist, so this is a
+ * cheap no-op on every subsequent startup. Failures are captured into the
+ * caller's `warnings` array rather than thrown, matching the
+ * never-throw contract of the surrounding bootstrap.
+ */
+async function ensureSuperAdminsOrgAdminLink(warnings: string[]): Promise<void> {
+  try {
+    await writeOpenFgaTuples({
+      writes: [
+        {
+          user: `team:${SUPER_ADMINS_TEAM_SLUG}#admin`,
+          relation: "admin",
+          object: organizationObjectId(),
+        },
+      ],
+      deletes: [],
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    warnings.push(`super-admins org-admin linkage: failed to write OpenFGA tuple: ${message}`);
+  }
+}
+
 function emptySkipped(reason: string): SuperAdminsBootstrapResult {
   return {
     status: "skipped",
@@ -122,6 +158,11 @@ export async function ensureSuperAdminsTeam(
   const actor = input.actor.trim() || "system";
   const warnings: string[] = [];
   const teams = await getCollection<TeamDoc>("teams");
+
+  // Make membership in the Super Admins team confer organization-admin. This
+  // is independent of the Mongo team document, so we do it up front and it
+  // applies whether we create the team below or top up an existing one.
+  await ensureSuperAdminsOrgAdminLink(warnings);
 
   // Resolve missing Keycloak subjects on the fly so the helper is callable
   // outside of `reconcileBootstrapAdmins` too (e.g. from a test or admin
