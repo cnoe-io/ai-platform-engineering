@@ -113,31 +113,11 @@ Get llmSecrets.externalSecrets.secretStoreRef with global fallback
 
 {{/*
 Returns the enabledSubAgents dict as YAML.
-In single-node mode reads from supervisor-agent.singleNode.enabledSubAgents.
-In multi-node mode reads from global.enabledSubAgents (populated by Chart.yaml import-values e.g. global.enabledSubAgents.backstage.enabled: true).
+Reads from global.enabledSubAgents, populated by Chart.yaml import-values
+(e.g. global.enabledSubAgents.backstage.enabled: true).
 */}}
 {{- define "ai-platform-engineering.enabledSubAgents" -}}
-{{- if eq .Values.global.deploymentMode "single-node" -}}
-{{- (index .Values "supervisor-agent").singleNode.enabledSubAgents | default dict | toYaml -}}
-{{- else -}}
 {{- .Values.global.enabledSubAgents | default dict | toYaml -}}
-{{- end -}}
-{{- end -}}
-
-{{/*
-Prefix for single-node in-cluster MCP Kubernetes names: {prefix}-agent-<name>[-mcp].
-When global.singleNode.mcpResourcePrefix is non-empty, use it (e.g. "single-node" for readable kubectl).
-When empty, use .Release.Name so legacy DNS like <release>-agent-jira-mcp stays stable.
-*/}}
-{{- define "ai-platform-engineering.singleNodeMcpResourcePrefix" -}}
-{{- $g := .Values.global | default dict }}
-{{- $sn := index $g "singleNode" | default dict }}
-{{- $p := index $sn "mcpResourcePrefix" | default "" }}
-{{- if ne $p "" -}}
-{{- $p -}}
-{{- else -}}
-{{- .Release.Name -}}
-{{- end -}}
 {{- end -}}
 
 {{- define "ai-platform-engineering.appVersion" -}}

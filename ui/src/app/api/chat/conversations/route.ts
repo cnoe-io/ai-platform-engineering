@@ -11,7 +11,6 @@ import {
   paginatedResponse,
   validateRequired,
   getPaginationParams,
-  requireRbacPermission,
 } from '@/lib/api-middleware';
 import type { Conversation, CreateConversationRequest, ClientType } from '@/types/mongodb';
 import { VALID_CLIENT_TYPES } from '@/types/mongodb';
@@ -162,10 +161,9 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
 
   // Combine release/0.4.0's dual-auth (bearer token | session) with comprehensive
   // RBAC enforcement. The bearer path is required by the Slack bot and other
-  // first-party service callers; the RBAC check is required to enforce the
-  // 098-enterprise-rbac scope on supervisor invocations.
+  // first-party service callers. Every conversation targets a dynamic agent, so
+  // authorization is enforced per-agent via `agent#can_use` (no agentless chat).
   const { user, session } = await getAuthFromBearerOrSession(request);
-  await requireRbacPermission(session, 'supervisor', 'invoke');
   const body: CreateConversationRequest = await request.json();
 
   validateRequired(body, ['title', 'client_type']);
@@ -181,15 +179,21 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     );
   }
 
-  if (body.agent_id) {
-    const denial = await requireAgentUsePermission({
-      subject: session.sub,
-      agentId: body.agent_id,
-      email: user.email,
-    });
-    if (denial) {
-      return denial;
-    }
+  // A conversation must target a dynamic agent. Reject agentless creation.
+  if (!body.agent_id) {
+    return NextResponse.json(
+      { success: false, error: 'agent_id is required: select an agent to start a conversation.' },
+      { status: 400 }
+    );
+  }
+
+  const denial = await requireAgentUsePermission({
+    subject: session.sub,
+    agentId: body.agent_id,
+    email: user.email,
+  });
+  if (denial) {
+    return denial;
   }
 
   const conversations = await getCollection<Conversation>('conversations');

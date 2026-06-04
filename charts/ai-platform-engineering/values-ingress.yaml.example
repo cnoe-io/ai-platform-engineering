@@ -6,20 +6,6 @@ global:
       # kubernetes.io/ingress.class: "nginx"
       # kubernetes.io/tls-acme: "true"
 
-supervisor-agent:
-  ingress:
-    enabled: true
-    className: nginx
-    hosts: 
-    - supervisor-agent.local
-    tls: []
-      # - secretName: supervisor-agent-tls
-      #   hosts:
-      #     - supervisor-agent.local
-    annotations: {}
-      # kubernetes.io/ingress.class: "nginx"
-      # kubernetes.io/tls-acme: "true"
-
 agent-argocd:
   ingress:
     hosts: []
@@ -82,12 +68,3 @@ agent-jira:
       # - secretName: agent-jira-tls
       #   hosts:
       #     - agent-jira.local
-
-agent-reflection:
-  ingress:
-    hosts: []
-      #  - agent-reflection.local
-    tls: []
-      # - secretName: agent-reflection-tls
-      #   hosts:
-      #     - agent-reflection.local

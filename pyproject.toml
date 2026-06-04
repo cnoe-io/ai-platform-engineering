@@ -9,13 +9,10 @@ license = {text = "Apache-2.0"}
 readme = "README.md"
 requires-python = ">=3.13,<4.0"
 dependencies = [
-    "a2a-sdk==0.3.0",
-    "ag-ui-protocol==0.1.15",
-    "agntcy-app-sdk==0.4.0",
     # `cachetools.TTLCache` backs the Keycloak JWKS / userinfo cache and the
     # PDP decision cache used by `utils/auth/keycloak_authz.py`. Pinned to
     # match the version already locked across every agent sub-package in
-    # `ai_platform_engineering/agents/*/uv.lock` so the supervisor image
+    # `ai_platform_engineering/agents/*/uv.lock` so the platform image
     # cannot drift from sub-agents.
     "cachetools==6.2.2",
     "cnoe-agent-utils==0.4.0",
@@ -35,27 +32,18 @@ dependencies = [
     "pydantic==2.12.5",
     "pydantic-core==2.41.5",
     "pyjwt==2.12.0",
-    # Single-node mode dependencies (uses upstream deepagents library)
+    # Dynamic agents are built on the upstream deepagents library.
     "deepagents==0.3.8",
-    "nest-asyncio==1.6.0",
-    "clorm==1.6.1",
-    # MongoDB client for reading task configs from shared MongoDB
+    # MongoDB client for shared MongoDB collections (conversations, skills, audit)
     "pymongo==4.15.5",
-    # Redis checkpoint saver and store for LangGraph persistence
-    "langgraph-checkpoint-redis==0.3.6",
-    # Postgres checkpoint saver and store for LangGraph persistence
-    "langgraph-checkpoint-postgres==3.0.4",
-    # psycopg binary bundle required by AsyncPostgresSaver in containerised environments
-    # (no system libpq available); the binary wheel bundles its own libpq
-    "psycopg[binary]==3.3.3",
-    # MongoDB checkpoint saver for LangGraph persistence
+    # MongoDB checkpoint saver for LangGraph persistence (dynamic agents)
     "langgraph-checkpoint-mongodb==0.3.1",
     # Async MongoDB driver for MongoDB store
     "motor==3.7.1",
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["ai_platform_engineering/utils", "ai_platform_engineering/multi_agents"]
+testpaths = ["ai_platform_engineering/utils"]
 markers = [
   "integration: marks tests as integration tests requiring live services (deselect with '-m not integration')",
 ]
@@ -89,9 +77,7 @@ major_version_zero = true
 dev = [
     # Slack bot utils (e.g. tests importing ai.py) expect loguru at import time
     "loguru==0.7.3",
-    "asyncpg==0.31.0",
     "mongomock==4.3.0",
-    "psycopg[binary]==3.3.3",
     "pytest==9.0.3",
     "ruff==0.14.8",
 ]

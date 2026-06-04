@@ -4,15 +4,16 @@
 
 ```
 ai_platform_engineering/   # Python backend
-  agents/                  # Sub-agents (GitHub, ArgoCD, etc.)
+  agents/                  # Per-tool MCP servers (GitHub, ArgoCD, etc.)
+  dynamic_agents/          # Dynamic agents runtime (FastAPI, MongoDB, AG-UI/SSE)
   knowledge_bases/rag/     # RAG server, ingestors, graphrag, ontology
   mcp/                     # MCP (Model Context Protocol) integrations
-  multi_agents/            # Multi-agent orchestration (supervisor, deepagent)
+  skills_middleware/       # Skill scanning / catalog middleware
   utils/                   # Shared utilities
 ui/                        # Next.js frontend
 docs/                      # Documentation site (Docusaurus)
 docker-compose/            # Docker configs for services
-integration/               # Integration tests
+tests/                     # Repo-level + RBAC tests
 scripts/                   # Utility scripts
 charts/                    # Helm charts
 ```

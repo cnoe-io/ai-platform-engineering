@@ -1,18 +1,18 @@
 # Copyright 2025 CNOE Contributors
 # SPDX-License-Identifier: Apache-2.0
-"""Skill catalog — single source of truth for UI and supervisor.
+"""Skill catalog — single source of truth for the UI and dynamic agents.
 
 Merges skills from:
   - Filesystem / SKILLS_DIR  (default)
   - MongoDB agent_skills    (agent_skills)
   - MongoDB hub_skills cache (hub) — populated by the Next.js UI crawler
-    in ``ui/src/lib/hub-crawl.ts``. The supervisor never calls GitHub or
+    in ``ui/src/lib/hub-crawl.ts``. The catalog never calls GitHub or
     GitLab itself; both source types are consumed transparently from
     Mongo, so adding new hub providers (GitLab subgroups, future
     Bitbucket, etc.) is purely a UI concern.
 
 Applies deterministic precedence (default > agent_skills > hub).
-Provides a TTL-based in-memory cache so the supervisor can hot-reload
+Provides a TTL-based in-memory cache so consumers can hot-reload
 without restart (FR-012).
 """
 
@@ -45,7 +45,7 @@ _hub_cache: list[dict[str, Any]] | None = None
 _hub_cache_time: float = 0.0
 HUB_CACHE_TTL = int(os.getenv("HUB_CACHE_TTL", "3600"))  # seconds (default 1 hour)
 
-# Bumped on each ``invalidate_skills_cache()`` for UI vs supervisor diff (FR-016).
+# Bumped on each ``invalidate_skills_cache()`` for UI vs backend diff (FR-016).
 _catalog_cache_generation: int = 0
 
 
@@ -72,7 +72,7 @@ def _hub_skill_doc_to_catalog(
       reproduce a stable repo URL without re-reading ``skill_hubs``.
     * Hub-level ``labels`` from ``skill_hubs.labels`` are merged into
       ``metadata.tags`` — matches what the UI surfaces in
-      ``hub-crawl.ts:_crawlAndCache``. Without this the supervisor
+      ``hub-crawl.ts:_crawlAndCache``. Without this the skill
       catalog would lose tag parity with the UI.
 
     Returns ``None`` when the cached row is missing required fields
@@ -156,7 +156,7 @@ def _load_hub_skills(include_content: bool = True) -> list[dict[str, Any]]:
     The Next.js UI is the only producer of ``hub_skills``; it crawls
     GitHub and GitLab via ``ui/src/lib/hub-crawl.ts`` and persists the
     SKILL.md body, parsed metadata, ancillary text files, and scan
-    status. The supervisor (this function) is now a pure consumer:
+    status. The catalog (this function) is now a pure consumer:
 
     * No GitHub/GitLab API calls are made here. Adding new hub
       providers is a UI-only change.
@@ -268,7 +268,7 @@ def _load_hub_skills(include_content: bool = True) -> list[dict[str, Any]]:
         # Pass ``has_override`` so a flagged hub skill with an active
         # admin override sub-doc is allowed through (under the warn
         # gate). Without this the override would be invisible to the
-        # supervisor catalog and the merged listing would silently
+        # skill catalog and the merged listing would silently
         # drop overridden hub skills.
         scan_status = row.get("scan_status")
         has_override = bool(row.get("scan_override"))

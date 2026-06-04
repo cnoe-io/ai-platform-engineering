@@ -141,20 +141,6 @@ export function AgentBuilderGallery({
   // Skill run modal state
   const [activeFormConfig, setActiveFormConfig] = useState<AgentSkill | null>(null);
 
-  // Supervisor sync state
-  const [supervisorSynced, setSupervisorSynced] = useState(false);
-  const [supervisorLoading, setSupervisorLoading] = useState(true);
-
-  useEffect(() => {
-    fetch("/api/skills/supervisor-status")
-      .then(res => res.ok ? res.json() : null)
-      .then(data => {
-        setSupervisorSynced(data?.mas_registered === true && (data?.skills_loaded_count ?? 0) > 0);
-      })
-      .catch(() => setSupervisorSynced(false))
-      .finally(() => setSupervisorLoading(false));
-  }, []);
-
   const canModifyConfig = (_config: AgentSkill) => true;
 
   // Load configs on mount
@@ -743,20 +729,11 @@ export function AgentBuilderGallery({
                 </div>
                 <div className="flex items-center gap-2">
                   <Button variant="ghost" onClick={() => setActiveFormConfig(null)}>Cancel</Button>
-                  {!supervisorSynced && !supervisorLoading && (
-                    <span title="Skills must be synced with the supervisor first"><AlertTriangle className="h-4 w-4 text-amber-500" /></span>
-                  )}
                   <Button
                     onClick={handleTrySkill}
-                    className={supervisorSynced ? "gradient-primary text-white gap-2" : "gap-2"}
-                    variant={supervisorSynced ? "default" : "secondary"}
-                    disabled={!supervisorSynced || supervisorLoading}
+                    className="gradient-primary text-white gap-2"
                   >
-                    {supervisorLoading ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <MessageSquare className="h-4 w-4" />
-                    )}
+                    <MessageSquare className="h-4 w-4" />
                     Try Skill
                   </Button>
                 </div>

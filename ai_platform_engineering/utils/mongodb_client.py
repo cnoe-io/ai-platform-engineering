@@ -3,8 +3,8 @@
 """
 Shared MongoDB Client
 
-Provides a singleton pymongo client for the Python backend services.
-Used by the supervisor agent to read task configs from MongoDB.
+Provides a singleton pymongo client for the Python backend services
+(skills catalog, hub scan results, API keys).
 
 Reuses the same MONGODB_URI / MONGODB_DATABASE env vars as the UI and Slack bot.
 """

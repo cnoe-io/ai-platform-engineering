@@ -13,10 +13,6 @@ import { getServerConfig } from "@/lib/config";
 export async function GET(): Promise<Response> {
   const config = getServerConfig();
 
-  if (!config.dynamicAgentsEnabled) {
-    return NextResponse.json({ status: "unhealthy", reason: "disabled" });
-  }
-
   const dynamicAgentsUrl = config.dynamicAgentsUrl;
   if (!dynamicAgentsUrl) {
     return NextResponse.json({ status: "unhealthy", reason: "not configured" });

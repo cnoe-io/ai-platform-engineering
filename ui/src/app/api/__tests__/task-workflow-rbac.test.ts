@@ -61,38 +61,13 @@ function request(path: string): NextRequest {
   return new NextRequest(new URL(path, "http://localhost:3000"));
 }
 
-describe("task/workflow config RBAC cutover", () => {
+describe("workflow config RBAC cutover", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockGetUserTeamIds.mockResolvedValue(["legacy-team"]);
     mockRequireRbacPermission.mockRejectedValue(new Error("not admin"));
     mockRequireResourcePermission.mockResolvedValue(undefined);
     mockFilterResourcesByPermission.mockImplementation(async (_session, items) => items);
-  });
-
-  it("lists task configs through OpenFGA task discover instead of legacy team visibility", async () => {
-    const configs = [
-      { id: "task-openfga", name: "OpenFGA Task", visibility: "private", owner_id: "bob@example.com" },
-      { id: "task-denied", name: "Denied Task", visibility: "global" },
-    ];
-    mockFilterResourcesByPermission.mockResolvedValue([configs[0]]);
-    const sort = jest.fn().mockReturnValue({ toArray: jest.fn().mockResolvedValue(configs) });
-    const find = jest.fn().mockReturnValue({ sort });
-    mockGetCollection.mockResolvedValue({ find });
-    const { GET } = await import("../task-configs/route");
-
-    const response = await GET(request("/api/task-configs"));
-    const body = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(mockGetUserTeamIds).not.toHaveBeenCalled();
-    expect(find).toHaveBeenCalledWith({});
-    expect(mockFilterResourcesByPermission).toHaveBeenCalledWith(
-      expect.objectContaining({ sub: "alice-sub" }),
-      configs,
-      { type: "task", action: "discover", id: expect.any(Function) },
-    );
-    expect(body).toEqual([expect.objectContaining({ id: "task-openfga" })]);
   });
 
   it("loads workflow configs through OpenFGA task discover instead of legacy team visibility", async () => {

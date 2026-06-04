@@ -172,7 +172,6 @@ export function DynamicAgentContext({
         timestamp: m.timestamp,
         streamEvents: m.streamEvents,
         feedback: m.feedback,
-        timelineSegments: m.timelineSegments,
       })),
       streamEvents: conversation.streamEvents,
       createdAt: conversation.createdAt,

@@ -12,7 +12,7 @@ import { LLMProvidersTab } from "@/components/dynamic-agents/LLMProvidersTab";
 import { ConversationsTab } from "@/components/dynamic-agents/ConversationsTab";
 import { useAdminTabGates } from "@/hooks/useAdminTabGates";
 import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
-import { UnsavedChangesDialog } from "@/components/task-builder/UnsavedChangesDialog";
+import { UnsavedChangesDialog } from "@/components/shared/UnsavedChangesDialog";
 
 const BASE_VISIBLE_TABS = ["agents", "mcp-servers", "llm-models"] as const;
 

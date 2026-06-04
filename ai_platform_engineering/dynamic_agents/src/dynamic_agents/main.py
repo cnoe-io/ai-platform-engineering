@@ -188,8 +188,8 @@ def create_app() -> FastAPI:
     # Spec 102 Phase 11.2 — expose Prometheus metrics so the RBAC PDP
     # cache hit/miss + decision counters set in
     # ai_platform_engineering.utils.auth.metrics are scrapeable. The
-    # endpoint is intentionally NOT auth-gated (matches supervisor's
-    # /metrics convention; restrict via NetworkPolicy in production).
+    # endpoint is intentionally NOT auth-gated (standard /metrics
+    # convention; restrict via NetworkPolicy in production).
     try:
         from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
         from starlette.responses import Response

@@ -37,7 +37,7 @@ import { useToast } from "@/components/ui/toast";
 import { useSession } from "next-auth/react";
 import { getStorageMode, getStorageModeDisplay } from "@/lib/storage-config";
 import type { Conversation } from "@/types/a2a";
-import { getAgentId, isDynamicAgentConversation, buildParticipants } from "@/types/a2a";
+import { getAgentId } from "@/types/a2a";
 
 interface SidebarProps {
   activeTab: "chat" | "gallery" | "knowledge" | "admin";
@@ -57,7 +57,6 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
     deleteConversation,
     loadConversationsFromServer,
     loadMessagesFromServer,
-    loadTurnsFromServer,
     isConversationStreaming,
     hasUnviewedMessages,
     isConversationInputRequired,
@@ -151,16 +150,9 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
       console.log('[Sidebar] Manual reload triggered');
       await loadConversationsFromServer();
       // Also force-reload the active conversation's messages to pick up
-      // follow-up messages from other devices and refresh A2A events
+      // follow-up messages from other devices and refresh stream events
       if (activeConversationId) {
-        const activeConv = useChatStore.getState().conversations.find(c => c.id === activeConversationId);
-        if (activeConv && isDynamicAgentConversation(activeConv)) {
-          // Dynamic Agent — use old messages path
-          await loadMessagesFromServer(activeConversationId, { force: true });
-        } else {
-          // Platform Engineer — use turns path
-          await loadTurnsFromServer(activeConversationId);
-        }
+        await loadMessagesFromServer(activeConversationId, { force: true });
       }
     } catch (error) {
       console.error('[Sidebar] Failed to reload conversations:', error);
@@ -189,7 +181,6 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
           updatedAt: new Date(conversation.updated_at),
           messages: [],
           streamEvents: [], // Stream events for Dynamic Agents
-          a2aEvents: [], // A2A events for supervisor
           participants: conversation.participants || [],
         };
 

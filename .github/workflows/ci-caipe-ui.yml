@@ -207,7 +207,6 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=min
           build-args: |
-            CAIPE_URL=http://caipe-supervisor:8000
             BUILDKIT_INLINE_CACHE=1
             IMAGE_TAG=${{ needs.determine-changes.outputs.tag_version || github.sha }}
             GIT_COMMIT=${{ github.sha }}
@@ -350,7 +349,6 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=min
           build-args: |
-            CAIPE_URL=http://caipe-supervisor:8000
             BUILDKIT_INLINE_CACHE=1
             IMAGE_TAG=${{ needs.determine-changes.outputs.tag_version || github.sha }}
             GIT_COMMIT=${{ github.sha }}

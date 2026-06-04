@@ -169,9 +169,7 @@ jobs:
         cd charts/ai-platform-engineering
         helm template test-minimal . \
           --debug \
-          --set supervisor-agent.enabled=true \
-          --set agent-argocd.enabled=false \
-          --set agent-github.enabled=false \
+          --set tags.agent-argocd=true \
           --set tags.rag-stack=false
 
     - name: Validate ai-platform-engineering image channels

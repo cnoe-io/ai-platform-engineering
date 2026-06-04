@@ -127,7 +127,6 @@ jest.mock('@/lib/config', () => ({
     ]);
     return enabledKeys.has(key);
   },
-  getInternalA2AUrl: () => 'http://localhost:8000',
   getServerConfig: () => ({ auditLogsEnabled: true }),
 }));
 

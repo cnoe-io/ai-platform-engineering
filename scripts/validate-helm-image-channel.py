@@ -16,8 +16,6 @@ from pathlib import Path
 
 
 PARENT_EXPECTED_IMAGE_NAMES = (
-    "ai-platform-engineering",
-    "agent-argocd",
     "mcp-argocd",
     "caipe-ui",
     "caipe-dynamic-agents",

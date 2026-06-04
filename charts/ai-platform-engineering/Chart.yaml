@@ -2,18 +2,15 @@ apiVersion: v2
 # pyproject.toml version
 appVersion: 0.5.8-dev.1 # Do NOT modify. It will be updated automatically using the release workflow
 name: ai-platform-engineering
-description: Parent chart to deploy multiple agent subcharts as different platform agents
+description: Parent chart to deploy CAIPE — dynamic agents, per-agent MCP servers, RBAC, and the UI
 sources:
   - https://github.com/cnoe-io/ai-platform-engineering/charts
 # Chart version for ai-platform-engineering parent chart
 version: 0.5.8-dev.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
 dependencies:
-  # AI Platform Engineer Multi-Agent
-  - name: supervisor-agent
-    # Chart version for agent subchart
-    version: 0.5.8-dev.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
-  # Single agent chart used multiple times with different aliases
-  - name: agent
+  # Single MCP-server chart used multiple times with different aliases.
+  # Each alias deploys one agent's MCP server (Deployment + Service).
+  - name: mcp-server
     version: 0.5.8-dev.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
     alias: agent-argocd
     tags:
@@ -23,7 +20,7 @@ dependencies:
     import-values:
       - child: agentExports.data
         parent: global.enabledSubAgents.argocd
-  - name: agent
+  - name: mcp-server
     version: 0.5.8-dev.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
     alias: agent-aws
     tags:
@@ -32,7 +29,7 @@ dependencies:
     import-values:
       - child: agentExports.data
         parent: global.enabledSubAgents.aws
-  - name: agent
+  - name: mcp-server
     version: 0.5.8-dev.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
     alias: agent-backstage
     tags:
@@ -42,7 +39,7 @@ dependencies:
     import-values:
       - child: agentExports.data
         parent: global.enabledSubAgents.backstage
-  - name: agent
+  - name: mcp-server
     version: 0.5.8-dev.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
     alias: agent-confluence
     tags:
@@ -51,7 +48,7 @@ dependencies:
     import-values:
       - child: agentExports.data
         parent: global.enabledSubAgents.confluence
-  - name: agent
+  - name: mcp-server
     version: 0.5.8-dev.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
     alias: agent-github
     tags:
@@ -61,7 +58,7 @@ dependencies:
     import-values:
       - child: agentExports.data
         parent: global.enabledSubAgents.github
-  - name: agent
+  - name: mcp-server
     version: 0.5.8-dev.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
     alias: agent-gitlab
     tags:
@@ -70,7 +67,7 @@ dependencies:
     import-values:
       - child: agentExports.data
         parent: global.enabledSubAgents.gitlab
-  - name: agent
+  - name: mcp-server
     version: 0.5.8-dev.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
     alias: agent-jira
     tags:
@@ -79,7 +76,7 @@ dependencies:
     import-values:
       - child: agentExports.data
         parent: global.enabledSubAgents.jira
-  - name: agent
+  - name: mcp-server
     version: 0.5.8-dev.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
     alias: agent-komodor
     tags:
@@ -88,7 +85,7 @@ dependencies:
     import-values:
       - child: agentExports.data
         parent: global.enabledSubAgents.komodor
-  - name: agent
+  - name: mcp-server
     version: 0.5.8-dev.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
     alias: agent-pagerduty
     tags:
@@ -97,7 +94,7 @@ dependencies:
     import-values:
       - child: agentExports.data
         parent: global.enabledSubAgents.pagerduty
-  - name: agent
+  - name: mcp-server
     version: 0.5.8-dev.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
     alias: agent-slack
     tags:
@@ -106,7 +103,7 @@ dependencies:
     import-values:
       - child: agentExports.data
         parent: global.enabledSubAgents.slack
-  - name: agent
+  - name: mcp-server
     version: 0.5.8-dev.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
     alias: agent-splunk
     tags:
@@ -115,7 +112,7 @@ dependencies:
     import-values:
       - child: agentExports.data
         parent: global.enabledSubAgents.splunk
-  - name: agent
+  - name: mcp-server
     version: 0.5.8-dev.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
     alias: agent-victorops
     tags:
@@ -123,7 +120,7 @@ dependencies:
     import-values:
       - child: agentExports.data
         parent: global.enabledSubAgents.victorops
-  - name: agent
+  - name: mcp-server
     version: 0.5.8-dev.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
     alias: agent-webex
     tags:
@@ -132,7 +129,7 @@ dependencies:
     import-values:
       - child: agentExports.data
         parent: global.enabledSubAgents.webex
-  - name: agent
+  - name: mcp-server
     version: 0.5.8-dev.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
     alias: agent-netutils
     tags:
@@ -141,24 +138,6 @@ dependencies:
     import-values:
       - child: agentExports.data
         parent: global.enabledSubAgents.netutils
-  - name: agent
-    version: 0.5.8-dev.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
-    alias: agent-weather
-    tags:
-      - agent-weather
-      - complete
-    import-values:
-      - child: agentExports.data
-        parent: global.enabledSubAgents.weather
-  - name: agent
-    version: 0.5.8-dev.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
-    alias: agent-petstore
-    tags:
-      - agent-petstore
-      - complete
-    import-values:
-      - child: agentExports.data
-        parent: global.enabledSubAgents.petstore
         # AGNTCY Slim dataplane service
   - name: slim
     version: v0.1.8
@@ -192,10 +171,6 @@ dependencies:
     version: 0.5.8-dev.1
     condition: caipe-ui.mongodb.enabled
     alias: mongodb
-  # Redis Stack for LangGraph checkpoint + store persistence
-  - name: langgraph-redis
-    version: 0.5.8-dev.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
-    condition: global.langgraphRedis.enabled
   # Skill Scanner — standalone cisco-ai-defense/skill-scanner REST API.
   # Required for the UI's skill safety scan; off by default.
   - name: skill-scanner

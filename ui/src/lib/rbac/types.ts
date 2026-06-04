@@ -9,18 +9,16 @@
 export type RbacResource =
   | "ai_assist"
   | "admin_ui"
-  | "chat_supervisor"
+  | "chat"
   | "credential_vault"
   | "feedback"
   | "slack"
-  | "supervisor"
   | "rag"
   | "self_profile"
   | "sub_agent"
   | "system_config"
   | "tool"
   | "skill"
-  | "a2a"
   | "mcp"
   | "team"
   | "user_directory"
@@ -131,7 +129,6 @@ export type UnifiedAuditOutcome = "allow" | "deny" | "success" | "error";
 export type AuditEventSource =
   | "webui_backend"
   | "bff"
-  | "supervisor"
   | "slack"
   | "dynamic_agents"
   | "openfga_authz_bridge";

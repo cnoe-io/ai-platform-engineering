@@ -186,7 +186,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      COMPOSE_PROFILES: "rbac,caipe-ui,caipe-supervisor,caipe-mongodb,dynamic-agents,rag,all-agents,slack-bot"
+      COMPOSE_PROFILES: "rbac,caipe-ui,caipe-mongodb,dynamic-agents,rag,all-agents,slack-bot"
       RBAC_E2E: "1"
     steps:
       - name: 🔒 Harden runner

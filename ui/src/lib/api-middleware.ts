@@ -280,7 +280,7 @@ interface RouteRbacPolicy {
 // See `docs/docs/specs/2026-05-27-fine-grained-rbac-for-withauth-routes/plan.md`
 // for the migration plan that replaces this resolver with a per-route
 // capability map and adds dedicated OpenFGA relations
-// (`self_profile#read`, `chat_supervisor#invoke`, `feedback#submit`, etc.).
+// (`self_profile#read`, `chat#invoke`, `feedback#submit`, etc.).
 // New routes should call the appropriate `require*Permission` helper
 // directly rather than relying on this legacy gate.
 function resolveLegacyWithAuthRbacPolicy(request: NextRequest): RouteRbacPolicy {
@@ -328,11 +328,10 @@ function resolveLegacyWithAuthRbacPolicy(request: NextRequest): RouteRbacPolicy 
   }
   if (
     pathname.startsWith('/api/chat') ||
-    pathname.startsWith('/api/a2a') ||
     pathname === '/api/dynamic-agents/models' ||
     pathname === '/api/dynamic-agents/available'
   ) {
-    return { resource: 'chat_supervisor', scope: 'invoke' };
+    return { resource: 'chat', scope: 'invoke' };
   }
   if (pathname.startsWith('/api/files')) {
     return method === 'GET'
@@ -592,7 +591,7 @@ function organizationRelationFor(resource: RbacResource, scope: RbacScope): stri
   if (resource === 'user_directory') {
     return 'can_search_directory';
   }
-  if (resource === 'chat_supervisor') {
+  if (resource === 'chat') {
     return 'can_chat';
   }
   if (resource === 'feedback') {

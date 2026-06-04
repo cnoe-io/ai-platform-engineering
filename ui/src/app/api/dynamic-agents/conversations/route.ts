@@ -15,7 +15,6 @@ import {
   getAuthFromBearerOrSession,
 } from "@/lib/api-middleware";
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
-import { getServerConfig } from "@/lib/config";
 import { requireResourcePermission } from "@/lib/rbac/resource-authz";
 import type { Conversation } from "@/types/mongodb";
 
@@ -25,11 +24,6 @@ import type { Conversation } from "@/types/mongodb";
  */
 export const GET = withErrorHandler(async (request: NextRequest) => {
   if (!isMongoDBConfigured) {
-    return paginatedResponse([], 0, 1, 20);
-  }
-
-  const config = getServerConfig();
-  if (!config.dynamicAgentsEnabled) {
     return paginatedResponse([], 0, 1, 20);
   }
 

@@ -73,5 +73,4 @@ unless the environment explicitly requires it.
 ## Related Pages
 
 - [Custom Agents](./custom-agents.md)
-- [BYO A2A Agents & MCP Servers](./byo-agents.md)
 - [Skills](./skills/README.md)

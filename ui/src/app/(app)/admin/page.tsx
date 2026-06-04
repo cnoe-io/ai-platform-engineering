@@ -47,7 +47,6 @@ import { SkillHubsSection } from "@/components/admin/SkillHubsSection";
 import { CrawlConsoleDialog } from "@/components/admin/CrawlConsoleDialog";
 import { CrawlConsoleHeaderPill } from "@/components/admin/CrawlConsoleHeaderPill";
 import { UserDetailPanel } from "@/components/admin/UserDetailPanel";
-import { SupervisorSkillsStatusSection } from "@/components/admin/SupervisorSkillsStatusSection";
 import { UserManagementTab } from "@/components/admin/UserManagementTab";
 import { UserDetailModal } from "@/components/admin/UserDetailModal";
 import { PlatformSettingsTab } from "@/components/admin/PlatformSettingsTab";
@@ -1805,8 +1804,7 @@ function AdminPage() {
                   </Card>
                 )}
 
-                {/* Supervisor skills + Skill Hubs */}
-                <SupervisorSkillsStatusSection isAdmin={isAdmin} />
+                {/* Skill Hubs */}
                 <SkillHubsSection isAdmin={isAdmin} />
               </TabsContent>
 
