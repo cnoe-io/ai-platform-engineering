@@ -473,14 +473,23 @@ export async function writeOpenFgaTuples(diff: TeamResourceTupleDiff): Promise<O
     return { enabled: true, writes: 0, deletes: 0 };
   }
 
-  // Chunk to honor OpenFGA's per-call entity limit. Each chunk is its
-  // own server-side transaction; on failure we attempt to compensate
-  // already-applied chunks so callers see "all-or-nothing" semantics
-  // across the full diff. If a chunk fails AND compensation also fails,
-  // we surface the original error and log the compensation failure —
-  // the caller is responsible for higher-level rollback (e.g. the
-  // identity-group-sync reconciler reverts Mongo state on this throw).
-  const chunks = chunkOpenFgaDiff(filteredDiff);
+  return applyDiffWithCompensation(baseUrl, storeId, filteredDiff);
+}
+
+/**
+ * Apply a diff in ≤limit-sized chunks. Each chunk is its own server-side
+ * transaction; on failure we attempt to compensate already-applied chunks so
+ * callers see "all-or-nothing" semantics across the full diff. If a chunk
+ * fails AND compensation also fails, we surface the original error and log the
+ * compensation failure — the caller is responsible for higher-level rollback
+ * (e.g. the identity-group-sync reconciler reverts Mongo state on this throw).
+ */
+async function applyDiffWithCompensation(
+  baseUrl: string,
+  storeId: string,
+  diff: TeamResourceTupleDiff,
+): Promise<OpenFgaReconcileResult> {
+  const chunks = chunkOpenFgaDiff(diff);
   const applied: OpenFgaChunkResult[] = [];
   let totalWrites = 0;
   let totalDeletes = 0;
@@ -523,6 +532,10 @@ export async function writeOpenFgaTuples(diff: TeamResourceTupleDiff): Promise<O
  * offboarding, which reads every tuple where the channel is subject or
  * object) use this instead. Deleting a tuple that no longer exists is a
  * server-side error, so only pass keys observed via a recent read.
+ *
+ * Like `writeOpenFgaTuples`, the deletes are chunked to honor OpenFGA's
+ * per-call entity limit and a failed chunk compensates the already-applied
+ * chunks (re-writing them) so the call is all-or-nothing across the diff.
  */
 export async function deleteExactOpenFgaTuples(
   deletes: OpenFgaTupleKey[]
@@ -540,12 +553,7 @@ export async function deleteExactOpenFgaTuples(
     throw new Error("OPENFGA_HTTP is not set");
   }
   const storeId = await getOpenFgaStoreId();
-  let total = 0;
-  for (const chunk of chunkOpenFgaDiff({ writes: [], deletes: unique })) {
-    await postOpenFgaWriteChunk(baseUrl, storeId, chunk);
-    total += chunk.deletes.length;
-  }
-  return { enabled: true, writes: 0, deletes: total };
+  return applyDiffWithCompensation(baseUrl, storeId, { writes: [], deletes: unique });
 }
 
 /**

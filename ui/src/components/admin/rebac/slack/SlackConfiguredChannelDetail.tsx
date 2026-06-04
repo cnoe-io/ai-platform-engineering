@@ -404,6 +404,7 @@ export function SlackConfiguredChannelDetail({
   setLoading,
   selectedCanManage,
   onRefresh,
+  onDeselect,
   routesFor,
   listApi,
 }: {
@@ -416,6 +417,7 @@ export function SlackConfiguredChannelDetail({
   setLoading: (loading: boolean) => void;
   selectedCanManage: boolean;
   onRefresh: (routes?: ItemAgentRoute[]) => Promise<void> | void;
+  onDeselect: () => void;
   routesFor: (workspaceId: string, itemId: string) => string;
   listApi: string;
 }) {
@@ -473,6 +475,9 @@ export function SlackConfiguredChannelDetail({
       if (!res.ok) throw new Error(await res.text());
       setChannelDeleteOpen(false);
       toast(`Removed ${selected.item_name || selected.item_id} from CAIPE.`, "success");
+      // Close the detail panel before reloading so it doesn't briefly render
+      // for a channel that no longer exists.
+      onDeselect();
       await onRefresh();
     } catch (err) {
       toast(err instanceof Error ? err.message : "Failed to delete Slack channel", "error");

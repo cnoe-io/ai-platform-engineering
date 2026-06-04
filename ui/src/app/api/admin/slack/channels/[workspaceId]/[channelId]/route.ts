@@ -16,27 +16,42 @@ interface RouteContext {
   params: Promise<{ workspaceId: string; channelId: string }>;
 }
 
-// Every tuple touching a channel encodes it as `slack_channel:<ws>--<ch>` —
-// either in the `user` field (channel→resource grants, e.g. the channel may
-// `use` agent:x) or in the `object` field (team→channel visibility, e.g.
-// team:<slug>#member is a `user` of the channel). A single read-all pass
-// catches both directions; we match the channel string against both fields.
-async function listChannelTuples(workspaceId: string, channelId: string): Promise<OpenFgaTupleKey[]> {
-  const channelRef = `slack_channel:${slackChannelSubjectId(workspaceId, channelId)}`;
-  const matches: OpenFgaTupleKey[] = [];
+// Read every stored tuple matching a partial key, following pagination.
+async function readAllTuples(filter: Partial<OpenFgaTupleKey>): Promise<OpenFgaTupleKey[]> {
+  const keys: OpenFgaTupleKey[] = [];
   let continuationToken: string | undefined;
   do {
     const result = await readOpenFgaTuples({
+      tuple: filter,
       pageSize: 100,
       ...(continuationToken ? { continuationToken } : {}),
     });
-    for (const tuple of result.tuples) {
-      if (tuple.key.user === channelRef || tuple.key.object === channelRef) {
-        matches.push(tuple.key);
-      }
-    }
+    for (const tuple of result.tuples) keys.push(tuple.key);
     continuationToken = result.continuationToken;
   } while (continuationToken);
+  return keys;
+}
+
+// Every tuple touching a channel encodes it as `slack_channel:<ws>--<ch>` —
+// either in the `user` field (channel→resource grants, e.g. the channel may
+// `use` agent:x) or in the `object` field (team→channel visibility, e.g.
+// team:<slug>#member is a `user` of the channel). Two server-side filtered
+// reads (by user, by object) scope the scan to this channel's tuples instead
+// of paging the whole store; we union and dedup the two directions.
+async function listChannelTuples(workspaceId: string, channelId: string): Promise<OpenFgaTupleKey[]> {
+  const channelRef = `slack_channel:${slackChannelSubjectId(workspaceId, channelId)}`;
+  const [asUser, asObject] = await Promise.all([
+    readAllTuples({ user: channelRef }),
+    readAllTuples({ object: channelRef }),
+  ]);
+  const seen = new Set<string>();
+  const matches: OpenFgaTupleKey[] = [];
+  for (const key of [...asUser, ...asObject]) {
+    const dedup = `${key.user}\n${key.relation}\n${key.object}`;
+    if (seen.has(dedup)) continue;
+    seen.add(dedup);
+    matches.push(key);
+  }
   return matches;
 }
 
