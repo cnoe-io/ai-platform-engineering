@@ -4,10 +4,12 @@ import yaml from "js-yaml";
 import {
   agentGatewayAdminConfigUrl,
   agentGatewayMcpEndpointUrl,
+  builtinCredentialSourcesFor,
   buildAgentGatewayMcpDiscovery,
   extractAgentGatewayMcpTargets,
   toAgentGatewayMcpServerDocument,
 } from "../agentgateway-mcp-discovery";
+import type { AgentGatewayMcpDiscoveryTarget } from "../agentgateway-mcp-discovery";
 import type { MCPServerConfig } from "@/types/dynamic-agent";
 
 // Mirrors the real agentgateway standalone proxy v0.12 admin /config output,
@@ -266,5 +268,53 @@ describe("AgentGateway MCP discovery", () => {
         agentgateway_target_endpoint: "http://rag-server:9446/mcp",
       }),
     );
+  });
+
+  it("attaches built-in caller_token credential source for the knowledge-base target", () => {
+    const target: AgentGatewayMcpDiscoveryTarget = {
+      id: "knowledge-base",
+      name: "Knowledge Base",
+      transport: "http",
+      endpoint: "http://agentgateway:4000/mcp/knowledge-base",
+      enabled: true,
+      status: "new",
+      target_endpoint: "http://rag-server:9446/mcp",
+    };
+    const doc = toAgentGatewayMcpServerDocument(target, "2026-05-17T00:00:00.000Z");
+    expect(doc.credential_sources).toEqual([
+      {
+        kind: "caller_token",
+        name: "X-CAIPE-Provider-Token",
+        target: "header",
+        fallback_client_credentials: true,
+      },
+    ]);
+  });
+
+  it("attaches built-in provider_connection credential source for github with PAT fallback", () => {
+    expect(builtinCredentialSourcesFor("github")).toEqual([
+      {
+        kind: "provider_connection",
+        name: "X-CAIPE-Provider-Token",
+        provider: "github",
+        target: "header",
+        fallback_env: "GITHUB_PERSONAL_ACCESS_TOKEN",
+      },
+    ]);
+  });
+
+  it("omits credential_sources for targets with no built-in mapping", () => {
+    const target: AgentGatewayMcpDiscoveryTarget = {
+      id: "argocd",
+      name: "Argocd",
+      transport: "http",
+      endpoint: "http://agentgateway:4000/mcp/argocd",
+      enabled: true,
+      status: "new",
+      target_endpoint: "http://mcp-argocd:8000/mcp",
+    };
+    const doc = toAgentGatewayMcpServerDocument(target, "2026-05-17T00:00:00.000Z");
+    expect(doc.credential_sources).toBeUndefined();
+    expect(builtinCredentialSourcesFor("argocd")).toBeUndefined();
   });
 });
