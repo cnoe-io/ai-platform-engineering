@@ -1161,7 +1161,6 @@ def handle_escalation_get_help(ack, body, client):
       user_id=user_id,
       escalation_config=esc_config,
       agent_id=vo_agent_id or "",
-      conversation_id=conversation_id,
     )
 
     # Mark conversation as escalated for admin dashboard resolution stats
