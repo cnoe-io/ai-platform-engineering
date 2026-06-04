@@ -95,6 +95,16 @@ export const UNIVERSAL_REBAC_RESOURCE_TYPES: readonly UniversalRebacResourceType
     description: "Knowledge base query, ingestion, and administration scope.",
   },
   {
+    type: "data_source",
+    actions: ["discover", "read", "use", "write", "ingest", "delete", "manage", "audit"],
+    description: "Data source within a knowledge base; inherits access from its parent_kb.",
+  },
+  {
+    type: "mcp_tool",
+    actions: ["discover", "read", "use", "call", "delete", "manage", "audit"],
+    description: "RAG custom MCP search tool created via the knowledge-base MCP API.",
+  },
+  {
     type: "document",
     actions: ["discover", "read", "write", "delete", "share", "audit"],
     description: "Document-level authorization target within a knowledge base.",
