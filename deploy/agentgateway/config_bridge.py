@@ -43,7 +43,6 @@ DEFAULT_MCP_ROUTE_POLICIES: dict[str, Any] = {
         # fail-closed 403s that surface as "MCP server unavailable". The bridge
         # always answers well under 10s. Keep this in sync with
         # deploy/agentgateway/config.yaml (bootstrap seed).
-        "timeout": "10s",
         "protocol": {
             "grpc": {
                 "metadata": {

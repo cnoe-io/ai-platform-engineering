@@ -37,7 +37,6 @@ binds:
           # cold OpenFGA/Postgres these serialize (75-150ms each) and blow that
           # 200ms budget, causing fail-closed 403s that surface as "MCP server
           # unavailable". The bridge always answers well under 10s.
-          timeout: 10s
           protocol:
             grpc:
               metadata:
@@ -82,7 +81,6 @@ binds:
         extAuthz:
           host: openfga-authz-bridge:9100
           failureMode: { denyWithStatus: 403 }
-          timeout: 10s
           protocol:
             grpc:
               metadata:
@@ -104,7 +102,6 @@ binds:
         extAuthz:
           host: openfga-authz-bridge:9100
           failureMode: { denyWithStatus: 403 }
-          timeout: 10s
           protocol:
             grpc:
               metadata:
@@ -161,7 +158,6 @@ binds:
         extAuthz:
           host: openfga-authz-bridge:9100
           failureMode: { denyWithStatus: 403 }
-          timeout: 10s
           protocol:
             grpc:
               metadata:

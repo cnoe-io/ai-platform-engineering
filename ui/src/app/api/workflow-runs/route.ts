@@ -51,7 +51,7 @@ async function userCanAccessConfig(
     await requireResourcePermission(
       session,
       { type: "task", id: configId, action: "read" },
-      { allowAdminBypass: true },
+      { bypassForOrgAdmin: true },
     );
     return true;
   } catch {
@@ -68,7 +68,7 @@ async function userCanDeleteConfigRuns(
     await requireResourcePermission(
       session,
       { type: "task", id: configId, action: "delete" },
-      { allowAdminBypass: true },
+      { bypassForOrgAdmin: true },
     );
     return true;
   } catch {
@@ -162,7 +162,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   await requireResourcePermission(
     session,
     { type: "task", id: workflow_config_id, action: "read" },
-    { allowAdminBypass: true },
+    { bypassForOrgAdmin: true },
   );
 
   // Build auth headers for DA server calls
@@ -260,7 +260,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     session,
     configCandidates,
     { type: "task", action: "read", id: (config) => config._id },
-    { allowAdminBypass: true },
+    { bypassForOrgAdmin: true },
   );
 
   const accessibleIds = accessibleConfigs.map((c) => c._id);

@@ -101,7 +101,13 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         const access = subject
           ? await slackChannelAccess(subject, workspaceId, row.slack_channel_id)
           : { canRead: false, canManage: false };
-        if (!access.canRead && !(row.source === "route_metadata" && canManageSlackSurface)) return null;
+        // A Slack surface admin can see every channel row, including
+        // team_mapping rows imported (config_sync) but not yet assigned to a
+        // team — those have no per-channel OpenFGA grants yet, so canRead is
+        // false, but the admin still needs to see them in order to onboard
+        // them. Without this, an imported-but-unassigned channel is invisible
+        // in the Configured Channels tab. Non-admins still require canRead.
+        if (!access.canRead && !canManageSlackSurface) return null;
         const [grants, routesForChannel, health] = await Promise.all([
           listSlackChannelGrants(workspaceId, row.slack_channel_id),
           routeCollection
@@ -124,7 +130,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
           team_id: row.team_id,
           team_slug: row.team_slug,
           active_grants: Math.max(grants.length, routesForChannel.length),
-          can_manage: access.canManage || (row.source === "route_metadata" && canManageSlackSurface),
+          can_manage: access.canManage || canManageSlackSurface,
           ...(health ? { health } : {}),
         };
       })

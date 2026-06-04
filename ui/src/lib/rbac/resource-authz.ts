@@ -43,12 +43,6 @@ export interface ResourceAuthzSession {
 export interface ResourcePermissionOptions {
   check?: (tuple: OpenFgaTupleKey) => Promise<OpenFgaCheckResult>;
   /**
-   * @deprecated OpenFGA is the PDP for resource checks. This option is retained
-   * for source compatibility with older call sites but no longer bypasses checks.
-   * Use `bypassForOrgAdmin` to explicitly opt into the org-admin super-grant.
-   */
-  allowAdminBypass?: boolean;
-  /**
    * When true, the resource-permission helpers short-circuit to allow if the
    * caller holds `user:<sub> can_manage organization:<caipeOrgKey>` in OpenFGA.
    *

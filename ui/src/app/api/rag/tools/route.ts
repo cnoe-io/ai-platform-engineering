@@ -100,7 +100,7 @@ export async function GET() {
       { sub: session.sub, role: session.role, user: session.user },
       results,
       { type: "tool", action: "read", id: (tool) => tool.tool_id },
-      { allowAdminBypass: true },
+      { bypassForOrgAdmin: true },
     );
 
     return NextResponse.json({ tools: visibleResults });
