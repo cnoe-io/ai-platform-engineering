@@ -218,7 +218,14 @@ describe("POST /v1/mcp/invoke — can_call gate", () => {
       forward();
       return Promise.resolve({ ok: true, status: 200, json: async () => ({}) } as Response);
     }) as jest.Mock;
-    mockCheckOpenFgaTuple.mockResolvedValue({ allowed: false });
+    // The caller HOLDS the org `can_search` capability (so we pass the outer
+    // search-capability gate and actually reach the fail-closed path under test),
+    // but every narrower grant is denied. The custom-tools listing error must
+    // then DENY with 503 (call_unavailable) rather than forward — a transient
+    // listing error cannot be used to bypass `can_call`.
+    mockCheckOpenFgaTuple.mockImplementation(async (tuple: { relation: string }) =>
+      tuple.relation === "can_search" ? { allowed: true } : { allowed: false },
+    );
 
     const { POST } = await import("@/app/api/rag/[...path]/route");
     const res = await POST(
