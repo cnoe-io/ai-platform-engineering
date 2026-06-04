@@ -358,20 +358,31 @@ describe("OpenFGA team resource tuple reconciliation", () => {
     process.env.OPENFGA_HTTP = "http://openfga:8080";
     process.env.OPENFGA_STORE_NAME = "caipe-openfga";
 
+    const existingWrite = {
+      user: "team:demo#member",
+      relation: "user",
+      object: "agent:a1",
+    };
     const fetchMock = jest
       .fn()
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({ stores: [{ id: "store-1", name: "caipe-openfga" }] }),
       })
-      // write tuple already exists -> do not include in write call
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ allowed: true }) })
-      // delete tuple is absent -> do not include in write call
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ allowed: false }) });
+      // write tuple already exists (Read) -> do not include in write call
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ tuples: [{ key: existingWrite }] }),
+      })
+      // delete tuple absent (Read) -> do not include in write call
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ tuples: [] }),
+      });
     global.fetch = fetchMock as unknown as typeof fetch;
 
     const result = await writeOpenFgaTupleDiff({
-      writes: [{ user: "team:demo#member", relation: "user", object: "agent:a1" }],
+      writes: [existingWrite],
       deletes: [{ user: "team:demo#member", relation: "caller", object: "tool:jira_*" }],
     });
 
@@ -380,6 +391,46 @@ describe("OpenFGA team resource tuple reconciliation", () => {
     expect(fetchMock).not.toHaveBeenCalledWith(
       "http://openfga:8080/stores/store-1/write",
       expect.anything()
+    );
+  });
+
+  it("does not use Check for idempotent filtering (skill migration tuples)", async () => {
+    process.env.OPENFGA_RECONCILE_ENABLED = "true";
+    process.env.OPENFGA_HTTP = "http://openfga:8080";
+    process.env.OPENFGA_STORE_NAME = "caipe-openfga";
+
+    const fetchMock = jest.fn(async (url: string) => {
+      if (String(url).endsWith("/stores")) {
+        return { ok: true, json: async () => ({ stores: [{ id: "store-1", name: "caipe-openfga" }] }) };
+      }
+      if (String(url).includes("/read")) {
+        return { ok: true, json: async () => ({ tuples: [] }) };
+      }
+      if (String(url).includes("/write")) {
+        return { ok: true, text: async () => "" };
+      }
+      if (String(url).includes("/check")) {
+        throw new Error("Check must not be used for tuple existence filtering");
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const result = await writeOpenFgaTupleDiff({
+      writes: [
+        {
+          user: "organization:caipe#member",
+          relation: "user",
+          object: "skill:global-skill",
+        },
+      ],
+      deletes: [{ user: "user:*", relation: "user", object: "skill:legacy" }],
+    });
+
+    expect(result).toEqual({ enabled: true, writes: 1, deletes: 0 });
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      expect.stringContaining("/check"),
+      expect.anything(),
     );
   });
 
@@ -486,7 +537,7 @@ describe("OpenFGA team resource tuple reconciliation", () => {
         ok: true,
         json: async () => ({ stores: [{ id: "store-1", name: "caipe-openfga" }] }),
       })
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ allowed: false }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ tuples: [] }) })
       .mockResolvedValueOnce({ ok: true, text: async () => "" });
     global.fetch = fetchMock as unknown as typeof fetch;
 
@@ -587,7 +638,7 @@ describe("OpenFGA team resource tuple reconciliation", () => {
     process.env.OPENFGA_HTTP = "http://openfga:8080";
     process.env.OPENFGA_STORE_NAME = "caipe-openfga";
 
-    const readPages = [
+    const listPages = [
       {
         tuples: [
           { key: { user: "agent:agent-platform-helper", relation: "caller", object: "tool:jira/search" } },
@@ -607,10 +658,28 @@ describe("OpenFGA team resource tuple reconciliation", () => {
         return { ok: true, json: async () => ({ stores: [{ id: "store-1", name: "caipe-openfga" }] }) };
       }
       if (url.endsWith("/read")) {
-        return { ok: true, json: async () => readPages.shift() };
-      }
-      if (url.endsWith("/check")) {
-        return { ok: true, json: async () => ({ allowed: true }) };
+        const body = init?.body ? JSON.parse(String(init.body)) : {};
+        const tk = body?.tuple_key as
+          | { user?: string; relation?: string; object?: string }
+          | undefined;
+        const isPagedList =
+          !tk || (!tk.user?.trim() && !tk.relation?.trim() && !tk.object?.trim());
+        if (isPagedList) {
+          return { ok: true, json: async () => listPages.shift() ?? { tuples: [] } };
+        }
+        const match = [
+          { user: "agent:agent-platform-helper", relation: "caller", object: "tool:jira/search" },
+          { user: "team:platform#admin", relation: "manager", object: "agent:agent-platform-helper" },
+        ].find(
+          (tuple) =>
+            tuple.user === body?.tuple_key?.user &&
+            tuple.relation === body?.tuple_key?.relation &&
+            tuple.object === body?.tuple_key?.object,
+        );
+        return {
+          ok: true,
+          json: async () => ({ tuples: match ? [{ key: match }] : [] }),
+        };
       }
       if (url.endsWith("/write")) {
         writes.push(JSON.parse(String(init?.body)));

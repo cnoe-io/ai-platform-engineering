@@ -324,9 +324,10 @@ type document
 
 type skill
   relations
+    define creator: [user]
     define owner: [user, service_account]
-    define reader: [user, service_account, team#member, team#admin, external_group#member, slack_channel, webex_space]
-    define user: [user, service_account, team#member, team#admin, external_group#member, slack_channel, webex_space]
+    define reader: [user, service_account, team#member, team#admin, external_group#member, organization#member, slack_channel, webex_space]
+    define user: [user, service_account, team#member, team#admin, external_group#member, organization#member, slack_channel, webex_space]
     define writer: [user, service_account, team#member, team#admin]
     define manager: [user, service_account, team#admin]
     define auditor: [user, service_account, team#admin]

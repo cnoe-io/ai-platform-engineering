@@ -195,7 +195,7 @@ describe("runZipImport — import phase", () => {
     if (result.phase !== "import") throw new Error("expected import");
     const [savedSkill] = persistSpy.mock.calls[0];
     expect(savedSkill.visibility).toBe("team");
-    expect(savedSkill.shared_with_teams).toEqual(["platform"]);
+    expect(savedSkill.shared_with_teams).toBeUndefined();
     expect(grantTeamAccess).toHaveBeenCalledWith(["platform"], [savedSkill.id]);
   });
 

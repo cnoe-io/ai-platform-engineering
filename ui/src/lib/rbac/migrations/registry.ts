@@ -141,6 +141,12 @@ export const PARENT_KB_INHERITANCE_BACKFILL_MIGRATION_ID =
 // removed. Strictly additive, idempotent.
 export const CREATOR_FROM_OWNER_BACKFILL_MIGRATION_ID =
   "creator_from_owner_backfill_v1";
+// Reconciles every `agent_skills` Mongo row to OpenFGA: owner/creator tuples,
+// team shares when visibility is `team`, org-wide grant when `global`, and
+// revokes stale `team#member user skill:<id>` grants left after demoting to
+// `private` before PUT reconciliation shipped.
+export const AGENT_SKILL_OPENFGA_RECONCILE_MIGRATION_ID =
+  "agent_skill_openfga_reconcile_v1";
 const RBAC_INDEXES_MIGRATION_ID = "rbac_indexes_v1";
 const SLACK_CHANNEL_REBAC_MIGRATION_ID = "slack_channel_rebac_backfill_v1";
 const WEBEX_SPACE_REBAC_MIGRATION_ID = "webex_space_rebac_backfill_v1";
@@ -380,6 +386,20 @@ export const MIGRATION_DEFINITIONS: MigrationDefinition[] = [
     implemented: true,
   },
   {
+    id: AGENT_SKILL_OPENFGA_RECONCILE_MIGRATION_ID,
+    release: RELEASE_058,
+    schema_area: "agent_skills",
+    from_version: 1,
+    to_version: 2,
+    kind: "explicit",
+    title: "Agent skill OpenFGA visibility reconcile",
+    description:
+      "Aligns OpenFGA grants with each skill's Mongo `visibility`: writes owner/creator tuples, grants or revokes team/org-wide access from existing FGA state, and removes stale team shares on private skills so gallery `can_discover` matches the Private badge.",
+    confirmation: "MIGRATE agent_skills TO v2",
+    required: true,
+    implemented: true,
+  },
+  {
     id: "rbac_indexes_v1",
     release: RELEASE_051,
     schema_area: "audit_events",
@@ -492,6 +512,7 @@ interface MigrationOverrideDoc {
 
 interface MigrationRuntimePlan extends MigrationPlanResult {
   tuples?: OpenFgaTupleKey[];
+  tuple_deletes?: OpenFgaTupleKey[];
   relationships?: Array<{
     subject: { type: string; id: string; relation?: string };
     action: string;
@@ -2757,6 +2778,12 @@ export async function planMigration(migrationId: string, now = new Date().toISOS
     const tuples = await loadAllOpenFgaTuples();
     return deriveCreatorFromOwnerBackfillPlan(tuples);
   }
+  if (migrationId === AGENT_SKILL_OPENFGA_RECONCILE_MIGRATION_ID) {
+    const { planAgentSkillOpenFgaReconcileMigration } = await import(
+      "./agent-skill-openfga-reconcile"
+    );
+    return planAgentSkillOpenFgaReconcileMigration();
+  }
   if (migrationId === RBAC_INDEXES_MIGRATION_ID) {
     return deriveIndexPlan();
   }
@@ -2868,9 +2895,14 @@ async function applyRuntimePlan(input: {
   now: string;
 }): Promise<MigrationApplyResult> {
   let tupleWritesApplied = 0;
-  if (input.plan.tuples && input.plan.tuples.length > 0) {
-    const result = await writeOpenFgaTuples({ writes: input.plan.tuples, deletes: [] });
+  let tupleDeletesApplied = 0;
+  const tupleWrites = input.plan.tuples ?? [];
+  const tupleDeletes = input.plan.tuple_deletes ?? [];
+  if (tupleWrites.length > 0 || tupleDeletes.length > 0) {
+    const { writeOpenFgaTupleDiff } = await import("@/lib/rbac/openfga");
+    const result = await writeOpenFgaTupleDiff({ writes: tupleWrites, deletes: tupleDeletes });
     tupleWritesApplied = result.writes;
+    tupleDeletesApplied = result.deletes;
   }
 
   let relationshipsUpserted = 0;
@@ -2965,6 +2997,7 @@ async function applyRuntimePlan(input: {
     ...input.plan,
     applied_counts: {
       tuple_writes_applied: tupleWritesApplied,
+      tuple_deletes_applied: tupleDeletesApplied,
       relationships_upserted: relationshipsUpserted,
       membership_sources_upserted: membershipSourcesUpserted,
       indexes_created: indexesCreated,
@@ -3007,6 +3040,19 @@ export async function applyMigration(input: {
 
   if (input.migrationId === KEYCLOAK_RBAC_RECONCILIATION_MIGRATION_ID) {
     return applyKeycloakRbacReconciliationMigration({ actor: input.actor, now });
+  }
+
+  if (input.migrationId === AGENT_SKILL_OPENFGA_RECONCILE_MIGRATION_ID) {
+    const { planAgentSkillOpenFgaReconcileMigration, applyAgentSkillOpenFgaReconcileMigration } =
+      await import("./agent-skill-openfga-reconcile");
+    const plan = await planAgentSkillOpenFgaReconcileMigration();
+    const result = await applyAgentSkillOpenFgaReconcileMigration({
+      plan,
+      actor: input.actor,
+      now,
+    });
+    await recordCompletedMigration({ definition, result, now, actor: input.actor });
+    return result;
   }
 
   if (input.migrationId !== CONVERSATION_OWNER_IDENTITY_MIGRATION_ID) {

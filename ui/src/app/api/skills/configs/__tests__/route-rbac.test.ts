@@ -10,6 +10,7 @@ const mockFilterResourcesByPermission = jest.fn();
 const mockRequireResourcePermission = jest.fn();
 const mockGrantSkillsToTeams = jest.fn();
 const mockReconcileSkillTeamShares = jest.fn();
+const mockReadSkillSharedTeamSlugsFromOpenFga = jest.fn(async () => [] as string[]);
 
 jest.mock("@/lib/mongodb", () => ({
   getCollection: (...args: unknown[]) => mockGetCollection(...args),
@@ -53,11 +54,24 @@ jest.mock("@/lib/api-middleware", () => {
 jest.mock("@/lib/rbac/resource-authz", () => ({
   filterResourcesByPermission: (...args: unknown[]) => mockFilterResourcesByPermission(...args),
   requireResourcePermission: (...args: unknown[]) => mockRequireResourcePermission(...args),
+  requireSkillPermission: (...args: unknown[]) => mockRequireResourcePermission(...args),
 }));
 
 jest.mock("@/lib/rbac/skill-team-grants", () => ({
   grantSkillsToTeams: (...args: unknown[]) => mockGrantSkillsToTeams(...args),
   reconcileSkillTeamShares: (...args: unknown[]) => mockReconcileSkillTeamShares(...args),
+  readSkillSharedTeamSlugsFromOpenFga: (...args: unknown[]) =>
+    mockReadSkillSharedTeamSlugsFromOpenFga(...args),
+}));
+
+jest.mock("@/lib/agent-skill-visibility", () => ({
+  getAgentSkillVisibleToUser: jest.fn(async (id: string) => {
+    const { getCollection } = jest.requireMock("@/lib/mongodb");
+    const collection = await getCollection();
+    return collection.findOne({ id });
+  }),
+  hydrateAgentSkillTeamShares: jest.fn(async (skill: { id: string }) => skill),
+  hydrateAgentSkillTeamSharesList: jest.fn(async (skills: unknown[]) => skills),
 }));
 
 jest.mock("@/lib/rbac/keycloak-resource-sync", () => ({
@@ -142,7 +156,8 @@ describe("GET /api/skills/configs RBAC cutover", () => {
     expect(findOne).toHaveBeenCalledWith({ id: "skill-openfga-only" });
     expect(mockRequireResourcePermission).toHaveBeenCalledWith(
       expect.objectContaining({ sub: "alice-sub" }),
-      { type: "skill", id: "skill-openfga-only", action: "read" },
+      "skill-openfga-only",
+      "read",
     );
     expect(body).toMatchObject({ id: "skill-openfga-only" });
   });
@@ -159,7 +174,8 @@ describe("GET /api/skills/configs RBAC cutover", () => {
     };
     const findOne = jest
       .fn()
-      .mockResolvedValueOnce(skill)
+      .mockResolvedValueOnce(skill) // PUT pre-heal visibility load
+      .mockResolvedValueOnce(skill) // updateAgentSkillInMongoDB before row
       .mockResolvedValueOnce({ ...skill, description: "after" });
     const updateOne = jest.fn().mockResolvedValue({ matchedCount: 1, modifiedCount: 1 });
     mockGetCollection.mockResolvedValue({ findOne, updateOne });
@@ -175,7 +191,8 @@ describe("GET /api/skills/configs RBAC cutover", () => {
     expect(response.status).toBe(200);
     expect(mockRequireResourcePermission).toHaveBeenCalledWith(
       expect.objectContaining({ sub: "alice-sub" }),
-      { type: "skill", id: "skill-openfga-write", action: "write" },
+      "skill-openfga-write",
+      "write",
     );
     expect(updateOne).toHaveBeenCalledWith(
       { id: "skill-openfga-write" },
@@ -210,12 +227,15 @@ describe("GET /api/skills/configs RBAC cutover", () => {
     // write-only grant helper. Fresh create has no previous shares to revoke.
     expect(mockReconcileSkillTeamShares).toHaveBeenCalledWith({
       skillId: savedSkill.id,
+      ownerSubject: "alice-sub",
       previousTeamRefs: [],
       nextTeamRefs: ["platform"],
+      nextVisibility: "team",
     });
   });
 
   it("revokes un-shared teams on update (shared reconciler diff)", async () => {
+    mockReadSkillSharedTeamSlugsFromOpenFga.mockResolvedValue(["platform", "sre"]);
     const skill = {
       id: "skill-reshared",
       name: "Reshared",
@@ -228,7 +248,8 @@ describe("GET /api/skills/configs RBAC cutover", () => {
     };
     const findOne = jest
       .fn()
-      .mockResolvedValueOnce(skill)
+      .mockResolvedValueOnce(skill) // PUT pre-heal owner tuple
+      .mockResolvedValueOnce(skill) // updateAgentSkillInMongoDB before row
       .mockResolvedValueOnce({ ...skill, shared_with_teams: ["platform"] });
     const updateOne = jest.fn().mockResolvedValue({ matchedCount: 1, modifiedCount: 1 });
     mockGetCollection.mockResolvedValue({ findOne, updateOne });
@@ -244,10 +265,60 @@ describe("GET /api/skills/configs RBAC cutover", () => {
     expect(response.status).toBe(200);
     // Dropping "sre" from the shared set must reach the reconciler with the
     // previous and next team sets so the stale grant is revoked, not orphaned.
-    expect(mockReconcileSkillTeamShares).toHaveBeenCalledWith({
+    expect(mockReconcileSkillTeamShares).toHaveBeenNthCalledWith(1, {
       skillId: "skill-reshared",
+      ownerSubject: "alice-sub",
+      previousTeamRefs: ["platform", "sre"],
+      nextTeamRefs: ["platform", "sre"],
+      nextVisibility: "team",
+      previousVisibility: "team",
+    });
+    expect(mockReconcileSkillTeamShares).toHaveBeenNthCalledWith(2, {
+      skillId: "skill-reshared",
+      ownerSubject: "alice-sub",
       previousTeamRefs: ["platform", "sre"],
       nextTeamRefs: ["platform"],
+      nextVisibility: "team",
+      previousVisibility: "team",
+    });
+  });
+
+  it("revokes all team shares when demoting to private visibility", async () => {
+    mockReadSkillSharedTeamSlugsFromOpenFga.mockResolvedValue(["platform"]);
+    const skill = {
+      id: "skill-private",
+      name: "Hello",
+      description: "before",
+      visibility: "team",
+      owner_id: "alice@example.com",
+      is_system: false,
+      shared_with_teams: ["platform"],
+      tasks: [{ display_text: "Task", llm_prompt: "Do it", subagent: "skills" }],
+    };
+    const findOne = jest
+      .fn()
+      .mockResolvedValueOnce(skill)
+      .mockResolvedValueOnce(skill)
+      .mockResolvedValueOnce({ ...skill, visibility: "private", shared_with_teams: undefined });
+    const updateOne = jest.fn().mockResolvedValue({ matchedCount: 1, modifiedCount: 1 });
+    mockGetCollection.mockResolvedValue({ findOne, updateOne });
+    const { PUT } = await import("../route");
+
+    const response = await PUT(
+      new NextRequest(new URL("/api/skills/configs?id=skill-private", "http://localhost:3000"), {
+        method: "PUT",
+        body: JSON.stringify({ visibility: "private" }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockReconcileSkillTeamShares).toHaveBeenLastCalledWith({
+      skillId: "skill-private",
+      ownerSubject: "alice-sub",
+      previousTeamRefs: ["platform"],
+      nextTeamRefs: [],
+      nextVisibility: "private",
+      previousVisibility: "team",
     });
   });
 });

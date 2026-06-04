@@ -7,6 +7,7 @@ import { ApiError } from "@/lib/api-error";
 import {
   filterResourcesByPermission,
   requireResourcePermission,
+  requireSkillPermission,
 } from "../resource-authz";
 
 // The `bypassForOrgAdmin: true` option lets the resource-permission helpers
@@ -161,6 +162,30 @@ describe("resource-authz org-admin bypass", () => {
       expect(check).not.toHaveBeenCalledWith(
         expect.objectContaining({ object: "organization:caipe" }),
       );
+    });
+  });
+
+  describe("requireSkillPermission", () => {
+    it("allows app admins with admin_surface:skills#can_manage without a per-skill tuple", async () => {
+      const check = jest.fn(async (tuple) => {
+        if (tuple.object === "admin_surface:skills" && tuple.relation === "can_manage") {
+          return { allowed: true };
+        }
+        return { allowed: false };
+      });
+      await expect(
+        requireSkillPermission(
+          { sub: "admin-sub", role: "admin" },
+          "skill-hello",
+          "write",
+          { check },
+        ),
+      ).resolves.toBeUndefined();
+      expect(check).toHaveBeenCalledWith({
+        user: "user:admin-sub",
+        relation: "can_manage",
+        object: "admin_surface:skills",
+      });
     });
   });
 });

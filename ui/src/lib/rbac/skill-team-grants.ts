@@ -1,7 +1,10 @@
 import { ObjectId } from "mongodb";
 
 import { getCollection } from "@/lib/mongodb";
+import { teamSlugsFromSkillTuples } from "@/lib/rbac/agent-skill-openfga-reconcile";
 import {
+  isOpenFgaReconciliationEnabled,
+  readOpenFgaTuples,
   writeOpenFgaTupleDiff,
   type OpenFgaReconcileResult,
   type OpenFgaTupleKey,
@@ -93,12 +96,23 @@ export function buildSkillTeamGrantTuples(
   return tuples;
 }
 
+export type SkillShareVisibility = "private" | "team" | "global";
+
 export interface ReconcileSkillTeamSharesInput {
   skillId: string;
+  /** Keycloak `sub` of the skill author → `user:<sub> owner skill:<id>` (and creator). */
+  ownerSubject?: string | null;
   /** Team refs (slug or ObjectId) the skill was shared with before this write. */
   previousTeamRefs?: string[] | null;
   /** Team refs the skill should be shared with after this write ([] = revoke all). */
   nextTeamRefs?: string[] | null;
+  /**
+   * When set, drives the desired team set (`team` only) and org-wide grant
+   * (`global`). `private` revokes all team shares and org-wide grants.
+   */
+  nextVisibility?: SkillShareVisibility;
+  /** Prior visibility so demoting from `global` revokes org-wide tuples. */
+  previousVisibility?: SkillShareVisibility;
 }
 
 /**
@@ -115,18 +129,55 @@ export interface ReconcileSkillTeamSharesInput {
 export async function reconcileSkillTeamShares(
   input: ReconcileSkillTeamSharesInput,
 ): Promise<OpenFgaReconcileResult> {
+  const visibilityDriven = input.nextVisibility !== undefined;
+  const nextVisibility = input.nextVisibility ?? "private";
+  const previousVisibility = input.previousVisibility ?? nextVisibility;
+
+  const nextTeamRefs =
+    visibilityDriven && nextVisibility !== "team"
+      ? []
+      : normalizeList(input.nextTeamRefs);
+  const previousTeamRefs = normalizeList(input.previousTeamRefs);
+
   const [previousSharedTeamSlugs, nextSharedTeamSlugs] = await Promise.all([
-    resolveTeamSlugs(normalizeList(input.previousTeamRefs)),
-    resolveTeamSlugs(normalizeList(input.nextTeamRefs)),
+    resolveTeamSlugs(previousTeamRefs),
+    resolveTeamSlugs(nextTeamRefs),
   ]);
+  const ownerSubject =
+    typeof input.ownerSubject === "string" && input.ownerSubject.trim()
+      ? input.ownerSubject.trim()
+      : null;
   return reconcileShareableResource({
     objectType: "skill",
     objectId: input.skillId,
+    creatorSubject: ownerSubject,
+    ownerSubject,
     ownerTeamSlug: null,
     nextSharedTeamSlugs,
     previousSharedTeamSlugs,
     memberRelations: ["user"],
+    sharedWithOrg: visibilityDriven ? nextVisibility === "global" : undefined,
+    previousSharedWithOrg: visibilityDriven ? previousVisibility === "global" : undefined,
   });
+}
+
+/**
+ * Team slugs currently granted `team:<slug>#member user skill:<id>` in OpenFGA.
+ * Used instead of Mongo `shared_with_teams` (authorization state lives in FGA only).
+ */
+export async function readSkillSharedTeamSlugsFromOpenFga(skillId: string): Promise<string[]> {
+  if (!isOpenFgaReconciliationEnabled()) return [];
+  const object = `skill:${skillId}`;
+  const tuples: OpenFgaTupleKey[] = [];
+  let continuationToken: string | undefined;
+  do {
+    const page = await readOpenFgaTuples({ tuple: { object }, continuationToken, pageSize: 100 });
+    for (const entry of page.tuples) {
+      tuples.push(entry.key);
+    }
+    continuationToken = page.continuationToken;
+  } while (continuationToken);
+  return teamSlugsFromSkillTuples(skillId, tuples);
 }
 
 export async function grantSkillsToTeams(
