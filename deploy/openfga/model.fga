@@ -27,6 +27,11 @@ model
 
 type user
 type service_account
+# Subject-only placeholder for unauthenticated callers. The AGW ext_authz bridge
+# uses the literal subject "anonymous" when no JWT is present; this empty type keeps
+# the authored model in parity with the deployed chart JSON (no relations → grants
+# nothing). assisted-by Cursor claude-opus-4.8
+type anonymous
 
 type user_profile
   relations
@@ -59,9 +64,28 @@ type organization
     define member: [user, service_account, team#member, team#admin, external_group#member]
     define admin: [user, service_account, team#admin]
     define auditor: [user, service_account, team#member, team#admin, external_group#member]
+    # Explicit "data source author" capability (spec 2026-06-03). Granted to
+    # teams only (no direct user/service_account grants) and only by org
+    # admins. `can_ingest` gates BOTH the Knowledge Base ingest UI and the
+    # server-side create endpoints; org admins author implicitly via `admin`.
+    # This is intentionally separate from per-knowledge_base `ingestor`, which
+    # means only "push into KB X".
+    # assisted-by Cursor claude-opus-4.8
+    define ingestor: [team#member, team#admin]
+    # Explicit "search" capability (spec 2026-06-03-explicit-search-capability).
+    # Granted to teams only (no direct user/service_account grants) and only by
+    # org admins. `can_search` gates BOTH the Knowledge Base Search tab and the
+    # server-side data path (`/v1/query`, `/v1/mcp/invoke`) for built-in and
+    # custom tools. It is a feature-level capability layered ABOVE the narrower
+    # per-tool `mcp_tool#can_call` and per-datasource `data_source#can_read`
+    # checks; holding `can_call` alone does NOT grant search.
+    # assisted-by Cursor claude-opus-4.8
+    define searcher: [team#member, team#admin]
     define can_use: member or admin
     define can_manage: admin
     define can_audit: auditor or admin
+    define can_ingest: ingestor or admin
+    define can_search: searcher or admin
     define can_read_self: member or admin
     define can_manage_self: member or admin
     define can_search_directory: member or admin
