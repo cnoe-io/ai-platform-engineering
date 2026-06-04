@@ -317,6 +317,10 @@ class MCPToolConfig(OwnedResourceMixin, BaseModel):
   description: str = Field(default="", description="Tool description shown to the LLM agent")
   parallel_searches: List[ParallelSearch] = Field(default_factory=lambda: [ParallelSearch(label="results")], description="One or more parallel sub-searches. Response is a dict keyed by label.")
   allow_runtime_filters: bool = Field(default=False, description="If True, expose a 'filters' parameter so the LLM can pass extra filters per-call.")
+  shared_with_org: bool = Field(
+    default=False,
+    description="If True, every organization member may call/use this tool (in addition to the owner and shared teams). The OpenFGA projection grants organization#member reader/user/caller.",
+  )
   enabled: bool = True
   created_at: int = Field(default=0, description="Unix timestamp of creation")
   updated_at: int = Field(default=0, description="Unix timestamp of last update")

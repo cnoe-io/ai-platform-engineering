@@ -570,7 +570,7 @@ describe("data_source grants backfill migration", () => {
 });
 
 describe("mcp_tool grants backfill migration", () => {
-  it("emits reader, user, AND manager tuples per (team, tool_id) row", () => {
+  it("emits reader, user, caller, AND manager tuples per (team, tool_id) row", () => {
     const plan = deriveMcpToolGrantsBackfillPlan(
       [
         { team_id: "team-1", tool_ids: ["search", "infra-search"] },
@@ -586,15 +586,16 @@ describe("mcp_tool grants backfill migration", () => {
       ownership_rows_scanned: 2,
       ownership_rows_resolved: 2,
       teams_touched: 2,
-      tuples_planned: 9, // 3 tools × 3 relations each
+      tuples_planned: 12, // 3 tools × 4 relations each (reader, user, caller, manager)
     });
     expect(plan.tuples).toEqual(
       expect.arrayContaining([
         { user: "team:platform#member", relation: "reader", object: "mcp_tool:search" },
         { user: "team:platform#member", relation: "user", object: "mcp_tool:search" },
+        { user: "team:platform#member", relation: "caller", object: "mcp_tool:search" },
         { user: "team:platform#admin", relation: "manager", object: "mcp_tool:search" },
         { user: "team:platform#member", relation: "reader", object: "mcp_tool:infra-search" },
-        { user: "team:data-eng#member", relation: "user", object: "mcp_tool:custom-tool" },
+        { user: "team:data-eng#member", relation: "caller", object: "mcp_tool:custom-tool" },
       ]),
     );
   });
@@ -621,7 +622,7 @@ describe("mcp_tool grants backfill migration", () => {
     );
     expect(plan.counts).toMatchObject({
       invalid_tool_ids: 1,
-      tuples_planned: 3,
+      tuples_planned: 4,
     });
     expect(plan.warnings.some((w: string) => w.includes("bad id with spaces"))).toBe(true);
   });

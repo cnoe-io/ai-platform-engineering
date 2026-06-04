@@ -79,7 +79,7 @@ describe("buildDataSourceRelationshipTupleDiff", () => {
 describe("buildMcpToolRelationshipTupleDiff", () => {
   const TOOL = "mcp_tool:custom-search";
 
-  it("emits reader, user, AND manager tuples for the owner team", () => {
+  it("emits reader, user, caller, AND manager tuples for the owner team", () => {
     const diff = buildMcpToolRelationshipTupleDiff({
       toolId: "custom-search",
       ownerSubject: "alice-sub",
@@ -90,12 +90,64 @@ describe("buildMcpToolRelationshipTupleDiff", () => {
       { user: "user:alice-sub", relation: "owner", object: TOOL },
       { user: "team:platform#member", relation: "reader", object: TOOL },
       { user: "team:platform#member", relation: "user", object: TOOL },
+      { user: "team:platform#member", relation: "caller", object: TOOL },
       { user: "team:platform#admin", relation: "manager", object: TOOL },
     ]);
     expect(diff.deletes).toEqual([]);
   });
 
-  it("emits both reader and user delete tuples when revoking a shared team", () => {
+  it("grants organization#member reader/user/caller when shared with the org", () => {
+    const diff = buildMcpToolRelationshipTupleDiff({
+      toolId: "custom-search",
+      ownerTeamSlug: "platform",
+      sharedWithOrg: true,
+    });
+
+    expect(diff.writes).toEqual(
+      expect.arrayContaining([
+        { user: "organization:caipe#member", relation: "reader", object: TOOL },
+        { user: "organization:caipe#member", relation: "user", object: TOOL },
+        { user: "organization:caipe#member", relation: "caller", object: TOOL },
+      ]),
+    );
+    expect(diff.deletes).toEqual([]);
+  });
+
+  it("revokes organization#member grants when org sharing is turned off", () => {
+    const diff = buildMcpToolRelationshipTupleDiff({
+      toolId: "custom-search",
+      ownerTeamSlug: "platform",
+      sharedWithOrg: false,
+      previousSharedWithOrg: true,
+    });
+
+    expect(diff.deletes).toEqual(
+      expect.arrayContaining([
+        { user: "organization:caipe#member", relation: "reader", object: TOOL },
+        { user: "organization:caipe#member", relation: "user", object: TOOL },
+        { user: "organization:caipe#member", relation: "caller", object: TOOL },
+      ]),
+    );
+    // No org writes when turning off.
+    expect(diff.writes).not.toContainEqual({
+      user: "organization:caipe#member",
+      relation: "caller",
+      object: TOOL,
+    });
+  });
+
+  it("does not touch organization#member tuples when org sharing is unchanged/off", () => {
+    const diff = buildMcpToolRelationshipTupleDiff({
+      toolId: "custom-search",
+      ownerTeamSlug: "platform",
+    });
+    const orgTuples = [...diff.writes, ...diff.deletes].filter((t) =>
+      t.user.startsWith("organization:"),
+    );
+    expect(orgTuples).toEqual([]);
+  });
+
+  it("emits reader, user, AND caller delete tuples when revoking a shared team", () => {
     const diff = buildMcpToolRelationshipTupleDiff({
       toolId: "custom-search",
       ownerTeamSlug: "platform",
@@ -107,6 +159,7 @@ describe("buildMcpToolRelationshipTupleDiff", () => {
       expect.arrayContaining([
         { user: "team:data-eng#member", relation: "reader", object: TOOL },
         { user: "team:data-eng#member", relation: "user", object: TOOL },
+        { user: "team:data-eng#member", relation: "caller", object: TOOL },
         { user: "team:data-eng#admin", relation: "manager", object: TOOL },
       ]),
     );

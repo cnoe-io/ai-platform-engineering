@@ -164,6 +164,10 @@ interface AuthorizedRagContext {
      *  changes, this is passed to the reconciler so the old team's grants are
      *  revoked instead of orphaned. */
     previousOwnerTeamSlug: string | null;
+    /** Org-wide sharing requested in the body (organization#member grants). */
+    sharedWithOrg: boolean;
+    /** Previously-persisted org-wide state, for the revoke diff. */
+    previousSharedWithOrg: boolean;
   };
 }
 
@@ -196,8 +200,8 @@ function normalizeSlugList(raw: unknown): string[] {
 async function loadMcpToolConfig(
   toolId: string,
   session: { accessToken?: string; org?: string },
-): Promise<{ creatorSubject: string | null; ownerTeamSlug: string | null; sharedTeamSlugs: string[] }> {
-  const empty = { creatorSubject: null, ownerTeamSlug: null, sharedTeamSlugs: [] as string[] };
+): Promise<{ creatorSubject: string | null; ownerTeamSlug: string | null; sharedTeamSlugs: string[]; sharedWithOrg: boolean }> {
+  const empty = { creatorSubject: null, ownerTeamSlug: null, sharedTeamSlugs: [] as string[], sharedWithOrg: false };
   if (!session.accessToken) return empty;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -226,6 +230,7 @@ async function loadMcpToolConfig(
     creatorSubject: normalizeString(match.creator_subject),
     ownerTeamSlug: normalizeString(match.owner_team_slug),
     sharedTeamSlugs: normalizeSlugList(match.shared_with_teams),
+    sharedWithOrg: match.shared_with_org === true,
   };
 }
 
@@ -330,6 +335,8 @@ async function reconcileMcpToolForOwnership(pending: {
   sharedTeamSlugs: string[];
   previousSharedTeamSlugs: string[];
   previousOwnerTeamSlug: string | null;
+  sharedWithOrg: boolean;
+  previousSharedWithOrg: boolean;
 }): Promise<void> {
   // Pass the previous owner team when it differs from the next owner so the
   // reconciler revokes the old team's grants on an ownership change (the
@@ -349,6 +356,8 @@ async function reconcileMcpToolForOwnership(pending: {
     nextSharedTeamSlugs: pending.sharedTeamSlugs,
     previousSharedTeamSlugs: pending.previousSharedTeamSlugs,
     previousOwnerTeamSlug,
+    sharedWithOrg: pending.sharedWithOrg,
+    previousSharedWithOrg: pending.previousSharedWithOrg,
   });
 }
 
@@ -460,9 +469,11 @@ async function getAuthorizedRagContext(
       const sharedTeamSlugs = isRecord(body)
         ? normalizeSlugList(body.shared_with_teams)
         : [];
+      const sharedWithOrg = isRecord(body) && body.shared_with_org === true;
       // Config is the source of truth: read the previous owner/creator/shared
-      // so we can keep set-once fields, emit revoke deletes for removed teams,
-      // and detect an ownership transfer (mirrors the agent route).
+      // (and org-wide) state so we can keep set-once fields, emit revoke deletes
+      // for removed teams/org grants, and detect an ownership transfer (mirrors
+      // the agent route). Creator is set-once: keep the existing one if present.
       const previous = await loadMcpToolConfig(toolId, {
         accessToken: session.accessToken,
         org: session.org,
@@ -537,6 +548,8 @@ async function getAuthorizedRagContext(
         sharedTeamSlugs,
         previousSharedTeamSlugs: previous.sharedTeamSlugs,
         previousOwnerTeamSlug,
+        sharedWithOrg,
+        previousSharedWithOrg: previous.sharedWithOrg,
       };
     }
   }
@@ -879,6 +892,7 @@ export async function POST(
         body.owner_subject = pendingMcpToolOwnership.ownerSubject;
       }
       body.shared_with_teams = pendingMcpToolOwnership.sharedTeamSlugs;
+      body.shared_with_org = pendingMcpToolOwnership.sharedWithOrg;
     }
 
     const fetchOptions: RequestInit = {
@@ -978,6 +992,7 @@ export async function PUT(
         body.owner_subject = pendingMcpToolOwnership.ownerSubject;
       }
       body.shared_with_teams = pendingMcpToolOwnership.sharedTeamSlugs;
+      body.shared_with_org = pendingMcpToolOwnership.sharedWithOrg;
     }
 
     const fetchOptions: RequestInit = {
