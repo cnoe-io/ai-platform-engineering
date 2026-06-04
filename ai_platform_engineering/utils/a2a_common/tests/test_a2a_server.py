@@ -25,9 +25,24 @@ REPO_ROOT = str(Path(__file__).resolve().parents[4])
 # ---------------------------------------------------------------------------
 
 def _stub_modules():
-    stubs = {
+    """Stub out heavy optional deps only when not already importable.
+
+    Spec 102 fix (2026-04-22): the previous version unconditionally injected a
+    bare ``types.ModuleType("jwt")`` stub into ``sys.modules`` if no module of
+    that name was already loaded. That worked in isolation but corrupted
+    pytest collection once ``ai_platform_engineering.utils.auth.jwks_validate``
+    started doing ``from jwt import InvalidTokenError`` — the stub had no such
+    attribute, so collection of any test that imported the real PyJWT failed
+    with ``ImportError: cannot import name 'InvalidTokenError' from 'jwt'``.
+
+    Real PyJWT is now a hard dependency (declared in ``pyproject.toml`` for the
+    auth helpers), so we only stub the truly-optional ``prometheus_client`` and
+    fall through to the real ``jwt`` package whenever it is importable.
+    """
+    import importlib.util
+
+    stubs: dict[str, types.ModuleType] = {
         "prometheus_client": types.ModuleType("prometheus_client"),
-        "jwt": types.ModuleType("jwt"),
     }
 
     stubs["prometheus_client"].Counter = MagicMock
@@ -36,8 +51,13 @@ def _stub_modules():
     stubs["prometheus_client"].Info = MagicMock
     stubs["prometheus_client"].generate_latest = lambda: b""
     stubs["prometheus_client"].CONTENT_TYPE_LATEST = "text/plain"
-    stubs["jwt"].decode = Mock(return_value={})
-    stubs["jwt"].PyJWTError = Exception
+
+    # Only stub `jwt` if real PyJWT isn't installed in this environment.
+    if "jwt" not in sys.modules and importlib.util.find_spec("jwt") is None:
+        jwt_stub = types.ModuleType("jwt")
+        jwt_stub.decode = Mock(return_value={})
+        jwt_stub.PyJWTError = Exception
+        stubs["jwt"] = jwt_stub
 
     for name, mod in stubs.items():
         if name not in sys.modules:
@@ -244,6 +264,18 @@ class TestA2AServerBuildApp(unittest.TestCase):
         kw = self._find_middleware_kwargs(app, "PrometheusMetricsMiddleware")
         for path in ["/.well-known/agent.json", "/.well-known/agent-card.json", "/health", "/ready"]:
             self.assertIn(path, kw["excluded_paths"])
+
+    def test_health_excluded_from_metrics_tracking(self):
+        s = _make_server(metrics_enabled=True)
+        app = s.build_app()
+        kw = self._find_middleware_kwargs(app, "PrometheusMetricsMiddleware")
+        self.assertIn("/health", kw["excluded_paths"])
+
+    def test_ready_excluded_from_metrics_tracking(self):
+        s = _make_server(metrics_enabled=True)
+        app = s.build_app()
+        kw = self._find_middleware_kwargs(app, "PrometheusMetricsMiddleware")
+        self.assertIn("/ready", kw["excluded_paths"])
 
     def test_build_app_can_be_called_multiple_times(self):
         s = _make_server()
@@ -501,6 +533,55 @@ class TestA2AServerE2E(unittest.IsolatedAsyncioTestCase):
         async with self._client(s) as client:
             resp = await client.get("/metrics")
         self.assertIn("text/plain", resp.headers.get("content-type", ""))
+
+    # --- Health and readiness endpoints ---
+
+    async def test_health_returns_200(self):
+        s = _make_server()
+        async with self._client(s) as client:
+            resp = await client.get("/health")
+        self.assertEqual(resp.status_code, 200)
+
+    async def test_health_returns_json(self):
+        s = _make_server()
+        async with self._client(s) as client:
+            resp = await client.get("/health")
+        self.assertIn("application/json", resp.headers.get("content-type", ""))
+
+    async def test_health_body_status_ok(self):
+        s = _make_server()
+        async with self._client(s) as client:
+            resp = await client.get("/health")
+        self.assertEqual(resp.json(), {"status": "ok"})
+
+    async def test_ready_returns_200(self):
+        s = _make_server()
+        async with self._client(s) as client:
+            resp = await client.get("/ready")
+        self.assertEqual(resp.status_code, 200)
+
+    async def test_ready_returns_json(self):
+        s = _make_server()
+        async with self._client(s) as client:
+            resp = await client.get("/ready")
+        self.assertIn("application/json", resp.headers.get("content-type", ""))
+
+    async def test_ready_body_status_ok(self):
+        s = _make_server()
+        async with self._client(s) as client:
+            resp = await client.get("/ready")
+        self.assertEqual(resp.json(), {"status": "ok"})
+
+    async def test_health_and_ready_do_not_interfere_with_agent_card(self):
+        s = _make_server(agent_name="argocd")
+        async with self._client(s) as client:
+            h = await client.get("/health")
+            r = await client.get("/ready")
+            card = await client.get("/.well-known/agent.json")
+        self.assertEqual(h.status_code, 200)
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(card.status_code, 200)
+        self.assertEqual(card.json()["name"], "argocd")
 
     # --- Unknown routes ---
 

@@ -44,7 +44,7 @@ Expect **no** matches after migration (SC-001).
 
 ## 4. Gateway smoke
 
-- Open Skills API Gateway UI — primary flow describes **live catalog** first.
+- Open Skills Gateway UI — primary flow describes **live catalog** first.
 - Optional: run install script path only from documented **advanced** section.
 
 ## 5. Skills AI Assist (optional)

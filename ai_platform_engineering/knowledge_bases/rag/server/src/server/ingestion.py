@@ -717,7 +717,8 @@ class DocumentProcessor:
         # Override metadata fields - this is to ensure correct association (even if doc.metadata has different values)
         document_metadata.ingestor_id = ingestor_id
         document_metadata.datasource_id = datasource_id
-        document_metadata.fresh_until = fresh_until
+        # Use per-document fresh_until if provided, otherwise fall back to batch-level value
+        document_metadata.fresh_until = document_metadata.fresh_until or fresh_until
         document_metadata.document_ingested_at = int(time.time())
 
         # Step 1b: Check if it's a structured entity and parse if needed

@@ -754,6 +754,7 @@ async def sync_account(client: Client, session: boto3.Session, account_name: str
   datasource_id = f"aws-account-{account_id}"
   datasource_info = DataSourceInfo(
     datasource_id=datasource_id,
+    name=f"AWS: {account_name} ({account_id})",
     ingestor_id=client.ingestor_id or "",
     description=f"AWS resources for account {account_name} ({account_id})",
     source_type="aws",

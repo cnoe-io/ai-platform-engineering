@@ -209,6 +209,8 @@ export interface SkillHubDoc {
   enabled: boolean;
   credentials_ref: string | null;
   labels?: string[];
+  /** Team ids or slugs that should be granted can_use on every skill from this hub. */
+  shared_with_teams?: string[];
   /**
    * Optional path-prefix allow-list (each entry normalized to end with `/`).
    * When non-empty, the crawler only ingests SKILL.md files whose path

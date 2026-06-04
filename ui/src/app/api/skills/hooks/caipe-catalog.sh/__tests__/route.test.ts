@@ -45,6 +45,8 @@ const ORIG_ENV = { ...process.env };
 
 const CHART_HOOK_BODY = `#!/usr/bin/env bash
 DEFAULT_BASE_URL="{{BASE_URL}}"
+LIVE_COMMAND="/{{COMMAND_NAME}}"
+UPDATE_COMMAND="/{{UPDATE_COMMAND_NAME}}"
 echo "$DEFAULT_BASE_URL"
 `;
 
@@ -74,7 +76,20 @@ describe('GET /api/skills/hooks/caipe-catalog.sh', () => {
     const { body } = await callGET('https://gateway.example.com/api/skills/hooks/caipe-catalog.sh');
 
     expect(body).toContain('DEFAULT_BASE_URL="https://gateway.example.com"');
+    expect(body).toContain('LIVE_COMMAND="/caipe-skills"');
+    expect(body).toContain('UPDATE_COMMAND="/update-caipe-skills"');
     expect(body).not.toContain('{{BASE_URL}}');
+    expect(body).not.toContain('{{COMMAND_NAME}}');
+    expect(body).not.toContain('{{UPDATE_COMMAND_NAME}}');
+  });
+
+  it('honors custom command names in hook guidance placeholders', async () => {
+    const { body } = await callGET(
+      'https://gateway.example.com/api/skills/hooks/caipe-catalog.sh?command_name=outshift-skills&update_command_name=update-outshift-skills',
+    );
+
+    expect(body).toContain('LIVE_COMMAND="/outshift-skills"');
+    expect(body).toContain('UPDATE_COMMAND="/update-outshift-skills"');
   });
 
   it('honors an explicit base_url query param over the request origin', async () => {

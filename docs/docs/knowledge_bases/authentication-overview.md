@@ -10,7 +10,6 @@ CAIPE RAG supports multiple authentication methods to accommodate different depl
 |--------|----------|--------------|
 | **JWT Bearer Token** | Production | Validates tokens against OIDC provider |
 | **OAuth2 Client Credentials** | Ingestors | Machine-to-machine authentication |
-| **Trusted Network** | Development | IP-based trust for localhost/internal networks |
 
 ### JWT Bearer Token (Production)
 
@@ -25,8 +24,8 @@ The recommended authentication method for production deployments. Users authenti
    - Expiry (`exp`), not-before (`nbf`), issued-at (`iat`) claims
    - Audience (`aud`) matches configured `OIDC_AUDIENCE`
    - Issuer (`iss`) matches configured `OIDC_ISSUER`
-5. Server resolves user groups (see [Groups Resolution Flow](#user-info-resolution-flow))
-6. Server assigns role based on group membership
+5. Server records identity claims for audit and OpenFGA subject resolution
+6. Server checks OpenFGA for resource-level authorization
 
 ### OAuth2 Client Credentials (Ingestors)
 
@@ -37,12 +36,6 @@ Ingestors use OAuth2 client credentials flow for machine-to-machine authenticati
 2. Ingestor includes token in API requests
 3. RAG server validates token against ingestor OIDC configuration
 4. Server assigns configured role (default: `ingestonly`)
-
-### Trusted Network (Development)
-
-For local development and testing, trusted network access allows connections from configured IP ranges without authentication.
-
-**Important:** Never enable trusted network in production. It grants the configured role (default: `admin`) to all requests from trusted IPs.
 
 ## Token Type Detection Flow
 
@@ -87,7 +80,7 @@ After validating the JWT token, the server determines whether it's a **user toke
                                                ▼                           ▼
                                 ┌─────────────────┐         ┌──────────────────┐
                                 │ CLIENT CREDS    │         │ USER TOKEN (SSO) │
-                                │ (skip to role)  │         │ → Groups Flow    │
+                                │ (skip to role)  │         │ → OpenFGA authz  │
                                 └─────────────────┘         └──────────────────┘
 ```
 
@@ -101,8 +94,9 @@ When detected as client credentials:
 ### User Token (SSO) Path
 
 When detected as a user token:
-- Proceeds to [Groups Resolution Flow](#user-info-resolution-flow)
-- Role determined from group membership
+- Extracts identity claims (`sub`, email) from the validated access token
+- Uses `user:<sub>` for OpenFGA checks on knowledge bases and related resources
+- Does not map Keycloak realm roles or groups into RAG permissions
 
 ### Detection Criteria Summary
 
@@ -114,35 +108,30 @@ When detected as a user token:
 | 4 | `sub` is UUID format AND no user claims | Yes |
 | 5 | None of the above | No → User token |
 
-## Role-Based Access Control (RBAC)
+## RAG Authorization
 
-CAIPE RAG uses three roles with hierarchical permissions:
+CAIPE RAG keeps the role names for service-client compatibility, but human user authorization is OpenFGA-based:
 
 | Role | Capabilities |
 |------|--------------|
-| **readonly** | View and query data |
-| **ingestonly** | readonly + ingest data and manage jobs |
-| **admin** | ingestonly + delete resources and bulk operations |
+| **readonly** | Authenticated human baseline; resource access still requires OpenFGA |
+| **ingestonly** | Service clients that ingest data and manage ingestion jobs |
+| **admin** | Administrative service clients |
 
 ### Role Assignment Priority
 
-When determining a user's role, the server checks in order:
+When determining authorization, the server checks in order:
 
-1. **Admin groups** - If user's groups match any configured `RBAC_ADMIN_GROUPS`
-2. **Ingestonly groups** - If user's groups match any configured `RBAC_INGESTONLY_GROUPS`
-3. **Readonly groups** - If user's groups match any configured `RBAC_READONLY_GROUPS`
-4. **Default role** - Falls back to `RBAC_DEFAULT_AUTHENTICATED_ROLE`
-
-The first match wins (most permissive role). For unauthenticated requests from trusted networks, `TRUSTED_NETWORK_DEFAULT_ROLE` is used instead.
+1. **Client credentials** - Service-account tokens receive `RBAC_CLIENT_CREDENTIALS_ROLE`.
+2. **Human users** - Valid OIDC user tokens receive an authenticated baseline and resource access is checked in OpenFGA.
+3. **Unsafe emergency bypass** - `CAIPE_UNSAFE_RBAC_BYPASS=true` temporarily bypasses RAG KB checks and should not be used in production.
 
 ### Actor Types
 
 | Actor | Authentication | Default Role | Role Source |
 |-------|---------------|--------------|-------------|
-| **User** | JWT Bearer | Based on groups | `RBAC_*_GROUPS` config |
+| **User** | JWT Bearer | `readonly` baseline | OpenFGA `user:<sub>` relationships |
 | **Ingestor** | Client Credentials | `ingestonly` | `RBAC_CLIENT_CREDENTIALS_ROLE` |
-| **Trusted** | IP-based | `admin` | `TRUSTED_NETWORK_DEFAULT_ROLE` |
-| **Anonymous** | None | `anonymous` | Fixed |
 
 ## Supported OIDC Providers
 
@@ -157,11 +146,11 @@ CAIPE RAG works with any OIDC-compliant provider:
 
 The server automatically discovers OIDC endpoints from the issuer URL and validates tokens using the provider's public keys.
 
-## Group Claims
+## Identity Claims
 
-For group-based role assignment, the RAG server fetches user information (email and groups) from the OIDC provider's `/userinfo` endpoint. This ensures the server always has authoritative user data regardless of what claims are included in the access token.
+For human users, the RAG server uses the validated access token as identity input only. The stable `sub` claim becomes the OpenFGA subject (`user:<sub>`), while email is used for display and audit context.
 
-### User Info Resolution Flow
+### Identity Resolution Flow
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -171,78 +160,31 @@ For group-based role assignment, the RAG server fetches user information (email 
                               ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │  Extract 'sub' (subject identifier) from access token               │
-│  Used as cache key for userinfo lookup                              │
+│  Used as the OpenFGA subject: user:<sub>                            │
 └──────────────────────┬──────────────────────────────────────────────┘
                        │
                        ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│  Step 1: Check REDIS CACHE for userinfo                             │
-│  Key: rag/rbac/userinfo_cache:{sub}                                 │
-│  Contains: { email, groups }                                        │
 └──────────────────────┬──────────────────────────────────────────────┘
                        │
-          ┌────────────┴────────────┐
-          │                         │
-      CACHE HIT                 CACHE MISS
-     (use cached                    │
-      email+groups)                 ▼
-          │         ┌─────────────────────────────────────────────────┐
-          │         │  Step 2: Fetch from OIDC /userinfo endpoint     │
-          │         │  GET {issuer}/userinfo                          │
-          │         │  Authorization: Bearer {access_token}           │
-          │         └──────────────────────┬──────────────────────────┘
-          │                                │
-          │                   ┌────────────┴────────────┐
-          │                   │                         │
-          │               SUCCESS                    FAILED
-          │                   │                         │
-          │                   ▼                         ▼
-          │    ┌──────────────────────────┐  ┌─────────────────────────┐
-          │    │  Extract email & groups  │  │  FALLBACK: Extract from │
-          │    │  from userinfo response  │  │  access_token claims    │
-          │    │  → Cache in Redis (TTL)  │  │  (graceful degradation) │
-          │    └──────────────────────────┘  └─────────────────────────┘
-          │                   │                         │
-          └───────────────────┴─────────────────────────┘
-                              │
-                              ▼
+                       ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│  DETERMINE ROLE FROM GROUPS                                          │
-│  Priority: admin_groups → ingestonly_groups → readonly_groups        │
-│           → default_authenticated_role                               │
+│  Extract email / preferred_username / upn for display and audit      │
+└──────────────────────┬──────────────────────────────────────────────┘
+                       │
+                       ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  Authorize resource access through OpenFGA relationships             │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-### Why Userinfo?
+### Why Not Userinfo or Realm Roles?
 
-The `/userinfo` endpoint is the **authoritative source** for user claims - it works regardless of what your OIDC provider includes in access tokens. Results are cached in Redis (30min TTL) for performance. If userinfo fails, the server falls back to access_token claims.
-
-### Supported Group Claim Names
-
-The server auto-detects common group claim names from both access tokens and userinfo responses:
-
-- `members`
-- `memberOf`
-- `groups`
-- `group`
-- `roles`
-- `cognito:groups`
-
-If your provider uses a different claim name, configure `OIDC_GROUP_CLAIM`. This supports comma-separated values to check multiple claims:
-
-```bash
-# Check a single custom claim
-OIDC_GROUP_CLAIM=myGroups
-
-# Check multiple claims (all are checked, groups are combined and deduplicated)
-OIDC_GROUP_CLAIM=groups,members,roles
-```
-
-When not set, all default claims are checked and combined automatically.
+RAG authorization is now relationship-based. Keycloak/SSO proves identity, and OpenFGA answers whether that identity can read, ingest, or manage a specific knowledge base. This avoids relying on stale realm-role mirroring or provider-specific group claims.
 
 ### Email Extraction Priority
 
-When extracting the user's email from userinfo or token claims, the server checks these claims in order:
+When extracting the user's display email from token claims, the server checks these claims in order:
 
 | Priority | Claim | Description |
 |----------|-------|-------------|
@@ -253,39 +195,28 @@ When extracting the user's email from userinfo or token claims, the server check
 
 The first non-empty value is used. If all are empty, defaults to `"unknown"`.
 
-> **Note:** When `sub` is used as a fallback, the email may appear as an opaque hash. This is logged as a warning but doesn't affect authentication - the userinfo endpoint typically provides the real email.
-
-### Caching Configuration
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `USERINFO_CACHE_TTL_SECONDS` | `1800` (30 min) | How long to cache userinfo (email + groups) in Redis |
-
-The cache key format is `rag/rbac/userinfo_cache:{sub}` where `sub` is the user's subject identifier from the access token.
+> **Note:** When `sub` is used as a fallback, the email may appear as an opaque hash. This is logged as a warning but doesn't affect authorization because OpenFGA uses the stable subject identifier.
 
 ## Security Best Practices
 
 ### Production Deployments
 
 - Use JWT Bearer authentication with your OIDC provider
-- Set `RBAC_DEFAULT_AUTHENTICATED_ROLE=readonly` (least privilege)
-- Disable trusted network (`ALLOW_TRUSTED_NETWORK=false`)
-- Use group-based RBAC for maintainability
+- Keep `OPENFGA_HTTP` configured when RAG team scope is enabled
+- Use OpenFGA tuples for KB read/ingest/manage relationships
 - Rotate OIDC client secrets regularly
 - Monitor authentication failures in logs
 
 ### Development Deployments
 
-- Trusted network is acceptable for local development only
-- Use `RBAC_DEFAULT_AUTHENTICATED_ROLE=admin` only in isolated environments
+- Use `CAIPE_UNSAFE_RBAC_BYPASS=true` only as a short-lived local emergency escape hatch
 - Test with production-like OIDC configuration before deploying
 
 ### What to Avoid
 
-- Never enable trusted network in production
-- Never set default role to `admin` in production
+- Never grant human RAG access through Keycloak realm roles
 - Never commit OIDC secrets to version control
-- Never use anonymous access in production
+- Require bearer-token authentication for RAG identity and data endpoints
 
 ## Further Reading
 

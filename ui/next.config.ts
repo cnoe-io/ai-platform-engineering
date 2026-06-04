@@ -6,6 +6,12 @@ const nextConfig: NextConfig = {
   // No NEXT_PUBLIC_* env vars needed — config is served via GET /api/config
   // and consumed client-side through the ConfigProvider + useConfig() hook.
 
+  typescript: {
+    // Local Docker rebuilds can opt out of Next's duplicate typecheck for speed.
+    // CI and production builds keep type errors fatal by leaving this unset.
+    ignoreBuildErrors: process.env.CAIPE_UI_FAST_BUILD === "true",
+  },
+
   // HTTP security headers — applied to all responses except the Agentic Apps
   // proxy/embed routes, which need a relaxed framing policy so the embed
   // shell at /apps/embed/<id> can same-origin-iframe the proxied app at
@@ -90,7 +96,7 @@ const nextConfig: NextConfig = {
   },
 
   // Webpack configuration (fallback for non-Turbopack builds)
-  webpack: (config, { isServer }) => {
+  webpack: (config) => {
     // Suppress warnings for optional peer dependencies
     config.resolve.fallback = {
       ...config.resolve.fallback,

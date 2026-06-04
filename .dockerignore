@@ -51,7 +51,16 @@ ai_platform_engineering/cli/**
 # even if a previous ignore pattern would have excluded it.
 !ai_platform_engineering/knowledge_bases/*
 
+/volumes
+/volumes/
+volumes
+volumes/
 volumes/**
+**/volumes
+**/volumes/
+**/volumes/**
+docker-compose/volumes
+docker-compose/volumes/
 docker-compose/volumes/**
 docs/**
 workshop/**
@@ -64,6 +73,12 @@ env/
 **/venv/
 **/env/
 
+# assisted-by Codex Codex-sonnet-4-6
+# Node dependencies are rebuilt inside their own images; copying local
+# node_modules into the backend image pulls host-only binaries into scans.
+node_modules/
+**/node_modules/
+
 # Python cache files
 __pycache__/
 *.py[cod]
@@ -74,6 +89,20 @@ build/
 # Allow build directory files needed for Docker builds
 !build/Dockerfile*
 !build/*.sh
+
+# UI build artifacts must never enter the root Docker build context. If a
+# stale `.next` directory is copied before `next build`, Turbopack can reuse
+# obsolete server route chunks even when the TypeScript source has changed.
+node_modules/
+ui/.next/
+ui/node_modules/
+.git/
+.beads/
+test-results/
+ui/test-results/
+ui/playwright-report/
+!build/skill-scanner-patches/
+!build/skill-scanner-patches/**
 develop-eggs/
 dist/
 downloads/
@@ -132,6 +161,10 @@ docs/_build/
 .env.local
 .env.*.local
 .env*
+ui/.env
+ui/.env.local
+ui/.env.*.local
+!ui/.env.example
 
 # Node.js / UI build outputs
 node_modules/

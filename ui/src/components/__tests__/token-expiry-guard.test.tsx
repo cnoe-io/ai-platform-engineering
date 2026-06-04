@@ -277,7 +277,7 @@ describe('TokenExpiryGuard', () => {
   describe('Sign in again button', () => {
     it('should sign out with current page preserved as callbackUrl when clicked', async () => {
       jest.useRealTimers()
-      window.history.pushState({}, '', '/apps/embed/research-workbench?view=study#report')
+      window.history.pushState({}, '', '/apps/embed/kaleidoscope?view=study#report')
       const soonExpiry = Math.floor(Date.now() / 1000) + 240
 
       mockUseSession.mockReturnValue({
@@ -301,7 +301,7 @@ describe('TokenExpiryGuard', () => {
       await waitFor(() => {
         expect(mockSignOut).toHaveBeenCalledWith({
           callbackUrl:
-            '/login?session_expired=true&callbackUrl=%2Fapps%2Fembed%2Fresearch-workbench%3Fview%3Dstudy%23report',
+            '/login?session_expired=true&callbackUrl=%2Fapps%2Fembed%2Fkaleidoscope%3Fview%3Dstudy%23report',
         })
       })
     })
@@ -537,7 +537,7 @@ describe('TokenExpiryGuard', () => {
     })
 
     it('should show a countdown and redirect through current-tab login if updateSession rejects', async () => {
-      window.history.pushState({}, '', '/apps/embed/research-workbench?view=study#report')
+      window.history.pushState({}, '', '/apps/embed/kaleidoscope?view=study#report')
       const soonExpiry = Math.floor(Date.now() / 1000) + 240
       mockUpdateSession.mockRejectedValueOnce(new Error('Network error'))
 
@@ -567,7 +567,7 @@ describe('TokenExpiryGuard', () => {
 
       await act(async () => { jest.advanceTimersByTime(4000) })
       expect(mockSignOut).toHaveBeenCalledWith({
-        callbackUrl: '/login?session_expired=true&callbackUrl=%2Fapps%2Fembed%2Fresearch-workbench%3Fview%3Dstudy%23report',
+        callbackUrl: '/login?session_expired=true&callbackUrl=%2Fapps%2Fembed%2Fkaleidoscope%3Fview%3Dstudy%23report',
       })
 
       consoleSpy.mockRestore()
@@ -642,6 +642,25 @@ describe('TokenExpiryGuard', () => {
         data: {
           user: { name: 'Test User', email: 'test@example.com' },
           error: 'RefreshTokenError',
+        } as any,
+        status: 'authenticated',
+        update: mockUpdateSession,
+      })
+
+      render(<TokenExpiryGuard />)
+
+      await waitFor(() => {
+        expect(mockSessionStorage.setItem).toHaveBeenCalledWith('token-expiry-handling', 'true')
+      })
+    })
+
+    it('should set token-expiry-handling flag when the server-side access token cache is missing', async () => {
+      jest.useRealTimers()
+
+      mockUseSession.mockReturnValue({
+        data: {
+          user: { name: 'Test User', email: 'test@example.com' },
+          error: 'AccessTokenMissing',
         } as any,
         status: 'authenticated',
         update: mockUpdateSession,

@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 /**
- * Tests for APIClient — Archive methods
+ * Tests for APIClient conversation and archive methods
  *
  * Covers:
  * - deleteConversation (soft-delete)
@@ -50,6 +50,20 @@ function mockErrorResponse(status: number, errorText: string) {
 describe('APIClient — Archive methods', () => {
   beforeEach(() => {
     mockFetch.mockReset();
+  });
+
+  describe('getConversations', () => {
+    it('requests only webui conversations by default', async () => {
+      mockFetch.mockResolvedValue(
+        mockSuccessResponse({ items: [], total: 0, page: 1, page_size: 100, has_more: false })
+      );
+
+      await apiClient.getConversations({ page_size: 100 });
+
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      const [url] = mockFetch.mock.calls[0];
+      expect(url).toBe('/api/chat/conversations?page_size=100&client_type=webui');
+    });
   });
 
   // --------------------------------------------------------------------------

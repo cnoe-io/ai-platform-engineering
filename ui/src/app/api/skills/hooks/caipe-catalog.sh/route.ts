@@ -26,6 +26,8 @@
  *               `getRequestOrigin` (which honors NEXTAUTH_URL +
  *               x-forwarded-* before falling back to the inbound URL,
  *               so the value is correct behind an ingress).
+ *   - command_name / update_command_name: replace the helper command
+ *               placeholders in the injected SessionStart guidance.
  *
  * Resolution order for the hook source on the gateway side:
  *   1. SKILLS_HOOK_FILE env var (operator override)
@@ -43,6 +45,11 @@ import { NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
 import { getRequestOrigin } from "../../_lib/request-origin";
+import {
+  DEFAULT_LIVE_SKILLS_COMMAND,
+  DEFAULT_UPDATE_SKILLS_COMMAND,
+  deriveUpdateCommandName,
+} from "../../live-skills/agents";
 
 const FALLBACK_HOOK = `#!/usr/bin/env bash
 # Fallback CAIPE catalog hook — operator misconfiguration on the gateway:
@@ -119,14 +126,33 @@ function sanitizeBaseUrl(raw: string | null): string | null {
   }
 }
 
+function sanitizeCommandName(raw: string | null, fallback: string): string {
+  const trimmed = (raw ?? "").trim();
+  if (!trimmed) return fallback;
+  if (trimmed.length > 64) return fallback;
+  if (!/^[A-Za-z0-9._-]+$/.test(trimmed)) return fallback;
+  return trimmed;
+}
+
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const baseUrl =
     sanitizeBaseUrl(url.searchParams.get("base_url")) ??
     getRequestOrigin(request);
+  const commandName = sanitizeCommandName(
+    url.searchParams.get("command_name"),
+    DEFAULT_LIVE_SKILLS_COMMAND,
+  );
+  const updateCommandName = sanitizeCommandName(
+    url.searchParams.get("update_command_name"),
+    deriveUpdateCommandName(commandName) || DEFAULT_UPDATE_SKILLS_COMMAND,
+  );
 
   const { source } = resolveHookSource();
-  const rendered = source.replace(/\{\{BASE_URL\}\}/g, baseUrl);
+  const rendered = source
+    .replace(/\{\{BASE_URL\}\}/g, baseUrl)
+    .replace(/\{\{COMMAND_NAME\}\}/g, commandName)
+    .replace(/\{\{UPDATE_COMMAND_NAME\}\}/g, updateCommandName);
 
   return new NextResponse(rendered, {
     status: 200,

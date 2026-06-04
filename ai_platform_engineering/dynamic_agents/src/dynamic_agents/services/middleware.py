@@ -19,8 +19,6 @@ import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from botocore.config import Config as BotocoreConfig
-from cnoe_agent_utils import LLMFactory
 from langchain.agents.middleware.context_editing import (
     ClearToolUsesEdit,
     ContextEditingMiddleware,
@@ -32,6 +30,8 @@ from langchain.agents.middleware.pii import PIIMiddleware
 from langchain.agents.middleware.tool_call_limit import ToolCallLimitMiddleware
 from langchain.agents.middleware.tool_retry import ToolRetryMiddleware
 from langchain.agents.middleware.tool_selection import LLMToolSelectorMiddleware
+
+from dynamic_agents.services.llm import get_configured_llm
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -226,10 +226,9 @@ def _instantiate_model(
     Returns:
         Initialized BaseChatModel instance.
     """
-    boto_config = BotocoreConfig(read_timeout=300, connect_timeout=60)
-    return LLMFactory(provider=model_provider).get_llm(
-        model=model_id,
-        config=boto_config,
+    return get_configured_llm(
+        model_id=model_id,
+        model_provider=model_provider,
     )
 
 
@@ -356,7 +355,6 @@ def build_middleware(
     Returns:
         Ordered list of middleware instances.
     """
-    conv = session_id or "-"
     if features is None or not features.middleware:
         # No explicit config — apply all default-enabled middleware
         entries: list[MiddlewareEntry] = []
@@ -376,15 +374,14 @@ def build_middleware(
 
         spec = MIDDLEWARE_REGISTRY.get(entry.type)
         if spec is None:
-            logger.warning("conv=%s Unknown middleware type '%s', skipping", conv, entry.type)
+            logger.warning("Unknown middleware type '%s', skipping", entry.type)
             continue
 
         # Enforce singleton constraint
         if not spec.allow_multiple:
             if entry.type in seen_singletons:
                 logger.warning(
-                    "conv=%s Middleware '%s' does not allow multiple instances, skipping duplicate",
-                    conv,
+                    "Middleware '%s' does not allow multiple instances, skipping duplicate",
                     entry.type,
                 )
                 continue
@@ -403,14 +400,13 @@ def build_middleware(
             instance = spec.cls(**params)
 
         result.append(instance)
-        logger.debug("conv=%s Middleware '%s' added with params: %s", conv, entry.type, params)
+        logger.debug("Middleware '%s' added with params: %s", entry.type, params)
 
     # Append MetricsAgentMiddleware at the end to capture total LLM/tool duration
     result.append(MetricsAgentMiddleware(agent_name=agent_name, model_id=model_id))
 
     logger.info(
-        "conv=%s Built middleware stack: %s",
-        conv,
+        "Built middleware stack: %s",
         [type(m).__name__ for m in result],
     )
     return result

@@ -19,6 +19,18 @@ An LLM-powered agent for managing VictorOps incidents and services using the [La
 
 For LLM configuration, see [cnoe-agent-utils](https://github.com/cnoe-io/cnoe-agent-utils#-usage).
 
+### Cache TTLs (optional)
+
+The MCP server caches a few low-churn endpoints in-process. TTLs are read from environment variables at server start; setting any value to `0` disables that cache.
+
+| Variable | Default | Endpoint |
+|----------|---------|----------|
+| `VICTOROPS_CACHE_TTL_TEAMS_SECONDS` | `3600` (1 h) | `get_api_public_v1_team` |
+| `VICTOROPS_CACHE_TTL_USERS_SECONDS` | `1800` (30 m) | `get_api_public_v2_user` (only when no `email` filter) |
+| `VICTOROPS_CACHE_TTL_SCHEDULES_SECONDS` | `300` (5 m) | `get_api_public_v2_team_oncall_schedule` |
+
+All cached tools accept `force_refresh=True` to bypass the cache for one call.
+
 ## Getting Started
 
 1. Copy `.env.example` to `.env` and configure your VictorOps credentials and LLM provider.

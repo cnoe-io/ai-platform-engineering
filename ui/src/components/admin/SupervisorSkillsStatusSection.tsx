@@ -5,6 +5,7 @@ import { Loader2, RefreshCcw, Cpu, CheckCircle2, XCircle, AlertCircle, HelpCircl
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface SkillsStatus {
   mas_registered?: boolean;
@@ -168,21 +169,44 @@ export function SupervisorSkillsStatusSection({ isAdmin }: SupervisorSkillsStatu
             </button>
           )}
           {isConnected && (
-            <>
-              <Badge variant="outline" className="gap-1 text-muted-foreground border-border">
-                {status?.skills_loaded_count ?? 0} skills loaded
-              </Badge>
-              {status?.graph_generation != null && (
-                <Badge variant="outline" className="gap-1 text-muted-foreground border-border">
-                  Graph gen {status.graph_generation}
-                </Badge>
-              )}
-              {status?.catalog_cache_generation != null && (
-                <Badge variant="outline" className="gap-1 text-muted-foreground border-border">
-                  Cache gen {status.catalog_cache_generation}
-                </Badge>
-              )}
-            </>
+            <TooltipProvider>
+              <>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Badge variant="outline" className="gap-1 text-muted-foreground border-border cursor-default">
+                      {status?.skills_loaded_count ?? 0} skills active
+                    </Badge>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Number of skills currently loaded into the supervisor&apos;s routing graph and available for use in chat.</p>
+                  </TooltipContent>
+                </Tooltip>
+                {status?.graph_generation != null && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Badge variant="outline" className="gap-1 text-muted-foreground border-border cursor-default">
+                        Rebuild #{status.graph_generation}
+                      </Badge>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>The supervisor graph has been rebuilt {status.graph_generation} time{status.graph_generation === 1 ? "" : "s"} since startup. Each rebuild picks up skill additions, edits, or removals.</p>
+                    </TooltipContent>
+                  </Tooltip>
+                )}
+                {status?.catalog_cache_generation != null && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Badge variant="outline" className="gap-1 text-muted-foreground border-border cursor-default">
+                        Cache v{status.catalog_cache_generation}
+                      </Badge>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Skills catalog cache version. Increments whenever the catalog is refreshed — may be ahead of the rebuild count if skills changed without a full graph rebuild.</p>
+                    </TooltipContent>
+                  </Tooltip>
+                )}
+              </>
+            </TooltipProvider>
           )}
         </div>
 
@@ -229,7 +253,7 @@ export function SupervisorSkillsStatusSection({ isAdmin }: SupervisorSkillsStatu
         {/* Details — only show when connected and has data */}
         {isConnected && hasSkills && status?.skills_merged_at && (
           <div className="text-xs text-muted-foreground">
-            Last merged: {new Date(status.skills_merged_at).toLocaleString()}
+            Last rebuilt: {new Date(status.skills_merged_at).toLocaleString()}
           </div>
         )}
       </CardContent>

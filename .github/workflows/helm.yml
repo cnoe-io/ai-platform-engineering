@@ -22,11 +22,16 @@ permissions:
   contents: read
   packages: write
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   check-version-bump:
     name: Check Chart Version Bump
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
+    if: (github.actor != 'github-actions[bot]' && github.actor != 'caipe-ci-release[bot]') &&
+      (github.event_name == 'pull_request')
     steps:
       - name: 📥 Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -161,7 +166,7 @@ jobs:
 
       - name: 🔐 Login to GHCR
         run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
+          echo "${{ github.token }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
 
       - name: 🔍 Detect Changed Charts
         id: detect

@@ -1,8 +1,23 @@
+import * as fs from 'fs';
+import * as path from 'path';
 import {themes as prismThemes} from 'prism-react-renderer';
 import type {Config} from '@docusaurus/types';
 import type * as Preset from '@docusaurus/preset-classic';
 
 // This runs in Node.js - Don't use client-side code here (browser APIs, JSX...)
+
+// Versioned docs are generated at build time (see scripts/generate-versioned-docs.js)
+// and `versions-config.json` is git-ignored. When it is absent (e.g. local authoring
+// without generating versions), fall back to a current-docs-only build.
+type VersionsConfig = {
+  lastVersion: string;
+  versions: Record<string, { label: string; path: string; badge: boolean }>;
+};
+
+const versionsConfigPath = path.join(__dirname, 'versions-config.json');
+const versionsConfig: VersionsConfig | null = fs.existsSync(versionsConfigPath)
+  ? (JSON.parse(fs.readFileSync(versionsConfigPath, 'utf8')) as VersionsConfig)
+  : null;
 
 const config: Config = {
   title: 'CAIPE',
@@ -101,24 +116,12 @@ const config: Config = {
           sidebarPath: './sidebars.ts',
           editUrl:
             'https://github.com/cnoe-io/ai-platform-engineering/tree/main/docs',
-          lastVersion: '0.4.9',
-          versions: {
-            current: {
-              label: 'main 🚧',
-              path: 'next',
-              badge: true,
-            },
-            '0.4.9': {
-              label: '0.6.0 (Latest)',
-              path: '',
-              badge: false,
-            },
-            '0.4.8': {
-              label: '0.4.8',
-              path: '0.4.8',
-              badge: false,
-            },
-          },
+          ...(versionsConfig
+            ? {
+                lastVersion: versionsConfig.lastVersion,
+                versions: versionsConfig.versions,
+              }
+            : {}),
         },
         blog: {
           showReadingTime: true,
@@ -238,7 +241,7 @@ const config: Config = {
             },
             {
               label: 'Meeting Recordings',
-              href: 'https://github.com/cnoe-io/agentic-ai/wiki/Meeting-Recordings',
+              href: 'https://www.youtube.com/@cnoe-community',
             },
             {
               label: 'CNOE Agentic AI SIG Governance',

@@ -1,5 +1,6 @@
 # Copyright 2025 CNOE Contributors
 # SPDX-License-Identifier: Apache-2.0
+# assisted-by Codex Codex-sonnet-4-6
 
 """Smoke tests for charts/.../skills/caipe-skills.py.
 
@@ -22,6 +23,7 @@ import importlib.util
 import io
 import json
 import sys
+import urllib.error
 from contextlib import redirect_stdout
 from pathlib import Path
 from typing import Any
@@ -240,6 +242,37 @@ def test_invalid_base_url_emits_json_error_envelope(
     assert rc == 0
     payload = json.loads(out)
     assert "Invalid base_url" in payload["error"]
+
+
+def test_http_error_response_body_is_withheld(
+    helper: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+):
+    monkeypatch.setenv("CAIPE_CATALOG_KEY", "key")
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    def fail_with_sensitive_body(url: str, *, api_key: str) -> str:
+        raise urllib.error.HTTPError(
+            url,
+            403,
+            "Forbidden",
+            {},
+            io.BytesIO(b'{"password":"super-secret","detail":"denied"}'),
+        )
+
+    monkeypatch.setattr(helper, "_fetch", fail_with_sensitive_body)
+
+    rc, out = _run(helper, ["--base-url", "https://catalog.example.com"])
+
+    captured = capsys.readouterr()
+    assert rc == 1
+    assert out == ""
+    assert "catalog request failed" in captured.err
+    assert "response body withheld" in captured.err
+    assert "password" not in captured.err
+    assert "super-secret" not in captured.err
 
 
 # ---------------------------------------------------------------------------

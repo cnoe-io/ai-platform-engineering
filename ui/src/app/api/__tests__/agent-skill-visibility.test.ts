@@ -7,8 +7,8 @@
  * Covers:
  * - POST: creating configs with private/team/global visibility
  * - POST: validation (team requires shared_with_teams)
- * - GET: visibility-based listing (owner, global, team membership)
- * - GET by ID: access control for visibility levels
+ * - GET: OpenFGA candidate loading (legacy visibility fields are metadata only)
+ * - GET by ID: OpenFGA read gate
  * - PUT: visibility field updates and validation
  */
 
@@ -21,6 +21,8 @@ jest.mock("next-auth", () => ({
 
 jest.mock("@/lib/auth-config", () => ({
   authOptions: {},
+  isBootstrapAdmin: jest.fn().mockReturnValue(false),
+  REQUIRED_ADMIN_GROUP: "",
 }));
 
 const mockCollections: Record<string, ReturnType<typeof createMockCollection>> = {};
@@ -34,6 +36,20 @@ const mockGetCollection = jest.fn((name: string) => {
 jest.mock("@/lib/mongodb", () => ({
   getCollection: (...args: unknown[]) => mockGetCollection(...(args as [string])),
   isMongoDBConfigured: true,
+}));
+
+// `requireResourcePermission` (added by 098-enterprise-rbac for skill
+// visibility / share gates) calls `checkOpenFgaTuple`. Default-allow so
+// these tests just exercise the route's own visibility validation.
+// `writeOpenFgaTupleDiff` is invoked by `grantSkillsToTeams` for team
+// visibility creates; stub it out so the tests don't touch the real PDP.
+jest.mock("@/lib/rbac/openfga", () => ({
+  checkOpenFgaTuple: jest.fn().mockResolvedValue({ allowed: true }),
+  writeOpenFgaTupleDiff: jest
+    .fn()
+    .mockResolvedValue({ writes: 0, deletes: 0, enabled: false }),
+  writeOpenFgaTuples: jest.fn().mockResolvedValue(undefined),
+  deleteOpenFgaTuples: jest.fn().mockResolvedValue(undefined),
 }));
 
 function createMockCollection() {
@@ -65,6 +81,7 @@ function userSession(email = "user@example.com") {
   return {
     user: { email, name: "Test User" },
     role: "user",
+    sub: "user-sub",
   };
 }
 
@@ -72,6 +89,7 @@ function adminSession() {
   return {
     user: { email: "admin@example.com", name: "Admin" },
     role: "admin",
+    sub: "admin-sub",
   };
 }
 
@@ -234,10 +252,21 @@ describe("POST /api/skills/configs - visibility", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GET - Visibility-based listing
+// GET - OpenFGA candidate loading
 // ─────────────────────────────────────────────────────────────────────────────
-describe("GET /api/skills/configs - visibility filtering", () => {
-  it("should include global visibility in query filter", async () => {
+describe("GET /api/skills/configs - OpenFGA candidate loading", () => {
+  it("loads all skill configs as candidates instead of filtering by global visibility in MongoDB", async () => {
+    mockGetServerSession.mockResolvedValue(userSession());
+
+    const { GET } = await import("../skills/configs/route");
+    const request = makeRequest("/api/skills/configs");
+    await GET(request);
+
+    const collection = await mockGetCollection("agent_skills");
+    expect(collection.find).toHaveBeenCalledWith({});
+  });
+
+  it("does not use owner/system visibility clauses as MongoDB authorization prefilters", async () => {
     mockGetServerSession.mockResolvedValue(userSession());
 
     const { GET } = await import("../skills/configs/route");
@@ -246,27 +275,10 @@ describe("GET /api/skills/configs - visibility filtering", () => {
 
     const collection = await mockGetCollection("agent_skills");
     const findCall = collection.find.mock.calls[0][0];
-    const orConditions = findCall.$or;
-
-    expect(orConditions).toContainEqual({ visibility: "global" });
+    expect(findCall).toEqual({});
   });
 
-  it("should include system configs in query filter", async () => {
-    mockGetServerSession.mockResolvedValue(userSession());
-
-    const { GET } = await import("../skills/configs/route");
-    const request = makeRequest("/api/skills/configs");
-    await GET(request);
-
-    const collection = await mockGetCollection("agent_skills");
-    const findCall = collection.find.mock.calls[0][0];
-    const orConditions = findCall.$or;
-
-    expect(orConditions).toContainEqual({ is_system: true });
-    expect(orConditions).toContainEqual({ owner_id: "user@example.com" });
-  });
-
-  it("should include team visibility when user belongs to teams", async () => {
+  it("does not resolve team membership for legacy team visibility filtering", async () => {
     mockGetServerSession.mockResolvedValue(userSession());
 
     const teamsCollection = createMockCollection();
@@ -285,17 +297,11 @@ describe("GET /api/skills/configs - visibility filtering", () => {
     await GET(request);
 
     const agentCollection = await mockGetCollection("agent_skills");
-    const findCall = agentCollection.find.mock.calls[0][0];
-    const orConditions = findCall.$or;
-
-    const teamCondition = orConditions.find(
-      (c: Record<string, unknown>) => c.visibility === "team"
-    );
-    expect(teamCondition).toBeDefined();
-    expect(teamCondition.shared_with_teams.$in).toEqual(["team-abc", "team-xyz"]);
+    expect(agentCollection.find).toHaveBeenCalledWith({});
+    expect(teamsCollection.find).not.toHaveBeenCalled();
   });
 
-  it("should NOT include team condition when user has no teams", async () => {
+  it("keeps team visibility out of the MongoDB query when no teams are present", async () => {
     mockGetServerSession.mockResolvedValue(userSession());
 
     const { GET } = await import("../skills/configs/route");
@@ -304,12 +310,7 @@ describe("GET /api/skills/configs - visibility filtering", () => {
 
     const collection = await mockGetCollection("agent_skills");
     const findCall = collection.find.mock.calls[0][0];
-    const orConditions = findCall.$or;
-
-    const teamCondition = orConditions.find(
-      (c: Record<string, unknown>) => c.visibility === "team"
-    );
-    expect(teamCondition).toBeUndefined();
+    expect(findCall).toEqual({});
   });
 });
 

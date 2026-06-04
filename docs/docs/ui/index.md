@@ -410,7 +410,7 @@ export CAIPE_URL=http://localhost:8000
 - [Development Guide](development.md) - Contributing to the UI
 - [User Interfaces Overview](../getting-started/user-interfaces.md)
 - [Quick Start Guide](../getting-started/quick-start.md)
-- [A2A Protocol Specification](https://google.github.io/A2A/) (external)
+- [A2A Protocol Specification](https://google.github.io/A2A/specification) (external)
 - [A2UI Specification](https://a2ui.org/) (external)
 - [Workshop: Mars Colony Hands-on Training](../workshop/00-caipeintro.md)
 

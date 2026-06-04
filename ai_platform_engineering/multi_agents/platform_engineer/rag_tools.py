@@ -18,6 +18,7 @@ ToolInvocationError caused the model to retry with different arguments, which
 defeated the cap.
 """
 
+import json
 import logging
 import os
 import threading
@@ -85,9 +86,23 @@ class _CapCounterMixin:
       return None
 
   @staticmethod
-  def _truncate_output(result: str, tool_name: str, max_chars: int = _DEFAULT_MAX_OUTPUT_CHARS) -> str:
-    """Truncate tool output to prevent context window overflow."""
-    if isinstance(result, str) and len(result) > max_chars:
+  # assisted-by Codex Codex-sonnet-4-6
+  def _truncate_output(result: Any, tool_name: str, max_chars: int = _DEFAULT_MAX_OUTPUT_CHARS) -> str:
+    """Truncate tool output to prevent context window overflow.
+
+    MCP tools (via langchain_mcp_adapters) return list[dict] content blocks
+    rather than plain str. Normalize to str before applying the length cap.
+    """
+    if isinstance(result, list):
+      text_parts = [
+        item["text"]
+        for item in result
+        if isinstance(item, dict) and isinstance(item.get("text"), str)
+      ]
+      result = "\n\n".join(text_parts) if text_parts else json.dumps(result, default=str)
+    elif not isinstance(result, str):
+      result = json.dumps(result, default=str)
+    if len(result) > max_chars:
       logger.info(f"{tool_name} output truncated: {len(result)} -> {max_chars} chars")
       return result[:max_chars] + f"\n\n[Output truncated — {len(result) - max_chars} chars omitted. Use the information above to answer.]"
     return result

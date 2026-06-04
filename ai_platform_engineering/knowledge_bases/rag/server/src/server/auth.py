@@ -20,7 +20,14 @@ logger = utils.get_logger(__name__)
 class OIDCProvider:
   """Represents an OIDC provider configuration with JWKS caching."""
 
-  def __init__(self, issuer: str, audience: str, name: str, discovery_url: Optional[str] = None):
+  def __init__(
+    self,
+    issuer: str,
+    audience: str,
+    name: str,
+    discovery_url: Optional[str] = None,
+    jwks_url: Optional[str] = None,
+  ):
     """
     Initialize OIDC provider.
 
@@ -29,12 +36,15 @@ class OIDCProvider:
         audience: Expected audience claim (typically client_id)
         name: Human-readable name for this provider (e.g., "ui", "ingestor")
         discovery_url: Optional explicit discovery URL (if not provided, constructs from issuer)
+        jwks_url: Optional JWKS URL (e.g. Docker-internal Keycloak certs endpoint); skips discovery for JWKS fetch
     """
     self.issuer = issuer
     self.audience = audience
     self.name = name
     self.discovery_url = discovery_url
     self.jwks_uri: Optional[str] = None
+    if jwks_url and str(jwks_url).strip():
+      self.jwks_uri = str(jwks_url).strip()
     self.jwks_cache: Dict[str, Any] = {}
     self.jwks_cache_time: float = 0
     self.jwks_cache_ttl: int = 3600  # Cache JWKS for 1 hour
@@ -43,6 +53,20 @@ class OIDCProvider:
       logger.info(f"Initialized OIDC provider '{name}': issuer={issuer}, audience={audience}, discovery_url={discovery_url}")
     else:
       logger.info(f"Initialized OIDC provider '{name}': issuer={issuer}, audience={audience}")
+    if self.jwks_uri:
+      logger.info(f"OIDC provider '{name}': explicit JWKS URI configured")
+
+  def _discovery_document_url(self) -> str:
+    """Return the OIDC well-known document URL for this provider.
+
+    Local Keycloak config often uses the realm base URL as the discovery URL so
+    browser-facing issuer validation and Docker-internal discovery can share the
+    same setting shape. Normalize both forms here before fetching metadata.
+    """
+    base_url = (self.discovery_url or self.issuer).rstrip("/")
+    if base_url.endswith("/.well-known/openid-configuration"):
+      return base_url
+    return f"{base_url}/.well-known/openid-configuration"
 
   async def _fetch_jwks(self) -> Dict[str, Any]:
     """
@@ -55,7 +79,7 @@ class OIDCProvider:
     Returns:
         JWKS dictionary with keys
     """
-    # Get JWKS URI from well-known configuration if not cached
+    # Get JWKS URI from well-known configuration if not set (explicit jwks_url sets self.jwks_uri in __init__)
     if not self.jwks_uri:
       discovery_attempts = []
       oidc_config = None
@@ -63,8 +87,9 @@ class OIDCProvider:
       # Attempt 1: Try explicit discovery URL if provided
       if self.discovery_url:
         try:
-          logger.debug(f"Provider '{self.name}': Attempting discovery with explicit URL: {self.discovery_url}")
-          oidc_config = await self._fetch_oidc_config(self.discovery_url)
+          discovery_url = self._discovery_document_url()
+          logger.debug(f"Provider '{self.name}': Attempting discovery with explicit URL: {discovery_url}")
+          oidc_config = await self._fetch_oidc_config(discovery_url)
         except Exception as e:
           logger.warning(f"Provider '{self.name}': Explicit discovery URL failed: {e}")
           discovery_attempts.append(f"Discovery URL: {e}")
@@ -201,65 +226,17 @@ class OIDCProvider:
       logger.debug(f"Token validation failed for provider '{self.name}': {e}")
       raise
 
-  async def fetch_userinfo(self, access_token: str) -> Dict[str, Any]:
-    """
-    Fetch user claims from OIDC provider's userinfo endpoint.
-
-    This is the standards-compliant way to get user claims (email, groups, etc.)
-    using the access token. The userinfo endpoint returns authoritative claims
-    from the identity provider.
-
-    Args:
-        access_token: Valid OAuth2 access token
-
-    Returns:
-        User claims dictionary (email, groups, members, etc.)
-
-    Raises:
-        Exception: If userinfo fetch fails
-    """
-    # Get userinfo endpoint from discovery if not cached
-    if not hasattr(self, "_userinfo_endpoint") or not self._userinfo_endpoint:
-      # Fetch OIDC discovery to get userinfo endpoint
-      discovery_url = self.discovery_url or f"{self.issuer}/.well-known/openid-configuration"
-      try:
-        async with httpx.AsyncClient(follow_redirects=True) as client:
-          response = await client.get(discovery_url, timeout=10.0)
-          response.raise_for_status()
-          config = response.json()
-          self._userinfo_endpoint = config.get("userinfo_endpoint")
-          if not self._userinfo_endpoint:
-            raise ValueError(f"No userinfo_endpoint found in OIDC discovery for {self.name}")
-          logger.info(f"OIDC provider '{self.name}' userinfo endpoint: {self._userinfo_endpoint}")
-      except Exception as e:
-        logger.error(f"Failed to discover userinfo endpoint for provider '{self.name}': {e}")
-        raise
-
-    # Fetch userinfo using access token
-    try:
-      async with httpx.AsyncClient(follow_redirects=True) as client:
-        response = await client.get(self._userinfo_endpoint, headers={"Authorization": f"Bearer {access_token}"}, timeout=10.0)
-        response.raise_for_status()
-        userinfo = response.json()
-        logger.debug(f"Fetched userinfo for provider '{self.name}': keys={list(userinfo.keys())}")
-        return userinfo
-    except httpx.HTTPStatusError as e:
-      logger.error(f"Userinfo fetch failed for provider '{self.name}': HTTP {e.response.status_code}")
-      raise
-    except Exception as e:
-      logger.error(f"Userinfo fetch failed for provider '{self.name}': {e}")
-      raise
-
   async def validate_id_token(self, token: str) -> Dict[str, Any]:
     """
     Validate ID token with relaxed checks (signature and expiry only).
 
-    ID tokens are used for identity claims extraction (email, groups), not authorization.
+    ID tokens are used for identity claims extraction, not authorization.
     We validate the signature to ensure authenticity but skip audience/issuer
     checks since ID tokens have different semantics than access tokens.
 
-    Note: This method is deprecated in favor of fetch_userinfo() which is the
-    standards-compliant way to get user claims. Kept for backward compatibility.
+    Resource-server authorization uses validated access tokens. ID token
+    validation is available for callers that still need to inspect ID-token
+    identity claims.
 
     Args:
         token: JWT ID token string
@@ -327,21 +304,25 @@ class AuthManager:
   def _load_providers(self):
     """Load OIDC provider configurations from environment variables."""
     # Load UI provider
-    ui_issuer = os.getenv("OIDC_ISSUER")
-    ui_client_id = os.getenv("OIDC_CLIENT_ID")
+    ui_issuer = os.getenv("OIDC_ISSUER_URL") or os.getenv("OIDC_ISSUER")
+    ui_audience = os.getenv("OIDC_AUDIENCE") or os.getenv("OIDC_CLIENT_ID")
     ui_discovery_url = os.getenv("OIDC_DISCOVERY_URL")
+    ui_jwks_url = os.getenv("OIDC_JWKS_URL")
 
-    # Require either issuer or discovery URL, plus client_id
-    if (ui_issuer or ui_discovery_url) and ui_client_id:
+    # Require either issuer or discovery URL, plus audience (client id or resource-server audience)
+    if (ui_issuer or ui_discovery_url) and ui_audience:
       self.providers["ui"] = OIDCProvider(
         issuer=ui_issuer.rstrip("/") if ui_issuer else "",  # Empty string if only discovery URL
-        audience=ui_client_id,
+        audience=ui_audience.strip(),
         name="ui",
         discovery_url=ui_discovery_url,
+        jwks_url=ui_jwks_url,
       )
       logger.info("UI OIDC provider configured")
     else:
-      logger.warning("UI OIDC provider not configured (need OIDC_CLIENT_ID and either OIDC_ISSUER or OIDC_DISCOVERY_URL)")
+      logger.warning(
+        "UI OIDC provider not configured (need OIDC_AUDIENCE or OIDC_CLIENT_ID, and either OIDC_ISSUER / OIDC_ISSUER_URL or OIDC_DISCOVERY_URL)"
+      )
 
     # Load Ingestor provider
     ingestor_issuer = os.getenv("INGESTOR_OIDC_ISSUER")
@@ -355,13 +336,14 @@ class AuthManager:
         audience=ingestor_client_id,
         name="ingestor",
         discovery_url=ingestor_discovery_url,
+        jwks_url=os.getenv("INGESTOR_OIDC_JWKS_URL"),
       )
       logger.info("Ingestor OIDC provider configured")
     else:
-      logger.info("Ingestor OIDC provider not configured (using trusted network or UI-only auth)")
+      logger.info("Ingestor OIDC provider not configured (UI-only auth unless another provider is configured)")
 
     if not self.providers:
-      logger.warning("No OIDC providers configured! Either configure OIDC providers or enable trusted network access (ALLOW_TRUSTED_NETWORK=true)")
+      logger.warning("No OIDC providers configured! Configure at least one OIDC provider for protected RAG routes.")
 
   async def validate_token(self, token: str) -> Tuple[OIDCProvider, Dict[str, Any]]:
     """
@@ -392,8 +374,8 @@ class AuthManager:
         errors.append(f"{provider.name}: {str(e)}")
         continue
 
-    # All providers failed
-    error_msg = f"Token validation failed for all providers: {'; '.join(errors)}"
+    # All providers failed JWKS validation.
+    error_msg = f"Token validation failed for all providers — JWKS: {'; '.join(errors)}"
     logger.warning(error_msg)
     raise JWTError(error_msg)
 
@@ -404,8 +386,7 @@ class AuthManager:
     The ID token should be validated using the same provider that validated
     the access token, to ensure consistent key material.
 
-    Note: This method is deprecated in favor of fetch_userinfo() which is the
-    standards-compliant way to get user claims.
+    Note: User identity now comes from the validated Keycloak access token.
 
     Args:
         token: JWT ID token string
@@ -418,25 +399,6 @@ class AuthManager:
         JWTError: If ID token is invalid
     """
     return await provider.validate_id_token(token)
-
-  async def fetch_userinfo(self, access_token: str, provider: OIDCProvider) -> Dict[str, Any]:
-    """
-    Fetch user claims from OIDC provider's userinfo endpoint.
-
-    This is the standards-compliant way to get user claims (email, groups, etc.)
-    using the access token.
-
-    Args:
-        access_token: Valid OAuth2 access token
-        provider: The OIDC provider that validated the access token
-
-    Returns:
-        User claims dictionary (email, groups, members, etc.)
-
-    Raises:
-        Exception: If userinfo fetch fails
-    """
-    return await provider.fetch_userinfo(access_token)
 
 
 # Global auth manager instance (initialized on first use)

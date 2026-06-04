@@ -10,13 +10,10 @@
  *      install path (the "what is about to happen?" preview).
  *   2. The API-key gate renders amber when no key is present and exposes
  *      a Generate button that POSTs to `/api/catalog-api-keys`.
- *   3. After minting, the gate flips to green and the raw key is shown in a
- *      copyable block with the one-time-visibility warning. Per PR #1268
- *      review feedback (Jeff Napper #6): the install snippet itself never
- *      embeds the minted key — install.sh reads the key out of
- *      `~/.config/caipe/config.json` (Step 1).
- *   4. The Copy button writes the single-line `curl … | bash` snippet
- *      verbatim (no `export CAIPE_CATALOG_KEY=…` prefix, no key inline).
+ *   3. After minting, the gate flips to green and shows a single-shot
+ *      bootstrap command with the one-time-visibility warning.
+ *   4. The bootstrap command writes `~/.config/caipe/config.json` and then
+ *      runs the install one-liner without a second redundant terminal block.
  *   5. The footer action closes the dialog.
  *
  * We mock `fetch` per-URL so the component receives realistic shapes from
@@ -87,20 +84,26 @@ const LIVE_SKILLS_BODY = {
   agent: "claude",
   label: "Claude Code",
   template: "# Live-skills\nDo a thing.",
-  install_path: "./.claude/commands/skills.md",
+  install_path: "~/.claude/skills/caipe-skills/SKILL.md",
   install_paths: {
-    user: "~/.claude/commands/skills.md",
-    project: "./.claude/commands/skills.md",
+    user: [
+      "~/.claude/skills/caipe-skills/SKILL.md",
+      "~/.agents/skills/caipe-skills/SKILL.md",
+    ],
+    project: [
+      "./.claude/skills/caipe-skills/SKILL.md",
+      "./.agents/skills/caipe-skills/SKILL.md",
+    ],
   },
-  scope: "project",
-  scope_requested: "project",
+  scope: "user",
+  scope_requested: "user",
   scope_fallback: false,
   scopes_available: ["user", "project"],
   file_extension: "md",
   format: "markdown-frontmatter",
   is_fragment: false,
   launch_guide:
-    "## Launch the skill\n\nRun `/skills` inside Claude Code.\n",
+    "## Launch the skill\n\nRun `/caipe-skills` inside Claude Code.\n",
   agents: [
     {
       id: "claude",
@@ -108,8 +111,14 @@ const LIVE_SKILLS_BODY = {
       ext: "md",
       format: "markdown-frontmatter",
       install_paths: {
-        user: "~/.claude/commands/skills.md",
-        project: "./.claude/commands/skills.md",
+        user: [
+          "~/.claude/skills/caipe-skills/SKILL.md",
+          "~/.agents/skills/caipe-skills/SKILL.md",
+        ],
+        project: [
+          "./.claude/skills/caipe-skills/SKILL.md",
+          "./.agents/skills/caipe-skills/SKILL.md",
+        ],
       },
       scopes_available: ["user", "project"],
       is_fragment: false,
@@ -235,18 +244,19 @@ async function renderAndOpenModal({
       expect.anything(),
     ),
   );
-  // After PR #1268 review feedback (Shubham Bakshi), "Quick install" is
-  // now both the primary CTA in Step 3 ("Install the live-skills skill") AND
-  // the inline button under the Query Builder's Preview button. Either one
-  // opens the same dialog, so we just pick the first match.
+  // The gateway page is quick-install first: a single primary CTA opens
+  // the dialog, while catalog filtering and manual install details live
+  // behind Advanced disclosures.
   await waitFor(() => {
-    const buttons = screen.getAllByRole("button", { name: /quick install/i });
-    expect(buttons.length).toBeGreaterThan(0);
+    const buttons = screen.getAllByRole("button", {
+      name: /^quick install skills$/i,
+    });
+    expect(buttons).toHaveLength(1);
     expect(buttons[0]).toBeEnabled();
   });
 
   await user.click(
-    screen.getAllByRole("button", { name: /quick install/i })[0],
+    screen.getByRole("button", { name: /^quick install skills$/i }),
   );
   await screen.findByRole("heading", { name: /quick install/i });
 
@@ -272,9 +282,32 @@ async function renderAndOpenModal({
   return user;
 }
 
+async function openModalAdvancedOptions(user: ReturnType<typeof userEvent.setup>) {
+  // assisted-by Codex Codex-sonnet-4-6
+  const dialog = getDialog();
+  await user.click(within(dialog).getByText(/^Advanced install options$/i));
+}
+
+async function mintQuickInstallKey(user: ReturnType<typeof userEvent.setup>) {
+  const dialog = getDialog();
+  await user.click(
+    within(dialog).getByRole("button", {
+      name: /generate install command with api key/i,
+    }),
+  );
+  await within(dialog).findByText(/API key minted/i);
+}
+
 function getDialog() {
   // shadcn/ui Dialog renders with role="dialog".
   return screen.getByRole("dialog");
+}
+
+function getBootstrapSnippetText(dialog = getDialog()) {
+  const panel = within(dialog).getByTestId("quick-install-bootstrap-snippet");
+  const pre = panel.querySelector("pre");
+  expect(pre).not.toBeNull();
+  return pre!.textContent || "";
 }
 
 // ----------------------------------------------------------------------------
@@ -282,37 +315,194 @@ function getDialog() {
 // ----------------------------------------------------------------------------
 
 describe("TrySkillsGateway → Quick install modal", () => {
-  it("renders the dialog with summary chips for agent + install path", async () => {
-    await renderAndOpenModal();
-    const dialog = getDialog();
+  it("centers the gateway content and uses a wider desktop layout", async () => {
+    const { TrySkillsGateway } = await import("../TrySkillsGateway");
+    const { container } = render(<TrySkillsGateway />);
 
-    // Agent chip: default selected agent is "claude" → label "Claude Code".
-    // The chip appears alongside the live-skills target path. We use
-    // `getAllByText` because the agent label also appears in the picker
-    // <select>.
-    expect(within(dialog).getAllByText(/Claude Code/).length).toBeGreaterThan(0);
-
-    // Default scope after the live-skills fetch returns is "project" (from the mocked
-    // LIVE_SKILLS_BODY.scope), so the project path should be in the chip
-    // row. The same path also appears in the scope picker label, so we
-    // assert at-least-one match instead of unique.
-    expect(
-      within(dialog).getAllByText("./.claude/commands/skills.md").length,
-    ).toBeGreaterThan(0);
-
-    // The "skills from catalog" fallback chip appears until a Preview is run
-    // — previewData is null here so we expect that label, not "N skills".
-    expect(within(dialog).getByText(/skills from catalog/i)).toBeInTheDocument();
+    const root = container.firstElementChild;
+    expect(root).toHaveClass("mx-auto");
+    expect(root).toHaveClass("w-full");
+    expect(root).toHaveClass("max-w-[1600px]");
   });
 
-  it("shows the amber API-key gate with a Generate button when no key is present", async () => {
+  it("renders a quick-install-first page with advanced details collapsed", async () => {
+    const { TrySkillsGateway } = await import("../TrySkillsGateway");
+    render(<TrySkillsGateway />);
+
+    await waitFor(() =>
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining("/api/skills/live-skills"),
+        expect.anything(),
+      ),
+    );
+
+    expect(screen.getAllByText("Quick install skills").length).toBeGreaterThan(0);
+    expect(
+      screen.getByRole("button", { name: /^quick install skills$/i }),
+    ).toBeEnabled();
+    expect(
+      screen.getByText(
+        /Install skills into your local coding agent\. Claude gets its native ~\/\.claude\/skills copy/i,
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/One guided flow generates/i)).toBeNull();
+    expect(screen.queryByText(/Choose the default user-wide install/i)).toBeNull();
+
+    expect(screen.queryByText(/Step 2: Generate API Key/i)).toBeNull();
+    expect(screen.queryByText(/Step 3: Install skills/i)).toBeNull();
+    expect(screen.getByText(/Advanced install options/i)).toBeVisible();
+    expect(screen.getByText(/Choose specific skills or bulk install/i)).not.toBeVisible();
+    expect(screen.getByText(/Manual and custom install options/i)).not.toBeVisible();
+    expect(screen.queryByText(/Advanced:/i)).toBeNull();
+    expect(screen.queryByText(/^Advanced filters$/i)).toBeNull();
+    expect(
+      screen.queryByText(/Advanced — customize the skill/i),
+    ).toBeNull();
+  });
+
+  it("opens manual options inside the collapsed advanced install section", async () => {
+    const { TrySkillsGateway } = await import("../TrySkillsGateway");
+    const user = userEvent.setup();
+    render(<TrySkillsGateway />);
+
+    expect(
+      screen.queryByText(/Advanced: manual and custom install options/i),
+    ).toBeNull();
+    expect(
+      screen.queryByText(/Advanced — customize the skill/i),
+    ).toBeNull();
+    await user.click(screen.getByText(/Advanced install options/i));
+    expect(screen.getByText(/Customize or install manually/i)).toBeInTheDocument();
+    expect(screen.getByText(/Skill name/i)).toBeInTheDocument();
+    expect(screen.getByText(/Launch your coding agent and use it/i)).toBeInTheDocument();
+  });
+
+  it("renders launch instructions as a standalone visible section", async () => {
+    const { TrySkillsGateway } = await import("../TrySkillsGateway");
+    render(<TrySkillsGateway />);
+
+    expect(screen.getByText(/Launch your coding agent and use it/i)).toBeInTheDocument();
+    expect(screen.getByText(/Installed Claude-native skills/i)).toBeInTheDocument();
+    expect(screen.getByText(/Restart or reopen your coding agent/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Open your coding agent \(Claude, Cursor, Codex, Gemini, Opencode\)/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getAllByText((_, node) =>
+        Boolean(
+          node?.textContent?.includes(
+            "/caipe-skills to browse/search or run an installed skill directly",
+          ),
+        ),
+      ).length,
+    ).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText((_, node) =>
+        Boolean(node?.textContent?.includes("/update-caipe-skills")),
+      ).length,
+    ).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText((_, node) =>
+        Boolean(node?.textContent?.includes("/create-ci-pipeline")),
+      ).length,
+    ).toBeGreaterThan(0);
+    expect(screen.queryByText(/For Cursor, Codex CLI, Gemini CLI, and opencode/i)).toBeNull();
+    expect(screen.queryByText(/Claude Code: use/i)).toBeNull();
+    expect(screen.queryByText(/immediately discoverable/i)).toBeNull();
+    expect(screen.queryByText(/\$skill-name/i)).toBeNull();
+    expect(screen.queryByText(/\/skills list/i)).toBeNull();
+    expect(screen.queryByText(/Detailed launch guide/i)).toBeNull();
+    expect(screen.queryByText(/Install Claude Code/i)).toBeNull();
+    expect(screen.queryByText(/npm install -g @anthropic-ai\/claude-code/i)).toBeNull();
+    expect(screen.queryByText(/^2$/)).toBeNull();
+  });
+
+  it("opens catalog filters inside the collapsed advanced install section", async () => {
+    const { TrySkillsGateway } = await import("../TrySkillsGateway");
+    const user = userEvent.setup();
+    render(<TrySkillsGateway />);
+
+    expect(
+      screen.queryByText(/Advanced: choose specific skills or bulk install/i),
+    );
+    await user.click(screen.getByText(/Advanced install options/i));
+    expect(screen.getByText(/Choose specific skills or bulk install/i)).toBeInTheDocument();
+    expect(screen.queryByText(/^Advanced filters$/i)).toBeNull();
+    expect(screen.getByText(/Tags \(comma-separated\)/i)).toBeInTheDocument();
+    expect(screen.getByText(/Visibility/i)).toBeInTheDocument();
+    expect(screen.getByText(/include_content/i)).toBeInTheDocument();
+  });
+
+  it("does not request or render page_size from the gateway flow", async () => {
+    const { TrySkillsGateway } = await import("../TrySkillsGateway");
+    render(<TrySkillsGateway />);
+
+    await waitFor(() =>
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/skills",
+        expect.anything(),
+      ),
+    );
+
+    const fetchedUrls = (global.fetch as jest.Mock).mock.calls
+      .map(([input]) => (typeof input === "string" ? input : input.toString()))
+      .filter((url: string) => url.includes("/api/skills"));
+    expect(fetchedUrls.some((url: string) => url.includes("page_size"))).toBe(false);
+    expect(screen.queryByText(/page_size/i)).toBeNull();
+  });
+
+  it("renders the default live URL without a trailing question mark", async () => {
+    const { TrySkillsGateway } = await import("../TrySkillsGateway");
+    render(<TrySkillsGateway />);
+
+    expect(
+      await screen.findByText("http://localhost/api/skills"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("http://localhost/api/skills?")).toBeNull();
+  });
+
+  it("does not render the redundant catalog, agent, and path summary row", async () => {
     await renderAndOpenModal();
     const dialog = getDialog();
 
-    expect(within(dialog).getByText(/No API key/i)).toBeInTheDocument();
+    expect(within(dialog).queryByText(/skills from catalog/i)).toBeNull();
+    expect(within(dialog).queryByText(/^10 skills$/i)).toBeNull();
     expect(
-      within(dialog).getByRole("button", { name: /generate api key/i }),
-    ).toBeEnabled();
+      within(dialog).queryByText((_, node) =>
+        Boolean(
+          node?.textContent?.includes(
+            "paths ./.agents/skills/caipe-skills/SKILL.md",
+          ),
+        ),
+      ),
+    ).toBeNull();
+    expect(
+      within(dialog).queryByText(
+        "./.agents/skills/caipe-skills/SKILL.md./.agents/skills/caipe-skills/SKILL.md",
+      ),
+    ).toBeNull();
+  });
+
+  it("shows the API-key gate with the Generate button first when no key is present", async () => {
+    await renderAndOpenModal();
+    const dialog = getDialog();
+
+    expect(within(dialog).queryByText(/No API key/i)).toBeNull();
+    expect(within(dialog).queryByText(/Generate one in Step 1 first/i)).toBeNull();
+
+    const apiKeyGate = within(dialog).getByTestId("quick-install-api-key-gate");
+    const generateButton = within(apiKeyGate).getByRole("button", {
+      name: /generate install command with api key/i,
+    });
+    expect(generateButton).toBeEnabled();
+    expect(
+      within(apiKeyGate).getByText(/Generate an API key first to install skills/i),
+    ).toBeInTheDocument();
+    expect(
+      apiKeyGate.textContent?.indexOf("Generate Install Command with API Key"),
+    ).toBeLessThan(
+      apiKeyGate.textContent?.indexOf("Generate an API key first") ?? 0,
+    );
 
     // Per PR #1268 review feedback (Jeff Napper #6): the snippet no longer
     // embeds the API key in any state — it's always a clean
@@ -323,6 +513,26 @@ describe("TrySkillsGateway → Quick install modal", () => {
     expect(
       within(dialog).queryByText(/<your-catalog-api-key>/),
     ).toBeNull();
+    expect(within(dialog).queryByText(/Run this in your terminal/i)).toBeNull();
+    expect(
+      within(dialog).queryByTestId("quick-install-copy-bare-curl"),
+    ).toBeNull();
+  });
+
+  it("keeps install options and overwrite policy collapsed by default", async () => {
+    const user = await renderAndOpenModal();
+    const dialog = getDialog();
+
+    expect(
+      within(dialog).getByText(/^Advanced install options$/i),
+    ).toBeVisible();
+    expect(within(dialog).getByText(/^Install options$/i)).not.toBeVisible();
+    expect(within(dialog).getByText(/^Overwrite policy$/i)).not.toBeVisible();
+
+    await openModalAdvancedOptions(user);
+
+    expect(within(dialog).getByText(/^Install options$/i)).toBeVisible();
+    expect(within(dialog).getByText(/^Overwrite policy$/i)).toBeVisible();
   });
 
   it("POSTs to /api/catalog-api-keys and flips the gate green after Generate", async () => {
@@ -330,7 +540,9 @@ describe("TrySkillsGateway → Quick install modal", () => {
     const dialog = getDialog();
 
     await user.click(
-      within(dialog).getByRole("button", { name: /generate api key/i }),
+      within(dialog).getByRole("button", {
+        name: /generate install command with api key/i,
+      }),
     );
 
     await waitFor(() => expect(mintCallCount).toBeGreaterThanOrEqual(1));
@@ -343,97 +555,55 @@ describe("TrySkillsGateway → Quick install modal", () => {
     await within(dialog).findByText(/API key minted/i);
     expect(within(dialog).queryByText(/API key required/i)).toBeNull();
 
-    // The raw key is rendered in its own copyable block with a one-time
-    // visibility warning — this is the only place the key is shown after
-    // mint, per Jeff Napper's review feedback.
-    expect(within(dialog).getByText(mintedKeyValue)).toBeInTheDocument();
+    // The full key should not be visible by default after mint. The
+    // recommended bootstrap command carries it in masked form unless the
+    // user explicitly reveals it.
+    expect(within(dialog).queryByText(mintedKeyValue)).toBeNull();
+    expect(dialog).toHaveTextContent(/cannot show this key\s+again/i);
+    expect(within(dialog).queryByText(/Option A/i)).toBeNull();
+    expect(within(dialog).queryByText(/Two options/i)).toBeNull();
     expect(
-      within(dialog).getByText(/cannot show it again/i),
-    ).toBeInTheDocument();
+      within(dialog).getByTestId("quick-install-bootstrap-snippet"),
+    ).toHaveTextContent("FAKE-T**************-USE");
 
-    // The key is shown in two places after mint:
-    //   * Option A — the bare key in its own CopyableBlock.
-    //   * Option B — embedded inside the bootstrap heredoc snippet
-    //     (so the `cat > config.json <<'EOF' … EOF` writes the right
-    //     value).
-    // Use getAllByText so this assertion is stable regardless of how
-    // many copies render — what we actually care about is "the key
-    // shows up somewhere" plus the *negative* assertion below that the
-    // bare-curl one-liner doesn't bake it in.
+    await user.click(
+      within(dialog).getByRole("button", { name: /show api key/i }),
+    );
     expect(
-      within(dialog).getAllByText(new RegExp(mintedKeyValue)).length,
-    ).toBeGreaterThanOrEqual(1);
+      within(dialog).getByTestId("quick-install-bootstrap-snippet"),
+    ).toHaveTextContent(mintedKeyValue);
+    expect(
+      within(dialog).queryByText(/Run this in your terminal/i),
+    ).toBeNull();
+    expect(
+      within(dialog).queryByTestId("quick-install-copy-bare-curl"),
+    ).toBeNull();
+    expect(
+      within(dialog).queryByTestId("quick-install-bare-curl-snippet"),
+    ).toBeNull();
     // But never as `export CAIPE_CATALOG_KEY=…` — install.sh reads the
-    // key from ~/.config/caipe/config.json, not the env. (See the
-    // separate clipboard test below for the bare-curl one-liner.)
+    // key from ~/.config/caipe/config.json, not the env.
     expect(within(dialog).queryByText(/export CAIPE_CATALOG_KEY/)).toBeNull();
   });
 
-  it("Copy writes the single-line `curl … | bash` snippet to clipboard", async () => {
+  it("does not render a second terminal-only curl snippet after minting", async () => {
     const user = await renderAndOpenModal();
     const dialog = getDialog();
 
-    // Minting changes the API-key gate but should NOT affect the snippet,
-    // which is always a clean one-liner (install.sh reads the key from
-    // ~/.config/caipe/config.json). Mint anyway so we can verify the key
-    // is *not* leaking into the copy payload.
     await user.click(
-      within(dialog).getByRole("button", { name: /generate api key/i }),
+      within(dialog).getByRole("button", {
+        name: /generate install command with api key/i,
+      }),
     );
     await within(dialog).findByText(/API key minted/i);
 
-    // After mint, three clipboard-writers exist in the dialog:
-    //   1) Option A — the bare API key (CopyableBlock, icon-only,
-    //      aria-label="Copy API key").
-    //   2) Option B — the bootstrap snippet (CopyableBlock with
-    //      visible text "Copy", inside the
-    //      `quick-install-bootstrap-snippet` panel).
-    //   3) The "Run this in your terminal" inline button (visible text
-    //      "Copy", `data-testid="quick-install-copy-bare-curl"`),
-    //      which is the one this test cares about — the clean
-    //      single-line `curl … | bash` that exists regardless of mint
-    //      state.
-    // Target #3 by testid so this test stays orthogonal to Options A/B.
-    clipboardWriteTextMock.mockClear();
-    // `userEvent.setup()` installs its own clipboard polyfill that
-    // shadows our `Object.defineProperty` mock, so we spy on the live
-    // `writeText` *just before* the click and inspect that.
-    const liveWriteText = jest.spyOn(navigator.clipboard, "writeText");
-    await user.click(
-      within(dialog).getByTestId("quick-install-copy-bare-curl"),
-    );
-
-    await waitFor(() => {
-      expect(liveWriteText).toHaveBeenCalled();
-    });
-    // The bare-curl button writes exactly one payload — the one-liner.
-    const snippetCall = liveWriteText.mock.calls.find(
-      ([arg]) =>
-        typeof arg === "string" && /^curl -fsSL/.test(arg),
-    );
-    expect(snippetCall).toBeDefined();
-    const copied = snippetCall![0] as string;
-
-    // Per PR #1268 review feedback (Jeff Napper #6): the snippet is a clean
-    // single-line `curl … | bash`. No `export CAIPE_CATALOG_KEY=`, no key
-    // baked in — install.sh resolves the key from
-    // ~/.config/caipe/config.json (Step 1).
-    expect(copied).toMatch(/^curl -fsSL/);
-    expect(copied).not.toContain("export CAIPE_CATALOG_KEY");
-    expect(copied).not.toContain(FAKE_MINT_KEY);
-    expect(copied).toContain("/api/skills/install.sh?");
-    // ?agent= is omitted now -- the install is universal across
-    // Claude / Cursor / Codex / Gemini / opencode and the route
-    // defaults to claude. The UI no longer surfaces an agent picker
-    // in the Quick install modal.
-    expect(copied).not.toContain("agent=");
-    // Scope must still be in the URL (drives ~/.claude vs ./.claude).
-    expect(copied).toMatch(/scope=(user|project)/);
-    expect(copied).toMatch(/\| bash$/);
-    expect(copied).not.toContain("<your-catalog-api-key>");
-
-    // Button label flips to "Copied" briefly.
-    await within(dialog).findByRole("button", { name: /copied/i });
+    expect(within(dialog).queryByText(/Run this in your terminal/i)).toBeNull();
+    expect(
+      within(dialog).queryByTestId("quick-install-copy-bare-curl"),
+    ).toBeNull();
+    expect(
+      within(dialog).queryByTestId("quick-install-bare-curl-snippet"),
+    ).toBeNull();
   });
 
   it("snippet is a clean curl one-liner regardless of mint state", async () => {
@@ -441,31 +611,34 @@ describe("TrySkillsGateway → Quick install modal", () => {
     // embed the API key — not as `<your-catalog-api-key>`, not as the
     // freshly minted value. install.sh resolves the key from
     // ~/.config/caipe/config.json (Step 1).
-    await renderAndOpenModal();
+    const user = await renderAndOpenModal();
     const dialog = getDialog();
 
     expect(
       within(dialog).queryByText(/<your-catalog-api-key>/),
     ).toBeNull();
     expect(within(dialog).queryByText(/export CAIPE_CATALOG_KEY/)).toBeNull();
-    // The `--upgrade` hint (idempotency advice) still belongs in the modal.
+    await openModalAdvancedOptions(user);
+    // The `--upgrade` hint (idempotency advice) still belongs in the
+    // modal, but now lives in the advanced install options.
     expect(within(dialog).getAllByText(/--upgrade/).length).toBeGreaterThan(0);
   });
 
-  it("footer action closes the dialog", async () => {
-    const user = await renderAndOpenModal();
+  it("does not show a manual-options footer in the dialog", async () => {
+    await renderAndOpenModal();
     const dialog = getDialog();
 
-    await user.click(
-      within(dialog).getByRole("button", { name: /close and jump to step 3/i }),
-    );
-
-    await waitFor(() => {
-      expect(screen.queryByRole("dialog")).toBeNull();
-    });
+    expect(
+      within(dialog).queryByText(/Want the manual heredoc/i),
+    ).toBeNull();
+    expect(
+      within(dialog).queryByRole("button", {
+        name: /close and view manual options/i,
+      }),
+    ).toBeNull();
   });
 
-  it("shows skill count chip after a Preview populates `previewData`", async () => {
+  it("keeps the quick install dialog free of preview-count summary chips", async () => {
     const user = await renderAndOpenModal();
 
     // Close the modal so we can hit the Preview button in the underlying
@@ -474,20 +647,20 @@ describe("TrySkillsGateway → Quick install modal", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 
     // Trigger Preview: this hits /api/skills which is mocked above to
-    // return meta.total = 10. After it resolves, opening the modal should
-    // surface the "10 skills" chip in place of the "skills from catalog"
-    // fallback.
+    // return meta.total = 10. Quick install should still avoid the
+    // redundant summary chip row.
+    await user.click(screen.getByText(/Advanced install options/i));
     await user.click(screen.getByRole("button", { name: /^preview$/i }));
     await waitFor(() =>
       expect(screen.getByText(/10 skill(s)? found/i)).toBeInTheDocument(),
     );
 
     await user.click(
-      screen.getAllByRole("button", { name: /quick install/i })[0],
+      screen.getByRole("button", { name: /^quick install skills$/i }),
     );
     const dialog = await screen.findByRole("dialog");
 
-    expect(within(dialog).getByText(/^10 skills$/i)).toBeInTheDocument();
+    expect(within(dialog).queryByText(/^10 skills$/i)).toBeNull();
     expect(within(dialog).queryByText(/skills from catalog/i)).toBeNull();
   });
 
@@ -509,8 +682,9 @@ describe("TrySkillsGateway → Quick install modal", () => {
   // ---------------------------------------------------------------------
 
   it("overwrite-policy: defaults to no flag and renders a clean curl | bash", async () => {
-    await renderAndOpenModal();
+    const user = await renderAndOpenModal();
     const dialog = getDialog();
+    await openModalAdvancedOptions(user);
 
     const upgrade = within(dialog).getByTestId(
       "quick-install-upgrade",
@@ -521,81 +695,89 @@ describe("TrySkillsGateway → Quick install modal", () => {
     expect(upgrade.checked).toBe(false);
     expect(force.checked).toBe(false);
 
-    // The snippet block is the only `<pre>` in the dialog.
-    const snippet = dialog.querySelector("pre");
-    expect(snippet).not.toBeNull();
-    expect(snippet!.textContent || "").toMatch(/\| bash$/);
-    expect(snippet!.textContent || "").not.toContain("bash -s --");
+    await mintQuickInstallKey(user);
+
+    const snippet = getBootstrapSnippetText(dialog);
+    expect(snippet).toMatch(/\| bash$/);
+    expect(snippet).not.toContain("bash -s --");
   });
 
   it("overwrite-policy: ticking --upgrade rewrites snippet to use bash -s -- --upgrade", async () => {
     const user = await renderAndOpenModal();
     const dialog = getDialog();
+    await openModalAdvancedOptions(user);
 
     await user.click(within(dialog).getByTestId("quick-install-upgrade"));
+    await mintQuickInstallKey(user);
 
-    const snippet = dialog.querySelector("pre");
-    expect(snippet!.textContent || "").toMatch(
-      /\| bash -s -- --upgrade$/,
-    );
+    const snippet = getBootstrapSnippetText(dialog);
+    expect(snippet).toMatch(/\| bash -s -- --upgrade$/);
   });
 
   it("overwrite-policy: ticking --force rewrites snippet to use bash -s -- --force", async () => {
     const user = await renderAndOpenModal();
     const dialog = getDialog();
+    await openModalAdvancedOptions(user);
 
     await user.click(within(dialog).getByTestId("quick-install-force"));
+    await mintQuickInstallKey(user);
 
-    const snippet = dialog.querySelector("pre");
-    expect(snippet!.textContent || "").toMatch(/\| bash -s -- --force$/);
+    const snippet = getBootstrapSnippetText(dialog);
+    expect(snippet).toMatch(/\| bash -s -- --force$/);
   });
 
   // ---------------------------------------------------------------------
   // Helpers checkbox (default ON).
   //
   // The Quick Install URL must include &mode=bulk-with-helpers when the
-  // checkbox is on so the server installs /skills + /update-skills
+  // checkbox is on so the server installs /caipe-skills + /update-caipe-skills
   // helper SKILL.md files. Without this the route silently downgrades
   // to catalog-query mode (DO_HELPERS=0) because ?catalog_url= takes
   // precedence over a missing mode.
   // ---------------------------------------------------------------------
 
   it("helpers checkbox: defaults to ON and snippet contains &mode=bulk-with-helpers", async () => {
-    await renderAndOpenModal();
+    const user = await renderAndOpenModal();
     const dialog = getDialog();
+    await openModalAdvancedOptions(user);
 
     const helpers = within(dialog).getByTestId(
       "quick-install-helpers",
     ) as HTMLInputElement;
     expect(helpers.checked).toBe(true);
 
-    const snippet = dialog.querySelector("pre");
-    expect(snippet!.textContent || "").toContain("mode=bulk-with-helpers");
+    await mintQuickInstallKey(user);
+
+    const snippet = getBootstrapSnippetText(dialog);
+    expect(snippet).toContain("mode=bulk-with-helpers");
   });
 
   it("helpers checkbox: unticking removes &mode=bulk-with-helpers from the snippet", async () => {
     const user = await renderAndOpenModal();
     const dialog = getDialog();
+    await openModalAdvancedOptions(user);
 
     await user.click(within(dialog).getByTestId("quick-install-helpers"));
+    await mintQuickInstallKey(user);
 
-    const snippet = dialog.querySelector("pre");
-    expect(snippet!.textContent || "").not.toContain("mode=bulk-with-helpers");
+    const snippet = getBootstrapSnippetText(dialog);
+    expect(snippet).not.toContain("mode=bulk-with-helpers");
     // The rest of the URL (scope, catalog_url) must still be there —
     // we're only stripping the mode override, not breaking the URL.
-    expect(snippet!.textContent || "").toMatch(/scope=(user|project)/);
-    expect(snippet!.textContent || "").toContain("catalog_url=");
+    expect(snippet).toMatch(/scope=(user|project)/);
+    expect(snippet).toContain("catalog_url=");
   });
 
   it("helpers checkbox: stacks with --force (both flags coexist on the same one-liner)", async () => {
     const user = await renderAndOpenModal();
     const dialog = getDialog();
+    await openModalAdvancedOptions(user);
 
     // Default state already has helpers=on; layer --force on top.
     await user.click(within(dialog).getByTestId("quick-install-force"));
+    await mintQuickInstallKey(user);
 
-    const snippet = dialog.querySelector("pre");
-    const text = snippet!.textContent || "";
+    const text = getBootstrapSnippetText(dialog);
     expect(text).toContain("mode=bulk-with-helpers");
     expect(text).toMatch(/\| bash -s -- --force$/);
   });
@@ -638,7 +820,9 @@ describe("TrySkillsGateway → Quick install modal", () => {
     const dialog = getDialog();
 
     await user.click(
-      within(dialog).getByRole("button", { name: /generate api key/i }),
+      within(dialog).getByRole("button", {
+        name: /generate install command with api key/i,
+      }),
     );
     await within(dialog).findByText(/API key minted/i);
 
@@ -666,20 +850,25 @@ describe("TrySkillsGateway → Quick install modal", () => {
     expect(text).not.toContain("<<EOF");
     expect(text).not.toContain('<<"CAIPE_BOOTSTRAP_EOF"');
 
-    // The minted key is embedded inside a JSON string literal — both
-    // the key and the base_url are JSON.stringify'd on the React side
-    // so any future key character (including `"` and `\`) is safe.
-    expect(text).toContain(`"api_key": "${FAKE_MINT_KEY}"`);
+    // The minted key is embedded in the copied payload, but the visible
+    // snippet masks it by default to avoid shoulder-surfing/leaking it in
+    // screenshots.
+    expect(text).not.toContain(`"api_key": "${FAKE_MINT_KEY}"`);
+    expect(text).toContain('"api_key": "FAKE-T**************-USE"');
     expect(text).toMatch(/"base_url":\s*"[^"]+"/);
+
+    await user.click(
+      within(dialog).getByRole("button", { name: /show api key/i }),
+    );
+    const revealedText = pre!.textContent || "";
+    expect(revealedText).toContain(`"api_key": "${FAKE_MINT_KEY}"`);
 
     // Step 3 — chmod 600 must come immediately after the heredoc and
     // *before* the install runs. The `&& \` chain means a failed
     // chmod aborts the install.
     expect(text).toContain("chmod 600 ~/.config/caipe/config.json && \\");
 
-    // Step 4 — the snippet ends with the same install one-liner the
-    // bare-curl block shows. This guarantees that toggling Options
-    // A/B doesn't accidentally diverge the install URL between them.
+    // Step 4 — the snippet ends with the install one-liner.
     expect(text).toMatch(/\ncurl -fsSL '[^']+' \| bash$/);
     expect(text).toContain("/api/skills/install.sh?");
   });
@@ -689,13 +878,16 @@ describe("TrySkillsGateway → Quick install modal", () => {
     const dialog = getDialog();
 
     await user.click(
-      within(dialog).getByRole("button", { name: /generate api key/i }),
+      within(dialog).getByRole("button", {
+        name: /generate install command with api key/i,
+      }),
     );
     await within(dialog).findByText(/API key minted/i);
 
     // Tick --force in the overwrite-policy panel — the bootstrap
     // snippet's install line must pick up the same flag, otherwise
     // the two snippets would silently diverge on overwrite policy.
+    await openModalAdvancedOptions(user);
     await user.click(within(dialog).getByTestId("quick-install-force"));
 
     const panel = within(dialog).getByTestId(
@@ -708,6 +900,7 @@ describe("TrySkillsGateway → Quick install modal", () => {
   it("overwrite-policy: --upgrade and --force are mutually exclusive", async () => {
     const user = await renderAndOpenModal();
     const dialog = getDialog();
+    await openModalAdvancedOptions(user);
 
     const upgrade = within(dialog).getByTestId(
       "quick-install-upgrade",
@@ -732,7 +925,8 @@ describe("TrySkillsGateway → Quick install modal", () => {
     await user.click(force);
     expect(upgrade.checked).toBe(false);
     expect(force.checked).toBe(false);
-    const snippet = dialog.querySelector("pre");
-    expect(snippet!.textContent || "").not.toContain("bash -s --");
+    await mintQuickInstallKey(user);
+    const snippet = getBootstrapSnippetText(dialog);
+    expect(snippet).not.toContain("bash -s --");
   });
 });

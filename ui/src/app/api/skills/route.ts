@@ -5,6 +5,8 @@ import {
 } from "@/lib/api-middleware";
 import { applySkillsCatalogQueryToBackendUrl } from "@/lib/skills-catalog-query";
 import type { SkillHubDoc } from "@/lib/hub-crawl";
+import { checkOpenFgaTuple, type OpenFgaCheckResult, type OpenFgaTupleKey } from "@/lib/rbac/openfga";
+import { organizationObjectId } from "@/lib/rbac/organization";
 
 /**
  * Skills Catalog API — Single source of truth for UI and assistant (FR-001).
@@ -265,6 +267,62 @@ function paginate(
   };
 }
 
+type SkillOpenFgaMode = "read" | "use";
+
+interface FilterSkillsByOpenFgaOptions {
+  subject?: string | null;
+  mode: SkillOpenFgaMode;
+  isAdmin?: boolean;
+  check?: (tuple: OpenFgaTupleKey) => Promise<OpenFgaCheckResult>;
+}
+
+export async function filterSkillsByOpenFga(
+  skills: CatalogSkill[],
+  options: FilterSkillsByOpenFgaOptions,
+): Promise<CatalogSkill[]> {
+  if (options.isAdmin) return skills;
+  if (!options.subject) return [];
+
+  const relation = options.mode === "use" ? "can_use" : "can_read";
+  const check = options.check ?? checkOpenFgaTuple;
+  let baselineUseAllowed: boolean | null = null;
+  async function hasBaselineUseAccess(): Promise<boolean> {
+    if (baselineUseAllowed !== null) return baselineUseAllowed;
+    try {
+      const result = await check({
+        user: options.subject as string,
+        relation: "can_use",
+        object: organizationObjectId(),
+      });
+      baselineUseAllowed = result.allowed;
+    } catch {
+      baselineUseAllowed = false;
+    }
+    return baselineUseAllowed;
+  }
+
+  const decisions = await Promise.all(
+    skills.map(async (skill) => {
+      if (options.mode === "read" && skill.source === "default") return skill;
+      if (options.mode === "use" && skill.source === "default" && await hasBaselineUseAccess()) {
+        return skill;
+      }
+      try {
+        const result = await check({
+          user: options.subject as string,
+          relation,
+          object: `skill:${skill.id}`,
+        });
+        return result.allowed ? skill : null;
+      } catch {
+        return null;
+      }
+    }),
+  );
+
+  return decisions.filter((skill): skill is CatalogSkill => skill !== null);
+}
+
 /**
  * Try to proxy to the Python backend at NEXT_PUBLIC_A2A_BASE_URL.
  * Returns null if not configured or unreachable.
@@ -318,7 +376,9 @@ async function aggregateLocally(
   const unavailableSources: string[] = [];
 
   // 1. Skill templates (filesystem / SKILLS_DIR)
-  try {
+  // Skip when HIDE_BUILTIN_SKILLS=true — users load templates explicitly via "Import template skills".
+  const hideBuiltin = process.env.HIDE_BUILTIN_SKILLS === "true";
+  if (!hideBuiltin) try {
     const { loadSkillTemplatesInternal } = await import(
       "./skill-templates-loader"
     );
@@ -398,7 +458,7 @@ async function aggregateLocally(
   } catch (err) {
     console.error("[Skills] Failed to load skill templates:", err);
     unavailableSources.push("default");
-  }
+  } // end if (!hideBuiltin)
 
   // 2. Agent skills (MongoDB) — match any content field
   try {
@@ -659,22 +719,35 @@ function sanitizeCatalogResponse(data: CatalogResponse): CatalogResponse {
 
 export const GET = withErrorHandler(async (req: NextRequest) => {
   // Dual-auth: Bearer JWT or session cookie
-  await getAuthFromBearerOrSession(req);
+  const { user, session } = await getAuthFromBearerOrSession(req);
 
   const params = parseQueryParams(req);
   const authHeader = req.headers.get("Authorization");
+  const skillAuth = {
+    subject: typeof session?.sub === "string" ? `user:${session.sub}` : null,
+    mode: params.includeContent ? ("use" as const) : ("read" as const),
+    isAdmin: user.role === "admin" || session?.role === "admin",
+  };
 
   // Try backend proxy first (forwards all query params)
   const backendResult = await fetchFromBackend(params, authHeader);
   if (backendResult) {
-    return NextResponse.json(sanitizeCatalogResponse(backendResult));
+    const authorizedSkills = await filterSkillsByOpenFga(backendResult.skills, skillAuth);
+    return NextResponse.json(
+      sanitizeCatalogResponse({
+        ...backendResult,
+        skills: authorizedSkills,
+        meta: { ...backendResult.meta, total: authorizedSkills.length },
+      }),
+    );
   }
 
   // Local aggregation fallback
   try {
     const catalog = await aggregateLocally(params.includeContent);
     const filtered = filterSkills(catalog.skills, params);
-    const response = paginate(filtered, params, {
+    const authorized = await filterSkillsByOpenFga(filtered, skillAuth);
+    const response = paginate(authorized, params, {
       sources_loaded: catalog.meta.sources_loaded,
       unavailable_sources: catalog.meta.unavailable_sources,
     });

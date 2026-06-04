@@ -178,10 +178,7 @@ helm show values oci://ghcr.io/cnoe-io/charts/rag-stack --version 0.2.38
 | rag-server.env.MAX_GRAPH_RAW_QUERY_TOKENS | string | `"80000"` |  |
 | rag-server.env.MAX_INGESTION_CONCURRENCY | string | `"30"` |  |
 | rag-server.env.MAX_RESULTS_PER_QUERY | string | `"100"` |  |
-| rag-server.env.RBAC_ADMIN_GROUPS | string | `""` |  |
 | rag-server.env.RBAC_DEFAULT_ROLE | string | `"readonly"` |  |
-| rag-server.env.RBAC_INGESTONLY_GROUPS | string | `""` |  |
-| rag-server.env.RBAC_READONLY_GROUPS | string | `""` |  |
 | rag-server.env.SEARCH_RESULT_TRUNCATE_LENGTH | string | `"500"` |  |
 | rag-server.env.SKIP_INIT_TESTS | string | `"false"` |  |
 | rag-server.env.SLEEP_ON_INIT_FAILURE_SECONDS | string | `"180"` |  |
