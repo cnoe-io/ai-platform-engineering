@@ -62,13 +62,6 @@ data:
                     host: {{ $extAuthHost | quote }}
                     failureMode:
                       denyWithStatus: 403
-                    # The proxy default ext_authz timeout is 200ms. Concurrent
-                    # per-route Checks against a cold/loaded OpenFGA exceed it
-                    # and fail closed (403 -> "MCP server unavailable").
-                    # Default to a generous 10s; operators tune via
-                    # global.agentgateway.extAuth.timeout. Fail-closed posture
-                    # is unchanged.
-                    timeout: {{ $extAuth.timeout | default "10s" | quote }}
                     protocol:
                       grpc:
                         metadata:
