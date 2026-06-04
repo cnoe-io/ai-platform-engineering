@@ -6,7 +6,7 @@ import { NextRequest } from "next/server";
 
 const mockGetCollection = jest.fn();
 const mockGetUserTeamIds = jest.fn();
-const mockRequireResourcePermission = jest.fn();
+const mockRequireSkillPermission = jest.fn();
 const mockListRevisions = jest.fn();
 
 jest.mock("@/lib/mongodb", () => ({
@@ -47,7 +47,7 @@ jest.mock("@/lib/api-middleware", () => {
 });
 
 jest.mock("@/lib/rbac/resource-authz", () => ({
-  requireResourcePermission: (...args: unknown[]) => mockRequireResourcePermission(...args),
+  requireSkillPermission: (...args: unknown[]) => mockRequireSkillPermission(...args),
 }));
 
 jest.mock("@/lib/skill-revisions", () => ({
@@ -62,7 +62,7 @@ describe("skill subroute RBAC cutover", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockGetUserTeamIds.mockResolvedValue(["legacy-team"]);
-    mockRequireResourcePermission.mockResolvedValue(undefined);
+    mockRequireSkillPermission.mockResolvedValue(undefined);
     mockListRevisions.mockResolvedValue([{ id: "rev-1", revision_number: 1 }]);
   });
 
@@ -95,10 +95,29 @@ describe("skill subroute RBAC cutover", () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(mockRequireResourcePermission).toHaveBeenCalledWith(
+    expect(mockRequireSkillPermission).toHaveBeenCalledWith(
       expect.objectContaining({ sub: "alice-sub" }),
-      { type: "skill", id: "skill-openfga-only", action: "read" },
+      "skill-openfga-only",
+      "read",
     );
     expect(body.data.revisions).toEqual([{ id: "rev-1", revision_number: 1 }]);
+  });
+
+  it("returns 403 when skill read permission is denied", async () => {
+    const { ApiError } = await import("@/lib/api-middleware");
+    mockRequireSkillPermission.mockRejectedValue(
+      new ApiError("You do not have permission to access this resource.", 403),
+    );
+    mockGetCollection.mockResolvedValue({
+      findOne: jest.fn().mockResolvedValue({ id: "skill-denied", name: "Denied" }),
+    });
+    const { GET } = await import("../skills/configs/[id]/revisions/route");
+
+    const response = await GET(request("/api/skills/configs/skill-denied/revisions"), {
+      params: Promise.resolve({ id: "skill-denied" }),
+    });
+
+    expect(response.status).toBe(403);
+    expect(mockListRevisions).not.toHaveBeenCalled();
   });
 });
