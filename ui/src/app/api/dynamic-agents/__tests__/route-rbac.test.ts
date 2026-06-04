@@ -10,6 +10,7 @@ const mockGetCollection = jest.fn();
 const mockGetUserTeamIds = jest.fn();
 const mockFilterResourcesByPermission = jest.fn();
 const mockRequireResourcePermission = jest.fn();
+const mockRequireAgentPermission = jest.fn();
 const mockCanTransferResourceOwnership = jest.fn();
 const mockReconcileAgentRelationships = jest.fn();
 const mockDeleteAllAgentToolTuples = jest.fn();
@@ -65,6 +66,7 @@ jest.mock("@/lib/mongodb", () => ({
 jest.mock("@/lib/rbac/resource-authz", () => ({
   filterResourcesByPermission: (...args: unknown[]) => mockFilterResourcesByPermission(...args),
   requireResourcePermission: (...args: unknown[]) => mockRequireResourcePermission(...args),
+  requireAgentPermission: (...args: unknown[]) => mockRequireAgentPermission(...args),
   canTransferResourceOwnership: (...args: unknown[]) => mockCanTransferResourceOwnership(...args),
 }));
 
@@ -103,6 +105,7 @@ describe("dynamic agents RBAC routes", () => {
     mockGetUserTeamIds.mockResolvedValue(["team-a"]);
     mockFilterResourcesByPermission.mockImplementation(async (_session, items) => items);
     mockRequireResourcePermission.mockResolvedValue(undefined);
+    mockRequireAgentPermission.mockResolvedValue(undefined);
     mockCanTransferResourceOwnership.mockResolvedValue(true);
     mockReconcileAgentRelationships.mockResolvedValue(undefined);
     mockDeleteAllAgentToolTuples.mockResolvedValue(undefined);
@@ -407,10 +410,7 @@ describe("dynamic agents RBAC routes", () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(mockRequireResourcePermission).toHaveBeenCalledWith(
-      session,
-      { type: "agent", id: "parent", action: "write" },
-    );
+    expect(mockRequireAgentPermission).toHaveBeenCalledWith(session, "parent", "write");
     expect(mockFilterResourcesByPermission).toHaveBeenCalledWith(
       session,
       [agents[1], agents[2]],
@@ -1031,10 +1031,7 @@ describe("dynamic agents RBAC routes", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(mockRequireResourcePermission).toHaveBeenCalledWith(
-      session,
-      { type: "agent", id: "agent-1", action: "write" },
-    );
+    expect(mockRequireAgentPermission).toHaveBeenCalledWith(session, "agent-1", "write");
     expect(findOneAndUpdate).toHaveBeenCalled();
   });
 
@@ -1049,10 +1046,7 @@ describe("dynamic agents RBAC routes", () => {
     const response = await DELETE(request("/api/dynamic-agents?id=agent-1", { method: "DELETE" }));
 
     expect(response.status).toBe(200);
-    expect(mockRequireResourcePermission).toHaveBeenCalledWith(
-      session,
-      { type: "agent", id: "agent-1", action: "delete" },
-    );
+    expect(mockRequireAgentPermission).toHaveBeenCalledWith(session, "agent-1", "delete");
     expect(mockDeleteAllAgentToolTuples).toHaveBeenCalledWith("agent-1");
     expect(deleteOne).toHaveBeenCalledWith({ _id: "agent-1" });
   });

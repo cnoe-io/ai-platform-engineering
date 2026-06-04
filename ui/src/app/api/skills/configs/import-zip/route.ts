@@ -27,9 +27,9 @@ import {
 } from "@/lib/builtin-skill-policy";
 import {
   filterResourcesByPermission,
-  requireResourcePermission,
+  requireSkillPermission,
 } from "@/lib/rbac/resource-authz";
-import { grantSkillsToTeams } from "@/lib/rbac/skill-team-grants";
+import { reconcileSkillTeamShares } from "@/lib/rbac/skill-team-grants";
 import type { AgentSkill, ScanStatus } from "@/types/agent-skill";
 
 /**
@@ -375,7 +375,6 @@ async function createNew(args: CreateNewArgs): Promise<ImportedSkillSummary> {
     created_at: now,
     updated_at: now,
     visibility: normalizedTeamRefs.length > 0 ? "team" : "private",
-    shared_with_teams: normalizedTeamRefs.length > 0 ? normalizedTeamRefs : undefined,
     skill_content: skillMdBody,
     ancillary_files: Object.keys(candidate.ancillaryFiles).length
       ? candidate.ancillaryFiles
@@ -488,9 +487,7 @@ async function overwriteExisting(
     scan_summary: scanResult.scan_summary,
     scan_updated_at: candidate.skillContent.trim() ? now : existing.scan_updated_at,
     updated_at: now,
-    ...(normalizedTeamRefs.length > 0
-      ? { visibility: "team" as const, shared_with_teams: normalizedTeamRefs }
-      : {}),
+    ...(normalizedTeamRefs.length > 0 ? { visibility: "team" as const } : {}),
     // Tasks: replace the prompt body so the runnable behaviour
     // matches the new SKILL.md, but keep the existing display_text /
     // subagent so users don't lose their custom labelling.
@@ -671,16 +668,30 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       teamRefs,
       loadVisibleSkills: async () => visible,
       canOverwriteSkill: async (skill) => {
-        await requireResourcePermission(session, { type: "skill", id: skill.id, action: "write" });
+        await requireSkillPermission(session, skill.id, "write");
       },
       grantTeamAccess: async (refs, skillIds) => {
-        await grantSkillsToTeams({ teamRefs: refs, skillIds });
+        const ownerSubject =
+          typeof session?.sub === "string" && session.sub.trim() ? session.sub.trim() : null;
+        for (const skillId of skillIds) {
+          await reconcileSkillTeamShares({
+            skillId,
+            ownerSubject,
+            previousTeamRefs: [],
+            nextTeamRefs: refs,
+            nextVisibility: refs.length > 0 ? "team" : "private",
+          });
+        }
       },
       persistSkill: async (skill, mode) => {
+        const { shared_with_teams: _omit, ...mongoRow } = skill;
         if (mode === "create") {
-          await collection.insertOne(skill);
+          await collection.insertOne(mongoRow as AgentSkill);
         } else {
-          await collection.updateOne({ id: skill.id }, { $set: skill });
+          await collection.updateOne(
+            { id: skill.id },
+            { $set: mongoRow, $unset: { shared_with_teams: "" } },
+          );
         }
       },
     });

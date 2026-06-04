@@ -13,8 +13,8 @@ import { organizationObjectId } from "@/lib/rbac/organization";
  *
  * GET /api/skills
  *   Returns the merged skill catalog from default (filesystem) + agent_skills + hubs.
- *   If NEXT_PUBLIC_A2A_BASE_URL is configured, proxies to the Python backend GET /skills.
- *   Otherwise, aggregates locally from disk templates and MongoDB `agent_skills` (same data as GET /api/skills/configs).
+ *   By default aggregates locally (Mongo + hubs + templates). Set
+ *   SKILLS_CATALOG_USE_SUPERVISOR_PROXY=true to proxy GET /skills to the supervisor.
  *
  * Supports dual-auth: Bearer JWT (for CLI/remote) or NextAuth session (browser).
  *
@@ -328,11 +328,20 @@ export async function filterSkillsByOpenFga(
  * Returns null if not configured or unreachable.
  * Forwards query params so the backend can also filter server-side.
  */
+function shouldProxyCatalogToSupervisor(): boolean {
+  const raw = process.env.SKILLS_CATALOG_USE_SUPERVISOR_PROXY?.trim().toLowerCase();
+  return raw === "true" || raw === "1" || raw === "yes" || raw === "on";
+}
+
 async function fetchFromBackend(
   params: QueryParams,
   authHeader?: string | null,
 ): Promise<CatalogResponse | null> {
-  const backendUrl = process.env.NEXT_PUBLIC_A2A_BASE_URL;
+  if (!shouldProxyCatalogToSupervisor()) {
+    return null;
+  }
+  const { getInternalA2AUrl } = await import("@/lib/config");
+  const backendUrl = getInternalA2AUrl();
   if (!backendUrl) return null;
 
   try {
@@ -729,7 +738,7 @@ export const GET = withErrorHandler(async (req: NextRequest) => {
     isAdmin: user.role === "admin" || session?.role === "admin",
   };
 
-  // Try backend proxy first (forwards all query params)
+  // Optional supervisor proxy (SKILLS_CATALOG_USE_SUPERVISOR_PROXY=true).
   const backendResult = await fetchFromBackend(params, authHeader);
   if (backendResult) {
     const authorizedSkills = await filterSkillsByOpenFga(backendResult.skills, skillAuth);

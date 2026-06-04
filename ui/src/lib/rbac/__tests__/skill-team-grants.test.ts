@@ -115,11 +115,32 @@ describe("skill team grants", () => {
       expect(mockReconcileShareableResource).toHaveBeenCalledWith({
         objectType: "skill",
         objectId: "skill-x",
+        creatorSubject: null,
+        ownerSubject: null,
         ownerTeamSlug: null,
         nextSharedTeamSlugs: ["platform"],
         previousSharedTeamSlugs: ["platform", "sre"],
         memberRelations: ["user"],
       });
+    });
+
+    it("passes ownerSubject through to the shared reconciler", async () => {
+      mockGetCollection.mockResolvedValue(emptyTeamsCollection());
+
+      await reconcileSkillTeamShares({
+        skillId: "skill-owned",
+        ownerSubject: "alice-sub",
+        previousTeamRefs: [],
+        nextTeamRefs: [],
+      });
+
+      expect(mockReconcileShareableResource).toHaveBeenCalledWith(
+        expect.objectContaining({
+          objectId: "skill-owned",
+          creatorSubject: "alice-sub",
+          ownerSubject: "alice-sub",
+        }),
+      );
     });
 
     it("normalizes empty/undefined ref lists to empty sets (full revoke / no-op)", async () => {
@@ -136,6 +157,27 @@ describe("skill team grants", () => {
           objectId: "skill-y",
           nextSharedTeamSlugs: [],
           previousSharedTeamSlugs: ["platform"],
+        }),
+      );
+    });
+
+    it("revokes org-wide grants when demoting from global to private", async () => {
+      mockGetCollection.mockResolvedValue(emptyTeamsCollection());
+
+      await reconcileSkillTeamShares({
+        skillId: "skill-global",
+        ownerSubject: "alice-sub",
+        previousTeamRefs: [],
+        nextTeamRefs: [],
+        nextVisibility: "private",
+        previousVisibility: "global",
+      });
+
+      expect(mockReconcileShareableResource).toHaveBeenCalledWith(
+        expect.objectContaining({
+          objectId: "skill-global",
+          sharedWithOrg: false,
+          previousSharedWithOrg: true,
         }),
       );
     });

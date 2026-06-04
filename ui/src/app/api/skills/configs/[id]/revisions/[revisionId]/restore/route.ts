@@ -14,7 +14,7 @@ import {
 import { getRevision, recordRevision } from "@/lib/skill-revisions";
 import { scanSkillContent as runSkillScan } from "@/lib/skill-scan";
 import { recordScanEvent } from "@/lib/skill-scan-history";
-import { requireResourcePermission } from "@/lib/rbac/resource-authz";
+import { requireSkillPermission } from "@/lib/rbac/resource-authz";
 import type { AgentSkill } from "@/types/agent-skill";
 
 /**
@@ -50,7 +50,7 @@ export const POST = withErrorHandler(
       if (!skill) {
         throw new ApiError("Skill not found", 404);
       }
-      await requireResourcePermission(session, { type: "skill", id, action: "write" });
+      await requireSkillPermission(session, id, "write");
       if (!userCanModifyAgentSkill(skill, user)) {
         throw new ApiError(
           "You don't have permission to edit this skill",
@@ -77,7 +77,7 @@ export const POST = withErrorHandler(
       const now = new Date();
       // Build the update payload by picking the content fields off
       // the revision and overlaying scan output. Administrative
-      // fields (owner_id, is_system, visibility, shared_with_teams)
+      // fields (owner_id, is_system, visibility; team shares are OpenFGA-only)
       // are NOT touched — restore changes content, not who owns or
       // can see the skill.
       const updatePayload: Partial<AgentSkill> = {

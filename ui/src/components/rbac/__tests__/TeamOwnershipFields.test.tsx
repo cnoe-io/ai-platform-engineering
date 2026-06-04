@@ -117,4 +117,30 @@ describe("TeamOwnershipFields", () => {
     setup({ betweenOwnerAndShare: <div data-testid="vis-toggle">visibility</div> });
     expect(screen.getByTestId("vis-toggle")).toBeInTheDocument();
   });
+
+  it("shows extra grant preview items (e.g. user:*) above team grants", () => {
+    setup({
+      showShare: true,
+      ownerTeamSlug: "platform",
+      sharedTeamSlugs: [],
+      extraGrantPreviewItems: [
+        {
+          id: "wildcard",
+          line: (
+            <>
+              <code>user:*</code> can use this agent (platform default)
+            </>
+          ),
+          detail: "every signed-in user",
+        },
+      ],
+    });
+    const note = screen.getByRole("note", { name: /Effective access summary/i });
+    expect(note).toHaveTextContent("user:*");
+    expect(note).toHaveTextContent("platform default");
+    expect(note).toHaveTextContent("team:platform#member");
+    const items = note.querySelectorAll("li");
+    expect(items[0]).toHaveTextContent("user:*");
+    expect(items[1]).toHaveTextContent("team:platform#member");
+  });
 });

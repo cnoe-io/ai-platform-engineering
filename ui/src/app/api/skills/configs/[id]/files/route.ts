@@ -10,7 +10,7 @@ import {
   getAgentSkillVisibleToUser,
   userCanModifyAgentSkill,
 } from "@/lib/agent-skill-visibility";
-import { requireResourcePermission } from "@/lib/rbac/resource-authz";
+import { requireSkillPermission } from "@/lib/rbac/resource-authz";
 import { recordRevision } from "@/lib/skill-revisions";
 import type { AgentSkill } from "@/types/agent-skill";
 
@@ -50,11 +50,11 @@ export const GET = withErrorHandler(
     return await withAuth(request, async (_req, user, session) => {
       const skill = await getAgentSkillVisibleToUser(id, user.email);
       if (!skill) throw new ApiError("Skill not found", 404);
-      await requireResourcePermission(session, {
-        type: "skill",
+      await requireSkillPermission(
+        session,
         id,
-        action: searchParams.get("file") ? "use" : "read",
-      });
+        searchParams.get("file") ? "use" : "read",
+      );
 
       // Listing
       if (!searchParams.get("file")) {
@@ -95,7 +95,7 @@ export const PUT = withErrorHandler(
     return await withAuth(request, async (_req, user, session) => {
       const skill = await getAgentSkillVisibleToUser(id, user.email);
       if (!skill) throw new ApiError("Skill not found", 404);
-      await requireResourcePermission(session, { type: "skill", id, action: "write" });
+      await requireSkillPermission(session, id, "write");
       if (!userCanModifyAgentSkill(skill, user)) {
         throw new ApiError("You don't have permission to edit this skill", 403);
       }
@@ -192,7 +192,7 @@ export const DELETE = withErrorHandler(
     return await withAuth(request, async (_req, user, session) => {
       const skill = await getAgentSkillVisibleToUser(id, user.email);
       if (!skill) throw new ApiError("Skill not found", 404);
-      await requireResourcePermission(session, { type: "skill", id, action: "write" });
+      await requireSkillPermission(session, id, "write");
       if (!userCanModifyAgentSkill(skill, user)) {
         throw new ApiError("You don't have permission to edit this skill", 403);
       }

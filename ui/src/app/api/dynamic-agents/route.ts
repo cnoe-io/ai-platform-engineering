@@ -29,6 +29,7 @@ import {
 } from "@/lib/rbac/openfga-agent-tools";
 import {
   filterResourcesByPermission,
+  requireAgentPermission,
   requireResourcePermission,
 } from "@/lib/rbac/resource-authz";
 import { resolveShareableOwnershipWrite } from "@/lib/rbac/shareable-resource";
@@ -569,7 +570,7 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
   }
 
   const { session } = await getAuthFromBearerOrSession(request);
-  await requireResourcePermission(session, { type: "agent", id, action: "write" });
+  await requireAgentPermission(session, id, "write");
 
     const body = await request.json();
     const collection = await getCollection<DynamicAgentConfig>(COLLECTION_NAME);
@@ -770,7 +771,7 @@ export const DELETE = withErrorHandler(async (request: NextRequest) => {
   }
 
   const { session } = await getAuthFromBearerOrSession(request);
-  await requireResourcePermission(session, { type: "agent", id, action: "delete" });
+  await requireAgentPermission(session, id, "delete");
 
     const collection = await getCollection<DynamicAgentConfig>(COLLECTION_NAME);
 
