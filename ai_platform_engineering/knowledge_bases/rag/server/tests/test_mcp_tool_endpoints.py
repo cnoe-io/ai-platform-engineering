@@ -70,6 +70,9 @@ def client() -> TestClient:
 def _wire(monkeypatch: pytest.MonkeyPatch):
     """Default wiring: an authenticated READONLY user, async metadata storage,
     and a no-op tool reload. Each test sets the authorize_* behavior it needs."""
+    # NOTE: keep the lambda — a bare `_user` would expose its (role, subject)
+    # default params to FastAPI as query parameters. The lambda hides the
+    # signature so the override is always called with zero args.
     restapi.app.dependency_overrides[require_authenticated_user] = lambda: _user()
 
     storage = AsyncMock()
@@ -219,6 +222,8 @@ def test_create_requires_authentication(client):
     require_authenticated_user → 401 (get_auth_manager stubbed so resolution of
     the dependency itself does not touch real OIDC config)."""
     restapi.app.dependency_overrides.pop(require_authenticated_user, None)
+    # NOTE: keep the lambda — passing the bare `object` builtin makes FastAPI
+    # attempt signature introspection on it; the lambda yields a plain stub.
     restapi.app.dependency_overrides[get_auth_manager] = lambda: object()
 
     res = client.post("/v1/mcp/custom-tools", json=_tool_body())
