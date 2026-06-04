@@ -323,7 +323,7 @@ def load_skills(
     return skills
 
 
-# ─────────────────────── StateBackend file building ──────────────────────
+# ───────────────────── Deep Agents file data building ────────────────────
 #
 # Converts loaded skill dicts into the ``files`` dict and source paths
 # that ``SkillsMiddleware`` / ``StateBackend`` consume at runtime.
@@ -335,14 +335,14 @@ def _sanitize_name(name: str) -> str:
 
 
 def _create_file_data(content: str) -> dict[str, Any]:
-    """Create a file data dict compatible with StateBackend.
+    """Create a file data dict compatible with Deep Agents backends.
 
     Mirrors ``deepagents.backends.utils.create_file_data``.
     """
-    lines = content.split("\n") if isinstance(content, str) else content
     now = datetime.now(UTC).isoformat()
     return {
-        "content": lines,
+        "content": content,
+        "encoding": "utf-8",
         "created_at": now,
         "modified_at": now,
     }

@@ -25,14 +25,19 @@ SHARE_CLIENTS = os.getenv("LLM_CLIENT_SHARING", "true").lower() != "false"
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _create_bedrock_clients(region: str) -> tuple[Any, Any]:
-    import boto3
+def _build_bedrock_config() -> Any:
     from botocore.config import Config
 
-    config = Config(
+    return Config(
         read_timeout=int(os.getenv("AWS_BEDROCK_READ_TIMEOUT", "300")),
         connect_timeout=int(os.getenv("AWS_BEDROCK_CONNECT_TIMEOUT", "60")),
     )
+
+
+def _create_bedrock_clients(region: str) -> tuple[Any, Any]:
+    import boto3
+
+    config = _build_bedrock_config()
     # boto3.Session auto-resolves creds from env/profile/instance-role
     session = boto3.Session(region_name=region)
     runtime = session.client("bedrock-runtime", config=config)
@@ -74,6 +79,11 @@ def _get_httpx_client(endpoint: str) -> Any:
     return _create_httpx_client(endpoint)
 
 
+def _is_bedrock_provider(provider: str) -> bool:
+    normalized = provider.lower().replace("-", "_")
+    return "bedrock" in normalized or "aws" in normalized
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Public API
 # ─────────────────────────────────────────────────────────────────────────────
@@ -88,16 +98,20 @@ def get_llm(provider: str, model_id: str) -> BaseChatModel:
     For Google (Gemini/Vertex AI), no shared client is needed — the SDK
     manages its own transport internally.
     """
-    from cnoe_agent_utils import LLMFactory
+    from cnoe_agent_utils import LLMFactory, uses_anthropic_bedrock_client
 
     kwargs: dict[str, Any] = {"model": model_id}
 
     if SHARE_CLIENTS:
         p = provider.lower().replace("-", "_")
-        if "bedrock" in p or "aws" in p:
-            rt, ctrl = _get_bedrock_clients()
-            kwargs["client"] = rt
-            kwargs["bedrock_client"] = ctrl
+        if _is_bedrock_provider(provider):
+            if uses_anthropic_bedrock_client(model_id):
+                kwargs["config"] = _build_bedrock_config()
+                logger.info("[llm] Skipping shared boto clients for Anthropic Bedrock model=%s", model_id)
+            else:
+                rt, ctrl = _get_bedrock_clients()
+                kwargs["client"] = rt
+                kwargs["bedrock_client"] = ctrl
         elif "azure" in p:
             endpoint = os.getenv("AZURE_OPENAI_ENDPOINT") or os.getenv("OPENAI_ENDPOINT", "https://api.openai.com/v1")
             kwargs["http_client"] = _get_httpx_client(endpoint)
