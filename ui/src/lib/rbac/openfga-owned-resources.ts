@@ -495,13 +495,6 @@ export async function reconcileKnowledgeBaseRelationships(
   return reconcileOwnedResource(buildKnowledgeBaseRelationshipTupleDiff(input));
 }
 
-// NOTE: `mirrorKnowledgeBaseDiffToDataSource` (PR #1703) was retired by spec
-// 2026-06-03 (US4). The data_source now inherits read/ingest/manage from its
-// knowledge_base via the `parent_kb` tuple-to-userset edge, so team grants are
-// written once on `knowledge_base:<id>` and need not be duplicated onto the
-// data_source. Callers write the inheritance edge via
-// `buildDataSourceRelationshipTupleDiff({ parentKnowledgeBaseId })` instead.
-
 /**
  * Build a data_source tuple diff with the same owner + shared-teams
  * semantics as `buildKnowledgeBaseRelationshipTupleDiff`. The relation

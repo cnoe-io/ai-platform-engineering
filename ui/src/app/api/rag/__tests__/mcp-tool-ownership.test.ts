@@ -28,11 +28,10 @@ const mockCanTransferResourceOwnership = jest.fn();
 const mockReconcileMcpToolRelationships = jest.fn();
 
 jest.mock("@/lib/api-middleware", () => {
-  class ApiError extends Error {
-    constructor(message: string, public statusCode = 500, public code?: string) {
-      super(message);
-    }
-  }
+  // Real ApiError so the route's `instanceof ApiError` matches errors thrown
+  // by shared modules (shareable-resource.ts → @/lib/api-error). Production
+  // api-middleware re-exports this same class.
+  const { ApiError } = jest.requireActual("@/lib/api-error");
   return {
     ApiError,
     requireRbacPermission: (...args: unknown[]) => mockRequireRbacPermission(...args),

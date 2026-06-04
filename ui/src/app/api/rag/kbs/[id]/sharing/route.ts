@@ -31,6 +31,7 @@ import {
   reconcileKnowledgeBaseRelationships,
   reconcileDataSourceRelationships,
 } from "@/lib/rbac/openfga-owned-resources";
+import { handleShareableResourceWrite } from "@/lib/rbac/shareable-resource";
 import { readOpenFgaTuples } from "@/lib/rbac/openfga";
 
 const OPENFGA_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._~@|*+=,/-]{0,191}$/;
@@ -97,11 +98,18 @@ function getRagServerUrl(): string {
  * RAG server's `/v1/datasources` list. Returns nulls when the config is
  * unavailable or carries no ownership (pre-migration datasources).
  */
+interface DatasourceConfigSnapshot {
+  ownerTeamSlug: string | null;
+  creatorSubject: string | null;
+  /** The full datasource record, needed for the read-modify-write owner upsert. */
+  raw: Record<string, unknown> | null;
+}
+
 async function loadOwnerFromConfig(
   kbId: string,
   session: { accessToken?: string; org?: string },
-): Promise<{ ownerTeamSlug: string | null; creatorSubject: string | null }> {
-  const empty = { ownerTeamSlug: null, creatorSubject: null };
+): Promise<DatasourceConfigSnapshot> {
+  const empty: DatasourceConfigSnapshot = { ownerTeamSlug: null, creatorSubject: null, raw: null };
   if (!session.accessToken) return empty;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -143,7 +151,40 @@ async function loadOwnerFromConfig(
     typeof match.creator_subject === "string" && match.creator_subject.trim()
       ? match.creator_subject.trim()
       : null;
-  return { ownerTeamSlug, creatorSubject };
+  return { ownerTeamSlug, creatorSubject, raw: match };
+}
+
+/**
+ * Persist the new owner team to the datasource config via the RAG server's
+ * full-object upsert (`POST /v1/datasource`). Used by the ownership-transfer
+ * path: read the current `DataSourceInfo`, set `owner_team_slug`, and re-upsert
+ * (config is the source of truth; the OpenFGA projection is reconciled
+ * separately by the shared helper). No-op when the snapshot is unavailable.
+ */
+async function persistOwnerToConfig(
+  snapshot: DatasourceConfigSnapshot,
+  ownerTeamSlug: string | null,
+  session: { accessToken?: string; org?: string },
+): Promise<void> {
+  if (!snapshot.raw || !session.accessToken) return;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${session.accessToken}`,
+  };
+  if (session.org) headers["X-Tenant-Id"] = session.org;
+  const next = { ...snapshot.raw, owner_team_slug: ownerTeamSlug };
+  const response = await fetch(`${getRagServerUrl()}/v1/datasource`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(next),
+  });
+  if (!response.ok) {
+    throw new ApiError(
+      `Failed to persist new owner to the datasource config (${response.status}).`,
+      502,
+      "OWNER_PERSIST_FAILED",
+    );
+  }
 }
 
 export async function GET(
@@ -259,46 +300,74 @@ export async function PUT(
       );
     }
     const requestedSlugs = normalizeTeamSlugs((body as { team_slugs?: unknown }).team_slugs);
+    const requestedOwner =
+      typeof (body as { owner_team_slug?: unknown }).owner_team_slug === "string"
+        ? ((body as { owner_team_slug: string }).owner_team_slug.trim() || null)
+        : null;
+    const confirmedNotMember = (body as { confirm_not_member?: unknown }).confirm_not_member === true;
     const previousSlugs = await loadSharedTeamSlugs(id);
-
-    // The owner team is granted via the same `reader`/`manager` tuples as a
-    // shared team, so `loadSharedTeamSlugs` includes it in `previousSlugs`.
-    // We must pass the owner team to the reconciler (from the config — the
-    // source of truth) so it stays in the desired set; otherwise it would be
-    // in `previous \ next` and the reconciler would REVOKE the owner team's
-    // own access on every sharing update. The owner is also deduped out of
-    // the shared list (union semantics — the reconciler grants it via the
-    // owner path).
-    const { ownerTeamSlug } = await loadOwnerFromConfig(id, {
+    const snapshot = await loadOwnerFromConfig(id, {
       accessToken: session.accessToken,
       org: session.org,
     });
-    const nextSlugs = ownerTeamSlug
-      ? requestedSlugs.filter((slug) => slug !== ownerTeamSlug)
-      : requestedSlugs;
 
-    const result = await reconcileKnowledgeBaseRelationships({
-      knowledgeBaseId: id,
-      ownerTeamSlug,
-      nextSharedTeamSlugs: nextSlugs,
-      previousSharedTeamSlugs: previousSlugs,
-    });
-
-    // The data_source inherits read/ingest/manage from its knowledge_base
-    // via the `parent_kb` edge (spec 2026-06-03, US4), so sharing the KB is
-    // now enough for shared teams to QUERY the datasource — the prior mirror
-    // that duplicated per-team tuples onto `data_source` is retired. We
-    // still (idempotently) ensure the inheritance edge exists here so a
-    // datasource created before the parent_kb backfill starts enforcing the
-    // moment it is shared.
-    const dataSourceResult = await reconcileDataSourceRelationships({
-      dataSourceId: id,
-      parentKnowledgeBaseId: id,
-    });
+    // Single shared ownership flow (creator preserved, transfer guard +
+    // not-a-member confirm, shared-team diff). The KB persists owner to the
+    // datasource config (read-modify-write upsert) and reconciles via
+    // `reconcileKnowledgeBaseRelationships` (which carries the KB's
+    // reader+ingestor member set) plus the data_source `parent_kb` edge.
+    let dataSourceResult: Awaited<ReturnType<typeof reconcileDataSourceRelationships>> = {
+      enabled: false,
+      writes: 0,
+      deletes: 0,
+    };
+    const { reconcile: result, ownerTeamSlug, sharedTeamSlugs } =
+      await handleShareableResourceWrite({
+        objectType: "knowledge_base",
+        objectId: id,
+        session: { sub: session.sub, role: session.role, user: session.user },
+        requestedOwnerTeamSlug: requestedOwner,
+        requestedSharedTeamSlugs: requestedSlugs,
+        confirmedNotMember,
+        loadPrevious: async () => ({
+          ownerTeamSlug: snapshot.ownerTeamSlug,
+          sharedTeamSlugs: previousSlugs,
+          creatorSubject: snapshot.creatorSubject,
+        }),
+        // Persist owner to the datasource config (source of truth) only when it
+        // changed (a transfer); a share-only edit leaves the config untouched.
+        persist: async (next) => {
+          if (next.ownerTeamSlug !== snapshot.ownerTeamSlug) {
+            await persistOwnerToConfig(snapshot, next.ownerTeamSlug, {
+              accessToken: session.accessToken,
+              org: session.org,
+            });
+          }
+        },
+        extraMemberRelations: ["ingestor"],
+        // Reconcile the KB grants, then (idempotently) ensure the data_source
+        // parent_kb inheritance edge so shared teams can query the datasource.
+        reconcile: async (input) => {
+          const kb = await reconcileKnowledgeBaseRelationships({
+            knowledgeBaseId: id,
+            ownerTeamSlug: input.ownerTeamSlug,
+            previousOwnerTeamSlug: input.previousOwnerTeamSlug,
+            nextSharedTeamSlugs: input.nextSharedTeamSlugs ?? [],
+            previousSharedTeamSlugs: input.previousSharedTeamSlugs ?? [],
+            creatorSubject: input.creatorSubject,
+          });
+          dataSourceResult = await reconcileDataSourceRelationships({
+            dataSourceId: id,
+            parentKnowledgeBaseId: id,
+          });
+          return kb;
+        },
+      });
 
     return NextResponse.json({
       knowledge_base_id: id,
-      shared_team_slugs: nextSlugs,
+      owner_team_slug: ownerTeamSlug,
+      shared_team_slugs: sharedTeamSlugs,
       reconcile: result,
       data_source_reconcile: dataSourceResult,
     });
