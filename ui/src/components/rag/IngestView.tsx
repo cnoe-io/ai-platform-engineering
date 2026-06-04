@@ -235,10 +235,13 @@ export default function IngestView() {
   const [reloadInterval, setReloadInterval] = useState<number>(86400) // Default to 24 hours
   const [isCustomReloadInterval, setIsCustomReloadInterval] = useState(false)
 
-  // Team sharing state for new ingestions
-  const [ingestTeamId, setIngestTeamId] = useState('')
-  const [ingestTeamPermission, setIngestTeamPermission] = useState<'read' | 'ingest' | 'admin'>('ingest')
-  const [availableTeams, setAvailableTeams] = useState<{ _id: string; name: string }[]>([])
+  // Owning-team state for new ingestions (spec 2026-06-03). The owning team is
+  // required for non-org-admin authors; org admins may leave it unset to create
+  // a personal/admin-owned source. Populated from /api/rbac/ingest-teams, which
+  // returns only the teams the caller may author for.
+  const [ingestOwnerTeamSlug, setIngestOwnerTeamSlug] = useState('')
+  const [availableTeams, setAvailableTeams] = useState<{ _id: string; slug: string; name: string }[]>([])
+  const [ingestIsOrgAdmin, setIngestIsOrgAdmin] = useState(false)
 
   // DataSources state
   const [dataSources, setDataSources] = useState<DataSourceInfo[]>([])
@@ -399,9 +402,12 @@ export default function IngestView() {
   useEffect(() => {
     fetchDataSources()
     fetchIngestors()
-    fetch('/api/admin/teams')
+    fetch('/api/rbac/ingest-teams')
       .then(r => r.ok ? r.json() : null)
-      .then(d => setAvailableTeams(d?.data?.teams ?? []))
+      .then(d => {
+        setAvailableTeams(d?.teams ?? [])
+        setIngestIsOrgAdmin(Boolean(d?.org_admin))
+      })
       .catch(() => {})
   }, [])
 
@@ -862,8 +868,17 @@ export default function IngestView() {
     })
   }
 
+  // Non-org-admins MUST choose an owning team for a new data source; org admins
+  // may leave it unset (personal/admin-owned). See spec 2026-06-03.
+  const ingestOwnerTeamRequired = !ingestIsOrgAdmin
+  const ingestOwnerTeamMissing = ingestOwnerTeamRequired && !ingestOwnerTeamSlug
+
   const handleIngest = async () => {
     if (!url) return
+    if (ingestOwnerTeamMissing) {
+      toast('Select an owning team for this data source', 'error')
+      return
+    }
 
     try {
       const response = await ingestUrl({
@@ -871,6 +886,7 @@ export default function IngestView() {
         description: description,
         ingest_type: ingestType,
         get_child_pages: ingestType === 'confluence' ? includeSubPages : undefined,
+        owner_team_slug: ingestOwnerTeamSlug || undefined,
         // ScrapySettings for web ingest type
         settings: ingestType === 'web' ? {
           crawl_mode: crawlMode,
@@ -894,28 +910,15 @@ export default function IngestView() {
       await fetchDataSources()
       if (datasource_id) {
         await fetchJobsForDataSource(datasource_id)
-
-        if (ingestTeamId) {
-          try {
-            const curRes = await fetch(`/api/admin/teams/${ingestTeamId}/kb-assignments`)
-            const curData = curRes.ok ? await curRes.json() : { data: { kb_ids: [], kb_permissions: {} } }
-            const kbIds = [...(curData.data.kb_ids || []), datasource_id]
-            const perms = { ...(curData.data.kb_permissions || {}), [datasource_id]: ingestTeamPermission }
-            await fetch(`/api/admin/teams/${ingestTeamId}/kb-assignments`, {
-              method: 'PUT',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ kb_ids: kbIds, kb_permissions: perms }),
-            })
-            reloadTeamKb()
-          } catch (assignErr) {
-            console.error('Post-ingest team assignment failed:', assignErr)
-          }
+        // Ownership tuples for the owning team are written server-side during
+        // ingest (spec 2026-06-03) — no client-side admin kb-assignment call.
+        if (ingestOwnerTeamSlug) {
+          reloadTeamKb()
         }
       }
       setUrl('')
       setDescription('')
-      setIngestTeamId('')
-      setIngestTeamPermission('ingest')
+      setIngestOwnerTeamSlug('')
     } catch (error: any) {
       console.error('Error ingesting data:', error)
       toast(`Ingestion failed: ${error?.message || 'unknown error'}`, 'error')
@@ -1115,38 +1118,46 @@ export default function IngestView() {
                 </div>
                 <Button
                   onClick={handleIngest}
-                  disabled={!url || !hasPermission(Permission.INGEST)}
-                  title={!hasPermission(Permission.INGEST) ? 'Insufficient permissions to ingest data' : 'Ingest this URL'}
+                  disabled={!url || !hasPermission(Permission.INGEST) || ingestOwnerTeamMissing}
+                  title={
+                    !hasPermission(Permission.INGEST)
+                      ? 'Insufficient permissions to ingest data'
+                      : ingestOwnerTeamMissing
+                        ? 'Select an owning team for this data source'
+                        : 'Ingest this URL'
+                  }
                 >
                   Ingest
                 </Button>
               </div>
-              
-              {/* Share with team */}
-              {availableTeams.length > 0 && (
+
+              {/* Owning team (spec 2026-06-03). Required for non-org-admins;
+                  the new data source is created owned by this team and its
+                  members get read/ingest. Org admins may leave it as "None"
+                  to create a personal/admin-owned source. */}
+              {(availableTeams.length > 0 || ingestOwnerTeamRequired) && (
                 <div className="flex items-center gap-2 mt-2 ml-1">
                   <Users className="h-3.5 w-3.5 text-muted-foreground" />
-                  <span className="text-sm text-muted-foreground">Share with:</span>
+                  <span className="text-sm text-muted-foreground">
+                    Owning team{ingestOwnerTeamRequired ? ' *' : ''}:
+                  </span>
                   <select
                     className="flex h-8 rounded-md border border-input bg-background px-2 py-1 text-xs ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    value={ingestTeamId}
-                    onChange={(e) => setIngestTeamId(e.target.value)}
+                    value={ingestOwnerTeamSlug}
+                    onChange={(e) => setIngestOwnerTeamSlug(e.target.value)}
+                    aria-label="Owning team"
                   >
-                    <option value="">None</option>
+                    <option value="">
+                      {ingestOwnerTeamRequired ? 'Select a team…' : 'None (personal)'}
+                    </option>
                     {availableTeams.map((t) => (
-                      <option key={t._id} value={t._id}>{t.name}</option>
+                      <option key={t._id} value={t.slug}>{t.name}</option>
                     ))}
                   </select>
-                  {ingestTeamId && (
-                    <select
-                      className="flex h-8 rounded-md border border-input bg-background px-2 py-1 text-xs ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      value={ingestTeamPermission}
-                      onChange={(e) => setIngestTeamPermission(e.target.value as 'read' | 'ingest' | 'admin')}
-                    >
-                      <option value="read">Read</option>
-                      <option value="ingest">Ingest</option>
-                      <option value="admin">Admin</option>
-                    </select>
+                  {ingestOwnerTeamRequired && availableTeams.length === 0 && (
+                    <span className="text-xs text-amber-600 dark:text-amber-400">
+                      No team grants you data-source authoring — ask an admin.
+                    </span>
                   )}
                 </div>
               )}
