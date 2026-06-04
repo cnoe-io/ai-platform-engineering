@@ -572,7 +572,8 @@ agent-github:
     repository: "ghcr.io/cnoe-io/agent-github"
     pullPolicy: "IfNotPresent"
   mcp:
-    useRemoteMcpServer: true
+    mode: "stdio"
+    useRemoteMcpServer: false
 
 agent-gitlab:
   nameOverride: "agent-gitlab"

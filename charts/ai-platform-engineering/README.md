@@ -93,7 +93,8 @@ helm show values oci://ghcr.io/cnoe-io/charts/ai-platform-engineering --version 
 | agent-confluence.nameOverride | string | `"agent-confluence"` |  |
 | agent-github.image.pullPolicy | string | `"Always"` |  |
 | agent-github.image.repository | string | `"ghcr.io/cnoe-io/agent-github"` |  |
-| agent-github.mcp.useRemoteMcpServer | bool | `true` |  |
+| agent-github.mcp.mode | string | `"stdio"` |  |
+| agent-github.mcp.useRemoteMcpServer | bool | `false` |  |
 | agent-github.nameOverride | string | `"agent-github"` |  |
 | agent-gitlab.env.GIT_AUTHOR_EMAIL | string | `"ai-agent@cnoe.io"` |  |
 | agent-gitlab.env.GIT_AUTHOR_NAME | string | `"AI Agent"` |  |

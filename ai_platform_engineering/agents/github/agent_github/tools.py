@@ -296,12 +296,11 @@ class GHGetFileContentsTool(BaseTool):
     """
     Fetch a single GitHub repository file using gh CLI.
 
-    This covers the ergonomic gap between gh's broad `gh api` surface and the
-    old GitHub MCP `get_file_contents` tool, without requiring the vendored Go
-    MCP server to stay patched for basic file reads.
+    The public tool name intentionally matches the previous GitHub MCP
+    get_file_contents tool so existing policy and task configs keep working.
     """
 
-    name: str = "gh_get_file_contents"
+    name: str = "get_file_contents"
     description: str = (
         "Fetch the decoded contents of a single file from a GitHub repository using gh CLI. "
         "Use this when you need to read a specific file from a public or private repository. "

@@ -26,7 +26,7 @@ class _FakeProcess:
         return self.returncode
 
 
-def test_gh_get_file_contents_decodes_file_and_encodes_path(monkeypatch):
+def test_get_file_contents_decodes_file_and_encodes_path(monkeypatch):
     captured = {}
     content = "hello from README\n"
     payload = {
@@ -43,8 +43,9 @@ def test_gh_get_file_contents_decodes_file_and_encodes_path(monkeypatch):
     monkeypatch.setattr(tools, "get_github_token", lambda: "token-value-1234567890")
     monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
 
+    tool = GHGetFileContentsTool()
     result = asyncio.run(
-        GHGetFileContentsTool()._arun(
+        tool._arun(
             owner="cnoe-io",
             repo="ai-platform-engineering",
             path="/docs/read me.md",
@@ -52,6 +53,7 @@ def test_gh_get_file_contents_decodes_file_and_encodes_path(monkeypatch):
         )
     )
 
+    assert tool.name == "get_file_contents"
     assert result == content
     assert captured["args"] == (
         "gh",
@@ -63,7 +65,7 @@ def test_gh_get_file_contents_decodes_file_and_encodes_path(monkeypatch):
     assert captured["env"]["GH_TOKEN"] == "token-value-1234567890"
 
 
-def test_gh_get_file_contents_rejects_directory_response(monkeypatch):
+def test_get_file_contents_rejects_directory_response(monkeypatch):
     async def fake_create_subprocess_exec(*_args, **_kwargs):
         return _FakeProcess(json.dumps([{"type": "file", "name": "README.md"}]).encode())
 
@@ -81,7 +83,7 @@ def test_gh_get_file_contents_rejects_directory_response(monkeypatch):
     assert "path points to a directory" in result
 
 
-def test_gh_get_file_contents_rejects_unexpected_response(monkeypatch):
+def test_get_file_contents_rejects_unexpected_response(monkeypatch):
     async def fake_create_subprocess_exec(*_args, **_kwargs):
         return _FakeProcess(json.dumps("not a contents response").encode())
 
@@ -99,7 +101,7 @@ def test_gh_get_file_contents_rejects_unexpected_response(monkeypatch):
     assert "unexpected response" in result
 
 
-def test_gh_get_file_contents_rejects_invalid_owner_without_calling_gh(monkeypatch):
+def test_get_file_contents_rejects_invalid_owner_without_calling_gh(monkeypatch):
     called = False
 
     async def fake_create_subprocess_exec(*_args, **_kwargs):
@@ -122,7 +124,7 @@ def test_gh_get_file_contents_rejects_invalid_owner_without_calling_gh(monkeypat
     assert called is False
 
 
-def test_gh_file_contents_tool_can_be_disabled(monkeypatch):
+def test_file_contents_tool_can_be_disabled(monkeypatch):
     monkeypatch.setenv("USE_GH_FILE_CONTENTS_TOOL", "false")
 
     assert get_gh_file_contents_tool() is None
