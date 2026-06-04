@@ -9,6 +9,7 @@ const mockGetUserTeamIds = jest.fn();
 const mockFilterResourcesByPermission = jest.fn();
 const mockRequireResourcePermission = jest.fn();
 const mockGrantSkillsToTeams = jest.fn();
+const mockReconcileSkillTeamShares = jest.fn();
 
 jest.mock("@/lib/mongodb", () => ({
   getCollection: (...args: unknown[]) => mockGetCollection(...args),
@@ -56,6 +57,7 @@ jest.mock("@/lib/rbac/resource-authz", () => ({
 
 jest.mock("@/lib/rbac/skill-team-grants", () => ({
   grantSkillsToTeams: (...args: unknown[]) => mockGrantSkillsToTeams(...args),
+  reconcileSkillTeamShares: (...args: unknown[]) => mockReconcileSkillTeamShares(...args),
 }));
 
 jest.mock("@/lib/rbac/keycloak-resource-sync", () => ({
@@ -92,6 +94,7 @@ describe("GET /api/skills/configs RBAC cutover", () => {
     mockFilterResourcesByPermission.mockImplementation(async (_session, items) => items);
     mockRequireResourcePermission.mockResolvedValue(undefined);
     mockGrantSkillsToTeams.mockResolvedValue({ enabled: true, writesApplied: 1 });
+    mockReconcileSkillTeamShares.mockResolvedValue({ enabled: true, writes: 1, deletes: 0 });
   });
 
   it("lists skills by OpenFGA discover instead of prefiltering by legacy visibility fields", async () => {
@@ -202,9 +205,49 @@ describe("GET /api/skills/configs RBAC cutover", () => {
 
     expect(response.status).toBe(201);
     const savedSkill = insertOne.mock.calls[0][0];
-    expect(mockGrantSkillsToTeams).toHaveBeenCalledWith({
-      teamRefs: ["platform"],
-      skillIds: [savedSkill.id],
+    // Convergence (2026-06-04): create now reconciles team shares through the
+    // shared shareable-resource reconciler (diff-based) instead of the
+    // write-only grant helper. Fresh create has no previous shares to revoke.
+    expect(mockReconcileSkillTeamShares).toHaveBeenCalledWith({
+      skillId: savedSkill.id,
+      previousTeamRefs: [],
+      nextTeamRefs: ["platform"],
+    });
+  });
+
+  it("revokes un-shared teams on update (shared reconciler diff)", async () => {
+    const skill = {
+      id: "skill-reshared",
+      name: "Reshared",
+      description: "before",
+      visibility: "team",
+      owner_id: "alice@example.com",
+      is_system: false,
+      shared_with_teams: ["platform", "sre"],
+      tasks: [{ display_text: "Task", llm_prompt: "Do it", subagent: "skills" }],
+    };
+    const findOne = jest
+      .fn()
+      .mockResolvedValueOnce(skill)
+      .mockResolvedValueOnce({ ...skill, shared_with_teams: ["platform"] });
+    const updateOne = jest.fn().mockResolvedValue({ matchedCount: 1, modifiedCount: 1 });
+    mockGetCollection.mockResolvedValue({ findOne, updateOne });
+    const { PUT } = await import("../route");
+
+    const response = await PUT(
+      new NextRequest(new URL("/api/skills/configs?id=skill-reshared", "http://localhost:3000"), {
+        method: "PUT",
+        body: JSON.stringify({ visibility: "team", shared_with_teams: ["platform"] }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    // Dropping "sre" from the shared set must reach the reconciler with the
+    // previous and next team sets so the stale grant is revoked, not orphaned.
+    expect(mockReconcileSkillTeamShares).toHaveBeenCalledWith({
+      skillId: "skill-reshared",
+      previousTeamRefs: ["platform", "sre"],
+      nextTeamRefs: ["platform"],
     });
   });
 });

@@ -643,6 +643,25 @@ also persist `shared_with_teams`; every force-refresh grants those teams access 
 all refreshed hub skill ids, and the `skill_hub_team_grants_backfill_v1` migration
 does the same for hub skills that were already crawled before the hub-level team
 policy existed.
+
+**Per-skill team shares converge on the shared shareable-resource reconciler
+(2026-06-04 fix).** Locally-authored skill create/update now route their team
+shares through `reconcileSkillTeamShares` → `reconcileShareableResource` (the
+same tuple-core agents, RAG KBs, and MCP tools use, per #1726), with
+`objectType: "skill"`, `ownerTeamSlug: null` (skills are user-owned, not
+team-owned), and `memberRelations: ["user"]`. This closes two gaps in the old
+write-only `grantSkillsToTeams` path: `PUT /api/skills/configs` previously wrote
+**nothing** to OpenFGA, so editing `shared_with_teams` (or demoting away from
+`team` visibility) updated Mongo but left the old `team:<slug>#member user
+skill:<id>` grants in place, and even `POST` only ever wrote — never revoked.
+Because the reconciler diffs `previousSharedTeamSlugs` against
+`nextSharedTeamSlugs`, un-sharing or re-scoping a skill now emits the delete
+tuples for dropped teams instead of orphaning them. Bulk fan-out paths (`.zip`
+import, Skill Hub force-refresh) intentionally keep the write-only
+`grantSkillsToTeams` helper — they have no previous per-skill state to revoke.
+Config (Mongo) stays the source of truth: an OpenFGA failure during reconcile is
+logged but never fails the skill save.
+
 GitHub Skill Hub crawl/import uses the hub's validated `credentials_ref` when
 configured, otherwise falls back to the server-side `GITHUB_TOKEN` environment
 variable on `caipe-ui`. In dev compose, `caipe-ui` receives `GITHUB_TOKEN` from
