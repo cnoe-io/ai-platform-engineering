@@ -28,6 +28,10 @@ additional_guidelines:
   - "  ✅ Use when you need to create PRs, list issues, view workflow logs"
   - "  Example: gh_cli_execute('pr list --repo org/repo')"
   - "  Example: gh_cli_execute('run view 123 --repo org/repo --log')"
+  - "**gh_get_file_contents** (for reading a specific repository file):"
+  - "  ✅ Use for: reading one file from a public or private GitHub repo"
+  - "  ✅ Use instead of fetch_url for private repo files"
+  - "  Example: gh_get_file_contents(owner='org', repo='repo', path='README.md', ref='main')"
   - "❌ DO NOT use fetch_url for private repos - it will 404"
   - "❌ DO NOT use gh_cli_execute for git clone - use git tool instead"
 
@@ -152,4 +156,3 @@ response_format_instruction: |
 
 tool_working_message: "🔧 Calling tool: **{tool_name}**"
 tool_processing_message: "✅ Tool **{tool_name}** completed"
-
