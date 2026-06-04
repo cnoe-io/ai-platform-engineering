@@ -50,22 +50,17 @@ jest.mock("@/lib/rbac/resource-authz", () => ({
 }));
 
 const mockReconcileKnowledgeBaseRelationships = jest.fn();
-const mockBuildKnowledgeBaseRelationshipTupleDiff = jest.fn();
-const mockMirrorKnowledgeBaseDiffToDataSource = jest.fn();
+const mockReconcileDataSourceRelationships = jest.fn();
 jest.mock("@/lib/rbac/openfga-owned-resources", () => ({
   reconcileKnowledgeBaseRelationships: (...args: unknown[]) =>
     mockReconcileKnowledgeBaseRelationships(...args),
-  buildKnowledgeBaseRelationshipTupleDiff: (...args: unknown[]) =>
-    mockBuildKnowledgeBaseRelationshipTupleDiff(...args),
-  mirrorKnowledgeBaseDiffToDataSource: (...args: unknown[]) =>
-    mockMirrorKnowledgeBaseDiffToDataSource(...args),
+  reconcileDataSourceRelationships: (...args: unknown[]) =>
+    mockReconcileDataSourceRelationships(...args),
 }));
 
 const mockReadOpenFgaTuples = jest.fn();
-const mockWriteOpenFgaTupleDiff = jest.fn();
 jest.mock("@/lib/rbac/openfga", () => ({
   readOpenFgaTuples: (...args: unknown[]) => mockReadOpenFgaTuples(...args),
-  writeOpenFgaTupleDiff: (...args: unknown[]) => mockWriteOpenFgaTupleDiff(...args),
 }));
 
 import { getServerSession } from "next-auth";
@@ -90,9 +85,7 @@ describe("/api/rag/kbs/[id]/sharing", () => {
       writes: 2,
       deletes: 0,
     });
-    mockBuildKnowledgeBaseRelationshipTupleDiff.mockReturnValue({ writes: [], deletes: [] });
-    mockMirrorKnowledgeBaseDiffToDataSource.mockReturnValue({ writes: [], deletes: [] });
-    mockWriteOpenFgaTupleDiff.mockResolvedValue({ enabled: true, writes: 0, deletes: 0 });
+    mockReconcileDataSourceRelationships.mockResolvedValue({ enabled: true, writes: 1, deletes: 0 });
     mockReadOpenFgaTuples.mockResolvedValue({ tuples: [] });
     (getServerSession as jest.Mock).mockResolvedValue({
       accessToken: "tok",
@@ -137,6 +130,36 @@ describe("/api/rag/kbs/[id]/sharing", () => {
         { bypassForOrgAdmin: true },
       );
     });
+
+    it("returns the real owner_team_slug + creator_subject from the datasource config", async () => {
+      // OpenFGA reader tuples include the owner team (platform) + a shared team.
+      mockReadOpenFgaTuples.mockResolvedValueOnce({
+        tuples: [
+          { key: { user: "team:platform#member", relation: "reader", object: "knowledge_base:kb-1" } },
+          { key: { user: "team:data-eng#member", relation: "reader", object: "knowledge_base:kb-1" } },
+        ],
+      });
+      // The datasource config (RAG server) is the source of truth for owner.
+      const fetchSpy = jest.spyOn(global, "fetch").mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            datasources: [
+              { datasource_id: "kb-1", owner_team_slug: "platform", creator_subject: "alice-sub" },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      );
+
+      const res = await GET(makeRequest(), { params: Promise.resolve({ id: "kb-1" }) });
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.owner_team_slug).toBe("platform");
+      expect(body.creator_subject).toBe("alice-sub");
+      // Owner (platform) is deduped out of the shared list — shown once as owner.
+      expect(body.shared_team_slugs).toEqual(["data-eng"]);
+      fetchSpy.mockRestore();
+    });
   });
 
   describe("PUT", () => {
@@ -164,13 +187,14 @@ describe("/api/rag/kbs/[id]/sharing", () => {
         }),
       );
 
-      // The KB diff is mirrored onto the data_source type and written, so
-      // the shared teams can query (not just discover) the datasource.
-      expect(mockMirrorKnowledgeBaseDiffToDataSource).toHaveBeenCalledWith(
-        mockBuildKnowledgeBaseRelationshipTupleDiff.mock.results[0].value,
-      );
-      expect(mockWriteOpenFgaTupleDiff).toHaveBeenCalledWith(
-        mockMirrorKnowledgeBaseDiffToDataSource.mock.results[0].value,
+      // The data_source inherits the KB grants via the `parent_kb` edge
+      // (spec 2026-06-03, US4) — sharing the KB ensures that single
+      // inheritance edge exists rather than mirroring per-team tuples.
+      expect(mockReconcileDataSourceRelationships).toHaveBeenCalledWith(
+        expect.objectContaining({
+          dataSourceId: "kb-1",
+          parentKnowledgeBaseId: "kb-1",
+        }),
       );
 
       expect(mockRequireResourcePermission).toHaveBeenCalledWith(

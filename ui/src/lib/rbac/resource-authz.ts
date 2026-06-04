@@ -86,6 +86,35 @@ async function isOrgAdmin(
   }
 }
 
+/**
+ * Authorize an ownership transfer (spec 2026-06-03, US3 / contract R3). The
+ * caller may transfer a shareable resource only if they can manage it
+ * (current owner-team admin — `<type>:<id>#can_manage`) OR they are an org
+ * admin. Returns true/false rather than throwing so callers can shape their
+ * own error. Reuses the same `check` injection as `requireResourcePermission`
+ * for testability.
+ */
+export async function canTransferResourceOwnership(
+  session: ResourceAuthzSession,
+  target: { type: UniversalRebacResourceType; id: string },
+  options: ResourcePermissionOptions = {},
+): Promise<boolean> {
+  const subject = subjectFromSession(session);
+  if (!subject) return false;
+  const check = options.check ?? checkOpenFgaTuple;
+  if (await isOrgAdmin(subject, check)) return true;
+  try {
+    const result = await check({
+      user: subject,
+      relation: "can_manage",
+      object: resourceObject(target.type, target.id),
+    });
+    return result.allowed === true;
+  } catch {
+    return false;
+  }
+}
+
 export function openFgaRelationForResourceAction(action: ResourcePermissionAction): string {
   switch (action) {
     case "list":

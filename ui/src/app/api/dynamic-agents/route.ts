@@ -30,6 +30,7 @@ import {
 import {
   filterResourcesByPermission,
   requireResourcePermission,
+  canTransferResourceOwnership,
 } from "@/lib/rbac/resource-authz";
 import { caipeOrgKey } from "@/lib/rbac/organization";
 import { isPlatformDefaultAgent } from "@/lib/rbac/platform-default";
@@ -584,7 +585,14 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
 
     // Build update with explicit field allowlist
     const updateData = pickMutableFields(body);
-    if (Object.keys(updateData).length === 0) {
+    // An ownership transfer changes owner_team_slug, which is intentionally NOT
+    // in the mutable-field allowlist (owner is immutable on a normal edit).
+    // Detect it here so a transfer-only request isn't dropped by the
+    // "no fields to update" short-circuit below.
+    const isTransferRequest =
+      normalizeString(body.owner_team_slug) !== null &&
+      normalizeString(body.owner_team_slug) !== normalizeString(agent.owner_team_slug);
+    if (Object.keys(updateData).length === 0 && !isTransferRequest) {
       // No fields to update — return current state
       return successResponse(agent);
     }
@@ -656,6 +664,53 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
 
     updateData.updated_at = new Date().toISOString();
 
+    // Ownership transfer (spec 2026-06-03, US3): owner_team_slug is immutable
+    // on a normal edit, but the editor can transfer it to another team. When
+    // the request carries a different owner_team_slug, require the caller to
+    // be an owner-team admin (can_manage on the agent) or org admin, validate
+    // the destination team membership, and pass the previous owner so the
+    // reconciler revokes the old team's grants. The creator tuple is untouched.
+    const previousOwnerTeamSlug = normalizeString(agent.owner_team_slug);
+    const requestedOwnerTeamSlug = normalizeString(body.owner_team_slug);
+    let nextOwnerTeamSlug = previousOwnerTeamSlug;
+    let transferPreviousOwner: string | undefined;
+    if (
+      requestedOwnerTeamSlug &&
+      previousOwnerTeamSlug &&
+      requestedOwnerTeamSlug !== previousOwnerTeamSlug
+    ) {
+      const allowed = await canTransferResourceOwnership(
+        { sub: session.sub, role: session.role, user: session.user },
+        { type: "agent", id },
+      );
+      if (!allowed) {
+        throw new ApiError(
+          "Only an owner-team admin or org admin can transfer this agent.",
+          403,
+          "TRANSFER_FORBIDDEN",
+        );
+      }
+      const destinationTeam = await loadOwnerTeam({ slug: requestedOwnerTeamSlug });
+      if (!destinationTeam) {
+        throw new ApiError("Destination team not found", 404, "OWNER_TEAM_NOT_FOUND");
+      }
+      const canUseDestination = await canUseOwnerTeam(session, destinationTeam);
+      // A not-a-member transfer is allowed only when the client explicitly
+      // confirmed it (the <TeamOwnershipFields> not-a-member prompt sets this).
+      const confirmedNotMember = body.confirm_not_member === true;
+      if (!canUseDestination && !confirmedNotMember) {
+        throw new ApiError(
+          "You are not a member of the destination team. Confirm the transfer to proceed.",
+          409,
+          "TRANSFER_NOT_MEMBER_UNCONFIRMED",
+        );
+      }
+      nextOwnerTeamSlug = requestedOwnerTeamSlug;
+      transferPreviousOwner = previousOwnerTeamSlug;
+      updateData.owner_team_slug = requestedOwnerTeamSlug;
+      updateData.owner_team_id = teamIdString(destinationTeam) ?? undefined;
+    }
+
     const finalAllowedTools = (updateData.allowed_tools ??
       agent.allowed_tools ??
       {}) as Record<string, string[]>;
@@ -665,7 +720,8 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
       nextAllowedTools: finalAllowedTools,
       ownerSubject: agent.owner_subject ?? agent.owner_id,
       organizationId: caipeOrgKey(),
-      ownerTeamSlug: agent.owner_team_slug,
+      ownerTeamSlug: nextOwnerTeamSlug,
+      previousOwnerTeamSlug: transferPreviousOwner,
       nextSharedTeamSlugs: sharedTeamSlugs,
       previousSharedTeamSlugs,
     });

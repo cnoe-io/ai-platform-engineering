@@ -49,6 +49,12 @@ jest.mock("@/lib/rbac/openfga", () => ({
   writeOpenFgaTuples: (...args: unknown[]) => mockWriteOpenFgaTuples(...args),
 }));
 
+const mockReconcileDataSourceRelationships = jest.fn();
+jest.mock("@/lib/rbac/openfga-owned-resources", () => ({
+  reconcileDataSourceRelationships: (...args: unknown[]) =>
+    mockReconcileDataSourceRelationships(...args),
+}));
+
 /**
  * Minimal MongoDB-filter shim. Supports the shapes used by route
  * handlers under test:
@@ -112,6 +118,7 @@ beforeEach(() => {
   });
   mockRequireRbacPermission.mockResolvedValue(undefined);
   mockWriteOpenFgaTuples.mockResolvedValue({ enabled: true, writes: 1, deletes: 0 });
+  mockReconcileDataSourceRelationships.mockResolvedValue({ enabled: true, writes: 1, deletes: 0 });
   mockCollections.teams = createMockCollection([
     { _id: teamId, slug: "platform", name: "Platform" },
   ]);
@@ -182,19 +189,16 @@ describe("/api/admin/teams/[id]/kb-assignments", () => {
         { user: "team:platform#member", relation: "reader", object: "knowledge_base:old-ds" },
       ],
     });
-    // The same grants must be mirrored onto the data_source type so the
-    // team can actually query the datasource (enforcement reads
-    // data_source#read, not knowledge_base#read).
-    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
-      writes: [
-        { user: "team:platform#member", relation: "reader", object: "data_source:new-read-ds" },
-        { user: "team:platform#member", relation: "ingestor", object: "data_source:new-ingest-ds" },
-        { user: "team:platform#admin", relation: "manager", object: "data_source:new-admin-ds" },
-      ],
-      deletes: [
-        { user: "team:platform#member", relation: "reader", object: "data_source:old-ds" },
-      ],
-    });
+    // Rather than mirror each grant onto the data_source type (the retired
+    // PR #1703 approach), the data_source inherits read/ingest/manage from
+    // its knowledge_base via the `parent_kb` edge (spec 2026-06-03, US4).
+    // The route ensures that inheritance edge exists for each affected
+    // datasource id (writes AND deletes contribute ids).
+    for (const dsId of ["new-read-ds", "new-ingest-ds", "new-admin-ds", "old-ds"]) {
+      expect(mockReconcileDataSourceRelationships).toHaveBeenCalledWith(
+        expect.objectContaining({ dataSourceId: dsId, parentKnowledgeBaseId: dsId }),
+      );
+    }
     expect(mockCollections.team_kb_ownership.updateOne).toHaveBeenCalled();
   });
 
@@ -223,12 +227,12 @@ describe("/api/admin/teams/[id]/kb-assignments", () => {
         { user: "team:platform#member", relation: "ingestor", object: "knowledge_base:old-ds" },
       ],
     });
-    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
-      writes: [],
-      deletes: [
-        { user: "team:platform#member", relation: "ingestor", object: "data_source:old-ds" },
-      ],
-    });
+    // The data_source inherits via parent_kb, so the route ensures the
+    // inheritance edge for the affected datasource rather than mirroring
+    // the deleted grant onto the data_source type.
+    expect(mockReconcileDataSourceRelationships).toHaveBeenCalledWith(
+      expect.objectContaining({ dataSourceId: "old-ds", parentKnowledgeBaseId: "old-ds" }),
+    );
   });
 
   it("repairs missing OpenFGA tuples when saving an unchanged Mongo assignment", async () => {

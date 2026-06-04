@@ -1,10 +1,10 @@
 "use client";
 
 import React from "react";
-import { TeamMultiPicker, type TeamPickerOption } from "@/components/ui/team-picker";
+import { type TeamPickerOption } from "@/components/ui/team-picker";
 import { Button } from "@/components/ui/button";
-import { AlertTriangle, ShieldCheck, Users } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { ShieldCheck, Users } from "lucide-react";
+import { TeamOwnershipFields } from "@/components/rbac/TeamOwnershipFields";
 
 interface KbSharingPanelProps {
   knowledgeBaseId: string;
@@ -14,6 +14,7 @@ interface SharingResponse {
   knowledge_base_id: string;
   shared_team_slugs: string[];
   owner_team_slug: string | null;
+  creator_subject?: string | null;
 }
 
 interface TeamRow {
@@ -38,6 +39,7 @@ export function KbSharingPanel({ knowledgeBaseId }: KbSharingPanelProps) {
   const [originalShared, setOriginalShared] = React.useState<string[]>([]);
   const [selected, setSelected] = React.useState<string[]>([]);
   const [ownerTeamSlug, setOwnerTeamSlug] = React.useState<string | null>(null);
+  const [creatorSubject, setCreatorSubject] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -68,6 +70,7 @@ export function KbSharingPanel({ knowledgeBaseId }: KbSharingPanelProps) {
       setOriginalShared(slugs);
       setSelected(slugs);
       setOwnerTeamSlug(data.owner_team_slug ?? null);
+      setCreatorSubject(data.creator_subject ?? null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load sharing");
     } finally {
@@ -112,15 +115,6 @@ export function KbSharingPanel({ knowledgeBaseId }: KbSharingPanelProps) {
     return selected.some((slug) => !a.has(slug));
   }, [originalShared, selected]);
 
-  const additions = React.useMemo(
-    () => selected.filter((slug) => !originalShared.includes(slug)),
-    [originalShared, selected],
-  );
-  const removals = React.useMemo(
-    () => originalShared.filter((slug) => !selected.includes(slug)),
-    [originalShared, selected],
-  );
-
   const options = React.useMemo<TeamPickerOption[]>(
     () =>
       availableTeams
@@ -137,78 +131,38 @@ export function KbSharingPanel({ knowledgeBaseId }: KbSharingPanelProps) {
     <div className="space-y-4 rounded-lg border border-border bg-card p-4">
       <div className="flex items-center gap-2">
         <Users className="h-4 w-4 text-muted-foreground" />
-        <h3 className="text-sm font-semibold">Share with Teams</h3>
+        <h3 className="text-sm font-semibold">Ownership &amp; Sharing</h3>
       </div>
 
-      <p className="text-xs text-muted-foreground">
-        Grant additional teams read access to this knowledge base. Members of the listed teams
-        will be able to search this KB and ingest into it; team admins can manage it. Unchecking
-        a team here genuinely revokes its access — no dangling tuple is left behind.
-      </p>
-
-      <div className="space-y-2">
-        <label
-          htmlFor={`kb-share-picker-${knowledgeBaseId}`}
-          className="block text-xs font-medium text-foreground"
-        >
-          Shared with
-        </label>
-        <TeamMultiPicker
-          id={`kb-share-picker-${knowledgeBaseId}`}
-          options={options}
-          selected={selected}
-          onChange={setSelected}
-          disabled={loading || saving}
-          placeholder="Pick one or more teams to share with..."
-          searchPlaceholder="Search your teams..."
-          emptyLabel="No teams match"
-        />
-      </div>
-
-      {isDirty && (
-        <div
-          className={cn(
-            "rounded-md border px-3 py-2 text-xs",
-            "border-amber-300/50 bg-amber-50/40 text-amber-900",
-            "dark:border-amber-400/30 dark:bg-amber-500/10 dark:text-amber-200",
-          )}
-          data-testid="kb-share-effective-access"
-        >
-          <div className="flex items-center gap-2 font-semibold">
-            <AlertTriangle className="h-3.5 w-3.5" />
-            Effective access on save
-          </div>
-          <ul className="mt-1 space-y-0.5">
-            {ownerTeamSlug && (
-              <li>
-                Owner team <code>team:{ownerTeamSlug}</code> remains the canonical owner.
-              </li>
-            )}
-            {additions.length > 0 && (
-              <li>
-                <span className="font-medium">Add</span>{" "}
-                {additions.map((slug) => (
-                  <code key={`add-${slug}`} className="mr-1">
-                    team:{slug}
-                  </code>
-                ))}
-                — reader + admin manager tuples will be written.
-              </li>
-            )}
-            {removals.length > 0 && (
-              <li>
-                <span className="font-medium">Revoke</span>{" "}
-                {removals.map((slug) => (
-                  <code key={`rm-${slug}`} className="mr-1">
-                    team:{slug}
-                  </code>
-                ))}
-                — existing reader + manager tuples will be deleted.
-              </li>
-            )}
-          </ul>
-        </div>
-      )}
+      {/* Shared <TeamOwnershipFields> (spec 2026-06-03, US1/US5). The KB
+          already exists here, so the owner team is read-only (isEditing);
+          transfer is wired in Phase 7. The component renders the owner team,
+          the share multi-select, and the effective-access preview. */}
+      <TeamOwnershipFields
+        ownerTeamSlug={ownerTeamSlug ?? ""}
+        sharedTeamSlugs={selected}
+        creatorSubject={creatorSubject}
+        isEditing
+        resourceNoun="knowledge base"
+        disabled={loading || saving}
+        availableTeams={options}
+        currentUserTeamSlugs={options.map((o) => o.slug)}
+        onOwnerTeamChange={setOwnerTeamSlug}
+        onSharedTeamsChange={setSelected}
+        shareHelpText={
+          <>
+            Grant additional teams read access to this knowledge base. Members
+            of the listed teams can search and ingest into it; team admins can
+            manage it. Unchecking a team genuinely revokes its access.
+          </>
+        }
+        renderGrantDetail={(slug) => (
+          <>
+            members of <code>team:{slug}</code> can search and ingest into this
+            knowledge base.
+          </>
+        )}
+      />
 
       {info && (
         <div
