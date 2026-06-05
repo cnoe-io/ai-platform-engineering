@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { formatDistance } from "date-fns";
 import { useRouter } from "next/navigation";
 import {
@@ -105,6 +112,134 @@ interface ScheduleDeleteResponse {
     deleted: string;
   };
   error?: string;
+}
+
+const SCHEDULES_TABLE_MIN_WIDTH = 1160;
+
+interface TableScrollMetrics {
+  scrollWidth: number;
+  canScroll: boolean;
+  atStart: boolean;
+  atEnd: boolean;
+}
+
+function SchedulesTableFrame({ children }: { children: ReactNode }) {
+  const topScrollRef = useRef<HTMLDivElement>(null);
+  const tableScrollRef = useRef<HTMLDivElement>(null);
+  const [metrics, setMetrics] = useState<TableScrollMetrics>({
+    scrollWidth: SCHEDULES_TABLE_MIN_WIDTH,
+    canScroll: false,
+    atStart: true,
+    atEnd: true,
+  });
+
+  const updateMetrics = useCallback(() => {
+    const scroller = tableScrollRef.current;
+    if (!scroller) return;
+
+    const maxScrollLeft = Math.max(0, scroller.scrollWidth - scroller.clientWidth);
+    const nextMetrics: TableScrollMetrics = {
+      scrollWidth: Math.max(scroller.scrollWidth, SCHEDULES_TABLE_MIN_WIDTH),
+      canScroll: maxScrollLeft > 1,
+      atStart: scroller.scrollLeft <= 1,
+      atEnd: scroller.scrollLeft >= maxScrollLeft - 1,
+    };
+
+    setMetrics((current) =>
+      current.scrollWidth === nextMetrics.scrollWidth &&
+      current.canScroll === nextMetrics.canScroll &&
+      current.atStart === nextMetrics.atStart &&
+      current.atEnd === nextMetrics.atEnd
+        ? current
+        : nextMetrics
+    );
+  }, []);
+
+  // Table content can change width without a window resize, so re-measure after render.
+  useEffect(() => {
+    updateMetrics();
+  });
+
+  useEffect(() => {
+    const scroller = tableScrollRef.current;
+    if (!scroller) return;
+
+    const frame =
+      typeof window.requestAnimationFrame === "function"
+        ? window.requestAnimationFrame(updateMetrics)
+        : null;
+    let resizeObserver: ResizeObserver | null = null;
+
+    if (typeof window.ResizeObserver === "function") {
+      resizeObserver = new window.ResizeObserver(updateMetrics);
+      resizeObserver.observe(scroller);
+      if (scroller.firstElementChild) {
+        resizeObserver.observe(scroller.firstElementChild);
+      }
+    }
+
+    window.addEventListener("resize", updateMetrics);
+    return () => {
+      if (frame !== null && typeof window.cancelAnimationFrame === "function") {
+        window.cancelAnimationFrame(frame);
+      }
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", updateMetrics);
+    };
+  }, [updateMetrics]);
+
+  const syncScroll = useCallback(
+    (source: "top" | "table") => {
+      const sourceNode =
+        source === "top" ? topScrollRef.current : tableScrollRef.current;
+      const targetNode =
+        source === "top" ? tableScrollRef.current : topScrollRef.current;
+
+      if (!sourceNode || !targetNode) return;
+      if (targetNode.scrollLeft !== sourceNode.scrollLeft) {
+        targetNode.scrollLeft = sourceNode.scrollLeft;
+      }
+      updateMetrics();
+    },
+    [updateMetrics]
+  );
+
+  return (
+    <div className="relative w-full min-w-0 overflow-hidden rounded-lg border bg-card">
+      <div
+        ref={topScrollRef}
+        aria-label="Scroll scheduled jobs table horizontally"
+        className={[
+          "overflow-x-auto overflow-y-hidden border-b bg-muted/20 scrollbar-modern",
+          metrics.canScroll ? "block" : "hidden",
+        ].join(" ")}
+        onScroll={() => syncScroll("top")}
+      >
+        <div className="h-3" style={{ width: `${metrics.scrollWidth}px` }} />
+      </div>
+
+      <div
+        className={[
+          "pointer-events-none absolute inset-y-0 left-0 z-10 w-8 bg-gradient-to-r from-card to-transparent transition-opacity",
+          metrics.canScroll && !metrics.atStart ? "opacity-100" : "opacity-0",
+        ].join(" ")}
+      />
+      <div
+        className={[
+          "pointer-events-none absolute inset-y-0 right-0 z-10 w-8 bg-gradient-to-l from-card to-transparent transition-opacity",
+          metrics.canScroll && !metrics.atEnd ? "opacity-100" : "opacity-0",
+        ].join(" ")}
+      />
+
+      <div
+        ref={tableScrollRef}
+        className="overflow-x-auto scrollbar-modern"
+        onScroll={() => syncScroll("table")}
+      >
+        {children}
+      </div>
+    </div>
+  );
 }
 
 function formatDateTime(value: string | null): string {
@@ -724,170 +859,171 @@ export default function SchedulesPage() {
               </DialogContent>
             </Dialog>
 
-            <div className="overflow-hidden rounded-lg border bg-card">
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[1160px] text-sm">
-                  <thead className="border-b bg-muted/50 text-xs uppercase text-muted-foreground">
+            <SchedulesTableFrame>
+              <table
+                className="w-full text-sm"
+                style={{ minWidth: SCHEDULES_TABLE_MIN_WIDTH }}
+              >
+                <thead className="border-b bg-muted/50 text-xs uppercase text-muted-foreground">
+                  <tr>
+                    <th className="px-4 py-3 text-left font-medium">Job</th>
+                    <th className="px-4 py-3 text-left font-medium">Schedule</th>
+                    <th className="px-4 py-3 text-left font-medium">Message</th>
+                    <th className="px-4 py-3 text-left font-medium">Last Run</th>
+                    <th className="px-4 py-3 text-left font-medium">Status</th>
+                    <th className="px-4 py-3 text-right font-medium">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {loading ? (
                     <tr>
-                      <th className="px-4 py-3 text-left font-medium">Job</th>
-                      <th className="px-4 py-3 text-left font-medium">Schedule</th>
-                      <th className="px-4 py-3 text-left font-medium">Message</th>
-                      <th className="px-4 py-3 text-left font-medium">Last Run</th>
-                      <th className="px-4 py-3 text-left font-medium">Status</th>
-                      <th className="px-4 py-3 text-right font-medium">Actions</th>
+                      <td className="px-4 py-8 text-center text-muted-foreground" colSpan={6}>
+                        Loading scheduled jobs...
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {loading ? (
-                      <tr>
-                        <td className="px-4 py-8 text-center text-muted-foreground" colSpan={6}>
-                          Loading scheduled jobs...
-                        </td>
-                      </tr>
-                    ) : items.length === 0 ? (
-                      <tr>
-                        <td className="px-4 py-8 text-center text-muted-foreground" colSpan={6}>
-                          No scheduled jobs yet.
-                        </td>
-                      </tr>
-                    ) : (
-                      items.map((item) => {
-                        const attributeEntries = scheduleAttributeEntries(item);
-                        const scheduleDescription = humanizeCron(item.cron);
+                  ) : items.length === 0 ? (
+                    <tr>
+                      <td className="px-4 py-8 text-center text-muted-foreground" colSpan={6}>
+                        No scheduled jobs yet.
+                      </td>
+                    </tr>
+                  ) : (
+                    items.map((item) => {
+                      const attributeEntries = scheduleAttributeEntries(item);
+                      const scheduleDescription = humanizeCron(item.cron);
 
-                        return (
-                          <tr key={item.schedule_id} className="border-b last:border-b-0">
-                            <td className="px-4 py-3 align-top">
-                              <div className="space-y-1">
-                                <div className="font-medium">{scheduleTitle(item)}</div>
-                                <div className="text-xs text-muted-foreground">
-                                  agent: {item.agent_name}
-                                </div>
-                                <div className="font-mono text-xs text-muted-foreground">
-                                  schedule_id: {item.schedule_id}
-                                </div>
-                                {attributeEntries.map(([key, value]) => (
-                                  <div
-                                    key={key}
-                                    className="break-words text-xs text-muted-foreground"
-                                  >
-                                    <span className="font-medium">
-                                      {formatAttributeLabel(key)}:
-                                    </span>{" "}
-                                    <span className="font-mono">{value}</span>
-                                  </div>
-                                ))}
+                      return (
+                        <tr key={item.schedule_id} className="border-b last:border-b-0">
+                          <td className="px-4 py-3 align-top">
+                            <div className="space-y-1">
+                              <div className="font-medium">{scheduleTitle(item)}</div>
+                              <div className="text-xs text-muted-foreground">
+                                agent: {item.agent_name}
                               </div>
-                            </td>
-                            <td className="px-4 py-3 align-top">
-                              <div className="space-y-1">
-                                <div className="font-mono">{item.cron}</div>
-                                {scheduleDescription && (
-                                  <div className="text-xs text-muted-foreground">
-                                    {scheduleDescription}
-                                  </div>
-                                )}
-                                <div className="text-xs text-muted-foreground">
-                                  Timezone: {item.tz}
-                                </div>
-                                <div className="text-xs text-muted-foreground">
-                                  Version {item.version || 1}
-                                </div>
-                                <div className="text-xs text-muted-foreground">
-                                  Created {formatRelative(item.created_at, relativeNow)}
-                                </div>
+                              <div className="font-mono text-xs text-muted-foreground">
+                                schedule_id: {item.schedule_id}
                               </div>
-                            </td>
-                            <td className="max-w-md px-4 py-3 align-top">
-                              <code className="block max-h-24 overflow-hidden whitespace-pre-wrap break-words rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">
-                                {item.message_template}
-                              </code>
-                            </td>
-                            <td className="px-4 py-3 align-top">
-                              <div className="space-y-1">
-                                <div>{lastRunLabel(item, relativeNow)}</div>
-                                {item.last_run?.ts && (
-                                  <div className="text-xs text-muted-foreground">
-                                    {formatDateTime(item.last_run.ts)}
-                                  </div>
-                                )}
-                                {item.last_run?.error && (
-                                  <div className="max-w-xs break-words text-xs text-red-300">
-                                    {item.last_run.error}
-                                  </div>
-                                )}
+                              {attributeEntries.map(([key, value]) => (
+                                <div
+                                  key={key}
+                                  className="break-words text-xs text-muted-foreground"
+                                >
+                                  <span className="font-medium">
+                                    {formatAttributeLabel(key)}:
+                                  </span>{" "}
+                                  <span className="font-mono">{value}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 align-top">
+                            <div className="space-y-1">
+                              <div className="font-mono">{item.cron}</div>
+                              {scheduleDescription && (
+                                <div className="text-xs text-muted-foreground">
+                                  {scheduleDescription}
+                                </div>
+                              )}
+                              <div className="text-xs text-muted-foreground">
+                                Timezone: {item.tz}
                               </div>
-                            </td>
-                            <td className="px-4 py-3 align-top">
-                              <Badge
-                                variant={item.enabled ? "status" : "secondary"}
-                                className={item.enabled ? "" : "text-muted-foreground"}
+                              <div className="text-xs text-muted-foreground">
+                                Version {item.version || 1}
+                              </div>
+                              <div className="text-xs text-muted-foreground">
+                                Created {formatRelative(item.created_at, relativeNow)}
+                              </div>
+                            </div>
+                          </td>
+                          <td className="max-w-md px-4 py-3 align-top">
+                            <code className="block max-h-24 overflow-hidden whitespace-pre-wrap break-words rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">
+                              {item.message_template}
+                            </code>
+                          </td>
+                          <td className="px-4 py-3 align-top">
+                            <div className="space-y-1">
+                              <div>{lastRunLabel(item, relativeNow)}</div>
+                              {item.last_run?.ts && (
+                                <div className="text-xs text-muted-foreground">
+                                  {formatDateTime(item.last_run.ts)}
+                                </div>
+                              )}
+                              {item.last_run?.error && (
+                                <div className="max-w-xs break-words text-xs text-red-300">
+                                  {item.last_run.error}
+                                </div>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 align-top">
+                            <Badge
+                              variant={item.enabled ? "status" : "secondary"}
+                              className={item.enabled ? "" : "text-muted-foreground"}
+                            >
+                              {item.enabled ? "Enabled" : "Paused"}
+                            </Badge>
+                          </td>
+                          <td className="px-4 py-3 text-right align-top">
+                            <div className="flex flex-col items-end gap-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="w-28"
+                                onClick={() => openEditor(item)}
+                                disabled={mutatingId === item.schedule_id}
+                                title="Modify schedule"
+                                aria-label={`Modify ${item.schedule_id}`}
                               >
-                                {item.enabled ? "Enabled" : "Paused"}
-                              </Badge>
-                            </td>
-                            <td className="px-4 py-3 text-right align-top">
-                              <div className="flex flex-col items-end gap-2">
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="w-28"
-                                  onClick={() => openEditor(item)}
-                                  disabled={mutatingId === item.schedule_id}
-                                  title="Modify schedule"
-                                  aria-label={`Modify ${item.schedule_id}`}
-                                >
-                                  <Pencil />
-                                  Modify
-                                </Button>
-                                <Button
-                                  variant={item.enabled ? "outline" : "default"}
-                                  size="sm"
-                                  className="w-28"
-                                  onClick={() => void toggleSchedule(item)}
-                                  disabled={mutatingId === item.schedule_id}
-                                  title={
-                                    item.enabled
-                                      ? "Pause scheduled runs"
-                                      : "Restart scheduled runs"
-                                  }
-                                  aria-label={
-                                    item.enabled
-                                      ? `Pause ${item.schedule_id}`
-                                      : `Restart ${item.schedule_id}`
-                                  }
-                                >
-                                  {mutatingId === item.schedule_id ? (
-                                    <RefreshCw className="animate-spin" />
-                                  ) : item.enabled ? (
-                                    <Pause />
-                                  ) : (
-                                    <Play />
-                                  )}
-                                  {item.enabled ? "Pause" : "Restart"}
-                                </Button>
-                                <Button
-                                  variant="destructive"
-                                  size="sm"
-                                  className="w-28"
-                                  onClick={() => setDeleteItem(item)}
-                                  disabled={mutatingId === item.schedule_id}
-                                  title="Delete schedule"
-                                  aria-label={`Delete ${item.schedule_id}`}
-                                >
-                                  <Trash2 />
-                                  Delete
-                                </Button>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+                                <Pencil />
+                                Modify
+                              </Button>
+                              <Button
+                                variant={item.enabled ? "outline" : "default"}
+                                size="sm"
+                                className="w-28"
+                                onClick={() => void toggleSchedule(item)}
+                                disabled={mutatingId === item.schedule_id}
+                                title={
+                                  item.enabled
+                                    ? "Pause scheduled runs"
+                                    : "Restart scheduled runs"
+                                }
+                                aria-label={
+                                  item.enabled
+                                    ? `Pause ${item.schedule_id}`
+                                    : `Restart ${item.schedule_id}`
+                                }
+                              >
+                                {mutatingId === item.schedule_id ? (
+                                  <RefreshCw className="animate-spin" />
+                                ) : item.enabled ? (
+                                  <Pause />
+                                ) : (
+                                  <Play />
+                                )}
+                                {item.enabled ? "Pause" : "Restart"}
+                              </Button>
+                              <Button
+                                variant="destructive"
+                                size="sm"
+                                className="w-28"
+                                onClick={() => setDeleteItem(item)}
+                                disabled={mutatingId === item.schedule_id}
+                                title="Delete schedule"
+                                aria-label={`Delete ${item.schedule_id}`}
+                              >
+                                <Trash2 />
+                                Delete
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </SchedulesTableFrame>
           </div>
         </ScrollArea>
       </div>
