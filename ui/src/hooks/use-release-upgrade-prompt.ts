@@ -18,6 +18,20 @@ export interface ReleaseNote {
   sections: { type: string; items: ReleaseNoteItem[] }[];
 }
 
+export interface ReleaseMarkdown {
+  matchedVersion: string | null;
+  title: string | null;
+  date: string | null;
+  body: string;
+}
+
+interface ReleaseNotesResponse {
+  matchedVersion?: string | null;
+  title?: string | null;
+  date?: string | null;
+  body?: string | null;
+}
+
 interface SettingsResponse {
   success?: boolean;
   data?: {
@@ -61,6 +75,7 @@ export interface ReleaseUpgradePromptState {
   releaseVersion: string | null;
   announcementId: string | null;
   release: ReleaseNote | null;
+  releaseMarkdown: ReleaseMarkdown | null;
   showMigrationCta: boolean;
   toastNotification: ReleaseToastNotification | null;
   isLoading: boolean;
@@ -145,6 +160,7 @@ export function useReleaseUpgradePrompt(): ReleaseUpgradePromptState {
   const [releaseVersion, setReleaseVersion] = useState<string | null>(null);
   const [announcementId, setAnnouncementId] = useState<string | null>(null);
   const [release, setRelease] = useState<ReleaseNote | null>(null);
+  const [releaseMarkdown, setReleaseMarkdown] = useState<ReleaseMarkdown | null>(null);
   const [open, setOpen] = useState(false);
   const [showMigrationCta, setShowMigrationCta] = useState(true);
   const [toastNotification, setToastNotification] = useState<ReleaseToastNotification | null>(null);
@@ -166,6 +182,7 @@ export function useReleaseUpgradePrompt(): ReleaseUpgradePromptState {
         setIsLoading(false);
         setOpen(false);
         setToastNotification(null);
+        setReleaseMarkdown(null);
         return;
       }
 
@@ -202,6 +219,7 @@ export function useReleaseUpgradePrompt(): ReleaseUpgradePromptState {
           setReleaseVersion(null);
           setAnnouncementId(null);
           setRelease(null);
+          setReleaseMarkdown(null);
           setOpen(false);
           setToastNotification(null);
           return;
@@ -225,6 +243,7 @@ export function useReleaseUpgradePrompt(): ReleaseUpgradePromptState {
 
         if (skippedThisSession || permanentlyDismissedAnnouncement || permanentlyDismissedFallback) {
           setRelease(null);
+          setReleaseMarkdown(null);
           setOpen(false);
           setToastNotification(null);
           return;
@@ -234,6 +253,34 @@ export function useReleaseUpgradePrompt(): ReleaseUpgradePromptState {
           changelogPayload?.releases?.find((item) => normalizeVersion(item.version) === activeReleaseVersion) ??
           null;
         setRelease(matchingRelease);
+
+        // Prefer the curated, full markdown release notes (docs/releases/*.md)
+        // over the terse parsed CHANGELOG bullets when available.
+        try {
+          const notesResponse = await fetch(
+            `/api/release-notes?version=${encodeURIComponent(activeReleaseVersion)}`,
+          );
+          const notesPayload: ReleaseNotesResponse | null = notesResponse.ok
+            ? await notesResponse.json()
+            : null;
+          if (!cancelled) {
+            setReleaseMarkdown(
+              notesPayload?.body
+                ? {
+                    matchedVersion: notesPayload.matchedVersion ?? null,
+                    title: notesPayload.title ?? null,
+                    date: notesPayload.date ?? null,
+                    body: notesPayload.body,
+                  }
+                : null,
+            );
+          }
+        } catch (notesError) {
+          console.warn("[release-upgrade-prompt] Failed to load curated release notes:", notesError);
+          if (!cancelled) setReleaseMarkdown(null);
+        }
+
+        if (cancelled) return;
         setOpen(true);
         setToastNotification(
           releaseConfig.show_toast
@@ -249,6 +296,7 @@ export function useReleaseUpgradePrompt(): ReleaseUpgradePromptState {
         if (!cancelled) {
           setOpen(false);
           setRelease(null);
+          setReleaseMarkdown(null);
           setToastNotification(null);
         }
       } finally {
@@ -327,6 +375,7 @@ export function useReleaseUpgradePrompt(): ReleaseUpgradePromptState {
     releaseVersion,
     announcementId,
     release,
+    releaseMarkdown,
     showMigrationCta,
     toastNotification,
     isLoading,

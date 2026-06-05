@@ -12,7 +12,11 @@ import {
   getAgentSkillVisibleToUser,
   userCanModifyAgentSkill,
 } from "@/lib/agent-skill-visibility";
-import { requireResourcePermission } from "@/lib/rbac/resource-authz";
+import { requireSkillPermission } from "@/lib/rbac/resource-authz";
+import {
+  readSkillSharedTeamSlugsFromOpenFga,
+  reconcileSkillTeamShares,
+} from "@/lib/rbac/skill-team-grants";
 import type { AgentSkill } from "@/types/agent-skill";
 
 const STORAGE_TYPE = isMongoDBConfigured ? "mongodb" : "none";
@@ -94,10 +98,33 @@ export const POST = withErrorHandler(
         throw new ApiError("Agent config not found", 404);
       }
 
-      await requireResourcePermission(session, { type: "skill", id, action: "admin" });
       if (!userCanModifyAgentSkill(existing, user)) {
         throw new ApiError("You don't have permission to scan this skill", 403);
       }
+
+      // Skills created before owner tuples were written on create may lack `can_write`
+      // in OpenFGA. Reconcile owner (no-op team diff) before the PDP check.
+      const ownerSubject =
+        typeof session?.sub === "string" && session.sub.trim() ? session.sub.trim() : null;
+      const teamRefs = await readSkillSharedTeamSlugsFromOpenFga(id);
+      if (ownerSubject) {
+        try {
+          await reconcileSkillTeamShares({
+            skillId: id,
+            ownerSubject,
+            previousTeamRefs: teamRefs,
+            nextTeamRefs: teamRefs,
+          });
+        } catch (error) {
+          console.warn(
+            "[ScanSkill] Failed to reconcile owner FGA tuple before scan:",
+            error instanceof Error ? error.message : String(error),
+          );
+        }
+      }
+
+      // Same gate as PUT / file-write: `can_write` on the skill (not `can_manage`).
+      await requireSkillPermission(session, id, "write");
 
       const content = resolveSkillMarkdownForScan(existing);
       if (!content) {

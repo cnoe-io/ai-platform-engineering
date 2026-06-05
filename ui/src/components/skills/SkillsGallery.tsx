@@ -246,10 +246,11 @@ function skillCatalogSource(config: AgentSkill): CatalogSource {
   const raw = (config.metadata as { catalog_source?: string })?.catalog_source;
   if (raw === "hub") return "hub";
   if (raw === "default") return "default";
-  if (config.id.startsWith("catalog-")) return "default";
+  if (raw === "agent_skills") return "agent_skills";
   // Mongo `agent_skills` platform rows (`is_system`) are built-in templates, not user "Custom"
   if (config.is_system) return "default";
-  if (raw === "agent_skills") return "agent_skills";
+  // Unified-catalog merge rows use `catalog-<mongoId>`; source comes from metadata, not id prefix.
+  if (config.id.startsWith("catalog-")) return "agent_skills";
   return "agent_skills";
 }
 
@@ -591,16 +592,25 @@ export function SkillsGallery({
           scan_summary?: string;
           scan_updated_at?: string;
           scan_override?: ScanOverride;
-        }) =>
-          ({
+        }) => {
+          const isBuiltin =
+            s.source === "default" || Boolean(s.metadata?.is_system);
+          return {
             id: `catalog-${s.id}`,
             name: s.name,
             description: s.description || "",
             category: (s.metadata?.category as string) || "Custom",
             tasks: [],
-            owner_id: "",
-            is_system: true,
-            is_quick_start: true,
+            owner_id:
+              s.source === "agent_skills" && s.source_id
+                ? String(s.source_id)
+                : "",
+            is_system: isBuiltin,
+            is_quick_start: isBuiltin,
+            visibility:
+              (s.visibility as AgentSkill["visibility"]) ??
+              (s.metadata?.visibility as AgentSkill["visibility"]) ??
+              undefined,
             created_at: new Date(),
             updated_at: new Date(),
             thumbnail: (s.metadata?.icon as string) || "Zap",
@@ -620,7 +630,8 @@ export function SkillsGallery({
               ? new Date(s.scan_updated_at)
               : undefined,
             scan_override: s.scan_override,
-          }) as AgentSkill,
+          } as AgentSkill;
+        },
       );
       setCatalogSkills(mapped);
     } catch {
@@ -648,24 +659,28 @@ export function SkillsGallery({
     await Promise.all([loadSkills(), reloadCatalog()]);
   }, [loadSkills, reloadCatalog]);
 
-  // Merge agent configs (store) with catalog-only skills, deduplicating by name
+  // Merge agent configs (store) with catalog-only skills. Prefer Mongo rows from
+  // `/api/skills/configs`; only add catalog rows for templates/hub skills not
+  // already loaded (match by underlying mongo id, not display name).
   const allConfigs = useMemo(() => {
-    const seen = new Set<string>();
+    const seenIds = new Set<string>();
+    const seenNames = new Set<string>();
     const merged: AgentSkill[] = [];
-    // Agent configs take priority (richer data, editable)
     for (const config of configs) {
-      if (!seen.has(config.id)) {
-        seen.add(config.id);
-        seen.add(config.name); // track by name too for catalog dedup
-        merged.push(config);
-      }
+      if (seenIds.has(config.id)) continue;
+      seenIds.add(config.id);
+      seenNames.add(config.name);
+      merged.push(config);
     }
-    // Add catalog-only skills not already present by name
     for (const skill of catalogSkills) {
-      if (!seen.has(skill.name)) {
-        seen.add(skill.name);
-        merged.push(skill);
-      }
+      const mongoId = skill.id.startsWith("catalog-")
+        ? skill.id.slice("catalog-".length)
+        : skill.id;
+      if (seenIds.has(mongoId) || seenIds.has(skill.id)) continue;
+      if (seenNames.has(skill.name)) continue;
+      seenIds.add(skill.id);
+      seenNames.add(skill.name);
+      merged.push(skill);
     }
     return merged;
   }, [configs, catalogSkills]);

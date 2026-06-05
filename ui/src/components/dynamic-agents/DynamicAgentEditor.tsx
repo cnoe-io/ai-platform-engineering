@@ -1507,6 +1507,29 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                     that is mapped to <code>team:{slug}</code>.
                   </>
                 )}
+                extraGrantPreviewItems={
+                  isPlatformDefault
+                    ? [
+                        {
+                          id: "platform-default-user-wildcard",
+                          line: (
+                            <>
+                              <code>user:*</code> can use this agent (platform
+                              default)
+                            </>
+                          ),
+                          detail: (
+                            <>
+                              Every signed-in user can use this agent while it
+                              remains the platform default for new chats in Admin
+                              → Settings. This is the <code>user:* user agent</code>{" "}
+                              OpenFGA grant, in addition to any team shares below.
+                            </>
+                          ),
+                        },
+                      ]
+                    : undefined
+                }
                 ownerExtra={
                   !isEditing &&
                   availableTeams.every((team) => !team.can_own_agents) ? (
@@ -1555,6 +1578,28 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                         );
                       })}
                     </div>
+                    {visibility === "global" && (
+                      <div
+                        role="note"
+                        aria-label="Global visibility OpenFGA grant"
+                        className="rounded-md border border-amber-300/60 bg-amber-50 p-3 text-xs text-amber-950 dark:bg-amber-950/30 dark:text-amber-200"
+                        data-testid="global-visibility-grant-preview"
+                      >
+                        <div className="mb-2 font-medium">
+                          On save, this OpenFGA grant will be written:
+                        </div>
+                        <ul className="space-y-1.5">
+                          <li>
+                            <code>user:*</code> can use this agent
+                            {isPlatformDefault ? " (global + platform default)" : " (global visibility)"}
+                            <span className="block pl-4 text-amber-900/80 dark:text-amber-300/80">
+                              Every signed-in user receives <code>can_use</code> on
+                              this agent via the <code>user:* user agent</code> tuple.
+                            </span>
+                          </li>
+                        </ul>
+                      </div>
+                    )}
                   </div>
                 }
               />

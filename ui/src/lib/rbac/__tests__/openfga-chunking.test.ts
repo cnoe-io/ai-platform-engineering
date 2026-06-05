@@ -113,8 +113,7 @@ describe("writeOpenFgaTuples (chunked + self-compensating)", () => {
   /**
    * Wire a fake `fetch` that:
    *  - GET /stores → returns one matching store (so getOpenFgaStoreId resolves).
-   *  - POST .../check → always 200 with allowed=false (so filterTupleDiff
-   *    keeps every tuple).
+   *  - POST .../read → empty tuples (filterTupleDiff uses Read for existence).
    *  - POST .../write → behavior is supplied by the per-test override.
    */
   function mockFetch(writeBehavior: (body: unknown) => Response | Promise<Response>) {
@@ -126,6 +125,12 @@ describe("writeOpenFgaTuples (chunked + self-compensating)", () => {
           JSON.stringify({ stores: [{ id: "store-id", name: "caipe-openfga-test" }] }),
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
+      }
+      if (u.includes("/read")) {
+        return new Response(JSON.stringify({ tuples: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
       }
       if (u.includes("/check")) {
         return new Response(JSON.stringify({ allowed: false }), {
@@ -149,10 +154,8 @@ describe("writeOpenFgaTuples (chunked + self-compensating)", () => {
   }
 
   it("issues a single Write call for diffs <= 100 tuples", async () => {
-    // Note: filterTupleDiff drops "deletes" of tuples that don't
-    // already exist (the /check call returns allowed=false from our
-    // mock). So we use a writes-only diff here to focus on chunking
-    // semantics; the delete-pruning behavior is tested elsewhere.
+    // filterTupleDiff drops deletes when Read finds no tuple; mock Read is
+    // always empty, so we use a writes-only diff here to focus on chunking.
     const { writeOpenFgaTuples } = await import("../openfga");
     const writeBodies: unknown[] = [];
     mockFetch((body) => {

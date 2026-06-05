@@ -3185,6 +3185,9 @@
     {
       "type": "skill",
       "relations": {
+        "creator": {
+          "this": {}
+        },
         "owner": {
           "this": {}
         },
@@ -3316,6 +3319,13 @@
       },
       "metadata": {
         "relations": {
+          "creator": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              }
+            ]
+          },
           "owner": {
             "directly_related_user_types": [
               {

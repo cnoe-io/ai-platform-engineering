@@ -212,6 +212,10 @@ async function createIndexes(db: Db) {
     safeCreateIndex(db, 'sharing_access', { granted_to: 1 }),
     safeCreateIndex(db, 'sharing_access', { conversation_id: 1, granted_to: 1 }),
 
+    // Catalog API keys (Skills Gateway machine auth; BFF-owned)
+    safeCreateIndex(db, 'catalog_api_keys', { key_id: 1 }, { unique: true }),
+    safeCreateIndex(db, 'catalog_api_keys', { owner_user_id: 1, created_at: -1 }),
+
     // Agent skills collection (catalog source agent_skills)
     safeCreateIndex(db, 'agent_skills', { id: 1 }, { unique: true }),
     safeCreateIndex(db, 'agent_skills', { owner_id: 1 }),

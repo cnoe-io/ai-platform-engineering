@@ -157,6 +157,60 @@ describe("ReleaseUpgradeDialog", () => {
     expect(onDismissPermanently).toHaveBeenCalledTimes(1);
   });
 
+  const markdownNotes = {
+    matchedVersion: "0.5.7",
+    title: "Release 0.5.7",
+    date: "2026-06-04",
+    body: [
+      "## Highlights",
+      "Brand new feature for everyone.",
+      "",
+      "## Upgrade Guide: 0.5.6 → 0.5.7",
+      "Run the migration runbook before applying schema changes.",
+    ].join("\n"),
+  };
+
+  it("renders the full curated markdown body and prefers it over parsed sections (admin)", () => {
+    render(
+      <ReleaseUpgradeDialog
+        open
+        isAdmin
+        releaseVersion="0.5.7"
+        release={release}
+        releaseMarkdown={markdownNotes}
+        onOpenMigrationAssistant={jest.fn()}
+        onSkipUntilNextLogin={jest.fn()}
+        onDismissPermanently={jest.fn()}
+      />,
+    );
+
+    // Curated markdown body is rendered.
+    expect(screen.getByText(/Brand new feature for everyone/)).toBeInTheDocument();
+    // Admins see the Upgrade Guide section.
+    expect(screen.getByText(/Run the migration runbook/)).toBeInTheDocument();
+    // The terse parsed CHANGELOG sections are NOT shown when markdown is present.
+    expect(screen.queryByText("Added Slack and Webex ReBAC migration assistant")).not.toBeInTheDocument();
+  });
+
+  it("hides the admin Upgrade Guide portion of the markdown body for non-admins", () => {
+    render(
+      <ReleaseUpgradeDialog
+        open
+        isAdmin={false}
+        releaseVersion="0.5.7"
+        release={release}
+        releaseMarkdown={markdownNotes}
+        onOpenMigrationAssistant={jest.fn()}
+        onSkipUntilNextLogin={jest.fn()}
+        onDismissPermanently={jest.fn()}
+      />,
+    );
+
+    expect(screen.getByText(/Brand new feature for everyone/)).toBeInTheDocument();
+    // Non-admins do not see the upgrade runbook / migration content.
+    expect(screen.queryByText(/Run the migration runbook/)).not.toBeInTheDocument();
+  });
+
   it("uses user-centric 0.5.1 highlights when release details are unavailable", () => {
     render(
       <ReleaseUpgradeDialog

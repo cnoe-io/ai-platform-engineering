@@ -1189,6 +1189,7 @@ export function AppHeader() {
         isAdmin={releasePrompt.isAdmin}
         releaseVersion={releasePrompt.releaseVersion}
         release={releasePrompt.release}
+        releaseMarkdown={releasePrompt.releaseMarkdown}
         onOpenMigrationAssistant={releasePrompt.openMigrationAssistant}
         onSkipUntilNextLogin={releasePrompt.skipUntilNextLogin}
         onDismissPermanently={releasePrompt.dismissPermanently}

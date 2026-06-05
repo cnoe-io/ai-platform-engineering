@@ -198,6 +198,41 @@ export async function getOpenFgaStoreId(): Promise<string> {
   return store.id;
 }
 
+function tupleKeysEqual(a: OpenFgaTupleKey, b: OpenFgaTupleKey): boolean {
+  return a.user === b.user && a.relation === b.relation && a.object === b.object;
+}
+
+/**
+ * Whether an exact tuple is stored in OpenFGA (via Read, not Check).
+ *
+ * Check rejects some valid stored keys (e.g. `user:*`, `organization#member`
+ * on types where Check validation differs from Write). Idempotent
+ * write/delete filtering must use existence, not authorization evaluation.
+ */
+async function tupleExistsInStore(
+  baseUrl: string,
+  storeId: string,
+  tuple: OpenFgaTupleKey,
+): Promise<boolean> {
+  const filter = tupleKeyFilter(tuple);
+  if (!filter?.user || !filter.relation || !filter.object) {
+    return false;
+  }
+  const response = await fetch(`${baseUrl}/stores/${storeId}/read`, {
+    method: "POST",
+    headers: openFgaHeaders(),
+    body: JSON.stringify({ tuple_key: filter, page_size: 1 }),
+  });
+  if (!response.ok) {
+    const errorBody = await response.text().catch(() => "");
+    throw new Error(`OpenFGA tuple read failed: ${response.status} ${errorBody.slice(0, 200)}`);
+  }
+  const payload = (await response.json()) as {
+    tuples?: Array<{ key?: OpenFgaTupleKey }>;
+  };
+  return (payload.tuples ?? []).some((entry) => entry.key && tupleKeysEqual(entry.key, tuple));
+}
+
 async function tupleAllowed(baseUrl: string, storeId: string, tuple: OpenFgaTupleKey): Promise<boolean> {
   const response = await fetch(`${baseUrl}/stores/${storeId}/check`, {
     method: "POST",
@@ -549,12 +584,16 @@ async function filterTupleDiff(
 ): Promise<TeamResourceTupleDiff> {
   const writes = (
     await Promise.all(
-      diff.writes.map(async (tuple) => ((await tupleAllowed(baseUrl, storeId, tuple)) ? null : tuple))
+      diff.writes.map(async (tuple) =>
+        (await tupleExistsInStore(baseUrl, storeId, tuple)) ? null : tuple,
+      ),
     )
   ).filter((tuple): tuple is OpenFgaTupleKey => tuple !== null);
   const deletes = (
     await Promise.all(
-      diff.deletes.map(async (tuple) => ((await tupleAllowed(baseUrl, storeId, tuple)) ? tuple : null))
+      diff.deletes.map(async (tuple) =>
+        (await tupleExistsInStore(baseUrl, storeId, tuple)) ? tuple : null,
+      ),
     )
   ).filter((tuple): tuple is OpenFgaTupleKey => tuple !== null);
   return { writes, deletes };

@@ -613,6 +613,17 @@ function organizationRelationFor(resource: RbacResource, scope: RbacScope): stri
   if (resource === 'admin_ui') {
     return scope === 'view' || scope === 'audit.view' ? 'can_audit' : 'can_manage';
   }
+  if (resource === 'skill') {
+    // Skills are a self-service member feature. Browsing/running AND authoring
+    // (create/configure) plus minting the caller's own catalog API keys are
+    // available to any org member (`can_use` = member or admin). Mutation and
+    // deletion of an EXISTING skill are additionally constrained per-resource by
+    // ownership via `requireResourcePermission({ type: "skill", action: ... })`
+    // in the route handlers, so this coarse org gate must NOT collapse to the
+    // admin-only `can_manage` — otherwise generic members can't create or edit
+    // their own skills at all (the create path has no resource to scope yet).
+    return 'can_use';
+  }
   if (scope === 'view' || scope === 'read' || scope === 'query' || scope === 'invoke') {
     return 'can_use';
   }
