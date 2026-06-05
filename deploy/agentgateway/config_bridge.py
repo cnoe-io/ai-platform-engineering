@@ -37,12 +37,7 @@ DEFAULT_MCP_ROUTE_POLICIES: dict[str, Any] = {
     "extAuthz": {
         "host": "openfga-authz-bridge:9100",
         "failureMode": {"denyWithStatus": 403},
-        # AgentGateway's default ext_authz timeout is 200ms. Listing tools fires one
-        # ext_authz Check per MCP route concurrently; under a cold OpenFGA/Postgres
-        # these serialize (75-150ms each) and blow that 200ms budget, producing
-        # fail-closed 403s that surface as "MCP server unavailable". The bridge
-        # always answers well under 10s. Keep this in sync with
-        # deploy/agentgateway/config.yaml (bootstrap seed).
+        # Keep this in sync with deploy/agentgateway/config.yaml (bootstrap seed).
         "protocol": {
             "grpc": {
                 "metadata": {
