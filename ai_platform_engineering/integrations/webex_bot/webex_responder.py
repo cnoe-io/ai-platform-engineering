@@ -12,10 +12,16 @@ from typing import Any, Protocol
 
 import httpx
 
-from .a2a_client import SSEEventType, WebexSSEClient, space_message_to_conversation_id
+from .a2a_client import (
+    AgentAccessDeniedError,
+    SSEEventType,
+    WebexSSEClient,
+    space_message_to_conversation_id,
+)
 from .app import WebexMessageResult
 from .utils.chat_envelope import augment_webex_client_context
 from .utils.user_messages import FRIENDLY_REASON_MESSAGES, GENERIC_REQUEST_DENIED_MESSAGE
+from .utils.webex_runtime_policy import should_post_denial_notice
 
 logger = logging.getLogger("caipe.webex_bot.webex_responder")
 
@@ -165,6 +171,17 @@ class WebexResponder:
             return
         if result.reason_code == "WEBEX_USER_NOT_LINKED" and result.linking_url:
             await self._reply_with_private_linking_card(event, room_id=room_id, parent_id=parent_id, result=result)
+            return
+
+        if not should_post_denial_notice(
+            silence_env=False,
+            explicit_invocation=result.explicit_invocation,
+        ):
+            logger.info(
+                "Suppressing Webex denial reply reason=%s explicit_invocation=%s",
+                result.reason_code,
+                result.explicit_invocation,
+            )
             return
 
         markdown = _markdown_for_result(result)
@@ -357,6 +374,24 @@ class WebexThreadedStreamDispatcher:
                         markdown=_agent_reply_markdown(agent_id, message),
                     )
                     return
+        except AgentAccessDeniedError as exc:
+            logger.info(
+                "Agent access denied for Webex thread space=%s agent=%s",
+                space_id,
+                exc.agent_id,
+            )
+            self._webex_api.update_message(
+                message_id=reply_id,
+                room_id=room_id,
+                markdown=_agent_reply_markdown(
+                    agent_id,
+                    (
+                        f"You don't have permission to use agent `{exc.agent_id}`. "
+                        f"Ask an admin to grant you access in {_app_name()}."
+                    ),
+                ),
+            )
+            return
         except Exception as exc:
             logger.warning("Webex threaded stream dispatch failed (type=%s)", type(exc).__name__)
             self._webex_api.update_message(
