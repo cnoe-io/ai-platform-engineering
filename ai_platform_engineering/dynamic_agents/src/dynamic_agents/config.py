@@ -84,10 +84,19 @@ class Settings(BaseSettings):
     credential_api_url: str | None = None
     credential_service_audience: str = "caipe-credential-service"
 
-    # CAIPE UI server (for workflow tools)
+    # CAIPE UI server base URL used by workflow tools to call back into the
+    # CAIPE API (e.g. trigger a workflow run, fetch run status).
+    # Example: "http://caipe-ui:3000" (in-cluster) or "https://grid.dev.outshift.io".
+    # Required when any agent has builtin_tools.workflows configured.
     caipe_api_url: str = ""
 
-    # OAuth2 client credentials for authenticating to the CAIPE UI server
+    # OAuth2 Client Credentials flow — used by workflow tools to obtain a
+    # short-lived service token before calling caipe_api_url.
+    # oauth2_token_url:     OIDC token endpoint (e.g. Duo/Keycloak /token path)
+    # oauth2_client_id:     service-account client ID
+    # oauth2_client_secret: service-account client secret (injected via ExternalSecret)
+    # oauth2_scope:         requested scopes (space-separated; leave empty to use defaults)
+    # oauth2_audience:      token audience claim (leave empty to use defaults)
     oauth2_token_url: str = ""
     oauth2_client_id: str = ""
     oauth2_client_secret: str = ""
