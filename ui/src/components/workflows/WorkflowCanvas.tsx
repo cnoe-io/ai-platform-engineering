@@ -36,8 +36,10 @@ import { useWorkflowConfigStore } from "@/store/workflow-config-store";
 import { useWorkflowExecStore } from "@/store/workflow-exec-store";
 import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
 import { UnsavedChangesDialog } from "@/components/task-builder/UnsavedChangesDialog";
+import { WorkflowAgentAccessModal } from "./WorkflowAgentAccessModal";
 import { useToast } from "@/components/ui/toast";
 import type { AgentAvatarAgent } from "@/components/dynamic-agents/AgentAvatar";
+import type { AgentAccessGap } from "@/app/api/workflow-configs/check-agent-access/route";
 
 // ---------------------------------------------------------------------------
 // Node types — defined outside component to avoid re-renders
@@ -319,6 +321,8 @@ function WorkflowCanvasInner({
     existingConfig?.description || initialDescription || "",
   );
   const [isSaving, setIsSaving] = useState(false);
+  const [agentAccessGaps, setAgentAccessGaps] = useState<AgentAccessGap[]>([]);
+  const [showAccessModal, setShowAccessModal] = useState(false);
   const [selectedStepIndex, setSelectedStepIndex] = useState<number>(-1);
 
   // Visibility & sharing
@@ -611,7 +615,7 @@ function WorkflowCanvasInner({
     toast,
   ]);
 
-  const handleSave = useCallback(async () => {
+  const doSave = useCallback(async (successMsg?: string) => {
     setIsSaving(true);
     try {
       const savedId = await persistWorkflow();
@@ -619,9 +623,10 @@ function WorkflowCanvasInner({
       isDirtyRef.current = false;
       setUnsaved(false);
       toast(
-        existingConfig?.config_driven
-          ? "Saved as a new editable workflow"
-          : "Workflow saved",
+        successMsg ??
+          (existingConfig?.config_driven
+            ? "Saved as a new editable workflow"
+            : "Workflow saved"),
         "success",
       );
     } catch (error) {
@@ -634,6 +639,53 @@ function WorkflowCanvasInner({
       setIsSaving(false);
     }
   }, [persistWorkflow, existingConfig?.config_driven, setUnsaved, toast]);
+
+  const handleSave = useCallback(async () => {
+    if (visibility !== "private") {
+      let gaps: AgentAccessGap[] = [];
+      try {
+        const res = await fetch("/api/workflow-configs/check-agent-access", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ steps, visibility, shared_with_teams: sharedWithTeams }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          gaps = data.gaps ?? [];
+        }
+      } catch { /* non-fatal — proceed to save */ }
+      if (gaps.length > 0) {
+        setAgentAccessGaps(gaps);
+        setShowAccessModal(true);
+        return;
+      }
+    }
+    await doSave();
+  }, [doSave, visibility, steps, sharedWithTeams]);
+
+  const handleGrantAndSave = useCallback(async () => {
+    for (const gap of agentAccessGaps) {
+      for (const teamSlug of gap.teamsWithoutAccess) {
+        if (teamSlug === "(all users)") continue;
+        try {
+          await fetch("/api/admin/openfga/relationship", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              teamSlug,
+              resourceType: "agent",
+              resourceId: gap.agentId,
+              relation: "user",
+              operation: "grant",
+            }),
+          });
+        } catch { /* best-effort */ }
+      }
+    }
+    setShowAccessModal(false);
+    setAgentAccessGaps([]);
+    await doSave("Agent access granted and workflow saved");
+  }, [agentAccessGaps, doSave]);
 
   // -----------------------------------------------------------------------
   // Run workflow
@@ -884,6 +936,14 @@ function WorkflowCanvasInner({
         onCancel={handleCancelUnsavedDialog}
         description="You have unsaved changes in this workflow. They will be lost if you leave without saving."
       />
+
+      {showAccessModal && agentAccessGaps.length > 0 && (
+        <WorkflowAgentAccessModal
+          gaps={agentAccessGaps}
+          onGrantAndSave={handleGrantAndSave}
+          onCancel={() => { setShowAccessModal(false); setAgentAccessGaps([]); }}
+        />
+      )}
 
       {/* Delete confirmation dialog */}
       {showDeleteDialog && (
