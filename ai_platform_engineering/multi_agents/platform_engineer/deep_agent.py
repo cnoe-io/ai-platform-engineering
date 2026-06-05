@@ -61,9 +61,6 @@ from ai_platform_engineering.utils.deepagents_custom.tools import (
     tool_result_to_file,
     wait,
 )
-from ai_platform_engineering.utils.deepagents_custom.tool_error_handling import (
-    wrap_tools_with_error_handling,
-)
 
 # Skills middleware: upstream SkillsMiddleware + custom catalog layer
 from deepagents.middleware.skills import SkillsMiddleware
@@ -822,63 +819,15 @@ async def create_subagent_def(agent_instance, name: str, description: str, promp
 
 
 async def create_github_subagent_def(prompt_config: dict = None) -> dict:
-    """Create GitHub subagent definition with MCP server and gh CLI fallback.
-
-    Supports two MCP transport modes (set via GITHUB_MCP_MODE):
-
-    - **http**: Connects to a separate GitHub MCP HTTP pod. The Go server
-      uses per-request Bearer auth so the supervisor sends the token
-      (App installation token or PAT) in each request header.
-    - **stdio** (default): Launches the local Go MCP server via ``go run``.
-      Tool loading calls get_mcp_config() directly because the base class
-      STDIO path auto-derives a Python server_path that doesn't exist
-      (GitHub MCP is a Go project at mcp/mcp_github/, not Python).
-
-    The gh CLI tool is always added alongside MCP tools. policy.lp controls
-    which tools are allowed:
-    - readonly MCP tools (get_file_contents, etc.) are always allowed
-    - write MCP tools (push_files, create_branch, etc.) require self_service_mode
-    - gh_cli_execute is allowed in both modes (policy marks it readonly + self_service)
-    """
-    from ai_platform_engineering.utils.mcp_config import resolve_mcp_mode, is_http_mode
+    """Create GitHub subagent definition with gh CLI-backed tools only."""
     from ai_platform_engineering.agents.github.agent_github.protocol_bindings.a2a_server.agent import GitHubAgent
 
     agent = GitHubAgent()
     name = "github"
 
-    mcp_mode = resolve_mcp_mode(name)
-    mcp_tools = []
-
-    if is_http_mode(mcp_mode):
-        try:
-            mcp_tools = await agent._load_mcp_tools(include_fallback=False)
-            mcp_tools = wrap_tools_with_error_handling(mcp_tools, agent_name=name)
-            logger.info(f"{name}: {len(mcp_tools)} MCP tools loaded via HTTP")
-        except Exception as e:
-            logger.warning(f"{name}: Failed to load MCP tools via HTTP: {e}", exc_info=True)
-    else:
-        try:
-            mcp_config = agent.get_mcp_config()
-            client = MultiServerMCPClient({name: mcp_config})
-            try:
-                mcp_tools = await client.get_tools()
-            except ExceptionGroup:
-                mcp_tools = await agent._load_mcp_tools_with_cleanup_handling(client, name)
-            mcp_tools = agent._filter_mcp_tools(mcp_tools)
-            mcp_tools = wrap_tools_with_error_handling(mcp_tools, agent_name=name)
-            logger.info(f"{name}: {len(mcp_tools)} MCP tools loaded via local go run")
-        except (ValueError, FileNotFoundError) as e:
-            logger.warning(f"{name}: Cannot start local MCP server: {e}")
-        except Exception as e:
-            logger.warning(f"{name}: Failed to load MCP tools from local server: {e}", exc_info=True)
-
-    tools = list(mcp_tools)
-
-    # gh CLI as fallback for when MCP is unavailable or for simple operations
-    gh_tool = agent.get_additional_tools()
-    if gh_tool:
-        tools.extend(gh_tool)
-        logger.info(f"{name}: Added gh CLI fallback tool")
+    tools = agent.get_additional_tools()
+    github_tool_count = len(tools)
+    logger.info(f"{name}: Added {github_tool_count} gh CLI-backed tools; GitHub MCP loading is disabled")
 
     tools.extend([get_file_line_count, tool_result_to_file, wait, terraform_fmt])
 
@@ -903,7 +852,7 @@ async def create_github_subagent_def(prompt_config: dict = None) -> dict:
 
     logger.info(
         f"📦 Created SubAgent def for {name} with {len(tools)} tools "
-        f"({len(mcp_tools)} MCP + {len(gh_tool)} CLI)"
+        f"({github_tool_count} GitHub CLI-backed + utilities)"
         f"{f', model={model_override}' if model_override else ''}"
     )
     return subagent_def
