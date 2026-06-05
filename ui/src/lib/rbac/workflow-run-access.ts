@@ -9,7 +9,6 @@ import {
   canViewWorkflowRunsForConfig,
   requireWorkflowConfigRunAccess,
   requireWorkflowConfigRunViewAccess,
-  resolveUserTeamSlugsForWorkflow,
   type WorkflowConfigRebacSnapshot,
 } from "./workflow-config-rebac";
 import type { WorkflowConfig } from "@/types/workflow-config";
