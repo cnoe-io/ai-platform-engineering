@@ -19,7 +19,8 @@
 #   * Pin 4 — `create_namespace_and_secrets` materialises the new
 #             provider env vars into llm-secret (COHERE_API_KEY,
 #             VOYAGE_API_KEY → LITELLM_API_KEY, AWS_* for bedrock,
-#             HUGGINGFACEHUB_API_TOKEN, EMBEDDINGS_DEVICE).
+#             HUGGINGFACEHUB_API_TOKEN, EMBEDDINGS_DEVICE,
+#             OLLAMA_BASE_URL for in-cluster Ollama embeddings).
 #   * Pin 5 — auto-heal no longer clobbers a genuine Azure OpenAI pick
 #             (the AZURE_OPENAI_ENDPOINT log-grep is gated on
 #             EMBEDDINGS_PROVIDER != azure-openai).
@@ -126,6 +127,7 @@ secret_wirings=(
   '--from-literal=HUGGINGFACEHUB_API_TOKEN='
   '--from-literal=EMBEDDINGS_DEVICE='
   '--from-literal=AWS_ACCESS_KEY_ID='
+  '--from-literal=OLLAMA_BASE_URL='
 )
 # Use `--` to stop grep from treating the leading `--` as a flag.
 for wire in "${secret_wirings[@]}"; do

@@ -149,6 +149,12 @@ VLLM_MODEL="${VLLM_MODEL:-openai/gpt-oss-20b}"
 VLLM_GPU_COUNT="${VLLM_GPU_COUNT:-1}"
 OLLAMA_MODEL="${OLLAMA_MODEL:-llama2}"
 OLLAMA_PORT=11434
+# Base URL the RAG server uses for Ollama embeddings. The EmbeddingsFactory
+# default (http://localhost:11434) is the pod's own loopback and cannot reach
+# Ollama, so on a k8s/kind deploy this must point at an in-cluster Ollama
+# (see deploy/kind/ollama.yaml). Resolved per-use in create_namespace_and_secrets.
+# assisted-by claude code claude-opus-4-8
+OLLAMA_BASE_URL="${OLLAMA_BASE_URL:-}"
 HF_TOKEN="${HF_TOKEN:-}"
 AGENTGATEWAY_VERSION="${AGENTGATEWAY_VERSION:-v2.2.1}"
 AGENTGATEWAY_PORT=8080
@@ -3388,6 +3394,17 @@ create_namespace_and_secrets() {
     fi
     secret_args+=(--from-literal=EMBEDDINGS_DEVICE="${EMBEDDINGS_DEVICE:-cpu}")
     log "HuggingFace embeddings configured (device: ${EMBEDDINGS_DEVICE:-cpu})"
+  fi
+
+  # Ollama embeddings — the RAG server (EmbeddingsFactory) reads OLLAMA_BASE_URL,
+  # whose default http://localhost:11434 is the pod's own loopback and cannot
+  # reach Ollama. Wire it explicitly into llm-secret, defaulting to the
+  # in-cluster Ollama Service (deploy/kind/ollama.yaml); override with the
+  # OLLAMA_BASE_URL env var for an external/host Ollama.
+  if $ENABLE_RAG && [[ "$EMBEDDINGS_PROVIDER" == "ollama" ]]; then
+    local _ollama_base="${OLLAMA_BASE_URL:-http://ollama.caipe.svc.cluster.local:11434}"
+    secret_args+=(--from-literal=OLLAMA_BASE_URL="${_ollama_base}")
+    log "Added OLLAMA_BASE_URL=${_ollama_base} to llm-secret (Ollama embeddings)"
   fi
 
   kubectl create secret generic llm-secret -n caipe \
