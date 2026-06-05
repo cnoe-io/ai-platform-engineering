@@ -158,18 +158,17 @@ const WEBEX_ADAPTER: ConnectorAdminAdapter = {
   authzDisclaimer: (
     <>
       <div>
-        Webex authorization has two checks before dispatch: the space must have
-        <code className="mx-1">can_use agent:&lt;id&gt;</code>, and the user&apos;s active
-        team must also have <code className="mx-1">can_use agent:&lt;id&gt;</code>.
-        If either check fails, the Webex bot denies the request before calling the agent.
+        The Webex bot checks that the space has
+        <code className="mx-1">can_use agent:&lt;id&gt;</code> (a space→agent grant).
+        User-level <code className="mx-1">can_use</code> on the agent is enforced when
+        the conversation is created — any user with agent access can use it in spaces
+        where that agent is assigned.
       </div>
       <div className="rounded-md border border-amber-300/60 bg-amber-50 p-2 text-amber-950 dark:bg-amber-950/30 dark:text-amber-200">
-        <span className="font-medium">Sharing model:</span> Adding an agent to a
-        space that is assigned to a team transitively grants <em>every member of
-        that team</em> permission to invoke the agent in this space — even members
-        who were never granted the agent directly. If that is not what you want, share
-        the agent with a smaller subgroup (or with individual users) instead of the
-        space&apos;s team.
+        <span className="font-medium">Sharing model:</span> Assigning an agent to a
+        space exposes it to users who message in that space. Grant agent access to
+        individual users or teams separately; space assignment alone does not
+        substitute for user <code className="mx-1">can_use</code> permission.
       </div>
     </>
   ),

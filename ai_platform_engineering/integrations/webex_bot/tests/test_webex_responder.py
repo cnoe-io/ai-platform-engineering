@@ -198,6 +198,7 @@ def test_reason_code_fallback_is_user_friendly() -> None:
         dispatched=False,
         ignored=False,
         reason_code="WEBEX_OBO_FAILED",
+        explicit_invocation=True,
     )
 
     asyncio.run(responder.reply_to_result(event, result))

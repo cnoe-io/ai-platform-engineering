@@ -165,7 +165,6 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   // first-party service callers; the RBAC check is required to enforce the
   // 098-enterprise-rbac scope on supervisor invocations.
   const { user, session } = await getAuthFromBearerOrSession(request);
-  await requireRbacPermission(session, 'supervisor', 'invoke');
   const body: CreateConversationRequest = await request.json();
 
   validateRequired(body, ['title', 'client_type']);
@@ -189,6 +188,11 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     });
     if (denial) {
       return denial;
+    }
+  } else {
+    const supervisorDenial = await requireRbacPermission(session, 'supervisor', 'invoke');
+    if (supervisorDenial) {
+      return supervisorDenial;
     }
   }
 

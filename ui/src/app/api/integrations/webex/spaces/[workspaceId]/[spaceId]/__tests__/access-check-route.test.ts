@@ -4,16 +4,10 @@
 
 import { NextRequest } from "next/server";
 
-const mockCheckPermission = jest.fn();
-const mockCheckOpenFgaTuple = jest.fn();
 const mockCheckUniversalRebacRelationship = jest.fn();
 
-jest.mock("@/lib/rbac/keycloak-authz", () => ({
-  checkPermission: (...args: unknown[]) => mockCheckPermission(...args),
-}));
-
 jest.mock("@/lib/rbac/openfga", () => ({
-  checkOpenFgaTuple: (...args: unknown[]) => mockCheckOpenFgaTuple(...args),
+  checkOpenFgaTuple: jest.fn(),
   checkUniversalRebacRelationship: (...args: unknown[]) =>
     mockCheckUniversalRebacRelationship(...args),
 }));
@@ -55,26 +49,17 @@ function request(path: string, init: RequestInit = {}): NextRequest {
 describe("Webex runtime access-check route", () => {
   beforeEach(() => {
     jest.resetModules();
-    mockCheckPermission.mockReset();
-    mockCheckOpenFgaTuple.mockReset();
     mockCheckUniversalRebacRelationship.mockReset();
   });
 
-  it("checks space and user grants without requiring admin UI permission", async () => {
-    mockCheckPermission.mockResolvedValue({ allowed: false, reason: "denied" });
-    mockCheckOpenFgaTuple
-      .mockResolvedValueOnce({ allowed: false })
-      .mockResolvedValueOnce({ allowed: true });
-    mockCheckUniversalRebacRelationship
-      .mockResolvedValueOnce({ allowed: true })
-      .mockResolvedValueOnce({ allowed: true });
+  it("checks space grant only (user can_use is enforced by conversations API)", async () => {
+    mockCheckUniversalRebacRelationship.mockResolvedValueOnce({ allowed: true });
     const { POST } = await import("../access-check/route");
 
     const response = await POST(
       request("/api/integrations/webex/spaces/CAIPE-WEBEX/space-abc/access-check", {
         method: "POST",
         body: JSON.stringify({
-          user_subject: "team:platform-engineering#member",
           resource: { type: "agent", id: "incident-agent" },
           action: "use",
         }),
@@ -87,37 +72,37 @@ describe("Webex runtime access-check route", () => {
     expect(body.data).toMatchObject({
       allowed: true,
       space_allowed: true,
-      user_allowed: true,
       reason: "allowed",
     });
-    expect(mockCheckPermission).not.toHaveBeenCalled();
-    expect(mockCheckOpenFgaTuple).toHaveBeenCalledWith({
-      user: "user:alice-sub",
-      relation: "can_read",
-      object: "webex_space:CAIPE-WEBEX--space-abc",
+    expect(mockCheckUniversalRebacRelationship).toHaveBeenCalledTimes(1);
+    expect(mockCheckUniversalRebacRelationship).toHaveBeenCalledWith({
+      subject: { type: "webex_space", id: "CAIPE-WEBEX--space-abc" },
+      action: "use",
+      resource: { type: "agent", id: "incident-agent" },
     });
   });
 
-  it("denies before evaluating grants when caller cannot read the space", async () => {
-    mockCheckPermission.mockResolvedValue({ allowed: false, reason: "denied" });
-    mockCheckOpenFgaTuple
-      .mockResolvedValueOnce({ allowed: false })
-      .mockResolvedValueOnce({ allowed: false });
+  it("denies when the space grant is missing", async () => {
+    mockCheckUniversalRebacRelationship.mockResolvedValueOnce({ allowed: false });
     const { POST } = await import("../access-check/route");
 
     const response = await POST(
       request("/api/integrations/webex/spaces/CAIPE-WEBEX/space-abc/access-check", {
         method: "POST",
         body: JSON.stringify({
-          user_subject: "team:platform-engineering#member",
           resource: { type: "agent", id: "incident-agent" },
           action: "use",
         }),
       }),
       { params: Promise.resolve({ workspaceId: "CAIPE-WEBEX", spaceId: "space-abc" }) }
     );
+    const body = await response.json();
 
-    expect(response.status).toBe(403);
-    expect(mockCheckUniversalRebacRelationship).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    expect(body.data).toMatchObject({
+      allowed: false,
+      space_allowed: false,
+      reason: "missing_space_grant",
+    });
   });
 });

@@ -16,7 +16,6 @@ logger = logging.getLogger("caipe.webex_bot.webex_rebac")
 WebexSpaceRebacReason = Literal[
     "allowed",
     "missing_space_grant",
-    "missing_user_grant",
     "unsupported_resource",
     "unsupported_action",
     "pdp_unavailable",
@@ -29,19 +28,7 @@ PostCheck = Callable[[str, dict[str, object], str], "WebexSpaceRebacDecision"]
 class WebexSpaceRebacDecision:
     allowed: bool
     space_allowed: bool
-    user_allowed: bool
     reason: WebexSpaceRebacReason
-
-
-def build_team_member_subject(team_slug: Optional[str]) -> Optional[str]:
-    """Build a `team:<slug>#member` ReBAC subject for the channel-resolved team.
-
-    Returns ``None`` when no team scope is available (DM / unmapped space)
-    so the caller falls back to a user-only ReBAC check.
-    """
-    if not team_slug:
-        return None
-    return f"team:{team_slug}#member"
 
 
 def _default_base_url() -> str:
@@ -75,7 +62,6 @@ def _http_post_check(
         return WebexSpaceRebacDecision(
             allowed=False,
             space_allowed=False,
-            user_allowed=False,
             reason="pdp_unavailable",
         )
 
@@ -84,7 +70,6 @@ def _http_post_check(
     valid_reasons = {
         "allowed",
         "missing_space_grant",
-        "missing_user_grant",
         "unsupported_resource",
         "unsupported_action",
         "pdp_unavailable",
@@ -95,7 +80,6 @@ def _http_post_check(
     return WebexSpaceRebacDecision(
         allowed=bool(result.get("allowed")),
         space_allowed=bool(result.get("space_allowed")),
-        user_allowed=bool(result.get("user_allowed")),
         reason=rebac_reason,
     )
 
@@ -119,20 +103,28 @@ class WebexRebacEvaluator:
             return WebexSpaceRebacDecision(
                 allowed=False,
                 space_allowed=False,
-                user_allowed=False,
                 reason="pdp_unavailable",
             )
         return _http_post_check(self.base_url, path, payload, token)
 
-    def check_agent_access(
+    def check_space_grant(
         self,
         *,
         workspace_id: str,
         space_id: str,
         agent_id: str,
-        team_slug: Optional[str],
-        obo_token: str,
+        obo_token: Optional[str],
     ) -> WebexSpaceRebacDecision:
+        """Check whether a Webex space has this agent explicitly assigned.
+
+        User-level ``can_use`` is enforced downstream by ``POST /api/chat/conversations``.
+        """
+        if not obo_token:
+            return WebexSpaceRebacDecision(
+                allowed=False,
+                space_allowed=False,
+                reason="pdp_unavailable",
+            )
         path = (
             "/api/integrations/webex/spaces/"
             f"{urllib.parse.quote(workspace_id, safe='')}/"
@@ -142,9 +134,6 @@ class WebexRebacEvaluator:
             "resource": {"type": "agent", "id": agent_id},
             "action": "use",
         }
-        subject = build_team_member_subject(team_slug)
-        if subject:
-            payload["user_subject"] = subject
         return self._post(path, payload, obo_token)
 
 

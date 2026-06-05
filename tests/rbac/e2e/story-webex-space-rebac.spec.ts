@@ -26,10 +26,9 @@ test.describe("@rbac Webex space ReBAC", () => {
     expect((await resources.json()).data?.grants?.[0]?.resource?.id).toBe(resourceId);
 
     const check = await apiContext.post(
-      `/api/admin/webex/spaces/${workspaceId}/${spaceId}/access-check`,
+      `/api/integrations/webex/spaces/${workspaceId}/${spaceId}/access-check`,
       {
         data: {
-          user_subject: "team:platform-engineering#member",
           resource: { type: "agent", id: resourceId },
           action: "use",
         },
