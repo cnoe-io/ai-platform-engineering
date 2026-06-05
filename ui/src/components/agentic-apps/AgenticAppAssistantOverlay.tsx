@@ -9,6 +9,7 @@ import { ChatPanel } from "@/components/chat/DynamicAgentChatPanel";
 import { buildAssistantClientContext } from "@/lib/agentic-apps/assistant-context";
 import { cn } from "@/lib/utils";
 import type { AgenticAppAssistantContextRecord } from "@/types/agentic-app";
+import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 
 const DEFAULT_PANEL_SIZE = { width: 720, height: 780 };
 const MIN_PANEL_SIZE = { width: 480, height: 560 };
@@ -52,6 +53,15 @@ export function AgenticAppAssistantOverlay({
   const bubbleLabel = (assistantLabel?.trim() || "Ask CAIPE").slice(0, 32);
   const headerTitle = (assistantAgentName?.trim() || `CAIPE assistant for ${appName}`).slice(0, 64);
   const chatPanelAgentName = (assistantAgentName?.trim() || "CAIPE Assistant").slice(0, 64);
+  // The apps overlay talks to a generic assistant agent and only knows its
+  // display name — not a full DynamicAgentConfig. ChatPanel reads only
+  // agent?.name / agent?.ui / agent?.skills (all optional-chained), so a
+  // name-only stub preserves the prior display behavior.
+  // assisted-by claude code claude-opus-4-8
+  const chatPanelAgent = useMemo(
+    () => ({ name: chatPanelAgentName }) as DynamicAgentConfig,
+    [chatPanelAgentName],
+  );
   const [panelSize, setPanelSize] = useState(DEFAULT_PANEL_SIZE);
   const [glassMode, setGlassMode] = useState(readStoredGlassMode);
   const [fontScale, setFontScale] = useState<AssistantFontScale>(readStoredFontScale);
@@ -212,7 +222,7 @@ export function AgenticAppAssistantOverlay({
             <ChatPanel
               endpoint="/api/dynamic-agents/chat"
               agentId={assistantAgentId}
-              agentName={chatPanelAgentName}
+              agent={chatPanelAgent}
               clientContext={clientContext}
               suggestedPrompts={suggestedPrompts}
               suggestedPromptsInitiallyHidden={false}

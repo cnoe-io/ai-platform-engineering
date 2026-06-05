@@ -411,15 +411,7 @@ export function AgenticSdlcAssistantBubble() {
                 conversationId={conversationId}
                 conversationTitle="Agentic SDLC Assistant"
                 selectedAgentId={agent._id}
-                agentName={agent.name}
-                agentDescription={agent.description}
-                agentModel={agent.model?.id}
-                agentVisibility={agent.visibility}
-                agentGradient={agent.ui?.gradient_theme}
-                allowedTools={agent.allowed_tools}
-                subagents={agent.subagents}
-                agentSkills={agent.skills ?? []}
-                agentDisabled={agent.enabled === false}
+                agent={agent}
                 clientContext={pageContext}
                 suggestedPrompts={suggestedPrompts}
                 suggestedPromptsInitiallyHidden={!showSuggestionsOnThisOpen}
