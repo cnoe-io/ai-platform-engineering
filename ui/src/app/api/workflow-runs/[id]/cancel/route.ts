@@ -4,9 +4,12 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
-import { getAuthFromBearerOrSession, ApiError, withErrorHandler } from "@/lib/api-middleware";
+import { ApiError, withAuth, withErrorHandler } from "@/lib/api-middleware";
 import { cancelWorkflowRun, type WorkflowRunDocument } from "@/lib/server/workflow-engine";
-import { requireResourcePermission } from "@/lib/rbac/resource-authz";
+import {
+  assertCanExecuteWorkflowRunsForConfigId,
+} from "@/lib/rbac/workflow-run-access";
+import { resolveUserTeamSlugsForWorkflow } from "@/lib/rbac/workflow-config-rebac";
 
 export const POST = withErrorHandler(async (
   request: NextRequest,
@@ -17,22 +20,24 @@ export const POST = withErrorHandler(async (
   }
 
   const { id } = await params;
-  const { session } = await getAuthFromBearerOrSession(request);
 
-  // Load run to check config access
-  const runCol = await getCollection<WorkflowRunDocument>("workflow_runs");
-  const run = await runCol.findOne({ _id: id });
-  if (!run) {
-    throw new ApiError("Workflow run not found", 404);
-  }
+  return await withAuth(request, async (_req, user, session) => {
+    const runCol = await getCollection<WorkflowRunDocument>("workflow_runs");
+    const run = await runCol.findOne({ _id: id });
+    if (!run) {
+      throw new ApiError("Workflow run not found", 404);
+    }
 
-  await requireResourcePermission(
-    session,
-    { type: "task", id: run.workflow_config_id, action: "write" },
-    { bypassForOrgAdmin: true },
-  );
+    const userTeamSlugs = await resolveUserTeamSlugsForWorkflow(user.email, session);
+    await assertCanExecuteWorkflowRunsForConfigId(
+      session,
+      run.workflow_config_id,
+      user.email,
+      userTeamSlugs,
+    );
 
-  await cancelWorkflowRun(id);
+    await cancelWorkflowRun(id);
 
-  return NextResponse.json({ status: "cancelled" }) as NextResponse;
+    return NextResponse.json({ status: "cancelled" }) as NextResponse;
+  });
 });

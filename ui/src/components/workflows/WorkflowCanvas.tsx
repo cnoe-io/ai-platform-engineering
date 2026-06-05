@@ -2,6 +2,8 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
+import { Lock } from "lucide-react";
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -33,6 +35,7 @@ import { createBlankStep } from "@/types/workflow-config";
 import { useWorkflowConfigStore } from "@/store/workflow-config-store";
 import { useWorkflowExecStore } from "@/store/workflow-exec-store";
 import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
+import { UnsavedChangesDialog } from "@/components/task-builder/UnsavedChangesDialog";
 import { useToast } from "@/components/ui/toast";
 import type { AgentAvatarAgent } from "@/components/dynamic-agents/AgentAvatar";
 
@@ -282,10 +285,19 @@ function WorkflowCanvasInner({
   initialSteps,
   onBack,
 }: WorkflowCanvasProps) {
-  const { createConfig, updateConfig, deleteConfig, closeEditor, loadConfigs } = useWorkflowConfigStore();
+  const { createConfig, updateConfig, deleteConfig, closeEditor, loadConfigs, openEditor } =
+    useWorkflowConfigStore();
+  const { data: authSession } = useSession();
   const { executeWorkflow } = useWorkflowExecStore();
-  const { setUnsaved, pendingNavigationHref, cancelNavigation, confirmNavigation } =
-    useUnsavedChangesStore();
+  const {
+    hasUnsavedChanges,
+    setUnsaved,
+    pendingNavigationHref,
+    pendingDeferredAction,
+    cancelNavigation,
+    confirmNavigation,
+    confirmDeferredAction,
+  } = useUnsavedChangesStore();
   const { agents, loading: agentsLoading } = useDynamicAgents();
   const router = useRouter();
   const { toast } = useToast();
@@ -316,16 +328,42 @@ function WorkflowCanvasInner({
   const [sharedWithTeams, setSharedWithTeams] = useState<string[]>(
     existingConfig?.shared_with_teams || [],
   );
-  const [availableTeams, setAvailableTeams] = useState<{ _id: string; name: string }[]>([]);
+  const [availableTeams, setAvailableTeams] = useState<
+    { _id: string; slug: string; name: string }[]
+  >([]);
 
   useEffect(() => {
     fetch("/api/dynamic-agents/teams")
       .then((r) => r.ok ? r.json() : null)
       .then((data) => {
-        if (data?.success && Array.isArray(data.data)) setAvailableTeams(data.data);
+        if (data?.success && Array.isArray(data.data)) {
+          setAvailableTeams(
+            data.data.filter(
+              (team: { slug?: string }) => typeof team.slug === "string" && team.slug.length > 0,
+            ),
+          );
+        }
       })
       .catch(() => {});
   }, []);
+
+  // Legacy workflows stored Mongo team _id in shared_with_teams; normalize to slug in UI.
+  useEffect(() => {
+    if (!existingConfig?.shared_with_teams?.length || availableTeams.length === 0) return;
+    setSharedWithTeams((current) => {
+      const normalized = existingConfig.shared_with_teams!.map((ref) => {
+        const refLower = ref.trim().toLowerCase();
+        const bySlug = availableTeams.find((t) => t.slug.toLowerCase() === refLower);
+        if (bySlug) return bySlug.slug;
+        const byId = availableTeams.find((t) => t._id === ref);
+        return byId?.slug ?? refLower;
+      });
+      const same =
+        current.length === normalized.length &&
+        current.every((slug, i) => slug === normalized[i]);
+      return same ? current : normalized;
+    });
+  }, [existingConfig?._id, existingConfig?.shared_with_teams, availableTeams]);
 
   const isDirtyRef = useRef(false);
 
@@ -345,7 +383,38 @@ function WorkflowCanvasInner({
   // Node click handler — handles both step selection and "+" button clicks
   // -----------------------------------------------------------------------
 
-  const isReadOnly = !!existingConfig?.config_driven;
+  const isConfigDriven = !!existingConfig?.config_driven;
+
+  const { isReadOnly, readOnlyHint } = useMemo(() => {
+    if (!existingConfig) {
+      return { isReadOnly: false, readOnlyHint: undefined };
+    }
+    if (existingConfig.config_driven) {
+      return {
+        isReadOnly: true,
+        readOnlyHint:
+          "This workflow is seeded from config/app-config.yaml and cannot be overwritten. " +
+          "Edit steps here, then use Save as copy or Run (which saves a copy first).",
+      };
+    }
+    const userEmail = authSession?.user?.email?.trim().toLowerCase();
+    const ownerId = existingConfig.owner_id?.trim().toLowerCase();
+    if (ownerId === "system") {
+      return {
+        isReadOnly: true,
+        readOnlyHint:
+          "This is a platform workflow (owner: system). Use Clone to edit to create your own editable copy.",
+      };
+    }
+    if (userEmail && ownerId && ownerId !== userEmail) {
+      return {
+        isReadOnly: true,
+        readOnlyHint:
+          "You can run this workflow, but only the owner can change it. Use Clone to edit to create your own copy.",
+      };
+    }
+    return { isReadOnly: false, readOnlyHint: undefined };
+  }, [existingConfig, authSession?.user?.email]);
 
   const onNodeClick: NodeMouseHandler = useCallback(
     (_event, node) => {
@@ -422,30 +491,8 @@ function WorkflowCanvasInner({
     return () => setUnsaved(false);
   }, [setUnsaved]);
 
-  useEffect(() => {
-    const handler = (e: BeforeUnloadEvent) => {
-      if (isDirtyRef.current) e.preventDefault();
-    };
-    window.addEventListener("beforeunload", handler);
-    return () => window.removeEventListener("beforeunload", handler);
-  }, []);
-
   const [showUnsavedDialog, setShowUnsavedDialog] = useState(false);
   const pendingActionRef = useRef<(() => void) | null>(null);
-
-  useEffect(() => {
-    if (pendingNavigationHref && isDirtyRef.current) {
-      setShowUnsavedDialog(true);
-      pendingActionRef.current = () => {
-        const href = confirmNavigation();
-        if (href) {
-          setUnsaved(false);
-          isDirtyRef.current = false;
-          window.location.href = href;
-        }
-      };
-    }
-  }, [pendingNavigationHref, confirmNavigation, setUnsaved]);
 
   const guardAction = useCallback((action: () => void) => {
     if (isDirtyRef.current) {
@@ -456,9 +503,45 @@ function WorkflowCanvasInner({
     }
   }, []);
 
+  useEffect(() => {
+    if (!isDirtyRef.current) return;
+
+    if (pendingNavigationHref) {
+      setShowUnsavedDialog(true);
+      pendingActionRef.current = () => {
+        const href = confirmNavigation();
+        if (href) {
+          isDirtyRef.current = false;
+          setUnsaved(false);
+          window.location.href = href;
+        }
+      };
+      return;
+    }
+
+    if (pendingDeferredAction) {
+      setShowUnsavedDialog(true);
+      pendingActionRef.current = () => {
+        confirmDeferredAction();
+        isDirtyRef.current = false;
+      };
+    }
+  }, [
+    pendingNavigationHref,
+    pendingDeferredAction,
+    confirmNavigation,
+    confirmDeferredAction,
+    setUnsaved,
+  ]);
+
   const handleBack = useCallback(() => {
     guardAction(onBack);
   }, [onBack, guardAction]);
+
+  const handleCloneToEdit = useCallback(() => {
+    if (!existingConfig) return;
+    guardAction(() => openEditor("clone", existingConfig._id));
+  }, [existingConfig, openEditor, guardAction]);
 
   const handleNameChange = useCallback(
     (v: string) => { markDirty(); setName(v); },
@@ -474,40 +557,83 @@ function WorkflowCanvasInner({
   // Save
   // -----------------------------------------------------------------------
 
-  const handleSave = useCallback(async () => {
-    if (!name || steps.length === 0) return;
-    setIsSaving(true);
+  const persistWorkflow = useCallback(async (): Promise<string | null> => {
+    if (!name || steps.length === 0) {
+      toast("Workflow name and at least one step are required", "error");
+      return null;
+    }
 
+    if (existingConfig?.config_driven) {
+      const input: CreateWorkflowConfigInput = {
+        name: `${name.trim()} (editable)`,
+        description: description.trim() || undefined,
+        steps,
+        visibility,
+        shared_with_teams: visibility === "team" ? sharedWithTeams : undefined,
+      };
+      const newId = await createConfig(input);
+      openEditor("edit", newId);
+      return newId;
+    }
+
+    if (existingConfig) {
+      const updates: UpdateWorkflowConfigInput = {
+        name: name.trim(),
+        description: description.trim() || undefined,
+        steps,
+        visibility,
+        shared_with_teams: visibility === "team" ? sharedWithTeams : undefined,
+      };
+      await updateConfig(existingConfig._id, updates);
+      return existingConfig._id;
+    }
+
+    const input: CreateWorkflowConfigInput = {
+      name: name.trim(),
+      description: description.trim() || undefined,
+      steps,
+      visibility,
+      shared_with_teams: visibility === "team" ? sharedWithTeams : undefined,
+    };
+    const newId = await createConfig(input);
+    openEditor("edit", newId);
+    return newId;
+  }, [
+    name,
+    description,
+    steps,
+    visibility,
+    sharedWithTeams,
+    existingConfig,
+    createConfig,
+    updateConfig,
+    openEditor,
+    toast,
+  ]);
+
+  const handleSave = useCallback(async () => {
+    setIsSaving(true);
     try {
-      if (existingConfig) {
-        const updates: UpdateWorkflowConfigInput = {
-          name: name.trim(),
-          description: description.trim() || undefined,
-          steps,
-          visibility,
-          shared_with_teams: visibility === "team" ? sharedWithTeams : undefined,
-        };
-        await updateConfig(existingConfig._id, updates);
-      } else {
-        const input: CreateWorkflowConfigInput = {
-          name: name.trim(),
-          description: description.trim() || undefined,
-          steps,
-          visibility,
-          shared_with_teams: visibility === "team" ? sharedWithTeams : undefined,
-        };
-        await createConfig(input);
-      }
+      const savedId = await persistWorkflow();
+      if (!savedId) return;
       isDirtyRef.current = false;
       setUnsaved(false);
-      toast("Workflow saved", "success");
+      toast(
+        existingConfig?.config_driven
+          ? "Saved as a new editable workflow"
+          : "Workflow saved",
+        "success",
+      );
     } catch (error) {
       console.error("Failed to save workflow config:", error);
-      toast("Failed to save workflow", "error");
+      toast(
+        error instanceof Error ? error.message : "Failed to save workflow",
+        "error",
+      );
     } finally {
       setIsSaving(false);
     }
-  }, [name, description, steps, visibility, sharedWithTeams, existingConfig, createConfig, updateConfig, setUnsaved, toast]);
+  }, [persistWorkflow, existingConfig?.config_driven, setUnsaved, toast]);
 
   // -----------------------------------------------------------------------
   // Run workflow
@@ -515,17 +641,48 @@ function WorkflowCanvasInner({
 
   const handleRun = useCallback(async () => {
     if (!existingConfig) return;
+
+    if (isReadOnly && isDirtyRef.current) {
+      toast(
+        "Unsaved changes cannot be applied to a config-driven workflow. Click Save to create an editable copy, or Clone to edit, then run that copy.",
+        "error",
+      );
+      return;
+    }
+
+    setIsSaving(true);
+    let configId = existingConfig._id;
     try {
-      const runId = await executeWorkflow(existingConfig._id);
-      isDirtyRef.current = false;
-      setUnsaved(false);
+      if (isDirtyRef.current) {
+        const savedId = await persistWorkflow();
+        if (!savedId) return;
+        configId = savedId;
+        isDirtyRef.current = false;
+        setUnsaved(false);
+      }
+
+      const runId = await executeWorkflow(configId);
       closeEditor();
-      // Navigate directly to the new run
       router.push(`/workflows/run/${runId}`);
     } catch (error) {
       console.error("Failed to execute workflow:", error);
+      toast(
+        error instanceof Error ? error.message : "Failed to start workflow",
+        "error",
+      );
+    } finally {
+      setIsSaving(false);
     }
-  }, [existingConfig, executeWorkflow, setUnsaved, closeEditor, router]);
+  }, [
+    existingConfig,
+    isReadOnly,
+    persistWorkflow,
+    executeWorkflow,
+    setUnsaved,
+    closeEditor,
+    router,
+    toast,
+  ]);
 
   // -----------------------------------------------------------------------
   // Delete workflow
@@ -585,14 +742,24 @@ function WorkflowCanvasInner({
         setVisibility(obj.visibility);
       }
       if (Array.isArray(obj.shared_with_teams)) {
-        setSharedWithTeams(obj.shared_with_teams as string[]);
+        const refs = (obj.shared_with_teams as string[]).map((ref) => ref.trim().toLowerCase());
+        setSharedWithTeams(
+          refs
+            .map((ref) => {
+              const bySlug = availableTeams.find((t) => t.slug.toLowerCase() === ref);
+              if (bySlug) return bySlug.slug;
+              const byId = availableTeams.find((t) => t._id === ref);
+              return byId?.slug ?? ref;
+            })
+            .filter(Boolean),
+        );
       }
       if (Array.isArray(obj.steps)) {
         setSteps(obj.steps as WorkflowStep[]);
       }
       markDirty();
     },
-    [markDirty],
+    [availableTeams, markDirty],
   );
 
   // Agent objects for the sidebar (with _id, name, description, ui)
@@ -614,7 +781,7 @@ function WorkflowCanvasInner({
     cancelNavigation();
   }, [setUnsaved, cancelNavigation]);
 
-  const handleCancelDialog = useCallback(() => {
+  const handleCancelUnsavedDialog = useCallback(() => {
     setShowUnsavedDialog(false);
     pendingActionRef.current = null;
     cancelNavigation();
@@ -647,14 +814,25 @@ function WorkflowCanvasInner({
         onImport={handleImport}
         isSaving={isSaving}
         isEditing={!!existingConfig}
+        hasUnsavedChanges={hasUnsavedChanges}
         stepCount={steps.length}
-        readOnly={existingConfig?.config_driven}
+        readOnly={isReadOnly}
+        saveAsCopy={isConfigDriven}
+        readOnlyHint={readOnlyHint}
+        onCloneToEdit={existingConfig ? handleCloneToEdit : undefined}
         visibility={visibility}
         onVisibilityChange={(v) => { setVisibility(v); markDirty(); }}
         sharedWithTeams={sharedWithTeams}
         onSharedWithTeamsChange={(t) => { setSharedWithTeams(t); markDirty(); }}
         teams={availableTeams}
       />
+
+      {isReadOnly && readOnlyHint && (
+        <div className="px-4 py-2.5 bg-amber-500/10 border-b border-amber-500/20 flex items-start gap-2 shrink-0">
+          <Lock className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+          <p className="text-xs text-amber-700 dark:text-amber-300 leading-relaxed">{readOnlyHint}</p>
+        </div>
+      )}
 
       <div className="flex flex-1 overflow-hidden">
         <div className="flex-1">
@@ -695,35 +873,17 @@ function WorkflowCanvasInner({
           }}
           agents={sidebarAgents}
           agentsLoading={agentsLoading}
-          readOnly={existingConfig?.config_driven}
+          readOnly={isReadOnly}
+          readOnlyHint={readOnlyHint}
         />
       </div>
 
-      {/* Unsaved changes dialog */}
-      {showUnsavedDialog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-card border border-border rounded-lg p-6 shadow-xl max-w-sm mx-4">
-            <h3 className="text-sm font-bold text-foreground mb-2">Unsaved changes</h3>
-            <p className="text-sm text-muted-foreground mb-4">
-              You have unsaved changes. Discard them?
-            </p>
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={handleCancelDialog}
-                className="px-3 py-1.5 text-sm rounded-md border border-border hover:bg-accent transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleDiscardChanges}
-                className="px-3 py-1.5 text-sm rounded-md bg-destructive text-destructive-foreground hover:bg-destructive/90 transition-colors"
-              >
-                Discard
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <UnsavedChangesDialog
+        open={showUnsavedDialog}
+        onDiscard={handleDiscardChanges}
+        onCancel={handleCancelUnsavedDialog}
+        description="You have unsaved changes in this workflow. They will be lost if you leave without saving."
+      />
 
       {/* Delete confirmation dialog */}
       {showDeleteDialog && (

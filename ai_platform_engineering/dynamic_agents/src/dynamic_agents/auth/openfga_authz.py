@@ -20,6 +20,9 @@ from pymongo import MongoClient
 from pymongo.errors import PyMongoError
 
 from dynamic_agents.auth.token_context import current_traceparent, current_user_token
+from dynamic_agents.auth.workflow_execution_authz import can_use_agent_via_workflow
+from dynamic_agents.models import UserContext
+from dynamic_agents.services.mongo import MongoDBService
 
 logger = logging.getLogger(__name__)
 
@@ -321,7 +324,13 @@ async def _check_agent_use(subject: str, agent_id: str) -> bool:
         return bool(body.get("allowed"))
 
 
-async def require_agent_use_permission(agent_id: str) -> None:
+async def require_agent_use_permission(
+    agent_id: str,
+    *,
+    workflow_config_id: str | None = None,
+    mongo: MongoDBService | None = None,
+    user: UserContext | None = None,
+) -> None:
     """Require the current bearer token subject to have can_use on an agent."""
     if not _is_valid_openfga_id(agent_id):
         _raise_authz(
@@ -411,6 +420,15 @@ async def require_agent_use_permission(agent_id: str) -> None:
                 "authz.tenant_id": os.getenv("TENANT_ID", "default"),
             },
         )
+
+    if (
+        not allowed
+        and workflow_config_id
+        and mongo is not None
+        and user is not None
+        and can_use_agent_via_workflow(agent_id, workflow_config_id, user, mongo)
+    ):
+        allowed = True
 
     if allowed:
         _log_openfga_rebac_audit(

@@ -48,9 +48,16 @@ jest.mock("@/lib/api-middleware", () => {
   };
 });
 
+const mockListUserTeamSlugs = jest.fn().mockResolvedValue(["platform-eng"]);
+
+jest.mock("@/lib/rbac/openfga-team-membership", () => ({
+  listUserTeamSlugs: (...args: unknown[]) => mockListUserTeamSlugs(...args),
+}));
+
 jest.mock("@/lib/rbac/resource-authz", () => ({
   filterResourcesByPermission: (...args: unknown[]) => mockFilterResourcesByPermission(...args),
   requireResourcePermission: (...args: unknown[]) => mockRequireResourcePermission(...args),
+  subjectFromSession: () => "alice-sub",
 }));
 
 jest.mock("@/lib/server/workflow-engine", () => ({
@@ -114,8 +121,14 @@ describe("workflow runs OpenFGA config access", () => {
     expect(body).toEqual([{ _id: "run-1", workflow_config_id: "wf-visible" }]);
   });
 
-  it("requires OpenFGA read permission before starting a workflow run", async () => {
-    const config = { _id: "wf-visible", name: "Workflow" };
+  it("allows starting a global workflow without OpenFGA read", async () => {
+    const config = {
+      _id: "wf-visible",
+      name: "Workflow",
+      visibility: "global",
+      owner_id: "other@example.com",
+      steps: [],
+    };
     const configCollection = { findOne: jest.fn().mockResolvedValue(config) };
     mockGetCollection.mockResolvedValue(configCollection);
     const { POST } = await import("../workflow-runs/route");
@@ -129,16 +142,110 @@ describe("workflow runs OpenFGA config access", () => {
 
     expect(response.status).toBe(201);
     expect(mockGetUserTeamIds).not.toHaveBeenCalled();
-    expect(mockRequireResourcePermission).toHaveBeenCalledWith(
-      expect.objectContaining({ sub: "alice-sub" }),
-      { type: "task", id: "wf-visible", action: "read" },
-      { bypassForOrgAdmin: true },
-    );
+    expect(mockRequireResourcePermission).not.toHaveBeenCalled();
     expect(mockStartWorkflowRun).toHaveBeenCalledWith(
       config,
       null,
       expect.any(Object),
       expect.objectContaining({ user: { email: "alice@example.com", name: "Alice" } }),
     );
+  });
+
+  it("allows starting a team-shared workflow when the user is on that team", async () => {
+    const config = {
+      _id: "wf-team",
+      name: "Team workflow",
+      visibility: "team",
+      shared_with_teams: ["platform-eng"],
+      owner_id: "other@example.com",
+      steps: [],
+    };
+    const teamsCollection = {
+      find: jest.fn().mockReturnValue({
+        project: jest.fn().mockReturnValue({
+          toArray: jest.fn().mockResolvedValue([{ _id: "team-1", slug: "platform-eng" }]),
+        }),
+      }),
+    };
+    const configCollection = { findOne: jest.fn().mockResolvedValue(config) };
+    mockGetCollection.mockImplementation(async (name: string) =>
+      name === "teams" ? teamsCollection : configCollection,
+    );
+
+    const { POST } = await import("../workflow-runs/route");
+    const response = await POST(
+      request("/api/workflow-runs", {
+        method: "POST",
+        body: JSON.stringify({ workflow_config_id: "wf-team" }),
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    expect(mockRequireResourcePermission).not.toHaveBeenCalled();
+    expect(mockStartWorkflowRun).toHaveBeenCalled();
+  });
+
+  it("returns a run when the user has OpenFGA read on the parent config", async () => {
+    const run = {
+      _id: "run-read",
+      workflow_config_id: "wf-fga-read",
+      status: "running",
+    };
+    const config = {
+      _id: "wf-fga-read",
+      visibility: "private",
+      owner_id: "other@example.com",
+      shared_with_teams: [],
+    };
+    const runCollection = { findOne: jest.fn().mockResolvedValue(run) };
+    const configCollection = { findOne: jest.fn().mockResolvedValue(config) };
+    mockGetCollection.mockImplementation(async (name: string) =>
+      name === "workflow_runs" ? runCollection : configCollection,
+    );
+    mockRequireResourcePermission.mockImplementation(async (_session, resource) => {
+      if (resource.action === "read") {
+        return undefined;
+      }
+      throw new Error("denied");
+    });
+
+    const { GET } = await import("../workflow-runs/route");
+    const response = await GET(request("/api/workflow-runs?run_id=run-read"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body._id).toBe("run-read");
+    expect(mockRequireResourcePermission).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ type: "task", id: "wf-fga-read", action: "read" }),
+      expect.anything(),
+    );
+  });
+
+  it("denies run detail when the user lacks visibility and OpenFGA read/use", async () => {
+    const run = {
+      _id: "run-denied",
+      workflow_config_id: "wf-private",
+      status: "running",
+    };
+    const config = {
+      _id: "wf-private",
+      visibility: "private",
+      owner_id: "other@example.com",
+      shared_with_teams: [],
+    };
+    const runCollection = { findOne: jest.fn().mockResolvedValue(run) };
+    const configCollection = { findOne: jest.fn().mockResolvedValue(config) };
+    mockGetCollection.mockImplementation(async (name: string) =>
+      name === "workflow_runs" ? runCollection : configCollection,
+    );
+    mockRequireResourcePermission.mockRejectedValue(new Error("denied"));
+
+    const { GET } = await import("../workflow-runs/route");
+    const response = await GET(request("/api/workflow-runs?run_id=run-denied"));
+    const body = await response.json();
+
+    expect(response.status).toBe(403);
+    expect(body.error).toMatch(/permission to view workflow runs/i);
   });
 });
