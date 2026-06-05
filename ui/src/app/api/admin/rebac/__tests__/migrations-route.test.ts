@@ -306,7 +306,7 @@ describe("admin ReBAC migrations API", () => {
     );
   });
 
-  it("includes unversioned schema areas in migration status so admins get a runtime warning", async () => {
+  it("includes actionable unversioned schema areas in migration status (not orphan collections)", async () => {
     collections.messages = createCollection();
     collections.feedback = createCollection();
     collections.data_schema_versions = createCollection([
@@ -319,8 +319,13 @@ describe("admin ReBAC migrations API", () => {
 
     expect(statusResponse.status).toBe(200);
     expect(statusBody.data.needs_version_bootstrap).toBe(true);
-    expect(statusBody.data.version_bootstrap_required_count).toBeGreaterThanOrEqual(2);
+    expect(statusBody.data.version_bootstrap_required_count).toBeGreaterThan(0);
+    // Manifest-backed areas without version rows should alert; raw Mongo collections
+    // with no migration target (messages, feedback) should not inflate the count.
     expect(statusBody.data.version_bootstrap_schema_areas).toEqual(
+      expect.arrayContaining(["dynamic_agents"]),
+    );
+    expect(statusBody.data.version_bootstrap_schema_areas).not.toEqual(
       expect.arrayContaining(["messages", "feedback"]),
     );
     expect(statusBody.data.requires_attention).toBe(true);
@@ -631,7 +636,7 @@ describe("admin ReBAC migrations API", () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
+    expect(mockWriteOpenFgaTupleDiff).toHaveBeenCalledWith({
       writes: expect.arrayContaining([
         { user: "user:alice-sub", relation: "member", object: "team:platform" },
         { user: "team:platform#member", relation: "user", object: "agent:agent-1" },
@@ -661,7 +666,7 @@ describe("admin ReBAC migrations API", () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
+    expect(mockWriteOpenFgaTupleDiff).toHaveBeenCalledWith({
       writes: expect.arrayContaining([
         { user: "agent:agent-1", relation: "caller", object: "tool:github/search" },
         { user: "agent:agent-1", relation: "caller", object: "tool:github/issues" },
@@ -736,7 +741,7 @@ describe("admin ReBAC migrations API", () => {
     );
 
     expect(applyResponse.status).toBe(200);
-    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
+    expect(mockWriteOpenFgaTupleDiff).toHaveBeenCalledWith({
       writes: expect.arrayContaining([
         { user: "slack_channel:T123--C123", relation: "user", object: "agent:agent-1" },
         { user: "slack_channel:T123--C124", relation: "user", object: "agent:agent-1" },
@@ -784,7 +789,7 @@ describe("admin ReBAC migrations API", () => {
     );
 
     expect(applyResponse.status).toBe(200);
-    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
+    expect(mockWriteOpenFgaTupleDiff).toHaveBeenCalledWith({
       writes: expect.arrayContaining([
         { user: "webex_space:WEBEX--space-1", relation: "reader", object: "knowledge_base:kb-1" },
         { user: "webex_space:WEBEX--space-2", relation: "user", object: "agent:agent-1" },

@@ -28,6 +28,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { refreshMigrationStatus } from "@/hooks/use-migration-status";
+import { schemaAreasNeedingVersionBootstrap } from "@/lib/rbac/migrations/schema-bootstrap";
 import { cn } from "@/lib/utils";
 
 type MigrationKind = "implicit" | "explicit" | "index";
@@ -232,7 +234,7 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
   const visibleSchemaVersions = showAllSchemaVersions ? schemaVersions : schemaVersionsNeedingMigration;
   const hiddenSchemaVersionCount = schemaVersions.length - schemaVersionsNeedingMigration.length;
   const unversionedSchemaAreaNames = useMemo(
-    () => schemaVersions.filter((schema) => schema.current_version === null).map((schema) => schema.schema_area),
+    () => schemaAreasNeedingVersionBootstrap(schemaVersions),
     [schemaVersions],
   );
 
@@ -280,6 +282,7 @@ export function MigrationTab({ isAdmin }: MigrationTabProps) {
       setMigrations(data.migrations);
       setCompletedMigrations(data.completed_migrations ?? []);
       setBlockingStatus(status);
+      refreshMigrationStatus();
       setSelectedBulkMigrationIds((current) => {
         const selectableIds = new Set(
           data.migrations

@@ -1,8 +1,8 @@
 "use client";
 
-// assisted-by Codex GPT-5.5
+// assisted-by Cursor Composer
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 
 export interface MigrationStatusSummary {
@@ -17,10 +17,36 @@ export interface MigrationStatusSummary {
   override_active: boolean;
 }
 
+/** Dispatched after the Migrations tab refreshes so the header alert pill stays in sync. */
+export const MIGRATION_STATUS_REFRESH_EVENT = "caipe:migration-status-refresh";
+
+export function refreshMigrationStatus(): void {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event(MIGRATION_STATUS_REFRESH_EVENT));
+  }
+}
+
 export function useMigrationStatus() {
   const { status: sessionStatus } = useSession();
   const [status, setStatus] = useState<MigrationStatusSummary | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+
+  const load = useCallback(async (cancelled: () => boolean) => {
+    setIsLoading(true);
+    try {
+      const response = await fetch("/api/rbac/migration-status");
+      if (!response.ok) {
+        if (!cancelled()) setStatus(null);
+        return;
+      }
+      const body = (await response.json()) as { data?: MigrationStatusSummary };
+      if (!cancelled()) setStatus(body.data ?? null);
+    } catch {
+      if (!cancelled()) setStatus(null);
+    } finally {
+      if (!cancelled()) setIsLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     if (sessionStatus !== "authenticated") {
@@ -30,27 +56,26 @@ export function useMigrationStatus() {
     }
 
     let cancelled = false;
-    setIsLoading(true);
-    fetch("/api/rbac/migration-status")
-      .then(async (response) => {
-        if (!response.ok) return null;
-        const body = (await response.json()) as { data?: MigrationStatusSummary };
-        return body.data ?? null;
-      })
-      .then((data) => {
-        if (!cancelled) setStatus(data);
-      })
-      .catch(() => {
-        if (!cancelled) setStatus(null);
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoading(false);
-      });
+    const isCancelled = () => cancelled;
+
+    const refresh = () => {
+      void load(isCancelled);
+    };
+
+    refresh();
+    const intervalId = window.setInterval(refresh, 60_000);
+    const onFocus = () => refresh();
+    const onMigrationRefresh = () => refresh();
+    window.addEventListener("focus", onFocus);
+    window.addEventListener(MIGRATION_STATUS_REFRESH_EVENT, onMigrationRefresh);
 
     return () => {
       cancelled = true;
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener(MIGRATION_STATUS_REFRESH_EVENT, onMigrationRefresh);
     };
-  }, [sessionStatus]);
+  }, [sessionStatus, load]);
 
   return { status, isLoading };
 }
