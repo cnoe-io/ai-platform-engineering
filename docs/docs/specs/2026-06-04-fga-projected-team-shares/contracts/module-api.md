@@ -57,7 +57,7 @@ export function extractTeamSlugsFromTuples(
 ): string[];
 ```
 
-**Parsing rule**: `tuple.user` matches `^team:([^#]+)#member$`, `tuple.object === \`${objectType}:${objectId}\``, `tuple.relation` ∈ `teamShareRelations ?? memberRelations`.
+**Parsing rule**: `tuple.user` matches `^team:([^#]+)#member$`, `tuple.object` equals the OpenFGA object id `objectType:objectId` (for example `skill:skill-123`), `tuple.relation` ∈ `teamShareRelations ?? memberRelations`.
 
 ## P3. Reconcile
 

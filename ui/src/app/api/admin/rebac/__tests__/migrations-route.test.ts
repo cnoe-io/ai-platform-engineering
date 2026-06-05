@@ -10,6 +10,7 @@ const mockRequireResourcePermission = jest.fn();
 const mockGetCollection = jest.fn();
 const mockConnectToDatabase = jest.fn();
 const mockWriteOpenFgaTuples = jest.fn();
+const mockWriteOpenFgaTupleDiff = jest.fn();
 const mockGetKeycloakRbacDiagnosticValues = jest.fn();
 
 const collections: Record<string, ReturnType<typeof createCollection>> = {};
@@ -59,6 +60,8 @@ jest.mock("@/lib/mongodb", () => ({
 
 jest.mock("@/lib/rbac/openfga", () => ({
   writeOpenFgaTuples: (...args: unknown[]) => mockWriteOpenFgaTuples(...args),
+  writeOpenFgaTupleDiff: (...args: unknown[]) => mockWriteOpenFgaTupleDiff(...args),
+  readOpenFgaTuples: jest.fn().mockResolvedValue({ tuples: [], continuationToken: undefined }),
 }));
 
 jest.mock("@/lib/rbac/keycloak-admin", () => ({
@@ -115,6 +118,7 @@ beforeEach(() => {
   mockRequireRbacPermission.mockResolvedValue(undefined);
   mockRequireResourcePermission.mockResolvedValue(undefined);
   mockWriteOpenFgaTuples.mockResolvedValue({ enabled: true, writes: 1, deletes: 0 });
+  mockWriteOpenFgaTupleDiff.mockResolvedValue({ enabled: true, writes: 1, deletes: 0 });
   mockGetCollection.mockImplementation(async (name: string) => collections[name] ?? createCollection());
   mockConnectToDatabase.mockImplementation(async () => ({
     db: {

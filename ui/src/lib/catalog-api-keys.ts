@@ -4,10 +4,10 @@
  * Mirrors `ai_platform_engineering/skills_middleware/api_keys_store.py` so the
  * BFF can mint/list/revoke keys without proxying to the supervisor.
  *
- * Key format: `{key_id}.{secret}`. Only sha256(pepper:secret) is stored.
+ * Key format: `{key_id}.{secret}`. Only HMAC-SHA256(pepper, secret) is stored.
  */
 
-import { createHash, randomBytes } from "crypto";
+import { createHmac, randomInt } from "crypto";
 
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 
@@ -46,15 +46,14 @@ function catalogApiKeyPepper(): string {
 }
 
 function hashCatalogApiKeySecret(secret: string): string {
-  const payload = `${catalogApiKeyPepper()}:${secret}`;
-  return createHash("sha256").update(payload, "utf8").digest("hex");
+  const pepper = catalogApiKeyPepper();
+  return createHmac("sha256", pepper).update(secret, "utf8").digest("hex");
 }
 
 function randomAlphanumeric(length: number): string {
-  const bytes = randomBytes(length);
   let out = "";
-  for (let i = 0; i < length; i += 1) {
-    out += ALPHABET[bytes[i]! % ALPHABET.length];
+  while (out.length < length) {
+    out += ALPHABET[randomInt(ALPHABET.length)]!;
   }
   return out;
 }

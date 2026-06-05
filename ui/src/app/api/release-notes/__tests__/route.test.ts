@@ -48,7 +48,13 @@ Newest available notes.
 function mockGithub() {
   global.fetch = jest.fn(async (url: string | URL) => {
     const u = String(url);
-    if (u.includes("api.github.com")) {
+    let hostname = "";
+    try {
+      hostname = new URL(u).hostname;
+    } catch {
+      hostname = "";
+    }
+    if (hostname === "api.github.com") {
       return { ok: true, json: async () => LISTING } as unknown as Response;
     }
     if (u.endsWith("0-5-4.md")) {

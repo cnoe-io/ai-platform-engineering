@@ -2,7 +2,7 @@
  * @jest-environment node
  */
 
-import { createHash } from "crypto";
+import { createHmac } from "crypto";
 
 const mockInsertOne = jest.fn();
 const mockFind = jest.fn();
@@ -45,17 +45,17 @@ describe("catalog-api-keys", () => {
     expect(doc.owner_user_id).toBe("user-sub-1");
     expect(doc.scopes).toEqual(["catalog:read"]);
     const secret = key.slice(key_id.length + 1);
-    const expectedHash = createHash("sha256")
-      .update(`test-pepper:${secret}`, "utf8")
+    const expectedHash = createHmac("sha256", "test-pepper")
+      .update(secret, "utf8")
       .digest("hex");
     expect(doc.key_hash).toBe(expectedHash);
   });
 
   it("verifyCatalogApiKey returns owner when hash matches", async () => {
-    const secret = "abc123SECRET";
+    const secret = "abc123SECRET"; // gitleaks:allow
     const keyId = "sk_testkey1234";
-    const keyHash = createHash("sha256")
-      .update(`test-pepper:${secret}`, "utf8")
+    const keyHash = createHmac("sha256", "test-pepper")
+      .update(secret, "utf8")
       .digest("hex");
     mockFindOne.mockResolvedValue({
       key_id: keyId,
