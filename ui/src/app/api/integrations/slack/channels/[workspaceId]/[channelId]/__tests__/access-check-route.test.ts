@@ -60,17 +60,17 @@ describe("Slack runtime access-check route", () => {
     mockCheckUniversalRebacRelationship.mockReset();
   });
 
-  it("checks channel and user grants using user:<id> subject", async () => {
+  // The bot only checks the channel→agent grant. User-level can_use is enforced
+  // downstream by the conversation creation API, not here.
+  it("allows when channel grant exists", async () => {
     mockCheckUniversalRebacRelationship
-      .mockResolvedValueOnce({ allowed: true })  // channel→agent
-      .mockResolvedValueOnce({ allowed: true }); // user→agent
+      .mockResolvedValueOnce({ allowed: true }); // channel→agent
     const { POST } = await import("../access-check/route");
 
     const response = await POST(
       request("/api/integrations/slack/channels/T123456789/C123456789/access-check", {
         method: "POST",
         body: JSON.stringify({
-          user_subject: "user:alice-sub",
           resource: { type: "agent", id: "incident-agent" },
           action: "use",
         }),
@@ -83,7 +83,6 @@ describe("Slack runtime access-check route", () => {
     expect(body.data).toMatchObject({
       allowed: true,
       channel_allowed: true,
-      user_allowed: true,
       reason: "allowed",
     });
     expect(mockCheckPermission).not.toHaveBeenCalled();
@@ -98,7 +97,6 @@ describe("Slack runtime access-check route", () => {
       request("/api/integrations/slack/channels/T123456789/C123456789/access-check", {
         method: "POST",
         body: JSON.stringify({
-          user_subject: "user:alice-sub",
           resource: { type: "agent", id: "incident-agent" },
           action: "use",
         }),
@@ -112,34 +110,6 @@ describe("Slack runtime access-check route", () => {
       allowed: false,
       channel_allowed: false,
       reason: "missing_channel_grant",
-    });
-  });
-
-  it("denies when user lacks can_use on the agent", async () => {
-    mockCheckUniversalRebacRelationship
-      .mockResolvedValueOnce({ allowed: true })   // channel→agent
-      .mockResolvedValueOnce({ allowed: false });  // user→agent denied
-    const { POST } = await import("../access-check/route");
-
-    const response = await POST(
-      request("/api/integrations/slack/channels/T123456789/C123456789/access-check", {
-        method: "POST",
-        body: JSON.stringify({
-          user_subject: "user:alice-sub",
-          resource: { type: "agent", id: "incident-agent" },
-          action: "use",
-        }),
-      }),
-      { params: Promise.resolve({ workspaceId: "T123456789", channelId: "C123456789" }) }
-    );
-    const body = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(body.data).toMatchObject({
-      allowed: false,
-      channel_allowed: true,
-      user_allowed: false,
-      reason: "missing_user_grant",
     });
   });
 });

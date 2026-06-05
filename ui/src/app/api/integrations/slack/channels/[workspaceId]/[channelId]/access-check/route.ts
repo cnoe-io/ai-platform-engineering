@@ -44,7 +44,6 @@ export const POST = withErrorHandler(async (request: NextRequest, context: Route
   const result = await checkSlackChannelAccess({
     workspace_id: workspaceId,
     channel_id: channelId,
-    user_subject: typeof body.user_subject === "string" ? body.user_subject : undefined,
     resource: parseResource(body.resource),
     action,
   });
