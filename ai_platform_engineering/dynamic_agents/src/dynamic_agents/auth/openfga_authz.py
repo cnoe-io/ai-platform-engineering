@@ -421,14 +421,15 @@ async def require_agent_use_permission(
             },
         )
 
-    if (
-        not allowed
-        and workflow_config_id
-        and mongo is not None
-        and user is not None
-        and can_use_agent_via_workflow(agent_id, workflow_config_id, user, mongo)
-    ):
-        allowed = True
+    # When a workflow_config_id is present the call is a workflow step execution.
+    # Require both: the user must have direct dynamic_agent#use AND the agent must
+    # be a step in a workflow the user can run. Workflow context is additional
+    # validation, not a privilege-escalation path.
+    deny_reason = "DENY_NO_CAPABILITY"
+    if workflow_config_id and mongo is not None and user is not None:
+        if allowed and not can_use_agent_via_workflow(agent_id, workflow_config_id, user, mongo):
+            allowed = False
+            deny_reason = "DENY_WORKFLOW_ACCESS"
 
     if allowed:
         _log_openfga_rebac_audit(
@@ -445,7 +446,7 @@ async def require_agent_use_permission(
             subject=subject,
             agent_id=agent_id,
             outcome="deny",
-            reason_code="DENY_NO_CAPABILITY",
+            reason_code=deny_reason,
         )
         reset_trace_context()
         _raise_authz(

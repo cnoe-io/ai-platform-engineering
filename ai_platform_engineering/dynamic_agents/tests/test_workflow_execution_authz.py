@@ -52,3 +52,38 @@ def test_team_workflow_requires_shared_team() -> None:
 
     teams_coll.find.return_value = [{"slug": "other-team"}]
     assert user_can_run_workflow(workflow, user, mongo) is False
+
+
+def test_agent_not_in_workflow_steps_denied() -> None:
+    """Agent not referenced in any step is denied even if workflow is accessible."""
+    workflow = {
+        "_id": "wf-global",
+        "visibility": "global",
+        "owner_id": "system",
+        "steps": [{"type": "step", "agent_id": "agent-x"}],
+    }
+    mongo = _mongo_with_workflow(workflow)
+    user = UserContext(email="anyone@example.com")
+
+    assert can_use_agent_via_workflow("agent-not-in-steps", "wf-global", user, mongo) is False
+
+
+def test_missing_workflow_denied() -> None:
+    """Unknown workflow_config_id always denies."""
+    mongo = _mongo_with_workflow(None)
+    user = UserContext(email="anyone@example.com")
+
+    assert can_use_agent_via_workflow("agent-x", "wf-does-not-exist", user, mongo) is False
+
+
+def test_private_workflow_only_owner_can_use() -> None:
+    workflow = {
+        "_id": "wf-private",
+        "visibility": "private",
+        "owner_id": "owner@example.com",
+        "steps": [{"type": "step", "agent_id": "agent-priv"}],
+    }
+    mongo = _mongo_with_workflow(workflow)
+
+    assert can_use_agent_via_workflow("agent-priv", "wf-private", UserContext(email="owner@example.com"), mongo) is True
+    assert can_use_agent_via_workflow("agent-priv", "wf-private", UserContext(email="other@example.com"), mongo) is False
