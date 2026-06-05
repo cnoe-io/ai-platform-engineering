@@ -29,8 +29,10 @@ import {
 } from "@/lib/rbac/openfga-agent-tools";
 import {
   filterResourcesByPermission,
+  requireAgentPermission,
   requireResourcePermission,
 } from "@/lib/rbac/resource-authz";
+import { resolveShareableOwnershipWrite } from "@/lib/rbac/shareable-resource";
 import { caipeOrgKey } from "@/lib/rbac/organization";
 import { isPlatformDefaultAgent } from "@/lib/rbac/platform-default";
 
@@ -531,6 +533,11 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       ownerTeamSlug,
       nextSharedTeamSlugs: sharedTeamSlugs,
       previousSharedTeamSlugs: [],
+      // Encode `visibility === 'global'` as the wildcard `user:* user
+      // agent:<id>` grant so a freshly-created global agent is usable by
+      // every member without waiting for the list-time repair in
+      // available/route.ts. Fresh create has no previous state to revoke.
+      globalUserAccess: visibility === "global",
     });
 
     try {
@@ -563,7 +570,7 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
   }
 
   const { session } = await getAuthFromBearerOrSession(request);
-  await requireResourcePermission(session, { type: "agent", id, action: "write" });
+  await requireAgentPermission(session, id, "write");
 
     const body = await request.json();
     const collection = await getCollection<DynamicAgentConfig>(COLLECTION_NAME);
@@ -584,7 +591,14 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
 
     // Build update with explicit field allowlist
     const updateData = pickMutableFields(body);
-    if (Object.keys(updateData).length === 0) {
+    // An ownership transfer changes owner_team_slug, which is intentionally NOT
+    // in the mutable-field allowlist (owner is immutable on a normal edit).
+    // Detect it here so a transfer-only request isn't dropped by the
+    // "no fields to update" short-circuit below.
+    const isTransferRequest =
+      normalizeString(body.owner_team_slug) !== null &&
+      normalizeString(body.owner_team_slug) !== normalizeString(agent.owner_team_slug);
+    if (Object.keys(updateData).length === 0 && !isTransferRequest) {
       // No fields to update — return current state
       return successResponse(agent);
     }
@@ -656,6 +670,53 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
 
     updateData.updated_at = new Date().toISOString();
 
+    // Ownership transfer (spec 2026-06-03, US3): owner_team_slug is immutable
+    // on a normal edit, but the editor can transfer it to another team. The
+    // transfer DECISION (guard: owner-team admin or org admin; not-a-member
+    // confirmation; previous-owner revoke) is the single shared path used by
+    // the RAG datasource + MCP tool routes too — see
+    // `resolveShareableOwnershipWrite`. The agent persists to Mongo and writes
+    // its own org-admin/tool-caller tuples via `reconcileAgentRelationships`,
+    // so we use the resolver for the decision only and apply persistence here.
+    const previousOwnerTeamSlug = normalizeString(agent.owner_team_slug);
+    const resolvedOwnership = await resolveShareableOwnershipWrite(
+      {
+        objectType: "agent",
+        objectId: id,
+        session: { sub: session.sub, role: session.role, user: session.user },
+        requestedOwnerTeamSlug: normalizeString(body.owner_team_slug),
+        requestedSharedTeamSlugs: sharedTeamSlugs,
+        confirmedNotMember: body.confirm_not_member === true,
+        loadPrevious: async () => ({
+          ownerTeamSlug: previousOwnerTeamSlug,
+          sharedTeamSlugs: previousSharedTeamSlugs,
+          creatorSubject: normalizeString(agent.owner_subject),
+        }),
+        persist: async () => {},
+        canUseOwnerTeam: async (slug) => {
+          const team = await loadOwnerTeam({ slug });
+          return team ? canUseOwnerTeam(session, team) : false;
+        },
+      },
+      {
+        ownerTeamSlug: previousOwnerTeamSlug,
+        sharedTeamSlugs: previousSharedTeamSlugs,
+        creatorSubject: normalizeString(agent.owner_subject),
+      },
+    );
+    const nextOwnerTeamSlug = resolvedOwnership.ownerTeamSlug;
+    const transferPreviousOwner = resolvedOwnership.transferred
+      ? resolvedOwnership.previousOwnerTeamSlug ?? undefined
+      : undefined;
+    if (resolvedOwnership.transferred) {
+      const destinationTeam = await loadOwnerTeam({ slug: nextOwnerTeamSlug! });
+      if (!destinationTeam) {
+        throw new ApiError("Destination team not found", 404, "OWNER_TEAM_NOT_FOUND");
+      }
+      updateData.owner_team_slug = nextOwnerTeamSlug ?? undefined;
+      updateData.owner_team_id = teamIdString(destinationTeam) ?? undefined;
+    }
+
     const finalAllowedTools = (updateData.allowed_tools ??
       agent.allowed_tools ??
       {}) as Record<string, string[]>;
@@ -665,9 +726,18 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
       nextAllowedTools: finalAllowedTools,
       ownerSubject: agent.owner_subject ?? agent.owner_id,
       organizationId: caipeOrgKey(),
-      ownerTeamSlug: agent.owner_team_slug,
+      ownerTeamSlug: nextOwnerTeamSlug,
+      previousOwnerTeamSlug: transferPreviousOwner,
       nextSharedTeamSlugs: sharedTeamSlugs,
       previousSharedTeamSlugs,
+      // Keep the wildcard `user:* user agent:<id>` grant in sync with
+      // visibility on every edit. Without this a `global → team` demote
+      // would update Mongo but leave the everyone-can-use grant behind,
+      // so non-owner-team members keep `can_use` (the SRE-agent leak).
+      // `currentVisibility` may be the legacy 'private' value on old docs;
+      // only an exact 'global' match counts as a previous wildcard grant.
+      globalUserAccess: finalVisibility === "global",
+      previousGlobalUserAccess: currentVisibility === "global",
     });
 
     const updated = await collection.findOneAndUpdate(
@@ -701,7 +771,7 @@ export const DELETE = withErrorHandler(async (request: NextRequest) => {
   }
 
   const { session } = await getAuthFromBearerOrSession(request);
-  await requireResourcePermission(session, { type: "agent", id, action: "delete" });
+  await requireAgentPermission(session, id, "delete");
 
     const collection = await getCollection<DynamicAgentConfig>(COLLECTION_NAME);
 

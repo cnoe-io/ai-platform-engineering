@@ -259,6 +259,10 @@ export interface ConnectorAdminAdapter {
     setLoading: (loading: boolean) => void;
     setMessage: (message: string | null) => void;
     onRefresh: (routes?: ItemAgentRoute[]) => Promise<void> | void;
+    // Clears the selected item so its detail panel closes immediately — used
+    // after destructive actions (e.g. deleting the item) so the panel doesn't
+    // linger on a now-nonexistent row while the list reloads.
+    onDeselect: () => void;
     routesFor: (workspaceId: string, itemId: string) => string;
     listApi: string;
   }) => ReactNode;

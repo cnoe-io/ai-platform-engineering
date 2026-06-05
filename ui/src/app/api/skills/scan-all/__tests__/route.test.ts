@@ -50,7 +50,7 @@ jest.mock("@/lib/api-middleware", () => {
   };
 });
 
-// `requireResourcePermission` (admin_surface:skills-scan-all#admin) calls
+// `requireAdminSurfaceManage` (`admin_surface:skills#can_manage`) calls
 // `checkOpenFgaTuple` after the role check. Allow it by default; tests
 // asserting on PDP deny can override with `.mockResolvedValueOnce(...)`.
 jest.mock("@/lib/rbac/openfga", () => ({

@@ -2,13 +2,14 @@
 # SPDX-License-Identifier: Apache-2.0
 """MongoDB-backed catalog API keys (hashed secrets only) for FR-018 / T046.
 
-Key format: ``{key_id}.{secret}`` (secret is opaque). Only ``sha256`` hash
-of ``pepper:secret`` is stored.
+Key format: ``{key_id}.{secret}`` (secret is opaque). Only HMAC-SHA256
+(pepper, secret) is stored (matches the BFF ``catalog-api-keys`` module).
 """
 
 from __future__ import annotations
 
 import hashlib
+import hmac
 import logging
 import os
 import secrets
@@ -26,9 +27,8 @@ def _pepper() -> str:
 
 
 def _hash_secret(secret: str) -> str:
-    p = _pepper()
-    payload = f"{p}:{secret}".encode("utf-8")
-    return hashlib.sha256(payload).hexdigest()
+    p = _pepper().encode("utf-8")
+    return hmac.new(p, secret.encode("utf-8"), hashlib.sha256).hexdigest()
 
 
 def _get_collection():

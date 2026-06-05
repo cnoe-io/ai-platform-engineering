@@ -149,13 +149,19 @@ export const ingestUrl = async (params: {
     get_child_pages?: boolean;
     settings?: ScrapySettings;
     reload_interval?: number;
+    // Owning team for the new data source (spec 2026-06-03). The server
+    // authorizes creation against the org `can_ingest` capability + membership
+    // of this team, and writes ownership tuples so the team's members get
+    // read/ingest on the new source. Required for non-org-admin authors.
+    owner_team_slug?: string;
 }): Promise<{ datasource_id: string | null; job_id: string | null; message: string }> => {
     // Route to appropriate endpoint based on ingest_type
     if (params.ingest_type === 'confluence') {
         return apiPost('/v1/ingest/confluence/page', {
             url: params.url,
             description: params.description || '',
-            get_child_pages: params.get_child_pages || false
+            get_child_pages: params.get_child_pages || false,
+            owner_team_slug: params.owner_team_slug || null
         });
     } else {
         // Web ingestion with ScrapySettings and optional reload_interval
@@ -163,7 +169,8 @@ export const ingestUrl = async (params: {
             url: params.url,
             description: params.description || '',
             settings: params.settings || { crawl_mode: 'single' },
-            reload_interval: params.reload_interval
+            reload_interval: params.reload_interval,
+            owner_team_slug: params.owner_team_slug || null
         });
     }
 };

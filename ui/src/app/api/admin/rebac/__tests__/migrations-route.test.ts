@@ -10,6 +10,7 @@ const mockRequireResourcePermission = jest.fn();
 const mockGetCollection = jest.fn();
 const mockConnectToDatabase = jest.fn();
 const mockWriteOpenFgaTuples = jest.fn();
+const mockWriteOpenFgaTupleDiff = jest.fn();
 const mockGetKeycloakRbacDiagnosticValues = jest.fn();
 
 const collections: Record<string, ReturnType<typeof createCollection>> = {};
@@ -59,6 +60,8 @@ jest.mock("@/lib/mongodb", () => ({
 
 jest.mock("@/lib/rbac/openfga", () => ({
   writeOpenFgaTuples: (...args: unknown[]) => mockWriteOpenFgaTuples(...args),
+  writeOpenFgaTupleDiff: (...args: unknown[]) => mockWriteOpenFgaTupleDiff(...args),
+  readOpenFgaTuples: jest.fn().mockResolvedValue({ tuples: [], continuationToken: undefined }),
 }));
 
 jest.mock("@/lib/rbac/keycloak-admin", () => ({
@@ -115,6 +118,7 @@ beforeEach(() => {
   mockRequireRbacPermission.mockResolvedValue(undefined);
   mockRequireResourcePermission.mockResolvedValue(undefined);
   mockWriteOpenFgaTuples.mockResolvedValue({ enabled: true, writes: 1, deletes: 0 });
+  mockWriteOpenFgaTupleDiff.mockResolvedValue({ enabled: true, writes: 1, deletes: 0 });
   mockGetCollection.mockImplementation(async (name: string) => collections[name] ?? createCollection());
   mockConnectToDatabase.mockImplementation(async () => ({
     db: {
@@ -272,7 +276,9 @@ describe("admin ReBAC migrations API", () => {
     expect(statusBody.data.is_blocking).toBe(true);
     expect(statusBody.data.runtime).toEqual(
       expect.objectContaining({
-        migration_release: "0.5.1",
+        // The runtime reports the latest active release; the 0.5.8 manifest
+        // adds the unified shareable-resource RBAC backfills.
+        migration_release: "0.5.8",
       }),
     );
 
@@ -287,10 +293,10 @@ describe("admin ReBAC migrations API", () => {
     expect(overrideResponse.status).toBe(200);
     expect(overrideBody.data.override_active).toBe(true);
     expect(collections.migration_overrides.updateOne).toHaveBeenCalledWith(
-      { _id: "0.5.1:admin@example.com" },
+      { _id: "0.5.8:admin@example.com" },
       expect.objectContaining({
         $set: expect.objectContaining({
-          release: "0.5.1",
+          release: "0.5.8",
           reason: "Emergency production verification",
           status: "active",
           created_by: "admin@example.com",
@@ -422,7 +428,9 @@ describe("admin ReBAC migrations API", () => {
 
     expect(response.status).toBe(200);
     expect(mockRequireResourcePermission).not.toHaveBeenCalled();
-    expect(body.data.release).toBe("0.5.1");
+    // Latest active release (the 0.5.8 manifest adds the shareable-resource
+    // RBAC backfills on top of the 0.5.1 entries).
+    expect(body.data.release).toBe("0.5.8");
     expect(body.data.migrations).toEqual(
       expect.arrayContaining([
         expect.objectContaining({

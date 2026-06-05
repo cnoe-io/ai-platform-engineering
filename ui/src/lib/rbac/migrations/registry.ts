@@ -39,6 +39,20 @@ import type {
 } from "./types";
 
 export const RELEASE_051 = "0.5.1";
+// 0.5.8 manifest — the unified shareable-resource RBAC backfills
+// (spec 2026-06-03). The migration framework tracks completed runs and the
+// override key per release, so a new release constant is threaded through
+// `ACTIVE_RELEASES` (the runs query, override scope, and runtime label all
+// span every active release).
+export const RELEASE_058 = "0.5.8";
+// All release manifests the runtime surfaces. The newest is the reported
+// `migration_release`; the runs query spans every entry so completed-state is
+// tracked across releases. Keep newest-last so `latestRelease()` is the tail.
+export const ACTIVE_RELEASES = [RELEASE_051, RELEASE_058] as const;
+
+function latestRelease(): string {
+  return ACTIVE_RELEASES[ACTIVE_RELEASES.length - 1];
+}
 export const SCHEMA_VERSION_BOOTSTRAP_CONFIRMATION = "INITIALIZE SCHEMA VERSIONS TO v1";
 export const APPLY_ALL_MIGRATIONS_CONFIRMATION = "APPLY ALL PENDING MIGRATIONS";
 export const SCHEMA_VERSION_BOOTSTRAP_MIGRATION_ID = "schema_version_bootstrap_v1";
@@ -104,13 +118,35 @@ export const DATA_SOURCE_GRANTS_BACKFILL_MIGRATION_ID =
   "data_source_grants_backfill_v1";
 // `mcp_tool_grants_backfill_v1` walks Mongo `team_rag_tools` and
 // writes `team:<slug>#member reader mcp_tool:<tool_id>` (plus the
-// matching `user` relation, mirroring `mcp_server` invokers). For
+// matching `user` + `caller` relations so members can use AND
+// invoke the tool via can_call). For
 // teams without an explicit owner team it's a no-op — admins keep
 // access via the `organization#admin → manager` model edge documented
 // in [deploy/openfga/model.fga].
 // assisted-by Cursor claude-opus-4-7
 export const MCP_TOOL_GRANTS_BACKFILL_MIGRATION_ID =
   "mcp_tool_grants_backfill_v1";
+// `parent_kb_inheritance_backfill_v1` writes one
+// `data_source:<id> parent_kb knowledge_base:<id>` inheritance edge per
+// existing datasource (spec 2026-06-03-unified-shareable-resource-rbac, US4).
+// It supersedes the per-grant `data_source_grants_backfill_v1` mirror: with
+// the edge in place the data source inherits read/ingest/manage from its KB
+// via the model's `... from parent_kb` permissions, so KB grants enforce on
+// the data source without duplicating tuples. Strictly additive, idempotent.
+export const PARENT_KB_INHERITANCE_BACKFILL_MIGRATION_ID =
+  "parent_kb_inheritance_backfill_v1";
+// `creator_from_owner_backfill_v1` writes the audit-only `creator` relation
+// from each existing personal `owner` tuple on the shareable types (US2,
+// research FR-012 option b). The `owner` tuple is RETAINED — no access is
+// removed. Strictly additive, idempotent.
+export const CREATOR_FROM_OWNER_BACKFILL_MIGRATION_ID =
+  "creator_from_owner_backfill_v1";
+// Reconciles every `agent_skills` Mongo row to OpenFGA: owner/creator tuples,
+// team shares when visibility is `team`, org-wide grant when `global`, and
+// revokes stale `team#member user skill:<id>` grants left after demoting to
+// `private` before PUT reconciliation shipped.
+export const AGENT_SKILL_OPENFGA_RECONCILE_MIGRATION_ID =
+  "agent_skill_openfga_reconcile_v1";
 const RBAC_INDEXES_MIGRATION_ID = "rbac_indexes_v1";
 const SLACK_CHANNEL_REBAC_MIGRATION_ID = "slack_channel_rebac_backfill_v1";
 const WEBEX_SPACE_REBAC_MIGRATION_ID = "webex_space_rebac_backfill_v1";
@@ -315,8 +351,51 @@ export const MIGRATION_DEFINITIONS: MigrationDefinition[] = [
     kind: "explicit",
     title: "mcp_tool grants backfill",
     description:
-      "Walks Mongo `team_rag_tools` and writes the canonical `team:<slug>#member reader mcp_tool:<tool_id>` + `team:<slug>#member user mcp_tool:<tool_id>` + `team:<slug>#admin manager mcp_tool:<tool_id>` tuples so every team that already owned a RAG custom MCP tool keeps access through the BFF's per-tool filter. Idempotent.",
+      "Walks Mongo `team_rag_tools` and writes the canonical `team:<slug>#member reader mcp_tool:<tool_id>` + `team:<slug>#member user mcp_tool:<tool_id>` + `team:<slug>#member caller mcp_tool:<tool_id>` + `team:<slug>#admin manager mcp_tool:<tool_id>` tuples so every team that already owned a RAG custom MCP tool keeps access through the BFF's per-tool filter (including invoke via can_call). Idempotent.",
     confirmation: "MIGRATE team_rag_tools TO mcp_tool_v1",
+    required: true,
+    implemented: true,
+  },
+  {
+    id: PARENT_KB_INHERITANCE_BACKFILL_MIGRATION_ID,
+    release: RELEASE_058,
+    schema_area: "openfga_tuples",
+    from_version: 2,
+    to_version: 3,
+    kind: "explicit",
+    title: "data_source parent_kb inheritance backfill",
+    description:
+      "Writes one `data_source:<id> parent_kb knowledge_base:<id>` inheritance edge per existing datasource so KB grants enforce on the data source via the model's `... from parent_kb` permissions (spec 2026-06-03, US4). Supersedes the per-grant data_source mirror — strictly additive and idempotent; removes no access.",
+    confirmation: "MIGRATE openfga_tuples TO parent_kb_v1",
+    required: true,
+    implemented: true,
+    dependencies: [DATA_SOURCE_GRANTS_BACKFILL_MIGRATION_ID],
+  },
+  {
+    id: CREATOR_FROM_OWNER_BACKFILL_MIGRATION_ID,
+    release: RELEASE_058,
+    schema_area: "openfga_tuples",
+    from_version: 3,
+    to_version: 4,
+    kind: "explicit",
+    title: "creator-from-owner provenance backfill",
+    description:
+      "Writes the audit-only `creator` relation from each existing personal `user:<sub> owner <type>:<id>` tuple on agent / knowledge_base / data_source / mcp_tool (spec 2026-06-03, US2). The `owner` tuple is retained — no access is removed. `creator` is referenced by no `can_*`, so it grants nothing. Strictly additive and idempotent.",
+    confirmation: "MIGRATE openfga_tuples TO creator_v1",
+    required: false,
+    implemented: true,
+  },
+  {
+    id: AGENT_SKILL_OPENFGA_RECONCILE_MIGRATION_ID,
+    release: RELEASE_058,
+    schema_area: "agent_skills",
+    from_version: 1,
+    to_version: 2,
+    kind: "explicit",
+    title: "Agent skill OpenFGA visibility reconcile",
+    description:
+      "Aligns OpenFGA grants with each skill's Mongo `visibility`: writes owner/creator tuples, grants or revokes team/org-wide access from existing FGA state, and removes stale team shares on private skills so gallery `can_discover` matches the Private badge.",
+    confirmation: "MIGRATE agent_skills TO v2",
     required: true,
     implemented: true,
   },
@@ -433,6 +512,7 @@ interface MigrationOverrideDoc {
 
 interface MigrationRuntimePlan extends MigrationPlanResult {
   tuples?: OpenFgaTupleKey[];
+  tuple_deletes?: OpenFgaTupleKey[];
   relationships?: Array<{
     subject: { type: string; id: string; relation?: string };
     action: string;
@@ -1342,10 +1422,122 @@ export function deriveDataSourceGrantsBackfillPlan(
 }
 
 /**
+ * Backfill the `data_source:<id> parent_kb knowledge_base:<id>` inheritance
+ * edge for every existing datasource (spec 2026-06-03, US4). A data_source is
+ * 1:1 with its knowledge_base (same id), so the set of datasource ids is
+ * exactly the set of knowledge_base ids that appear in OpenFGA. Writing the
+ * single inheritance edge lets the data source inherit read/ingest/manage from
+ * the KB via the model's `... from parent_kb` permissions, superseding the
+ * per-grant data_source mirror (`deriveDataSourceGrantsBackfillPlan`).
+ *
+ * Strictly additive and idempotent: one edge per datasource, no deletes.
+ */
+export function deriveParentKbInheritanceBackfillPlan(
+  knowledgeBaseTuples: ReadonlyArray<OpenFgaTupleKey>,
+): MigrationRuntimePlan {
+  const warnings: string[] = [];
+  const ids = new Set<string>();
+  let scanned = 0;
+  for (const tuple of knowledgeBaseTuples) {
+    scanned += 1;
+    if (!tuple.object?.startsWith("knowledge_base:")) continue;
+    const id = tuple.object.slice("knowledge_base:".length);
+    if (!id || !isOpenFgaId(id)) {
+      warnings.push(`Skipping knowledge_base tuple with invalid id: ${tuple.object}`);
+      continue;
+    }
+    ids.add(id);
+  }
+
+  const tuples: OpenFgaTupleKey[] = [...ids].map((id) => ({
+    user: `knowledge_base:${id}`,
+    relation: "parent_kb",
+    object: `data_source:${id}`,
+  }));
+  const unique = uniqueTuples(tuples);
+
+  return {
+    migration_id: PARENT_KB_INHERITANCE_BACKFILL_MIGRATION_ID,
+    release: RELEASE_058,
+    schema_area: "openfga_tuples",
+    kind: "explicit",
+    from_version: 2,
+    to_version: 3,
+    counts: {
+      tuples_scanned: scanned,
+      datasources: ids.size,
+      tuples_planned: unique.length,
+    },
+    warnings,
+    sample_diffs: unique.slice(0, 10).map((tuple, index) => ({
+      collection: "openfga_tuples",
+      id: `${PARENT_KB_INHERITANCE_BACKFILL_MIGRATION_ID}:${index}`,
+      before: {},
+      after: { ...tuple },
+    })),
+    tuple_writes_planned: unique.length,
+    confirmation: "MIGRATE openfga_tuples TO parent_kb_v1",
+    tuples: unique,
+  };
+}
+
+/**
+ * Backfill the audit-only `creator` relation from each existing personal
+ * `owner` tuple on the shareable types (spec 2026-06-03, US2; research FR-012
+ * option b). For every `user:<sub> owner <type>:<id>` on agent /
+ * knowledge_base / data_source / mcp_tool, plan a `user:<sub> creator
+ * <type>:<id>` write. The `owner` tuple is RETAINED — no deletes, no access
+ * removed. `creator` is referenced by no `can_*`, so it grants nothing.
+ *
+ * Service-account owners are skipped: provenance ("who created this") is a
+ * human concept, and `creator` is typed `[user]` in the model.
+ */
+export function deriveCreatorFromOwnerBackfillPlan(
+  allTuples: ReadonlyArray<OpenFgaTupleKey>,
+): MigrationRuntimePlan {
+  const SHAREABLE_PREFIXES = ["agent:", "knowledge_base:", "data_source:", "mcp_tool:"];
+  const warnings: string[] = [];
+  const tuples: OpenFgaTupleKey[] = [];
+  let scanned = 0;
+  for (const tuple of allTuples) {
+    scanned += 1;
+    if (tuple.relation !== "owner") continue;
+    if (!tuple.user.startsWith("user:")) continue;
+    if (!SHAREABLE_PREFIXES.some((prefix) => tuple.object.startsWith(prefix))) continue;
+    tuples.push({ user: tuple.user, relation: "creator", object: tuple.object });
+  }
+  const unique = uniqueTuples(tuples);
+
+  return {
+    migration_id: CREATOR_FROM_OWNER_BACKFILL_MIGRATION_ID,
+    release: RELEASE_058,
+    schema_area: "openfga_tuples",
+    kind: "explicit",
+    from_version: 3,
+    to_version: 4,
+    counts: {
+      tuples_scanned: scanned,
+      owners_found: unique.length,
+      tuples_planned: unique.length,
+    },
+    warnings,
+    sample_diffs: unique.slice(0, 10).map((tuple, index) => ({
+      collection: "openfga_tuples",
+      id: `${CREATOR_FROM_OWNER_BACKFILL_MIGRATION_ID}:${index}`,
+      before: {},
+      after: { ...tuple },
+    })),
+    tuple_writes_planned: unique.length,
+    confirmation: "MIGRATE openfga_tuples TO creator_v1",
+    tuples: unique,
+  };
+}
+
+/**
  * Backfill `mcp_tool:<tool_id>` grants for every Mongo `team_rag_tools`
  * row. Mirrors the runtime reconciler used by
  * `reconcileMcpToolRelationships`: the owner team's members get
- * `reader` + `user`, the owner team's admins get `manager`.
+ * `reader` + `user` + `caller`, the owner team's admins get `manager`.
  *
  * Inputs:
  *  - `ownershipDocs`: rows from the `team_rag_tools` collection. Each
@@ -1392,6 +1584,9 @@ export function deriveMcpToolGrantsBackfillPlan(
       const object = `mcp_tool:${toolId}`;
       tuples.push({ user: `team:${slug}#member`, relation: "reader", object });
       tuples.push({ user: `team:${slug}#member`, relation: "user", object });
+      // `caller` → can_call: required so members can actually INVOKE the tool
+      // (the `user` relation only grants can_use, not can_call).
+      tuples.push({ user: `team:${slug}#member`, relation: "caller", object });
       tuples.push({ user: `team:${slug}#admin`, relation: "manager", object });
       perRowResolved = true;
     }
@@ -2016,6 +2211,24 @@ async function loadKnowledgeBaseTuples(): Promise<OpenFgaTupleKey[]> {
 }
 
 /**
+ * Read every tuple from OpenFGA via the paginated read API. Used by the
+ * creator-from-owner backfill, which must scan all `owner` tuples across the
+ * shareable types. Failures bubble up so the migration runner surfaces them.
+ */
+async function loadAllOpenFgaTuples(): Promise<OpenFgaTupleKey[]> {
+  const collected: OpenFgaTupleKey[] = [];
+  let continuationToken: string | undefined;
+  do {
+    const page = await readOpenFgaTuples({ continuationToken, pageSize: 100 });
+    for (const entry of page.tuples) {
+      collected.push(entry.key);
+    }
+    continuationToken = page.continuationToken;
+  } while (continuationToken);
+  return collected;
+}
+
+/**
  * Load every `team_rag_tools` Mongo doc plus a `teamId → slug` map
  * for the MCP tool grants backfill, mirroring
  * `loadKnowledgeBaseSharedTeamGrantsInputs`.
@@ -2222,7 +2435,7 @@ export async function listReleaseMigrations(options: { includeCompleted?: boolea
   const [manifestDocs, versionDocs, runDocs, collectionNames] = await Promise.all([
     manifest.find({}).toArray(),
     versions.find({}).toArray(),
-    runs.find({ release: RELEASE_051 }).toArray(),
+    runs.find({ release: { $in: [...ACTIVE_RELEASES] } }).toArray(),
     listMongoCollectionNames(),
   ]);
   const definitions = (manifestDocs.length > 0 ? manifestDocs.map(manifestDefinition) : MIGRATION_DEFINITIONS).sort(
@@ -2246,9 +2459,9 @@ export async function listReleaseMigrations(options: { includeCompleted?: boolea
   const completedMigrations = migrations.filter((migration) => migration.status === "completed");
 
   return {
-    release: RELEASE_051,
+    release: latestRelease(),
     runtime: {
-      migration_release: RELEASE_051,
+      migration_release: latestRelease(),
       manifest_count: definitions.length,
     },
     schema_versions: deriveSchemaVersionStatuses(definitions, versionByArea, collectionNames),
@@ -2451,10 +2664,10 @@ export async function recordMigrationOverride(input: {
   const expiresAt = new Date(Date.parse(now) + 24 * 60 * 60 * 1000).toISOString();
   const overrides = await getCollection<MigrationOverrideDoc>("migration_overrides");
   await overrides.updateOne(
-    { _id: overrideKey(RELEASE_051, input.actor) },
+    { _id: overrideKey(latestRelease(), input.actor) },
     {
       $set: {
-        release: RELEASE_051,
+        release: latestRelease(),
         reason,
         status: "active",
         expires_at: expiresAt,
@@ -2555,6 +2768,21 @@ export async function planMigration(migrationId: string, now = new Date().toISOS
   if (migrationId === MCP_TOOL_GRANTS_BACKFILL_MIGRATION_ID) {
     const { ownershipDocs, teamSlugByMongoId } = await loadMcpToolGrantsBackfillInputs();
     return deriveMcpToolGrantsBackfillPlan(ownershipDocs, teamSlugByMongoId);
+  }
+  if (migrationId === PARENT_KB_INHERITANCE_BACKFILL_MIGRATION_ID) {
+    // Datasource ids == KB ids (1:1), so the KB tuples reveal the full set.
+    const tuples = await loadKnowledgeBaseTuples();
+    return deriveParentKbInheritanceBackfillPlan(tuples);
+  }
+  if (migrationId === CREATOR_FROM_OWNER_BACKFILL_MIGRATION_ID) {
+    const tuples = await loadAllOpenFgaTuples();
+    return deriveCreatorFromOwnerBackfillPlan(tuples);
+  }
+  if (migrationId === AGENT_SKILL_OPENFGA_RECONCILE_MIGRATION_ID) {
+    const { planAgentSkillOpenFgaReconcileMigration } = await import(
+      "./agent-skill-openfga-reconcile"
+    );
+    return planAgentSkillOpenFgaReconcileMigration();
   }
   if (migrationId === RBAC_INDEXES_MIGRATION_ID) {
     return deriveIndexPlan();
@@ -2667,9 +2895,14 @@ async function applyRuntimePlan(input: {
   now: string;
 }): Promise<MigrationApplyResult> {
   let tupleWritesApplied = 0;
-  if (input.plan.tuples && input.plan.tuples.length > 0) {
-    const result = await writeOpenFgaTuples({ writes: input.plan.tuples, deletes: [] });
+  let tupleDeletesApplied = 0;
+  const tupleWrites = input.plan.tuples ?? [];
+  const tupleDeletes = input.plan.tuple_deletes ?? [];
+  if (tupleWrites.length > 0 || tupleDeletes.length > 0) {
+    const { writeOpenFgaTupleDiff } = await import("@/lib/rbac/openfga");
+    const result = await writeOpenFgaTupleDiff({ writes: tupleWrites, deletes: tupleDeletes });
     tupleWritesApplied = result.writes;
+    tupleDeletesApplied = result.deletes;
   }
 
   let relationshipsUpserted = 0;
@@ -2764,6 +2997,7 @@ async function applyRuntimePlan(input: {
     ...input.plan,
     applied_counts: {
       tuple_writes_applied: tupleWritesApplied,
+      tuple_deletes_applied: tupleDeletesApplied,
       relationships_upserted: relationshipsUpserted,
       membership_sources_upserted: membershipSourcesUpserted,
       indexes_created: indexesCreated,
@@ -2806,6 +3040,19 @@ export async function applyMigration(input: {
 
   if (input.migrationId === KEYCLOAK_RBAC_RECONCILIATION_MIGRATION_ID) {
     return applyKeycloakRbacReconciliationMigration({ actor: input.actor, now });
+  }
+
+  if (input.migrationId === AGENT_SKILL_OPENFGA_RECONCILE_MIGRATION_ID) {
+    const { planAgentSkillOpenFgaReconcileMigration, applyAgentSkillOpenFgaReconcileMigration } =
+      await import("./agent-skill-openfga-reconcile");
+    const plan = await planAgentSkillOpenFgaReconcileMigration();
+    const result = await applyAgentSkillOpenFgaReconcileMigration({
+      plan,
+      actor: input.actor,
+      now,
+    });
+    await recordCompletedMigration({ definition, result, now, actor: input.actor });
+    return result;
   }
 
   if (input.migrationId !== CONVERSATION_OWNER_IDENTITY_MIGRATION_ID) {

@@ -10,12 +10,15 @@ import type { RbacScope } from '@/lib/rbac/types';
 import {
   filterResourcesByPermission,
   requireResourcePermission,
+  type ResourceAuthzSession,
   type ResourcePermissionAction,
 } from '@/lib/rbac/resource-authz';
+import { resolveShareableOwnershipWrite } from '@/lib/rbac/shareable-resource';
 import {
   reconcileDataSourceRelationships,
   reconcileKnowledgeBaseRelationships,
   reconcileMcpToolRelationships,
+  deleteAllMcpToolRelationshipTuples,
 } from '@/lib/rbac/openfga-owned-resources';
 import { checkOpenFgaTuple } from '@/lib/rbac/openfga';
 import { organizationObjectId } from '@/lib/rbac/organization';
@@ -139,6 +142,9 @@ interface AuthorizedRagContext {
     knowledgeBaseId: string;
     ownerSubject: string | null;
     ownerTeamSlug: string | null;
+    /** Keycloak sub of the creator — persisted to the datasource config for
+     *  provenance/audit (spec 2026-06-03, US2/US5). */
+    creatorSubject: string | null;
   };
   /**
    * Populated for `PUT /v1/mcp/custom-tools/<tool_id>`. The proxy
@@ -150,11 +156,258 @@ interface AuthorizedRagContext {
     toolId: string;
     ownerSubject: string | null;
     ownerTeamSlug: string | null;
+    creatorSubject: string | null;
+    /** Teams the tool is shared with (from the request body). */
+    sharedTeamSlugs: string[];
+    /** Previously-persisted shared teams, read from config for the revoke diff. */
+    previousSharedTeamSlugs: string[];
+    /** Previously-persisted owner team, read from config. When the owner team
+     *  changes, this is passed to the reconciler so the old team's grants are
+     *  revoked instead of orphaned. */
+    previousOwnerTeamSlug: string | null;
+    /** Org-wide sharing requested in the body (organization#member grants). */
+    sharedWithOrg: boolean;
+    /** Previously-persisted org-wide state, for the revoke diff. */
+    previousSharedWithOrg: boolean;
   };
 }
 
 function normalizeString(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+const TEAM_SLUG_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._~@|*+=,/-]{0,191}$/;
+
+/** Normalize a list of team slugs: trim, drop blanks/invalid, dedupe. */
+function normalizeSlugList(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const candidate of raw) {
+    if (typeof candidate !== 'string') continue;
+    const trimmed = candidate.trim();
+    if (!trimmed || !TEAM_SLUG_PATTERN.test(trimmed) || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    out.push(trimmed);
+  }
+  return out;
+}
+
+/** Boolean membership check (`team:<slug>#can_use`) for the shared resolver. */
+async function canUseTeam(session: ResourceAuthzSession, slug: string): Promise<boolean> {
+  try {
+    await requireResourcePermission(session, { type: 'team', id: slug, action: 'use' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Read the previously-persisted MCP tool config (owner/creator/shared) from
+ * the RAG server, used to compute the reconcile diff and preserve the
+ * set-once creator. Returns empties when unavailable (new tool / no token).
+ */
+async function loadMcpToolConfig(
+  toolId: string,
+  session: { accessToken?: string; org?: string },
+): Promise<{ creatorSubject: string | null; ownerTeamSlug: string | null; sharedTeamSlugs: string[]; sharedWithOrg: boolean }> {
+  const empty = { creatorSubject: null, ownerTeamSlug: null, sharedTeamSlugs: [] as string[], sharedWithOrg: false };
+  if (!session.accessToken) return empty;
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${session.accessToken}`,
+  };
+  if (session.org) headers['X-Tenant-Id'] = session.org;
+  let response: Response;
+  try {
+    response = await fetch(`${getRagServerUrl()}/v1/mcp/custom-tools`, { method: 'GET', headers });
+  } catch {
+    return empty;
+  }
+  if (!response.ok) return empty;
+  let data: unknown;
+  try {
+    data = await response.json();
+  } catch {
+    return empty;
+  }
+  const list = Array.isArray(data) ? data : [];
+  const match = list.find(
+    (t): t is Record<string, unknown> => isRecord(t) && t.tool_id === toolId,
+  );
+  if (!match) return empty;
+  return {
+    creatorSubject: normalizeString(match.creator_subject),
+    ownerTeamSlug: normalizeString(match.owner_team_slug),
+    sharedTeamSlugs: normalizeSlugList(match.shared_with_teams),
+    sharedWithOrg: match.shared_with_org === true,
+  };
+}
+
+/**
+ * Enforce `mcp_tool#can_call` on the invocation path (spec 2026-06-03, US6 /
+ * FR-029). The BFF resolves the target custom tool from the invoke body's
+ * `tool_name`, and denies with a tool-specific 403 if the caller (the session
+ * user, or an agent principal for agent-initiated calls) lacks `can_call`.
+ *
+ * Built-in tool names (search, fetch_document, …) have no `mcp_tool` object —
+ * they are NOT gated here (the RAG server's own role check applies). Only a
+ * `tool_name` that matches a persisted custom tool is gated. Org admins
+ * bypass (same `bypassForOrgAdmin` convention as the other RAG surfaces).
+ */
+async function requireMcpToolCallPermission(
+  session: AuthorizedRagContext['session'],
+  headers: Record<string, string>,
+  pathSegments: string[],
+  body: unknown,
+): Promise<void> {
+  if (pathSegments.join('/') !== 'v1/mcp/invoke') return;
+  if (!isRecord(body)) return;
+  const toolName = normalizeString(body.tool_name);
+  if (!toolName) return;
+
+  // Only custom tools have an mcp_tool object. Resolve the custom-tool set
+  // from the RAG server; a tool_name not in it is built-in → not gated. The
+  // gate is FAIL-CLOSED: if we cannot determine whether `tool_name` is a
+  // custom tool (listing error/parse failure), we deny rather than forward,
+  // so a transient RAG-server error cannot be used to bypass `can_call`.
+  let customToolIds: Set<string>;
+  try {
+    const response = await fetch(`${getRagServerUrl()}/v1/mcp/custom-tools`, {
+      method: 'GET',
+      headers,
+    });
+    if (!response.ok) {
+      throw new ApiError(
+        'Unable to verify tool-call permission. Please retry.',
+        503,
+        'mcp_tool#call_unavailable',
+      );
+    }
+    const data = await response.json();
+    const list = Array.isArray(data) ? data : [];
+    customToolIds = new Set(
+      list
+        .filter(isRecord)
+        .map((t) => (typeof t.tool_id === 'string' ? t.tool_id : ''))
+        .filter(Boolean),
+    );
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+    throw new ApiError(
+      'Unable to verify tool-call permission. Please retry.',
+      503,
+      'mcp_tool#call_unavailable',
+    );
+  }
+  if (!customToolIds.has(toolName)) return; // built-in tool — not gated
+
+  // Org admins bypass (kill-switchable), matching the other RAG surfaces.
+  if (await isOrgAdminSession(session)) return;
+
+  // Principal: an agent-initiated call carries `agent:<id>`; otherwise the
+  // session user. The agent id is conveyed via the `X-Agent-Id` header set by
+  // the supervisor when proxying tool calls on an agent's behalf.
+  const agentId = normalizeString(headers['X-Agent-Id'] ?? headers['x-agent-id']);
+  const subject = normalizeString(session.sub);
+  const principal = agentId ? `agent:${agentId}` : subject ? `user:${subject}` : null;
+  if (!principal) {
+    throw new ApiError('A stable principal is required to invoke this tool.', 401, 'NO_SUBJECT');
+  }
+
+  let allowed = false;
+  try {
+    const result = await checkOpenFgaTuple({
+      user: principal,
+      relation: 'can_call',
+      object: `mcp_tool:${toolName}`,
+    });
+    allowed = result.allowed === true;
+  } catch {
+    allowed = false;
+  }
+  if (!allowed) {
+    throw new ApiError(
+      `You do not have permission to call the "${toolName}" tool.`,
+      403,
+      'mcp_tool#call',
+    );
+  }
+}
+
+/**
+ * Enforce the explicit org-level `can_search` capability on the search data
+ * path (spec 2026-06-03-explicit-search-capability). Applies to BOTH `/v1/query`
+ * and `/v1/mcp/invoke` (built-in `search`/`fetch_document` AND custom search
+ * tools like `caipe_kb`). This is the feature-level gate, layered ABOVE the
+ * narrower per-tool `mcp_tool#can_call` and per-datasource `data_source#can_read`
+ * checks — holding `can_call` on a shared tool does NOT, by itself, permit
+ * search. Org admins bypass (kill-switchable). Fails closed on OpenFGA error.
+ */
+async function requireSearchCapability(
+  session: AuthorizedRagContext['session'],
+  pathSegments: string[],
+): Promise<void> {
+  const targetPath = pathSegments.join('/');
+  if (targetPath !== 'v1/query' && targetPath !== 'v1/mcp/invoke') return;
+
+  // Org admins bypass (same convention as the other RAG surfaces).
+  if (await isOrgAdminSession(session)) return;
+
+  const subject = normalizeString(session.sub);
+  if (!subject) {
+    throw new ApiError('A stable principal is required to search.', 401, 'NO_SUBJECT');
+  }
+
+  let allowed = false;
+  try {
+    const result = await checkOpenFgaTuple({
+      user: `user:${subject}`,
+      relation: 'can_search',
+      object: organizationObjectId(),
+    });
+    allowed = result.allowed === true;
+  } catch {
+    allowed = false;
+  }
+  if (!allowed) {
+    throw new ApiError(
+      'You do not have permission to search. Ask an administrator to enable search for your team.',
+      403,
+      'organization#can_search',
+    );
+  }
+}
+
+/** Reconcile the OpenFGA projection for an MCP tool create/update, including
+ *  the creator tuple and the owner ∪ shared team-grant diff (spec US6). */
+async function reconcileMcpToolForOwnership(pending: {
+  toolId: string;
+  ownerSubject: string | null;
+  ownerTeamSlug: string | null;
+  creatorSubject: string | null;
+  sharedTeamSlugs: string[];
+  previousSharedTeamSlugs: string[];
+  previousOwnerTeamSlug: string | null;
+  sharedWithOrg: boolean;
+  previousSharedWithOrg: boolean;
+}): Promise<void> {
+  // `previousOwnerTeamSlug` is already non-null only on a transfer (set by the
+  // shared `resolveShareableOwnershipWrite` decision), so the reconciler
+  // revokes the old team's grants instead of orphaning them.
+  const previousOwnerTeamSlug = pending.previousOwnerTeamSlug ?? undefined;
+  await reconcileMcpToolRelationships({
+    toolId: pending.toolId,
+    ownerSubject: pending.ownerSubject,
+    ownerTeamSlug: pending.ownerTeamSlug,
+    creatorSubject: pending.creatorSubject,
+    nextSharedTeamSlugs: pending.sharedTeamSlugs,
+    previousSharedTeamSlugs: pending.previousSharedTeamSlugs,
+    previousOwnerTeamSlug,
+    sharedWithOrg: pending.sharedWithOrg,
+    previousSharedWithOrg: pending.previousSharedWithOrg,
+  });
 }
 
 function isDatasourceCreateRequest(method: string, pathSegments: string[]): boolean {
@@ -174,6 +427,14 @@ function isMcpToolUpsertRequest(method: string, pathSegments: string[]): boolean
     path.startsWith('v1/mcp/custom-tools/') &&
     pathSegments.length === 4
   );
+}
+
+/**
+ * Detect `POST /v1/mcp/custom-tools` — the RAG server's create endpoint for
+ * custom MCP tools. The tool id is in the request body (not the path).
+ */
+function isMcpToolCreateRequest(method: string, pathSegments: string[]): boolean {
+  return method === 'POST' && pathSegments.join('/').toLowerCase() === 'v1/mcp/custom-tools';
 }
 
 /**
@@ -234,6 +495,7 @@ async function getAuthorizedRagContext(
       knowledgeBaseId: kbId,
       ownerSubject,
       ownerTeamSlug,
+      creatorSubject: ownerSubject,
     };
   } else if (kbId) {
     const authzSession = { sub: session.sub, role: session.role, user: session.user };
@@ -246,21 +508,54 @@ async function getAuthorizedRagContext(
   }
 
   let pendingMcpToolOwnership: AuthorizedRagContext['pendingMcpToolOwnership'];
-  if (isMcpToolUpsertRequest(method, pathSegments)) {
-    const toolId = extractMcpToolId(pathSegments);
+  if (isMcpToolUpsertRequest(method, pathSegments) || isMcpToolCreateRequest(method, pathSegments)) {
+    // PUT carries the tool_id in the path; POST (create) carries it in the body.
+    const toolId =
+      extractMcpToolId(pathSegments) ??
+      (isRecord(body) ? normalizeString(body.tool_id) : null);
     if (toolId) {
-      const ownerTeamSlug = isRecord(body) ? normalizeString(body.owner_team_slug) : null;
-      if (ownerTeamSlug) {
-        await requireResourcePermission(
-          { sub: session.sub, role: session.role, user: session.user },
-          { type: 'team', id: ownerTeamSlug, action: 'use' },
-        );
-      }
       const ownerSubject = normalizeString(session.sub);
+      const authzSession = { sub: session.sub, role: session.role, user: session.user };
+      // Config is the source of truth: read the previous owner/creator/shared
+      // (and org-wide) state so the shared resolver can keep set-once fields,
+      // emit revoke deletes for removed teams/org grants, and detect an
+      // ownership transfer.
+      const previous = await loadMcpToolConfig(toolId, {
+        accessToken: session.accessToken,
+        org: session.org,
+      });
+
+      // Single decision path shared with the agent + KB routes: creator
+      // set-once, transfer guard (owner-team admin/org admin) + not-a-member
+      // confirm, first-set membership, shared-team + org-scope diff. The MCP
+      // proxy persists config via the upstream body (pre-call) and reconciles
+      // OpenFGA post-success, so we resolve here and apply each half in phase.
+      const resolved = await resolveShareableOwnershipWrite(
+        {
+          objectType: 'mcp_tool',
+          objectId: toolId,
+          session: authzSession,
+          requestedOwnerTeamSlug: isRecord(body) ? normalizeString(body.owner_team_slug) : null,
+          requestedSharedTeamSlugs: isRecord(body) ? normalizeSlugList(body.shared_with_teams) : null,
+          requestedSharedWithOrg: isRecord(body) ? body.shared_with_org === true : null,
+          confirmedNotMember: isRecord(body) && body.confirm_not_member === true,
+          loadPrevious: async () => previous,
+          persist: async () => {},
+          canUseOwnerTeam: (slug) => canUseTeam(authzSession, slug),
+        },
+        previous,
+      );
+
       pendingMcpToolOwnership = {
         toolId,
         ownerSubject,
-        ownerTeamSlug,
+        ownerTeamSlug: resolved.ownerTeamSlug,
+        creatorSubject: resolved.creatorSubject ?? ownerSubject,
+        sharedTeamSlugs: resolved.sharedTeamSlugs,
+        previousSharedTeamSlugs: resolved.previousSharedTeamSlugs,
+        previousOwnerTeamSlug: resolved.transferred ? resolved.previousOwnerTeamSlug : null,
+        sharedWithOrg: resolved.sharedWithOrg,
+        previousSharedWithOrg: resolved.previousSharedWithOrg,
       };
     }
   }
@@ -546,9 +841,16 @@ export async function POST(
     const targetPath = path.join('/');
     const targetUrl = `${ragServerUrl}/${targetPath}`;
 
+    // Parse the JSON body when present. We attempt a parse whenever a
+    // content-length is absent-but-nonempty OR positive, because the
+    // `mcp_tool#can_call` gate below needs the `tool_name` and some clients
+    // omit content-length on small JSON payloads. A parse failure leaves
+    // body undefined (the gate then no-ops, falling back to the RAG server's
+    // own role check).
     let body: unknown = undefined;
     const contentLength = request.headers.get('content-length');
-    if (contentLength && parseInt(contentLength) > 0) {
+    const hasBody = contentLength === null || parseInt(contentLength) > 0;
+    if (hasBody) {
       try {
         body = await request.json();
       } catch {
@@ -556,8 +858,54 @@ export async function POST(
       }
     }
 
-    const { headers, session, pendingKnowledgeBaseOwnership } = await getAuthorizedRagContext('POST', path, request, body);
+    const { headers, session, pendingKnowledgeBaseOwnership, pendingMcpToolOwnership } =
+      await getAuthorizedRagContext('POST', path, request, body);
+
+    // Enforce the org-level `can_search` capability on the search data path
+    // (spec 2026-06-03-explicit-search-capability) BEFORE the narrower per-tool
+    // gate. Covers `/v1/query` and `/v1/mcp/invoke` (built-in + custom tools).
+    await requireSearchCapability(session, path);
+
+    // Enforce `mcp_tool#can_call` before forwarding a custom-tool invocation
+    // (spec 2026-06-03, US6 / FR-029). Built-in tools have no mcp_tool object
+    // and are not gated here.
+    await requireMcpToolCallPermission(session, headers, path, body);
+
     body = await constrainSearchBody(session, headers, path, body);
+
+    // Persist owner/creator to the datasource config (the source of truth):
+    // inject the captured ownership fields into the body forwarded to the RAG
+    // server so its `DataSourceInfo` (OwnedResourceMixin) stores them. OpenFGA
+    // is reconciled below as the derived projection (spec 2026-06-03, US5).
+    if (pendingKnowledgeBaseOwnership && isRecord(body)) {
+      if (pendingKnowledgeBaseOwnership.ownerTeamSlug) {
+        body.owner_team_slug = pendingKnowledgeBaseOwnership.ownerTeamSlug;
+      }
+      if (pendingKnowledgeBaseOwnership.creatorSubject) {
+        body.creator_subject = pendingKnowledgeBaseOwnership.creatorSubject;
+      }
+      if (pendingKnowledgeBaseOwnership.ownerSubject) {
+        body.owner_subject = pendingKnowledgeBaseOwnership.ownerSubject;
+      }
+    }
+
+    // Same for an MCP tool create (POST /v1/mcp/custom-tools): inject the
+    // captured owner/creator/shared so the server's MCPToolConfig persists
+    // them (spec 2026-06-03, US6).
+    if (pendingMcpToolOwnership && isRecord(body)) {
+      if (pendingMcpToolOwnership.ownerTeamSlug) {
+        body.owner_team_slug = pendingMcpToolOwnership.ownerTeamSlug;
+      }
+      if (pendingMcpToolOwnership.creatorSubject) {
+        body.creator_subject = pendingMcpToolOwnership.creatorSubject;
+      }
+      if (pendingMcpToolOwnership.ownerSubject) {
+        body.owner_subject = pendingMcpToolOwnership.ownerSubject;
+      }
+      body.shared_with_teams = pendingMcpToolOwnership.sharedTeamSlugs;
+      body.shared_with_org = pendingMcpToolOwnership.sharedWithOrg;
+    }
+
     const fetchOptions: RequestInit = {
       method: 'POST',
       headers,
@@ -570,20 +918,35 @@ export async function POST(
     const response = await fetch(targetUrl, fetchOptions);
 
     if (response.status === 204) {
+      if (pendingMcpToolOwnership) {
+        await reconcileMcpToolForOwnership(pendingMcpToolOwnership);
+      }
       return new NextResponse(null, { status: 204 });
     }
 
     const data = await response.json();
     if (response.ok && pendingKnowledgeBaseOwnership) {
       // KB-backed datasources use the same identifier for data_source and
-      // knowledge_base relationships, so keep both resource graphs aligned.
-      // assisted-by Cursor claude-opus-4-7
-      await reconcileKnowledgeBaseRelationships(pendingKnowledgeBaseOwnership);
-      await reconcileDataSourceRelationships({
-        dataSourceId: pendingKnowledgeBaseOwnership.knowledgeBaseId,
+      // knowledge_base relationships. Team grants are written once on the
+      // knowledge_base; the data_source inherits read/ingest/manage via the
+      // `parent_kb` edge (spec 2026-06-03, US4), so we no longer mirror
+      // per-team tuples onto the data_source — we write only the inheritance
+      // edge. This fixes the prior "see-but-not-search" gap without
+      // duplicating grants across both graphs.
+      await reconcileKnowledgeBaseRelationships({
+        knowledgeBaseId: pendingKnowledgeBaseOwnership.knowledgeBaseId,
         ownerSubject: pendingKnowledgeBaseOwnership.ownerSubject,
         ownerTeamSlug: pendingKnowledgeBaseOwnership.ownerTeamSlug,
+        creatorSubject: pendingKnowledgeBaseOwnership.creatorSubject,
       });
+      await reconcileDataSourceRelationships({
+        dataSourceId: pendingKnowledgeBaseOwnership.knowledgeBaseId,
+        creatorSubject: pendingKnowledgeBaseOwnership.creatorSubject,
+        parentKnowledgeBaseId: pendingKnowledgeBaseOwnership.knowledgeBaseId,
+      });
+    }
+    if (response.ok && pendingMcpToolOwnership) {
+      await reconcileMcpToolForOwnership(pendingMcpToolOwnership);
     }
     return NextResponse.json(data, { status: response.status });
   } catch (error) {
@@ -608,9 +971,15 @@ export async function PUT(
     const targetPath = path.join('/');
     const targetUrl = `${ragServerUrl}/${targetPath}`;
 
+    // Parse the JSON body when present. Mirror the POST handler: attempt a
+    // parse whenever content-length is absent-but-nonempty OR positive, because
+    // the ownership/transfer logic below needs the body fields and some clients
+    // omit content-length on small JSON payloads. A parse failure leaves body
+    // undefined.
     let body: unknown = undefined;
     const contentLength = request.headers.get('content-length');
-    if (contentLength && parseInt(contentLength) > 0) {
+    const hasBody = contentLength === null || parseInt(contentLength) > 0;
+    if (hasBody) {
       try {
         body = await request.json();
       } catch {
@@ -619,6 +988,24 @@ export async function PUT(
     }
 
     const { headers, pendingMcpToolOwnership } = await getAuthorizedRagContext('PUT', path, request, body);
+
+    // Persist owner/creator/shared to the MCP tool config (source of truth).
+    // The RAG server replaces the whole config on PUT, so inject the captured
+    // ownership fields into the body or they'd be wiped (spec 2026-06-03, US6).
+    if (pendingMcpToolOwnership && isRecord(body)) {
+      if (pendingMcpToolOwnership.ownerTeamSlug) {
+        body.owner_team_slug = pendingMcpToolOwnership.ownerTeamSlug;
+      }
+      if (pendingMcpToolOwnership.creatorSubject) {
+        body.creator_subject = pendingMcpToolOwnership.creatorSubject;
+      }
+      if (pendingMcpToolOwnership.ownerSubject) {
+        body.owner_subject = pendingMcpToolOwnership.ownerSubject;
+      }
+      body.shared_with_teams = pendingMcpToolOwnership.sharedTeamSlugs;
+      body.shared_with_org = pendingMcpToolOwnership.sharedWithOrg;
+    }
+
     const fetchOptions: RequestInit = {
       method: 'PUT',
       headers,
@@ -632,14 +1019,14 @@ export async function PUT(
 
     if (response.status === 204) {
       if (pendingMcpToolOwnership) {
-        await reconcileMcpToolRelationships(pendingMcpToolOwnership);
+        await reconcileMcpToolForOwnership(pendingMcpToolOwnership);
       }
       return new NextResponse(null, { status: 204 });
     }
 
     const data = await response.json();
     if (response.ok && pendingMcpToolOwnership) {
-      await reconcileMcpToolRelationships(pendingMcpToolOwnership);
+      await reconcileMcpToolForOwnership(pendingMcpToolOwnership);
     }
     return NextResponse.json(data, { status: response.status });
   } catch (error) {
@@ -674,6 +1061,24 @@ export async function DELETE(
       method: 'DELETE',
       headers,
     });
+
+    // After a successful upstream delete of a custom MCP tool, remove ALL
+    // `mcp_tool:<id>` grants so no orphan tuples remain (spec 2026-06-03, US6
+    // / FR-028). Best-effort: a cleanup failure is logged but does not fail
+    // the delete (the config — source of truth — is already gone).
+    if (response.ok || response.status === 204) {
+      // `extractMcpToolId` is method-agnostic — it matches the
+      // `v1/mcp/custom-tools/<tool_id>` path shape regardless of verb.
+      const deletedToolId = extractMcpToolId(path);
+      if (deletedToolId) {
+        await deleteAllMcpToolRelationshipTuples(deletedToolId).catch((err) => {
+          console.warn(
+            '[RAG Proxy] failed to clean up mcp_tool tuples after delete:',
+            err,
+          );
+        });
+      }
+    }
 
     if (response.status === 204) {
       return new NextResponse(null, { status: 204 });

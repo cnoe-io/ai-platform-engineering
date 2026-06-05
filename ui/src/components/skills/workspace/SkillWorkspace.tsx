@@ -449,7 +449,11 @@ export function SkillWorkspace({
         const body = await res.json().catch(() => ({}));
         throw new Error(body?.error || `Clone failed (${res.status})`);
       }
-      const data = await res.json();
+      const json = await res.json();
+      // Clone returns the success-envelope shape ({ success, data: { id, name } })
+      // via successResponse(); unwrap it (falling back to the flat shape) so we
+      // never navigate to /skills/workspace/undefined.
+      const data = json?.data ?? json;
       toast(`Cloned to "${data.name}"`, "success");
       router.push(`/skills/workspace/${encodeURIComponent(data.id)}`);
     } catch (err) {

@@ -16,7 +16,7 @@ dependencies = [
   "pymongo==4.10.1",
   "pyjwt[crypto]==2.12.1",
   "loguru==0.7.3",
-  "aiohttp==3.13.5",
+  "aiohttp==3.14.0",
   "websockets==16.0",
 ]
 

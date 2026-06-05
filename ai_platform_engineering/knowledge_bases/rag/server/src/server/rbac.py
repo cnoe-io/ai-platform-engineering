@@ -538,6 +538,219 @@ async def _openfga_check_org_admin(user_context: UserContext) -> bool:
   return await _openfga_check_object(user_context, "can_manage", "organization", _caipe_org_key())
 
 
+# ============================================================================
+# Explicit "search" capability (spec 2026-06-03-explicit-search-capability)
+# ============================================================================
+#
+# Using search (the `/v1/query` retrieval path and the `/v1/mcp/invoke` tool
+# path, for BOTH built-in `search`/`fetch_document` AND custom search tools) is
+# a dedicated organization-level capability (`organization#can_search`), granted
+# to teams only and only by org admins. It is the FEATURE-level gate, layered
+# above the narrower per-tool `mcp_tool#can_call` and per-datasource
+# `data_source#can_read` checks: holding `can_call` on a shared tool does NOT,
+# by itself, permit search. The BFF enforces the same capability for the UI
+# path; this server-side check is defense-in-depth for direct/agent callers.
+# assisted-by Cursor claude-opus-4.8
+
+
+async def authorize_search(user_context: UserContext) -> None:
+  """Authorize use of the search data path (`/v1/query`, `/v1/mcp/invoke`).
+
+  Authorization is the explicit org-level "search" capability:
+
+  - When team-scope ReBAC is OFF, this is a no-op (coarse role gates apply).
+  - Unrestricted principals (client-credentials, CAIPE_UNSAFE_RBAC_BYPASS) and
+    coarse-ADMIN service tokens are allowed (preserve automation/agents).
+  - Org admins (`organization#can_manage`) are allowed.
+  - Everyone else MUST hold `organization#can_search` (granted via team
+    membership in a team an org admin opted in).
+
+  Fails CLOSED: 403 (capability missing) or 503 (PDP unavailable).
+  """
+  if not RBAC_TEAM_SCOPE_ENABLED:
+    return
+  if _has_unrestricted_kb_access(user_context):
+    return
+  if has_permission(user_context.role, Role.ADMIN):
+    return
+  if not _openfga_http_url() or not _openfga_user(user_context):
+    raise HTTPException(status_code=503, detail="Authorization service is temporarily unavailable")
+
+  try:
+    if await _openfga_check_org_admin(user_context):
+      return
+    if await _openfga_check_object(user_context, "can_search", "organization", _caipe_org_key()):
+      return
+  except HTTPException:
+    raise
+  except Exception as exc:  # noqa: BLE001 — fail closed on PDP errors
+    logger.warning("OpenFGA search authorization failed: %s", exc)
+    raise HTTPException(status_code=503, detail="Authorization service is temporarily unavailable") from exc
+
+  raise HTTPException(
+    status_code=403,
+    detail="You do not have permission to search. Ask an administrator to enable search for your team.",
+  )
+
+
+# ============================================================================
+# Explicit "data source author" capability (spec 2026-06-03-explicit-ingest-capability)
+# ============================================================================
+#
+# Authoring a NEW data source is a dedicated organization-level capability
+# (`organization#can_ingest`), granted to teams only and only by org admins.
+# This is intentionally separate from per-knowledge_base `ingestor` (which only
+# means "push into KB X"). Creation is authorized iff the caller is a member of
+# an opted-in owning team (or an org/coarse admin), and on success the server
+# writes ownership tuples so the owning team immediately gets read/ingest.
+# assisted-by Cursor claude-opus-4.8
+
+
+async def _openfga_read_tuple_exists(user: str, relation: str, object_ref: str) -> bool:
+  """Return True if the exact ``(user, relation, object)`` tuple exists.
+
+  Uses the OpenFGA ``/read`` endpoint with a fully-specified tuple filter so we
+  can deterministically verify a *userset* grant (e.g. whether
+  ``team:<slug>#member`` holds ``ingestor`` on the organization) without relying
+  on Check's transitive resolution.
+  """
+  base_url = _openfga_http_url()
+  if not base_url:
+    return False
+  async with httpx.AsyncClient(timeout=5.0) as client:
+    store_id = await _get_openfga_store_id(client, base_url)
+    response = await client.post(
+      f"{base_url}/stores/{store_id}/read",
+      headers={"Content-Type": "application/json"},
+      json={"tuple_key": {"user": user, "relation": relation, "object": object_ref}},
+    )
+    response.raise_for_status()
+    tuples = response.json().get("tuples", [])
+    for entry in tuples:
+      key = entry.get("key", {})
+      if (
+        key.get("user") == user
+        and key.get("relation") == relation
+        and key.get("object") == object_ref
+      ):
+        return True
+    return False
+
+
+def _team_holds_ingest_capability_filter(team_slug: str) -> tuple[str, str, str]:
+  return (f"team:{team_slug}#member", "ingestor", f"organization:{_caipe_org_key()}")
+
+
+async def _openfga_write_tuples(writes: List[Dict[str, str]]) -> None:
+  """Write ownership tuples to OpenFGA. Best-effort; raises on transport error.
+
+  Each entry is ``{"user", "relation", "object"}``. Callers decide whether a
+  failure is fatal.
+  """
+  base_url = _openfga_http_url()
+  if not base_url or not writes:
+    return
+  async with httpx.AsyncClient(timeout=5.0) as client:
+    store_id = await _get_openfga_store_id(client, base_url)
+    response = await client.post(
+      f"{base_url}/stores/{store_id}/write",
+      headers={"Content-Type": "application/json"},
+      json={"writes": {"tuple_keys": writes}},
+    )
+    response.raise_for_status()
+
+
+# ============================================================================
+# Custom MCP tool authorization (spec 2026-06-03-unified-shareable-resource-rbac)
+# ============================================================================
+#
+# Custom MCP tool management (POST/PUT/DELETE /v1/mcp/custom-tools) is a
+# group-owned, shareable resource. Authorization for human callers is resolved
+# through OpenFGA on the `mcp_tool` type — NOT the legacy coarse `require_role`
+# gate, which can never elevate a human above READONLY (see `rbac.py` role
+# assignment and `rag/README.md`: "tool authorization comes from OpenFGA
+# relationships"). Service principals already carrying the coarse ADMIN role
+# (admin client-credentials tokens, CAIPE_UNSAFE_RBAC_BYPASS) keep working so
+# existing automation is not regressed.
+# assisted-by Cursor claude-opus-4.8
+
+
+async def authorize_mcp_tool_manage(user_context: UserContext, tool_id: str) -> None:
+  """Authorize an update/delete of an existing custom MCP tool.
+
+  Allowed when the caller:
+  - already holds the coarse ADMIN role (admin client-credentials token or the
+    emergency CAIPE_UNSAFE_RBAC_BYPASS), preserving prior behavior; OR
+  - is an organization admin in OpenFGA (`organization#can_manage`); OR
+  - can manage this tool in OpenFGA (`mcp_tool:<tool_id>#can_manage` — i.e. the
+    tool owner, an owner-team admin, or an org admin).
+
+  Fails CLOSED: raises ``HTTPException(403)`` when the caller is not authorized
+  and ``HTTPException(503)`` when the OpenFGA PDP is unavailable or not
+  configured, so a PDP outage can never silently grant a write.
+  """
+  if has_permission(user_context.role, Role.ADMIN):
+    return
+  if not _openfga_http_url() or not _openfga_user(user_context):
+    raise HTTPException(
+      status_code=503,
+      detail="Authorization service is temporarily unavailable",
+    )
+  try:
+    if await _openfga_check_org_admin(user_context):
+      return
+    if await _openfga_check_object(user_context, "can_manage", "mcp_tool", tool_id):
+      return
+  except Exception as exc:  # noqa: BLE001 — fail closed on PDP errors
+    logger.warning("OpenFGA mcp_tool can_manage check failed: %s", exc)
+    raise HTTPException(
+      status_code=503,
+      detail="Authorization service is temporarily unavailable",
+    ) from exc
+  raise HTTPException(
+    status_code=403,
+    detail="You do not have permission to manage this MCP tool. Only the tool's owner, an owner-team admin, or an organization admin may modify it.",
+  )
+
+
+async def authorize_mcp_tool_create(user_context: UserContext, owner_team_slug: Optional[str]) -> None:
+  """Authorize creation of a new custom MCP tool.
+
+  The tool does not exist yet, so there are no per-resource tuples to check.
+  Authorization mirrors the BFF first-set rule (spec US6): the caller must be
+  an organization admin OR a member of the team they are assigning as owner
+  (``team:<owner_team_slug>#can_use``). Coarse-ADMIN service principals are
+  allowed first to preserve prior automation behavior.
+
+  Fails CLOSED with 403 (not authorized) / 503 (PDP unavailable).
+  """
+  if has_permission(user_context.role, Role.ADMIN):
+    return
+  if not _openfga_http_url() or not _openfga_user(user_context):
+    raise HTTPException(
+      status_code=503,
+      detail="Authorization service is temporarily unavailable",
+    )
+  normalized_owner = owner_team_slug.strip() if isinstance(owner_team_slug, str) else None
+  try:
+    if await _openfga_check_org_admin(user_context):
+      return
+    if normalized_owner and await _openfga_check_object(
+      user_context, "can_use", "team", normalized_owner
+    ):
+      return
+  except Exception as exc:  # noqa: BLE001 — fail closed on PDP errors
+    logger.warning("OpenFGA mcp_tool create authorization failed: %s", exc)
+    raise HTTPException(
+      status_code=503,
+      detail="Authorization service is temporarily unavailable",
+    ) from exc
+  raise HTTPException(
+    status_code=403,
+    detail="You must be an organization admin or a member of the owner team to create this MCP tool.",
+  )
+
+
 async def _openfga_list_objects(
   user_context: UserContext,
   relation: str,
@@ -755,6 +968,120 @@ async def check_datasource_access(
   if datasource_id in accessible:
     return
   raise HTTPException(status_code=403, detail="Access denied for this datasource")
+
+
+async def authorize_datasource_create(
+  request: Request,
+  user_context: UserContext,
+  datasource_id: str,  # noqa: ARG001 — kept for signature parity / future per-id rules
+  owner_team_slug: Optional[str],
+) -> None:
+  """Authorize creation of a NEW data source (spec 2026-06-03).
+
+  The data source does not exist yet, so there are no per-resource tuples to
+  check. Authorization is the explicit org-level "data source author"
+  capability plus owning-team membership:
+
+  - When team-scope ReBAC is OFF, this is a no-op (coarse role gates apply).
+  - Unrestricted principals (client-credentials, CAIPE_UNSAFE_RBAC_BYPASS) and
+    coarse-ADMIN service tokens are allowed (preserve automation).
+  - Org admins (`organization#can_manage`) are allowed; ``owner_team_slug`` is
+    optional for them (personal/admin-owned source).
+  - Everyone else MUST supply an ``owner_team_slug`` they are a member of
+    (`team:<slug>#can_use`) AND which itself holds the org author capability
+    (`team:<slug>#member -> ingestor -> organization`).
+
+  Fails CLOSED: 403 (not authorized / missing owning team) or 503 (PDP down).
+  """
+  if not RBAC_TEAM_SCOPE_ENABLED:
+    return
+  if _has_unrestricted_kb_access(user_context):
+    return
+  if has_permission(user_context.role, Role.ADMIN):
+    return
+  if not _openfga_http_url() or not _openfga_user(user_context):
+    raise HTTPException(status_code=503, detail="Authorization service is temporarily unavailable")
+
+  normalized_owner = owner_team_slug.strip() if isinstance(owner_team_slug, str) else None
+  try:
+    if await _openfga_check_org_admin(user_context):
+      return
+    if not normalized_owner:
+      raise HTTPException(
+        status_code=403,
+        detail="Select an owning team to create this data source. Creating new data sources requires membership in a team that an administrator has granted the data-source author capability.",
+      )
+    is_member = await _openfga_check_object(user_context, "can_use", "team", normalized_owner)
+    cap_user, cap_rel, cap_obj = _team_holds_ingest_capability_filter(normalized_owner)
+    team_opted_in = await _openfga_read_tuple_exists(cap_user, cap_rel, cap_obj)
+  except HTTPException:
+    raise
+  except Exception as exc:  # noqa: BLE001 — fail closed on PDP errors
+    logger.warning("OpenFGA data_source create authorization failed: %s", exc)
+    raise HTTPException(status_code=503, detail="Authorization service is temporarily unavailable") from exc
+
+  if is_member and team_opted_in:
+    return
+  raise HTTPException(
+    status_code=403,
+    detail="You are not allowed to create a data source for this team. You must be a member of a team that has the data-source author capability.",
+  )
+
+
+async def write_datasource_ownership(
+  datasource_id: str,
+  owner_team_slug: Optional[str],
+  user_context: UserContext,
+) -> None:
+  """Write ownership tuples for a freshly-created data source (spec 2026-06-03).
+
+  When an owning team is supplied: the team's members get read+ingest
+  (`knowledge_base:<id>#ingestor`), the team's admins get manage
+  (`knowledge_base:<id>#manager`), and the data source inherits via the
+  `parent_kb` edge. The author is recorded as `creator` for provenance. When no
+  owning team is supplied (org-admin personal create), the author is recorded as
+  `owner` instead.
+
+  Best-effort: logs and returns on failure rather than blocking the queued
+  ingestion (the create authorization already succeeded). No-op when team-scope
+  ReBAC or OpenFGA is not configured.
+  """
+  if not RBAC_TEAM_SCOPE_ENABLED or not _openfga_http_url():
+    return
+
+  kb_obj = f"knowledge_base:{datasource_id}"
+  ds_obj = f"data_source:{datasource_id}"
+  writes: List[Dict[str, str]] = [
+    {"user": kb_obj, "relation": "parent_kb", "object": ds_obj},
+  ]
+
+  author = _openfga_user(user_context)
+  normalized_owner = owner_team_slug.strip() if isinstance(owner_team_slug, str) else None
+
+  if normalized_owner:
+    writes.append({"user": f"team:{normalized_owner}#member", "relation": "ingestor", "object": kb_obj})
+    writes.append({"user": f"team:{normalized_owner}#admin", "relation": "manager", "object": kb_obj})
+    if author:
+      writes.append({"user": author, "relation": "creator", "object": kb_obj})
+  elif author:
+    # Personal / admin-owned source: the author owns it outright.
+    writes.append({"user": author, "relation": "owner", "object": kb_obj})
+    writes.append({"user": author, "relation": "creator", "object": kb_obj})
+
+  try:
+    await _openfga_write_tuples(writes)
+    logger.info(
+      "Wrote ownership tuples for new data source %s (owner_team=%s)",
+      datasource_id,
+      normalized_owner or "<personal>",
+    )
+  except Exception as exc:  # noqa: BLE001 — non-fatal; ingestion already queued
+    logger.warning(
+      "Failed to write ownership tuples for data source %s (owner_team=%s): %s",
+      datasource_id,
+      normalized_owner or "<personal>",
+      exc,
+    )
 
 
 def require_kb_access(kb_id: str, scope: str):

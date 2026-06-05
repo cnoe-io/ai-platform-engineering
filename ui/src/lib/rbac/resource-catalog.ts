@@ -50,6 +50,8 @@ const DEFAULT_RESOURCES: readonly RebacCatalogResource[] = [
   resource("mcp_server", "argocd", "Argo CD MCP Server", "role_gated"),
   resource("tool", "argocd_*", "Argo CD Tools", "rebac_shadowed"),
   resource("knowledge_base", "platform-runbooks", "Platform Runbooks", "rebac_shadowed"),
+  resource("data_source", "platform-runbooks", "Platform Runbooks Source", "rebac_enforced"),
+  resource("mcp_tool", "caipe_kb", "CAIPE KB Search Tool", "rebac_enforced"),
   resource("document", "platform-runbook", "Platform Runbook", "role_gated"),
   resource("skill", "incident-triage", "Incident Triage", "role_gated"),
   resource("task", "task-template", "Task Template", "role_gated"),

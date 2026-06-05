@@ -50,7 +50,15 @@ AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:-}"
 AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:-}"
 AWS_BEDROCK_ENABLE_PROMPT_CACHE="${AWS_BEDROCK_ENABLE_PROMPT_CACHE:-}"
 LLM_PROVIDER="${LLM_PROVIDER:-}"  # filled by cluster detection or user prompt; default applied per-use
+# Capture whether the caller set these explicitly (env/CLI) BEFORE the defaults
+# below collapse them to a non-empty value. The upgrade path
+# (detect_deployed_features) uses these flags to decide whether to inherit the
+# *deployed* RAG embeddings provider/model — mirroring LLM_PROVIDER, which is
+# empty by default and inherited from llm-secret.
+# assisted-by claude code claude-opus-4-8
+_EMBEDDINGS_MODEL_EXPLICIT="${EMBEDDINGS_MODEL:+set}"
 EMBEDDINGS_MODEL="${EMBEDDINGS_MODEL:-text-embedding-3-large}"
+_EMBEDDINGS_PROVIDER_EXPLICIT="${EMBEDDINGS_PROVIDER:+set}"
 EMBEDDINGS_PROVIDER="${EMBEDDINGS_PROVIDER:-openai}"
 # Provider-specific embeddings credentials (only the active provider's vars are required).
 # These mirror the env vars the RAG server's EmbeddingsFactory reads at runtime.
@@ -7528,6 +7536,62 @@ detect_deployed_features() {
         ;;
     esac
     log "Loaded LLM config from existing llm-secret (provider: ${LLM_PROVIDER:-unknown})"
+  fi
+
+  # ── Read RAG embeddings provider/model + creds from the deployed release ───
+  # The interactive wizard reads these in choose_features, but that block sits
+  # after choose_features' `--non-interactive` early return — so an unattended
+  # upgrade never saw it and silently reset RAG embeddings to the
+  # EMBEDDINGS_PROVIDER default (openai), dropping the deployed provider's
+  # config. Read them here (the upgrade path always runs detect_deployed_features
+  # first) so the non-interactive flow reaches parity with the interactive one.
+  # assisted-by claude code claude-opus-4-8
+  if $ENABLE_RAG; then
+    local _rag_vals
+    _rag_vals=$(helm get values caipe -n caipe -o json 2>/dev/null || true)
+    # Adopt the deployed provider/model unless the caller set them explicitly.
+    if [[ -z "${_EMBEDDINGS_PROVIDER_EXPLICIT:-}" ]]; then
+      local _dep _dem
+      _dep=$(echo "$_rag_vals" | jq -r '."rag-stack"."rag-server".env.EMBEDDINGS_PROVIDER // empty' 2>/dev/null || true)
+      _dem=$(echo "$_rag_vals" | jq -r '."rag-stack"."rag-server".env.EMBEDDINGS_MODEL // empty' 2>/dev/null || true)
+      if [[ -n "$_dep" ]]; then
+        EMBEDDINGS_PROVIDER="$_dep"
+        [[ -n "$_dem" && -z "${_EMBEDDINGS_MODEL_EXPLICIT:-}" ]] && EMBEDDINGS_MODEL="$_dem"
+        log "Detected RAG embeddings: ${EMBEDDINGS_PROVIDER}/${EMBEDDINGS_MODEL}"
+      fi
+    fi
+    # Rescue the active provider's embeddings credentials from the existing
+    # llm-secret (fills only unset vars, so explicit env creds always win). No
+    # prompts here — this is the unattended path; choose_features still prompts
+    # interactively when a credential is genuinely absent.
+    local _emb_secret
+    _emb_secret=$(kubectl get secret llm-secret -n caipe -o json 2>/dev/null || true)
+    if [[ -n "$_emb_secret" ]]; then
+      _emb_val() { echo "$_emb_secret" | jq -r --arg k "$1" '.data[$k] // empty' 2>/dev/null | base64 -d 2>/dev/null || true; }
+      case "$EMBEDDINGS_PROVIDER" in
+        openai)
+          [[ -z "${OPENAI_API_KEY:-}" ]] && OPENAI_API_KEY=$(_emb_val OPENAI_API_KEY)
+          ;;
+        azure-openai)
+          [[ -z "${AZURE_OPENAI_API_KEY:-}" ]]     && AZURE_OPENAI_API_KEY=$(_emb_val AZURE_OPENAI_API_KEY)
+          [[ -z "${AZURE_OPENAI_ENDPOINT:-}" ]]    && AZURE_OPENAI_ENDPOINT=$(_emb_val AZURE_OPENAI_ENDPOINT)
+          [[ -z "${AZURE_OPENAI_API_VERSION:-}" ]] && AZURE_OPENAI_API_VERSION=$(_emb_val AZURE_OPENAI_API_VERSION)
+          ;;
+        litellm)
+          # RAG talks to a LiteLLM-compatible endpoint (generic proxy or Voyage);
+          # recover endpoint + key so we re-point at the same backend.
+          [[ -z "${LITELLM_ENDPOINT:-}" ]] && LITELLM_ENDPOINT=$(_emb_val LITELLM_API_BASE)
+          [[ -z "${LITELLM_API_KEY:-}" ]]  && LITELLM_API_KEY=$(_emb_val LITELLM_API_KEY)
+          ;;
+        cohere)
+          [[ -z "${COHERE_API_KEY:-}" ]] && COHERE_API_KEY=$(_emb_val COHERE_API_KEY)
+          ;;
+        huggingface)
+          [[ -z "${HUGGINGFACEHUB_API_TOKEN:-}" ]] && HUGGINGFACEHUB_API_TOKEN=$(_emb_val HUGGINGFACEHUB_API_TOKEN)
+          ;;
+        # aws-bedrock embeddings reuse the LLM-side AWS creds loaded above.
+      esac
+    fi
   fi
 
   # ── Read deployment mode from Helm values ─────────────────────────────────

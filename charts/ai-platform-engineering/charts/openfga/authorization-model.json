@@ -221,6 +221,12 @@
         "auditor": {
           "this": {}
         },
+        "ingestor": {
+          "this": {}
+        },
+        "searcher": {
+          "this": {}
+        },
         "can_use": {
           "union": {
             "child": [
@@ -248,6 +254,38 @@
               {
                 "computedUserset": {
                   "relation": "auditor"
+                }
+              },
+              {
+                "computedUserset": {
+                  "relation": "admin"
+                }
+              }
+            ]
+          }
+        },
+        "can_ingest": {
+          "union": {
+            "child": [
+              {
+                "computedUserset": {
+                  "relation": "ingestor"
+                }
+              },
+              {
+                "computedUserset": {
+                  "relation": "admin"
+                }
+              }
+            ]
+          }
+        },
+        "can_search": {
+          "union": {
+            "child": [
+              {
+                "computedUserset": {
+                  "relation": "searcher"
                 }
               },
               {
@@ -444,6 +482,30 @@
               {
                 "type": "external_group",
                 "relation": "member"
+              }
+            ]
+          },
+          "ingestor": {
+            "directly_related_user_types": [
+              {
+                "type": "team",
+                "relation": "member"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              }
+            ]
+          },
+          "searcher": {
+            "directly_related_user_types": [
+              {
+                "type": "team",
+                "relation": "member"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
               }
             ]
           }
@@ -1155,6 +1217,9 @@
     {
       "type": "agent",
       "relations": {
+        "creator": {
+          "this": {}
+        },
         "owner": {
           "this": {}
         },
@@ -1291,6 +1356,13 @@
       },
       "metadata": {
         "relations": {
+          "creator": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              }
+            ]
+          },
           "owner": {
             "directly_related_user_types": [
               {
@@ -2116,6 +2188,9 @@
     {
       "type": "knowledge_base",
       "relations": {
+        "creator": {
+          "this": {}
+        },
         "owner": {
           "this": {}
         },
@@ -2233,6 +2308,13 @@
       },
       "metadata": {
         "relations": {
+          "creator": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              }
+            ]
+          },
           "owner": {
             "directly_related_user_types": [
               {
@@ -2331,6 +2413,12 @@
     {
       "type": "data_source",
       "relations": {
+        "creator": {
+          "this": {}
+        },
+        "parent_kb": {
+          "this": {}
+        },
         "owner": {
           "this": {}
         },
@@ -2373,6 +2461,16 @@
                 "computedUserset": {
                   "relation": "owner"
                 }
+              },
+              {
+                "tupleToUserset": {
+                  "tupleset": {
+                    "relation": "parent_kb"
+                  },
+                  "computedUserset": {
+                    "relation": "can_read"
+                  }
+                }
               }
             ]
           }
@@ -2404,6 +2502,16 @@
                 "computedUserset": {
                   "relation": "owner"
                 }
+              },
+              {
+                "tupleToUserset": {
+                  "tupleset": {
+                    "relation": "parent_kb"
+                  },
+                  "computedUserset": {
+                    "relation": "can_ingest"
+                  }
+                }
               }
             ]
           }
@@ -2424,6 +2532,16 @@
               {
                 "computedUserset": {
                   "relation": "owner"
+                }
+              },
+              {
+                "tupleToUserset": {
+                  "tupleset": {
+                    "relation": "parent_kb"
+                  },
+                  "computedUserset": {
+                    "relation": "can_manage"
+                  }
                 }
               }
             ]
@@ -2448,6 +2566,20 @@
       },
       "metadata": {
         "relations": {
+          "creator": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              }
+            ]
+          },
+          "parent_kb": {
+            "directly_related_user_types": [
+              {
+                "type": "knowledge_base"
+              }
+            ]
+          },
           "owner": {
             "directly_related_user_types": [
               {
@@ -2544,6 +2676,9 @@
     {
       "type": "mcp_tool",
       "relations": {
+        "creator": {
+          "this": {}
+        },
         "owner": {
           "this": {}
         },
@@ -2680,6 +2815,13 @@
       },
       "metadata": {
         "relations": {
+          "creator": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              }
+            ]
+          },
           "owner": {
             "directly_related_user_types": [
               {
@@ -2709,6 +2851,10 @@
               {
                 "type": "external_group",
                 "relation": "member"
+              },
+              {
+                "type": "organization",
+                "relation": "member"
               }
             ]
           },
@@ -2731,6 +2877,10 @@
               {
                 "type": "external_group",
                 "relation": "member"
+              },
+              {
+                "type": "organization",
+                "relation": "member"
               }
             ]
           },
@@ -2752,6 +2902,10 @@
               },
               {
                 "type": "external_group",
+                "relation": "member"
+              },
+              {
+                "type": "organization",
                 "relation": "member"
               },
               {
@@ -3031,6 +3185,9 @@
     {
       "type": "skill",
       "relations": {
+        "creator": {
+          "this": {}
+        },
         "owner": {
           "this": {}
         },
@@ -3162,6 +3319,13 @@
       },
       "metadata": {
         "relations": {
+          "creator": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              }
+            ]
+          },
           "owner": {
             "directly_related_user_types": [
               {

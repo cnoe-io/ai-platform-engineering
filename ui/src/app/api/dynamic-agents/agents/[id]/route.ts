@@ -13,7 +13,7 @@ import {
   ApiError,
   getAuthFromBearerOrSession,
 } from "@/lib/api-middleware";
-import { requireResourcePermission } from "@/lib/rbac/resource-authz";
+import { requireAgentPermission } from "@/lib/rbac/resource-authz";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 
 const COLLECTION_NAME = "dynamic_agents";
@@ -46,7 +46,7 @@ export const GET = withErrorHandler(
       }
 
       try {
-        await requireResourcePermission(session, { type: "agent", id, action: "read" });
+        await requireAgentPermission(session, id, "read");
       } catch (error) {
         const statusCode = (error as { statusCode?: number }).statusCode;
         if (!statusCode || (statusCode !== 403 && statusCode !== 404)) throw error;

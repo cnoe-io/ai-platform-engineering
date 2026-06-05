@@ -16,6 +16,11 @@
 
 export interface DataSourceInfo {
   datasource_id: string;
+  /**
+   * Human-friendly display label. Auto-derived on creation, editable by admins.
+   * Falls back to `datasource_id` for legacy rows. NEVER an authorization key.
+   */
+  name?: string | null;
   ingestor_id: string;
   source_type: string;
   description: string;
@@ -393,6 +398,26 @@ export interface MCPToolConfig {
   enabled: boolean;
   created_at: number;
   updated_at: number;
+  // Group-based access control (spec 2026-06-03, US6). Mirrors the Python
+  // OwnedResourceMixin on the server's MCPToolConfig; config is the source of
+  // truth, OpenFGA is the derived projection.
+  owner_team_slug?: string | null;
+  shared_with_teams?: string[];
+  /**
+   * When true, every organization member may call/use this tool. The OpenFGA
+   * projection grants `organization#member` reader/user/caller (in addition to
+   * the owner and shared teams).
+   */
+  shared_with_org?: boolean;
+  creator_subject?: string | null;
+  owner_subject?: string | null;
+  /**
+   * Transfer-only signal (not persisted): set when the editor reassigns
+   * owner_team_slug to a team the caller is not a member of and the user
+   * confirmed the not-a-member prompt. The BFF reads it to authorize the
+   * transfer; it is never stored on the config.
+   */
+  confirm_not_member?: boolean;
 }
 
 export interface MCPBuiltinToolsConfig {

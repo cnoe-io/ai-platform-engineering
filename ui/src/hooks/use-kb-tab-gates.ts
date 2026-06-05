@@ -12,6 +12,8 @@ const EMPTY_GATES: KbTabGatesMap = {
   mcp_tools: false,
   has_any_kb: false,
   kb_count: 0,
+  can_ingest: false,
+  can_search: false,
 };
 
 const DEV_AUTH_GATES: KbTabGatesMap = {
@@ -21,6 +23,8 @@ const DEV_AUTH_GATES: KbTabGatesMap = {
   mcp_tools: true,
   has_any_kb: true,
   kb_count: -1,
+  can_ingest: true,
+  can_search: true,
 };
 
 interface KbTabGatesState {

@@ -19,6 +19,7 @@ import { getCollection } from "@/lib/mongodb";
 import { isMongoDBConfigured } from "@/lib/mongodb";
 import { writeOpenFgaTuples } from "@/lib/rbac/openfga";
 import { caipeOrgKey } from "@/lib/rbac/organization";
+import { BUILTIN_MCP_CREDENTIAL_SOURCES } from "@/lib/rbac/agentgateway-mcp-discovery";
 import {
   reconcileConfigDrivenLlmModelRelationships,
   reconcileConfigDrivenMcpServerRelationships,
@@ -390,7 +391,7 @@ async function seedWorkflowConfigs(
  * When an entity is removed from config.yaml, it should be deleted
  * from the database on the next server restart.
  */
-async function cleanupStaleConfigDriven(
+export async function cleanupStaleConfigDriven(
   currentAgentIds: Set<string>,
   currentServerIds: Set<string>,
   currentModelIds: Set<string>,
@@ -413,11 +414,19 @@ async function cleanupStaleConfigDriven(
     }
   }
 
-  // Cleanup stale MCP servers
+  // Cleanup stale MCP servers.
+  //
+  // Only delete servers that were seeded from the YAML config. AgentGateway-
+  // *discovered* servers also carry `config_driven: true` (so they're managed,
+  // not user-editable), but they are NOT part of the seed YAML — they're
+  // provisioned at runtime by MCP discovery/sync. Without the `source` guard,
+  // every restart wiped them (the seed config declares no `mcp_servers`),
+  // which silently removed e.g. the `knowledge-base` server and reintroduced
+  // the empty-Bearer 401 until the operator re-synced.
   const serverCollection =
     await getCollection<MCPServerConfig>("mcp_servers");
   const staleServers = await serverCollection
-    .find({ config_driven: true })
+    .find({ config_driven: true, source: { $ne: "agentgateway" } } as never)
     .toArray();
   let serversDeleted = 0;
   for (const server of staleServers) {
@@ -656,6 +665,107 @@ export async function bootstrapDefaultIdentityGroupSyncRuleIfEmpty(): Promise<bo
 }
 
 /**
+ * Backfill `credential_sources` on built-in MCP servers that are missing them.
+ *
+ * AgentGateway discovery (the UI's MCP-server provisioning path) historically
+ * wrote `mcp_servers` documents without `credential_sources`, so transform-based
+ * routes received an empty Bearer and the upstream 401'd (most visibly
+ * `knowledge-base`/RAG). Fresh discoveries now attach the built-ins, but
+ * documents already persisted in an existing deployment need a one-time fix.
+ *
+ * This runs automatically on every server startup, so an operator's only
+ * "migration" step is rolling out the new image (e.g. `helm upgrade`). It is
+ * idempotent and non-destructive:
+ *   - Only matches docs where `credential_sources` is absent OR an empty array,
+ *     so re-runs are no-ops and an admin's customized sources are never clobbered.
+ *   - Keyed by the same {@link BUILTIN_MCP_CREDENTIAL_SOURCES} map used by fresh
+ *     discovery, so the backfill and insert paths cannot drift.
+ *
+ * @returns the number of documents actually updated (for logging).
+ */
+export async function backfillBuiltinMcpCredentialSources(): Promise<number> {
+  if (!isMongoDBConfigured) return 0;
+  const collection = await getCollection<MCPServerConfig>("mcp_servers");
+  let updated = 0;
+  for (const [id, sources] of Object.entries(BUILTIN_MCP_CREDENTIAL_SOURCES)) {
+    const result = await collection.updateOne(
+      {
+        _id: id,
+        $or: [
+          { credential_sources: { $exists: false } },
+          { credential_sources: { $size: 0 } },
+        ],
+      },
+      {
+        $set: {
+          credential_sources: sources,
+          updated_at: new Date().toISOString(),
+        },
+      },
+    );
+    if (result.modifiedCount > 0) {
+      updated += result.modifiedCount;
+      console.log(
+        `[seed-config] Backfilled credential_sources for MCP server: ${id}`,
+      );
+    }
+  }
+  return updated;
+}
+
+/**
+ * First-run / post-wipe safety net for AgentGateway-discovered MCP servers.
+ *
+ * Discovered servers (`source: "agentgateway"`) are runtime-provisioned by an
+ * explicit "Sync with AgentGateway" action — the YAML seed never declares them,
+ * and `backfillBuiltinMcpCredentialSources` only UPDATES existing docs. So once
+ * the `mcp_servers` collection loses its discovered rows (e.g. wiped by an
+ * older build that lacked the cleanup guard), nothing repopulates them until a
+ * human clicks Sync, leaving the MCP Servers tab empty (the recurring
+ * "No MCP Servers Yet" / knowledge-base 401 symptom).
+ *
+ * This runs ONE discovery pass at startup, but only when there are zero
+ * discovered servers, so it self-heals an empty/wiped collection without
+ * touching a healthy one. Idempotent and best-effort: any non-empty discovered
+ * set short-circuits, and a failed/unreachable AgentGateway is logged and
+ * swallowed (an empty collection is no worse than before).
+ *
+ * Returns the number of servers added/migrated by the heal (0 when skipped).
+ */
+export async function selfHealDiscoveredMcpServersIfEmpty(): Promise<number> {
+  if (!isMongoDBConfigured) return 0;
+
+  const collection = await getCollection<MCPServerConfig>("mcp_servers");
+  const discoveredCount = await collection.countDocuments({
+    source: "agentgateway",
+  });
+  if (discoveredCount > 0) return 0;
+
+  try {
+    const { syncSelectedAgentGatewayMcpServers } = await import(
+      "@/app/api/mcp-servers/agentgateway/_lib"
+    );
+    const result = await syncSelectedAgentGatewayMcpServers();
+    const healed = result.summary.added + result.summary.migrated;
+    if (healed > 0) {
+      console.log(
+        `[seed-config] Self-healed ${healed} AgentGateway MCP server(s) ` +
+          "into an empty collection (post-wipe / first-run recovery)",
+      );
+    }
+    return healed;
+  } catch (err) {
+    // AgentGateway unreachable or sync failed — leave the collection empty
+    // (operator can still click Sync). Never block startup.
+    console.error(
+      "[seed-config] AgentGateway MCP self-heal threw (collection left empty):",
+      err,
+    );
+    return 0;
+  }
+}
+
+/**
  * Load and apply seed configuration from YAML.
  *
  * Called at server startup via instrumentation.ts to ensure config-driven
@@ -719,13 +829,35 @@ export async function applySeedConfig(): Promise<void> {
         currentWorkflowIds,
       );
 
+      // Backfill credential_sources on previously-discovered built-in MCP
+      // servers (idempotent self-migration for existing deployments).
+      const credBackfillCount = await backfillBuiltinMcpCredentialSources();
+
       console.log(
         `[seed-config] Applied: ${modelCount} models, ` +
-          `${serverCount} MCP servers, ${agentCount} agents, ${workflowCount} workflow configs`,
+          `${serverCount} MCP servers, ${agentCount} agents, ${workflowCount} workflow configs` +
+          (credBackfillCount > 0
+            ? `, ${credBackfillCount} MCP credential_sources backfilled`
+            : ""),
       );
     } catch (err) {
       // Log but don't crash — seeding failure shouldn't prevent startup
       console.error("[seed-config] Failed to apply seed config:", err);
+    }
+  }
+
+  // Post-wipe / first-run safety net for AgentGateway-discovered MCP servers.
+  // Runs OUTSIDE the APP_CONFIG_PATH block so an empty collection self-heals
+  // even when no seed YAML is present. Best-effort — failures are logged but
+  // don't block startup, and a non-empty discovered set is a no-op.
+  if (isMongoDBConfigured) {
+    try {
+      await selfHealDiscoveredMcpServersIfEmpty();
+    } catch (err) {
+      console.error(
+        "[seed-config] AgentGateway MCP server self-heal threw:",
+        err,
+      );
     }
   }
 

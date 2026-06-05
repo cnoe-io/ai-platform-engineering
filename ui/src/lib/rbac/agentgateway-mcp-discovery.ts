@@ -1,5 +1,71 @@
-import type { MCPServerConfig } from "@/types/dynamic-agent";
+import type { MCPCredentialSource, MCPServerConfig } from "@/types/dynamic-agent";
 import { isAgentGatewayBaseEndpoint } from "@/lib/rbac/mcp-endpoint-normalizer";
+
+/**
+ * Built-in MCP credential sources, keyed by discovered target id. AgentGateway
+ * discovery only knows a target's id + endpoint; it cannot infer how the
+ * upstream authenticates. Without these, transform-based routes
+ * (`"Bearer " + default(x-caipe-provider-token, "")`) receive an empty Bearer
+ * and the upstream 401s — most visibly `knowledge-base` (RAG), whose `/mcp`
+ * enforces its own Keycloak/OIDC auth.
+ *
+ * This MUST stay in sync with the `credential_sources` declared in
+ * `ai_platform_engineering/dynamic_agents/src/dynamic_agents/services/config.yaml`
+ * (the authoritative declaration the Dynamic Agents runtime resolves) and with
+ * the route transforms in `deploy/agentgateway/config.yaml` /
+ * `deploy/agentgateway/config_bridge.py`.
+ */
+export const BUILTIN_MCP_CREDENTIAL_SOURCES: Record<string, MCPCredentialSource[]> = {
+  github: [
+    {
+      kind: "provider_connection",
+      name: "X-CAIPE-Provider-Token",
+      provider: "github",
+      target: "header",
+      fallback_env: "GITHUB_PERSONAL_ACCESS_TOKEN",
+    },
+  ],
+  gitlab: [
+    {
+      kind: "provider_connection",
+      name: "X-CAIPE-Provider-Token",
+      provider: "gitlab",
+      target: "header",
+      fallback_env: "GITLAB_PERSONAL_ACCESS_TOKEN",
+    },
+  ],
+  jira: [
+    {
+      kind: "provider_connection",
+      name: "X-CAIPE-Provider-Token",
+      provider: "atlassian",
+      target: "header",
+    },
+  ],
+  pagerduty: [
+    {
+      kind: "provider_connection",
+      name: "X-CAIPE-Provider-Token",
+      provider: "pagerduty",
+      target: "header",
+    },
+  ],
+  "knowledge-base": [
+    {
+      kind: "caller_token",
+      name: "X-CAIPE-Provider-Token",
+      target: "header",
+      fallback_client_credentials: true,
+    },
+  ],
+};
+
+/** Built-in credential sources for a discovered target id, if any. */
+export function builtinCredentialSourcesFor(
+  id: string,
+): MCPCredentialSource[] | undefined {
+  return BUILTIN_MCP_CREDENTIAL_SOURCES[id];
+}
 
 export type AgentGatewayMcpTargetStatus = "new" | "existing" | "legacy" | "conflict";
 
@@ -172,6 +238,7 @@ export function toAgentGatewayMcpServerDocument(
   source: "agentgateway";
   agentgateway_discovered: true;
 } {
+  const credentialSources = builtinCredentialSourcesFor(target.id);
   return {
     _id: target.id,
     name: target.name,
@@ -180,6 +247,11 @@ export function toAgentGatewayMcpServerDocument(
     endpoint: target.endpoint,
     enabled: true,
     config_driven: true,
+    // Attach the built-in credential sources for transform-based routes so the
+    // Dynamic Agents probe/runtime forward a usable upstream token (e.g. the
+    // caller JWT for knowledge-base/RAG). Without this the gateway emits an
+    // empty Bearer and the upstream 401s.
+    ...(credentialSources ? { credential_sources: credentialSources } : {}),
     created_at: now,
     updated_at: now,
     source: "agentgateway",

@@ -248,6 +248,103 @@ the manager relationship. Team membership and team-admin status are evaluated by
 OpenFGA checks; Mongo team fields are metadata and compatibility context, not the
 primary authorization decision.
 
+### Data Source Authoring Capability (explicit `can_ingest`)
+
+Creating a *new* data source is gated by an explicit org-level capability rather
+than per-KB `ingestor`. Org admins opt a team in (`team:<slug>#member ingestor
+organization:<key>`), which makes its members eligible authors. The Ingest form
+only offers owning teams returned by `GET /api/rbac/ingest-teams` (capability
+holders the user belongs to), and the RAG server re-checks the capability and the
+caller's membership in the chosen owning team before writing ownership tuples.
+The same path covers both the web loader and Confluence create endpoints.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Admin as Org admin
+    actor User as Team member
+    participant UI as CAIPE UI backend
+    participant FGA as OpenFGA PDP
+    participant RAG as RAG server
+
+    Admin->>UI: Toggle "data source author" for team (PUT /api/admin/teams/[id]/ingest-capability)
+    UI->>FGA: Check user:<admin> can_manage organization:<key>
+    FGA-->>UI: allowed
+    UI->>FGA: Write team:<slug>#member ingestor organization:<key>
+
+    User->>UI: Open Ingest form
+    UI->>FGA: Check organization#can_ingest (kb-tab-gates) + list authorable teams
+    FGA-->>UI: can_ingest=true, teams=[...]
+    UI-->>User: Show Ingest tab + owning-team picker
+
+    User->>RAG: POST /v1/ingest/.../url|page (owner_team_slug)
+    RAG->>FGA: authorize_datasource_create: org_admin? else can_ingest AND member team:<slug>
+    alt authorized
+        RAG->>RAG: store datasource
+        RAG->>FGA: write_datasource_ownership (team ingestor+manager, data_source parent_kb knowledge_base, creator)
+        RAG-->>User: 200 ingested
+    else denied
+        RAG-->>User: 403
+    end
+```
+
+Appending pages/URLs to an *existing* data source still flows through
+`check_datasource_access` (per-resource `can_ingest`); only the create branch
+requires the org-level authoring capability. Every check fails closed.
+
+### Search Capability (explicit `can_search`)
+
+Using search — the `/v1/query` retrieval path and `/v1/mcp/invoke` for built-in
+(`search`, `fetch_document`) **and** custom search tools — is gated by an
+explicit org-level capability. It is the feature-level gate, evaluated **before**
+the narrower per-tool `mcp_tool#can_call` and per-datasource `data_source#can_read`
+checks. Org admins opt a team in (`team:<slug>#member searcher organization:<key>`),
+making its members eligible searchers. Both the BFF (early 403) and the RAG
+server enforce the capability; the per-datasource ACL still narrows results
+afterward. This closes the prior leak where an org-wide tool share (or an
+ungated built-in tool) let any org member search regardless of capability.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Admin as Org admin
+    actor User as Team member
+    participant UI as CAIPE UI backend (BFF)
+    participant FGA as OpenFGA PDP
+    participant RAG as RAG server
+
+    Admin->>UI: Toggle "search" for team (PUT /api/admin/teams/[id]/search-capability)
+    UI->>FGA: Check user:<admin> can_manage organization:<key>
+    FGA-->>UI: allowed
+    UI->>FGA: Write team:<slug>#member searcher organization:<key>
+
+    User->>UI: Open Knowledge Bases
+    UI->>FGA: Check organization#can_search (kb-tab-gates)
+    FGA-->>UI: can_search=true
+    UI-->>User: Show/enable Search tab
+
+    User->>UI: POST /api/rag/v1/query | /v1/mcp/invoke
+    UI->>FGA: requireSearchCapability: org_admin? else organization#can_search
+    alt capability present
+        UI->>RAG: forward request (Bearer)
+        RAG->>FGA: authorize_search (defense-in-depth) + per-datasource ACL
+        RAG-->>User: 200 results (datasource-filtered)
+    else missing
+        UI-->>User: 403 organization#can_search
+    end
+```
+
+Holding `mcp_tool#can_call` on a shared tool does NOT, by itself, satisfy
+`can_search`; both the built-in tools and org-wide-shared custom tools are gated
+here. Org admins bypass (kill-switchable). Every check fails closed.
+
+The Search tab is enabled by `can_search` **alone** — it is intentionally
+decoupled from whether the member currently has a readable KB. An org admin can
+grant a team the capability before assigning any KB; the tab then renders with an
+empty, server-scoped result set rather than being greyed out. Symmetrically,
+`can_ingest` enables the Data Sources tab so a newly opted-in team can author its
+first source. See the "KB tab-gate composition" note in `architecture.md`.
+
 ## Credential OAuth Connector Flow
 
 The Connections & Secrets OAuth connector flow is a CAIPE credential-exchange

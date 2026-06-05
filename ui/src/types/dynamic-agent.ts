@@ -62,12 +62,16 @@ export interface MCPServerConfig {
 }
 
 export interface MCPCredentialSource {
-  kind: 'secret_ref' | 'provider_connection';
+  kind: 'secret_ref' | 'provider_connection' | 'caller_token';
   target: 'env' | 'header';
   name: string;
   secret_ref?: string;
   provider_connection_id?: string;
   provider?: string;
+  /** provider_connection: env var holding the shared fallback token (e.g. PAT). */
+  fallback_env?: string;
+  /** caller_token: mint a service client-credentials token when no user JWT. */
+  fallback_client_credentials?: boolean;
 }
 
 export interface MCPServerConfigCreate {

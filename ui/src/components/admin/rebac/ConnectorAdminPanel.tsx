@@ -379,6 +379,7 @@ interface ItemDetailProps {
   dynamicAgents: DynamicAgentOption[];
   teams: TeamOption[];
   onRefresh: (nextRoutes?: ItemAgentRoute[]) => Promise<void> | void;
+  onDeselect: () => void;
   setLoading: (loading: boolean) => void;
   setMessage: (message: string | null) => void;
   fixDiagnosticRoute: (route: DiagnosticRoute) => Promise<void> | void;
@@ -388,7 +389,7 @@ interface ItemDetailProps {
 
 function ItemDetail({
   adapter, selected, diagnostics, routes,
-  dynamicAgents, teams, onRefresh, setLoading, setMessage,
+  dynamicAgents, teams, onRefresh, onDeselect, setLoading, setMessage,
   fixDiagnosticRoute, fixMissingRouteableAgent, disabled, loading, selectedCanManage,
 }: ItemDetailProps) {
   const diagnosticsMissingRouteableAgent =
@@ -423,6 +424,7 @@ function ItemDetail({
         setLoading,
         setMessage,
         onRefresh,
+        onDeselect,
         routesFor: adapter.api.routesFor,
         listApi: adapter.api.list,
       })}
@@ -960,6 +962,7 @@ export function ConnectorAdminPanel({
                                   if (nextRoutes) setRoutes(nextRoutes);
                                   await Promise.all([loadItems(), loadRoutes(), loadDiagnostics()]);
                                 }}
+                                onDeselect={() => setSelectedKey("")}
                                 fixDiagnosticRoute={fixDiagnosticRoute} fixMissingRouteableAgent={fixMissingRouteableAgent}
                                 disabled={disabled} loading={loading} selectedCanManage={selectedCanManage} message={message}
                               />

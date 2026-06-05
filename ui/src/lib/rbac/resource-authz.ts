@@ -86,6 +86,35 @@ async function isOrgAdmin(
   }
 }
 
+/**
+ * Authorize an ownership transfer (spec 2026-06-03, US3 / contract R3). The
+ * caller may transfer a shareable resource only if they can manage it
+ * (current owner-team admin — `<type>:<id>#can_manage`) OR they are an org
+ * admin. Returns true/false rather than throwing so callers can shape their
+ * own error. Reuses the same `check` injection as `requireResourcePermission`
+ * for testability.
+ */
+export async function canTransferResourceOwnership(
+  session: ResourceAuthzSession,
+  target: { type: UniversalRebacResourceType; id: string },
+  options: ResourcePermissionOptions = {},
+): Promise<boolean> {
+  const subject = subjectFromSession(session);
+  if (!subject) return false;
+  const check = options.check ?? checkOpenFgaTuple;
+  if (await isOrgAdmin(subject, check)) return true;
+  try {
+    const result = await check({
+      user: subject,
+      relation: "can_manage",
+      object: resourceObject(target.type, target.id),
+    });
+    return result.allowed === true;
+  } catch {
+    return false;
+  }
+}
+
 export function openFgaRelationForResourceAction(action: ResourcePermissionAction): string {
   switch (action) {
     case "list":
@@ -129,6 +158,85 @@ export function subjectFromSession(session: ResourceAuthzSession): string | null
   // for first-party services (e.g. the Slack bot's read grant on
   // `system_config:platform_settings`). Interactive users stay `user:`.
   return session.isServiceAccount === true ? `service_account:${sub}` : `user:${sub}`;
+}
+
+/**
+ * Per-skill OpenFGA gate for workspace routes. Org admins and holders of
+ * `admin_surface:skills#can_manage` (bootstrap grant for app admins) may
+ * mutate any skill without a per-resource owner tuple; everyone else is
+ * checked against `skill:<id>#can_*`.
+ */
+export async function requireSkillPermission(
+  session: ResourceAuthzSession,
+  skillId: string,
+  action: ResourcePermissionAction,
+  options: ResourcePermissionOptions = {},
+): Promise<void> {
+  const subject = subjectFromSession(session);
+  if (!subject) {
+    throw new ApiError(
+      "A stable user subject is required for this resource authorization check.",
+      401,
+      "NO_SUBJECT",
+      "session_expired",
+      "sign_in",
+    );
+  }
+
+  const check = options.check ?? checkOpenFgaTuple;
+
+  if (!isOrgAdminBypassKillSwitchEnabled() && (await isOrgAdmin(subject, check))) {
+    return;
+  }
+
+  if (session.role === "admin") {
+    try {
+      const surface = await check({
+        user: subject,
+        relation: "can_manage",
+        object: "admin_surface:skills",
+      });
+      if (surface.allowed === true) {
+        return;
+      }
+    } catch {
+      // Fall through to per-skill check.
+    }
+  }
+
+  await requireResourcePermission(session, { type: "skill", id: skillId, action }, options);
+}
+
+/**
+ * Per-agent OpenFGA gate for Dynamic Agent routes. Organization admins
+ * (including Super Admins team members with `organization#admin`) may
+ * read, write, manage, or delete any agent without a per-resource tuple;
+ * everyone else is checked against `agent:<id>#can_*`.
+ */
+export async function requireAgentPermission(
+  session: ResourceAuthzSession,
+  agentId: string,
+  action: ResourcePermissionAction,
+  options: ResourcePermissionOptions = {},
+): Promise<void> {
+  const subject = subjectFromSession(session);
+  if (!subject) {
+    throw new ApiError(
+      "A stable user subject is required for this resource authorization check.",
+      401,
+      "NO_SUBJECT",
+      "session_expired",
+      "sign_in",
+    );
+  }
+
+  const check = options.check ?? checkOpenFgaTuple;
+
+  if (!isOrgAdminBypassKillSwitchEnabled() && (await isOrgAdmin(subject, check))) {
+    return;
+  }
+
+  await requireResourcePermission(session, { type: "agent", id: agentId, action }, options);
 }
 
 export async function requireResourcePermission(

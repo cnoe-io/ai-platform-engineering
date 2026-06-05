@@ -10,6 +10,7 @@ import {
   type TeamResourceTupleDiff,
   type OpenFgaReconcileResult,
 } from "./openfga";
+import { buildTeamGrantTuples } from "./openfga-owned-resources";
 
 type AllowedToolsConfig = Record<string, string[] | boolean>;
 
@@ -102,23 +103,6 @@ function uniqueTuples(tuples: OpenFgaTupleKey[]): OpenFgaTupleKey[] {
   return out;
 }
 
-function normalizeTeamSlugs(
-  raw: readonly string[] | null | undefined,
-): string[] {
-  if (!raw || raw.length === 0) return [];
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const candidate of raw) {
-    const trimmed = typeof candidate === "string" ? candidate.trim() : "";
-    if (!trimmed) continue;
-    if (!isValidOpenFgaId(trimmed)) continue;
-    if (seen.has(trimmed)) continue;
-    seen.add(trimmed);
-    out.push(trimmed);
-  }
-  return out;
-}
-
 function normalizeAllowedTools(
   allowedTools?: AllowedToolsConfig,
 ): Map<string, Set<string>> {
@@ -174,68 +158,24 @@ export function buildAgentRelationshipTupleDiff(input: AgentToolTupleDiffInput):
       object: `agent:${input.agentId}`,
     });
   }
-  const nextTeamSlug =
-    input.ownerTeamSlug && isValidOpenFgaId(input.ownerTeamSlug)
-      ? input.ownerTeamSlug
-      : null;
-  const previousTeamSlug =
-    input.previousOwnerTeamSlug && isValidOpenFgaId(input.previousOwnerTeamSlug)
-      ? input.previousOwnerTeamSlug
-      : null;
-
-  const nextSharedSlugs = normalizeTeamSlugs(input.nextSharedTeamSlugs);
-  const previousSharedSlugs = normalizeTeamSlugs(input.previousSharedTeamSlugs);
-
-  // Effective desired team slugs (the union of owner + shared) — these
-  // are the tuples we WANT in OpenFGA after this reconcile. Tracking the
-  // set lets us be conservative when emitting deletes for retired teams:
-  // we only delete a previous slug's tuples when that slug is *not* still
-  // wanted via the owner team or the new shared list.
-  const nextEffectiveSlugs = new Set<string>();
-  if (nextTeamSlug) nextEffectiveSlugs.add(nextTeamSlug);
-  for (const slug of nextSharedSlugs) nextEffectiveSlugs.add(slug);
-
-  for (const slug of nextEffectiveSlugs) {
-    writes.push(
-      {
-        user: `team:${slug}#member`,
-        relation: "user",
-        object: `agent:${input.agentId}`,
-      },
-      {
-        user: `team:${slug}#admin`,
-        relation: "manager",
-        object: `agent:${input.agentId}`,
-      },
-    );
-  }
-
-  // Union the previous teams so we emit a delete for any slug that used
-  // to grant the agent (owner OR shared) and no longer does. Owner-team
-  // transitions previously handled `previousOwnerTeamSlug` on its own;
-  // we now extend that to cover shared-team removals so unchecking a
-  // team in the editor genuinely revokes its grant instead of leaving
-  // a dangling tuple (the long-standing bug behind the "shared with
-  // teams" multi-select being decorative).
-  const previousEffectiveSlugs = new Set<string>();
-  if (previousTeamSlug) previousEffectiveSlugs.add(previousTeamSlug);
-  for (const slug of previousSharedSlugs) previousEffectiveSlugs.add(slug);
-
-  for (const slug of previousEffectiveSlugs) {
-    if (nextEffectiveSlugs.has(slug)) continue;
-    deletes.push(
-      {
-        user: `team:${slug}#member`,
-        relation: "user",
-        object: `agent:${input.agentId}`,
-      },
-      {
-        user: `team:${slug}#admin`,
-        relation: "manager",
-        object: `agent:${input.agentId}`,
-      },
-    );
-  }
+  // Owner-team + shared-team grants are delegated to the shared
+  // `buildTeamGrantTuples` primitive (spec 2026-06-03, US1 / FR-003). The
+  // agent's member relation is `user` (granting `can_use`), distinct from
+  // the `reader` default used by KB/data_source. The primitive handles the
+  // owner ∪ shared union, the owner-team transition delete via
+  // `previousOwnerTeamSlug`, and the shared-team revoke diff — the same
+  // logic this builder used to inline. A team promoted from shared → owner
+  // is never deleted (it's still in the effective set).
+  const teamGrants = buildTeamGrantTuples({
+    object: `agent:${input.agentId}`,
+    memberRelations: ["user"],
+    ownerTeamSlug: input.ownerTeamSlug,
+    previousOwnerTeamSlug: input.previousOwnerTeamSlug,
+    nextSharedTeamSlugs: input.nextSharedTeamSlugs,
+    previousSharedTeamSlugs: input.previousSharedTeamSlugs,
+  });
+  writes.push(...teamGrants.writes);
+  deletes.push(...teamGrants.deletes);
 
   // `visibility === 'global'` is encoded as a `user:* user agent:<id>`
   // tuple. We write/delete it here so the reconcile pass is the single

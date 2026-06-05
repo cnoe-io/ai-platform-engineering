@@ -24,33 +24,50 @@ export type UniversalRebacResourceAction =
   | "ingest"
   | "read-metadata";
 
-export type UniversalRebacResourceType =
-  | "organization"
-  | "user"
-  | "user_profile"
-  | "external_group"
-  | "team"
-  | "slack_workspace"
-  | "slack_channel"
-  | "webex_workspace"
-  | "webex_space"
-  | "agent"
-  | "llm_model"
-  | "mcp_gateway"
-  | "mcp_server"
-  | "tool"
-  | "knowledge_base"
-  | "data_source"
-  | "mcp_tool"
-  | "document"
-  | "skill"
-  | "task"
-  | "conversation"
-  | "admin_surface"
-  | "policy"
-  | "audit_log"
-  | "secret_ref"
-  | "system_config";
+/**
+ * Canonical, runtime-enumerable list of universal ReBAC resource (object) types.
+ *
+ * This `const` array is the single source the `UniversalRebacResourceType` union is
+ * derived from, so coverage guards (see `fga-type-coverage.test.ts`) can compare it
+ * against the authored OpenFGA model, the deployed chart model, and the runtime
+ * resource registry WITHOUT a type-level enumeration.
+ *
+ * Subject-only model types (`service_account`, `anonymous`) are intentionally NOT in
+ * this list — they are authorization subjects, not actionable resources. The parity
+ * guard tracks them via an explicit allowlist.
+ *
+ * assisted-by Cursor claude-opus-4.8
+ */
+export const UNIVERSAL_REBAC_RESOURCE_TYPE_NAMES = [
+  "organization",
+  "user",
+  "user_profile",
+  "external_group",
+  "team",
+  "slack_workspace",
+  "slack_channel",
+  "webex_workspace",
+  "webex_space",
+  "agent",
+  "llm_model",
+  "mcp_gateway",
+  "mcp_server",
+  "tool",
+  "knowledge_base",
+  "data_source",
+  "mcp_tool",
+  "document",
+  "skill",
+  "task",
+  "conversation",
+  "admin_surface",
+  "policy",
+  "audit_log",
+  "secret_ref",
+  "system_config",
+] as const;
+
+export type UniversalRebacResourceType = (typeof UNIVERSAL_REBAC_RESOURCE_TYPE_NAMES)[number];
 
 export type UniversalRebacSubjectType =
   | "user"
