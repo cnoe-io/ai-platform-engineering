@@ -17,7 +17,6 @@ def test_channel_grant_check_omits_user_subject(monkeypatch) -> None:
         return SlackChannelRebacDecision(
             allowed=True,
             channel_allowed=True,
-            user_allowed=False,
             reason="allowed",
         )
 
@@ -48,7 +47,6 @@ def test_channel_grant_check_denies_when_channel_grant_missing() -> None:
         return SlackChannelRebacDecision(
             allowed=False,
             channel_allowed=False,
-            user_allowed=False,
             reason="missing_channel_grant",
         )
 
@@ -65,14 +63,12 @@ def test_channel_grant_check_denies_when_channel_grant_missing() -> None:
     assert decision.reason == "missing_channel_grant"
 
 
-def test_channel_grant_check_allows_regardless_of_user_grant() -> None:
-    """channel_allowed=True should pass even when the BFF returns user_allowed=False."""
+def test_channel_grant_check_allows_when_channel_grant_exists() -> None:
     def fake_post(_path: str, _payload: dict[str, object], _token: str) -> SlackChannelRebacDecision:
         return SlackChannelRebacDecision(
-            allowed=False,
+            allowed=True,
             channel_allowed=True,
-            user_allowed=False,
-            reason="missing_user_grant",
+            reason="allowed",
         )
 
     evaluator = SlackChannelRebacEvaluator(base_url="http://caipe-ui", post_check=fake_post)
@@ -85,3 +81,4 @@ def test_channel_grant_check_allows_regardless_of_user_grant() -> None:
     )
 
     assert decision.channel_allowed is True
+    assert decision.reason == "allowed"

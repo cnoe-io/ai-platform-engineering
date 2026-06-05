@@ -69,7 +69,6 @@ export async function checkSlackChannelAccess(input: {
     return {
       allowed: false,
       channel_allowed: false,
-      user_allowed: false,
       reason: "unsupported_action",
     };
   }
@@ -83,7 +82,6 @@ export async function checkSlackChannelAccess(input: {
   return {
     allowed: channelResult.allowed,
     channel_allowed: channelResult.allowed,
-    user_allowed: false,
     reason: channelResult.allowed ? "allowed" : "missing_channel_grant",
   };
 }

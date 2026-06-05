@@ -27,7 +27,6 @@ logger = logging.getLogger("caipe.slack_bot.slack_rebac")
 SlackChannelRebacReason = Literal[
     "allowed",
     "missing_channel_grant",
-    "missing_user_grant",
     "unsupported_action",
     "pdp_unavailable",
 ]
@@ -39,7 +38,6 @@ class SlackChannelRebacDecision:
 
     allowed: bool
     channel_allowed: bool
-    user_allowed: bool
     reason: SlackChannelRebacReason
 
 
@@ -75,7 +73,6 @@ def _http_post_check(base_url: str, path: str, payload: dict[str, object], token
         return SlackChannelRebacDecision(
             allowed=False,
             channel_allowed=False,
-            user_allowed=False,
             reason="pdp_unavailable",
         )
 
@@ -83,7 +80,6 @@ def _http_post_check(base_url: str, path: str, payload: dict[str, object], token
     return SlackChannelRebacDecision(
         allowed=bool(result.get("allowed")),
         channel_allowed=bool(result.get("channel_allowed")),
-        user_allowed=bool(result.get("user_allowed")),
         reason=str(result.get("reason") or "pdp_unavailable"),  # type: ignore[arg-type]
     )
 
