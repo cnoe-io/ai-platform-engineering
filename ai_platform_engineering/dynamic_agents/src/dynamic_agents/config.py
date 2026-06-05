@@ -84,6 +84,16 @@ class Settings(BaseSettings):
     credential_api_url: str | None = None
     credential_service_audience: str = "caipe-credential-service"
 
+    # CAIPE UI server (for workflow tools)
+    caipe_api_url: str = ""
+
+    # OAuth2 client credentials for authenticating to the CAIPE UI server
+    oauth2_token_url: str = ""
+    oauth2_client_id: str = ""
+    oauth2_client_secret: str = ""
+    oauth2_scope: str = ""
+    oauth2_audience: str = ""
+
 
 @lru_cache
 def get_settings() -> Settings:
