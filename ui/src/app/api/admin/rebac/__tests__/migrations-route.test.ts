@@ -10,7 +10,6 @@ const mockRequireResourcePermission = jest.fn();
 const mockGetCollection = jest.fn();
 const mockConnectToDatabase = jest.fn();
 const mockWriteOpenFgaTuples = jest.fn();
-const mockWriteOpenFgaTupleDiff = jest.fn();
 const mockGetKeycloakRbacDiagnosticValues = jest.fn();
 
 const collections: Record<string, ReturnType<typeof createCollection>> = {};
@@ -60,8 +59,6 @@ jest.mock("@/lib/mongodb", () => ({
 
 jest.mock("@/lib/rbac/openfga", () => ({
   writeOpenFgaTuples: (...args: unknown[]) => mockWriteOpenFgaTuples(...args),
-  writeOpenFgaTupleDiff: (...args: unknown[]) => mockWriteOpenFgaTupleDiff(...args),
-  readOpenFgaTuples: jest.fn().mockResolvedValue({ tuples: [], continuationToken: undefined }),
 }));
 
 jest.mock("@/lib/rbac/keycloak-admin", () => ({
@@ -118,7 +115,6 @@ beforeEach(() => {
   mockRequireRbacPermission.mockResolvedValue(undefined);
   mockRequireResourcePermission.mockResolvedValue(undefined);
   mockWriteOpenFgaTuples.mockResolvedValue({ enabled: true, writes: 1, deletes: 0 });
-  mockWriteOpenFgaTupleDiff.mockResolvedValue({ enabled: true, writes: 1, deletes: 0 });
   mockGetCollection.mockImplementation(async (name: string) => collections[name] ?? createCollection());
   mockConnectToDatabase.mockImplementation(async () => ({
     db: {
@@ -306,7 +302,7 @@ describe("admin ReBAC migrations API", () => {
     );
   });
 
-  it("includes unversioned schema areas in migration status so admins get a runtime warning", async () => {
+  it("includes actionable unversioned schema areas in migration status (not orphan collections)", async () => {
     collections.messages = createCollection();
     collections.feedback = createCollection();
     collections.data_schema_versions = createCollection([
@@ -319,8 +315,13 @@ describe("admin ReBAC migrations API", () => {
 
     expect(statusResponse.status).toBe(200);
     expect(statusBody.data.needs_version_bootstrap).toBe(true);
-    expect(statusBody.data.version_bootstrap_required_count).toBeGreaterThanOrEqual(2);
+    expect(statusBody.data.version_bootstrap_required_count).toBeGreaterThan(0);
+    // Manifest-backed areas without version rows should alert; raw Mongo collections
+    // with no migration target (messages, feedback) should not inflate the count.
     expect(statusBody.data.version_bootstrap_schema_areas).toEqual(
+      expect.arrayContaining(["dynamic_agents"]),
+    );
+    expect(statusBody.data.version_bootstrap_schema_areas).not.toEqual(
       expect.arrayContaining(["messages", "feedback"]),
     );
     expect(statusBody.data.requires_attention).toBe(true);

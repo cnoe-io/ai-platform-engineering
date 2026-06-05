@@ -18,6 +18,7 @@ import {
   CONVERSATION_OWNER_IDENTITY_MIGRATION_ID,
   deriveConversationOwnerIdentityPlan,
 } from "./conversation-owner-identity";
+import { schemaAreasNeedingVersionBootstrap } from "./schema-bootstrap";
 export {
   getUnclassifiedSchemaAreas,
   SCHEMA_AREA_CLASSIFICATIONS,
@@ -2623,10 +2624,9 @@ export async function getMigrationBlockingStatus(input: {
   const overrideActive = isOverrideActive(override, now);
   const pendingRequired = state.migrations.filter((migration) => migration.required);
   const blockingRequired = pendingRequired.filter((migration) => migration.blocking ?? migration.required);
-  const versionBootstrapSchemaAreas = state.schema_versions
-    .filter((schema) => schema.current_version === null)
-    .map((schema) => schema.schema_area)
-    .sort((left, right) => left.localeCompare(right));
+  const versionBootstrapSchemaAreas = schemaAreasNeedingVersionBootstrap(
+    state.schema_versions,
+  );
   const needsVersionBootstrap = versionBootstrapSchemaAreas.length > 0;
   const isBlocking = blockingRequired.length > 0 && !overrideActive;
 
