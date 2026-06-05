@@ -16,7 +16,8 @@ with an agent in a channel as long as:
   2. The agent is assigned to the channel (channel→agent grant).
   3. The user has ``can_use`` on the agent (direct or via team membership).
 
-Uses an in-process TTL cache to avoid hammering Mongo on every Slack event.
+Uses an in-process TTL cache (channel → team doc, 60s TTL) to avoid
+hammering Mongo on every Slack event.
 """
 
 from __future__ import annotations

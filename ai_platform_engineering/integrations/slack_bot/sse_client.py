@@ -296,7 +296,9 @@ class SSEClient:
       if response.status_code == 403:
         try:
           body = response.json()
-          code = (body.get("data") or body).get("code", "")
+          # requireAgentUsePermission returns a flat JSON body (no `data` wrapper):
+          # { "success": false, "code": "agent#use", ... }
+          code = body.get("code", "")
         except Exception:
           code = ""
         if code == "agent#use":

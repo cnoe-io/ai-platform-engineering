@@ -1109,6 +1109,14 @@ def handle_mention(event, say, client, context=None):
     agent_match = matches[0] if matches else None
     agent_id = agent_match.agent_id if agent_match else (resolve_default_agent_id(config.defaults.default_agent_id) or "")
 
+    # Channel grant check uses the initial agent_id. Thread-ownership may
+    # override it below, but ownership only applies to replies on threads
+    # already established — the grant on the initial agent is sufficient.
+    denial = _slack_agent_channel_grant_check(context, channel_id, agent_id)
+    if denial:
+      say(text=denial, thread_ts=thread_ts)
+      return
+
     try:
       conv_result = sse_client.create_conversation(
         title=message_text[:50].strip() or "Slack Thread",
@@ -1144,11 +1152,6 @@ def handle_mention(event, say, client, context=None):
         logger.info(f"[{thread_ts}] Thread owned by agent={owner_id}, bypassing match{_msg_link(channel_id, thread_ts)}")
         agent_match = next((a for a in channel_config.agents if a.agent_id == owner_id), None)
         agent_id = owner_id
-
-    denial = _slack_agent_channel_grant_check(context, channel_id, agent_id)
-    if denial:
-      say(text=denial, thread_ts=thread_ts)
-      return
 
     overthink = agent_match.users.overthink if agent_match and agent_match.users else None
 
@@ -1602,18 +1605,25 @@ def handle_dm_message(event, say, client, context=None):
     # Create or retrieve conversation via shared API (server owns ID generation).
     # Must happen BEFORE context building so we can use `created` to decide
     # full vs delta thread context.
-    conv_result = sse_client.create_conversation(
-      title=message_text[:50].strip() or "Slack DM",
-      agent_id=agent_id,
-      owner_id=user_email or user_id,
-      idempotency_key=thread_ts,
-      metadata={
-        "thread_ts": thread_ts,
-        "channel_id": channel_id,
-        "channel_type": "dm",
-        **({"workspace_url": SLACK_WORKSPACE_URL} if SLACK_WORKSPACE_URL else {}),
-      },
-    )
+    try:
+      conv_result = sse_client.create_conversation(
+        title=message_text[:50].strip() or "Slack DM",
+        agent_id=agent_id,
+        owner_id=user_email or user_id,
+        idempotency_key=thread_ts,
+        metadata={
+          "thread_ts": thread_ts,
+          "channel_id": channel_id,
+          "channel_type": "dm",
+          **({"workspace_url": SLACK_WORKSPACE_URL} if SLACK_WORKSPACE_URL else {}),
+        },
+      )
+    except AgentAccessDeniedError as e:
+      say(
+        text=f"You don't have access to agent *{e.agent_id}*. Ask an admin to grant you access in the {APP_NAME} Admin panel.",
+        thread_ts=thread_ts,
+      )
+      return
     conversation_id = conv_result["conversation_id"]
     conv_created = conv_result["created"]
     conv_metadata = conv_result.get("metadata", {})

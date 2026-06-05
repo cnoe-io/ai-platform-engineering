@@ -118,13 +118,25 @@ class SlackChannelRebacEvaluator:
         workspace_id: str,
         channel_id: str,
         agent_id: str,
-        obo_token: str,
+        obo_token: Optional[str],
     ) -> SlackChannelRebacDecision:
         """Check whether a channel has this agent explicitly assigned.
 
         Does not evaluate user-level ``can_use`` — that gate is enforced by
         the API when the conversation is created.
         """
+        if not obo_token:
+            logger.warning(
+                "check_channel_grant: no OBO token available for channel=%s agent=%s",
+                channel_id,
+                agent_id,
+            )
+            return SlackChannelRebacDecision(
+                allowed=False,
+                channel_allowed=False,
+                user_allowed=False,
+                reason="pdp_unavailable",
+            )
 
         path = (
             "/api/integrations/slack/channels/"
