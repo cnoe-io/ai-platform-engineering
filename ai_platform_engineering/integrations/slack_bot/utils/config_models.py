@@ -77,6 +77,11 @@ class AgentBinding(BaseModel):
 class ChannelConfig(BaseModel):
   name: str
   agents: list[AgentBinding] = Field(default_factory=list)
+  # Optional owning team slug. The YAML config has historically had no team
+  # concept; when set, the admin "import from config" flow can assign the
+  # channel to this team (writing the channel→team ReBAC binding) instead of
+  # leaving the imported channel team-less and unusable until a manual onboard.
+  team: str | None = None
 
 
 def get_escalation_config(agent_match: AgentBinding) -> EscalationConfig | None:

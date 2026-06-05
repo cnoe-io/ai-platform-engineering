@@ -266,6 +266,11 @@ describe("Webex space ReBAC resource APIs", () => {
   });
 
   it("replaces space resource grants and writes webex_space OpenFGA tuples with filtered reads", async () => {
+    // Not an org admin (organization:caipe denied) so the per-space can_manage
+    // check is what authorizes the actor — exercise that path explicitly.
+    mockCheckOpenFgaTuple.mockImplementation(async (tuple: { relation: string; object: string }) => ({
+      allowed: tuple.object === `webex_space:${workspaceAlias}--${spaceId}`,
+    }));
     mockReadOpenFgaTuples.mockResolvedValue({
       tuples: [
         {

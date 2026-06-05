@@ -21,7 +21,7 @@ export async function withWebexSpaceRebacViewAuth<T>(
       type: "webex_space",
       id: webexSpaceSubjectId(target.workspaceId, target.spaceId),
       action: "read",
-    }, { allowAdminBypass: true });
+    }, { bypassForOrgAdmin: true });
   } else {
     await requireAdminSurfaceManage(session, "webex");
   }
@@ -39,7 +39,7 @@ export async function withWebexSpaceRebacManageAuth<T>(
       type: "webex_space",
       id: webexSpaceSubjectId(target.workspaceId, target.spaceId),
       action: "manage",
-    }, { allowAdminBypass: true });
+    }, { bypassForOrgAdmin: true });
   } else {
     await requireAdminSurfaceManage(session, "webex");
   }

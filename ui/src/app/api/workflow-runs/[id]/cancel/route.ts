@@ -29,7 +29,7 @@ export const POST = withErrorHandler(async (
   await requireResourcePermission(
     session,
     { type: "task", id: run.workflow_config_id, action: "write" },
-    { allowAdminBypass: true },
+    { bypassForOrgAdmin: true },
   );
 
   await cancelWorkflowRun(id);

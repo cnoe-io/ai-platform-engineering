@@ -108,7 +108,7 @@ describe("workflow runs OpenFGA config access", () => {
       expect.objectContaining({ sub: "alice-sub" }),
       [{ _id: "wf-visible" }, { _id: "wf-hidden" }],
       { type: "task", action: "read", id: expect.any(Function) },
-      { allowAdminBypass: true },
+      { bypassForOrgAdmin: true },
     );
     expect(runCollection.find).toHaveBeenCalledWith({ workflow_config_id: { $in: ["wf-visible"] } });
     expect(body).toEqual([{ _id: "run-1", workflow_config_id: "wf-visible" }]);
@@ -132,7 +132,7 @@ describe("workflow runs OpenFGA config access", () => {
     expect(mockRequireResourcePermission).toHaveBeenCalledWith(
       expect.objectContaining({ sub: "alice-sub" }),
       { type: "task", id: "wf-visible", action: "read" },
-      { allowAdminBypass: true },
+      { bypassForOrgAdmin: true },
     );
     expect(mockStartWorkflowRun).toHaveBeenCalledWith(
       config,

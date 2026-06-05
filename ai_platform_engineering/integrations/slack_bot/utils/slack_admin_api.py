@@ -312,6 +312,9 @@ class SlackBotAdminService:
                     "workspace_id": workspace_ref,
                     "channel_id": channel_id,
                     "channel_name": channel.name,
+                    # Optional owning team from the YAML config; lets the import
+                    # assign the channel to a team instead of leaving it team-less.
+                    "team": channel.team,
                     "agents": [
                         _planned_agent_detail(agent, index)
                         for index, agent in enumerate(channel.agents)

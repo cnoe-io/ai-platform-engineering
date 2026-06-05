@@ -140,7 +140,7 @@ export const GET = withErrorHandler(
     const teamsCol = await getCollection<Team>("teams");
     const team = await teamsCol.findOne({ _id: teamId } as never);
     if (!team) throw new ApiError("Team not found", 404);
-    await requireResourcePermission(session, { type: "team", id: teamSlug(team, teamIdStr), action: "read" }, { allowAdminBypass: true });
+    await requireResourcePermission(session, { type: "team", id: teamSlug(team, teamIdStr), action: "read" }, { bypassForOrgAdmin: true });
 
     const teamCol = await getRbacCollection<WebexSpaceTeamMappingDoc>("webexSpaceTeamMappings");
 
@@ -202,7 +202,7 @@ export const PUT = withErrorHandler(
     const team = await teamsCol.findOne({ _id: teamId } as never);
     if (!team) throw new ApiError("Team not found", 404);
     const ownerTeamSlug = teamSlug(team, teamIdStr);
-    await requireResourcePermission(session, { type: "team", id: ownerTeamSlug, action: "manage" }, { allowAdminBypass: true });
+    await requireResourcePermission(session, { type: "team", id: ownerTeamSlug, action: "manage" }, { bypassForOrgAdmin: true });
 
     const teamCol = await getRbacCollection<WebexSpaceTeamMappingDoc>("webexSpaceTeamMappings");
 

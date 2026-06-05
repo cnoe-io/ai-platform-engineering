@@ -2848,6 +2848,7 @@ services:
       IDP_CLIENT_SECRET: ${IDP_CLIENT_SECRET:-}
       IDP_ACCESS_GROUP: ${IDP_ACCESS_GROUP:-}
       IDP_ADMIN_GROUP: ${IDP_ADMIN_GROUP:-}
+      IDP_PKCE_ENABLED: ${IDP_PKCE_ENABLED:-false}
       KEYCLOAK_FORCE_IDP_REDIRECT: ${KEYCLOAK_FORCE_IDP_REDIRECT:-false}
       KEYCLOAK_ADMIN_FRONTEND_URL: ${KEYCLOAK_ADMIN_FRONTEND_URL:-}
       CAIPE_UNSAFE_RBAC_BYPASS: ${CAIPE_UNSAFE_RBAC_BYPASS:-false}
@@ -3071,7 +3072,7 @@ services:
         condition: service_healthy
 
   agentgateway:
-    image: ghcr.io/agentgateway/agentgateway:latest
+    image: ghcr.io/agentgateway/agentgateway:v1.1.0
     container_name: agentgateway
     restart: unless-stopped
     command: ["--file", "/etc/agentgateway/config.yaml"]

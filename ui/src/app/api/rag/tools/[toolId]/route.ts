@@ -61,7 +61,7 @@ export async function GET(
     await requireResourcePermission(
       { sub: session.sub, role: session.role, user: session.user },
       { type: "tool", id: toolId, action: "read" },
-      { allowAdminBypass: true },
+      { bypassForOrgAdmin: true },
     );
 
     return NextResponse.json({ tool });
@@ -96,7 +96,7 @@ export async function PUT(
     await requireResourcePermission(
       { sub: session.sub, role: session.role, user: session.user },
       { type: "tool", id: toolId, action: "write" },
-      { allowAdminBypass: true },
+      { bypassForOrgAdmin: true },
     );
 
     const body = await request.json();
@@ -165,7 +165,7 @@ export async function DELETE(
     await requireResourcePermission(
       { sub: session.sub, role: session.role, user: session.user },
       { type: "tool", id: toolId, action: "delete" },
-      { allowAdminBypass: true },
+      { bypassForOrgAdmin: true },
     );
 
     await tools.updateOne(

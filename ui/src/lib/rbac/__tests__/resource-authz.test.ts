@@ -152,24 +152,44 @@ describe("resource-authz", () => {
   });
 
   it("does not bypass OpenFGA object checks for session-role admins", async () => {
+    // bypassForOrgAdmin trusts an OpenFGA org-admin tuple, NOT a session role.
+    // A `role: "admin"` claim with no org-admin tuple must still be denied.
     const check = jest.fn(async () => ({ allowed: false }));
 
     await expect(
       requireResourcePermission(
         { sub: "admin-sub", role: "admin" },
         { type: "admin_surface", id: "skill-scan-all", action: "admin" },
-        { allowAdminBypass: true, check },
+        { bypassForOrgAdmin: true, check },
       ),
     ).rejects.toMatchObject({
       statusCode: 403,
       code: "admin_surface#admin",
     });
 
+    // The org-admin bypass probe runs first (can_manage organization:caipe),
+    // then the per-resource check — both deny here.
     expect(check).toHaveBeenCalledWith({
       user: "user:admin-sub",
       relation: "can_manage",
       object: "admin_surface:skill-scan-all",
     });
+  });
+
+  it("bypasses for a real OpenFGA org admin", async () => {
+    // An org admin (can_manage organization:caipe) short-circuits to allow,
+    // even when the per-resource object check would deny.
+    const check = jest.fn(async (tuple: { object: string }) => ({
+      allowed: tuple.object === "organization:caipe",
+    }));
+
+    await expect(
+      requireResourcePermission(
+        { sub: "org-admin-sub", role: "admin" },
+        { type: "admin_surface", id: "skill-scan-all", action: "admin" },
+        { bypassForOrgAdmin: true, check },
+      ),
+    ).resolves.toBeUndefined();
   });
 
   it("filters session-role admins through OpenFGA instead of returning every resource", async () => {
@@ -184,7 +204,9 @@ describe("resource-authz", () => {
         id: (resource) => resource.id,
       },
       {
-        allowAdminBypass: true,
+        bypassForOrgAdmin: true,
+        // Not an org admin (organization:caipe denied), so the per-resource
+        // OpenFGA check still gates each resource.
         check: async (tuple) => ({ allowed: tuple.object === "mcp_server:visible" }),
       },
     );

@@ -896,7 +896,7 @@ def rbac_global_middleware(body, context, next, logger):
         for k in stale:
             _seen_events.pop(k, None)
         if event_id in _seen_events:
-            logger.debug("Ignoring duplicate event_id={}", event_id)
+            logger.debug("Ignoring duplicate event_id=%s", event_id)
             return _HANDLED_200
         _seen_events[event_id] = now
     if _slack_responses_suppressed():
@@ -961,7 +961,7 @@ def rbac_global_middleware(body, context, next, logger):
             )
         )
     except Exception as exc:
-        logger.error("Failed to resolve Slack user {} — denying request: {}", slack_user_id, exc)
+        logger.error("Failed to resolve Slack user %s — denying request: %s", slack_user_id, exc)
         channel = (
             body.get("event", {}).get("channel")
             or body.get("channel", {}).get("id")
@@ -975,7 +975,7 @@ def rbac_global_middleware(body, context, next, logger):
                     text="Identity verification is temporarily unavailable. Please try again later.",
                 )
             except Exception:
-                logger.warning("Could not send RBAC error message to {}", slack_user_id)
+                logger.warning("Could not send RBAC error message to %s", slack_user_id)
         return _HANDLED_200
     finally:
         loop.close()
@@ -991,7 +991,7 @@ def rbac_global_middleware(body, context, next, logger):
         now = _time.time()
         last_sent = _linking_prompt_sent.get(slack_user_id, 0)
         if now - last_sent < _LINKING_PROMPT_COOLDOWN:
-            logger.debug("Suppressing linking prompt for {} (cooldown)", slack_user_id)
+            logger.debug("Suppressing linking prompt for %s (cooldown)", slack_user_id)
             return _HANDLED_200
         if channel:
             try:
@@ -1029,33 +1029,24 @@ def rbac_global_middleware(body, context, next, logger):
                 )
                 _linking_prompt_sent[slack_user_id] = now
             except Exception:
-                logger.warning("Could not send linking prompt to {}", slack_user_id)
+                logger.warning("Could not send linking prompt to %s", slack_user_id)
         return _HANDLED_200
 
     if isinstance(rbac_status, tuple) and rbac_status[0] == "deny":
         msg = rbac_status[1]
-        # INFO-level log so denials are visible in slackbot logs. Without this
-        # the previous code returned silently and the only visible artifact was
-        # bolt-python's generic "middleware skipped calling next()" warning,
-        # which is useless for debugging "why didn't my user get a response?".
-        logger.info(
-            "RBAC denied request for slack_user={} channel={}: {}",
+        # WARNING-level log instead of posting the denial back to Slack. We
+        # deliberately do NOT notify the user in-channel: posting (even
+        # ephemerally) is noisy and leaks RBAC config details, so the denial is
+        # surfaced only in the slackbot logs for operators to debug "why didn't
+        # my user get a response?".
+        #
+        # NOTE: `logger` here is Bolt's injected stdlib logging.Logger (a
+        # function param), NOT the module-level loguru logger — so it uses
+        # %-style formatting, not {}. Using {} here raises TypeError at emit.
+        logger.warning(
+            "RBAC denied request for slack_user=%s channel=%s: %s",
             slack_user_id, channel, msg,
         )
-        if channel:
-            try:
-                # chat_postEphemeral keeps the denial visible only to the
-                # requesting user. The previous chat_postMessage broadcasted
-                # the denial (and the channel name suffix) to the entire
-                # channel, which is a UX/privacy regression — other channel
-                # members do not need to see that someone else was denied.
-                context["client"].chat_postEphemeral(
-                    channel=channel,
-                    user=slack_user_id,
-                    text=msg,
-                )
-            except Exception:
-                logger.warning("Could not send RBAC denial to {} in {}", slack_user_id, channel)
         # Return BoltResponse(200) so Slack does not retry the event 3 more
         # times — without this the same denial fires up to 4× and Bolt logs
         # the "middleware skipped calling next()" warning on every retry.
