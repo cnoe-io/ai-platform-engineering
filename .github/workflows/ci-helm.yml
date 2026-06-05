@@ -20,6 +20,11 @@ on:
         description: 'Version tag to publish (for example: 0.8.0-rc.1-chart.1)'
         required: true
         type: string
+      force_build:
+        description: 'Force publish all charts regardless of which chart files changed. Use for coordinated pre-release builds.'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -86,6 +91,13 @@ jobs:
       - name: Detect changed charts
         id: detect
         run: |
+          if [[ "${{ inputs.force_build }}" == "true" ]]; then
+            echo "🔁 force_build requested: publishing all charts"
+            echo "rag-stack-changed=true" >> "$GITHUB_OUTPUT"
+            echo "ai-platform-changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           if git rev-parse HEAD^ >/dev/null 2>&1; then
             CHANGED_FILES=$(git diff --name-only HEAD^ HEAD | grep "^charts/" || true)
           else
