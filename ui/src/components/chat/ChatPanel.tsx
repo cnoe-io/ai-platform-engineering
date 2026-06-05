@@ -14,7 +14,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { useChatStore } from "@/store/chat-store";
 import { A2ASDKClient, type ParsedA2AEvent, type HITLDecision, toStoreEvent } from "@/lib/a2a-sdk-client";
 import { DynamicAgentClient } from "@/lib/dynamic-agent-client";
-import { type SSEAgentEvent } from "@/components/dynamic-agents/sse-types";
+import { type SSEAgentEvent } from "@/lib/streaming/types";
 import { isFeatureEnabled, useFeatureFlagStore } from "@/store/feature-flag-store";
 import { cn, deduplicateByKey } from "@/lib/utils";
 import { ChatMessage as ChatMessageType, A2AEvent, SupervisorTimelineSegment, PlanStep } from "@/types/a2a";
@@ -1349,7 +1349,7 @@ export function SupervisorChatPanel({ endpoint, conversationId, conversationTitl
     let accumulatedText = "";
     let rawStreamContent = "";
     let eventCounter = 0;
-    let hasReceivedCompleteResult = false;
+    const hasReceivedCompleteResult = false;
     let hitlFormRequested = false;
 
     // Timeline manager — seed with previous message's plan for continuity
@@ -1823,7 +1823,7 @@ export function SupervisorChatPanel({ endpoint, conversationId, conversationTitl
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-amber-600/20 text-amber-700 dark:text-amber-300 hover:bg-amber-600/30 transition-colors"
             >
               <ArrowLeft className="h-3 w-3" />
-              {adminOrigin === 'audit-logs' ? 'Back to Audit Logs' : 'Back to Feedback'}
+              {adminOrigin === 'audit-logs' ? 'Back to Chat Audit' : 'Back to Feedback'}
             </a>
             )}
           </div>

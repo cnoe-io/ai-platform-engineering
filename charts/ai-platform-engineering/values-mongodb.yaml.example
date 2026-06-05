@@ -107,10 +107,11 @@ caipe-ui:
     # Environment badge (e.g. "Dev", "Preview", "Staging", "Prod"; empty = hidden)
     NEXT_PUBLIC_ENV_BADGE: ""
 
-    # OIDC configuration (non-sensitive)
-    OIDC_REQUIRED_GROUP: "app-users"
-    OIDC_REQUIRED_ADMIN_GROUP: "app-admins"
-    OIDC_REQUIRED_ADMIN_VIEW_GROUP: ""
+    # OIDC configuration (non-sensitive). Set OIDC_REQUIRED_GROUP to your deployment's
+    # basic access group; admin access is granted through Identity Group Sync + OpenFGA.
+    OIDC_REQUIRED_GROUP: ""
+    OIDC_REQUIRED_ADMIN_GROUP: ""
+    # BOOTSTRAP_ADMIN_EMAILS: "admin@example.com"
     OIDC_ENABLE_REFRESH_TOKEN: "true"
 
     # Support email
@@ -145,7 +146,7 @@ caipe-ui:
           property: OIDC_CLIENT_SECRET
 
       # MongoDB connection URI
-      # Format: mongodb://username:password@ai-platform-engineering-mongodb:27017
+      # Format: mongodb://username:password@{{ .Release.Name }}-mongodb:27017
       - secretKey: MONGODB_URI
         remoteRef:
           key: dev/caipe-ui
@@ -170,12 +171,12 @@ caipe-ui:
 #
 # 1. Create a Kubernetes secret manually:
 #
-# kubectl create secret generic ai-platform-engineering-caipe-ui-secret \
+# kubectl create secret generic {{ .Release.Name }}-caipe-ui-secret \
 #   --from-literal=NEXTAUTH_SECRET="$(openssl rand -base64 32)" \
 #   --from-literal=OIDC_ISSUER="https://your-oidc-provider" \
 #   --from-literal=OIDC_CLIENT_ID="your-client-id" \
 #   --from-literal=OIDC_CLIENT_SECRET="your-client-secret" \
-#   --from-literal=MONGODB_URI="mongodb://admin:changeme@ai-platform-engineering-mongodb:27017" \
+#   --from-literal=MONGODB_URI="mongodb://admin:changeme@{{ .Release.Name }}-mongodb:27017" \
 #   -n your-namespace
 #
 # 2. The deployment will automatically mount this secret

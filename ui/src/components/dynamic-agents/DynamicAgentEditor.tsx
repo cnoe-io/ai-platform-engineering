@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowLeft, Loader2, Globe, Users, Lock, ChevronLeft, ChevronRight, Check, Sparkles, Eye, Pencil, GripHorizontal, Bot, ChevronDown } from "lucide-react";
+import { ArrowLeft, Loader2, Globe, Users, ChevronLeft, ChevronRight, Check, Sparkles, Eye, Pencil, GripHorizontal, ChevronDown, AlertCircle } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -16,6 +16,7 @@ import { useToast } from "@/components/ui/toast";
 import { useEditorDirtyTracking } from "@/hooks/use-editor-dirty-tracking";
 import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
 import { UnsavedChangesDialog } from "@/components/task-builder/UnsavedChangesDialog";
+import { TeamPicker, TeamMultiPicker, type TeamPickerOption } from "@/components/ui/team-picker";
 
 // Lazy-load CodeMirror to avoid SSR issues
 const CodeMirrorEditor = React.lazy(() => import("@uiw/react-codemirror"));
@@ -37,7 +38,15 @@ import { InterruptConfigPicker } from "./InterruptConfigPicker";
 import { MiddlewarePicker } from "./MiddlewarePicker";
 import { SubagentPicker } from "./SubagentPicker";
 import { SkillsSelector } from "./SkillsSelector";
-import { gradientThemes, getGradientStyle, getAccentColor } from "@/lib/gradient-themes";
+import { WorkflowToolsPicker } from "./WorkflowToolsPicker";
+import { gradientThemes } from "@/lib/gradient-themes";
+import { AgentAvatar } from "./AgentAvatar";
+import {
+  useAiReview,
+  AiReviewButton,
+  AiReviewPanel,
+  buildLastReview,
+} from "@/components/ai-review";
 
 interface DynamicAgentEditorProps {
   agent: DynamicAgentConfig | null; // null = creating new
@@ -62,26 +71,34 @@ function generateSlug(name: string): string {
   return slug ? `agent-${slug}` : "";
 }
 
+// Visibility picker — `private` was retired on 2026-05-22 (see
+// `docs/docs/changes/2026-05-22-remove-private-agents.md` and the
+// `VisibilityType` definition in `@/types/dynamic-agent`). Every dynamic
+// agent is now team-owned; users who want a truly personal agent should
+// create a single-member team and own the agent through that team.
 const VISIBILITY_OPTIONS: { value: VisibilityType; label: string; icon: React.ReactNode; description: string }[] = [
-  { 
-    value: "private", 
-    label: "Private", 
-    icon: <Lock className="h-4 w-4" />,
-    description: "Only you can use this agent" 
-  },
-  { 
-    value: "team", 
-    label: "Team", 
+  {
+    value: "team",
+    label: "Team",
     icon: <Users className="h-4 w-4" />,
-    description: "Share with specific teams" 
+    description: "Owner-team members can use; admins can manage. Optionally share with other teams.",
   },
-  { 
-    value: "global", 
-    label: "Global", 
+  {
+    value: "global",
+    label: "Global",
     icon: <Globe className="h-4 w-4" />,
-    description: "Available to all users" 
+    description: "Available to all users; owner-team admins manage it.",
   },
 ];
+
+interface TeamOption {
+  _id: string;
+  name: string;
+  slug?: string;
+  description?: string;
+  user_role?: string | null;
+  can_own_agents?: boolean;
+}
 
 // Step definitions for the wizard
 const STEPS = [
@@ -217,6 +234,7 @@ function AdvancedStep({
   setInterruptOn,
   allowedTools,
   builtinTools,
+  setBuiltinTools,
   features,
   setFeatures,
   availableModels,
@@ -229,8 +247,9 @@ function AdvancedStep({
   setSubagents: (v: SubAgentRef[]) => void;
   interruptOn: InterruptOn;
   setInterruptOn: (v: InterruptOn) => void;
-  allowedTools: Record<string, string[]>;
+  allowedTools: Record<string, string[] | boolean>;
   builtinTools?: BuiltinToolsConfig;
+  setBuiltinTools: (v: BuiltinToolsConfig) => void;
   features: FeaturesConfig | undefined;
   setFeatures: (v: FeaturesConfig | undefined) => void;
   availableModels: { model_id: string; name: string; provider: string }[];
@@ -242,6 +261,7 @@ function AdvancedStep({
     (sum, tools) => sum + Object.keys(tools).length, 0
   );
   const middlewareCount = features?.middleware?.length ?? 0;
+  const workflowCount = builtinTools?.workflows?.length ?? 0;
 
   return (
     <div className="space-y-4 pt-2">
@@ -291,6 +311,24 @@ function AdvancedStep({
           onError={setMiddlewareError}
         />
       </CollapsibleSection>
+
+      <CollapsibleSection
+        title="Workflows"
+        description="Allow this agent to trigger and monitor workflows"
+        badge={`${workflowCount} workflow${workflowCount !== 1 ? "s" : ""}`}
+        defaultExpanded={false}
+      >
+        <WorkflowToolsPicker
+          value={builtinTools?.workflows ?? []}
+          onChange={(ids) => {
+            setBuiltinTools({
+              ...builtinTools,
+              workflows: ids.length > 0 ? ids : undefined,
+            } as BuiltinToolsConfig);
+          }}
+          disabled={loading}
+        />
+      </CollapsibleSection>
     </div>
   );
 }
@@ -309,11 +347,24 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
   );
   const [description, setDescription] = React.useState(source?.description || "");
   const [systemPrompt, setSystemPrompt] = React.useState(source?.system_prompt || "");
-  const [visibility, setVisibility] = React.useState<VisibilityType>(source?.visibility || "private");
+  // Default to `team` for new agents — every agent must have an owner
+  // team, and team-scoped sharing is the safest default. `private` is
+  // retired (see `VisibilityType` in `@/types/dynamic-agent`); legacy
+  // docs that still carry `visibility: 'private'` on the wire are coerced
+  // to `team` here so the picker has a matching tile to highlight. The
+  // BFF-side `coerceAgentVisibilityOnRead` helper does the same on read,
+  // but we coerce defensively in the UI in case a stale GET response
+  // slips through before that helper is wired into every route.
+  const [visibility, setVisibility] = React.useState<VisibilityType>(() => {
+    const raw = source?.visibility as VisibilityType | "private" | undefined;
+    if (raw === "team" || raw === "global") return raw;
+    return "team";
+  });
   const [sharedWithTeams, setSharedWithTeams] = React.useState<string[]>(
     source?.shared_with_teams || []
   );
-  const [allowedTools, setAllowedTools] = React.useState<Record<string, string[]>>(
+  const [ownerTeamSlug, setOwnerTeamSlug] = React.useState(source?.owner_team_slug || "");
+  const [allowedTools, setAllowedTools] = React.useState<Record<string, string[] | boolean>>(
     source?.allowed_tools || {}
   );
   const [builtinTools, setBuiltinTools] = React.useState<BuiltinToolsConfig | undefined>(
@@ -378,7 +429,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
   >([]);
   const [modelsLoading, setModelsLoading] = React.useState(false);
   const [availableTeams, setAvailableTeams] = React.useState<
-    { _id: string; name: string; description?: string }[]
+    TeamOption[]
   >([]);
 
   // AI suggestion state
@@ -393,6 +444,20 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
   const [enhanceExisting, setEnhanceExisting] = React.useState(false);
   const [enhanceExistingBasic, setEnhanceExistingBasic] = React.useState(false);
   const [promptStyle, setPromptStyle] = React.useState<"concise" | "comprehensive">("concise");
+
+  // AI Review hook for the system prompt (Instructions step). The hook is a no-op
+  // when `/api/review-configs/agent-system-prompt` is not configured / disabled —
+  // both the button and panel render null in that case.
+  const review = useAiReview({
+    target: "agent-system-prompt",
+    content: systemPrompt,
+    context: {
+      name,
+      agent_description: description,
+      extra_context: undefined,
+    },
+    onApplyFix: setSystemPrompt,
+  });
 
   // Editor resize drag handlers
   const handleDragStart = React.useCallback((e: React.MouseEvent) => {
@@ -538,6 +603,35 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
     fetchTeams();
   }, []);
 
+  // When editing an existing agent, find out if it is the platform default.
+  // If it is, lock the visibility selector so the admin can't accidentally
+  // demote `global → team` from here — the BFF would reject the request
+  // with 409 / AGENT_IS_PLATFORM_DEFAULT anyway, so we surface that
+  // constraint up front. The platform-config endpoint is readable by any
+  // signed-in user (it's how the Slack bot resolves the DM default), so
+  // this works for editors who aren't admins too.
+  const [isPlatformDefault, setIsPlatformDefault] = React.useState(false);
+  React.useEffect(() => {
+    if (!agent?._id) return;
+    let cancelled = false;
+    async function checkDefault() {
+      try {
+        const response = await fetch("/api/admin/platform-config");
+        const data = await response.json();
+        if (cancelled) return;
+        if (data.success && data.data?.default_agent_id === agent?._id) {
+          setIsPlatformDefault(true);
+        }
+      } catch {
+        // Non-fatal: the BFF will still enforce the invariant on save.
+      }
+    }
+    checkDefault();
+    return () => {
+      cancelled = true;
+    };
+  }, [agent?._id]);
+
   // Step wizard state
   const [activeStep, setActiveStep] = React.useState<StepId>("basic");
 
@@ -564,6 +658,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
       systemPrompt,
       visibility,
       sharedWithTeams,
+      ownerTeamSlug,
       allowedTools,
       builtinTools,
       subagents,
@@ -579,6 +674,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
       systemPrompt,
       visibility,
       sharedWithTeams,
+      ownerTeamSlug,
       allowedTools,
       builtinTools,
       subagents,
@@ -611,7 +707,17 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
     }
   };
 
-  const goToNextStep = () => {
+  const goToNextStep = async () => {
+    // Gate the instructions → tools transition behind a passing AI Review when
+    // the admin has flagged this target as "blocking". `ensurePassedOrRun` is a
+    // no-op when the config is disabled or informational.
+    if (activeStep === "instructions" && review.isBlocking) {
+      const ok = await review.ensurePassedOrRun();
+      if (!ok) {
+        setError("AI Review failed — address comments before continuing.");
+        return;
+      }
+    }
     if (currentStepIndex < STEPS.length - 1) {
       setActiveStep(STEPS[currentStepIndex + 1].id);
     }
@@ -758,9 +864,26 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
     setLoading(true);
     setError(null);
 
+    // Gate save behind a passing AI Review when the admin has flagged this
+    // target as "blocking". `ensurePassedOrRun` is a no-op when the config is
+    // disabled or informational.
+    if (review.isBlocking) {
+      const ok = await review.ensurePassedOrRun();
+      if (!ok) {
+        setError("AI Review failed — address comments before saving.");
+        setLoading(false);
+        return;
+      }
+    }
+
     // Validate required fields
     if (!modelId || !modelProvider) {
       setError("Model selection is required");
+      setLoading(false);
+      return;
+    }
+    if (!isEditing && !ownerTeamSlug) {
+      setError("Owner team is required");
       setLoading(false);
       return;
     }
@@ -788,6 +911,12 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
           }
         : undefined;
 
+      // Stamp the latest in-memory review verdict onto the saved row so the
+      // list view can show a grade badge without re-running the LLM. Only
+      // emit the field when we actually have a result this session — never
+      // overwrite a prior `last_review` with null.
+      const lastReview = buildLastReview(review.result, "agent-system-prompt");
+
       if (isEditing) {
         // Update existing agent
         const updateData: DynamicAgentConfigUpdate = {
@@ -804,6 +933,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
           ui: uiConfig,
           features: features,
           interrupt_on: interruptOn,
+          ...(lastReview ? { last_review: lastReview } : {}),
         };
 
         const response = await fetch(`/api/dynamic-agents?id=${agent._id}`, {
@@ -824,6 +954,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
           description: description || undefined,
           system_prompt: systemPrompt,
           visibility,
+          owner_team_slug: ownerTeamSlug,
           shared_with_teams: visibility === "team" ? sharedWithTeams : undefined,
           allowed_tools: allowedTools,
           builtin_tools: builtinTools,
@@ -833,6 +964,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
           ui: uiConfig,
           features: features,
           interrupt_on: interruptOn,
+          ...(lastReview ? { last_review: lastReview } : {}),
         };
 
         const response = await fetch("/api/dynamic-agents", {
@@ -863,7 +995,43 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
     }
   };
 
-  const isValid = name.trim() && systemPrompt.trim() && modelId && availableModels.length > 0;
+  // Each entry describes one reason the Create Agent / Save Changes button is
+  // disabled. We render `blockers[0]` next to the button so the user always
+  // sees WHY they can't submit and on which step to fix it — previously the
+  // button just went `disabled` with no explanation, which the user reported
+  // as confusing (especially the Owner Team case, where the picker sits on
+  // the first wizard step but the button lives below step 5's content).
+  //
+  // assisted-by Cursor claude-opus-4-7
+  const ownerTeamMissing = !isEditing && !ownerTeamSlug;
+
+  const blockers: { field: string; label: string; step: StepId }[] = React.useMemo(() => {
+    const list: { field: string; label: string; step: StepId }[] = [];
+    if (!name.trim()) {
+      list.push({ field: "name", label: "Agent name", step: "basic" });
+    }
+    if (availableModels.length === 0) {
+      // Distinct from "model not picked" — the user can't pick anything
+      // because nothing is configured. Surfacing this separately tells the
+      // operator the problem is upstream (no providers configured).
+      list.push({ field: "modelAvailability", label: "At least one model provider must be configured", step: "basic" });
+    } else if (!modelId) {
+      list.push({ field: "model", label: "Model", step: "basic" });
+    }
+    if (ownerTeamMissing) {
+      list.push({ field: "ownerTeam", label: "Owner Team", step: "basic" });
+    }
+    if (!systemPrompt.trim()) {
+      list.push({ field: "systemPrompt", label: "Instructions (system prompt)", step: "instructions" });
+    }
+    return list;
+  }, [name, systemPrompt, modelId, availableModels.length, ownerTeamMissing]);
+
+  const isValid = blockers.length === 0;
+  const firstBlocker = blockers[0];
+  const blockerStepLabel = firstBlocker
+    ? STEPS.find((s) => s.id === firstBlocker.step)?.label ?? firstBlocker.step
+    : null;
 
   // Back-button click handler. When the form has unsaved changes, we surface
   // an in-app confirmation modal instead of silently discarding work. The
@@ -915,12 +1083,14 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                 : "Configure a new custom AI agent"}
             </CardDescription>
           </div>
-          <div
-            className="ml-auto h-9 w-9 rounded-lg flex items-center justify-center shrink-0 transition-all"
-            style={getGradientStyle(gradientTheme, gradientTheme === "custom" ? customThemeConfig : null)}
-          >
-            <Bot className="h-5 w-5" style={{ color: getAccentColor(gradientTheme, customThemeConfig) || "white" }} />
-          </div>
+          <AgentAvatar
+            gradientTheme={gradientTheme}
+            customThemeConfig={gradientTheme === "custom" ? customThemeConfig : undefined}
+            rounded="rounded-lg"
+            size="ml-auto h-9 w-9"
+            iconSize="h-5 w-5"
+            className="transition-all"
+          />
         </div>
       </CardHeader>
       <CardContent>
@@ -1176,12 +1346,14 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                       <div className="absolute right-full top-0 mr-2 p-4 rounded-lg border border-border bg-card shadow-lg space-y-4 w-72 z-50">
                         {/* Preview */}
                         <div className="flex items-center gap-3">
-                          <div
-                            className="h-12 w-12 rounded-xl flex items-center justify-center shrink-0 transition-all"
-                            style={getGradientStyle("custom", customThemeConfig)}
-                          >
-                            <Bot className="h-6 w-6" style={{ color: customThemeConfig.accent_color }} />
-                          </div>
+                          <AgentAvatar
+                            gradientTheme="custom"
+                            customThemeConfig={customThemeConfig}
+                            rounded="rounded-xl"
+                            size="h-12 w-12"
+                            iconSize="h-6 w-6"
+                            className="transition-all"
+                          />
                           <div className="text-xs text-muted-foreground">
                             Live preview
                           </div>
@@ -1257,28 +1429,126 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                 </div>
               </div>
 
+              <div
+                className={cn(
+                  "space-y-2 rounded-lg transition-colors",
+                  ownerTeamMissing && "border border-destructive/40 bg-destructive/5 p-3"
+                )}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <Label htmlFor="ownerTeam">
+                    Owner Team {!isEditing && <span className="text-destructive">*</span>}
+                  </Label>
+                  {ownerTeamMissing && (
+                    <span className="rounded-full bg-destructive px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-destructive-foreground">
+                      Required
+                    </span>
+                  )}
+                </div>
+                {/* Native <select> would mount the entire team list
+                    (often 600+ AWS-* SSO entries) directly into the
+                    DOM, making the editor unusable. Switched to the
+                    searchable TeamPicker on 2026-05-27 — same on-disk
+                    contract (slug-string), but the trigger renders
+                    only the current selection and admins can type to
+                    filter. Teams the caller is not a member of are
+                    rendered as `disabled` so they remain visible (the
+                    "why can't I pick this one?" answer) but not
+                    pickable, matching the old <option disabled>. */}
+                <TeamPicker
+                  id="ownerTeam"
+                  value={ownerTeamSlug}
+                  onChange={setOwnerTeamSlug}
+                  disabled={loading || isEditing}
+                  ariaInvalid={ownerTeamMissing}
+                  ariaDescribedBy={
+                    ownerTeamMissing
+                      ? "owner-team-required-message owner-team-help"
+                      : "owner-team-help"
+                  }
+                  triggerClassName={cn(
+                    ownerTeamMissing &&
+                      "border-destructive/70 bg-destructive/5 ring-1 ring-destructive/30 focus:ring-destructive"
+                  )}
+                  placeholder="Select a team that will own this agent"
+                  searchPlaceholder="Search your teams..."
+                  emptyLabel={
+                    availableTeams.length === 0
+                      ? "You are not a member of any teams"
+                      : "No teams match"
+                  }
+                  options={availableTeams
+                    .filter((team): team is typeof team & { slug: string } => Boolean(team.slug))
+                    .map<TeamPickerOption>((team) => ({
+                      slug: team.slug,
+                      name: team.user_role
+                        ? `${team.name} (${team.user_role})`
+                        : team.name,
+                      _id: team._id,
+                      disabled: !team.can_own_agents,
+                    }))}
+                />
+                {ownerTeamMissing && (
+                  <p
+                    id="owner-team-required-message"
+                    role="alert"
+                    className="flex items-start gap-1.5 rounded-md border border-destructive/30 bg-destructive/10 px-2.5 py-2 text-xs text-destructive"
+                  >
+                    <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    <span>
+                      <span className="font-semibold">Owner Team is required.</span>{" "}
+                      Choose a team before creating this agent.
+                    </span>
+                  </p>
+                )}
+                <p id="owner-team-help" className="text-xs text-muted-foreground">
+                  Owner-team members can use the agent; owner-team admins can manage it.
+                </p>
+                {!isEditing && availableTeams.every((team) => !team.can_own_agents) && (
+                  <p className="text-xs text-destructive">
+                    You need to be a platform admin or a team admin to create a team-owned agent.
+                  </p>
+                )}
+              </div>
+
               <div className="space-y-2">
                 <Label>Visibility</Label>
-                <div className="grid grid-cols-3 gap-2">
-                  {VISIBILITY_OPTIONS.map((opt) => (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      onClick={() => setVisibility(opt.value)}
-                      className={`p-3 rounded-lg border text-left transition-colors ${
-                        visibility === opt.value
-                          ? "border-primary bg-primary/5"
-                          : "border-muted hover:border-primary/50"
-                      }`}
-                      disabled={loading}
-                    >
-                      <div className="flex items-center gap-2 mb-1">
-                        {opt.icon}
-                        <span className="font-medium text-sm">{opt.label}</span>
-                      </div>
-                      <div className="text-xs text-muted-foreground">{opt.description}</div>
-                    </button>
-                  ))}
+                {isPlatformDefault && (
+                  <p
+                    className="text-xs text-amber-600 dark:text-amber-400"
+                    data-testid="platform-default-visibility-note"
+                  >
+                    This agent is the platform default for new chats, so every signed-in user
+                    can use it. Change the platform default in Admin → Settings before changing
+                    its visibility.
+                  </p>
+                )}
+                <div className="grid grid-cols-2 gap-2">
+                  {VISIBILITY_OPTIONS.map((opt) => {
+                    // When this agent is the platform default, lock the
+                    // selector so the admin can't try to demote
+                    // `global → team` here — the BFF will reject it.
+                    const lockedByPlatformDefault = isPlatformDefault;
+                    return (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => setVisibility(opt.value)}
+                        className={`p-3 rounded-lg border text-left transition-colors ${
+                          visibility === opt.value
+                            ? "border-primary bg-primary/5"
+                            : "border-muted hover:border-primary/50"
+                        } ${lockedByPlatformDefault ? "opacity-60 cursor-not-allowed" : ""}`}
+                        disabled={loading || lockedByPlatformDefault}
+                      >
+                        <div className="flex items-center gap-2 mb-1">
+                          {opt.icon}
+                          <span className="font-medium text-sm">{opt.label}</span>
+                        </div>
+                        <div className="text-xs text-muted-foreground">{opt.description}</div>
+                      </button>
+                    );
+                  })}
                 </div>
 
                 {/* Team selector - shown when visibility is "team" */}
@@ -1286,37 +1556,92 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                   <div className="mt-4 p-3 rounded-lg border bg-muted/30">
                     <Label className="text-sm">Share with Teams</Label>
                     <p className="text-xs text-muted-foreground mb-3">
-                      Select which teams can access this agent.
+                      Select which teams can access this agent. Each selected
+                      team gets <code>can_use</code> on the agent in OpenFGA,
+                      so every member can DM it and use it in any Slack
+                      channel or Webex space mapped to that team.
                     </p>
                     {availableTeams.length === 0 ? (
                       <p className="text-xs text-muted-foreground italic">
                         You are not a member of any teams.
                       </p>
                     ) : (
-                      <div className="space-y-2">
-                        {availableTeams.map((team) => (
-                          <label
-                            key={team._id}
-                            className="flex items-center gap-2 cursor-pointer"
-                          >
-                            <input
-                              type="checkbox"
-                              checked={sharedWithTeams.includes(team._id)}
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  setSharedWithTeams([...sharedWithTeams, team._id]);
-                                } else {
-                                  setSharedWithTeams(sharedWithTeams.filter((id) => id !== team._id));
-                                }
-                              }}
-                              disabled={loading}
-                              className="rounded border-muted"
-                            />
-                            <span className="text-sm">{team.name}</span>
-                          </label>
-                        ))}
-                      </div>
+                      // Searchable multi-select — replaces the long
+                      // vertical checklist that became unusable in
+                      // environments with hundreds of AWS-* / SSO-*
+                      // teams (see screenshot 2026-05-27). Selected
+                      // teams render as chips on the trigger; the
+                      // full list is hidden until the popover opens.
+                      // `selected` accepts both canonical slugs and
+                      // legacy Mongo `_id` values for pre-migration
+                      // round-tripping; the picker normalises both
+                      // shapes against the options list.
+                      <TeamMultiPicker
+                        options={availableTeams
+                          .filter((team): team is typeof team & { slug: string } => Boolean(team.slug))
+                          .map<TeamPickerOption>((team) => ({
+                            slug: team.slug,
+                            name: team.name,
+                            _id: team._id,
+                          }))}
+                        selected={sharedWithTeams}
+                        onChange={setSharedWithTeams}
+                        disabled={loading}
+                        placeholder="Pick one or more teams to share with..."
+                        searchPlaceholder="Search your teams..."
+                        emptyLabel="No teams match"
+                      />
                     )}
+
+                    {/* Effective access summary — names exactly what the
+                        next save will write to OpenFGA so the admin
+                        cannot be surprised by transitive grants. The
+                        rendered list mirrors the diff computed in
+                        `reconcileAgentRelationships`. */}
+                    {(() => {
+                      const ownerSlug = ownerTeamSlug?.trim() || null;
+                      const sharedSlugs = sharedWithTeams
+                        .map((entry) => {
+                          const match = availableTeams.find(
+                            (t) => t._id === entry || t.slug === entry,
+                          );
+                          return match?.slug || (typeof entry === "string" ? entry : null);
+                        })
+                        .filter((slug): slug is string => Boolean(slug))
+                        .filter((slug) => slug !== ownerSlug);
+                      const allSlugs = [
+                        ...(ownerSlug ? [{ slug: ownerSlug, kind: "owner" as const }] : []),
+                        ...sharedSlugs.map((slug) => ({ slug, kind: "shared" as const })),
+                      ];
+                      if (allSlugs.length === 0) return null;
+                      return (
+                        <div
+                          role="note"
+                          aria-label="Effective access summary"
+                          className="mt-4 rounded-md border border-amber-300/60 bg-amber-50 p-3 text-xs text-amber-950 dark:bg-amber-950/30 dark:text-amber-200"
+                        >
+                          <div className="font-medium mb-2">
+                            On save, these OpenFGA grants will be written:
+                          </div>
+                          <ul className="space-y-1.5">
+                            {allSlugs.map(({ slug, kind }) => (
+                              <li key={`${kind}-${slug}`}>
+                                <code>team:{slug}#member</code> can use
+                                this agent
+                                {kind === "owner" && " (owner team)"}
+                                <span className="block pl-4 text-amber-900/80 dark:text-amber-300/80">
+                                  every member of <code>team:{slug}</code>{" "}
+                                  can DM this agent in a 1:1 chat and use
+                                  it in any Slack channel or Webex space
+                                  that is mapped to{" "}
+                                  <code>team:{slug}</code>.
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      );
+                    })()}
                   </div>
                 )}
               </div>
@@ -1331,6 +1656,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                   <Label htmlFor="systemPrompt">
                     System Prompt <span className="text-destructive">*</span>
                   </Label>
+                  <div className="flex items-center gap-2">
                   <div className="relative">
                     <Button
                       type="button"
@@ -1434,6 +1760,11 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                       )}
                     </AnimatePresence>
                   </div>
+                  {/* AI Review button — sibling to AI Suggest. Renders disabled
+                      when the target isn't configured; the panel below renders
+                      null in the same case so this is the only visible affordance. */}
+                  <AiReviewButton review={review} size="sm" />
+                  </div>
                 </div>
 
                 {/* Edit / Preview tabs */}
@@ -1466,63 +1797,83 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                   </button>
                 </div>
 
-                {promptTab === "edit" ? (
-                  <div className="rounded-lg overflow-hidden border border-border/30 bg-[#1e1e2e]" style={{ height: `${editorHeight}px` }}>
-                    <React.Suspense
-                      fallback={
-                        <div className="flex items-center justify-center h-48 text-zinc-500">
-                          <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                          <span className="text-sm">Loading editor...</span>
-                        </div>
-                      }
-                    >
-                      <CodeMirrorEditor
-                        value={systemPrompt}
-                        onChange={(val: string) => setSystemPrompt(val)}
-                        extensions={cmExtensions}
-                        theme="dark"
-                        height={`${editorHeight}px`}
-                        style={{ fontSize: "15px" }}
-                        basicSetup={{
-                          lineNumbers: true,
-                          foldGutter: true,
-                          highlightActiveLine: true,
-                          bracketMatching: true,
-                          autocompletion: false,
-                          indentOnInput: true,
-                        }}
-                        placeholder="You are a helpful AI assistant that specializes in..."
-                        editable={!loading && generatingField !== "system_prompt"}
-                      />
-                    </React.Suspense>
-                  </div>
-                ) : (
-                  <div className="rounded-lg border p-4 overflow-y-auto prose prose-sm dark:prose-invert max-w-none" style={{ height: `${editorHeight}px` }}>
-                    {systemPrompt.trim() ? (
-                      <ReactMarkdown
-                        remarkPlugins={[remarkGfm]}
-                        components={getMarkdownComponents()}
-                      >
-                        {systemPrompt}
-                      </ReactMarkdown>
+                {/* Editor column + AI Review panel side-by-side. Panel renders
+                    null when the target isn't configured / disabled, so the
+                    flex container collapses to just the editor in that case. */}
+                <div className="flex gap-3 min-h-0">
+                  <div className="flex-1 min-w-0">
+                    {promptTab === "edit" ? (
+                      <div className="rounded-lg overflow-hidden border border-border/30 bg-[#1e1e2e]" style={{ height: `${editorHeight}px` }}>
+                        <React.Suspense
+                          fallback={
+                            <div className="flex items-center justify-center h-48 text-zinc-500">
+                              <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                              <span className="text-sm">Loading editor...</span>
+                            </div>
+                          }
+                        >
+                          <CodeMirrorEditor
+                            value={systemPrompt}
+                            onChange={(val: string) => setSystemPrompt(val)}
+                            extensions={cmExtensions}
+                            theme="dark"
+                            height={`${editorHeight}px`}
+                            style={{ fontSize: "15px" }}
+                            basicSetup={{
+                              lineNumbers: true,
+                              foldGutter: true,
+                              highlightActiveLine: true,
+                              bracketMatching: true,
+                              autocompletion: false,
+                              indentOnInput: true,
+                            }}
+                            placeholder="You are a helpful AI assistant that specializes in..."
+                            editable={!loading && generatingField !== "system_prompt"}
+                          />
+                        </React.Suspense>
+                      </div>
                     ) : (
-                      <p className="text-muted-foreground italic text-sm">
-                        Nothing to preview. Switch to Edit to write your system prompt.
-                      </p>
+                      <div className="rounded-lg border p-4 overflow-y-auto prose prose-sm dark:prose-invert max-w-none" style={{ height: `${editorHeight}px` }}>
+                        {systemPrompt.trim() ? (
+                          <ReactMarkdown
+                            remarkPlugins={[remarkGfm]}
+                            components={getMarkdownComponents()}
+                          >
+                            {systemPrompt}
+                          </ReactMarkdown>
+                        ) : (
+                          <p className="text-muted-foreground italic text-sm">
+                            Nothing to preview. Switch to Edit to write your system prompt.
+                          </p>
+                        )}
+                      </div>
                     )}
-                  </div>
-                )}
 
-                {/* Drag handle to resize editor */}
-                <div
-                  onMouseDown={handleDragStart}
-                  className="flex items-center justify-center h-3 cursor-row-resize group hover:bg-muted/50 rounded-b-lg transition-colors"
-                >
-                  <GripHorizontal className="h-3 w-3 text-muted-foreground/40 group-hover:text-muted-foreground" />
+                    {/* Drag handle to resize editor */}
+                    <div
+                      onMouseDown={handleDragStart}
+                      className="flex items-center justify-center h-3 cursor-row-resize group hover:bg-muted/50 rounded-b-lg transition-colors"
+                    >
+                      <GripHorizontal className="h-3 w-3 text-muted-foreground/40 group-hover:text-muted-foreground" />
+                    </div>
+                  </div>
+                  <AiReviewPanel
+                    review={review}
+                    style={{ height: `${editorHeight + 12}px` }}
+                    onClickAnchor={(anchor) => {
+                      // Phase 1: no-op stub. A follow-up will scroll the
+                      // CodeMirror view to `anchor.line_start` and flash a
+                      // gutter decoration. Logging keeps the wiring observable
+                      // during development.
+                      if (process.env.NODE_ENV !== "production") {
+                        console.debug("[ai-review] anchor click", anchor);
+                      }
+                    }}
+                  />
                 </div>
 
                 <p className="text-sm text-muted-foreground">
-                  Define your agent&apos;s behavior, personality, and capabilities. 
+                  Define your agent&apos;s behavior, personality, and capabilities.
                   You can paste content from an AGENTS.md file here.
                 </p>
               </div>
@@ -1553,6 +1904,16 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                   value={allowedTools}
                   onChange={setAllowedTools}
                   disabled={loading}
+                />
+              </div>
+
+              {/* Advanced: Middleware */}
+              <div className="border-t pt-4">
+                <MiddlewarePicker
+                  value={features}
+                  onChange={setFeatures}
+                  disabled={loading}
+                  availableModels={availableModels}
                 />
               </div>
             </div>
@@ -1586,6 +1947,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
               setInterruptOn={setInterruptOn}
               allowedTools={allowedTools}
               builtinTools={builtinTools}
+              setBuiltinTools={(v) => setBuiltinTools(v)}
               features={features}
               setFeatures={setFeatures}
               availableModels={availableModels}
@@ -1615,10 +1977,10 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
               <ChevronLeft className="h-4 w-4 mr-1" />
               Previous
             </Button>
-            <Button 
-              type="button" 
-              variant="outline" 
-              onClick={goToNextStep}
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => void goToNextStep()}
               disabled={currentStepIndex === STEPS.length - 1 || loading}
               size="sm"
             >
@@ -1641,11 +2003,56 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
             </>
           )}
         </div>
+        {!readOnly && firstBlocker && !loading && (
+          // Inline blocker hint. Renders only when the submit button is
+          // disabled AND we're not mid-save. Includes a click-to-jump shortcut
+          // so the user can land on the offending step in one click without
+          // hunting through the wizard. Wrapped in flex so the label and the
+          // jump-to button sit on one line on wide screens and wrap on narrow.
+          <div
+            role="status"
+            aria-live="polite"
+            data-testid="create-agent-blocker-hint"
+            className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-destructive"
+          >
+            <span>
+              Required: <span className="font-medium">{firstBlocker.label}</span>
+              {blockerStepLabel ? (
+                <>
+                  {" "}<span className="text-muted-foreground">(on {blockerStepLabel} step)</span>
+                </>
+              ) : null}
+              {blockers.length > 1 ? (
+                <span className="text-muted-foreground"> · {blockers.length - 1} more</span>
+              ) : null}
+            </span>
+            {blockerStepLabel && firstBlocker.step !== activeStep ? (
+              <button
+                type="button"
+                onClick={() => setActiveStep(firstBlocker.step)}
+                className="underline underline-offset-2 hover:text-destructive/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive rounded-sm"
+              >
+                Go to {blockerStepLabel}
+              </button>
+            ) : null}
+          </div>
+        )}
         <Button type="button" variant="outline" onClick={onCancel} disabled={loading}>
           {readOnly ? "Close" : "Cancel"}
         </Button>
         {!readOnly && (
-          <Button onClick={handleSubmit} disabled={loading || !isValid || middlewareError}>
+          <Button
+            onClick={handleSubmit}
+            disabled={loading || !isValid}
+            // Native-tooltip mirror of the inline hint above. Helps users who
+            // hover the button looking for an explanation when they miss the
+            // inline text (e.g. on narrow screens where the hint wraps).
+            title={
+              !loading && firstBlocker
+                ? `${firstBlocker.label} is required${blockerStepLabel ? ` (on ${blockerStepLabel} step)` : ""}`
+                : undefined
+            }
+          >
             {loading ? (
               <>
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />

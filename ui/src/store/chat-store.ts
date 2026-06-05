@@ -1,12 +1,28 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { Conversation, ChatMessage, A2AEvent, MessageFeedback, TurnStatus, getAgentId, isDynamicAgentConversation, buildParticipants } from "@/types/a2a";
-import { StreamEvent } from "@/components/dynamic-agents/sse-types";
+import { StreamEvent } from "@/lib/streaming/types";
 import { generateId } from "@/lib/utils";
 import { A2AClient } from "@/lib/a2a-client";
 import type { StreamAdapter } from "@/lib/streaming";
 import { apiClient } from "@/lib/api-client";
 import { getStorageMode, shouldUseLocalStorage } from "@/lib/storage-config";
+
+const LAST_ACTIVE_CONVERSATION_KEY = "caipe-chat-last-active-conversation";
+
+export function getLastActiveConversationId(): string | null {
+  if (typeof window === "undefined") return null;
+  return window.localStorage.getItem(LAST_ACTIVE_CONVERSATION_KEY);
+}
+
+function persistLastActiveConversationId(id: string | null): void {
+  if (typeof window === "undefined") return;
+  if (id) {
+    window.localStorage.setItem(LAST_ACTIVE_CONVERSATION_KEY, id);
+  } else {
+    window.localStorage.removeItem(LAST_ACTIVE_CONVERSATION_KEY);
+  }
+}
 
 // Track streaming state per conversation
 interface StreamingState {
@@ -288,6 +304,7 @@ const storeImplementation = (set: any, get: any) => ({
           activeConversationId: id,
           a2aEvents: [],
         }));
+        persistLastActiveConversationId(id);
 
         return id;
       },
@@ -303,6 +320,7 @@ const storeImplementation = (set: any, get: any) => ({
           unviewedConversations: newUnviewed,
           inputRequiredConversations: newInputRequired,
         });
+        persistLastActiveConversationId(id);
       },
 
       addMessage: (conversationId: string, message: Omit<ChatMessage, "id" | "timestamp" | "events">, turnId?: string, messageId?: string) => {
@@ -712,6 +730,8 @@ const storeImplementation = (set: any, get: any) => ({
             a2aEvents: wasActiveConversation ? [] : state.a2aEvents,
           };
         });
+        const nextActiveId = get().activeConversationId;
+        persistLastActiveConversationId(nextActiveId);
 
         // In MongoDB mode, also delete from server
         if (storageMode === 'mongodb') {
@@ -735,6 +755,7 @@ const storeImplementation = (set: any, get: any) => ({
           activeConversationId: null,
           a2aEvents: [],
         });
+        persistLastActiveConversationId(null);
       },
 
       getActiveConversation: () => {
@@ -977,6 +998,7 @@ const storeImplementation = (set: any, get: any) => ({
           });
 
           if (activeId && !activeStillExists) {
+            persistLastActiveConversationId(get().activeConversationId);
             console.log(`[ChatStore] Active conversation ${activeId.substring(0, 8)} was deleted on another device, switching to first conversation`);
           }
 

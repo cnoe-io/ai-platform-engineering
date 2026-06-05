@@ -67,15 +67,14 @@ helm show values oci://ghcr.io/cnoe-io/charts/caipe-ui --version 0.2.38
 | config.NEXTAUTH_URL | string | `"http://localhost:3000"` |  |
 | config.NODE_ENV | string | `"production"` |  |
 | config.OIDC_ENABLE_REFRESH_TOKEN | string | `"true"` |  |
-| config.OIDC_REQUIRED_ADMIN_GROUP | string | `"app-admins"` |  |
-| config.OIDC_REQUIRED_ADMIN_VIEW_GROUP | string | `""` |  |
-| config.OIDC_REQUIRED_GROUP | string | `"app-users"` |  |
+| config.OIDC_REQUIRED_ADMIN_GROUP | string | `""` | Deprecated; admin access is granted through Identity Group Sync + OpenFGA. |
+| config.OIDC_REQUIRED_GROUP | string | `""` | Deployment-specific group required for basic Web UI admission; empty disables the group gate. |
 | config.SHOW_POWERED_BY | string | `"false"` |  |
 | config.SSO_ENABLED | string | `"true"` |  |
 | config.SUPPORT_EMAIL | string | `"support@example.com"` |  |
 | config.TAGLINE | string | `"Multi-Agent Workflow Automation"` |  |
 | config.WORKFLOW_RUNNER_ENABLED | string | `"false"` |  |
-| env.A2A_BASE_URL | string | `"http://ai-platform-engineering-supervisor-agent:8000"` |  |
+| env.A2A_BASE_URL | string | `"http://{{ .Release.Name }}-supervisor-agent:8000"` |  |
 | existingSecret | string | `""` |  |
 | externalSecrets.apiVersion | string | `"v1beta1"` |  |
 | externalSecrets.data | list | `[]` |  |

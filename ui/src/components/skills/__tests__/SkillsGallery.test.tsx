@@ -13,7 +13,7 @@
  *  - Empty states
  *  - Modal interactions (backdrop, X button, Cancel)
  *  - Edit config and onSelectConfig callbacks
- *  - Supervisor sync gating (Try Skill disabled when not synced)
+ *  - Per-skill supervisor sync badge remains hidden
  */
 
 import React from "react";
@@ -213,33 +213,20 @@ async function renderGallery(props: Partial<React.ComponentProps<typeof SkillsGa
 // Global reset + fetch mock
 // ---------------------------------------------------------------------------
 
-let mockSupervisorSynced = true;
-
 beforeEach(() => {
   jest.clearAllMocks();
   mockWorkflowRunnerEnabled = false;
   mockIsLoading = false;
   mockError = null;
   mockIsAdmin = false;
-  mockSupervisorSynced = true;
   mockIsFavorite.mockReturnValue(false);
   mockGetFavoriteConfigs.mockReturnValue([]);
   mockCreateConversation.mockReturnValue("conv-abc");
   _configs = [];
 
-  // Mock global.fetch for supervisor-status and catalog endpoints
+  // Mock global.fetch for catalog endpoints
   global.fetch = jest.fn((url: string | URL | Request) => {
     const urlStr = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
-
-    if (urlStr.includes("/api/skills/supervisor-status")) {
-      return Promise.resolve({
-        ok: true,
-        json: () => Promise.resolve({
-          mas_registered: mockSupervisorSynced,
-          skills_loaded_count: mockSupervisorSynced ? 5 : 0,
-        }),
-      } as Response);
-    }
 
     if (urlStr.includes("/api/skills")) {
       return Promise.resolve({
@@ -273,6 +260,14 @@ describe("SkillsGallery — WORKFLOW_RUNNER_ENABLED=false (default)", () => {
   it("still renders the quick-start card gallery when the flag is off", async () => {
     await renderGallery();
     expect(screen.getByText("Incident Correlation & Root Cause Analysis")).toBeInTheDocument();
+  });
+
+  it("does not fetch supervisor status for per-skill sync badges", async () => {
+    await renderGallery();
+
+    expect(global.fetch).not.toHaveBeenCalledWith(
+      expect.stringContaining("/api/skills/supervisor-status"),
+    );
   });
 
   it("opens modal with Try Skill button when clicking a skill card", async () => {
@@ -582,16 +577,14 @@ describe("SkillsGallery — Try Skill", () => {
     expect(screen.queryByRole("button", { name: /try skill/i })).not.toBeInTheDocument();
   });
 
-  it("Try Skill is disabled when supervisor is not synced", async () => {
-    mockSupervisorSynced = false;
+  it("Try Skill stays enabled without supervisor sync gating", async () => {
     await renderGallery();
     await act(async () => { fireEvent.click(screen.getByText("Chat Skill")); });
     const tryBtn = screen.getByRole("button", { name: /try skill/i });
-    expect(tryBtn).toBeDisabled();
+    expect(tryBtn).not.toBeDisabled();
   });
 
-  it("Try Skill is enabled when supervisor is synced", async () => {
-    mockSupervisorSynced = true;
+  it("Try Skill is enabled when required parameters are valid", async () => {
     await renderGallery();
     await act(async () => { fireEvent.click(screen.getByText("Chat Skill")); });
     const tryBtn = screen.getByRole("button", { name: /try skill/i });
@@ -979,13 +972,6 @@ describe("SkillsGallery — catalog refresh after scan/override", () => {
           : url instanceof URL
           ? url.toString()
           : url.url;
-
-      if (urlStr.includes("/api/skills/supervisor-status")) {
-        return Promise.resolve({
-          ok: true,
-          json: () => Promise.resolve({ mas_registered: true, skills_loaded_count: 1 }),
-        } as Response);
-      }
 
       // Both the unified catalog endpoint (`/api/skills?...`) and
       // the per-source mongo endpoint (`/api/skills/configs`) start

@@ -6,5 +6,15 @@ metadata:
     {{- include "dynamic-agents.labels" . | nindent 4 }}
 data:
   {{- range $key, $value := .Values.config }}
+  {{- /*
+    Skip keys whose value is the empty string so the rendered ConfigMap
+    doesn't clobber the in-code defaults (e.g. KEYCLOAK_URL falls back to
+    http://localhost:7080 only when the env var is genuinely unset; an
+    empty-string env still wins over the default and is a sharper failure
+    mode). Operators who want to set a key explicitly to "" should set it
+    to a single space instead.
+  */ -}}
+  {{- if not (eq (toString $value) "") }}
   {{ $key }}: {{ $value | quote }}
+  {{- end }}
   {{- end }}

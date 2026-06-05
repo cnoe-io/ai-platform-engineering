@@ -3,6 +3,7 @@ import os
 import logging
 from typing import Optional, Dict, List, NamedTuple, Tuple, Any
 import httpx
+from mcp_agent_auth.token import get_request_token
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -11,7 +12,7 @@ logger = logging.getLogger("mcp_victorops")
 
 class OrgCredentials(NamedTuple):
     api_url: str
-    api_key: str
+    api_key: Optional[str]  # None when using caller-provided bearer token (single-org HTTP mode)
     api_id: str
 
 
@@ -45,13 +46,13 @@ def _build_org_registry() -> Dict[str, OrgCredentials]:
 
     # Fallback: single-org env vars → "default" org
     api_url = os.getenv("VICTOROPS_API_URL")
-    api_key = os.getenv("X_VO_API_KEY")
+    api_key = os.getenv("X_VO_API_KEY")  # Optional: may be supplied per-request in HTTP mode
     api_id = os.getenv("X_VO_API_ID")
 
     if not api_url:
         raise ValueError("VICTOROPS_API_URL environment variable is not set.")
     if not api_key:
-        raise ValueError("X_VO_API_KEY environment variable is not set.")
+        logger.warning("X_VO_API_KEY is not set; token must be supplied via Authorization: Bearer header")
     if not api_id:
         raise ValueError("X_VO_API_ID environment variable is not set.")
 
@@ -127,11 +128,13 @@ async def make_api_request(
     logger.debug(f"Making {method} request to {path}")
 
     creds = get_org_credentials(org_slug)
+    # Resolve api_key: env var (or multi-org config) takes priority; fall back to bearer token.
+    api_key = creds.api_key or get_request_token("X_VO_API_KEY")
 
     try:
         headers = {
             "X-VO-Api-Id": creds.api_id,
-            "X-VO-Api-Key": creds.api_key,
+            "X-VO-Api-Key": api_key or "",
             "Accept": "application/json",
         }
 
@@ -200,13 +203,13 @@ async def make_api_request(
         return (False, {"error": f"HTTP error: {e.response.status_code} - {str(e)}"})
     except httpx.RequestError as e:
         error_message = str(e)
-        if creds.api_key and creds.api_key in error_message:
+        if api_key and api_key in error_message:
             error_message = error_message.replace(creds.api_key, "[REDACTED]")
         logger.error(f"Request error: {error_message}")
         return (False, {"error": f"Request error: {error_message}"})
     except Exception as e:
         error_message = str(e)
-        if creds.api_key and creds.api_key in error_message:
+        if api_key and api_key in error_message:
             error_message = error_message.replace(creds.api_key, "[REDACTED]")
         logger.error(f"Unexpected error: {error_message}")
         return (False, {"error": f"Unexpected error: {error_message}"})

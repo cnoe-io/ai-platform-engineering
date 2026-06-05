@@ -80,7 +80,7 @@ export interface AiAssistTaskDef {
  *     (`aws-bedrock`, `openai`, `azure-openai`, `anthropic-claude`,
  *     `google-gemini`, `gcp-vertexai`, `groq`).
  *   - For Bedrock, `id` is the **raw Bedrock modelId** (e.g.
- *     `global.anthropic.claude-sonnet-4-6`) — NOT a LiteLLM-style
+ *     `global.anthropic.claude-haiku-4-5-20251001-v1:0`) — NOT a LiteLLM-style
  *     `bedrock/...` prefix. cnoe-agent-utils passes it straight through
  *     to `client.converse(modelId=...)`, and Bedrock rejects the prefix
  *     with `ValidationException: The provided model identifier is invalid`.
@@ -91,7 +91,7 @@ export interface AiAssistTaskDef {
  * vars (or seed `llm_models` in MongoDB) when a different provider is
  * available — the route prefers Mongo first, then env, then this fallback.
  */
-const GLOBAL_DEFAULT_MODEL_ID = "global.anthropic.claude-sonnet-4-6";
+const GLOBAL_DEFAULT_MODEL_ID = "global.anthropic.claude-haiku-4-5-20251001-v1:0";
 const GLOBAL_DEFAULT_PROVIDER = "aws-bedrock";
 
 /**

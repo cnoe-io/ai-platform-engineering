@@ -38,6 +38,7 @@ describe('useAdminRole', () => {
     mockGetConfig = {
       ssoEnabled: false,
       allowDevAdminWhenSsoDisabled: true,
+      unsafeRbacBypassEnabled: true,
       storageMode: 'mongodb',
     };
 
@@ -345,6 +346,7 @@ describe('useAdminRole — canViewAdmin', () => {
     mockGetConfig = {
       ssoEnabled: false,
       allowDevAdminWhenSsoDisabled: true,
+      unsafeRbacBypassEnabled: true,
       storageMode: 'mongodb',
     };
 
@@ -485,6 +487,7 @@ describe('useAdminRole — canAccessDynamicAgents', () => {
     mockGetConfig = {
       ssoEnabled: false,
       allowDevAdminWhenSsoDisabled: true,
+      unsafeRbacBypassEnabled: true,
       storageMode: 'mongodb',
     };
 

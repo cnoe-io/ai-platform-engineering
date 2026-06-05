@@ -115,7 +115,7 @@ def extract_dep_values(content: str) -> list[tuple[int, str]]:
                     inner = re.search(r'\[([^\]]*)\]', stripped)
                     if inner:
                         for item in inner.group(1).split(","):
-                            val = item.strip().strip('"').strip("'").strip()
+                            val = item.split("#", 1)[0].strip().strip('"').strip("'").strip()
                             if val:
                                 results.append((lineno, val))
                     current_array_key = ""
@@ -129,7 +129,7 @@ def extract_dep_values(content: str) -> list[tuple[int, str]]:
 
         # Dep entry inside array
         if in_dep_block and stripped.startswith('"'):
-            val = stripped.strip('",').strip("'").strip()
+            val = stripped.split("#", 1)[0].strip().strip('",').strip("'").strip()
             if val:
                 results.append((lineno, val))
 

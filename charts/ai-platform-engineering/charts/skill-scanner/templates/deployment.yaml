@@ -37,7 +37,7 @@ spec:
           securityContext:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-          image: "{{ .Values.image.repository }}:{{ include "skill-scanner.appVersion" . }}"
+          image: "{{ include "skill-scanner.imageRepository" (dict "root" . "repository" .Values.image.repository) }}:{{ include "skill-scanner.appVersion" . }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - name: http
@@ -56,6 +56,10 @@ spec:
                   name: {{ .Values.llm.apiKey.secretName }}
                   key: {{ .Values.llm.apiKey.secretKey }}
             {{- end }}
+          {{- end }}
+          {{- with .Values.startupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
           {{- end }}
           {{- with .Values.livenessProbe }}
           livenessProbe:

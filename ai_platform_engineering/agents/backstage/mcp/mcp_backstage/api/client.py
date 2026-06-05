@@ -8,19 +8,20 @@ import os
 import logging
 from typing import Optional, Dict, Tuple, Any
 import httpx
+from mcp_agent_auth.token import get_request_token
 
 # Load environment variables
 API_URL = os.getenv("BACKSTAGE_API_URL") or os.getenv("BACKSTAGE_URL")
-API_TOKEN = os.getenv("BACKSTAGE_TOKEN") or os.getenv("BACKSTAGE_API_TOKEN")
 
 if not API_URL:
   raise ValueError("BACKSTAGE_API_URL environment variable is not set.")
-if not API_TOKEN:
-  raise ValueError("BACKSTAGE_TOKEN environment variable is not set.")
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger("mcp_backstage")
+
+if not (os.getenv("BACKSTAGE_TOKEN") or os.getenv("BACKSTAGE_API_TOKEN")):
+  logger.warning("BACKSTAGE_TOKEN is not set; token must be supplied via Authorization: Bearer header")
 
 
 
@@ -61,8 +62,7 @@ async def make_api_request(
   logger.debug(f"Making {method} request to {path}")
 
   if not token:
-    logger.debug("No token provided, using default token")
-    token = API_TOKEN
+    token = get_request_token("BACKSTAGE_TOKEN") or get_request_token("BACKSTAGE_API_TOKEN")
 
   if not token:
     logger.error("No token available - neither provided nor found in environment")

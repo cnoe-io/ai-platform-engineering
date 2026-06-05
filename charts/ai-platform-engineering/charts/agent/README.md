@@ -137,7 +137,7 @@ helm show values oci://ghcr.io/cnoe-io/charts/agent --version 0.2.38
 | serviceAccount.create | bool | `true` |  |
 | serviceAccount.name | string | `""` |  |
 | slim.enabled | bool | `false` |  |
-| slim.endpoint | string | `"http://ai-platform-engineering-slim:46357"` |  |
+| slim.endpoint | string | `""` |  |
 | slim.transport | string | `"slim"` |  |
 | tolerations | list | `[]` |  |
 | volumeMounts | list | `[]` |  |

@@ -1,0 +1,150 @@
+import type { Document } from "mongodb";
+
+import type {
+  SlackChannelGrantResourceType,
+  SlackChannelResourceGrant,
+} from "@/types/slack-rebac";
+import type { UniversalRebacResourceAction, UniversalRebacResourceRef } from "@/types/rbac-universal";
+
+import { getRbacCollection } from "./mongo-collections";
+
+export interface SlackChannelGrantDocument extends Document, SlackChannelResourceGrant {}
+
+export interface SlackChannelGrantInput {
+  workspace_id: string;
+  channel_id: string;
+  resource: UniversalRebacResourceRef & { type: SlackChannelGrantResourceType };
+  actions: UniversalRebacResourceAction[];
+  created_by?: string;
+}
+
+export const SLACK_CHANNEL_GRANT_RESOURCE_TYPES = new Set<SlackChannelGrantResourceType>([
+  "agent",
+  "tool",
+  "knowledge_base",
+  "skill",
+  "task",
+]);
+
+export function slackWorkspaceRef(workspaceId?: string | null): string {
+  const alias = process.env.SLACK_WORKSPACE_ALIAS?.trim();
+  if (alias) return alias;
+  const candidate = workspaceId?.trim();
+  if (candidate) return candidate;
+  return process.env.SLACK_WORKSPACE_ID?.trim() || "unknown";
+}
+
+export function slackChannelSubjectId(workspaceId: string, channelId: string): string {
+  return `${slackWorkspaceRef(workspaceId)}--${channelId}`;
+}
+
+export async function listSlackChannelGrants(
+  workspaceId: string,
+  channelId: string
+): Promise<SlackChannelGrantDocument[]> {
+  const collection = await getRbacCollection<SlackChannelGrantDocument>("slackChannelGrants");
+  const workspaceRef = slackWorkspaceRef(workspaceId);
+  const rows = await collection
+    .find({
+      workspace_id: workspaceRef,
+      channel_id: channelId,
+      status: "active",
+    } as never)
+    .sort({ "resource.type": 1, "resource.id": 1 })
+    .toArray();
+  return rows as SlackChannelGrantDocument[];
+}
+
+export async function replaceSlackChannelGrants(
+  workspaceId: string,
+  channelId: string,
+  grants: SlackChannelGrantInput[],
+  actor: string
+): Promise<SlackChannelGrantDocument[]> {
+  const collection = await getRbacCollection<SlackChannelGrantDocument>("slackChannelGrants");
+  const now = new Date().toISOString();
+  const workspaceRef = slackWorkspaceRef(workspaceId);
+
+  await collection.updateMany(
+    { workspace_id: workspaceRef, channel_id: channelId, status: "active" } as never,
+    { $set: { status: "revoked", updated_by: actor, updated_at: now } }
+  );
+
+  for (const grant of grants) {
+    await collection.updateOne(
+      {
+        workspace_id: workspaceRef,
+        channel_id: channelId,
+        "resource.type": grant.resource.type,
+        "resource.id": grant.resource.id,
+      } as never,
+      {
+        $set: {
+          workspace_id: workspaceRef,
+          channel_id: channelId,
+          resource: grant.resource,
+          actions: grant.actions,
+          source_type: "manual",
+          status: "active",
+          created_by: grant.created_by ?? actor,
+          created_at: now,
+          updated_by: actor,
+          updated_at: now,
+        },
+      },
+      { upsert: true }
+    );
+  }
+
+  return listSlackChannelGrants(workspaceRef, channelId);
+}
+
+export async function ensureRouteOwnedAgentGrants(
+  workspaceId: string,
+  channelId: string,
+  agentIds: string[],
+  actor: string
+): Promise<void> {
+  const collection = await getRbacCollection<SlackChannelGrantDocument>("slackChannelGrants");
+  const now = new Date().toISOString();
+  const workspaceRef = slackWorkspaceRef(workspaceId);
+  const uniqueAgentIds = Array.from(new Set(agentIds.map((id) => id.trim()).filter(Boolean)));
+
+  await collection.updateMany(
+    {
+      workspace_id: workspaceRef,
+      channel_id: channelId,
+      source_type: "route",
+      status: "active",
+      "resource.type": "agent",
+      "resource.id": { $nin: uniqueAgentIds },
+    } as never,
+    { $set: { status: "revoked", updated_by: actor, updated_at: now } }
+  );
+
+  for (const agentId of uniqueAgentIds) {
+    await collection.updateOne(
+      {
+        workspace_id: workspaceRef,
+        channel_id: channelId,
+        "resource.type": "agent",
+        "resource.id": agentId,
+      } as never,
+      {
+        $set: {
+          workspace_id: workspaceRef,
+          channel_id: channelId,
+          resource: { type: "agent", id: agentId },
+          actions: ["use"],
+          source_type: "route",
+          status: "active",
+          created_by: actor,
+          created_at: now,
+          updated_by: actor,
+          updated_at: now,
+        },
+      },
+      { upsert: true }
+    );
+  }
+}

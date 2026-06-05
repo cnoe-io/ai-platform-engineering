@@ -4,6 +4,11 @@ set -e
 
 JSON_MODE=false
 SHORT_NAME=""
+# Whether to create and check out a git branch for this spec. When false the
+# script reuses the caller's current branch — useful when the maintainer wants
+# to land spec docs without a feature-branch churn (e.g. iterating on a spec
+# they intend to commit alongside other work).
+CREATE_BRANCH=true
 ARGS=()
 i=1
 while [ $i -le $# ]; do
@@ -11,6 +16,9 @@ while [ $i -le $# ]; do
     case "$arg" in
         --json)
             JSON_MODE=true
+            ;;
+        --no-branch)
+            CREATE_BRANCH=false
             ;;
         --short-name)
             if [ $((i + 1)) -gt $# ]; then
@@ -27,16 +35,19 @@ while [ $i -le $# ]; do
             SHORT_NAME="$next_arg"
             ;;
         --help|-h)
-            echo "Usage: $0 [--json] [--short-name <name>] <feature_description>"
+            echo "Usage: $0 [--json] [--no-branch] [--short-name <name>] <feature_description>"
             echo ""
             echo "Options:"
             echo "  --json              Output in JSON format"
+            echo "  --no-branch         Do NOT create a feature branch; reuse the current branch."
+            echo "                      The spec folder is still created under docs/docs/specs/."
             echo "  --short-name <name> Provide a custom short name (2-4 words) for the branch"
             echo "  --help, -h          Show this help message"
             echo ""
             echo "Examples:"
             echo "  $0 'Add user authentication system' --short-name 'user-auth'"
             echo "  $0 'Implement OAuth2 integration for API'"
+            echo "  $0 --no-branch --short-name 'oauth2-api' 'OAuth2 integration'"
             exit 0
             ;;
         *)
@@ -48,7 +59,7 @@ done
 
 FEATURE_DESCRIPTION="${ARGS[*]}"
 if [ -z "$FEATURE_DESCRIPTION" ]; then
-    echo "Usage: $0 [--json] [--short-name <name>] [--number N] <feature_description>" >&2
+    echo "Usage: $0 [--json] [--no-branch] [--short-name <name>] <feature_description>" >&2
     exit 1
 fi
 
@@ -194,7 +205,14 @@ if [ ${#BRANCH_NAME} -gt $MAX_BRANCH_LENGTH ]; then
     >&2 echo "[specify] Truncated to: $BRANCH_NAME (${#BRANCH_NAME} bytes)"
 fi
 
-if [ "$HAS_GIT" = true ]; then
+if [ "$CREATE_BRANCH" = false ]; then
+    if [ "$HAS_GIT" = true ]; then
+        CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+        >&2 echo "[specify] --no-branch was set; staying on '$CURRENT_BRANCH' instead of creating '$BRANCH_NAME'."
+    else
+        >&2 echo "[specify] --no-branch was set; git repository not detected, so no branch would have been created anyway."
+    fi
+elif [ "$HAS_GIT" = true ]; then
     if ! git checkout -b "$BRANCH_NAME" 2>/dev/null; then
         # Check if branch already exists
         if git branch --list "$BRANCH_NAME" | grep -q .; then

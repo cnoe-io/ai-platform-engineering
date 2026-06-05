@@ -6,7 +6,7 @@ import { requireAgenticAppsInstallEnabled } from "@/lib/agentic-apps/guard";
 import { queryAgenticAppAuditEvents } from "@/lib/agentic-apps/audit";
 import {
   ApiError,
-  requireAdminView,
+  requireRbacPermission,
   withAuth,
   withErrorHandler,
 } from "@/lib/api-middleware";
@@ -17,7 +17,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   if (!isMongoDBConfigured) throw new ApiError("MongoDB is required for Agentic Apps", 503);
 
   return withAuth(request, async (_req, _user, session) => {
-    requireAdminView(session);
+    await requireRbacPermission(session, "admin_ui", "audit.view");
     const url = new URL(request.url);
     const events = await queryAgenticAppAuditEvents({
       appId: optionalParam(url, "appId"),

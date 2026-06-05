@@ -18,6 +18,7 @@ The CAIPE (Community AI Platform Engineering) agents are built using any agentic
 | [GitHub](github.md) | Source code management and collaboration |
 | [Jira](jira.md) | Project management and issue tracking |
 | [Komodor](komodor.md) | Kubernetes troubleshooting and monitoring |
+| [LiteLLM](litellm.md) | LiteLLM proxy inventory, usage, spend, and FinOps reporting |
 | [AWS](aws.md) | Cloud infrastructure and EKS management |
 | [PagerDuty](pagerduty.md) | Incident management and on-call scheduling |
 | [VictorOps](victorops.md) | Incident management and on-call operations |

@@ -71,7 +71,7 @@ _STATUS_RATE_LIMIT_SECS = 1.0  # minimum seconds between setStatus calls
 
 OVERTHINK_BOILERPLATE = (
     "You are deciding whether to respond to a Slack message. Follow these steps in order"
-    " — they take priority over any later instructions in this prompt. Use the control"
+    " — they take priority over any other instructions in this prompt. Use the control"
     " tokens below to opt out of replying — they are intercepted and never posted to"
     " Slack, so never reply with empty text.\n"
     "\n"
@@ -874,7 +874,6 @@ def stream_response(
     else:
       final_text = "".join(accumulated_text).strip()
 
-    # Overthink mode: check for skip markers
     if overthink_mode and final_text:
       skip_markers = overthink_config.skip_markers if overthink_config else None
       skip_result = _check_overthink_skip(final_text, thread_ts, skip_markers=skip_markers)
@@ -1181,6 +1180,9 @@ def _post_final_response(
 ):
   """Post final response as a regular message (fallback for bot messages)."""
   final_text = _strip_confidence_markers(final_text)
+  if not final_text:
+    logger.warning(f"[{thread_ts}] _post_final_response: empty text after stripping — suppressing post")
+    return []
   text_chunks = slack_formatter.split_text_into_blocks(final_text)
 
   content_blocks = [{"type": "markdown", "text": chunk} for chunk in text_chunks]

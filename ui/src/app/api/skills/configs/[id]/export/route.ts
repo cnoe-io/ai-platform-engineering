@@ -8,6 +8,7 @@ import {
   ApiError,
 } from "@/lib/api-middleware";
 import { getAgentSkillVisibleToUser } from "@/lib/agent-skill-visibility";
+import { requireResourcePermission } from "@/lib/rbac/resource-authz";
 import type { AgentSkill } from "@/types/agent-skill";
 
 /**
@@ -109,9 +110,10 @@ export const GET = withErrorHandler(
     }
     const { id } = await context.params;
 
-    return await withAuth(request, async (_req, user) => {
+    return await withAuth(request, async (_req, user, session) => {
       const skill = await getAgentSkillVisibleToUser(id, user.email);
       if (!skill) throw new ApiError("Skill not found", 404);
+      await requireResourcePermission(session, { type: "skill", id, action: "read" });
 
       const buffer = await buildZip(skill);
       const folderName = safeFolderName(skill);

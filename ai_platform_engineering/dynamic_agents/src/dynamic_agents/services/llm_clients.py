@@ -79,6 +79,47 @@ def _get_httpx_client(endpoint: str) -> Any:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+class LLMConfigError(ValueError):
+    """Raised when an agent has no usable LLM configuration.
+
+    Distinct from `LLMFactory`'s generic `ValueError` so callers (and the
+    chat SSE wrapper) can map it to a user-actionable message instead of
+    the misleading "Something went wrong - some tools or subagents may
+    have timed out" fallback.
+    """
+
+
+def _resolve_llm_defaults(provider: str | None, model_id: str | None) -> tuple[str, str | None]:
+    """Fill in provider/model from environment when an agent leaves them blank.
+
+    The bootstrap "Hello World" agent (see ui/src/lib/seed-config.ts) is
+    intentionally seeded with empty model/provider so it doesn't pin the
+    install to a specific deployment. Per the comment there, the dynamic-
+    agents backend is supposed to substitute the deployment default; this
+    helper is that promise.
+
+    Resolution order:
+    - `provider`: agent value → `LLM_PROVIDER` env var
+    - `model_id`: agent value → `None` (LLMFactory then reads the
+      provider-specific env var, e.g. `AWS_BEDROCK_MODEL_ID`,
+      `OPENAI_MODEL_NAME`, `ANTHROPIC_MODEL_NAME`, etc.)
+
+    Empty `model_id` is returned as `None` rather than `""` so the
+    downstream `model_override` check in LLMFactory falls through to
+    its env-based lookup.
+    """
+    resolved_provider = (provider or "").strip() or os.getenv("LLM_PROVIDER", "").strip()
+    if not resolved_provider:
+        raise LLMConfigError(
+            "Agent has no LLM provider configured and no deployment default "
+            "(LLM_PROVIDER) is set. Open Admin UI → Custom Agents and pick a "
+            "provider/model for this agent, or set LLM_PROVIDER on the "
+            "dynamic-agents service."
+        )
+    resolved_model = (model_id or "").strip() or None
+    return resolved_provider, resolved_model
+
+
 def get_llm(provider: str, model_id: str) -> BaseChatModel:
     """Get a LangChain chat model for the given provider and model.
 
@@ -87,13 +128,22 @@ def get_llm(provider: str, model_id: str) -> BaseChatModel:
 
     For Google (Gemini/Vertex AI), no shared client is needed — the SDK
     manages its own transport internally.
+
+    When `provider` or `model_id` are empty, falls back to environment
+    defaults (`LLM_PROVIDER` and provider-specific model vars). Raises
+    `LLMConfigError` with an actionable message if neither agent nor env
+    define a usable provider.
     """
     from cnoe_agent_utils import LLMFactory
 
-    kwargs: dict[str, Any] = {"model": model_id}
+    resolved_provider, resolved_model = _resolve_llm_defaults(provider, model_id)
+
+    kwargs: dict[str, Any] = {}
+    if resolved_model is not None:
+        kwargs["model"] = resolved_model
 
     if SHARE_CLIENTS:
-        p = provider.lower().replace("-", "_")
+        p = resolved_provider.lower().replace("-", "_")
         if "bedrock" in p or "aws" in p:
             rt, ctrl = _get_bedrock_clients()
             kwargs["client"] = rt
@@ -106,12 +156,21 @@ def get_llm(provider: str, model_id: str) -> BaseChatModel:
             kwargs["http_client"] = _get_httpx_client(endpoint)
         # google-gemini / google-vertex-ai: no shared client needed
 
-    llm = LLMFactory(provider=provider).get_llm(**kwargs)
+    try:
+        llm = LLMFactory(provider=resolved_provider).get_llm(**kwargs)
+    except ValueError as exc:
+        # LLMFactory raises ValueError for unknown providers OR missing
+        # provider-specific env vars. Re-raise as LLMConfigError so the
+        # SSE chat wrapper can translate to an actionable user message.
+        raise LLMConfigError(
+            f"Cannot initialize LLM (provider={resolved_provider!r}, "
+            f"model={resolved_model!r}): {exc}"
+        ) from exc
     logger.info(
         "[llm] Instantiated %s (provider=%s, model=%s, shared_clients=%s)",
         type(llm).__name__,
-        provider,
-        model_id,
+        resolved_provider,
+        resolved_model or "<from env>",
         SHARE_CLIENTS,
     )
     return llm

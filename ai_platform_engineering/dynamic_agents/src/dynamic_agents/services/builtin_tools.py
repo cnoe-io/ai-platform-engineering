@@ -4,11 +4,15 @@ This module provides wrapper functions for built-in tools that can be
 configured per-agent with access controls (e.g., domain restrictions).
 """
 
+import ipaddress
 import json
 import logging
+import shlex
+import socket
+import subprocess
 from datetime import datetime, timezone
 from typing import Any, Literal
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup
@@ -22,6 +26,72 @@ from dynamic_agents.models import BuiltinToolConfigField, BuiltinToolDefinition,
 
 logger = logging.getLogger(__name__)
 
+_REDIRECT_STATUS_CODES = {301, 302, 303, 307, 308}
+_MAX_FETCH_REDIRECTS = 10
+
+
+# assisted-by claude code claude-sonnet-4-6
+def _is_publicly_routable_ip(ip_address: str) -> bool:
+    addr = ipaddress.ip_address(ip_address)
+    return addr.is_global and not (
+        addr.is_loopback
+        or addr.is_link_local
+        or addr.is_multicast
+        or addr.is_private
+        or addr.is_reserved
+        or addr.is_unspecified
+    )
+
+
+def _resolve_host_addresses(hostname: str) -> list[str]:
+    try:
+        return [str(ipaddress.ip_address(hostname))]
+    except ValueError:
+        pass
+
+    results = socket.getaddrinfo(hostname, None, type=socket.SOCK_STREAM)
+    return [sockaddr[0] for _family, _type, _proto, _canonname, sockaddr in results]
+
+
+def _is_publicly_routable_host(hostname: str) -> tuple[bool, str]:
+    if not hostname:
+        return False, "missing hostname"
+
+    try:
+        addresses = _resolve_host_addresses(hostname)
+    except (socket.gaierror, OSError) as e:
+        return False, f"hostname could not be resolved: {e}"
+
+    if not addresses:
+        return False, "hostname did not resolve to any address"
+
+    for address in addresses:
+        try:
+            if not _is_publicly_routable_ip(address):
+                return False, f"{address} is not publicly routable"
+        except ValueError:
+            return False, f"{address} is not a valid IP address"
+
+    return True, ""
+
+
+def _validate_fetch_url(url: str, allowed_domains: str, allow_non_public_urls: bool = False) -> tuple[bool, str, str]:
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        return False, "Invalid URL - must start with http:// or https://", ""
+
+    domain = (parsed.hostname or "").lower()
+    if not allow_non_public_urls:
+        is_routable, route_error = _is_publicly_routable_host(domain)
+        if not is_routable:
+            return False, f"URL host must resolve only to publicly routable IP addresses: {route_error}", domain
+
+    is_allowed, error_msg = is_domain_allowed(domain, allowed_domains)
+    if not is_allowed:
+        return False, error_msg, domain
+
+    return True, "", domain
+
 
 def get_builtin_tool_definitions() -> list[BuiltinToolDefinition]:
     """Return definitions of all available built-in tools.
@@ -32,7 +102,7 @@ def get_builtin_tool_definitions() -> list[BuiltinToolDefinition]:
         BuiltinToolDefinition(
             id="fetch_url",
             name="Fetch URL",
-            description="Fetches content from web pages, APIs, or documentation sites",
+            description="Simple tool to fetch web pages.",
             enabled_by_default=False,
             config_fields=[
                 BuiltinToolConfigField(
@@ -43,6 +113,43 @@ def get_builtin_tool_definitions() -> list[BuiltinToolDefinition]:
                         "Comma-separated domain patterns. Use * for all, *.domain.com for subdomains, or exact domain."
                     ),
                     default="*",
+                    required=False,
+                ),
+            ],
+        ),
+        BuiltinToolDefinition(
+            id="curl",
+            name="Curl",
+            description="Uses curl in a shell to execute HTTP requests. Use with caution.",
+            enabled_by_default=False,
+            config_fields=[
+                BuiltinToolConfigField(
+                    name="allowed_domains",
+                    type="string",
+                    label="Allowed Domains",
+                    description=(
+                        "Comma-separated domain patterns. Use * for all, *.domain.com for subdomains, or exact domain."
+                    ),
+                    default="*",
+                    required=False,
+                ),
+                BuiltinToolConfigField(
+                    name="https_only",
+                    type="boolean",
+                    label="HTTPS Only",
+                    description="If enabled (default), reject non-https:// URLs.",
+                    default=True,
+                    required=False,
+                ),
+                BuiltinToolConfigField(
+                    name="allow_non_public_urls",
+                    type="boolean",
+                    label="Allow Non-Public URLs",
+                    description=(
+                        "If enabled, allow curl to reach URLs that resolve to private/internal IP addresses. "
+                        "Disabled by default (SSRF protection). Only enable for agents that need internal network access."
+                    ),
+                    default=False,
                     required=False,
                 ),
             ],
@@ -145,7 +252,7 @@ def is_domain_allowed(url_domain: str, allowed_domains_str: str) -> tuple[bool, 
     return False, f"Domain '{url_domain}' is not allowed. Allowed patterns: {allowed_domains_str}"
 
 
-def _fetch_url_content(url: str, format: Literal["text", "raw"], timeout: int) -> str:
+def _fetch_url_content(url: str, format: Literal["text", "raw"], timeout: int, allowed_domains: str) -> str:
     """Fetch content from a URL (internal implementation).
 
     Args:
@@ -157,7 +264,27 @@ def _fetch_url_content(url: str, format: Literal["text", "raw"], timeout: int) -
         Fetched content as string, or "ERROR: <message>" on failure
     """
     try:
-        response = requests.get(url, timeout=timeout, allow_redirects=True)
+        current_url = url
+        response = None
+        for _redirect_count in range(_MAX_FETCH_REDIRECTS + 1):
+            is_valid, error_msg, _domain = _validate_fetch_url(current_url, allowed_domains)
+            if not is_valid:
+                return f"ERROR: {error_msg}"
+
+            response = requests.get(current_url, timeout=timeout, allow_redirects=False)
+            if getattr(response, "status_code", None) not in _REDIRECT_STATUS_CODES:
+                break
+
+            location = response.headers.get("location")
+            if not location:
+                break
+            current_url = urljoin(current_url, location)
+        else:
+            return f"ERROR: Too many redirects (>{_MAX_FETCH_REDIRECTS})"
+
+        if response is None:
+            return "ERROR: No response received"
+
         response.raise_for_status()
 
         content_type = response.headers.get("content-type", "").lower()
@@ -230,14 +357,8 @@ def create_fetch_url_tool(allowed_domains: str = "*"):
 
         # Check domain ACL
         try:
-            parsed = urlparse(url)
-            domain = parsed.netloc.lower()
-            # Strip port if present
-            if ":" in domain:
-                domain = domain.split(":")[0]
-
-            is_allowed, error_msg = is_domain_allowed(domain, allowed_domains)
-            if not is_allowed:
+            is_valid, error_msg, domain = _validate_fetch_url(url, allowed_domains)
+            if not is_valid:
                 logger.warning(f"fetch_url domain blocked: {domain} (patterns: {allowed_domains})")
                 return f"ERROR: {error_msg}"
 
@@ -246,9 +367,139 @@ def create_fetch_url_tool(allowed_domains: str = "*"):
 
         # Fetch the content
         logger.debug(f"fetch_url: fetching {url} (domain allowed)")
-        return _fetch_url_content(url, format, timeout)
+        return _fetch_url_content(url, format, timeout, allowed_domains)
 
     return fetch_url
+
+
+def create_curl_tool(allowed_domains: str = "*", https_only: bool = True, allow_non_public_urls: bool = False):
+    """Create a curl tool with domain restrictions.
+
+    Supports all HTTP methods (GET, POST, PUT, PATCH, DELETE). Use this
+    when agents need to call write APIs that fetch_url cannot handle.
+
+    Args:
+        allowed_domains: Comma-separated domain patterns (same ACL as fetch_url).
+        https_only: If True (default), reject non-https URLs.
+        allow_non_public_urls: If True, skip SSRF IP routing validation so the tool can
+            reach private/internal addresses. Off by default.
+
+    Returns:
+        A LangChain tool that wraps curl with domain ACL and optional https-only enforcement.
+    """
+    CURL_TIMEOUT = 300
+
+    @tool
+    def curl(
+        command: str,
+        thought: str = "",
+        timeout: int = CURL_TIMEOUT,
+        strip_html: bool = False,
+    ) -> str:
+        """Execute an HTTP request via curl (https:// only).
+
+        Use this for all HTTP operations that require a method other than GET,
+        or when you need fine-grained control over headers and request body:
+        POST, PUT, PATCH, DELETE, and file downloads.
+
+        Args:
+            command: Curl command to run (e.g., "curl -s -X PUT https://api.example.com/resource -d '{}'")
+            thought: Brief reasoning for why you're making this request
+            timeout: Command timeout in seconds (default: 300)
+            strip_html: If True, strip HTML tags and return plain text
+
+        Returns:
+            Command output as string, or "ERROR: <message>" on failure.
+
+        Examples:
+            # PUT request with JSON body
+            curl("curl -s -X PUT https://api.example.com/resource -H 'Content-Type: application/json' -d '{\"status\":\"done\"}'")
+
+            # POST with auth header
+            curl("curl -s -X POST https://api.example.com/items -H 'Authorization: Bearer TOKEN' -d '{\"name\":\"test\"}'")
+
+            # GET request (alternative to fetch_url)
+            curl("curl -s https://api.example.com/data")
+        """
+        try:
+            args = shlex.split(command)
+        except ValueError as e:
+            return f"ERROR: Failed to parse command: {e}"
+
+        if not args or args[0] != "curl":
+            args = ["curl"] + args
+
+        # Enforce https-only (configurable)
+        if https_only:
+            for token in args[1:]:
+                if "://" in token and not token.startswith("https://"):
+                    scheme = token.split("://")[0] + "://"
+                    msg = (
+                        f"The URL scheme '{scheme}' is not supported.\n\n"
+                        "**Only `https://` URLs are allowed.**\n\n"
+                        f"Please use an `https://` endpoint instead of `{token.split('?')[0]}`."
+                    )
+                    logger.warning(f"curl blocked non-https URL: {token.split('?')[0]}")
+                    return msg
+
+        # Check domain ACL and SSRF protection
+        for token in args[1:]:
+            if token.startswith("https://") or token.startswith("http://"):
+                try:
+                    is_valid, error_msg, domain = _validate_fetch_url(token, allowed_domains, allow_non_public_urls)
+                    if not is_valid:
+                        logger.warning(f"curl blocked: {domain} (patterns: {allowed_domains})")
+                        return f"ERROR: {error_msg}"
+                except Exception as e:
+                    return f"ERROR: Failed to parse URL: {e}"
+                break
+
+        # Detect write method for post-execution warning
+        write_method = None
+        args_upper = [a.upper() for a in args]
+        for flag in ("-X", "--request"):
+            if flag.upper() in args_upper:
+                idx = args_upper.index(flag.upper())
+                if idx + 1 < len(args_upper):
+                    method = args_upper[idx + 1]
+                    if method in ("PUT", "PATCH", "DELETE"):
+                        write_method = method
+                        break
+
+        try:
+            result = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
+            output = result.stdout
+            if result.stderr:
+                output = (output + "\n" + result.stderr) if output else result.stderr
+            if result.returncode != 0:
+                return f"ERROR: {output}" if output else "ERROR: Command failed"
+            if not output:
+                output = "Success (no output)"
+            if write_method:
+                output = (
+                    f"⚠️ WARNING: This request used {write_method}, which may have modified or deleted server-side data. "
+                    "Verify the result carefully before proceeding.\n\n"
+                ) + output
+            if strip_html:
+                try:
+                    soup = BeautifulSoup(output, "html.parser")
+                    for tag in soup(["script", "style"]):
+                        tag.decompose()
+                    return soup.get_text(separator="\n", strip=True)
+                except Exception:
+                    pass
+            return output
+        except subprocess.TimeoutExpired:
+            logger.warning(f"curl timed out after {timeout}s: {command[:100]}")
+            return f"ERROR: Command timed out after {timeout} seconds"
+        except FileNotFoundError:
+            logger.error("curl binary not found — ensure curl is installed in the container")
+            return "ERROR: curl command not found — ensure curl is installed"
+        except Exception as e:
+            logger.error(f"curl unexpected error: {e}")
+            return f"ERROR: {e}"
+
+    return curl
 
 
 def create_current_datetime_tool():
@@ -503,6 +754,7 @@ def create_request_user_input_tool():
 
 
 def create_self_identity_tool(
+    agent_id: str,
     name: str,
     description: str | None,
     model_id: str,
@@ -512,9 +764,10 @@ def create_self_identity_tool(
     """Create a self_identity tool with the agent's own metadata.
 
     Exposes non-sensitive agent configuration so the agent can identify itself.
-    Deliberately excludes the system prompt and internal IDs.
+    Deliberately excludes the system prompt, owner ID, and execution/session IDs.
 
     Args:
+        agent_id: Unique agent ID.
         name: Agent display name.
         description: Agent description.
         model_id: LLM model identifier.
@@ -536,6 +789,7 @@ def create_self_identity_tool(
 
         Returns:
             Dictionary with agent identity:
+            - id: Unique agent ID
             - name: Agent display name
             - description: Agent description (may be null)
             - model_id: LLM model identifier
@@ -543,6 +797,7 @@ def create_self_identity_tool(
             - gradient_theme: UI theme (may be null)
         """
         return {
+            "id": agent_id,
             "name": name,
             "description": description,
             "model_id": model_id,
@@ -856,15 +1111,297 @@ def create_format_file_tool(store, namespace_factory):
     return format_file
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# Workflow tools — list runs, get run status, start a workflow run
+# ═══════════════════════════════════════════════════════════════════════════════
+
+import time
+from typing import Optional
+
+
+class WorkflowApiClient:
+    """HTTP client for calling the CAIPE UI workflow API with OAuth2 client credentials.
+
+    Handles token acquisition, caching, and auto-refresh.
+    If no credentials are configured, requests are made without auth headers
+    (suitable for development / same-cluster without auth gateway).
+    """
+
+    def __init__(
+        self,
+        base_url: str,
+        token_url: str = "",
+        client_id: str = "",
+        client_secret: str = "",
+        scope: str = "",
+        audience: str = "",
+    ):
+        self.base_url = base_url.rstrip("/")
+        self.token_url = token_url
+        self.client_id = client_id
+        self.client_secret = client_secret
+        self.scope = scope
+        self.audience = audience
+        self._caipe_api_auth_enabled = bool(token_url and client_id and client_secret)
+        self._cached_token: Optional[str] = None
+        self._token_expires_at: float = 0
+
+        if self._caipe_api_auth_enabled:
+            logger.info(f"WorkflowApiClient: OAuth2 configured (token_url={token_url})")
+        else:
+            logger.warning("WorkflowApiClient: No OAuth2 credentials configured, requests will be unauthenticated")
+
+    def _get_token(self) -> Optional[str]:
+        """Get a valid access token, refreshing if needed."""
+        if not self._caipe_api_auth_enabled:
+            return None
+
+        if self._cached_token and time.time() < (self._token_expires_at - 60):
+            return self._cached_token
+
+        payload = {
+            "grant_type": "client_credentials",
+            "client_id": self.client_id,
+            "client_secret": self.client_secret,
+        }
+        if self.scope:
+            payload["scope"] = self.scope
+        if self.audience:
+            payload["audience"] = self.audience
+
+        resp = requests.post(
+            self.token_url,
+            data=payload,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            timeout=10,
+        )
+        if not resp.ok:
+            logger.error(f"OAuth2 token fetch failed: {resp.status_code} {resp.text}")
+            raise RuntimeError(f"OAuth2 token fetch failed: HTTP {resp.status_code}")
+
+        data = resp.json()
+        self._cached_token = data["access_token"]
+        self._token_expires_at = time.time() + data.get("expires_in", 3600)
+        logger.info("Workflow API: OAuth2 token acquired (expires in %ds)", data.get("expires_in", 3600))
+        return self._cached_token
+
+    def _headers(self) -> dict[str, str]:
+        """Build request headers with optional auth."""
+        headers = {"Content-Type": "application/json"}
+        token = self._get_token()
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        return headers
+
+    def get(self, path: str, params: dict | None = None) -> requests.Response:
+        """Make an authenticated GET request."""
+        url = f"{self.base_url}{path}"
+        return requests.get(url, params=params, headers=self._headers(), timeout=30)
+
+    def post(self, path: str, json_data: dict | None = None) -> requests.Response:
+        """Make an authenticated POST request."""
+        url = f"{self.base_url}{path}"
+        return requests.post(url, json=json_data, headers=self._headers(), timeout=30)
+
+
+def create_workflow_tools(
+    client: WorkflowApiClient,
+    allowed_config_ids: list[str],
+    trigger_context: dict | None = None,
+) -> list:
+    """Create the 3 workflow built-in tools.
+
+    Args:
+        client: WorkflowApiClient for making authenticated HTTP calls.
+        allowed_config_ids: Workflow config IDs this agent is allowed to interact with.
+        trigger_context: Optional dict with agent/user context for trigger_info.
+    Returns:
+        List of 3 LangChain tools: list_workflow_runs, get_workflow_run_status, start_workflow_run.
+    """
+
+    allowed_set = set(allowed_config_ids)
+
+    @tool
+    def list_workflow_runs(
+        thought: str = "",
+        workflow_config_id: str = "",
+    ) -> str:
+        """List recent runs for a specific workflow.
+
+        Use this tool to check the history of a workflow — see past runs,
+        their statuses, and how many steps completed.
+
+        Args:
+            thought: Brief reasoning for why you want to list runs.
+            workflow_config_id: The workflow config ID to list runs for.
+                Must be one of the workflow IDs described in your system prompt.
+
+        Returns:
+            JSON array of recent runs with status, step progress, and timestamps.
+        """
+        if not workflow_config_id:
+            return "ERROR: workflow_config_id is required"
+        if workflow_config_id not in allowed_set:
+            return (
+                f"ERROR: You are not allowed to access workflow '{workflow_config_id}'. Allowed: {sorted(allowed_set)}"
+            )
+
+        try:
+            resp = client.get(
+                "/api/workflow-runs",
+                params={"workflow_config_id": workflow_config_id},
+            )
+            if not resp.ok:
+                return f"ERROR: Failed to list runs: HTTP {resp.status_code} - {resp.text[:200]}"
+
+            runs = resp.json()
+            # Return a simplified summary
+            summaries = []
+            for run in runs[:20]:  # cap at 20
+                completed = sum(1 for s in run.get("steps", []) if s.get("status") == "completed")
+                total = len(run.get("steps", []))
+                summaries.append(
+                    {
+                        "run_id": run.get("_id"),
+                        "status": run.get("status"),
+                        "steps": f"{completed}/{total}",
+                        "started_at": run.get("started_at"),
+                        "completed_at": run.get("completed_at"),
+                    }
+                )
+            return json.dumps(summaries, indent=2)
+        except Exception as e:
+            return f"ERROR: Failed to list workflow runs: {e}"
+
+    @tool
+    def get_workflow_run_status(
+        thought: str = "",
+        run_id: str = "",
+    ) -> str:
+        """Get the detailed status of a specific workflow run.
+
+        Use this tool to check on a running or completed workflow run,
+        see step-by-step progress, errors, and timing.
+
+        Args:
+            thought: Brief reasoning for why you want to check this run.
+            run_id: The ID of the workflow run to check.
+
+        Returns:
+            JSON object with run status, step details, errors, and timestamps.
+        """
+        if not run_id:
+            return "ERROR: run_id is required"
+
+        try:
+            resp = client.get(
+                "/api/workflow-runs",
+                params={"run_id": run_id},
+            )
+            if not resp.ok:
+                return f"ERROR: Failed to get run status: HTTP {resp.status_code} - {resp.text[:200]}"
+
+            run = resp.json()
+            # Validate this run belongs to an allowed workflow
+            config_id = run.get("workflow_config_id", "")
+            if config_id not in allowed_set:
+                return f"ERROR: This run belongs to workflow '{config_id}' which you are not allowed to access."
+
+            # Return a clean summary
+            steps_summary = []
+            for s in run.get("steps", []):
+                step_info = {
+                    "index": s.get("index"),
+                    "display_text": s.get("display_text"),
+                    "agent_id": s.get("agent_id"),
+                    "status": s.get("status"),
+                    "started_at": s.get("started_at"),
+                    "completed_at": s.get("completed_at"),
+                }
+                if s.get("error"):
+                    step_info["error"] = s["error"]
+                steps_summary.append(step_info)
+
+            return json.dumps(
+                {
+                    "run_id": run.get("_id"),
+                    "workflow_config_id": config_id,
+                    "status": run.get("status"),
+                    "started_at": run.get("started_at"),
+                    "completed_at": run.get("completed_at"),
+                    "steps": steps_summary,
+                },
+                indent=2,
+            )
+        except Exception as e:
+            return f"ERROR: Failed to get workflow run status: {e}"
+
+    @tool
+    def start_workflow_run(
+        thought: str = "",
+        workflow_config_id: str = "",
+        user_context: str = "",
+    ) -> str:
+        """Start a new workflow run.
+
+        Use this tool to trigger a workflow. The workflow will run in the
+        background — use get_workflow_run_status to monitor its progress.
+
+        Args:
+            thought: Brief reasoning for why you want to start this workflow.
+            workflow_config_id: The workflow config ID to run.
+                Must be one of the workflow IDs described in your system prompt.
+            user_context: Optional free-text context to pass to the workflow.
+                This will be available to each step as {{ user_context }}.
+
+        Returns:
+            JSON object with the new run_id and initial status.
+        """
+        if not workflow_config_id:
+            return "ERROR: workflow_config_id is required"
+        if workflow_config_id not in allowed_set:
+            return f"ERROR: You are not allowed to run workflow '{workflow_config_id}'. Allowed: {sorted(allowed_set)}"
+
+        try:
+            body: dict = {"workflow_config_id": workflow_config_id}
+            if user_context:
+                body["user_context"] = user_context
+            body["trigger_info"] = {
+                "triggered_by": "agent",
+                "context": trigger_context or {},
+            }
+
+            resp = client.post("/api/workflow-runs", json_data=body)
+            if not resp.ok:
+                return f"ERROR: Failed to start workflow: HTTP {resp.status_code} - {resp.text[:200]}"
+
+            result = resp.json()
+            return json.dumps(
+                {
+                    "run_id": result.get("run_id"),
+                    "status": result.get("status", "running"),
+                    "message": "Workflow started successfully. Use get_workflow_run_status to monitor progress.",
+                },
+                indent=2,
+            )
+        except Exception as e:
+            return f"ERROR: Failed to start workflow run: {e}"
+
+    return [list_workflow_runs, get_workflow_run_status, start_workflow_run]
+
+
 __all__ = [
     "create_agentic_sdlc_query_tool",
     "create_fetch_url_tool",
+    "create_curl_tool",
     "create_current_datetime_tool",
     "create_user_info_tool",
     "create_wait_tool",
     "create_request_user_input_tool",
     "create_self_identity_tool",
     "create_format_file_tool",
+    "create_workflow_tools",
+    "WorkflowApiClient",
     "is_domain_allowed",
     "get_builtin_tool_definitions",
 ]

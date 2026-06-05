@@ -1,0 +1,203 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "agentgateway.fullname" . }}
+  labels:
+    {{- include "agentgateway.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "agentgateway.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "agentgateway.selectorLabels" . | nindent 8 }}
+      annotations:
+        {{- $agwGlobal := ((.Values.global).agentgateway) | default dict }}
+        {{- if eq ($agwGlobal.routingMode | default "static") "static" }}
+        checksum/config: {{ $agwGlobal | toYaml | sha256sum }}
+        {{- else }}
+        checksum/config: {{ toYaml .Values.config | sha256sum }}
+        {{- end }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- $agwGlobal := ((.Values.global).agentgateway) | default dict }}
+      {{- $static := $agwGlobal.static | default dict }}
+      {{- $cb := $static.configBridge | default dict }}
+      {{- /*
+      The config-bridge dynamically reconciles runtime-added MCP servers
+      (Mongo `mcp_servers`) into the proxy config. It only applies in static
+      (CRD-free) routing mode; in Gateway-API mode the operator manages routes
+      via CRDs. When enabled, the agentgateway reads its config from a shared
+      emptyDir that the bridge writes (seeded from the Helm-rendered static
+      ConfigMap), instead of mounting that ConfigMap read-only directly.
+      */ -}}
+      {{- $cbEnabled := and $agwGlobal.enabled (eq ($agwGlobal.routingMode | default "static") "static") $cb.enabled }}
+      {{- $cbImage := $cb.image | default dict }}
+      {{- $cbImageRepo := $cbImage.repository | default "ghcr.io/cnoe-io/agentgateway-config-bridge" }}
+      {{- $cbImageTag := $cbImage.tag | default .Chart.AppVersion }}
+      {{- $cbImagePull := $cbImage.pullPolicy | default "IfNotPresent" }}
+      serviceAccountName: {{ include "agentgateway.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- if $cbEnabled }}
+      initContainers:
+        # Seed the shared config from the Helm-rendered static config so the
+        # agentgateway container always starts with a valid file (jwtAuth +
+        # static targets), even before the bridge's first Mongo reconcile.
+        - name: config-bridge-seed
+          image: "{{ $cbImageRepo }}:{{ $cbImageTag }}"
+          imagePullPolicy: {{ $cbImagePull }}
+          command:
+            - python
+            - -c
+            - |
+              import os
+              from pathlib import Path
+              import config_bridge
+              config_bridge.seed_config_from_bootstrap(
+                  Path(os.environ["AGENTGATEWAY_CONFIG_PATH"]),
+                  Path(os.environ["AGENTGATEWAY_BOOTSTRAP_CONFIG_PATH"]),
+              )
+          env:
+            - name: AGENTGATEWAY_CONFIG_PATH
+              value: /generated/config.yaml
+            - name: AGENTGATEWAY_BOOTSTRAP_CONFIG_PATH
+              value: /etc/agentgateway-bootstrap/config.yaml
+          volumeMounts:
+            - name: generated-config
+              mountPath: /generated
+            - name: bootstrap-config
+              mountPath: /etc/agentgateway-bootstrap
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+          securityContext:
+            {{- toYaml ($cb.securityContext | default .Values.securityContext) | nindent 12 }}
+          resources:
+            {{- toYaml ($cb.resources | default .Values.resources) | nindent 12 }}
+      {{- end }}
+      containers:
+        - name: agentgateway
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- if $cbEnabled }}
+          args: ["--file", "/generated/config.yaml"]
+          {{- else }}
+          args: ["--file", "/etc/agentgateway/config.yaml"]
+          {{- end }}
+          {{- with .Values.extraEnv }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.extraEnvFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+            - name: admin
+              containerPort: {{ .Values.service.adminPort }}
+              protocol: TCP
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          volumeMounts:
+            {{- if $cbEnabled }}
+            - name: generated-config
+              mountPath: /generated
+            {{- else }}
+            - name: config
+              mountPath: /etc/agentgateway
+              readOnly: true
+            {{- end }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+        {{- if $cbEnabled }}
+        # Sidecar: poll Mongo `mcp_servers` and merge /mcp/<id> routes into the
+        # shared config; agentgateway hot-reloads the file on change.
+        - name: config-bridge
+          image: "{{ $cbImageRepo }}:{{ $cbImageTag }}"
+          imagePullPolicy: {{ $cbImagePull }}
+          env:
+            - name: AGENTGATEWAY_CONFIG_PATH
+              value: /generated/config.yaml
+            - name: AGENTGATEWAY_BOOTSTRAP_CONFIG_PATH
+              value: /etc/agentgateway-bootstrap/config.yaml
+            - name: AGENTGATEWAY_ADMIN_CONFIG_URL
+              value: {{ printf "http://localhost:%v/config" (.Values.service.adminPort | int) | quote }}
+            - name: AGENTGATEWAY_CONFIG_BRIDGE_POLL_SECONDS
+              value: {{ $cb.pollSeconds | default 5 | quote }}
+            - name: MONGODB_DATABASE
+              value: {{ (($cb.mongodb).database) | default "caipe" | quote }}
+            {{- if (($cb.mongodb).existingSecret).name }}
+            - name: MONGODB_URI
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $cb.mongodb.existingSecret.name | quote }}
+                  key: {{ ($cb.mongodb.existingSecret.key | default "MONGODB_URI") | quote }}
+            {{- else if (($cb.mongodb).uri) }}
+            - name: MONGODB_URI
+              value: {{ $cb.mongodb.uri | quote }}
+            {{- end }}
+            {{- with $cb.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          volumeMounts:
+            - name: generated-config
+              mountPath: /generated
+            - name: bootstrap-config
+              mountPath: /etc/agentgateway-bootstrap
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+          securityContext:
+            {{- toYaml ($cb.securityContext | default .Values.securityContext) | nindent 12 }}
+          resources:
+            {{- toYaml ($cb.resources | default .Values.resources) | nindent 12 }}
+        {{- end }}
+      volumes:
+        {{- if $cbEnabled }}
+        - name: generated-config
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+        - name: bootstrap-config
+          configMap:
+            name: {{ printf "%s-agentgateway-static-config" .Release.Name }}
+        {{- else }}
+        - name: config
+          configMap:
+            {{- if and $agwGlobal.enabled (eq ($agwGlobal.routingMode | default "static") "static") }}
+            # Static (CRD-free) routing: mount the umbrella-rendered static config.
+            name: {{ printf "%s-agentgateway-static-config" .Release.Name }}
+            {{- else }}
+            name: {{ include "agentgateway.fullname" . }}-config
+            {{- end }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

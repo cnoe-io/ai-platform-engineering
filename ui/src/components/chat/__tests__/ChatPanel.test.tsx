@@ -1038,7 +1038,7 @@ describe('SupervisorChatPanel', () => {
       expect(link.closest('a')).toHaveAttribute('href', '/admin?tab=feedback')
     })
 
-    it('shows "Back to Audit Logs" link when adminOrigin is "audit-logs"', () => {
+    it('shows "Back to Chat Audit" link when adminOrigin is "audit-logs"', () => {
       mockGetActiveConversation.mockReturnValue(createConversation([]))
       render(
         <SupervisorChatPanel
@@ -1048,7 +1048,7 @@ describe('SupervisorChatPanel', () => {
           adminOrigin="audit-logs"
         />
       )
-      const link = screen.getByText('Back to Audit Logs')
+      const link = screen.getByText('Back to Chat Audit')
       expect(link.closest('a')).toHaveAttribute('href', '/admin?tab=audit-logs')
     })
 
@@ -1062,7 +1062,7 @@ describe('SupervisorChatPanel', () => {
         />
       )
       expect(screen.queryByText('Back to Feedback')).not.toBeInTheDocument()
-      expect(screen.queryByText('Back to Audit Logs')).not.toBeInTheDocument()
+      expect(screen.queryByText('Back to Chat Audit')).not.toBeInTheDocument()
       expect(screen.getByText('View Only')).toBeInTheDocument()
     })
 

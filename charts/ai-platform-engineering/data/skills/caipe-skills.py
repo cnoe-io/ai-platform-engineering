@@ -47,7 +47,7 @@ Examples:
     uv run ~/.config/caipe/caipe-skills.py                       # list all
     INCLUDE_CONTENT=true uv run ~/.config/caipe/caipe-skills.py SKILL_NAME
     uv run ~/.config/caipe/caipe-skills.py --source github --repo owner/r QUERY
-    uv run ~/.config/caipe/caipe-skills.py --register ~/.claude/skills/foo/SKILL.md
+    uv run ~/.config/caipe/caipe-skills.py --register ~/.agents/skills/foo/SKILL.md
 
 The script prints the catalog JSON to stdout and exits 0 on success.
 On client-side errors (no key, bad config, invalid URL, missing path)
@@ -69,12 +69,14 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.parse
 import urllib.request
 from typing import Any
 
+# assisted-by Codex Codex-sonnet-4-6
 DEFAULT_BASE_URL = "{{BASE_URL}}"
 """install.sh installer rewrites this to the deployment's public origin
 (e.g. ``https://caipe.example.com``). When unrewritten (raw repo file
@@ -89,6 +91,11 @@ CONFIG_PATHS = (
 REQUEST_TIMEOUT_SECONDS = 15
 CONFIG_FILE_MAX_BYTES = 64 * 1024
 USER_AGENT = "caipe-skills-helper/1.0"
+REDACTED_SECRET = "[redacted]"
+SENSITIVE_TEXT_PATTERNS = (
+    re.compile(r"(?i)(api[_-]?key|token|secret|authorization)([\"'\s:=]+)([^\"'\s,}]+)"),
+    re.compile(r"(?i)(bearer\s+)[A-Za-z0-9._~+/=-]+"),
+)
 
 # Manifest paths. ``user`` is the default (one manifest per workstation);
 # ``local`` is per-project for shared/team installs that should not bleed
@@ -175,6 +182,17 @@ def _validate_base_url(base_url: str) -> str | None:
 def _emit_error(message: str) -> None:
     """Print a JSON error envelope to stdout (so the agent can display it)."""
     print(json.dumps({"error": message}))
+
+
+def _redact_sensitive_text(message: object) -> str:
+    """Return a diagnostic string with obvious credential values removed."""
+    text = str(message)
+    for pattern in SENSITIVE_TEXT_PATTERNS:
+        if pattern.groups == 3:
+            text = pattern.sub(lambda match: f"{match.group(1)}{match.group(2)}{REDACTED_SECRET}", text)
+        else:
+            text = pattern.sub(lambda match: f"{match.group(1)}{REDACTED_SECRET}", text)
+    return text
 
 
 def _build_query_string(
@@ -291,7 +309,7 @@ def _register_skill(
     """
     abs_path = os.path.abspath(os.path.expanduser(skill_path))
     if not os.path.isfile(abs_path):
-        _emit_error(f"Skill file not found: {skill_path!r}")
+        _emit_error("Skill file not found.")
         return 0
 
     manifest_path = os.path.expanduser(
@@ -304,8 +322,7 @@ def _register_skill(
     name = _infer_skill_name(abs_path)
     if not name:
         _emit_error(
-            f"Could not infer skill name from {abs_path!r}. "
-            "Add a ``name:`` field to the frontmatter."
+            "Could not infer skill name. Add a ``name:`` field to the frontmatter."
         )
         return 0
 
@@ -418,7 +435,7 @@ def _build_parser() -> argparse.ArgumentParser:
         metavar="PATH",
         help=(
             "Add or refresh PATH in the install manifest, then exit. "
-            "Used by /update-skills to record installs without rewriting "
+            "Used by /update-caipe-skills to record installs without rewriting "
             "JSON inline. Skips the catalog query."
         ),
     )
@@ -441,7 +458,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # Manifest write is a pure-local operation; no catalog round-trip
     # and no credential resolution needed. Branch early so a mis-typed
-    # config file doesn't block /update-skills from recording its work.
+    # config file doesn't block /update-caipe-skills from recording its work.
     if args.register:
         return _register_skill(args.register, manifest_scope=args.manifest)
 
@@ -475,10 +492,7 @@ def main(argv: list[str] | None = None) -> int:
                 "is rewritten with the correct URL."
             )
         else:
-            _emit_error(
-                f"Invalid base_url: {base_url!r}. "
-                "Must be http(s) without embedded credentials."
-            )
+            _emit_error("Invalid base_url. Must be http(s) without embedded credentials.")
         return 0
 
     include_content = args.include_content or os.environ.get("INCLUDE_CONTENT", "").strip().lower() in (
@@ -499,18 +513,11 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         body = _fetch(url, api_key=api_key)
-    except urllib.error.HTTPError as exc:
-        # Surface the catalog's own error body when present (helpful for 401/403).
-        try:
-            detail = exc.read().decode("utf-8", errors="replace")
-        except Exception:
-            detail = ""
-        sys.stderr.write(
-            f"caipe-skills: HTTP {exc.code} from {safe_base_url}: {detail}\n"
-        )
+    except urllib.error.HTTPError:
+        sys.stderr.write("caipe-skills: catalog request failed; response body withheld\n")
         return 1
     except urllib.error.URLError as exc:
-        sys.stderr.write(f"caipe-skills: network error: {exc.reason}\n")
+        sys.stderr.write(f"caipe-skills: network error: {_redact_sensitive_text(exc.reason)}\n")
         return 1
     except TimeoutError:
         sys.stderr.write(

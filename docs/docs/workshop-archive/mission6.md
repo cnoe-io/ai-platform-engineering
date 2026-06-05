@@ -20,7 +20,7 @@ In this mission, you'll deploy the comprehensive CAIPE platform using IDPBuilder
 - **🌐 Service Mesh**: Configure ingress and networking for colony-wide access
 - **⚡ Production Ready**: Create a versioned, reproducible platform deployment
 
-For anyone going through the workshop on their own, you can also checkout our [vidcast](https://cnoe-io.github.io/ai-platform-engineering/getting-started/idpbuilder/setup) for a step by step guide on how to deploy the platform using IDPBuilder.
+For anyone going through the workshop on their own, you can also checkout our [vidcast](https://cnoe-io.github.io/ai-platform-engineering/docs/getting-started/idpbuilder/setup) for a step by step guide on how to deploy the platform using IDPBuilder.
 
 ## 🚀 Deploy the Platform (Takes Time!)
 
@@ -227,7 +227,7 @@ and now check this secret has been correctly stored in vault:
 vault kv get secret/ai-platform-engineering/global
 ```
 
-**📝 Note:** We support other LLM providers as well. Currently, we support Azure OpenAI, OpenAI, and AWS Bedrock. Check out our [documentation](https://cnoe-io.github.io/ai-platform-engineering/getting-started/idpbuilder/setup#step-3-update-secrets) for more details.
+**📝 Note:** We support other LLM providers as well. Currently, we support Azure OpenAI, OpenAI, and AWS Bedrock. Check out our [documentation](https://cnoe-io.github.io/ai-platform-engineering/docs/getting-started/idpbuilder/setup#step-3-update-secrets) for more details.
 
 ### 4.6: Configure Agent-Specific Secrets
 

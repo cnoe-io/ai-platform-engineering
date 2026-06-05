@@ -34,6 +34,7 @@ jest.mock('lucide-react', () => ({
   MessageSquare: (props: any) => <svg data-testid="icon-message-square" {...props} />,
   Users2: (props: any) => <svg data-testid="icon-users2" {...props} />,
   Clock: (props: any) => <svg data-testid="icon-clock" {...props} />,
+  Bot: (props: any) => <svg data-testid="icon-bot" {...props} />,
 }))
 
 jest.mock('@/lib/utils', () => {
@@ -82,6 +83,12 @@ describe('ConversationCard', () => {
   it('shows message count when totalMessages is provided', () => {
     render(<ConversationCard {...baseProps} totalMessages={5} />)
     expect(screen.getByText('5 messages')).toBeInTheDocument()
+  })
+
+  it('shows the agent name when provided', () => {
+    render(<ConversationCard {...baseProps} agentName="Incident Commander" />)
+    expect(screen.getByTestId('icon-bot')).toBeInTheDocument()
+    expect(screen.getByText('Incident Commander')).toBeInTheDocument()
   })
 
   it('shows singular "message" when count is 1', () => {

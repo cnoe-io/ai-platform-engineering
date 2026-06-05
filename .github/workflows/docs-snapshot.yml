@@ -1,0 +1,113 @@
+name: "[Docs] Publish Version (bump list)"
+
+on:
+  push:
+    tags:
+      - '[0-9]+.[0-9]+.[0-9]+'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g. 0.5.3)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  publish-version:
+    name: Add version to published list and validate build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411  # v2.19.4
+        with:
+          egress-policy: audit
+
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ secrets.CI_RELEASE_APP_ID }}
+          private-key: ${{ secrets.CI_RELEASE_APP_PRIVATE_KEY }}
+
+      - name: Checkout repository (full history)
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Determine version
+        id: versions
+        run: |
+          NEW_VERSION="${{ github.event.inputs.version || github.ref_name }}"
+          NEW_VERSION="${NEW_VERSION#v}"
+          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "Publishing version: $NEW_VERSION"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: 'lts/*'
+
+      - name: Update published-versions.json
+        env:
+          NEW_VERSION: ${{ steps.versions.outputs.new_version }}
+        run: |
+          node docs/scripts/update-published-versions.js
+
+      - name: Install helm-docs
+        env:
+          HELM_DOCS_VERSION: "1.14.2"
+        run: |
+          curl -sSL "https://github.com/norwoodj/helm-docs/releases/download/v${HELM_DOCS_VERSION}/helm-docs_${HELM_DOCS_VERSION}_Linux_x86_64.tar.gz" \
+            | tar -xz helm-docs
+          sudo mv helm-docs /usr/local/bin/helm-docs
+
+      - name: Regenerate Helm chart docs (current version)
+        run: make helm-docs
+
+      - name: Install docs dependencies
+        run: |
+          cd docs
+          npm install --silent
+
+      - name: Generate versioned docs from release tags
+        run: |
+          cd docs
+          node scripts/generate-versioned-docs.js
+
+      - name: Validate Docusaurus build
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
+        run: |
+          cd docs
+          npm run build
+
+      - name: Commit and push to main
+        env:
+          NEW_VERSION: ${{ steps.versions.outputs.new_version }}
+        run: |
+          git config user.name  "caipe-ci-release[bot]"
+          git config user.email "287317642+caipe-ci-release[bot]@users.noreply.github.com"
+
+          # Only the published-versions list (and any current-version helm docs that
+          # legitimately changed) are committed — versioned_docs is never committed.
+          git add docs/published-versions.json
+          git add docs/docs/installation/helm-charts 2>/dev/null || true
+
+          if git diff --cached --quiet; then
+            echo "No published-version changes to commit (already up to date)."
+            exit 0
+          fi
+
+          git commit -m "docs: publish version ${NEW_VERSION}"
+
+          # The caipe-ci-release GitHub App is in the main branch ruleset's bypass
+          # list, so it can push the docs version bump straight to main without a PR
+          # or review. The Docusaurus build was already validated above, so the only
+          # change landing here is the validated published-versions list (and any
+          # legitimately-changed current-version Helm reference pages).
+          git push origin HEAD:main
+
+          echo "Pushed docs version ${NEW_VERSION} to main."

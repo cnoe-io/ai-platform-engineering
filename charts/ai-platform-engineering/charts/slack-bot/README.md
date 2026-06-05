@@ -60,7 +60,7 @@ helm show values oci://ghcr.io/cnoe-io/charts/slack-bot --version 0.2.38
 | auth.tokenUrl | string | `""` |  |
 | botConfig | object | `{}` |  |
 | botMode | string | `"socket"` |  |
-| caipeUrl | string | `"http://ai-platform-engineering-supervisor-agent:8000"` |  |
+| caipeUrl | string | `"http://{{ .Release.Name }}-supervisor-agent:8000"` |  |
 | env | object | `{}` |  |
 | externalSecrets.apiVersion | string | `"v1beta1"` |  |
 | externalSecrets.data | list | `[]` |  |
