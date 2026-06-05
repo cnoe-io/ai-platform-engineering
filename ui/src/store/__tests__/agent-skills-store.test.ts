@@ -478,6 +478,55 @@ describe("agent-skills-store", () => {
       expect(createdId).toBe("new-id-123");
     });
 
+    it("unwraps the success-envelope { data: { id } } shape returned by the API", async () => {
+      // Regression: the POST route returns successResponse() →
+      // { success: true, data: { id } }. Reading result.id directly yielded
+      // `undefined`, which navigated callers to /skills/workspace/undefined.
+      mockFetch.mockImplementation((url: string | URL, init?: RequestInit) => {
+        const u = typeof url === "string" ? url : url.toString();
+        if (u === "/api/skills/configs" && init?.method === "POST") {
+          return Promise.resolve({
+            ok: true,
+            json: () =>
+              Promise.resolve({ success: true, data: { id: "wrapped-id-456" } }),
+          } as Response);
+        }
+        if (u === "/api/skills/configs" && !init) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve([]),
+          } as Response);
+        }
+        return Promise.reject(new Error(`Unmocked: ${u}`));
+      });
+
+      let createdId: string | undefined;
+      await act(async () => {
+        createdId = await useAgentSkillsStore.getState().createSkill(createInput);
+      });
+
+      expect(createdId).toBe("wrapped-id-456");
+    });
+
+    it("throws when the API response carries no skill id", async () => {
+      mockFetch.mockImplementation((url: string | URL, init?: RequestInit) => {
+        const u = typeof url === "string" ? url : url.toString();
+        if (u === "/api/skills/configs" && init?.method === "POST") {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: {} }),
+          } as Response);
+        }
+        return Promise.reject(new Error(`Unmocked: ${u}`));
+      });
+
+      await expect(
+        act(async () => {
+          await useAgentSkillsStore.getState().createSkill(createInput);
+        })
+      ).rejects.toThrow("no skill id");
+    });
+
     it("reloads configs after creation", async () => {
       let callCount = 0;
       mockFetch.mockImplementation((url: string | URL, init?: RequestInit) => {

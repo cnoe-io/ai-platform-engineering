@@ -312,12 +312,21 @@ export const useAgentSkillsStore = create<AgentSkillsState>()((set, get) => ({
       }
 
       const result = await response.json();
-      
+
+      // POST /api/skills/configs returns the success-envelope shape
+      // ({ success, data: { id } }) via successResponse(); older/unwrapped
+      // shapes return { id } at the top level. Accept either so navigation
+      // to /skills/workspace/<id> never receives `undefined`.
+      const createdId: string | undefined = result?.data?.id ?? result?.id;
+      if (!createdId) {
+        throw new Error("Create succeeded but no skill id was returned");
+      }
+
       // Reload from server to get the created config
       await get().loadSkills();
       console.log(`[AgentSkillsStore] Created agent skill "${skillData.name}"`);
-      
-      return result.id;
+
+      return createdId;
     } catch (error: any) {
       console.error("[AgentSkillsStore] Failed to create config:", error);
       throw error;
