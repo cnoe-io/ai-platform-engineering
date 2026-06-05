@@ -11,7 +11,7 @@ on:
       - 'build/agents/Dockerfile.mcp'
   workflow_dispatch:
     inputs:
-      force_build:
+      build_all:
         description: 'Force a fresh build of all components (bypass change-detection/retag). Use for coordinated releases.'
         required: false
         default: false
@@ -118,7 +118,7 @@ jobs:
         env:
           FILTER_OUTPUTS: ${{ toJson(steps.filter.outputs) }}
           TAG_VERSION: ${{ steps.version.outputs.tag_version }}
-          MANUAL_BUILD_ALL: ${{ inputs.force_build || 'false' }}
+          MANUAL_BUILD_ALL: ${{ inputs.build_all || 'false' }}
         with:
           script: |
             const allAgents = JSON.parse(process.env.ALL_AGENTS);
