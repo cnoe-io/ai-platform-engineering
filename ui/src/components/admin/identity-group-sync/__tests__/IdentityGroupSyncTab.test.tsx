@@ -81,33 +81,33 @@ describe("IdentityGroupSyncTab", () => {
     render(<IdentityGroupSyncTab isAdmin />);
 
     await screen.findByText("1 provider configured");
-    fireEvent.click(screen.getByRole("button", { name: /suggest from my groups/i }));
+    fireEvent.click(screen.getByRole("button", { name: /detect my groups/i }));
 
-    const suggestions = await screen.findByRole("region", { name: /claim group suggestions/i });
-    expect(within(suggestions).getByText("caipe-users")).toBeInTheDocument();
-    expect(within(suggestions).getByText("caipe-admins")).toBeInTheDocument();
-    expect(within(suggestions).getByText(/org admin grant review/i)).toBeInTheDocument();
+    const suggestions = await screen.findByRole("region", { name: /detected group to team mappings/i });
+    expect(within(suggestions).getAllByText("caipe-users").length).toBeGreaterThan(0);
+    expect(within(suggestions).getAllByText("caipe-admins").length).toBeGreaterThan(0);
+    expect(within(suggestions).getByText(/grants org-admin/i)).toBeInTheDocument();
 
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledWith("/api/admin/identity-group-sync/claim-suggestions");
     });
-    expect(screen.getByText("Dry-run preview")).toBeInTheDocument();
+    expect(screen.getByText("Preview changes")).toBeInTheDocument();
   });
 
   it("keeps many claim suggestions in a searchable scroll region", async () => {
     render(<IdentityGroupSyncTab isAdmin />);
 
     await screen.findByText("1 provider configured");
-    fireEvent.click(screen.getByRole("button", { name: /suggest from my groups/i }));
+    fireEvent.click(screen.getByRole("button", { name: /detect my groups/i }));
 
-    const suggestions = await screen.findByRole("region", { name: /claim group suggestions/i });
+    const suggestions = await screen.findByRole("region", { name: /detected group to team mappings/i });
     expect(suggestions).toHaveClass("max-h-[28rem]", "overflow-y-auto");
 
     fireEvent.change(screen.getByRole("searchbox", { name: /filter detected groups/i }), {
       target: { value: "admins" },
     });
 
-    expect(within(suggestions).getByText("caipe-admins")).toBeInTheDocument();
+    expect(within(suggestions).getAllByText("caipe-admins").length).toBeGreaterThan(0);
     expect(within(suggestions).queryByText("caipe-users")).not.toBeInTheDocument();
   });
 
@@ -115,9 +115,9 @@ describe("IdentityGroupSyncTab", () => {
     render(<IdentityGroupSyncTab isAdmin />);
 
     await screen.findByText("1 provider configured");
-    fireEvent.click(screen.getByRole("button", { name: /suggest from my groups/i }));
+    fireEvent.click(screen.getByRole("button", { name: /detect my groups/i }));
 
-    const suggestions = await screen.findByRole("region", { name: /claim group suggestions/i });
+    const suggestions = await screen.findByRole("region", { name: /detected group to team mappings/i });
     fireEvent.click(within(suggestions).getByRole("button", { name: /caipe-users/i }));
     fireEvent.click(screen.getByRole("button", { name: /add 1 selected as caipe team/i }));
 
@@ -142,7 +142,7 @@ describe("IdentityGroupSyncTab", () => {
     render(<IdentityGroupSyncTab isAdmin />);
 
     await screen.findByText("1 provider configured");
-    expect(screen.getByText("Review detected groups")).toBeInTheDocument();
+    expect(screen.getByText(/Detected groups/i)).toBeInTheDocument();
     expect(screen.queryByText(/Full rule management lands/i)).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/resolved member email/i)).not.toBeInTheDocument();
 
@@ -224,7 +224,7 @@ describe("IdentityGroupSyncTab", () => {
     render(<IdentityGroupSyncTab isAdmin />);
 
     await screen.findByText("1 provider configured");
-    fireEvent.click(screen.getByRole("button", { name: /suggest from my groups/i }));
+    fireEvent.click(screen.getByRole("button", { name: /detect my groups/i }));
 
     expect(await screen.findByText(/Sign out and sign back in/i)).toBeInTheDocument();
   });

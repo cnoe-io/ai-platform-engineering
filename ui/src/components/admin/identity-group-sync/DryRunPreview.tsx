@@ -21,8 +21,11 @@ export function DryRunPreview({ result, detectedGroups = [], applying, onApply }
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Dry-run preview</CardTitle>
-          <CardDescription>Run a preview to see team, membership, and tuple changes.</CardDescription>
+          <CardTitle>Preview changes</CardTitle>
+          <CardDescription>
+            Detect your groups or run a manual test to preview which teams, members, and access grants
+            would change.
+          </CardDescription>
         </CardHeader>
       </Card>
     );
@@ -109,25 +112,52 @@ export function DryRunPreview({ result, detectedGroups = [], applying, onApply }
     );
   }
 
+  const teamChanges = groupChangesByTeam(result);
+
   return (
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           {hasConflicts ? <AlertCircle className="h-5 w-5 text-amber-500" /> : <CheckCircle2 className="h-5 w-5 text-green-500" />}
-          Dry-run preview
+          Preview changes
         </CardTitle>
         <CardDescription>
           {result.matched_groups.length} matched group(s), {result.skipped_users.length} skipped user(s),{" "}
-          {result.conflicts.length} conflict(s)
+          {result.conflicts.length} conflict(s). Each card below shows one identity group and the CAIPE
+          team it would change.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="grid gap-3 md:grid-cols-5">
-          <Metric label="Teams to create" value={result.teams_to_create.length} />
-          <Metric label="Membership sources to add" value={result.membership_sources_to_add.length} />
-          <Metric label="Membership sources to remove" value={result.membership_sources_to_remove.length} />
-          <Metric label="Tuple writes" value={result.tuple_writes.length} />
-          <Metric label="Tuple deletes" value={result.tuple_deletes.length} />
+        <div className="space-y-3">
+          {teamChanges.map((team) => (
+            <div key={team.slug} className="rounded-md border bg-background/60 p-4">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                {team.sourceGroupId && (
+                  <>
+                    <span className="font-medium" title={team.sourceGroupId}>
+                      {team.sourceGroupId}
+                    </span>
+                    <span aria-hidden className="text-muted-foreground">
+                      &rarr;
+                    </span>
+                  </>
+                )}
+                <span className="font-medium">{team.name}</span>
+                <span className="text-xs text-muted-foreground">({team.slug})</span>
+                {team.created && (
+                  <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800">
+                    new team
+                  </span>
+                )}
+              </div>
+              <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                <ChangePill label="members added" value={team.membersAdded} tone="add" />
+                <ChangePill label="members removed" value={team.membersRemoved} tone="remove" />
+                <ChangePill label="access grants" value={team.tupleWrites} tone="add" />
+                <ChangePill label="access revokes" value={team.tupleDeletes} tone="remove" />
+              </div>
+            </div>
+          ))}
         </div>
         {safetyWarnings.length > 0 && (
           <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
@@ -185,6 +215,85 @@ function Metric({ label, value }: { label: string; value: number }) {
       <div className="text-sm text-muted-foreground">{label}</div>
     </div>
   );
+}
+
+function ChangePill({ label, value, tone }: { label: string; value: number; tone: "add" | "remove" }) {
+  if (value === 0) return null;
+  const sign = tone === "add" ? "+" : "−";
+  const toneClass = tone === "add" ? "bg-green-50 text-green-800" : "bg-red-50 text-red-800";
+  return (
+    <span className={`rounded-full px-2 py-0.5 font-medium ${toneClass}`}>
+      {sign}
+      {value} {label}
+    </span>
+  );
+}
+
+interface TeamChangeSummary {
+  slug: string;
+  name: string;
+  sourceGroupId?: string;
+  created: boolean;
+  membersAdded: number;
+  membersRemoved: number;
+  tupleWrites: number;
+  tupleDeletes: number;
+}
+
+// Collapse the flat dry-run lists into one row per CAIPE team so each change
+// reads as "identity group -> team: +N members, +N grants".
+function groupChangesByTeam(result: IdentityGroupSyncDryRunResult): TeamChangeSummary[] {
+  const order: string[] = [];
+  const byTeam = new Map<string, TeamChangeSummary>();
+  const ensure = (slug: string, name?: string): TeamChangeSummary => {
+    let summary = byTeam.get(slug);
+    if (!summary) {
+      summary = {
+        slug,
+        name: name || slug,
+        created: false,
+        membersAdded: 0,
+        membersRemoved: 0,
+        tupleWrites: 0,
+        tupleDeletes: 0,
+      };
+      byTeam.set(slug, summary);
+      order.push(slug);
+    } else if (name && summary.name === summary.slug) {
+      summary.name = name;
+    }
+    return summary;
+  };
+
+  for (const team of result.teams_to_create) {
+    const summary = ensure(team.slug, team.name);
+    summary.created = true;
+    summary.sourceGroupId = team.source_group_id;
+  }
+  for (const source of result.membership_sources_to_add) {
+    const summary = ensure(source.team_slug);
+    summary.membersAdded += 1;
+    if (!summary.sourceGroupId && source.external_group_id) summary.sourceGroupId = source.external_group_id;
+  }
+  for (const source of result.membership_sources_to_remove) {
+    const summary = ensure(source.team_slug);
+    summary.membersRemoved += 1;
+    if (!summary.sourceGroupId && source.external_group_id) summary.sourceGroupId = source.external_group_id;
+  }
+  for (const tuple of result.tuple_writes) {
+    ensure(teamSlugFromObject(tuple.object)).tupleWrites += 1;
+  }
+  for (const tuple of result.tuple_deletes) {
+    ensure(teamSlugFromObject(tuple.object)).tupleDeletes += 1;
+  }
+
+  return order.map((slug) => byTeam.get(slug)!);
+}
+
+// Tuple objects look like "team:platform"; fall back to the raw value otherwise.
+function teamSlugFromObject(object: string): string {
+  const [type, id] = object.split(":");
+  return type === "team" && id ? id : object;
 }
 
 function mergeDetectedGroups(...groups: ExternalGroup[][]): ExternalGroup[] {
