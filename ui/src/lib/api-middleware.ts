@@ -351,6 +351,11 @@ function resolveLegacyWithAuthRbacPolicy(request: NextRequest): RouteRbacPolicy 
       ? { resource: 'dynamic_agent', scope: 'view' }
       : { resource: 'dynamic_agent', scope: 'manage' };
   }
+  if (pathname.startsWith('/api/workflow-configs')) {
+    return method === 'GET'
+      ? { resource: 'dynamic_agent', scope: 'view' }
+      : { resource: 'dynamic_agent', scope: 'manage' };
+  }
   if (pathname.startsWith('/api/workflow-runs')) {
     return method === 'GET'
       ? { resource: 'dynamic_agent', scope: 'view' }

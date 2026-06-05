@@ -3,26 +3,54 @@ import { create } from "zustand";
 interface UnsavedChangesState {
   hasUnsavedChanges: boolean;
   pendingNavigationHref: string | null;
+  /** In-app action blocked until the user discards edits (e.g. switch workflow). */
+  pendingDeferredAction: (() => void) | null;
 
   setUnsaved: (dirty: boolean) => void;
   requestNavigation: (href: string) => void;
+  requestDeferredAction: (action: () => void) => void;
   cancelNavigation: () => void;
   confirmNavigation: () => string | null;
+  confirmDeferredAction: () => void;
 }
 
 export const useUnsavedChangesStore = create<UnsavedChangesState>()((set, get) => ({
   hasUnsavedChanges: false,
   pendingNavigationHref: null,
+  pendingDeferredAction: null,
 
   setUnsaved: (dirty) => set({ hasUnsavedChanges: dirty }),
 
   requestNavigation: (href) => set({ pendingNavigationHref: href }),
 
-  cancelNavigation: () => set({ pendingNavigationHref: null }),
+  requestDeferredAction: (action) => {
+    if (get().hasUnsavedChanges) {
+      set({ pendingDeferredAction: action });
+      return;
+    }
+    action();
+  },
+
+  cancelNavigation: () =>
+    set({ pendingNavigationHref: null, pendingDeferredAction: null }),
 
   confirmNavigation: () => {
     const href = get().pendingNavigationHref;
-    set({ hasUnsavedChanges: false, pendingNavigationHref: null });
+    set({
+      hasUnsavedChanges: false,
+      pendingNavigationHref: null,
+      pendingDeferredAction: null,
+    });
     return href;
+  },
+
+  confirmDeferredAction: () => {
+    const action = get().pendingDeferredAction;
+    set({
+      hasUnsavedChanges: false,
+      pendingNavigationHref: null,
+      pendingDeferredAction: null,
+    });
+    action?.();
   },
 }));

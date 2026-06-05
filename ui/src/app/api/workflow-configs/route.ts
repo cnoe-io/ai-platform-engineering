@@ -17,6 +17,16 @@ import {
   filterResourcesByPermission,
   requireResourcePermission,
 } from "@/lib/rbac/resource-authz";
+import {
+  buildTeamRefToSlugMap,
+  filterWorkflowConfigsByRunAccess,
+  mergeWorkflowConfigsById,
+  normalizeSharedWithTeamSlugs,
+  reconcileWorkflowConfigAccess,
+  requireWorkflowConfigRunAccess,
+  requireWorkflowConfigWriteAccess,
+  resolveUserTeamSlugsForWorkflow,
+} from "@/lib/rbac/workflow-config-rebac";
 
 /**
  * Workflow Config API Routes
@@ -125,21 +135,48 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       return NextResponse.json(configs) as NextResponse;
     }
 
+    const userTeamSlugs = await resolveUserTeamSlugsForWorkflow(user.email, session);
+
     if (id) {
       const config = await getVisibleConfigById(id, user.email);
       if (!config) {
         throw new ApiError("Workflow config not found", 404);
       }
-      await requireResourcePermission(session, { type: "task", id, action: "read" });
+      await requireWorkflowConfigRunAccess(
+        session,
+        {
+          _id: String(config._id),
+          owner_id: config.owner_id,
+          visibility: config.visibility,
+          shared_with_teams: config.shared_with_teams,
+        },
+        user.email,
+        userTeamSlugs,
+      );
       return NextResponse.json(config) as NextResponse;
     }
 
     const configs = await getVisibleConfigs(user.email);
-    const visibleConfigs = await filterResourcesByPermission(session, configs, {
-      type: "task",
-      action: "discover",
-      id: (config) => String(config._id),
-    });
+    const teamRefToSlug = await buildTeamRefToSlugMap();
+    const byVisibility = filterWorkflowConfigsByRunAccess(
+      configs,
+      user.email,
+      userTeamSlugs,
+      teamRefToSlug,
+    );
+    // Match workflow-runs list: org-wide global workflows use Mongo visibility;
+    // FGA `read` supplements legacy per-user/team grants (discover is not written).
+    const byFga = await filterResourcesByPermission(
+      session,
+      configs,
+      {
+        type: "task",
+        action: "read",
+        id: (config) => String(config._id),
+      },
+      { bypassForOrgAdmin: true },
+    );
+    const visibleConfigs = mergeWorkflowConfigsById(byVisibility, byFga);
     return NextResponse.json(visibleConfigs) as NextResponse;
   });
 });
@@ -162,7 +199,11 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
 
     validateSteps(body.steps);
     const visibility: WorkflowConfigVisibility = body.visibility || "global";
-    validateVisibility(visibility, body.shared_with_teams);
+    const sharedWithTeams =
+      visibility === "team"
+        ? await normalizeSharedWithTeamSlugs(body.shared_with_teams)
+        : undefined;
+    validateVisibility(visibility, sharedWithTeams);
 
     const id = `wf-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const now = new Date();
@@ -174,13 +215,15 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       steps: body.steps,
       owner_id: user.email,
       visibility,
-      shared_with_teams: visibility === "team" ? body.shared_with_teams : undefined,
+      shared_with_teams: sharedWithTeams,
       created_at: now,
       updated_at: now,
     };
 
     const collection = await getCollection("workflow_configs");
     await collection.insertOne(config as any);
+
+    await reconcileWorkflowConfigAccess(session, config);
 
     return successResponse({ id, message: "Workflow config created successfully" }, 201);
   });
@@ -214,11 +257,21 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     if (!existing) {
       throw new ApiError("Workflow config not found", 404);
     }
-    if (user.role !== "admin") {
-      await requireResourcePermission(session, { type: "task", id, action: "write" });
-    }
     if ((existing as any).config_driven) {
       throw new ApiError("Cannot modify a config-driven workflow. Edit app-config.yaml instead.", 403);
+    }
+
+    if (user.role !== "admin") {
+      await requireWorkflowConfigWriteAccess(
+        session,
+        {
+          _id: id,
+          owner_id: existing.owner_id,
+          visibility: existing.visibility,
+          shared_with_teams: existing.shared_with_teams,
+        },
+        user.email,
+      );
     }
 
     if (body.steps) {
@@ -230,11 +283,47 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
         body.shared_with_teams = undefined;
       }
     }
+    if (body.shared_with_teams?.length) {
+      body.shared_with_teams = await normalizeSharedWithTeamSlugs(body.shared_with_teams);
+    }
 
-    await collection.updateOne(
-      { _id: id as any },
-      { $set: { ...body, updated_at: new Date() } }
-    );
+    const mergedVisibility = body.visibility ?? existing.visibility;
+    let mergedSharedWithTeams =
+      mergedVisibility === "team"
+        ? body.shared_with_teams ?? existing.shared_with_teams
+        : mergedVisibility !== undefined
+          ? undefined
+          : existing.shared_with_teams;
+
+    if (mergedVisibility === "team" && mergedSharedWithTeams?.length) {
+      mergedSharedWithTeams =
+        (await normalizeSharedWithTeamSlugs(mergedSharedWithTeams)) ?? undefined;
+    }
+
+    const updateFields: Record<string, unknown> = {
+      ...body,
+      updated_at: new Date(),
+    };
+    if (mergedVisibility === "team") {
+      updateFields.shared_with_teams = mergedSharedWithTeams;
+    } else if (
+      body.visibility !== undefined &&
+      (mergedVisibility === "private" || mergedVisibility === "global")
+    ) {
+      updateFields.shared_with_teams = undefined;
+    }
+
+    await collection.updateOne({ _id: id as any }, { $set: updateFields });
+
+    const merged = {
+      ...existing,
+      ...body,
+      _id: id,
+      visibility: mergedVisibility,
+      shared_with_teams: mergedSharedWithTeams,
+    };
+
+    await reconcileWorkflowConfigAccess(session, merged, existing);
 
     return successResponse({ id, message: "Workflow config updated successfully" });
   });
@@ -262,11 +351,21 @@ export const DELETE = withErrorHandler(async (request: NextRequest) => {
     if (!existing) {
       throw new ApiError("Workflow config not found", 404);
     }
-    if (user.role !== "admin") {
-      await requireResourcePermission(session, { type: "task", id, action: "delete" });
-    }
     if ((existing as any).config_driven) {
       throw new ApiError("Cannot delete a config-driven workflow. Remove it from app-config.yaml instead.", 403);
+    }
+
+    if (user.role !== "admin") {
+      await requireWorkflowConfigWriteAccess(
+        session,
+        {
+          _id: id,
+          owner_id: existing.owner_id,
+          visibility: existing.visibility,
+          shared_with_teams: existing.shared_with_teams,
+        },
+        user.email,
+      );
     }
 
     await collection.deleteOne({ _id: id as any });

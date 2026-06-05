@@ -50,6 +50,7 @@ interface WorkflowStepSidebarProps {
   agentsLoading: boolean;
 
   readOnly?: boolean;
+  readOnlyHint?: string;
 }
 
 
@@ -66,6 +67,7 @@ export function WorkflowStepSidebar({
   agents,
   agentsLoading,
   readOnly,
+  readOnlyHint,
 }: WorkflowStepSidebarProps) {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [configOverrideJson, setConfigOverrideJson] = useState(
@@ -168,11 +170,24 @@ export function WorkflowStepSidebar({
     // Steps exist but none selected
     return (
       <div className="w-[624px] border-l border-border bg-card/50 flex items-center justify-center">
-        <div className="text-center px-6">
-          <MousePointerClick className="h-8 w-8 text-muted-foreground/30 mx-auto mb-3" />
-          <p className="text-sm text-muted-foreground">
-            Select a step on the canvas to edit its properties
-          </p>
+        <div className="text-center px-6 max-w-sm">
+          {readOnly ? (
+            <>
+              <Lock className="h-8 w-8 text-amber-500/60 mx-auto mb-3" />
+              <p className="text-sm text-foreground font-medium mb-1">View only</p>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                {readOnlyHint ??
+                  "This workflow cannot be edited here. Use Clone to edit to create your own copy."}
+              </p>
+            </>
+          ) : (
+            <>
+              <MousePointerClick className="h-8 w-8 text-muted-foreground/30 mx-auto mb-3" />
+              <p className="text-sm text-muted-foreground">
+                Select a step on the canvas to edit its properties
+              </p>
+            </>
+          )}
         </div>
       </div>
     );
@@ -205,7 +220,8 @@ export function WorkflowStepSidebar({
         <div className="px-4 py-2.5 bg-amber-500/10 border-b border-amber-500/20 flex items-center gap-2 shrink-0">
           <Lock className="h-3.5 w-3.5 text-amber-500 shrink-0" />
           <p className="text-xs text-amber-600 dark:text-amber-400">
-            This workflow is seeded from config and is not editable.
+            {readOnlyHint ??
+              "This workflow is seeded from config and is not editable."}
           </p>
         </div>
       )}

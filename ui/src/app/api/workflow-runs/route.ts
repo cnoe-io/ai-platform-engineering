@@ -15,7 +15,6 @@ import {
   withErrorHandler,
   successResponse,
   ApiError,
-  getAuthFromBearerOrSession,
 } from "@/lib/api-middleware";
 import {
   startWorkflowRun,
@@ -28,6 +27,20 @@ import {
   requireResourcePermission,
   type ResourceAuthzSession,
 } from "@/lib/rbac/resource-authz";
+import {
+  buildTeamRefToSlugMap,
+  filterWorkflowConfigsByRunAccess,
+  mergeWorkflowConfigsById,
+  reconcileWorkflowConfigAccess,
+  resolveUserTeamSlugsForWorkflow,
+} from "@/lib/rbac/workflow-config-rebac";
+import {
+  assertCanExecuteWorkflowRunsForConfigId,
+  assertCanViewWorkflowRunsForConfigId,
+  canViewWorkflowRunsForConfigId,
+} from "@/lib/rbac/workflow-run-access";
+import { buildWorkflowDaAuthHeaders } from "@/lib/server/workflow-da-auth";
+import { assertWorkflowStepAgentsExist } from "@/lib/server/workflow-step-agents";
 import type { WorkflowConfig } from "@/types/workflow-config";
 
 const STORAGE_TYPE = isMongoDBConfigured ? "mongodb" : "none";
@@ -38,26 +51,6 @@ const RETENTION_DAYS = parseInt(process.env.WORKFLOW_RUN_RETENTION_DAYS ?? "7", 
 /** Throttle cleanup to run at most once per 30 minutes */
 let lastCleanupAt = 0;
 const CLEANUP_INTERVAL_MS = 30 * 60 * 1000;
-
-// ---------------------------------------------------------------------------
-// Access control helper — checks if user can access a workflow config
-// ---------------------------------------------------------------------------
-
-async function userCanAccessConfig(
-  configId: string,
-  session: ResourceAuthzSession,
-): Promise<boolean> {
-  try {
-    await requireResourcePermission(
-      session,
-      { type: "task", id: configId, action: "read" },
-      { bypassForOrgAdmin: true },
-    );
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 /** Check if user can delete runs for the workflow config. */
 async function userCanDeleteConfigRuns(
@@ -143,49 +136,45 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     throw new ApiError("MongoDB is required for workflow runs", 503);
   }
 
-  const { user, session } = await getAuthFromBearerOrSession(request);
-  const body = await request.json();
-  const { workflow_config_id, user_context, trigger_info } = body;
+  return await withAuth(request, async (req, user, session) => {
+    const body = await req.json();
+    const { workflow_config_id, user_context, trigger_info } = body;
 
-  if (!workflow_config_id) {
-    throw new ApiError("workflow_config_id is required", 400);
-  }
+    if (!workflow_config_id) {
+      throw new ApiError("workflow_config_id is required", 400);
+    }
 
-  // Load config
-  const configCol = await getCollection<WorkflowConfig>("workflow_configs");
-  const config = await configCol.findOne({ _id: workflow_config_id });
-  if (!config) {
-    throw new ApiError(`Workflow config ${workflow_config_id} not found`, 404);
-  }
+    const userTeamSlugs = await resolveUserTeamSlugsForWorkflow(user.email, session);
+    const config = await assertCanExecuteWorkflowRunsForConfigId(
+      session,
+      workflow_config_id,
+      user.email,
+      userTeamSlugs,
+    );
 
-  // Verify user has access to this workflow config
-  await requireResourcePermission(
-    session,
-    { type: "task", id: workflow_config_id, action: "read" },
-    { bypassForOrgAdmin: true },
-  );
+    void reconcileWorkflowConfigAccess(session, config).catch((err) => {
+      console.warn("[workflow-runs] OpenFGA backfill for workflow config failed:", err);
+    });
 
-  // Build auth headers for DA server calls
-  const authHeaders: Record<string, string> = {};
-  const authHeader = request.headers.get("Authorization");
-  if (authHeader) {
-    authHeaders["Authorization"] = authHeader;
-  }
-  authHeaders["X-User-Context"] = Buffer.from(JSON.stringify({
-    email: user.email,
-    name: user.name,
-  })).toString("base64");
+    await assertWorkflowStepAgentsExist(config);
 
-  // Enrich trigger_info with user context
-  const enrichedTriggerInfo = {
-    ...(trigger_info || {}),
-    triggered_by: trigger_info?.triggered_by || "webui",
-    user: { email: user.email, name: user.name },
-  };
+    const authHeaders = buildWorkflowDaAuthHeaders(req, user, session);
 
-  const runId = await startWorkflowRun(config, user_context || null, authHeaders, enrichedTriggerInfo);
+    const enrichedTriggerInfo = {
+      ...(trigger_info || {}),
+      triggered_by: trigger_info?.triggered_by || "webui",
+      user: { email: user.email, name: user.name },
+    };
 
-  return NextResponse.json({ run_id: runId, status: "running" }, { status: 201 });
+    const runId = await startWorkflowRun(
+      config,
+      user_context || null,
+      authHeaders,
+      enrichedTriggerInfo,
+    );
+
+    return NextResponse.json({ run_id: runId, status: "running" }, { status: 201 });
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -197,83 +186,111 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     throw new ApiError("MongoDB is required for workflow runs", 503);
   }
 
-  const { user, session } = await getAuthFromBearerOrSession(request);
+  return await withAuth(request, async (_req, user, session) => {
+    const userTeamSlugs = await resolveUserTeamSlugsForWorkflow(user.email, session);
 
-  const { searchParams } = new URL(request.url);
-  const runId = searchParams.get("run_id");
+    const { searchParams } = new URL(request.url);
+    const runId = searchParams.get("run_id");
 
-  if (runId) {
-    // v2: Poll a specific run with events
+    if (runId) {
+      const col = await getCollection<WorkflowRunDocument>("workflow_runs");
+      const run = await col.findOne({ _id: runId });
+      if (!run) {
+        throw new ApiError(`Run ${runId} not found`, 404);
+      }
+
+      await assertCanViewWorkflowRunsForConfigId(
+        session,
+        run.workflow_config_id,
+        user.email,
+        userTeamSlugs,
+      );
+
+      const isStale = await detectStaleRun(run);
+      if (isStale) {
+        run.status = "failed";
+      }
+
+      const events = await readEventsByRun(runId);
+      const eventsObj: Record<number, unknown[]> = {};
+      for (const [stepIndex, stepEvents] of events) {
+        eventsObj[stepIndex] = stepEvents;
+      }
+
+      return NextResponse.json({ ...run, events: eventsObj }) as NextResponse;
+    }
+
+    cleanupExpiredRuns().catch(() => {});
+
     const col = await getCollection<WorkflowRunDocument>("workflow_runs");
-    const run = await col.findOne({ _id: runId });
-    if (!run) {
-      throw new ApiError(`Run ${runId} not found`, 404);
+    const workflowConfigId = searchParams.get("workflow_config_id");
+
+    if (workflowConfigId) {
+      const canView = await canViewWorkflowRunsForConfigId(
+        session,
+        workflowConfigId,
+        user.email,
+        userTeamSlugs,
+      );
+      if (!canView) {
+        return NextResponse.json([]) as NextResponse;
+      }
+      const runs = await col
+        .find({ workflow_config_id: workflowConfigId })
+        .sort({ started_at: -1 })
+        .limit(100)
+        .toArray();
+      return NextResponse.json(runs) as NextResponse;
     }
 
-    // Verify user has access to the parent workflow config
-    const hasAccess = await userCanAccessConfig(run.workflow_config_id, session);
-    if (!hasAccess) {
-      throw new ApiError(`Run ${runId} not found`, 404);
-    }
+    const configCol = await getCollection<WorkflowConfig>("workflow_configs");
+    const configCandidates = await configCol
+      .find({})
+      .project({
+        _id: 1,
+        visibility: 1,
+        shared_with_teams: 1,
+        owner_id: 1,
+        config_driven: 1,
+      })
+      .toArray();
+    const teamRefToSlug = await buildTeamRefToSlugMap();
+    const byVisibility = filterWorkflowConfigsByRunAccess(
+      configCandidates as WorkflowConfig[],
+      user.email,
+      userTeamSlugs,
+      teamRefToSlug,
+    );
+    const byFgaRead = await filterResourcesByPermission(
+      session,
+      configCandidates,
+      { type: "task", action: "read", id: (config) => String(config._id) },
+      { bypassForOrgAdmin: true },
+    );
+    const byFgaUse = await filterResourcesByPermission(
+      session,
+      configCandidates,
+      { type: "task", action: "use", id: (config) => String(config._id) },
+      { bypassForOrgAdmin: true },
+    );
+    const accessibleConfigs = mergeWorkflowConfigsById(
+      byVisibility as Array<{ _id: string }>,
+      byFgaRead as Array<{ _id: string }>,
+      byFgaUse as Array<{ _id: string }>,
+    );
 
-    // Detect stale runs
-    const isStale = await detectStaleRun(run);
-    if (isStale) {
-      run.status = "failed";
-    }
-
-    // Load events for all steps
-    const events = await readEventsByRun(runId);
-    const eventsObj: Record<number, unknown[]> = {};
-    for (const [stepIndex, stepEvents] of events) {
-      eventsObj[stepIndex] = stepEvents;
-    }
-
-    return NextResponse.json({ ...run, events: eventsObj }) as NextResponse;
-  }
-
-  // Legacy: list runs for user
-  // Fire-and-forget cleanup of expired runs
-  cleanupExpiredRuns().catch(() => {});
-
-  const col = await getCollection<WorkflowRunDocument>("workflow_runs");
-  const workflowConfigId = searchParams.get("workflow_config_id");
-
-  if (workflowConfigId) {
-    // Filter by specific config — check access once
-    const hasAccess = await userCanAccessConfig(workflowConfigId, session);
-    if (!hasAccess) {
+    const accessibleIds = accessibleConfigs.map((c) => c._id);
+    if (accessibleIds.length === 0) {
       return NextResponse.json([]) as NextResponse;
     }
+
     const runs = await col
-      .find({ workflow_config_id: workflowConfigId })
+      .find({ workflow_config_id: { $in: accessibleIds } })
       .sort({ started_at: -1 })
       .limit(100)
       .toArray();
     return NextResponse.json(runs) as NextResponse;
-  }
-
-  // List all runs — filter to only those whose configs the user can read.
-  const configCol = await getCollection<WorkflowConfig>("workflow_configs");
-  const configCandidates = await configCol.find({}).project({ _id: 1 }).toArray();
-  const accessibleConfigs = await filterResourcesByPermission(
-    session,
-    configCandidates,
-    { type: "task", action: "read", id: (config) => config._id },
-    { bypassForOrgAdmin: true },
-  );
-
-  const accessibleIds = accessibleConfigs.map((c) => c._id);
-  if (accessibleIds.length === 0) {
-    return NextResponse.json([]) as NextResponse;
-  }
-
-  const runs = await col
-    .find({ workflow_config_id: { $in: accessibleIds } })
-    .sort({ started_at: -1 })
-    .limit(100)
-    .toArray();
-  return NextResponse.json(runs) as NextResponse;
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -297,17 +314,19 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
       throw new ApiError("At least one field must be provided for update", 400);
     }
 
+    const userTeamSlugs = await resolveUserTeamSlugsForWorkflow(user.email, session);
     const col = await getCollection<WorkflowRunDocument>("workflow_runs");
     const run = await col.findOne({ _id: id });
     if (!run) {
       throw new ApiError("Workflow run not found", 404);
     }
 
-    // Verify user has access to the parent workflow config
-    const hasAccess = await userCanAccessConfig(run.workflow_config_id, session);
-    if (!hasAccess) {
-      throw new ApiError("Workflow run not found", 404);
-    }
+    await assertCanViewWorkflowRunsForConfigId(
+      session,
+      run.workflow_config_id,
+      user.email,
+      userTeamSlugs,
+    );
 
     await col.updateOne({ _id: id }, { $set: body });
 

@@ -89,7 +89,6 @@ const EDITOR_ROUTES_WITH_OWN_DISCARD_DIALOG = [
  */
 const EDITOR_ROUTES_WITH_HEADER_DIALOG = [
   "/task-builder",
-  "/workflows",
   "/dynamic-agents",
 ];
 

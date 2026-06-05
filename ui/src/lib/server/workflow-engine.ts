@@ -346,6 +346,7 @@ async function executeSteps(
           message: attemptPrompt,
           conversation_id: conversationId,
           agent_id: step.agent_id,
+          workflow_config_id: workflowConfigId,
           protocol: "agui",
           config_override: {
             backend: {
@@ -525,6 +526,7 @@ async function resumeAndContinue(
     body: {
       conversation_id: conversationId,
       agent_id: step.agent_id,
+      workflow_config_id: workflowConfigId,
       resume_data: resumeData,
       protocol: "agui",
       config_override: {
@@ -718,8 +720,9 @@ function buildWorkflowContextPrefix(
 
   // --- Critical: User interaction ---
   ctx += "## Critical: User Interaction\n";
-  ctx += "The user does NOT have access to this chat. All interaction with the user must happen through the `require_user_input` tool.\n";
-  ctx += "If that tool is not available and you cannot proceed without user input, state the reason and stop.\n\n";
+  ctx += "The user does NOT have access to this chat. All interaction with the user must happen through the `request_user_input` tool.\n";
+  ctx += "When a step must pass data to later steps, call `request_user_input` if needed, then persist outputs with `write_file` (for example `choices.txt` at the filesystem root).\n";
+  ctx += "If that tool is not available and you cannot proceed without user input, write the reason to error.txt and stop.\n\n";
 
   // --- Critical: Reporting failure ---
   ctx += "## Critical: Reporting Failure\n";
