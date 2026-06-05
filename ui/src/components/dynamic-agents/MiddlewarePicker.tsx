@@ -190,7 +190,6 @@ function MiddlewareEntryCard({
           type="button"
           onClick={() => setExpanded(!expanded)}
           className="flex items-center gap-1 text-muted-foreground hover:text-foreground"
-          disabled={disabled}
         >
           {expanded ? (
             <ChevronDown className="h-3.5 w-3.5" />

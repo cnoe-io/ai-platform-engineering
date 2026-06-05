@@ -393,7 +393,7 @@ export function InterruptConfigPicker({
                   variant="ghost"
                   size="sm"
                   onClick={() => toggleExpanded(row.id)}
-                  disabled={disabled || locked}
+                  disabled={locked}
                   className={cn("h-8 w-8 p-0", isExpanded && "text-primary")}
                   title="Configure allowed decisions"
                 >
