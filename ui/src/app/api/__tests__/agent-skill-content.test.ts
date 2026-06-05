@@ -373,7 +373,7 @@ def hello():
     expect(insertedConfig.skill_content).toBe(SAMPLE_SKILL_CONTENT);
     expect(insertedConfig.is_quick_start).toBe(true);
     expect(insertedConfig.visibility).toBe("team");
-    expect(insertedConfig.shared_with_teams).toEqual(["team-sre", "team-devops"]);
+    expect(insertedConfig.shared_with_teams).toBeUndefined();
   });
 });
 

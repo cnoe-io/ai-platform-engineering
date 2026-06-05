@@ -9,7 +9,7 @@ import {
 import { isMongoDBConfigured } from "@/lib/mongodb";
 import { getAgentSkillVisibleToUser } from "@/lib/agent-skill-visibility";
 import { listRevisions } from "@/lib/skill-revisions";
-import { requireResourcePermission } from "@/lib/rbac/resource-authz";
+import { requireSkillPermission } from "@/lib/rbac/resource-authz";
 
 /**
  * GET /api/skills/configs/[id]/revisions
@@ -43,7 +43,7 @@ export const GET = withErrorHandler(
         // 404 (not 403) so we don't leak existence to non-viewers.
         throw new ApiError("Skill not found", 404);
       }
-      await requireResourcePermission(session, { type: "skill", id, action: "read" });
+      await requireSkillPermission(session, id, "read");
       const revisions = await listRevisions(id);
       return successResponse({
         skill_id: id,

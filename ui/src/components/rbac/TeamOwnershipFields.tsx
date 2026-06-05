@@ -89,6 +89,15 @@ export interface TeamOwnershipFieldsProps {
   ownerExtra?: React.ReactNode;
   /** Per-grant detail line in the effective-access preview. */
   renderGrantDetail?: (slug: string, kind: "owner" | "shared") => React.ReactNode;
+  /**
+   * Extra lines in the effective-access preview (e.g. `user:*` for platform
+   * default agents). Shown above team grant lines.
+   */
+  extraGrantPreviewItems?: Array<{
+    id: string;
+    line: React.ReactNode;
+    detail?: React.ReactNode;
+  }>;
 }
 
 /** Resolve a share entry (slug or legacy _id) to a canonical slug via the options. */
@@ -123,6 +132,7 @@ export function TeamOwnershipFields(props: TeamOwnershipFieldsProps) {
     betweenOwnerAndShare,
     ownerExtra,
     renderGrantDetail,
+    extraGrantPreviewItems = [],
   } = props;
 
   // Transfer mode: only meaningful on edit when transfers are allowed. While
@@ -287,7 +297,7 @@ export function TeamOwnershipFields(props: TeamOwnershipFieldsProps) {
             />
           )}
 
-          {grants.length > 0 && (
+          {(extraGrantPreviewItems.length > 0 || grants.length > 0) && (
             <div
               role="note"
               aria-label="Effective access summary"
@@ -297,6 +307,16 @@ export function TeamOwnershipFields(props: TeamOwnershipFieldsProps) {
                 On save, these OpenFGA grants will be written:
               </div>
               <ul className="space-y-1.5">
+                {extraGrantPreviewItems.map(({ id, line, detail }) => (
+                  <li key={id}>
+                    {line}
+                    {detail && (
+                      <span className="block pl-4 text-amber-900/80 dark:text-amber-300/80">
+                        {detail}
+                      </span>
+                    )}
+                  </li>
+                ))}
                 {grants.map(({ slug, kind }) => (
                   <li key={`${kind}-${slug}`}>
                     <code>team:{slug}#member</code> can use this {resourceNoun}

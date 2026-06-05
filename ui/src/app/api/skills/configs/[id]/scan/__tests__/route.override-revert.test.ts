@@ -85,11 +85,14 @@ jest.mock("@/lib/skill-scan-override-history", () => ({
     mockRecordOverrideEvent(event),
 }));
 
-// 098-enterprise-rbac introduced an OpenFGA PDP gate on the scan route
-// via `requireResourcePermission`. Mock it permissively so the suite
-// focuses on the override-vs-rescan invariant under test.
-jest.mock("@/lib/rbac/openfga", () => ({
-  checkOpenFgaTuple: jest.fn().mockResolvedValue({ allowed: true }),
+const mockRequireSkillPermission = jest.fn();
+jest.mock("@/lib/rbac/resource-authz", () => ({
+  requireSkillPermission: (...args: unknown[]) => mockRequireSkillPermission(...args),
+}));
+
+jest.mock("@/lib/rbac/skill-team-grants", () => ({
+  readSkillSharedTeamSlugsFromOpenFga: jest.fn().mockResolvedValue([]),
+  reconcileSkillTeamShares: jest.fn().mockResolvedValue(undefined),
 }));
 
 jest.spyOn(console, "warn").mockImplementation(() => {});
@@ -163,6 +166,7 @@ describe("POST /api/skills/configs/[id]/scan — does not touch scan_override", 
 
   beforeEach(async () => {
     jest.resetModules();
+    mockRequireSkillPermission.mockResolvedValue(undefined);
     const mod = await import("@/app/api/skills/configs/[id]/scan/route");
     POST = mod.POST as typeof POST;
   });

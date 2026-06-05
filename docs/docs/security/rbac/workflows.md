@@ -338,6 +338,13 @@ Holding `mcp_tool#can_call` on a shared tool does NOT, by itself, satisfy
 `can_search`; both the built-in tools and org-wide-shared custom tools are gated
 here. Org admins bypass (kill-switchable). Every check fails closed.
 
+The Search tab is enabled by `can_search` **alone** — it is intentionally
+decoupled from whether the member currently has a readable KB. An org admin can
+grant a team the capability before assigning any KB; the tab then renders with an
+empty, server-scoped result set rather than being greyed out. Symmetrically,
+`can_ingest` enables the Data Sources tab so a newly opted-in team can author its
+first source. See the "KB tab-gate composition" note in `architecture.md`.
+
 ## Credential OAuth Connector Flow
 
 The Connections & Secrets OAuth connector flow is a CAIPE credential-exchange

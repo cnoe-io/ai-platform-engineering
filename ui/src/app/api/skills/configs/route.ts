@@ -28,9 +28,17 @@ import {
 } from "@/lib/builtin-skill-policy";
 import {
   filterResourcesByPermission,
-  requireResourcePermission,
+  requireSkillPermission,
 } from "@/lib/rbac/resource-authz";
-import { grantSkillsToTeams } from "@/lib/rbac/skill-team-grants";
+import {
+  readSkillSharedTeamSlugsFromOpenFga,
+  reconcileSkillTeamShares,
+} from "@/lib/rbac/skill-team-grants";
+import {
+  getAgentSkillVisibleToUser,
+  hydrateAgentSkillTeamShares,
+  hydrateAgentSkillTeamSharesList,
+} from "@/lib/agent-skill-visibility";
 
 /**
  * Persisted agent skill configs (CRUD)
@@ -85,7 +93,7 @@ function isUserAdmin(user: { email: string; role?: string }): boolean {
  * revision history.
  *
  * The revision schema deliberately excludes administrative fields
- * (`owner_id`, `is_system`, `visibility`, `shared_with_teams`) — those
+ * (`owner_id`, `is_system`, `visibility`) — those
  * are authorization state, not content, and a "restore" should never
  * change who owns the skill or who can see it. See lib/skill-revisions
  * for the rationale.
@@ -109,6 +117,27 @@ function extractSnapshot(skill: AgentSkill): SkillSnapshotInput {
 }
 
 const VALID_VISIBILITIES: SkillVisibility[] = ["private", "team", "global"];
+
+/** Team shares are OpenFGA-only; never persist legacy `shared_with_teams` on Mongo rows. */
+function stripSharedWithTeamsFromMongoFields<T extends { shared_with_teams?: unknown }>(
+  value: T,
+): Omit<T, "shared_with_teams"> {
+  const { shared_with_teams: _omit, ...rest } = value;
+  return rest;
+}
+
+function normalizeTeamRefList(values: string[] | undefined | null): string[] {
+  if (!Array.isArray(values)) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const value of values) {
+    const trimmed = String(value || "").trim();
+    if (!trimmed || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    out.push(trimmed);
+  }
+  return out;
+}
 
 async function saveAgentSkillToMongoDB(config: AgentSkill): Promise<void> {
   const collection = await getCollection<AgentSkill>("agent_skills");
@@ -149,7 +178,10 @@ async function updateAgentSkillInMongoDB(
   }
   console.log(`[MongoDB] Permission checks passed`);
 
-  const updatePayload = { ...updates, updated_at: new Date() };
+  const updatePayload = {
+    ...stripSharedWithTeamsFromMongoFields(updates),
+    updated_at: new Date(),
+  };
   console.log(`[MongoDB] Update payload:`, JSON.stringify(updatePayload, null, 2));
   console.log(`[MongoDB] Update payload tasks count:`, updatePayload.tasks?.length);
   if (updatePayload.tasks && updatePayload.tasks.length > 0) {
@@ -157,7 +189,10 @@ async function updateAgentSkillInMongoDB(
   }
 
   console.log(`[MongoDB] Executing updateOne...`);
-  const updateResult = await collection.updateOne({ id }, { $set: updatePayload });
+  const updateResult = await collection.updateOne(
+    { id },
+    { $set: updatePayload, $unset: { shared_with_teams: "" } },
+  );
   console.log(`[MongoDB] UpdateOne result:`, {
     matchedCount: updateResult.matchedCount,
     modifiedCount: updateResult.modifiedCount,
@@ -241,7 +276,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     throw new ApiError("Skills requires MongoDB to be configured", 503);
   }
 
-  return await withAuth(request, async (req, user) => {
+  return await withAuth(request, async (req, user, session) => {
     const body: CreateAgentSkillInput = await request.json();
 
     if (!body.name || !body.category || !body.tasks || body.tasks.length === 0) {
@@ -284,7 +319,6 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       updated_at: now,
       metadata: body.metadata,
       visibility,
-      shared_with_teams: visibility === "team" ? body.shared_with_teams : undefined,
       skill_content: body.skill_content,
       is_quick_start: body.is_quick_start,
       difficulty: body.difficulty,
@@ -315,7 +349,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       duration_ms: Date.now() - tCreate,
     });
 
-    await saveAgentSkillToMongoDB(config);
+    await saveAgentSkillToMongoDB(stripSharedWithTeamsFromMongoFields(config) as AgentSkill);
     // Capture revision #1 right after the row is persisted so the
     // restore path always has a baseline to fall back to. We pass
     // through the same content fields the caller saved, plus the
@@ -332,11 +366,26 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     );
 
     await syncSkillResource("create", id, body.name, visibility);
-    if (visibility === "team") {
-      await grantSkillsToTeams({
-        teamRefs: body.shared_with_teams,
-        skillIds: [id],
+    // Reconcile owner + optional team-share grants. Without the owner tuple,
+    // the author can create/save via routes that skip per-skill FGA (POST) but
+    // later PUT/scan checks (`can_write`) fail with "You do not have permission
+    // to access this resource." Config (Mongo) is the source of truth, so an
+    // OpenFGA hiccup must not fail the create.
+    const ownerSubject =
+      typeof session?.sub === "string" && session.sub.trim() ? session.sub.trim() : null;
+    try {
+      await reconcileSkillTeamShares({
+        skillId: id,
+        ownerSubject,
+        previousTeamRefs: [],
+        nextTeamRefs: visibility === "team" ? body.shared_with_teams : [],
+        nextVisibility: visibility,
       });
+    } catch (error) {
+      console.warn(
+        "[AgentSkill] Failed to reconcile skill FGA grants on create:",
+        error instanceof Error ? error.message : String(error),
+      );
     }
 
     triggerSupervisorRefresh();
@@ -374,7 +423,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         console.log(`[API GET] Config not found: ${id}`);
         throw new ApiError("Agent config not found", 404);
       }
-      await requireResourcePermission(session, { type: "skill", id, action: "read" });
+      await requireSkillPermission(session, id, "read");
       console.log(`[API GET] Returning config:`, {
         id: config.id,
         name: config.name,
@@ -384,7 +433,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       if (config.tasks && config.tasks.length > 0) {
         console.log(`[API GET] First task llm_prompt:`, config.tasks[0].llm_prompt);
       }
-      return NextResponse.json(config) as NextResponse;
+      const hydrated = await hydrateAgentSkillTeamShares(config);
+      return NextResponse.json(hydrated) as NextResponse;
     } else {
       console.log(`[API GET] Fetching all configs for user: ${user.email}`);
       const configs = await getAgentSkillsFromMongoDB(user.email, listOpts);
@@ -393,8 +443,9 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         action: "discover",
         id: (config) => config.id,
       });
-      console.log(`[API GET] Returning ${visibleConfigs.length} configs`);
-      return NextResponse.json(visibleConfigs) as NextResponse;
+      const hydrated = await hydrateAgentSkillTeamSharesList(visibleConfigs);
+      console.log(`[API GET] Returning ${hydrated.length} configs`);
+      return NextResponse.json(hydrated) as NextResponse;
     }
   });
 });
@@ -424,7 +475,31 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     if (Object.keys(body).length === 0) {
       throw new ApiError("At least one field must be provided for update", 400);
     }
-    await requireResourcePermission(session, { type: "skill", id, action: "write" });
+
+    const preUpdate = await getAgentSkillVisibleToUser(id, user.email);
+    if (preUpdate && preUpdate.owner_id === user.email) {
+      const healOwnerSubject =
+        typeof session?.sub === "string" && session.sub.trim() ? session.sub.trim() : null;
+      const healTeamRefs = await readSkillSharedTeamSlugsFromOpenFga(id);
+      if (healOwnerSubject) {
+        try {
+          await reconcileSkillTeamShares({
+            skillId: id,
+            ownerSubject: healOwnerSubject,
+            previousTeamRefs: healTeamRefs,
+            nextTeamRefs: healTeamRefs,
+            nextVisibility: preUpdate.visibility ?? "private",
+            previousVisibility: preUpdate.visibility ?? "private",
+          });
+        } catch (error) {
+          console.warn(
+            "[AgentSkill] Failed to reconcile owner FGA tuple before update:",
+            error instanceof Error ? error.message : String(error),
+          );
+        }
+      }
+    }
+    await requireSkillPermission(session, id, "write");
 
     if (body.visibility !== undefined) {
       if (!VALID_VISIBILITIES.includes(body.visibility)) {
@@ -432,9 +507,6 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
       }
       if (body.visibility === "team" && (!body.shared_with_teams || body.shared_with_teams.length === 0)) {
         throw new ApiError("At least one team must be selected when visibility is 'team'", 400);
-      }
-      if (body.visibility !== "team") {
-        body.shared_with_teams = undefined;
       }
     }
 
@@ -507,6 +579,49 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
         });
       }
     }
+
+    // Reconcile the skill's team-share grants on edit. Previously the update
+    // path wrote NOTHING to OpenFGA, so changing `shared_with_teams` (or
+    // demoting away from `team` visibility) updated Mongo but left the old
+    // `team:<slug>#member user skill:<id>` grants in place — un-shared teams
+    // kept access. Diffing previous → next through the shared reconciler now
+    // revokes dropped teams and grants newly added ones. Config is the source
+    // of truth, so an OpenFGA failure is logged but does not fail the update.
+    if (beforeUpdate) {
+      const previousVisibility = beforeUpdate.visibility ?? "private";
+      const nextVisibility =
+        body.visibility !== undefined ? body.visibility : previousVisibility;
+      const previousTeamRefs = await readSkillSharedTeamSlugsFromOpenFga(id);
+      let nextTeamRefs: string[];
+      if (nextVisibility !== "team") {
+        nextTeamRefs = [];
+      } else if (Object.prototype.hasOwnProperty.call(body, "shared_with_teams")) {
+        nextTeamRefs = normalizeTeamRefList(body.shared_with_teams);
+      } else {
+        nextTeamRefs = previousTeamRefs;
+      }
+      const ownerSubject =
+        beforeUpdate.owner_id === user.email &&
+        typeof session?.sub === "string" &&
+        session.sub.trim()
+          ? session.sub.trim()
+          : null;
+      try {
+        await reconcileSkillTeamShares({
+          skillId: id,
+          ownerSubject,
+          previousTeamRefs,
+          nextTeamRefs,
+          nextVisibility,
+          previousVisibility,
+        });
+      } catch (error) {
+        console.warn(
+          "[AgentSkill] Failed to reconcile skill FGA grants on update:",
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+    }
     console.log(`[AgentSkill] Updated agent config "${id}" by ${user.email}`);
     console.log(`[API PUT] ============ UPDATE REQUEST END ============`);
 
@@ -537,7 +652,7 @@ export const DELETE = withErrorHandler(async (request: NextRequest) => {
   }
 
   return await withAuth(request, async (req, user, session) => {
-    await requireResourcePermission(session, { type: "skill", id, action: "delete" });
+    await requireSkillPermission(session, id, "delete");
     await deleteAgentSkillFromMongoDB(id, user);
     // Drop history rows for this skill so we don't leak orphaned
     // revision documents that nobody can render. Best-effort: a

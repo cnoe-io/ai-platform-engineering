@@ -161,6 +161,16 @@ const SLACK_ADAPTER: ConnectorAdminAdapter = {
         who were never granted the agent directly. If that is not what you want, share
         the agent with a smaller subgroup (or with individual users) instead of the
         channel&apos;s team.
+        <p className="mt-2">
+          Agents with <strong>global</strong> visibility or set as the{" "}
+          <strong>platform default</strong> (Admin → Settings) also carry an OpenFGA
+          grant <code className="mx-1">user:* can_use agent:&lt;id&gt;</code>, so every
+          signed-in user can DM the agent and use it in any mapped Slack channel or
+          Webex space. Channel onboarding here still writes{" "}
+          <code className="mx-1">slack_channel:… can_use agent:&lt;id&gt;</code> and{" "}
+          <code className="mx-1">team:&lt;slug&gt;#member can_use agent:&lt;id&gt;</code>{" "}
+          for the channel&apos;s team; the bot&apos;s dispatch checks above still apply.
+        </p>
       </div>
     </>
   ),

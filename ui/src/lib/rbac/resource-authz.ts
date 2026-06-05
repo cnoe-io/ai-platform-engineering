@@ -160,6 +160,85 @@ export function subjectFromSession(session: ResourceAuthzSession): string | null
   return session.isServiceAccount === true ? `service_account:${sub}` : `user:${sub}`;
 }
 
+/**
+ * Per-skill OpenFGA gate for workspace routes. Org admins and holders of
+ * `admin_surface:skills#can_manage` (bootstrap grant for app admins) may
+ * mutate any skill without a per-resource owner tuple; everyone else is
+ * checked against `skill:<id>#can_*`.
+ */
+export async function requireSkillPermission(
+  session: ResourceAuthzSession,
+  skillId: string,
+  action: ResourcePermissionAction,
+  options: ResourcePermissionOptions = {},
+): Promise<void> {
+  const subject = subjectFromSession(session);
+  if (!subject) {
+    throw new ApiError(
+      "A stable user subject is required for this resource authorization check.",
+      401,
+      "NO_SUBJECT",
+      "session_expired",
+      "sign_in",
+    );
+  }
+
+  const check = options.check ?? checkOpenFgaTuple;
+
+  if (!isOrgAdminBypassKillSwitchEnabled() && (await isOrgAdmin(subject, check))) {
+    return;
+  }
+
+  if (session.role === "admin") {
+    try {
+      const surface = await check({
+        user: subject,
+        relation: "can_manage",
+        object: "admin_surface:skills",
+      });
+      if (surface.allowed === true) {
+        return;
+      }
+    } catch {
+      // Fall through to per-skill check.
+    }
+  }
+
+  await requireResourcePermission(session, { type: "skill", id: skillId, action }, options);
+}
+
+/**
+ * Per-agent OpenFGA gate for Dynamic Agent routes. Organization admins
+ * (including Super Admins team members with `organization#admin`) may
+ * read, write, manage, or delete any agent without a per-resource tuple;
+ * everyone else is checked against `agent:<id>#can_*`.
+ */
+export async function requireAgentPermission(
+  session: ResourceAuthzSession,
+  agentId: string,
+  action: ResourcePermissionAction,
+  options: ResourcePermissionOptions = {},
+): Promise<void> {
+  const subject = subjectFromSession(session);
+  if (!subject) {
+    throw new ApiError(
+      "A stable user subject is required for this resource authorization check.",
+      401,
+      "NO_SUBJECT",
+      "session_expired",
+      "sign_in",
+    );
+  }
+
+  const check = options.check ?? checkOpenFgaTuple;
+
+  if (!isOrgAdminBypassKillSwitchEnabled() && (await isOrgAdmin(subject, check))) {
+    return;
+  }
+
+  await requireResourcePermission(session, { type: "agent", id: agentId, action }, options);
+}
+
 export async function requireResourcePermission(
   session: ResourceAuthzSession,
   target: ResourcePermissionTarget,

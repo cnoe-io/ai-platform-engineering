@@ -167,6 +167,7 @@ export function TrySkillsGateway() {
   const [mintedKey, setMintedKey] = useState<string | null>(null);
   const [showMintedKey, setShowMintedKey] = useState(false);
   const [mintBusy, setMintBusy] = useState(false);
+  const [mintError, setMintError] = useState<string | null>(null);
   // The "Active / past keys" list was removed per PR #1268 review feedback;
   // revocation/listing lives on the admin page now, so this component no
   // longer needs to fetch /api/catalog-api-keys.
@@ -289,6 +290,7 @@ export function TrySkillsGateway() {
     setMintBusy(true);
     setMintedKey(null);
     setShowMintedKey(false);
+    setMintError(null);
     try {
       const res = await fetch("/api/catalog-api-keys", {
         method: "POST",
@@ -297,12 +299,29 @@ export function TrySkillsGateway() {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setMintedKey(null);
+        const message =
+          typeof data.message === "string"
+            ? data.message
+            : typeof data.detail === "string"
+              ? data.detail
+              : typeof data.error === "string"
+                ? data.error
+                : `Failed to generate API key (${res.status})`;
+        setMintError(message);
         return;
       }
       if (typeof data.key === "string") {
         setMintedKey(data.key);
         setShowMintedKey(false);
+        setMintError(null);
+      } else {
+        setMintError("Server did not return an API key. Check MongoDB configuration.");
       }
+    } catch (err) {
+      setMintedKey(null);
+      setMintError(
+        err instanceof Error ? err.message : "Failed to generate API key",
+      );
     } finally {
       setMintBusy(false);
     }
@@ -1859,11 +1878,21 @@ export function TrySkillsGateway() {
                           ) : null}
                           Generate Install Command with API Key
                         </Button>
-                        <div className="flex items-center gap-2 text-[11px] text-amber-700 dark:text-amber-400 flex-1 min-w-[200px]">
-                          <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                          <span className="font-medium">
-                            Generate an API key first to install skills.
-                          </span>
+                        <div className="flex flex-col gap-1 text-[11px] text-amber-700 dark:text-amber-400 flex-1 min-w-[200px]">
+                          <div className="flex items-center gap-2">
+                            <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                            <span className="font-medium">
+                              Generate an API key first to install skills.
+                            </span>
+                          </div>
+                          {mintError ? (
+                            <p
+                              className="text-destructive font-medium pl-5"
+                              data-testid="quick-install-mint-error"
+                            >
+                              {mintError}
+                            </p>
+                          ) : null}
                         </div>
                       </div>
                     )}

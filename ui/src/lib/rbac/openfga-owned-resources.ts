@@ -6,6 +6,8 @@ import {
   type OpenFgaTupleKey,
   type TeamResourceTupleDiff,
 } from "./openfga";
+
+export type { TeamResourceTupleDiff } from "./openfga";
 import { openFgaResourceId } from "./openfga-resource-ids";
 import { organizationObjectId } from "./organization";
 
