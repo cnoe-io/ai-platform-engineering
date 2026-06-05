@@ -1126,7 +1126,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
             />
           </div>
 
-          <fieldset disabled={readOnly} className={cn("space-y-4 min-w-0", readOnly && "opacity-70")}>
+          <fieldset className={cn("space-y-4 min-w-0", readOnly && "opacity-70")}>
 
           {/* Basic Info Step */}
           {activeStep === "basic" && (
@@ -1140,7 +1140,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                   placeholder="e.g., Code Review Agent"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  disabled={loading}
+                  disabled={loading || !!readOnly}
                 />
                 {/* Show generated ID */}
                 {isEditing ? (
@@ -1177,7 +1177,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                         }
                       }
                     }}
-                    disabled={loading || modelsLoading || availableModels.length === 0}
+                    disabled={loading || !!readOnly || modelsLoading || availableModels.length === 0}
                     className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-medium shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {modelsLoading ? (
@@ -1213,7 +1213,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                       variant="outline"
                       size="sm"
                       className="h-7 text-xs gap-1 px-2 border-primary/30 text-primary hover:bg-primary/10"
-                      disabled={!canSuggest || loading}
+                      disabled={!canSuggest || loading || !!readOnly}
                       onClick={() => { setShowSuggestBasicInput((v) => { if (!v) setEnhanceExistingBasic(!!description.trim()); return !v; }); setShowSuggestPromptInput(false); }}
                       title={!name.trim() ? "Enter a name first" : !modelId ? "Select a model first" : "AI-generate description and theme"}
                     >
@@ -1285,7 +1285,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                   placeholder="What does this agent do?"
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  disabled={loading}
+                  disabled={loading || !!readOnly}
                   rows={2}
                 />
               </div>
@@ -1308,7 +1308,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                           ? "border-primary bg-primary/10"
                           : "border-border hover:border-primary/50 hover:bg-muted/50"
                       )}
-                      disabled={loading}
+                      disabled={loading || !!readOnly}
                       title={theme.description}
                     >
                       <div
@@ -1339,7 +1339,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                           ? "border-primary bg-primary/10"
                           : "border-border hover:border-primary/50 hover:bg-muted/50"
                       )}
-                      disabled={loading}
+                      disabled={loading || !!readOnly}
                       title="Custom colors"
                     >
                       <div
@@ -1461,7 +1461,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                 ownerRequired
                 allowTransfer={isEditing}
                 resourceNoun="agent"
-                disabled={loading}
+                disabled={loading || !!readOnly}
                 showShare={visibility === "team"}
                 currentUserTeamSlugs={availableTeams
                   .map((team) => team.slug)
@@ -1567,7 +1567,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                                 ? "border-primary bg-primary/5"
                                 : "border-muted hover:border-primary/50"
                             } ${lockedByPlatformDefault ? "opacity-60 cursor-not-allowed" : ""}`}
-                            disabled={loading || lockedByPlatformDefault}
+                            disabled={loading || !!readOnly || lockedByPlatformDefault}
                           >
                             <div className="flex items-center gap-2 mb-1">
                               {opt.icon}
@@ -1621,7 +1621,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                       variant="outline"
                       size="sm"
                       className="h-7 text-xs gap-1 px-2 border-primary/30 text-primary hover:bg-primary/10"
-                      disabled={!canSuggest || loading}
+                      disabled={!canSuggest || loading || !!readOnly}
                       onClick={() => { setShowSuggestPromptInput((v) => { if (!v) setEnhanceExisting(!!systemPrompt.trim()); return !v; }); setShowSuggestBasicInput(false); }}
                       title={!name.trim() ? "Enter a name first" : !modelId ? "Select a model first" : "Generate system prompt with AI"}
                     >
@@ -1786,7 +1786,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                               indentOnInput: true,
                             }}
                             placeholder="You are a helpful AI assistant that specializes in..."
-                            editable={!loading && generatingField !== "system_prompt"}
+                            editable={!loading && !readOnly && generatingField !== "system_prompt"}
                           />
                         </React.Suspense>
                       </div>
@@ -1845,7 +1845,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
               <BuiltinToolsPicker
                 value={builtinTools}
                 onChange={setBuiltinTools}
-                disabled={loading}
+                disabled={loading || !!readOnly}
               />
 
               {/* MCP Tools */}
@@ -1861,7 +1861,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                 <AllowedToolsPicker
                   value={allowedTools}
                   onChange={setAllowedTools}
-                  disabled={loading}
+                  disabled={loading || !!readOnly}
                 />
               </div>
 
@@ -1870,7 +1870,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                 <MiddlewarePicker
                   value={features}
                   onChange={setFeatures}
-                  disabled={loading}
+                  disabled={loading || !!readOnly}
                   availableModels={availableModels}
                 />
               </div>
@@ -1890,7 +1890,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
               <SkillsSelector
                 value={skills}
                 onChange={setSkills}
-                disabled={loading}
+                disabled={loading || !!readOnly}
               />
             </div>
           )}
@@ -1910,7 +1910,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
               setFeatures={setFeatures}
               availableModels={availableModels}
               setMiddlewareError={setMiddlewareError}
-              loading={loading}
+              loading={loading || !!readOnly}
               visibility={visibility}
             />
           )}

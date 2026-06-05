@@ -366,7 +366,7 @@ export function AllowedToolsPicker({ value, onChange, disabled }: AllowedToolsPi
                   variant="ghost"
                   size="sm"
                   onClick={() => handleProbe(server._id)}
-                  disabled={disabled || probe?.loading}
+                  disabled={probe?.loading}
                   className="h-7 px-2"
                 >
                   {probe?.loading ? (
