@@ -8,8 +8,8 @@ from ai_platform_engineering.integrations.slack_bot.utils.slack_rebac import (
 )
 
 
-def test_channel_grant_check_omits_user_subject(monkeypatch) -> None:
-    """check_channel_grant must not send user_subject — only the channel grant is checked here."""
+def test_channel_grant_check_posts_correct_payload(monkeypatch) -> None:
+    """check_channel_grant posts to the right BFF path with the agent resource and OBO token."""
     calls: list[tuple[str, dict[str, object], str]] = []
 
     def fake_post(path: str, payload: dict[str, object], token: str) -> SlackChannelRebacDecision:
