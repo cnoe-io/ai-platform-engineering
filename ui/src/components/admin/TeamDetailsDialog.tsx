@@ -1671,6 +1671,9 @@ export function TeamDetailsDialog({
                     // See team-membership-source-store.markTeamMembershipSourceRemoved.
                     const memberSources = (sourcesByMember[member.user_id.toLowerCase()] ?? [])
                       .filter((source) => source.status === "active");
+                    const isIdpManaged =
+                      memberSources.length > 0 &&
+                      memberSources.every((s) => s.source_type !== "manual");
                     const syncEntry = syncByMember[member.user_id.toLowerCase()];
                     const syncBadge = syncEntry
                       ? syncBadgeAppearance(syncEntry.status)
@@ -1727,73 +1730,83 @@ export function TeamDetailsDialog({
                             {member.role}
                           </Badge>
                           {member.role !== "owner" && (
-                            pendingRemoveMember === member.user_id &&
-                            removingMember !== member.user_id ? (
-                              // Inline confirm row — replaces the previous
-                              // window.confirm() blocking prompt. Stays on
-                              // the same row so focus, scroll position, and
-                              // the parent modal are all preserved.
-                              <div
-                                className="flex items-center gap-1"
-                                role="group"
-                                aria-label={`Confirm removal of ${member.user_id}`}
-                                onKeyDown={(e) => {
-                                  if (e.key === "Escape") {
-                                    e.stopPropagation();
-                                    setPendingRemoveMember(null);
-                                  }
-                                }}
+                            isIdpManaged ? (
+                              <span
+                                title="Managed by identity sync — edit membership in your IDP"
+                                className="flex h-7 w-7 items-center justify-center text-muted-foreground/50"
+                                aria-label="Managed by identity sync"
                               >
-                                <span
-                                  className="text-xs text-muted-foreground mr-1"
-                                  aria-live="polite"
+                                <Lock className="h-3.5 w-3.5" />
+                              </span>
+                            ) : (
+                              pendingRemoveMember === member.user_id &&
+                              removingMember !== member.user_id ? (
+                                // Inline confirm row — replaces the previous
+                                // window.confirm() blocking prompt. Stays on
+                                // the same row so focus, scroll position, and
+                                // the parent modal are all preserved.
+                                <div
+                                  className="flex items-center gap-1"
+                                  role="group"
+                                  aria-label={`Confirm removal of ${member.user_id}`}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Escape") {
+                                      e.stopPropagation();
+                                      setPendingRemoveMember(null);
+                                    }
+                                  }}
                                 >
-                                  Remove?
-                                </span>
-                                <Button
-                                  variant="destructive"
-                                  size="sm"
-                                  className="h-7 px-2 text-xs"
-                                  onClick={() =>
-                                    handleRemoveMember(member.user_id)
-                                  }
-                                  autoFocus
-                                  aria-label={`Confirm remove ${member.user_id}`}
-                                >
-                                  <Check className="h-3.5 w-3.5 mr-1" />
-                                  Remove
-                                </Button>
+                                  <span
+                                    className="text-xs text-muted-foreground mr-1"
+                                    aria-live="polite"
+                                  >
+                                    Remove?
+                                  </span>
+                                  <Button
+                                    variant="destructive"
+                                    size="sm"
+                                    className="h-7 px-2 text-xs"
+                                    onClick={() =>
+                                      handleRemoveMember(member.user_id)
+                                    }
+                                    autoFocus
+                                    aria-label={`Confirm remove ${member.user_id}`}
+                                  >
+                                    <Check className="h-3.5 w-3.5 mr-1" />
+                                    Remove
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 w-7 p-0 text-muted-foreground"
+                                    onClick={() => setPendingRemoveMember(null)}
+                                    aria-label="Cancel removal"
+                                  >
+                                    <X className="h-3.5 w-3.5" />
+                                  </Button>
+                                </div>
+                              ) : (
                                 <Button
                                   variant="ghost"
                                   size="sm"
-                                  className="h-7 w-7 p-0 text-muted-foreground"
-                                  onClick={() => setPendingRemoveMember(null)}
-                                  aria-label="Cancel removal"
+                                  className={`h-7 w-7 p-0 text-muted-foreground hover:text-destructive ${
+                                    removingMember === member.user_id
+                                      ? "opacity-100"
+                                      : "opacity-0 group-hover:opacity-100"
+                                  }`}
+                                  onClick={() =>
+                                    setPendingRemoveMember(member.user_id)
+                                  }
+                                  disabled={removingMember === member.user_id}
+                                  aria-label={`Remove ${member.user_id}`}
                                 >
-                                  <X className="h-3.5 w-3.5" />
+                                  {removingMember === member.user_id ? (
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                  ) : (
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  )}
                                 </Button>
-                              </div>
-                            ) : (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className={`h-7 w-7 p-0 text-muted-foreground hover:text-destructive ${
-                                  removingMember === member.user_id
-                                    ? "opacity-100"
-                                    : "opacity-0 group-hover:opacity-100"
-                                }`}
-                                onClick={() =>
-                                  setPendingRemoveMember(member.user_id)
-                                }
-                                disabled={removingMember === member.user_id}
-                                aria-label={`Remove ${member.user_id}`}
-                              >
-                                {removingMember === member.user_id ? (
-                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                ) : (
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                )}
-                              </Button>
+                              )
                             )
                           )}
                         </div>

@@ -11,9 +11,11 @@ import type { ExternalGroup, IdentityGroupSyncDryRunResult } from "@/types/ident
 
 import { DryRunPreview } from "./DryRunPreview";
 import { MappingClusterEditor } from "./MappingClusterEditor";
+import { OktaSyncPanel } from "./OktaSyncPanel";
 
 interface IdentityGroupSyncTabProps {
   isAdmin: boolean;
+  oktaSyncEnabled?: boolean;
 }
 
 interface ClaimSuggestion {
@@ -25,7 +27,7 @@ interface ClaimSuggestion {
   suggested_org_admin: boolean;
 }
 
-export function IdentityGroupSyncTab({ isAdmin }: IdentityGroupSyncTabProps) {
+export function IdentityGroupSyncTab({ isAdmin, oktaSyncEnabled = false }: IdentityGroupSyncTabProps) {
   const [providerCount, setProviderCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -41,6 +43,7 @@ export function IdentityGroupSyncTab({ isAdmin }: IdentityGroupSyncTabProps) {
   const [suggesting, setSuggesting] = useState(false);
   const [applying, setApplying] = useState(false);
   const [manualOpen, setManualOpen] = useState(false);
+  const [activeSubTab, setActiveSubTab] = useState<"mapping" | "okta-sync">("mapping");
 
   const loadProviders = useCallback(async () => {
     setLoading(true);
@@ -235,179 +238,194 @@ export function IdentityGroupSyncTab({ isAdmin }: IdentityGroupSyncTabProps) {
 
   return (
     <div className="space-y-4">
-      <Card className="overflow-hidden">
-        <CardHeader>
-          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-            <div className="space-y-2">
-              <CardTitle>Identity Group Sync</CardTitle>
+      {oktaSyncEnabled && (
+        <div className="flex gap-1">
+          <button
+            type="button"
+            onClick={() => setActiveSubTab("mapping")}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+              activeSubTab === "mapping"
+                ? "bg-primary text-primary-foreground shadow-sm"
+                : "bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground"
+            }`}
+          >
+            Group Mapping
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveSubTab("okta-sync")}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+              activeSubTab === "okta-sync"
+                ? "bg-primary text-primary-foreground shadow-sm"
+                : "bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground"
+            }`}
+          >
+            Okta Background Sync
+          </button>
+        </div>
+      )}
+
+      {(!oktaSyncEnabled || activeSubTab === "mapping") && (
+        <>
+          <Card className="overflow-hidden">
+            <CardHeader>
+              <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                <div className="space-y-2">
+                  <CardTitle>Identity Group Sync</CardTitle>
+                  <CardDescription>
+                    Review IdP group claims, preview CAIPE team changes, then apply the approved sync plan.
+                  </CardDescription>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Badge variant={providerCount > 0 ? "status" : "outline"}>{providerSummary}</Badge>
+                  <Button variant="outline" size="sm" onClick={loadProviders} disabled={loading}>
+                    {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                    Refresh
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+          </Card>
+
+          {error && <div className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-900">{error}</div>}
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Sparkles className="h-5 w-5 text-primary" />
+                Review detected groups
+              </CardTitle>
               <CardDescription>
-                Map your identity provider groups (Okta, Active Directory, OIDC) to CAIPE teams. Detect
-                groups, preview exactly what would change, then apply.
+                Use cached group claims from the current admin session, match known rules, and stage team suggestions for review.
+                Nothing is applied automatically.
               </CardDescription>
-            </div>
-            <div className="flex items-center gap-2">
-              <Badge variant={providerCount > 0 ? "status" : "outline"}>{providerSummary}</Badge>
-              <Button variant="outline" size="sm" onClick={loadProviders} disabled={loading}>
-                {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
-                Refresh
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex flex-wrap items-center gap-3">
+                <Button onClick={loadClaimSuggestions} disabled={!isAdmin || suggesting}>
+                  {suggesting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Suggest from my groups
+                </Button>
+                <span className="text-sm text-muted-foreground">
+                  Uses server-side cached claim groups; the full group list is not stored in the session cookie.
+                </span>
+              </div>
+              {suggestionNotice && (
+                <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+                  {suggestionNotice}
+                </div>
+              )}
+              {suggestions.length > 0 && (
+                <div className="space-y-3">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <Input
+                      type="search"
+                      aria-label="Filter detected groups"
+                      placeholder="Filter detected groups or suggested teams..."
+                      value={suggestionFilter}
+                      onChange={(event) => setSuggestionFilter(event.target.value)}
+                      className="sm:max-w-md"
+                    />
+                    <span className="text-xs text-muted-foreground">
+                      Showing {filteredSuggestions.length} of {suggestions.length}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border bg-background/50 p-3">
+                    <span className="text-sm text-muted-foreground">
+                      {selectedSuggestions.length === 0
+                        ? "Select one or more detected groups to create CAIPE teams."
+                        : `${selectedSuggestions.length} selected for team creation.`}
+                    </span>
+                    <Button
+                      size="sm"
+                      onClick={addSelectedSuggestionsAsTeams}
+                      disabled={applying || selectedSuggestions.length === 0}
+                    >
+                      {applying && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                      Add {selectedSuggestions.length} selected as CAIPE{" "}
+                      {selectedSuggestions.length === 1 ? "team" : "teams"}
+                    </Button>
+                  </div>
+                  <div
+                    role="region"
+                    aria-label="Claim group suggestions"
+                    className="grid max-h-[28rem] gap-3 overflow-y-auto rounded-lg border bg-muted/20 p-3 md:grid-cols-2"
+                  >
+                    {filteredSuggestions.length > 0 ? (
+                      filteredSuggestions.map((suggestion) => (
+                        <button
+                          key={suggestion.source_group_id}
+                          type="button"
+                          aria-pressed={selectedSuggestionIds.has(suggestion.source_group_id)}
+                          className={`group flex w-full flex-col gap-2 rounded-md border p-4 text-left transition-colors hover:border-primary/40 hover:bg-muted/50 ${
+                            selectedSuggestionIds.has(suggestion.source_group_id)
+                              ? "border-primary/70 bg-primary/10"
+                              : "bg-background"
+                          }`}
+                          onClick={() => toggleSuggestion(suggestion.source_group_id)}
+                        >
+                          <span className="flex items-start justify-between gap-3">
+                            <span>
+                              <span className="block font-medium">{suggestion.suggested_team_name}</span>
+                              <span className="block text-xs text-muted-foreground">
+                                {selectedSuggestionIds.has(suggestion.source_group_id)
+                                  ? "Selected claim group"
+                                  : "Detected claim group"}
+                              </span>
+                            </span>
+                            <Badge variant={suggestion.suggested_relationship === "admin" ? "tool" : "secondary"}>
+                              {suggestion.suggested_relationship}
+                            </Badge>
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            Suggest team:{suggestion.suggested_team_slug}
+                            {suggestion.suggested_org_admin ? " - org admin grant review required" : ""}
+                          </span>
+                        </button>
+                      ))
+                    ) : (
+                      <div className="rounded-md border border-dashed bg-background/60 p-4 text-sm text-muted-foreground md:col-span-2">
+                        No detected groups match this filter.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <div className="rounded-lg border bg-card p-4">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div>
+                <div className="font-medium">Need to test one group manually?</div>
+                <div className="text-sm text-muted-foreground">
+                  Keep this as an explicit preview path for hand-entered IdP groups.
+                </div>
+              </div>
+              <Button variant="outline" onClick={() => setManualOpen((open) => !open)}>
+                Manual dry-run
               </Button>
             </div>
           </div>
-        </CardHeader>
-      </Card>
 
-      {error && <div className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-900">{error}</div>}
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Sparkles className="h-5 w-5 text-primary" />
-            Detected groups &rarr; suggested CAIPE teams
-          </CardTitle>
-          <CardDescription>
-            Reads the identity-provider groups from your current sign-in, matches them against sync rules,
-            and suggests which CAIPE team each group should map to. Nothing is created until you apply.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex flex-wrap items-center gap-3">
-            <Button onClick={loadClaimSuggestions} disabled={!isAdmin || suggesting}>
-              {suggesting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Detect my groups
-            </Button>
-            <span className="text-sm text-muted-foreground">
-              Reads the groups from your current sign-in. If you recently joined a group, sign out and back
-              in to refresh it.
-            </span>
-          </div>
-          {suggestionNotice && (
-            <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
-              {suggestionNotice}
-            </div>
+          {manualOpen && (
+            <MappingClusterEditor
+              groupName={groupName}
+              setGroupName={setGroupName}
+              userEmail={userEmail}
+              setUserEmail={setUserEmail}
+              onDryRun={runDryRun}
+              disabled={!isAdmin || running}
+            />
           )}
-          {suggestions.length > 0 && (
-            <div className="space-y-3">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <Input
-                  type="search"
-                  aria-label="Filter detected groups"
-                  placeholder="Filter detected groups or suggested teams..."
-                  value={suggestionFilter}
-                  onChange={(event) => setSuggestionFilter(event.target.value)}
-                  className="sm:max-w-md"
-                />
-                <span className="text-xs text-muted-foreground">
-                  Showing {filteredSuggestions.length} of {suggestions.length}
-                </span>
-              </div>
-              <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border bg-background/50 p-3">
-                <span className="text-sm text-muted-foreground">
-                  {selectedSuggestions.length === 0
-                    ? "Select one or more detected groups to create CAIPE teams."
-                    : `${selectedSuggestions.length} selected for team creation.`}
-                </span>
-                <Button
-                  size="sm"
-                  onClick={addSelectedSuggestionsAsTeams}
-                  disabled={applying || selectedSuggestions.length === 0}
-                >
-                  {applying && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  Add {selectedSuggestions.length} selected as CAIPE{" "}
-                  {selectedSuggestions.length === 1 ? "team" : "teams"}
-                </Button>
-              </div>
-              <div
-                role="region"
-                aria-label="Detected group to team mappings"
-                className="grid max-h-[28rem] gap-3 overflow-y-auto rounded-lg border bg-muted/20 p-3 md:grid-cols-2"
-              >
-                {filteredSuggestions.length > 0 ? (
-                  filteredSuggestions.map((suggestion) => (
-                    <button
-                      key={suggestion.source_group_id}
-                      type="button"
-                      aria-pressed={selectedSuggestionIds.has(suggestion.source_group_id)}
-                      className={`group flex w-full flex-col gap-2 rounded-md border p-4 text-left transition-colors hover:border-primary/40 hover:bg-muted/50 ${
-                        selectedSuggestionIds.has(suggestion.source_group_id)
-                          ? "border-primary/70 bg-primary/10"
-                          : "bg-background"
-                      }`}
-                      onClick={() => toggleSuggestion(suggestion.source_group_id)}
-                    >
-                      <span className="flex items-start justify-between gap-3">
-                        <span className="min-w-0">
-                          <span className="block text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                            Identity group
-                          </span>
-                          <span className="block truncate font-medium" title={suggestion.display_name}>
-                            {suggestion.display_name}
-                          </span>
-                        </span>
-                        <Badge variant={suggestion.suggested_relationship === "admin" ? "tool" : "secondary"}>
-                          joins as {suggestion.suggested_relationship}
-                        </Badge>
-                      </span>
-                      <span className="flex items-baseline gap-2 text-sm">
-                        <span aria-hidden className="text-muted-foreground">
-                          &rarr;
-                        </span>
-                        <span className="min-w-0">
-                          <span className="block text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                            CAIPE team
-                          </span>
-                          <span className="block truncate font-medium" title={suggestion.suggested_team_slug}>
-                            {suggestion.suggested_team_name}
-                            <span className="ml-1 font-normal text-muted-foreground">
-                              ({suggestion.suggested_team_slug})
-                            </span>
-                          </span>
-                        </span>
-                      </span>
-                      {suggestion.suggested_org_admin && (
-                        <span className="text-xs text-amber-700">
-                          Grants org-admin &mdash; review carefully before applying.
-                        </span>
-                      )}
-                    </button>
-                  ))
-                ) : (
-                  <div className="rounded-md border border-dashed bg-background/60 p-4 text-sm text-muted-foreground md:col-span-2">
-                    No detected groups match this filter.
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
 
-      <div className="rounded-lg border bg-card p-4">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div>
-            <div className="font-medium">Test a specific group by hand?</div>
-            <div className="text-sm text-muted-foreground">
-              Type a group name and a member email to preview how that one group would map &mdash; without
-              detecting your own groups.
-            </div>
-          </div>
-          <Button variant="outline" onClick={() => setManualOpen((open) => !open)}>
-            Manual dry-run
-          </Button>
-        </div>
-      </div>
-
-      {manualOpen && (
-        <MappingClusterEditor
-          groupName={groupName}
-          setGroupName={setGroupName}
-          userEmail={userEmail}
-          setUserEmail={setUserEmail}
-          onDryRun={runDryRun}
-          disabled={!isAdmin || running}
-        />
+          <DryRunPreview result={dryRun} detectedGroups={detectedGroups} applying={applying} onApply={applyDryRun} />
+        </>
       )}
 
-      <DryRunPreview result={dryRun} detectedGroups={detectedGroups} applying={applying} onApply={applyDryRun} />
+      {oktaSyncEnabled && activeSubTab === "okta-sync" && (
+        <OktaSyncPanel isAdmin={isAdmin} />
+      )}
     </div>
   );
 }

@@ -3121,7 +3121,7 @@ function AdminPage() {
 
               {tabGateValues.identity_group_sync && (
                 <TabsContent value="identity-groups" className="space-y-4">
-                  <IdentityGroupSyncTab isAdmin={isAdmin} />
+                  <IdentityGroupSyncTab isAdmin={isAdmin} oktaSyncEnabled={getConfig('oktaSyncEnabled')} />
                 </TabsContent>
               )}
 

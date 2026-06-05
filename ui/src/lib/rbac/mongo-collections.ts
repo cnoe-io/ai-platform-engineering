@@ -24,6 +24,8 @@ export const RBAC_COLLECTION_NAMES = {
   rebacEnforcementStatus: "rebac_enforcement_status",
   rebacDriftFindings: "rebac_drift_findings",
   userPreferences: "user_preferences",
+  oktaSyncSettings: "okta_sync_settings",
+  oktaSyncRuns: "okta_sync_runs",
 } as const;
 
 export type RbacCollectionKey = keyof typeof RBAC_COLLECTION_NAMES;
@@ -60,6 +62,31 @@ export interface RebacRelationshipDocument extends Document, UniversalRebacRelat
   created_at: string;
   revoked_by?: string;
   revoked_at?: string;
+}
+
+export interface OktaSyncSettings extends Document {
+  id: string;
+  enabled: boolean;
+  group_filter?: string;
+  user_filter?: string;
+  sync_interval_minutes: number;
+  chunk_size: number;
+  updated_by: string;
+  updated_at: string;
+}
+
+export interface OktaSyncRun extends Document {
+  id: string;
+  status: "running" | "success" | "failed" | "partial";
+  triggered_by: "schedule" | "manual";
+  triggered_by_user?: string;
+  started_at: string;
+  completed_at?: string;
+  groups_fetched?: number;
+  groups_matched?: number;
+  membership_sources_added?: number;
+  membership_sources_removed?: number;
+  error_message?: string;
 }
 
 export function getRbacCollectionName(key: RbacCollectionKey): RbacCollectionName {
