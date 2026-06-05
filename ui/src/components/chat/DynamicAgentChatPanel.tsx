@@ -10,6 +10,7 @@ import { Tooltip,TooltipContent,TooltipProvider,TooltipTrigger } from "@/compone
 import { useAgentTimeline } from "@/hooks/useDynamicAgentTimeline";
 import { apiClient,APIClientError } from "@/lib/api-client";
 import { authErrorToastTitle,type AuthError } from "@/lib/auth-error";
+import { interruptedAuthReason,interruptedTurnFallbackText } from "@/lib/chat-interrupt";
 import { getConfig } from "@/lib/config";
 import { fetchEphemeralFileContent } from "@/lib/ephemeral-files";
 import { ACCEPT_ATTRIBUTE,fileToInputFile,type InputFile,validateFiles } from "@/lib/file-attachments";
@@ -432,7 +433,6 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
     // from MongoDB, causing lastMsg to be undefined and recovery to fail)
     if (isLoadingMessages) return;
     if (isThisConversationStreaming) return;
-    // assisted-by Codex Codex-sonnet-4-6
     // Empty chats have no assistant turn to attach restored HITL state to.
     if (!hasAssistantMessageForInterruptCheck) return;
 
@@ -1112,6 +1112,7 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
       // them as a toast (with sign-in CTA when applicable) instead of
       // burying them inside the assistant turn — see showAuthErrorToast
       // for the rationale.
+      const authInterruptedReason = interruptedAuthReason(error);
       const isAuthError = error instanceof StreamError && error.isAuthError();
       if (isAuthError) {
         const se = error as StreamError;
@@ -1125,9 +1126,11 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
       } else if (!(error as Error).message?.startsWith("Session expired:")) {
         appendToMessage(convId, assistantMsgId, `\n\n**Error:** ${(error as Error).message || "Failed to connect to agent endpoint"}`);
       }
-      // Set interrupted status on error
+      // Set interrupted status on error; tag sign-in auth failures so the UI can
+      // show a session-expired hint instead of the generic "no content" copy.
       updateMessage(convId!, assistantMsgId, {
         turnStatus: "interrupted" as TurnStatus,
+        ...(authInterruptedReason ? { error: authInterruptedReason } : {}),
       });
       setConversationStreaming(convId, null);
     }
@@ -2649,7 +2652,7 @@ const ChatMessage = React.memo(function ChatMessage({
               </div>
             ) : message.turnStatus === "interrupted" ? (
               <div className="text-xs text-muted-foreground italic px-1">
-                This response failed to complete. No content was generated.
+                {interruptedTurnFallbackText(message.error)}
               </div>
             ) : null}
 
