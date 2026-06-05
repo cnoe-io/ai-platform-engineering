@@ -101,13 +101,8 @@ const sidebars: SidebarsConfig = {
                     },
                     {
                       type: 'doc',
-                      id: 'installation/helm-charts/ai-platform-engineering/supervisor-agent-chart',
-                      label: 'supervisor-agent',
-                    },
-                    {
-                      type: 'doc',
-                      id: 'installation/helm-charts/ai-platform-engineering/agent-chart',
-                      label: 'agent',
+                      id: 'installation/helm-charts/ai-platform-engineering/mcp-server-chart',
+                      label: 'mcp-server',
                     },
                     {
                       type: 'doc',
@@ -123,11 +118,6 @@ const sidebars: SidebarsConfig = {
                       type: 'doc',
                       id: 'installation/helm-charts/ai-platform-engineering/dynamic-agents-chart',
                       label: 'dynamic-agents',
-                    },
-                    {
-                      type: 'doc',
-                      id: 'installation/helm-charts/ai-platform-engineering/langgraph-redis-chart',
-                      label: 'langgraph-redis',
                     },
                     {
                       type: 'doc',
@@ -296,7 +286,6 @@ const sidebars: SidebarsConfig = {
       label: 'Features',
       items: [
         { type: 'doc', id: 'features/custom-agents', label: 'Custom Agents' },
-        { type: 'doc', id: 'features/byo-agents', label: 'BYO A2A & MCP Servers' },
         {
           type: 'category',
           label: 'Rich Web UI',
@@ -349,7 +338,6 @@ const sidebars: SidebarsConfig = {
           label: 'Security',
           items: [
             { type: 'doc', id: 'security/index', label: 'Overview' },
-            { type: 'doc', id: 'security/a2a-auth', label: 'A2A Authentication' },
             {
               type: 'category',
               label: 'RBAC',

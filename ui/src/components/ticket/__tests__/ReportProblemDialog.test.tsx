@@ -21,15 +21,11 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 // ============================================================================
 
 let mockTicketProvider: string | null = "jira";
-let mockCaipeUrl = "http://localhost:8000";
-
 jest.mock("@/lib/config", () => ({
   getConfig: (key: string) => {
     switch (key) {
       case "ticketProvider":
         return mockTicketProvider;
-      case "caipeUrl":
-        return mockCaipeUrl;
       case "jiraTicketProject":
         return "OPENSD";
       case "githubTicketRepo":

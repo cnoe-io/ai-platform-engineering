@@ -2,7 +2,7 @@
 
 Runs once per `(route × persona)` returned by
 `tests/rbac/unit/py/matrix_driver.py:expand_matrix()` for the
-**non-`ui_bff`** surfaces (supervisor, mcp, dynamic_agents, rag,
+**non-`ui_bff`** surfaces (mcp, dynamic_agents, rag,
 slack_bot). The Jest driver covers `ui_bff`.
 
 How this test is decided

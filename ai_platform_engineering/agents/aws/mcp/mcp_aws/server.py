@@ -6,8 +6,7 @@
 AWS MCP Server
 
 Provides a Model Context Protocol (MCP) interface for AWS CLI and EKS kubectl
-operations. Wraps the same read-only AWS CLI execute logic used by the AWS
-A2A agent, exposed as MCP tools for use in single-node caipe deployments.
+operations. Exposes read-only AWS CLI execute logic as MCP tools.
 """
 
 import asyncio

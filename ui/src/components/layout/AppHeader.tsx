@@ -28,8 +28,8 @@ import { cn, formatRelativeTime } from "@/lib/utils";
 import { config, getLogoFilterClass } from "@/lib/config";
 import { useChatStore } from "@/store/chat-store";
 import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
-import { UnsavedChangesDialog } from "@/components/task-builder/UnsavedChangesDialog";
-import { useCAIPEHealth } from "@/hooks/use-caipe-health";
+import { UnsavedChangesDialog } from "@/components/shared/UnsavedChangesDialog";
+import { getStorageMode } from "@/lib/storage-config";
 import { useRAGHealth } from "@/hooks/use-rag-health";
 import { useAgentRuntimeHealth } from "@/hooks/use-agent-runtime-health";
 import { useVersion } from "@/hooks/use-version";
@@ -73,7 +73,6 @@ function formatInterval(seconds: number): string {
  * unsaved-changes store.
  */
 const EDITOR_ROUTES_WITH_OWN_DISCARD_DIALOG = [
-  "/task-builder",
   "/workflows",
   "/skills/workspace",
   "/dynamic-agents",
@@ -88,7 +87,6 @@ const EDITOR_ROUTES_WITH_OWN_DISCARD_DIALOG = [
  * dialog for both cases by reading `pendingNavigationHref` directly.
  */
 const EDITOR_ROUTES_WITH_HEADER_DIALOG = [
-  "/task-builder",
   "/workflows",
   "/dynamic-agents",
 ];
@@ -203,7 +201,7 @@ export function AppHeader() {
     setUnsaved,
   } = useUnsavedChangesStore();
 
-  // Editors in EDITOR_ROUTES_WITH_HEADER_DIALOG (Task Builder, Dynamic Agent
+  // Editors in EDITOR_ROUTES_WITH_HEADER_DIALOG (Workflows, Dynamic Agent
   // editor) ask the AppHeader to render the discard dialog on their behalf
   // for top-nav clicks. Other editors (e.g. /skills/workspace) own their own
   // in-page dialog and consume `pendingNavigationHref` directly — that keeps
@@ -243,16 +241,8 @@ export function AppHeader() {
     }
   }, [session, isAdmin]);
 
-  // Health check for CAIPE supervisor (polls every 30 seconds)
-  const {
-    status: caipeStatus,
-    url: caipeUrl,
-    secondsUntilNextCheck: caipeNextCheck,
-    agents,
-    tags,
-    mongoDBStatus,
-    storageMode
-  } = useCAIPEHealth();
+  // Storage backend (mongodb vs localStorage) drives which nav items show.
+  const storageMode = getStorageMode();
 
   // Health check for RAG server (polls every 30 seconds)
   const {
@@ -295,13 +285,14 @@ export function AppHeader() {
     releasePrompt.markToastShown();
   }, [releasePrompt, session, toast]);
 
-  // Combined status: if either is checking -> checking, if supervisor is disconnected -> disconnected,
-  // if only RAG is disconnected (supervisor connected) -> rag-disconnected (amber warning), else connected
-  // Note: Only include RAG in status if it's enabled
+  // Combined status: if the agent runtime is checking -> checking; if it's
+  // disconnected -> disconnected; if only RAG is disconnected (runtime up) ->
+  // rag-disconnected (amber warning), else connected.
+  // Note: Only include RAG in status if it's enabled.
   const getCombinedStatus = () => {
-    if (caipeStatus === "checking") return "checking";
+    if (agentRuntimeStatus === "checking") return "checking";
     if (ragEnabled && ragStatus === "checking") return "checking";
-    if (caipeStatus === "disconnected") return "disconnected";
+    if (agentRuntimeStatus === "disconnected") return "disconnected";
     if (ragEnabled && ragStatus === "disconnected") return "rag-disconnected";
     return "connected";
   };
@@ -319,7 +310,6 @@ export function AppHeader() {
     if (pathname?.startsWith("/knowledge-bases")) return "knowledge";
     if (pathname?.startsWith("/credentials")) return "credentials";
     if (pathname?.startsWith("/workflows")) return "workflows";
-    if (pathname?.startsWith("/task-builder")) return "task-builder";
     if (pathname?.startsWith("/skills") || pathname?.startsWith("/use-cases")) return "skills";
     if (pathname?.startsWith("/dynamic-agents")) return "dynamic-agents";
     if (pathname?.startsWith("/admin")) return "admin";
@@ -420,13 +410,6 @@ export function AppHeader() {
   const hasMigrationBanner = adminAlerts.length > 0;
   const headerNavCollapsed = useHeaderNavCollapsed(hasMigrationBanner);
   const secondaryNavItems = [
-    config.taskBuilderEnabled && {
-      key: "task-builder",
-      href: "/task-builder",
-      label: "Task Builder",
-      Icon: Workflow,
-      activeClassName: "bg-primary text-primary-foreground shadow-sm",
-    },
     config.workflowsEnabled && {
       key: "workflows",
       href: "/workflows",
@@ -441,7 +424,7 @@ export function AppHeader() {
       Icon: Database,
       activeClassName: "bg-primary text-primary-foreground shadow-sm",
     },
-    storageMode === "mongodb" && config.dynamicAgentsEnabled && {
+    storageMode === "mongodb" && {
       key: "dynamic-agents",
       href: "/dynamic-agents",
       label: "Agents",
@@ -694,50 +677,8 @@ export function AppHeader() {
                 </div>
 
                 <div className="p-4 space-y-4">
-                  {/* CAIPE Supervisor Section */}
+                  {/* Storage Backend Section */}
                   <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <div className="text-sm font-bold text-foreground">{config.appName} Supervisor</div>
-                        <div className={cn(
-                          "px-2 py-0.5 rounded-full text-[10px] font-bold",
-                          caipeStatus === "connected" && "bg-green-500/15 text-green-400 border border-green-500/30",
-                          caipeStatus === "checking" && "bg-amber-500/15 text-amber-400 border border-amber-500/30",
-                          caipeStatus === "disconnected" && "bg-red-500/15 text-red-400 border border-red-500/30"
-                        )}>
-                          {caipeStatus === "connected" ? "ONLINE" : caipeStatus === "checking" ? "CHECKING" : "OFFLINE"}
-                        </div>
-                      </div>
-                      <div className="text-[10px] text-muted-foreground font-mono">
-                        Next check: {caipeNextCheck}s
-                      </div>
-                    </div>
-                    <div className="text-xs text-muted-foreground font-mono break-all bg-muted/30 rounded px-2 py-1">
-                      {caipeUrl}
-                    </div>
-
-                    {/* Agent Info */}
-                    {agents.length > 0 && (
-                      <div className="bg-muted/30 rounded-lg p-3 border border-border/50">
-                        <div className="flex items-start gap-3">
-                          <div className="w-10 h-10 rounded-lg gradient-primary-br flex items-center justify-center shrink-0">
-                            <span className="text-lg font-bold text-white">AI</span>
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="font-semibold text-sm text-foreground mb-1">
-                              {agents[0].name}
-                            </div>
-                            {agents[0].description && (
-                              <div className="text-xs text-muted-foreground leading-relaxed line-clamp-2">
-                                {agents[0].description}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Storage Status */}
                     <div className="bg-muted/30 rounded-lg p-3 border border-border/50">
                       <div className="flex items-center justify-between mb-2">
                         <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
@@ -745,67 +686,28 @@ export function AppHeader() {
                         </div>
                         <div className={cn(
                           "flex items-center gap-1.5 px-2 py-0.5 rounded-full border",
-                          mongoDBStatus === 'connected' && "bg-green-500/10 border-green-500/20",
-                          mongoDBStatus === 'disconnected' && "bg-amber-500/10 border-amber-500/20",
-                          mongoDBStatus === 'checking' && "bg-muted/50 border-border"
+                          storageMode === 'mongodb' ? "bg-green-500/10 border-green-500/20" : "bg-amber-500/10 border-amber-500/20"
                         )}>
-                          {mongoDBStatus === 'checking' ? (
-                            <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
-                          ) : (
-                            <span className={cn(
-                              "inline-block w-1.5 h-1.5 rounded-full",
-                              mongoDBStatus === 'connected' && "bg-green-400",
-                              mongoDBStatus === 'disconnected' && "bg-amber-400"
-                            )} />
-                          )}
+                          <span className={cn(
+                            "inline-block w-1.5 h-1.5 rounded-full",
+                            storageMode === 'mongodb' ? "bg-green-400" : "bg-amber-400"
+                          )} />
                           <span className={cn(
                             "text-[10px] font-bold",
-                            mongoDBStatus === 'connected' && "text-green-600 dark:text-green-400",
-                            mongoDBStatus === 'disconnected' && "text-amber-600 dark:text-amber-400",
-                            mongoDBStatus === 'checking' && "text-muted-foreground"
+                            storageMode === 'mongodb' ? "text-green-600 dark:text-green-400" : "text-amber-600 dark:text-amber-400"
                           )}>
-                            {mongoDBStatus === 'checking' ? 'Checking' : mongoDBStatus === 'connected' ? 'MongoDB' : 'localStorage'}
+                            {storageMode === 'mongodb' ? 'MongoDB' : 'localStorage'}
                           </span>
                         </div>
                       </div>
                       <div className="text-xs text-muted-foreground">
-                        {mongoDBStatus === 'connected' && (
+                        {storageMode === 'mongodb' ? (
                           <span>✓ Persistent storage with cross-device sync</span>
-                        )}
-                        {mongoDBStatus === 'disconnected' && (
+                        ) : (
                           <span>Local browser storage (no sync)</span>
-                        )}
-                        {mongoDBStatus === 'checking' && (
-                          <span>Checking backend availability...</span>
                         )}
                       </div>
                     </div>
-
-                    {/* Integrations */}
-                    {tags.length > 0 && (
-                      <div>
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                            Connected Integrations
-                          </div>
-                          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-primary/10 border border-primary/20">
-                            <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-400" />
-                            <span className="text-[10px] font-bold text-primary">{tags.length}</span>
-                          </div>
-                        </div>
-                        <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pr-1">
-                          {tags.map((tag, idx) => (
-                            <span
-                              key={idx}
-                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-semibold bg-gradient-to-br from-primary/10 to-primary/5 text-primary border border-primary/20 hover:border-primary/40 hover:bg-primary/15 transition-all"
-                            >
-                              <span className="inline-block w-1 h-1 rounded-full bg-green-400" />
-                              {tag}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    )}
                   </div>
 
                   {/* RAG Server Section - only show if RAG is enabled */}

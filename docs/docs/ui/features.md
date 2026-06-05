@@ -172,103 +172,7 @@ Real-time visualization of Agent-to-Agent protocol messages provides transparenc
 | `execution_plan_update` | TODO plan changes | 📋 ListTodo icon, plan view |
 | `execution_plan_status_update` | TODO status changes | 📊 Progress update |
 
-### 5. A2UI Widget Support
-
-The UI implements custom widgets following the [A2UI specification](https://a2ui.org/) for declarative UI components that agents can render. This is a custom implementation inspired by A2UI v0.8 standards, not using the AG-UI or CopilotKit libraries directly.
-
-**Status**: The A2UI renderer is fully implemented but currently dormant. See [A2UI Integration Guide](a2ui-integration.md) for detailed documentation on implementation, activation, and usage.
-
-#### Available Widgets
-
-**Button Widget**
-```json
-{
-  "type": "button",
-  "text": "Deploy to Production",
-  "variant": "primary",
-  "action": {
-    "type": "execute_agent",
-    "agent": "argocd",
-    "params": { "action": "sync", "app": "my-app" }
-  }
-}
-```
-
-**Form Widget**
-```json
-{
-  "type": "form",
-  "fields": [
-    {
-      "name": "app_name",
-      "label": "Application Name",
-      "type": "text",
-      "required": true
-    },
-    {
-      "name": "environment",
-      "label": "Environment",
-      "type": "select",
-      "options": ["dev", "staging", "prod"]
-    }
-  ],
-  "submit": {
-    "text": "Deploy",
-    "action": { ... }
-  }
-}
-```
-
-**Card Widget**
-```json
-{
-  "type": "card",
-  "title": "Application Status",
-  "variant": "outline",
-  "content": {
-    "status": "Healthy",
-    "sync": "Synced",
-    "health": "Progressing"
-  }
-}
-```
-
-**Table Widget**
-```json
-{
-  "type": "table",
-  "headers": ["Name", "Status", "Sync", "Health"],
-  "rows": [
-    ["app-1", "Active", "Synced", "Healthy"],
-    ["app-2", "Active", "OutOfSync", "Degraded"]
-  ]
-}
-```
-
-**List Widget**
-```json
-{
-  "type": "list",
-  "style": "ordered",
-  "items": [
-    { "text": "Check application health", "status": "completed" },
-    { "text": "Verify resource sync", "status": "in_progress" },
-    { "text": "Generate report", "status": "pending" }
-  ]
-}
-```
-
-**Progress Widget**
-```json
-{
-  "type": "progress",
-  "value": 75,
-  "max": 100,
-  "label": "Deployment Progress"
-}
-```
-
-### 6. Message Inspection
+### 5. Message Inspection
 
 Deep-dive into any A2A message for debugging and understanding.
 
@@ -299,7 +203,7 @@ Deep-dive into any A2A message for debugging and understanding.
 └────────────────────────────────────────┘
 ```
 
-### 7. Real-time Streaming
+### 6. Real-time Streaming
 
 Server-Sent Events (SSE) provide real-time updates without polling.
 
@@ -320,7 +224,7 @@ Server-Sent Events (SSE) provide real-time updates without polling.
 | Disconnected | 🔴 Red dot | No connection |
 | Error | ⚠️ Warning | Stream error occurred |
 
-### 8. Authentication and Authorization
+### 7. Authentication and Authorization
 
 Secure access control with OAuth 2.0 integration.
 
@@ -348,7 +252,7 @@ export SKIP_AUTH=true
 npm run dev
 ```
 
-### 9. Theme and Customization
+### 8. Theme and Customization
 
 Modern, customizable UI with dark mode support.
 
@@ -373,7 +277,7 @@ Modern, customizable UI with dark mode support.
 }
 ```
 
-### 10. Performance Optimizations
+### 9. Performance Optimizations
 
 Built for speed and efficiency.
 
@@ -461,28 +365,19 @@ WCAG 2.1 AA compliant features:
 
 ### Protocol Implementation Approach
 
-The CAIPE UI follows an **implementation-over-library** approach for key protocols:
+The CAIPE UI talks to the **dynamic-agents runtime** over Server-Sent Events:
 
-#### A2A Protocol
-- **Specification**: Google's Agent-to-Agent protocol
-- **Implementation**: Official `@a2a-js/sdk` (v0.3.9+) via `A2ASDKClient` wrapper
-- **Why SDK**: Standards-compliant, maintained by A2A community, full protocol support
-- **Wrapper Benefits**: Tailored for CAIPE's UI needs while maintaining SDK compatibility
-- **Location**: `ui/src/lib/a2a-sdk-client.ts`
+#### Dynamic-agent streaming (SSE)
+- **Transport**: Server-Sent Events via the BFF proxy routes (`/api/v1/chat/*`, `/api/dynamic-agents/chat`)
+- **Implementation**: `DynamicAgentClient` + the streaming adapter in `ui/src/lib/streaming/`
+- **Events**: `StreamEvent` objects (content, tool_start/tool_end, input_required, error) drive the chat timeline
+- **AG-UI Compatible**: Aligned with AG-UI interaction patterns (CopilotKit) without library lock-in
 
-#### A2UI & AG-UI
-- **Specifications**: [A2UI v0.8](https://a2ui.org/) declarative UI spec, AG-UI interaction patterns
-- **Implementation**: Custom widget components in `components/a2a/widgets/`
-- **Why Custom**: Full control over styling, behavior, and integration with CAIPE's design system
-- **Not using**: `@copilotkit/react-ui` or `@ag-ui/client` libraries (installed for reference)
-- **Documentation**: See [A2UI Integration Guide](a2ui-integration.md) for complete details
-
-#### Benefits of Custom Implementation
+#### Benefits of this approach
 1. **Performance**: No unnecessary abstractions or unused features
 2. **Flexibility**: Easy to extend and customize for CAIPE-specific needs
 3. **Maintainability**: Full understanding and control of the codebase
 4. **Bundle Size**: Smaller production builds
-5. **Standards Compliance**: Can still follow specifications without library lock-in
 
 ### Architecture Decisions
 

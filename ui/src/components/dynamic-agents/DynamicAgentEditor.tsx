@@ -15,8 +15,8 @@ import { cn } from "@/lib/utils";
 import { useToast } from "@/components/ui/toast";
 import { useEditorDirtyTracking } from "@/hooks/use-editor-dirty-tracking";
 import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
-import { UnsavedChangesDialog } from "@/components/task-builder/UnsavedChangesDialog";
-import { type TeamPickerOption } from "@/components/ui/team-picker";
+import { UnsavedChangesDialog } from "@/components/shared/UnsavedChangesDialog";
+import { TeamPicker, TeamMultiPicker, type TeamPickerOption } from "@/components/ui/team-picker";
 import { TeamOwnershipFields } from "@/components/rbac/TeamOwnershipFields";
 
 // Lazy-load CodeMirror to avoid SSR issues

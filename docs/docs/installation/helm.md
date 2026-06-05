@@ -42,12 +42,10 @@ ai-platform-engineering/        # Parent chart
 Full parameter tables for each chart (auto-generated — regenerate with `make docs-helm-charts`):
 
 - [ai-platform-engineering](./helm-charts/ai-platform-engineering/) — parent chart (global values, agent selection)
-- [supervisor-agent](./helm-charts/ai-platform-engineering/supervisor-agent-chart) — orchestrator values, persistence, LLM secrets
-- [agent](./helm-charts/ai-platform-engineering/agent-chart) — individual agent subchart
+- [mcp-server](./helm-charts/ai-platform-engineering/mcp-server-chart) — per-agent MCP server subchart
 - [caipe-ui](./helm-charts/ai-platform-engineering/caipe-ui-chart) — UI subchart values
 - [caipe-ui-mongodb](./helm-charts/ai-platform-engineering/caipe-ui-mongodb-chart) — MongoDB for UI persistence
 - [dynamic-agents](./helm-charts/ai-platform-engineering/dynamic-agents-chart) — dynamic agent builder service
-- [langgraph-redis](./helm-charts/ai-platform-engineering/langgraph-redis-chart) — Redis Stack subchart values
 - [slack-bot](./helm-charts/ai-platform-engineering/slack-bot-chart) — Slack bot integration
 - [rag-stack](./helm-charts/rag-stack/) — RAG knowledge base (parent chart)
 - [rag-server](./helm-charts/rag-stack/rag-server-chart) — RAG server

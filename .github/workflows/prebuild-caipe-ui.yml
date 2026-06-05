@@ -186,7 +186,6 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |
-            CAIPE_URL=http://caipe-supervisor:8000
             BUILDKIT_INLINE_CACHE=1
             IMAGE_TAG=${{ env.PREBUILD_TAG }}
             GIT_COMMIT=${{ inputs.head_sha || github.sha }}

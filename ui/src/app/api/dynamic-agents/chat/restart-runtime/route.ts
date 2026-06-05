@@ -20,13 +20,6 @@ import { requireResourcePermission } from "@/lib/rbac/resource-authz";
 export async function POST(request: NextRequest): Promise<Response> {
   const config = getServerConfig();
 
-  if (!config.dynamicAgentsEnabled) {
-    return NextResponse.json(
-      { success: false, error: "Dynamic agents are not enabled" },
-      { status: 403 }
-    );
-  }
-
   const dynamicAgentsUrl = config.dynamicAgentsUrl;
   if (!dynamicAgentsUrl) {
     return NextResponse.json(

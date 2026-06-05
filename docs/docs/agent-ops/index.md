@@ -293,9 +293,7 @@ helm install ai-platform-engineering cnoe-io/ai-platform-engineering
 #### 6. Agent Build Workflows
 
 **Workflows**:
-- [`ci-supervisor-agent.yml`](https://github.com/cnoe-io/ai-platform-engineering/blob/main/.github/workflows/ci-supervisor-agent.yml) - Builds supervisor agent
 - [`ci-mcp-sub-agent.yml`](https://github.com/cnoe-io/ai-platform-engineering/blob/main/.github/workflows/ci-mcp-sub-agent.yml) - Builds MCP sub-agents
-- [`ci-a2a-sub-agent.yml`](https://github.com/cnoe-io/ai-platform-engineering/blob/main/.github/workflows/ci-a2a-sub-agent.yml) - Builds A2A sub-agents
 - [`ci-a2a-rag.yml`](https://github.com/cnoe-io/ai-platform-engineering/blob/main/.github/workflows/ci-a2a-rag.yml) - Builds RAG agents
 
 **Purpose**: Build and publish container images for individual agents and MCP servers
@@ -470,8 +468,6 @@ build-args: |
 Separate workflows for PR preview builds:
 
 **Workflows**:
-- [`prebuild-supervisor-agent.yml`](https://github.com/cnoe-io/ai-platform-engineering/blob/main/.github/workflows/prebuild-supervisor-agent.yml)
-- [`prebuild-a2a-sub-agent.yml`](https://github.com/cnoe-io/ai-platform-engineering/blob/main/.github/workflows/prebuild-a2a-sub-agent.yml)
 - [`prebuild-mcp-agent.yml`](https://github.com/cnoe-io/ai-platform-engineering/blob/main/.github/workflows/prebuild-mcp-agent.yml)
 - [`prebuild-a2a-rag.yml`](https://github.com/cnoe-io/ai-platform-engineering/blob/main/.github/workflows/prebuild-a2a-rag.yml)
 

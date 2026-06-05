@@ -41,7 +41,7 @@ The complete one-time login sequence (Browser → Keycloak → upstream IdP → 
 
 ## Per-Request Authorization (End to End)
 
-This is **the** RBAC sequence diagram. It traces a single Slack message ("list my ArgoCD apps") all the way through OBO token exchange, supervisor middleware, AgentGateway `extAuthz` / OpenFGA evaluation, and into the MCP server. JWKS refresh and one-time login timelines run alongside the hot path and the diagram shows how they converge.
+This is **the** RBAC sequence diagram. It traces a single Slack message ("list my ArgoCD apps") all the way through OBO token exchange, the Dynamic Agents runtime, AgentGateway `extAuthz` / OpenFGA evaluation, and into the MCP server. JWKS refresh and one-time login timelines run alongside the hot path and the diagram shows how they converge.
 
 ```mermaid
 sequenceDiagram
@@ -51,7 +51,7 @@ sequenceDiagram
     participant SB as Slack Bot
     participant UI as CAIPE UI<br/>(NextAuth)
     participant KC as Keycloak<br/>(OIDC server + JWKS + IdP broker)
-    participant SUP as Supervisor A2A
+    participant DA as Dynamic Agents :8100
     participant AG as AgentGateway :4000
     participant FGA as OpenFGA PDP<br/>(via ext_authz bridge)
     participant MDB as MongoDB<br/>(team memberships + ReBAC tuples)
@@ -93,10 +93,10 @@ sequenceDiagram
       SB->>KC: POST /token (RFC 8693 token-exchange for Alice)<br/>subject_token=slack-bot-service-account<br/>requested_subject=alice
       KC-->>SB: OBO JWT<br/>iss=https://idp.caipe.example.com/realms/caipe,<br/>sub=alice, act.sub=caipe-slack-bot,<br/>aud=[caipe-platform]
 
-      SB->>SUP: POST /a2a<br/>Authorization: Bearer OBO_JWT
+      SB->>DA: POST /api/v1/chat/... <br/>Authorization: Bearer OBO_JWT
 
-      note over SUP: JwtUserContextMiddleware validates & stashes JWT
-      SUP->>AG: POST /rag/... Authorization: Bearer OBO_JWT<br/>(same token, unmodified)
+      note over DA: get_current_user() validates JWT per request
+      DA->>AG: POST /rag/... Authorization: Bearer OBO_JWT<br/>(same token, unmodified)
 
       note over AG: jwtAuth: validate signature + iss + aud + exp<br/>(all local — AG never talks to Duo or KC on this path)
       AG->>AG: lookup kid in JWKS cache → verify RS256
@@ -114,8 +114,8 @@ sequenceDiagram
       RAG->>KC: (optional) JWKS fetch if cache miss
       KC-->>RAG: JWKS (cached)
       RAG-->>AG: { documents: [...] }
-      AG-->>SUP: proxied response
-      SUP-->>SB: streamed
+      AG-->>DA: proxied response
+      DA-->>SB: streamed (SSE)
       SB-->>User: DM with results
     end
 ```
@@ -1103,7 +1103,7 @@ sequenceDiagram
     actor U as Slack User
     participant SB as Slack Bot
     participant KC as Keycloak
-    participant SUP as Supervisor A2A
+    participant DA as Dynamic Agents
     participant AG as AgentGateway
     participant MCP as RAG MCP
 
@@ -1117,14 +1117,13 @@ sequenceDiagram
     SB->>KC: POST /token (grant=token-exchange, requested_subject=a3f9...)
     KC-->>SB: OBO JWT (sub=a3f9, act.sub=slack-bot)
 
-    SB->>SUP: POST /a2a  Authorization: Bearer OBO_JWT<br/>(team-agnostic; channel→team is resolved by the BFF<br/>via `channel_team_mappings`, not from the JWT)
+    SB->>DA: POST /api/v1/chat/...  Authorization: Bearer OBO_JWT<br/>(team-agnostic; channel→team is resolved by the BFF<br/>via `channel_team_mappings`, not from the JWT)
 
-    note over SUP: JwtUserContextMiddleware
-    SUP->>SUP: decode JWT → email=alice, sub=a3f9
-    SUP->>SUP: store in ContextVar (get_jwt_user_context())
+    note over DA: get_current_user() (per-request JWT validation)
+    DA->>DA: decode JWT → email=alice, sub=a3f9
 
-    note over SUP: LangGraph selects RAG tool
-    SUP->>AG: POST /rag/v1/query  Authorization: Bearer OBO_JWT
+    note over DA: agent runtime selects RAG tool
+    DA->>AG: POST /rag/v1/query  Authorization: Bearer OBO_JWT
 
     note over AG: ext_authz / OpenFGA authorization
     AG->>AG: Check user/team/resource tuple graph → ALLOW
@@ -1136,8 +1135,8 @@ sequenceDiagram
     MCP->>MCP: verify signature, extract email + tenant
 
     MCP-->>AG: results
-    AG-->>SUP: results
-    SUP-->>SB: streamed response
+    AG-->>DA: results
+    DA-->>SB: streamed response (SSE)
     SB-->>U: DM with answer
 ```
 
@@ -1149,7 +1148,7 @@ sequenceDiagram
 | Delegation is auditable | `act.sub` in the JWT records the bot as delegating party — verifiable in any JWKS-aware system |
 | User/team relationships are enforced, not bot identity | OpenFGA checks use the impersonated user's `sub` and team relationships from the OBO token context |
 | Token expiry still applies | OBO tokens have the same `exp` as a normal Keycloak token; expired tokens are rejected at every JWKS validation point |
-| Unlinked users are blocked at the edge | `rbac_global_middleware` in the Slack bot rejects unlinked users before they reach the supervisor — the linking prompt is sent at most once per `SLACK_LINKING_PROMPT_COOLDOWN` seconds (default: 3600) |
+| Unlinked users are blocked at the edge | `rbac_global_middleware` in the Slack bot rejects unlinked users before they reach any backend agent — the linking prompt is sent at most once per `SLACK_LINKING_PROMPT_COOLDOWN` seconds (default: 3600) |
 
 ---
 
@@ -1310,7 +1309,7 @@ sequenceDiagram
     end
 ```
 
-Current strict surfaces include `conversation:<id>` for chat list/read/write/share/stream and message persistence, `skill:<id>` for catalog/config/hub file and scan access, `admin_surface:rag_datasources` for RAG Data Sources tab administration, `knowledge_base:<id>` for RAG proxy paths, datasource list filtering, search filter injection, and direct RAG API/MCP checks, `agent:<id>` for Dynamic Agent listing and mutation, `mcp_server:agentgateway` for AgentGateway discovery/sync, `mcp_server:<id>#can_discover` for the Create Agent → Tools Probe button (probing only enumerates advertised tool metadata, so it is gated on `can_discover` rather than `can_invoke`; the model already grants discover to organization members, organization admins, team-shared members, owners, and channel/group routings), and `system_config:platform_settings` for platform configuration. Conversation checks use implicit owner access first and explicit OpenFGA relationships for non-owner access. RAG proxy calls still forward the Keycloak bearer token after the BFF PDP decision, so RAG validates issuer, audience, signature, and expiry with Keycloak before checking OpenFGA using team-derived `knowledge_base` relationships. The Dynamic Agent **built-in tool catalog** at `GET /api/dynamic-agents/builtin-tools` is intentionally not strict-gated — the catalog is a static metadata listing of supported built-in tool *types* (web_search, file_io, etc.), is needed by every authenticated user who can open the Create Agent wizard, and per-tool authorization happens at MCP invocation time. The route requires an authenticated session and forwards the bearer token to dynamic-agents (where `DA_REQUIRE_BEARER` still applies); it does not consult OpenFGA. Task Builder routes are intentionally excluded from this pass because they are scheduled for refactor.
+Current strict surfaces include `conversation:<id>` for chat list/read/write/share/stream and message persistence, `skill:<id>` for catalog/config/hub file and scan access, `admin_surface:rag_datasources` for RAG Data Sources tab administration, `knowledge_base:<id>` for RAG proxy paths, datasource list filtering, search filter injection, and direct RAG API/MCP checks, `agent:<id>` for Dynamic Agent listing and mutation, `mcp_server:agentgateway` for AgentGateway discovery/sync, `mcp_server:<id>#can_discover` for the Create Agent → Tools Probe button (probing only enumerates advertised tool metadata, so it is gated on `can_discover` rather than `can_invoke`; the model already grants discover to organization members, organization admins, team-shared members, owners, and channel/group routings), and `system_config:platform_settings` for platform configuration. Conversation checks use implicit owner access first and explicit OpenFGA relationships for non-owner access. RAG proxy calls still forward the Keycloak bearer token after the BFF PDP decision, so RAG validates issuer, audience, signature, and expiry with Keycloak before checking OpenFGA using team-derived `knowledge_base` relationships. The Dynamic Agent **built-in tool catalog** at `GET /api/dynamic-agents/builtin-tools` is intentionally not strict-gated — the catalog is a static metadata listing of supported built-in tool *types* (web_search, file_io, etc.), is needed by every authenticated user who can open the Create Agent wizard, and per-tool authorization happens at MCP invocation time. The route requires an authenticated session and forwards the bearer token to dynamic-agents (where `DA_REQUIRE_BEARER` still applies); it does not consult OpenFGA.
 
 ---
 
@@ -1331,13 +1330,12 @@ STEP 1: Identity Resolution  (Slack Bot)
     sub=alice, act.sub=slack-bot
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-STEP 2: Supervisor Ingestion  (A2A + LangGraph)
+STEP 2: Dynamic Agents Ingestion
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  POST /a2a  Authorization: Bearer OBO_JWT
-    → OAuth2Middleware: validates RS256 signature against JWKS
-    → JwtUserContextMiddleware: decodes claims, stores in ContextVar
-    → agent_executor: get_jwt_user_context() → email=alice
-    → LangGraph selects ArgoCD MCP tool
+  POST /api/v1/chat/...  Authorization: Bearer OBO_JWT
+    → get_current_user(): validates RS256 signature against JWKS per request
+    → decodes claims → email=alice
+    → agent runtime selects ArgoCD MCP tool
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 STEP 3: Policy Enforcement  (AgentGateway)
@@ -1354,5 +1352,5 @@ STEP 4: MCP Tool Execution  (ArgoCD MCP Server)
   Returns deployments scoped to alice's tenant
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Response path: MCP → Gateway → Supervisor → Slack → User
+Response path: MCP → Gateway → Dynamic Agents → Slack → User
 ```

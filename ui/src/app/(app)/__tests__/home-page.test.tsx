@@ -391,7 +391,6 @@ describe('HomePage', () => {
           createdAt: new Date(),
           updatedAt: new Date(),
           messages: [{ id: '1' }, { id: '2' }],
-          a2aEvents: [],
           streamEvents: [],
         },
       )

@@ -20,13 +20,10 @@ DOCKER_COMPOSE_BUILD_ENV := DOCKER_BUILDKIT=1 COMPOSE_PARALLEL_LIMIT=$(COMPOSE_P
 ## -------------------------------------------------
 .PHONY: \
 	setup-venv start-venv clean-pyc clean-venv clean-build-artifacts clean \
-	uv-prep install-deps \
-	build install build-docker run run-ai-platform-engineer langgraph-dev \
-	run-a2a run-a2a-client run-a2a-client-local \
+	uv-prep \
 	generate-docker-compose generate-docker-compose-dev generate-docker-compose-all clean-docker-compose \
 	generate-agent-commands \
 	lint lint-fix test test-compose-generator test-compose-generator-coverage \
-	test-slack-stream test-slack-conformance \
 	test-rag-unit test-rag-coverage test-rag-memory test-rag-scale validate lock-all help \
 	beads-gh-issues-sync beads-gh-issues-sync-run beads-list beads-ready beads-sync \
 	caipe-ui caipe-ui-install caipe-ui-build caipe-ui-dev caipe-ui-tests \
@@ -37,7 +34,7 @@ DOCKER_COMPOSE_BUILD_ENV := DOCKER_BUILDKIT=1 COMPOSE_PARALLEL_LIMIT=$(COMPOSE_P
 	scan-images scan-image \
 	ui
 
-.DEFAULT_GOAL := run
+.DEFAULT_GOAL := help
 
 ## ========== Setup & Clean ==========
 
@@ -69,14 +66,6 @@ clean:             ## Clean all build artifacts and cache
 	@$(MAKE) clean-venv
 	@$(MAKE) clean-build-artifacts
 	@find . -type d -name ".pytest_cache" -exec rm -rf {} + || echo "No .pytest_cache directories found."
-
-## ========== Docker Build ==========
-
-build: build-docker
-
-build-docker:  ## Build the Docker image
-	@echo "Building the Docker image..."
-	@docker build -t $(APP_NAME):latest -f build/Dockerfile .
 
 ## ========== Generate Docker Compose ==========
 
@@ -120,52 +109,11 @@ clean-docker-compose:  ## Remove all generated docker-compose files
 	@rm -rf $(OUTPUT_DIR)
 	@echo "✓ Removed $(OUTPUT_DIR)/"
 
-## ========== Run ==========
-
-run: run-ai-platform-engineer ## Run the application with uv
-	@echo "Running the AI Platform Engineer persona..."
-
-run-ai-platform-engineer: setup-venv ## Run the AI Platform Engineering Multi-Agent System
-	@echo "Running the AI Platform Engineering Multi-Agent System..."
-	@uv sync --no-dev
-	@uv run python -m ai_platform_engineering.multi_agents platform-engineer $(ARGS)
-
-langgraph-dev: setup-venv ## Run langgraph in development mode
-	@echo "Running langgraph dev..."
-	@. .venv/bin/activate && uv add langgraph-cli[inmem] --dev && uv sync --dev && cd ai_platform_engineering/multi_agents/platform_engineer && LANGGRAPH_DEV=true langgraph dev
+## ========== Dependencies ==========
 
 uv-prep: ## Lock and sync uv dependencies
 	uv lock
 	uv sync
-
-install-deps: uv-prep ## Install all dependencies
-
-run-a2a: install-deps ## Run the AI Platform Engineer single-node deep agent with A2A protocol
-	@PORT=$${PORT:-8000}; \
-	HOST=$${HOST:-0.0.0.0}; \
-	export A2A_HOST=$$HOST; \
-	export A2A_PORT=$$PORT; \
-	export A2A_PUBLIC_URL=http://localhost:$$PORT; \
-	export MONGODB_URI=$${MONGODB_URI:-mongodb://admin:changeme@localhost:27017/caipe?authSource=admin}; \
-	export MONGODB_DATABASE=$${MONGODB_DATABASE:-caipe}; \
-	export PYTHONPATH="$${PWD}/ai_platform_engineering/agents/github:$${PWD}/ai_platform_engineering/agents/backstage:$${PWD}/ai_platform_engineering/agents/jira:$${PWD}/ai_platform_engineering/agents/webex:$${PWD}/ai_platform_engineering/agents/argocd:$${PWD}/ai_platform_engineering/agents/aigateway:$${PWD}/ai_platform_engineering/agents/pagerduty:$${PWD}/ai_platform_engineering/agents/slack:$${PWD}/ai_platform_engineering/agents/splunk:$${PWD}/ai_platform_engineering/agents/komodor:$${PWD}/ai_platform_engineering/agents/confluence:$${PWD}/ai_platform_engineering/agents/aws:$${PYTHONPATH}"; \
-	echo "Starting AI Platform Engineer A2A server (single-node) on $$HOST:$$PORT"; \
-	uv run uvicorn ai_platform_engineering.multi_agents.platform_engineer.protocol_bindings.a2a.main:app --host $$HOST --port $$PORT --reload
-
-run-a2a-client: ## Run the agent-chat-cli client to connect to the A2A agent
-	@HOST=$${A2A_HOST:-localhost}; \
-	PORT=$${A2A_PORT:-8000}; \
-	echo "Connecting to A2A agent at $$HOST:$$PORT..."; \
-	docker run -it --network=host \
-		-e A2A_HOST=$$HOST \
-		-e A2A_PORT=$$PORT \
-		ghcr.io/cnoe-io/agent-chat-cli:stable
-
-run-a2a-client-local: setup-venv ## Run agent-chat-cli from local source
-	@HOST=$${A2A_HOST:-localhost}; \
-	PORT=$${A2A_PORT:-8000}; \
-	echo "Running local agent-chat-cli connecting to $$HOST:$$PORT..."; \
-	cd agent-chat-cli && A2A_HOST=$$HOST A2A_PORT=$$PORT uv run python -m agent_chat_cli a2a
 
 ## ========== CAIPE UI ==========
 
@@ -212,7 +160,6 @@ build-caipe-ui: ## Build CAIPE UI Docker image locally
 	@echo "Building CAIPE UI Docker image..."
 	docker build -t $(CAIPE_UI_IMAGE):$(CAIPE_UI_TAG) \
 		-f build/Dockerfile.caipe-ui \
-		--build-arg CAIPE_URL=http://caipe-supervisor:8000 \
 		.
 
 run-caipe-ui-docker: build-caipe-ui ## Run CAIPE UI container locally (requires NEXTAUTH_SECRET env var)
@@ -240,14 +187,13 @@ run-caipe-ui-docker: build-caipe-ui ## Run CAIPE UI container locally (requires 
 	@echo "Running CAIPE UI container..."
 	docker run --rm -it \
 		-p 3000:3000 \
-		-e NEXT_PUBLIC_CAIPE_URL=http://localhost:8000 \
-		-e CAIPE_URL=http://localhost:8000 \
+		-e DYNAMIC_AGENTS_URL=http://localhost:8100 \
 		-e NEXTAUTH_SECRET="$$NEXTAUTH_SECRET" \
 		-e NEXTAUTH_URL=http://localhost:3000 \
 		--name caipe-ui-local \
 		$(CAIPE_UI_IMAGE):$(CAIPE_UI_TAG)
 
-caipe-ui-docker-compose: ## Run CAIPE UI with docker-compose (includes supervisor)
+caipe-ui-docker-compose: ## Run CAIPE UI with docker-compose
 	@echo "Starting CAIPE UI with docker-compose..."
 	$(DOCKER_COMPOSE_BUILD_ENV) docker compose -f docker-compose.dev.yaml --profile caipe-ui up --build
 
@@ -344,14 +290,13 @@ test-compose-generator-coverage: setup-venv ## Run docker-compose generator test
 	@. .venv/bin/activate && uv add pytest pytest-cov pyyaml --dev
 	@. .venv/bin/activate && uv run python -m pytest scripts/test_generate_docker_compose.py -v --cov=generate_docker_compose --cov-report=term-missing --cov-report=html
 
-test-supervisor: setup-venv ## Run tests for supervisor/main workspace only
-	@echo "Running main workspace tests..."
+test-core: setup-venv ## Run tests for the core/shared workspace (utils, dynamic_agents, etc.)
+	@echo "Running core workspace tests..."
 	@. .venv/bin/activate && uv add pytest-asyncio --group unittest
 	@echo "Running general project tests..."
 	@. .venv/bin/activate && PYTHONPATH=. uv run pytest --ignore=integration \
 		--ignore=ai_platform_engineering/knowledge_bases/rag/tests \
 		--ignore=ai_platform_engineering/agents \
-		--ignore=ai_platform_engineering/multi_agents/tests \
 		--ignore=volumes --ignore=docker-compose
 
 ## ========== Individual MCP Tests ==========
@@ -402,15 +347,7 @@ test-agents: test-mcp-argocd test-mcp-jira ## Run tests for all agents (in their
 	@echo "Skipping RAG module tests (temporarily disabled)..."
 	@echo "✓ RAG tests skipped"
 
-test: test-supervisor test-multi-agents test-agents ## Run all tests (supervisor + multi-agents + agents)
-
-## ========== Multi-Agent Tests ==========
-
-test-multi-agents: setup-venv ## Run multi-agent system tests
-	@echo "Running multi-agent system tests..."
-	@. .venv/bin/activate && uv run pytest ai_platform_engineering/multi_agents/tests/ -v
-	@echo "Running platform engineer executor tests..."
-	@. .venv/bin/activate && uv run pytest ai_platform_engineering/multi_agents/platform_engineer/protocol_bindings/a2a/tests/ -v
+test: test-core test-agents ## Run all tests (core + agents)
 
 ## ========== RAG Module Tests ==========
 
@@ -435,29 +372,7 @@ test-rag-scale: setup-venv ## Run RAG module scale tests with memory monitoring
 # 	@echo "Running comprehensive RAG module test suite..."
 # 	@cd ai_platform_engineering/knowledge_bases/rag/server && make test-all
 
-## ========== Slack Streaming Conformance ==========
-
-test-slack-stream: setup-venv ## Run a single Slack streaming query (requires running supervisor). Usage: make test-slack-stream QUERY="what is agntcy"
-	@echo "Running Slack streaming simulator..."
-	@PYTHONPATH=. uv run python tests/simulate_slack_stream.py "$${QUERY:-what is agntcy}" -v
-
-test-slack-conformance: setup-venv ## Run full Slack streaming conformance suite with report (requires running supervisor)
-	@echo "Running Slack streaming conformance suite..."
-	@mkdir -p tests/reports
-	@PYTHONPATH=. uv run python tests/simulate_slack_stream.py --suite --report tests/reports/conformance-report.md -v
-	@echo "✓ Report saved to tests/reports/conformance-report.md"
-
 ## ========== Integration Tests ==========
-
-quick-sanity: setup-venv  ## Run all integration tests
-	@echo "Running AI Platform Engineering integration tests..."
-	@uv add httpx rich pytest pytest-asyncio pyyaml --dev
-	cd integration && PYTHONPATH=.. A2A_PROMPTS_FILE=test_prompts_quick_sanity.yaml uv run pytest a2a_client_integration_test.py -o log_cli=true
-
-argocd-sanity: setup-venv  ## Run argocd agent integration tests
-	@echo "Running argocd agent integration tests..."
-	@uv add httpx rich pytest pytest-asyncio pyyaml --dev
-	cd integration && PYTHONPATH=.. A2A_PROMPTS_FILE=test_prompts_argocd_sanity.yaml uv run pytest a2a_client_integration_test.py -o log_cli=true -o log_cli_level=INFO
 
 test-keycloak-reconcile:  ## End-to-end test of init-idp.sh caipe-platform client_secret reconcile (boots throwaway Keycloak)
 	@echo "Running Keycloak platform-client reconcile integration test..."
@@ -474,12 +389,6 @@ test-keycloak-idp-hint:  ## End-to-end test of kc_idp_hint + identity-provider-r
 test-keycloak-secrets-all: test-keycloak-reconcile test-keycloak-strict-secrets  ## Run all Keycloak client_secret integration tests
 
 test-keycloak-sso-all: test-keycloak-reconcile test-keycloak-strict-secrets test-keycloak-idp-hint  ## Run every Keycloak SSO bootstrap integration test (client secrets + IdP redirector)
-
-detailed-sanity: detailed-test ## Run tests with verbose output and detailed logs
-detailed-test: setup-venv ## Run tests with verbose output and detailed logs
-	@echo "Running integration tests with verbose output..."
-	@uv add httpx rich pytest pytest-asyncio pyyaml --dev
-	cd integration && PYTHONPATH=.. A2A_PROMPTS_FILE=test_prompts_detailed.yaml uv run pytest a2a_client_integration_test.py -o log_cli=true -o log_cli_level=INFO
 
 validate:
 	@echo "Validating code..."
@@ -632,7 +541,7 @@ scan-image: ## Scan a single image with grype (make scan-image IMG=ghcr.io/cnoe-
 
 # Profile selection. Override with E2E_PROFILES=...
 # All profiles live in docker-compose.dev.yaml — no separate e2e compose file.
-E2E_PROFILES   ?= rbac,caipe-ui,caipe-supervisor,caipe-mongodb,dynamic-agents,rag,all-agents,slack-bot
+E2E_PROFILES   ?= rbac,caipe-ui,caipe-mongodb,dynamic-agents,rag,all-agents,slack-bot
 E2E_COMPOSE    := -f docker-compose.dev.yaml
 E2E_KC_URL     ?= http://localhost:7080
 E2E_KC_REALM   ?= cnoe
@@ -644,10 +553,8 @@ RBAC_E2E_DIRS    ?= tests/rbac/e2e
 # E2E port band — host-side ports for the e2e lane. Container ports unchanged.
 # caipe-ui MUST stay on 3000 because Keycloak's caipe-ui client only allow-lists
 # http://localhost:3000/* as a redirect URI (see deploy/keycloak/realm-config.json).
-# Mongo + supervisor move to the 28xxx band to avoid collisions with a host-side
-# Mongo on 27017 and an in-stack agent-splunk that publishes 8010.
+# Mongo moves to the 28xxx band to avoid collisions with a host-side Mongo on 27017.
 E2E_MONGODB_HOST_PORT    ?= 28017
-E2E_SUPERVISOR_HOST_PORT ?= 28000
 
 # E2E env injected into docker-compose.dev.yaml via ${VAR:-default} substitution.
 # These are no-ops for `make test-up` (dev) — they only activate the e2e behavior
@@ -655,7 +562,6 @@ E2E_SUPERVISOR_HOST_PORT ?= 28000
 E2E_COMPOSE_ENV := \
   E2E_RUN=true \
   MONGODB_HOST_PORT=$(E2E_MONGODB_HOST_PORT) \
-  SUPERVISOR_HOST_PORT=$(E2E_SUPERVISOR_HOST_PORT) \
   RBAC_FALLBACK_FILE=$(CURDIR)/deploy/keycloak/realm-config-extras.json \
   RBAC_FALLBACK_CONFIG_PATH=/etc/keycloak/realm-config-extras.json
 
@@ -683,9 +589,9 @@ test-rbac-lint: ## Lint the RBAC matrix + realm-config-extras (T009/T011/T012). 
 	@echo "[test-rbac-lint] running FGA create-path ownership linter (spec 2026-06-04 Layer 3)…"
 	@PYTHONPATH=. uv run python scripts/validate-fga-create-paths.py
 
-test-rbac-up: ## Boot the e2e stack (Keycloak + UI + supervisor + agents + mongo) and seed personas via init-idp.sh.
+test-rbac-up: ## Boot the e2e stack (Keycloak + UI + dynamic-agents + agents + mongo) and seed personas via init-idp.sh.
 	@echo "[test-rbac-up] starting stack with profiles: $(E2E_PROFILES)"
-	@echo "[test-rbac-up] e2e ports: ui=3000 (IdP-pinned) supervisor=$(E2E_SUPERVISOR_HOST_PORT) mongo=$(E2E_MONGODB_HOST_PORT) keycloak=7080"
+	@echo "[test-rbac-up] e2e ports: ui=3000 (IdP-pinned) mongo=$(E2E_MONGODB_HOST_PORT) keycloak=7080"
 	@$(DOCKER_COMPOSE_BUILD_ENV) $(E2E_COMPOSE_ENV) COMPOSE_PROFILES='$(E2E_PROFILES)' \
 	   docker compose $(E2E_COMPOSE) up -d --wait --wait-timeout $(E2E_WAIT_SECS)
 	@echo "[test-rbac-up] waiting for Keycloak readiness on $(E2E_KC_URL)…"
@@ -720,15 +626,15 @@ rbac-reinit: ## Force-rerun keycloak-init + keycloak-init-token-exchange against
 	@echo "[rbac-reinit] done. Tail logs with:"
 	@echo "  docker compose -f docker-compose.dev.yaml logs -f keycloak-init keycloak-init-token-exchange"
 
-# Minimal trimmed-down dev stack: 5 most-used agents + RBAC + UI + supervisor + slack-bot.
+# Minimal trimmed-down dev stack: 5 most-used agents + RBAC + UI + dynamic-agents + slack-bot.
 # Useful for day-to-day Slack/UI iteration without booting the full all-agents/rag/graph_rag stack.
 # Override agent set with: make e2e-test-minimal MINIMAL_AGENTS="aws,github,jira"
 MINIMAL_AGENTS  ?= aws,github,argocd,jira,confluence
-MINIMAL_PROFILES = $(MINIMAL_AGENTS),caipe-supervisor,caipe-ui,dynamic-agents,slack-bot,caipe-mongodb,rbac
+MINIMAL_PROFILES = $(MINIMAL_AGENTS),caipe-ui,dynamic-agents,slack-bot,caipe-mongodb,rbac
 
 .PHONY: e2e-test-minimal e2e-test-minimal-down
 
-e2e-test-minimal: ## Boot minimal trimmed dev stack (5 agents + UI + supervisor + slack-bot + Keycloak). Hot-reload enabled.
+e2e-test-minimal: ## Boot minimal trimmed dev stack (5 agents + UI + dynamic-agents + slack-bot + Keycloak). Hot-reload enabled.
 	@echo "[e2e-test-minimal] starting trimmed stack with profiles: $(MINIMAL_PROFILES)"
 	@echo "[e2e-test-minimal] hot-reload enabled (DEV_HOT_RELOAD=true) — Python edits auto-restart."
 	@unset SLACK_INTEGRATION_AUTH_TOKEN_URL; \
@@ -746,14 +652,13 @@ e2e-test-minimal: ## Boot minimal trimmed dev stack (5 agents + UI + supervisor 
 	 done
 	@echo "[e2e-test-minimal] stack ready:"
 	@echo "  - UI:               http://localhost:3000"
-	@echo "  - Supervisor:       http://localhost:8000"
 	@echo "  - Dynamic Agents:   http://localhost:8100"
 	@echo "  - Keycloak admin:   http://localhost:7080/admin (admin / admin)"
 	@echo "  - Agent Gateway:    http://localhost:4000"
 	@echo "  - Slack bot (HTTP): http://localhost:8030"
 	@echo "  - Agents up: $(MINIMAL_AGENTS)"
 	@echo ""
-	@echo "Tail logs:    docker compose -f docker-compose.dev.yaml logs -f slack-bot caipe-supervisor"
+	@echo "Tail logs:    docker compose -f docker-compose.dev.yaml logs -f slack-bot dynamic-agents"
 	@echo "Tear down:    make e2e-test-minimal-down"
 
 e2e-test-minimal-down: ## Tear down the minimal trimmed dev stack (volumes preserved).

@@ -32,7 +32,6 @@ jest.mock("next-auth/react", () => ({
 
 jest.mock("@/lib/config", () => ({
   getConfig: jest.fn((key: string) => {
-    if (key === "caipeUrl") return "http://localhost:8080";
     if (key === "ssoEnabled") return false;
     return undefined;
   }),

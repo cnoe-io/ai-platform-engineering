@@ -55,7 +55,7 @@ jest.mock("@/store/unsaved-changes-store", () => ({
   ),
 }));
 
-jest.mock("@/components/task-builder/UnsavedChangesDialog", () => ({
+jest.mock("@/components/shared/UnsavedChangesDialog", () => ({
   UnsavedChangesDialog: () => null,
 }));
 

@@ -398,7 +398,7 @@ describe('requireRbacPermission organization ReBAC', () => {
           accessToken: 'legacy-token-without-sub',
           user: { email: 'legacy-session@example.com' },
         },
-        'supervisor',
+        'chat',
         'invoke'
       )
     ).resolves.toBeUndefined();
@@ -406,7 +406,7 @@ describe('requireRbacPermission organization ReBAC', () => {
     expect(mockCheckOpenFgaTuple).not.toHaveBeenCalled();
     expect(mockCheckPermission).toHaveBeenCalledWith({
       accessToken: 'legacy-token-without-sub',
-      resource: 'supervisor',
+      resource: 'chat',
       scope: 'invoke',
     });
   });
@@ -1025,7 +1025,6 @@ describe('withAuth', () => {
       ['/api/nps/active', 'GET', 'can_submit_feedback'],
       ['/api/feedback', 'POST', 'can_submit_feedback'],
       ['/api/chat/conversations', 'GET', 'can_chat'],
-      ['/api/a2a/tasks', 'POST', 'can_chat'],
       ['/api/dynamic-agents/models', 'GET', 'can_chat'],
       ['/api/dynamic-agents/available', 'GET', 'can_chat'],
       ['/api/files/list', 'GET', 'can_use_files'],
