@@ -508,14 +508,23 @@ export async function writeOpenFgaTuples(diff: TeamResourceTupleDiff): Promise<O
     return { enabled: true, writes: 0, deletes: 0 };
   }
 
-  // Chunk to honor OpenFGA's per-call entity limit. Each chunk is its
-  // own server-side transaction; on failure we attempt to compensate
-  // already-applied chunks so callers see "all-or-nothing" semantics
-  // across the full diff. If a chunk fails AND compensation also fails,
-  // we surface the original error and log the compensation failure —
-  // the caller is responsible for higher-level rollback (e.g. the
-  // identity-group-sync reconciler reverts Mongo state on this throw).
-  const chunks = chunkOpenFgaDiff(filteredDiff);
+  return applyDiffWithCompensation(baseUrl, storeId, filteredDiff);
+}
+
+/**
+ * Apply a diff in ≤limit-sized chunks. Each chunk is its own server-side
+ * transaction; on failure we attempt to compensate already-applied chunks so
+ * callers see "all-or-nothing" semantics across the full diff. If a chunk
+ * fails AND compensation also fails, we surface the original error and log the
+ * compensation failure — the caller is responsible for higher-level rollback
+ * (e.g. the identity-group-sync reconciler reverts Mongo state on this throw).
+ */
+async function applyDiffWithCompensation(
+  baseUrl: string,
+  storeId: string,
+  diff: TeamResourceTupleDiff,
+): Promise<OpenFgaReconcileResult> {
+  const chunks = chunkOpenFgaDiff(diff);
   const applied: OpenFgaChunkResult[] = [];
   let totalWrites = 0;
   let totalDeletes = 0;
@@ -541,6 +550,45 @@ export async function writeOpenFgaTuples(diff: TeamResourceTupleDiff): Promise<O
   }
 
   return { enabled: true, writes: totalWrites, deletes: totalDeletes };
+}
+
+/**
+ * Delete an exact set of already-stored tuples, bypassing the read-back
+ * `/check` filtering that `writeOpenFgaTuples` applies.
+ *
+ * `writeOpenFgaTuples` is for reconciling *desired* relationships, where a
+ * `/check` per tuple correctly skips no-op writes/deletes. It MUST NOT be
+ * used to delete userset tuples such as the `team:<slug>#member` channel
+ * visibility grants: OpenFGA `/check` does not resolve a userset as the
+ * `user`, so `filterTupleDiff` would treat those deletes as "already gone"
+ * and silently drop them, orphaning the tuples.
+ *
+ * Callers that have already enumerated the exact stored keys (e.g. channel
+ * offboarding, which reads every tuple where the channel is subject or
+ * object) use this instead. Deleting a tuple that no longer exists is a
+ * server-side error, so only pass keys observed via a recent read.
+ *
+ * Like `writeOpenFgaTuples`, the deletes are chunked to honor OpenFGA's
+ * per-call entity limit and a failed chunk compensates the already-applied
+ * chunks (re-writing them) so the call is all-or-nothing across the diff.
+ */
+export async function deleteExactOpenFgaTuples(
+  deletes: OpenFgaTupleKey[]
+): Promise<OpenFgaReconcileResult> {
+  assertWritableRelations({ writes: [], deletes });
+  if (!isOpenFgaConfigured()) {
+    return { enabled: false, writes: 0, deletes: 0 };
+  }
+  const unique = uniqueTuples(deletes);
+  if (unique.length === 0) {
+    return { enabled: true, writes: 0, deletes: 0 };
+  }
+  const baseUrl = openFgaHttpUrl();
+  if (!baseUrl) {
+    throw new Error("OPENFGA_HTTP is not set");
+  }
+  const storeId = await getOpenFgaStoreId();
+  return applyDiffWithCompensation(baseUrl, storeId, { writes: [], deletes: unique });
 }
 
 /**

@@ -279,6 +279,15 @@ function SlackRouteEditorDialog({
   const visibleErrors = submitAttempted ? validationErrors : {};
   const hasErrors = Object.keys(validationErrors).length > 0;
   const formDisabled = disabled || !selectedCanManage;
+  // One route per agent per channel (the route store upserts on agent_id), so
+  // hide agents that already have a route. The agent being edited stays in the
+  // list so it shows as selected and can be swapped for any free agent.
+  const takenAgentIds = new Set(
+    routes.filter((route) => route.agent_id !== editingRoute?.agent_id).map((route) => route.agent_id),
+  );
+  const agentOptions = dynamicAgents
+    .filter((agent) => !takenAgentIds.has(agent._id))
+    .map<AgentPickerOption>((agent) => ({ value: agent._id, label: agent.name || agent._id }));
 
   useEffect(() => {
     if (open) {
@@ -332,9 +341,9 @@ function SlackRouteEditorDialog({
                   ariaLabel="Dynamic Agent"
                   value={routeDraft.agentId}
                   onChange={(value) => setRouteDraft((prev) => ({ ...prev, agentId: value }))}
-                  disabled={formDisabled || dynamicAgents.length === 0 || Boolean(editingRoute)}
-                  placeholder={dynamicAgents.length === 0 ? "No enabled Dynamic Agents found" : "Select Dynamic Agent"}
-                  options={dynamicAgents.map<AgentPickerOption>((agent) => ({ value: agent._id, label: agent.name || agent._id }))}
+                  disabled={formDisabled || agentOptions.length === 0}
+                  placeholder={dynamicAgents.length === 0 ? "No enabled Dynamic Agents found" : agentOptions.length === 0 ? "All Dynamic Agents already added" : "Select Dynamic Agent"}
+                  options={agentOptions}
                   triggerClassName={cn("h-10", visibleErrors.agentId && "border-destructive focus:ring-destructive")}
                 />
                 {visibleErrors.agentId && <p className="text-xs text-destructive">{visibleErrors.agentId}</p>}
@@ -395,6 +404,7 @@ export function SlackConfiguredChannelDetail({
   setLoading,
   selectedCanManage,
   onRefresh,
+  onDeselect,
   routesFor,
   listApi,
 }: {
@@ -407,6 +417,7 @@ export function SlackConfiguredChannelDetail({
   setLoading: (loading: boolean) => void;
   selectedCanManage: boolean;
   onRefresh: (routes?: ItemAgentRoute[]) => Promise<void> | void;
+  onDeselect: () => void;
   routesFor: (workspaceId: string, itemId: string) => string;
   listApi: string;
 }) {
@@ -414,6 +425,7 @@ export function SlackConfiguredChannelDetail({
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingRoute, setEditingRoute] = useState<ItemAgentRoute | null>(null);
   const [routePendingDelete, setRoutePendingDelete] = useState<ItemAgentRoute | null>(null);
+  const [channelDeleteOpen, setChannelDeleteOpen] = useState(false);
 
   const setChannelTeam = async (teamSlug: string) => {
     if (!teamSlug) return;
@@ -449,6 +461,26 @@ export function SlackConfiguredChannelDetail({
       await onRefresh();
     } catch (err) {
       toast(err instanceof Error ? err.message : "Failed to remove Slack channel agent", "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const deleteChannelConfirmed = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${listApi}/${encodeURIComponent(selected.workspace_id)}/${encodeURIComponent(selected.item_id)}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) throw new Error(await res.text());
+      setChannelDeleteOpen(false);
+      toast(`Removed ${selected.item_name || selected.item_id} from CAIPE.`, "success");
+      // Close the detail panel before reloading so it doesn't briefly render
+      // for a channel that no longer exists.
+      onDeselect();
+      await onRefresh();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Failed to delete Slack channel", "error");
     } finally {
       setLoading(false);
     }
@@ -500,6 +532,16 @@ export function SlackConfiguredChannelDetail({
         )}
       </div>
 
+      <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-xs font-medium uppercase tracking-wide text-destructive">Danger zone</div>
+            <p className="text-sm text-muted-foreground">Remove this channel from CAIPE entirely. Deletes its team assignment, every agent route, and all OpenFGA tuples.</p>
+          </div>
+          <Button type="button" variant="destructive" size="sm" onClick={() => setChannelDeleteOpen(true)} disabled={disabled || !selectedCanManage || loading} aria-label={`Delete channel ${selected.item_name || selected.item_id}`}>Delete channel</Button>
+        </div>
+      </div>
+
       <SlackRouteEditorDialog open={editorOpen} onOpenChange={setEditorOpen} selected={selected} dynamicAgents={dynamicAgents} routes={routes} onSaved={onRefresh} disabled={disabled} loading={loading} setLoading={setLoading} selectedCanManage={selectedCanManage} editingRoute={editingRoute} routesFor={routesFor} />
 
       <Dialog open={Boolean(routePendingDelete)} onOpenChange={(open) => { if (!open && !loading) setRoutePendingDelete(null); }}>
@@ -512,6 +554,28 @@ export function SlackConfiguredChannelDetail({
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setRoutePendingDelete(null)} disabled={loading}>Cancel</Button>
             <Button type="button" variant="destructive" onClick={() => void deleteRouteConfirmed()} disabled={loading}>{loading ? "Removing..." : "Remove agent"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={channelDeleteOpen} onOpenChange={(open) => { if (!open && !loading) setChannelDeleteOpen(false); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete channel from CAIPE?</DialogTitle>
+            <DialogDescription>This removes {selected.item_name || selected.item_id} and everything CAIPE stores about it.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 text-sm text-muted-foreground">
+            <p>The following are permanently deleted:</p>
+            <ul className="list-disc space-y-1 pl-5">
+              <li>Its team assignment{selected.team_slug ? ` (team:${selected.team_slug})` : ""}.</li>
+              <li>{routes.length > 0 ? `${routes.length} agent route${routes.length === 1 ? "" : "s"}` : "All agent routes"} and their settings.</li>
+              <li>All OpenFGA tuples granting access through this channel.</li>
+            </ul>
+            <p>The Slack bot stops responding here once its route cache expires. Re-onboard the channel from the Onboard tab to set it up again.</p>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setChannelDeleteOpen(false)} disabled={loading}>Cancel</Button>
+            <Button type="button" variant="destructive" onClick={() => void deleteChannelConfirmed()} disabled={loading}>{loading ? "Deleting..." : "Delete channel"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

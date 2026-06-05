@@ -114,3 +114,20 @@ export async function deleteSlackChannelAgentRoute(
   } as never);
   return result.deletedCount > 0;
 }
+
+// Hard-delete every route document for a channel, regardless of status. Used
+// when offboarding a channel entirely; the per-agent revoke/upsert reconcile
+// in replaceSlackChannelAgentRoutes does not apply here because the channel
+// itself is going away.
+export async function deleteSlackChannelAgentRoutes(
+  workspaceId: string,
+  channelId: string
+): Promise<number> {
+  const collection = await getRbacCollection<SlackChannelAgentRouteDocument>("slackChannelAgentRoutes");
+  const workspaceRef = slackWorkspaceRef(workspaceId);
+  const result = await collection.deleteMany({
+    workspace_id: workspaceRef,
+    channel_id: channelId,
+  } as never);
+  return result.deletedCount ?? 0;
+}

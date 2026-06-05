@@ -186,6 +186,7 @@ const SLACK_ADAPTER: ConnectorAdminAdapter = {
       setLoading={ctx.setLoading}
       selectedCanManage={ctx.selectedCanManage}
       onRefresh={ctx.onRefresh}
+      onDeselect={ctx.onDeselect}
       routesFor={ctx.routesFor}
       listApi={ctx.listApi}
     />
