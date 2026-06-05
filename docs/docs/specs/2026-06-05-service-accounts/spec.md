@@ -201,8 +201,9 @@ manage it, and a non-member (Team B only) cannot see or manage it.
   from the teams the creating user belongs to.
 - **FR-002a**: The system MUST require a service account's name to be unique among *active* service
   accounts within its owning team, and MUST reject creation that would collide with an existing active
-  name in the same team. The same name MAY be reused by a different team, or reused within the team
-  once the prior holder is revoked.
+  name in the same team. Name comparison for uniqueness MUST be case-insensitive (e.g.
+  "Incident-Bot" collides with "incident-bot"). The same name MAY be reused by a different team, or
+  reused within the team once the prior holder is revoked.
 - **FR-003**: The system MUST give each service account its own distinct identity and its own
   credential, independent of any user identity.
 - **FR-004**: A newly created service account MUST have access to nothing until scopes are explicitly
@@ -237,6 +238,11 @@ manage it, and a non-member (Team B only) cannot see or manage it.
 - **FR-012b**: The caller-keyed tool-authorization check MUST apply to ALL caller subjects — both
   human users and service accounts — not only to service accounts. (The gap affects regular users
   today; service accounts inherit the same enforcement.)
+- **FR-012c**: Enabling caller-keyed tool enforcement MUST NOT silently break existing human callers
+  who currently rely on transitive (agent-granted) tool access. Rollout MUST either (a) backfill
+  direct tool grants for callers based on their current effective access before enforcement is
+  turned on, or (b) gate the new check behind a configuration flag with a documented migration path.
+  The chosen approach MUST be stated in operator docs.
 - **FR-013**: The system MUST reject calls presenting an invalid, unknown, or revoked credential.
 
 #### Lifecycle & management
@@ -353,3 +359,6 @@ manage it, and a non-member (Team B only) cannot see or manage it.
 - **SC-010**: After the caller-keyed tool-authorization change, a caller (human user OR service
   account) who has not been granted a tool is denied that tool even when invoking an agent that can
   call it — closing the pre-existing escalation surface for 100% of unauthorized caller/tool pairs.
+- **SC-011**: Enabling the caller-keyed tool check causes zero unintended denials for existing
+  callers — every caller who could invoke a tool (via an agent) before the change either retains
+  access through a direct grant or is intentionally revoked per policy.
