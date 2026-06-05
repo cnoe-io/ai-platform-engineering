@@ -4,8 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { isMongoDBConfigured } from "@/lib/mongodb";
 import {
   ApiError,
-  requireAdmin,
-  requireAdminView,
+  requireRbacPermission,
   successResponse,
   validateRequired,
   withAuth,
@@ -35,7 +34,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   requireAgenticAppsInstallEnabled();
   if (!isMongoDBConfigured) throw new ApiError("MongoDB is required for Agentic Apps", 503);
   return withAuth(request, async (_req, _user, session) => {
-    requireAdminView(session);
+    await requireRbacPermission(session, "admin_ui", "view");
     return NextResponse.json({ items: await listAppPackages() });
   });
 });
@@ -44,7 +43,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   requireAgenticAppsInstallEnabled();
   if (!isMongoDBConfigured) throw new ApiError("MongoDB is required for Agentic Apps", 503);
   return withAuth(request, async (_req, user, session) => {
-    requireAdmin(session);
+    await requireRbacPermission(session, "admin_ui", "admin");
     let body: Record<string, unknown>;
     try {
       body = (await request.json()) as Record<string, unknown>;

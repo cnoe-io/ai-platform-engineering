@@ -24,7 +24,7 @@ jest.mock("@/lib/api-middleware", () => ({
       this.statusCode = statusCode;
     }
   },
-  requireAdminView: jest.fn(),
+  requireRbacPermission: jest.fn(),
   withAuth: jest.fn(async (_request, handler) =>
     handler(_request, { email: "admin@example.com" }, { role: "admin" }),
   ),
