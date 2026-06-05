@@ -176,6 +176,10 @@ class ResumeStreamRequest(BaseModel):
             "since the runtime will be reconstructed against a different checkpoint store."
         ),
     )
+    workflow_config_id: str | None = Field(
+        None,
+        description="Workflow config ID when resuming a workflow step (for delegated agent use).",
+    )
 
 
 async def _generate_sse_events(
@@ -275,7 +279,12 @@ async def chat_start_stream(
     # Set conversation context for logging
     conversation_id_var.set(request.conversation_id)
 
-    await require_agent_use_permission(request.agent_id)
+    await require_agent_use_permission(
+        request.agent_id,
+        workflow_config_id=request.workflow_config_id,
+        mongo=mongo,
+        user=user,
+    )
 
     # Get agent config after the runtime policy check passes.
     agent = mongo.get_agent(request.agent_id)
@@ -391,7 +400,12 @@ async def chat_resume_stream(
     # Set conversation context for logging
     conversation_id_var.set(request.conversation_id)
 
-    await require_agent_use_permission(request.agent_id)
+    await require_agent_use_permission(
+        request.agent_id,
+        workflow_config_id=request.workflow_config_id,
+        mongo=mongo,
+        user=user,
+    )
 
     # Get agent config after the runtime policy check passes.
     agent = mongo.get_agent(request.agent_id)

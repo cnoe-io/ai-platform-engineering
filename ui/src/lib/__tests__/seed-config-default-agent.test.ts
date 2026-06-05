@@ -18,6 +18,7 @@
 const mockCollection = {
   countDocuments: jest.fn(),
   insertOne: jest.fn(),
+  updateOne: jest.fn(),
 };
 
 jest.mock("@/lib/mongodb", () => ({
@@ -29,8 +30,11 @@ import {
   bootstrapDefaultDynamicAgentIfEmpty,
   bootstrapDefaultIdentityGroupSyncRuleIfEmpty,
   buildAutoCreateTeamsBootstrapRule,
+  buildHelloWorldAgentDoc,
+  reconcileHelloWorldBootstrapAgent,
   AUTO_CREATE_TEAMS_BOOTSTRAP_RULE_ID,
   HELLO_WORLD_AGENT_ID,
+  HELLO_WORLD_BOOTSTRAP_REVISION,
 } from "../seed-config";
 
 describe("bootstrapDefaultDynamicAgentIfEmpty", () => {
@@ -56,7 +60,7 @@ describe("bootstrapDefaultDynamicAgentIfEmpty", () => {
     // Bootstrap-provisioned, not config-driven — admins must be able to
     // edit/delete it through the UI.
     expect(inserted.config_driven).toBe(false);
-    // All four built-in tools enabled.
+    // Built-in tools enabled, including workflow HITL.
     expect(inserted.builtin_tools.fetch_url).toEqual({
       enabled: true,
       allowed_domains: "*",
@@ -67,6 +71,15 @@ describe("bootstrapDefaultDynamicAgentIfEmpty", () => {
       enabled: true,
       max_seconds: 60,
     });
+    expect(inserted.builtin_tools.request_user_input).toEqual({
+      enabled: true,
+    });
+    expect(inserted.interrupt_on).toEqual({
+      builtin: { request_user_input: true },
+    });
+    expect(inserted.hello_world_bootstrap_revision).toBe(
+      HELLO_WORLD_BOOTSTRAP_REVISION,
+    );
     // Empty model is intentional — backend default is used.
     expect(inserted.model).toEqual({ id: "", provider: "" });
     expect(inserted.subagents).toEqual([]);
@@ -99,6 +112,45 @@ describe("bootstrapDefaultDynamicAgentIfEmpty", () => {
     await expect(bootstrapDefaultDynamicAgentIfEmpty()).rejects.toThrow(
       "connection lost",
     );
+  });
+});
+
+describe("buildHelloWorldAgentDoc", () => {
+  it("includes request_user_input and workflow-oriented system prompt", () => {
+    const doc = buildHelloWorldAgentDoc("2026-01-01T00:00:00Z");
+    expect(doc.system_prompt).toContain("request_user_input");
+    expect(doc.system_prompt).toContain("write_file");
+  });
+});
+
+describe("reconcileHelloWorldBootstrapAgent", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it("updates system-owned hello-world when bootstrap revision is behind", async () => {
+    mockCollection.updateOne.mockResolvedValue({ modifiedCount: 1 });
+
+    const updated = await reconcileHelloWorldBootstrapAgent();
+
+    expect(updated).toBe(true);
+    expect(mockCollection.updateOne).toHaveBeenCalledWith(
+      expect.objectContaining({ _id: HELLO_WORLD_AGENT_ID, owner_id: "system" }),
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          hello_world_bootstrap_revision: HELLO_WORLD_BOOTSTRAP_REVISION,
+          builtin_tools: expect.objectContaining({
+            request_user_input: { enabled: true },
+          }),
+        }),
+      }),
+    );
+  });
+
+  it("returns false when no document matched", async () => {
+    mockCollection.updateOne.mockResolvedValue({ modifiedCount: 0 });
+
+    await expect(reconcileHelloWorldBootstrapAgent()).resolves.toBe(false);
   });
 });
 
