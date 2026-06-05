@@ -1,3 +1,46 @@
+## 0.5.8-dev.4 (2026-06-05)
+
+### Feat
+
+- **slack**: prefer config team in sync-from-config preview annotation
+- **slack**: import channel→team binding from an optional config team field
+
+### Fix
+
+- **local-dev**: seed agent team grants + update RBAC-deny test for log-not-post
+- **local-dev**: RBAC org-admin bypass, Slack channel admin visibility, agentgateway pin, slack-bot logging
+
+## 0.5.8-dev.3 (2026-06-05)
+
+### Feat
+
+- **slack**: add channel delete and editable agent swap in channel route editor (#1749)
+
+### Fix
+
+- **admin**: restore migration test mocks and fix build typing
+- **admin**: scope migration bootstrap alerts to manifest-backed areas
+- **setup-caipe**: preserve deployed RAG embeddings on non-interactive upgrade (#1717)
+
+## 0.5.8-dev.2 (2026-06-05)
+
+### Feat
+
+- **rbac**: unify ownership-transfer flow across agents, RAG KBs, and MCP tools (#1726)
+
+### Fix
+
+- **rbac**: reconcile skill team shares via shared shareable-resource module (#1729)
+- **skills**: resolve undefined skill id on create/clone redirect
+
+## 0.5.8-dev.1 (2026-06-04)
+
+### Fix
+
+- **agentgateway,keycloak**: remove unsupported extAuthz timeout field and add impersonation to caipe-platform desired roles (#1722)
+
+## 0.5.8 (2026-06-04)
+
 ## 0.5.7-dev.14 (2026-06-04)
 
 ### Feat
@@ -31,6 +74,7 @@
 ### Fix
 
 - **deps**: bump aiohttp to 3.14.0 and uv to 0.11.18 for security advisories
+- **setup-caipe**: wire OLLAMA_BASE_URL for in-cluster Ollama embeddings
 - **agentgateway**: protect built-in MCP routes from config-bridge pruning
 
 ## 0.5.7-dev.10 (2026-06-03)
