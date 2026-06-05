@@ -29,6 +29,10 @@
 #             providers the menu offers (drift guard against the Python
 #             factory adding or removing providers without this test
 #             being updated).
+#   * Pin 8 — detect_deployed_features (the unattended upgrade path)
+#             inherits the *deployed* RAG embeddings provider/model from
+#             the live Helm values, instead of resetting them to the
+#             openai default, and still honors an explicit caller override.
 #
 # Exits 0 on success, non-zero with a clear FAIL message otherwise.
 #
@@ -199,6 +203,28 @@ if [ -f "${FACTORY_PY}" ]; then
   fi
 else
   echo "[emb-test]   SKIP: ${FACTORY_PY} not found (drift guard cannot run)"
+fi
+
+# ---------------------------------------------------------------------
+# Pin 8 — non-interactive upgrade inherits the deployed embeddings config.
+#
+# Regression guard for the bug where a `--non-interactive` re-run reset RAG
+# embeddings to the EMBEDDINGS_PROVIDER default (openai) because the
+# embeddings-from-cluster read lived only in choose_features' interactive
+# branch. The read now lives in detect_deployed_features, which the upgrade
+# path always runs.
+# ---------------------------------------------------------------------
+echo "[emb-test] Pin 8: detect_deployed_features inherits the deployed embeddings provider ..."
+detect_body=$(awk '/^detect_deployed_features\(\) \{/{f=1} f{print} f && /^\}/{exit}' "${SETUP_SCRIPT}")
+if echo "${detect_body}" | grep -q 'rag-server".env.EMBEDDINGS_PROVIDER'; then
+  _pass "detect_deployed_features reads EMBEDDINGS_PROVIDER from the deployed RAG values"
+else
+  _fail "detect_deployed_features no longer reads the deployed EMBEDDINGS_PROVIDER (non-interactive upgrade would reset RAG embeddings to the openai default)"
+fi
+if echo "${detect_body}" | grep -q '_EMBEDDINGS_PROVIDER_EXPLICIT'; then
+  _pass "detect_deployed_features honors an explicit caller override (_EMBEDDINGS_PROVIDER_EXPLICIT)"
+else
+  _fail "detect_deployed_features ignores the explicit EMBEDDINGS_PROVIDER override guard"
 fi
 
 # ---------------------------------------------------------------------
