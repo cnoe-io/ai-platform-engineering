@@ -59,9 +59,16 @@ async function annotateChannelsWithTeam(
   }
   return channels.map((channel) => {
     const workspaceRef = slackWorkspaceRef(channel.workspace_id ? String(channel.workspace_id) : undefined);
-    const teamSlug = channel.channel_id
+    // Prefer the team the config provides (the import will bind it); fall back
+    // to the team the channel is already mapped to in the DB. Either way the
+    // channel ends up with a team, so the preview shouldn't flag it as missing.
+    const configTeam = typeof channel.team === "string" && channel.team.trim()
+      ? channel.team.trim()
+      : null;
+    const existingTeam = channel.channel_id
       ? teamByChannel.get(`${workspaceRef}/${channel.channel_id}`) ?? null
       : null;
+    const teamSlug = configTeam ?? existingTeam;
     return { ...channel, team_slug: teamSlug, has_team: Boolean(teamSlug) };
   });
 }
