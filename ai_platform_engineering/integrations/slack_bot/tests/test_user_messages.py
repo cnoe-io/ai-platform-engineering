@@ -40,7 +40,7 @@ def test_channel_resolver_uses_plain_language_for_incomplete_team(
         lambda _channel_id: {"_id": "team-1", "name": "Platform Eng"},
     )
 
-    result = asyncio.run(resolver.resolve("C123", "kc-user-1"))
+    result = asyncio.run(resolver.resolve("C123"))
 
     assert result.team_slug is None
     assert result.deny_message == user_messages.TEAM_SETUP_INCOMPLETE_MESSAGE.format(

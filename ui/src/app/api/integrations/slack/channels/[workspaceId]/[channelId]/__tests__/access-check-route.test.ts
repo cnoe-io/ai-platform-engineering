@@ -60,21 +60,17 @@ describe("Slack runtime access-check route", () => {
     mockCheckUniversalRebacRelationship.mockReset();
   });
 
-  it("checks channel and user grants without requiring admin UI permission", async () => {
-    mockCheckPermission.mockResolvedValue({ allowed: false, reason: "denied" });
-    mockCheckOpenFgaTuple
-      .mockResolvedValueOnce({ allowed: false })
-      .mockResolvedValueOnce({ allowed: true });
+  it("checks channel and user grants using user:<id> subject", async () => {
     mockCheckUniversalRebacRelationship
-      .mockResolvedValueOnce({ allowed: true })
-      .mockResolvedValueOnce({ allowed: true });
+      .mockResolvedValueOnce({ allowed: true })  // channel→agent
+      .mockResolvedValueOnce({ allowed: true }); // user→agent
     const { POST } = await import("../access-check/route");
 
     const response = await POST(
       request("/api/integrations/slack/channels/T123456789/C123456789/access-check", {
         method: "POST",
         body: JSON.stringify({
-          user_subject: "team:platform-engineering#member",
+          user_subject: "user:alice-sub",
           resource: { type: "agent", id: "incident-agent" },
           action: "use",
         }),
@@ -91,33 +87,59 @@ describe("Slack runtime access-check route", () => {
       reason: "allowed",
     });
     expect(mockCheckPermission).not.toHaveBeenCalled();
-    expect(mockCheckOpenFgaTuple).toHaveBeenCalledWith({
-      user: "user:alice-sub",
-      relation: "can_read",
-      object: "slack_channel:T123456789--C123456789",
-    });
   });
 
-  it("denies before evaluating grants when caller cannot read the channel", async () => {
-    mockCheckPermission.mockResolvedValue({ allowed: false, reason: "denied" });
-    mockCheckOpenFgaTuple
-      .mockResolvedValueOnce({ allowed: false })
-      .mockResolvedValueOnce({ allowed: false });
+  it("denies when channel grant is missing", async () => {
+    mockCheckUniversalRebacRelationship
+      .mockResolvedValueOnce({ allowed: false }); // channel→agent denied
     const { POST } = await import("../access-check/route");
 
     const response = await POST(
       request("/api/integrations/slack/channels/T123456789/C123456789/access-check", {
         method: "POST",
         body: JSON.stringify({
-          user_subject: "team:platform-engineering#member",
+          user_subject: "user:alice-sub",
           resource: { type: "agent", id: "incident-agent" },
           action: "use",
         }),
       }),
       { params: Promise.resolve({ workspaceId: "T123456789", channelId: "C123456789" }) }
     );
+    const body = await response.json();
 
-    expect(response.status).toBe(403);
-    expect(mockCheckUniversalRebacRelationship).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    expect(body.data).toMatchObject({
+      allowed: false,
+      channel_allowed: false,
+      reason: "missing_channel_grant",
+    });
+  });
+
+  it("denies when user lacks can_use on the agent", async () => {
+    mockCheckUniversalRebacRelationship
+      .mockResolvedValueOnce({ allowed: true })   // channel→agent
+      .mockResolvedValueOnce({ allowed: false });  // user→agent denied
+    const { POST } = await import("../access-check/route");
+
+    const response = await POST(
+      request("/api/integrations/slack/channels/T123456789/C123456789/access-check", {
+        method: "POST",
+        body: JSON.stringify({
+          user_subject: "user:alice-sub",
+          resource: { type: "agent", id: "incident-agent" },
+          action: "use",
+        }),
+      }),
+      { params: Promise.resolve({ workspaceId: "T123456789", channelId: "C123456789" }) }
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data).toMatchObject({
+      allowed: false,
+      channel_allowed: true,
+      user_allowed: false,
+      reason: "missing_user_grant",
+    });
   });
 });

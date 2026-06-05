@@ -170,6 +170,14 @@ class SSEEvent:
     self.interrupt = interrupt
 
 
+class AgentAccessDeniedError(Exception):
+  """Raised when the API returns 403 agent#use — the user lacks can_use on the agent."""
+
+  def __init__(self, agent_id: str) -> None:
+    super().__init__(f"Access denied to agent {agent_id!r}")
+    self.agent_id = agent_id
+
+
 class SSEClient:
   """SSE client for Dynamic Agents streaming via AG-UI protocol.
 
@@ -285,6 +293,14 @@ class SSEClient:
         response.status_code,
         response.text[:500],
       )
+      if response.status_code == 403:
+        try:
+          body = response.json()
+          code = (body.get("data") or body).get("code", "")
+        except Exception:
+          code = ""
+        if code == "agent#use":
+          raise AgentAccessDeniedError(agent_id)
       raise Exception(f"Failed to create conversation: HTTP {response.status_code}")
 
     data = response.json()

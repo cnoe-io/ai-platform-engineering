@@ -34,7 +34,7 @@ from utils import slack_formatter
 from utils.hitl_handler import HITLCallbackHandler
 from utils.chat_envelope import augment_slack_client_context  # noqa: E402
 
-from sse_client import SSEClient, set_obo_token
+from sse_client import AgentAccessDeniedError, SSEClient, set_obo_token
 from utils.session_manager import SessionManager
 from utils.scoring import submit_feedback_score
 from utils.config_models import ChannelConfig, get_escalation_config  # noqa: E402
@@ -83,7 +83,6 @@ if RBAC_ENABLED:
     from utils.slack_channel_auto_assign import get_slack_channel_auto_assigner
     from utils.obo_exchange import impersonate_user, OboExchangeError
     from utils.slack_rebac import get_slack_channel_rebac_evaluator
-    from utils.rbac_middleware import format_slack_channel_rebac_denial
     from utils.user_messages import TEAM_SESSION_UNAVAILABLE_MESSAGE
 
     async def _rbac_enrich_context(body, slack_user_id, context, *, require_mapping: bool = True):
@@ -132,7 +131,7 @@ if RBAC_ENABLED:
                 channel_id, keycloak_user_id,
             )
         else:
-            team_resolution = await resolve_channel_team(channel_id, keycloak_user_id)
+            team_resolution = await resolve_channel_team(channel_id)
             if not team_resolution.team_slug:
                 auto_assign = await asyncio.to_thread(
                     get_slack_channel_auto_assigner().assign_channel,
@@ -144,7 +143,7 @@ if RBAC_ENABLED:
                     get_slack_agent_route_resolver().invalidate(
                         context["slack_workspace_id"], channel_id
                     )
-                    team_resolution = await resolve_channel_team(channel_id, keycloak_user_id)
+                    team_resolution = await resolve_channel_team(channel_id)
                 elif auto_assign.reason not in {"disabled", "existing_mapping"}:
                     logger.warning(
                         "Slack channel auto-assignment skipped channel={} reason={}",
@@ -208,12 +207,16 @@ else:
     logger.info("Slack RBAC enforcement disabled (set SLACK_RBAC_ENABLED=true to enable)")
 
 
-def _slack_agent_rebac_denial(context, channel_id: str | None, agent_id: str | None) -> str | None:
-    """Return a denial message when channel ReBAC does not allow this agent."""
+def _slack_agent_channel_grant_check(context, channel_id: str | None, agent_id: str | None) -> str | None:
+    """Return a denial message when the channel does not have this agent assigned.
+
+    Only checks the channel→agent grant. User-level ``can_use`` is enforced
+    by the API when the conversation is created, so we don't duplicate it here.
+    Returns None when the channel grant is present (or RBAC is disabled / DM).
+    """
     if not RBAC_ENABLED or context is None or not channel_id or not agent_id:
         return None
     try:
-        team_slug = context.get("team_slug")
         if is_dm_channel(channel_id):
             return None
         workspace_id = context.get("slack_workspace_id") or slack_workspace_ref()
@@ -221,25 +224,22 @@ def _slack_agent_rebac_denial(context, channel_id: str | None, agent_id: str | N
     except AttributeError:
         return None
 
-    decision = get_slack_channel_rebac_evaluator().check_agent_access(
+    decision = get_slack_channel_rebac_evaluator().check_channel_grant(
         workspace_id=str(workspace_id),
         channel_id=str(channel_id),
         agent_id=str(agent_id),
-        team_slug=str(team_slug or ""),
         obo_token=obo_token if isinstance(obo_token, str) else None,
     )
-    if decision.allowed:
+    if decision.channel_allowed:
         return None
 
     logger.info(
-        "Slack ReBAC denied channel=%s agent=%s reason=%s channel_allowed=%s user_allowed=%s",
+        "Slack channel grant denied channel=%s agent=%s reason=%s",
         channel_id,
         agent_id,
         decision.reason,
-        decision.channel_allowed,
-        decision.user_allowed,
     )
-    return format_slack_channel_rebac_denial()
+    return f"Agent *{agent_id}* is not assigned to this channel. Ask an admin to add it in the {APP_NAME} Admin panel."
 
 
 def _obo_token_from_context(context):
@@ -1109,18 +1109,26 @@ def handle_mention(event, say, client, context=None):
     agent_match = matches[0] if matches else None
     agent_id = agent_match.agent_id if agent_match else (resolve_default_agent_id(config.defaults.default_agent_id) or "")
 
-    conv_result = sse_client.create_conversation(
-      title=message_text[:50].strip() or "Slack Thread",
-      agent_id=agent_id,
-      owner_id=user_email or user_id,
-      idempotency_key=thread_ts,
-      metadata={
-        "thread_ts": thread_ts,
-        "channel_id": channel_id,
-        "channel_name": channel_config.name,
-        **({"workspace_url": SLACK_WORKSPACE_URL} if SLACK_WORKSPACE_URL else {}),
-      },
-    )
+    try:
+      conv_result = sse_client.create_conversation(
+        title=message_text[:50].strip() or "Slack Thread",
+        agent_id=agent_id,
+        owner_id=user_email or user_id,
+        idempotency_key=thread_ts,
+        metadata={
+          "thread_ts": thread_ts,
+          "channel_id": channel_id,
+          "channel_name": channel_config.name,
+          **({"workspace_url": SLACK_WORKSPACE_URL} if SLACK_WORKSPACE_URL else {}),
+        },
+      )
+    except AgentAccessDeniedError as e:
+      say(
+        text=f"You don't have access to agent *{e.agent_id}*. Ask an admin to grant you access in the {APP_NAME} Admin panel.",
+        thread_ts=thread_ts,
+      )
+      return
+
     conversation_id = conv_result["conversation_id"]
     conv_created = conv_result["created"]
     conv_metadata = conv_result.get("metadata", {})
@@ -1137,7 +1145,7 @@ def handle_mention(event, say, client, context=None):
         agent_match = next((a for a in channel_config.agents if a.agent_id == owner_id), None)
         agent_id = owner_id
 
-    denial = _slack_agent_rebac_denial(context, channel_id, agent_id)
+    denial = _slack_agent_channel_grant_check(context, channel_id, agent_id)
     if denial:
       say(text=denial, thread_ts=thread_ts)
       return
@@ -1312,9 +1320,13 @@ def _route_to_agent(event, say, client, channel_config, agent_match, is_bot, bot
 
     agent_id = agent_match.agent_id
 
-    denial = _slack_agent_rebac_denial(context, channel_id, agent_id)
+    denial = _slack_agent_channel_grant_check(context, channel_id, agent_id)
     if denial:
-      say(text=denial, thread_ts=thread_ts)
+      logger.warning(
+        "Slack channel grant denied for ambient message channel=%s agent=%s — silently dropping",
+        channel_id,
+        agent_id,
+      )
       return
 
     conv_result = sse_client.create_conversation(
@@ -1421,6 +1433,11 @@ def _route_to_agent(event, say, client, channel_config, agent_match, is_bot, bot
       thread_owner_agent_id=agent_id,
     )
 
+  except AgentAccessDeniedError as e:
+    logger.warning(
+      "Agent access denied for ambient message channel=%s agent=%s user=%s — silently dropping",
+      channel_id, e.agent_id, user_id,
+    )
   except Exception as e:
     logger.exception(f"Error handling {sender_label} message: {e}")
     try:
