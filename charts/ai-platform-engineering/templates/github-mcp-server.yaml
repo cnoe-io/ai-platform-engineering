@@ -1,0 +1,98 @@
+{{- /*
+GitHub MCP server — official GitHub MCP server container.
+
+Enabled when global.agentgateway.enabled=true AND
+global.agentgateway.githubMcpServer.enabled=true (default).
+
+The container runs in HTTP mode on port 8082 (matching the docker-compose
+mcp-servers profile) and exposes all toolsets. GITHUB_PERSONAL_ACCESS_TOKEN
+is injected via secretKeyRef when global.agentgateway.githubMcpServer.existingSecret.name
+is set, or falls through to agentgateway.extraEnv entries.
+
+The agentgateway static-config template wires /mcp/github-mcp-server ->
+this Service via the ai-platform-engineering.agentgatewayMcpTargets helper.
+*/ -}}
+{{- $agw := (.Values.global).agentgateway | default dict -}}
+{{- $ghMcp := $agw.githubMcpServer | default dict -}}
+{{- if and $agw.enabled (or (not (hasKey $ghMcp "enabled")) $ghMcp.enabled) -}}
+{{- $port := $ghMcp.port | default 8082 -}}
+{{- $image := $ghMcp.image | default dict -}}
+{{- $imageRepo := $image.repository | default "ghcr.io/github/github-mcp-server" -}}
+{{- $imageTag := $image.tag | default "latest" -}}
+{{- $imagePullPolicy := $image.pullPolicy | default "IfNotPresent" -}}
+{{- $secret := $ghMcp.existingSecret | default dict -}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ printf "%s-github-mcp-server" .Release.Name }}
+  labels:
+    {{- include "ai-platform-engineering.labels" . | nindent 4 }}
+    app.kubernetes.io/name: {{ printf "%s-github-mcp-server" .Release.Name }}
+    app.kubernetes.io/component: mcp
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ printf "%s-github-mcp-server" .Release.Name }}
+      app.kubernetes.io/component: mcp
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        {{- include "ai-platform-engineering.labels" . | nindent 8 }}
+        app.kubernetes.io/name: {{ printf "%s-github-mcp-server" .Release.Name }}
+        app.kubernetes.io/component: mcp
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: github-mcp-server
+          image: "{{ $imageRepo }}:{{ $imageTag }}"
+          imagePullPolicy: {{ $imagePullPolicy }}
+          command: ["http", "--port", {{ $port | quote }}, "--toolsets", "all"]
+          ports:
+            - name: http
+              containerPort: {{ $port }}
+              protocol: TCP
+          env:
+            {{- if $secret.name }}
+            - name: GITHUB_PERSONAL_ACCESS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secret.name | quote }}
+                  key: {{ $secret.key | default "GITHUB_PERSONAL_ACCESS_TOKEN" | quote }}
+            {{- end }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ printf "%s-github-mcp-server" .Release.Name }}
+  labels:
+    {{- include "ai-platform-engineering.labels" . | nindent 4 }}
+    app.kubernetes.io/name: {{ printf "%s-github-mcp-server" .Release.Name }}
+    app.kubernetes.io/component: mcp
+spec:
+  selector:
+    app.kubernetes.io/name: {{ printf "%s-github-mcp-server" .Release.Name }}
+    app.kubernetes.io/component: mcp
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: http
+      port: {{ $port }}
+      targetPort: http
+      protocol: TCP
+  type: ClusterIP
+{{- end }}
