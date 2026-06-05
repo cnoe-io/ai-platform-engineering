@@ -5,7 +5,11 @@ import {
   type AgentSkillReconcileDoc,
 } from "@/lib/rbac/agent-skill-openfga-reconcile";
 import { readOpenFgaTuples, writeOpenFgaTupleDiff } from "@/lib/rbac/openfga";
-import type { MigrationApplyResult, MigrationPlanResult } from "@/lib/rbac/migrations/types";
+import type {
+  MigrationApplyResult,
+  MigrationPlanResult,
+  MigrationSampleDiff,
+} from "@/lib/rbac/migrations/types";
 
 export const AGENT_SKILL_OPENFGA_RECONCILE_MIGRATION_ID = "agent_skill_openfga_reconcile_v1";
 const RELEASE_058 = "0.5.8";
@@ -103,18 +107,18 @@ export async function planAgentSkillOpenFgaReconcileMigration(): Promise<
   const inputs = await loadAgentSkillOpenFgaReconcileInputs();
   const plan = deriveAgentSkillOpenFgaReconcilePlan(inputs);
 
-  const sampleDiffs = plan.writes.slice(0, 5).map((tuple, index) => ({
+  const sampleDiffs: MigrationSampleDiff[] = plan.writes.slice(0, 5).map((tuple, index) => ({
     collection: "openfga_tuples",
     id: `${AGENT_SKILL_OPENFGA_RECONCILE_MIGRATION_ID}:write:${index}`,
     before: {},
-    after: { ...tuple },
+    after: { ...tuple } as Record<string, unknown>,
   }));
   for (const [index, tuple] of plan.deletes.slice(0, 5).entries()) {
     sampleDiffs.push({
       collection: "openfga_tuples",
       id: `${AGENT_SKILL_OPENFGA_RECONCILE_MIGRATION_ID}:delete:${index}`,
       before: { ...tuple } as Record<string, unknown>,
-      after: {} as Record<string, unknown>,
+      after: {},
     });
   }
 

@@ -10,6 +10,7 @@ const mockRequireResourcePermission = jest.fn();
 const mockGetCollection = jest.fn();
 const mockConnectToDatabase = jest.fn();
 const mockWriteOpenFgaTuples = jest.fn();
+const mockWriteOpenFgaTupleDiff = jest.fn();
 const mockGetKeycloakRbacDiagnosticValues = jest.fn();
 
 const collections: Record<string, ReturnType<typeof createCollection>> = {};
@@ -59,6 +60,8 @@ jest.mock("@/lib/mongodb", () => ({
 
 jest.mock("@/lib/rbac/openfga", () => ({
   writeOpenFgaTuples: (...args: unknown[]) => mockWriteOpenFgaTuples(...args),
+  writeOpenFgaTupleDiff: (...args: unknown[]) => mockWriteOpenFgaTupleDiff(...args),
+  readOpenFgaTuples: jest.fn().mockResolvedValue({ tuples: [], continuationToken: undefined }),
 }));
 
 jest.mock("@/lib/rbac/keycloak-admin", () => ({
@@ -115,6 +118,7 @@ beforeEach(() => {
   mockRequireRbacPermission.mockResolvedValue(undefined);
   mockRequireResourcePermission.mockResolvedValue(undefined);
   mockWriteOpenFgaTuples.mockResolvedValue({ enabled: true, writes: 1, deletes: 0 });
+  mockWriteOpenFgaTupleDiff.mockResolvedValue({ enabled: true, writes: 1, deletes: 0 });
   mockGetCollection.mockImplementation(async (name: string) => collections[name] ?? createCollection());
   mockConnectToDatabase.mockImplementation(async () => ({
     db: {
@@ -632,7 +636,7 @@ describe("admin ReBAC migrations API", () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
+    expect(mockWriteOpenFgaTupleDiff).toHaveBeenCalledWith({
       writes: expect.arrayContaining([
         { user: "user:alice-sub", relation: "member", object: "team:platform" },
         { user: "team:platform#member", relation: "user", object: "agent:agent-1" },
@@ -662,7 +666,7 @@ describe("admin ReBAC migrations API", () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
+    expect(mockWriteOpenFgaTupleDiff).toHaveBeenCalledWith({
       writes: expect.arrayContaining([
         { user: "agent:agent-1", relation: "caller", object: "tool:github/search" },
         { user: "agent:agent-1", relation: "caller", object: "tool:github/issues" },
@@ -737,7 +741,7 @@ describe("admin ReBAC migrations API", () => {
     );
 
     expect(applyResponse.status).toBe(200);
-    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
+    expect(mockWriteOpenFgaTupleDiff).toHaveBeenCalledWith({
       writes: expect.arrayContaining([
         { user: "slack_channel:T123--C123", relation: "user", object: "agent:agent-1" },
         { user: "slack_channel:T123--C124", relation: "user", object: "agent:agent-1" },
@@ -785,7 +789,7 @@ describe("admin ReBAC migrations API", () => {
     );
 
     expect(applyResponse.status).toBe(200);
-    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
+    expect(mockWriteOpenFgaTupleDiff).toHaveBeenCalledWith({
       writes: expect.arrayContaining([
         { user: "webex_space:WEBEX--space-1", relation: "reader", object: "knowledge_base:kb-1" },
         { user: "webex_space:WEBEX--space-2", relation: "user", object: "agent:agent-1" },

@@ -279,6 +279,7 @@ describe("MigrationTab", () => {
             schema_versions: [
               { schema_area: "messages", current_version: null, target_version: null, status: "unknown" },
               { schema_area: "feedback", current_version: null, target_version: null, status: "unknown" },
+              { schema_area: "dynamic_agents", current_version: null, target_version: 1, status: "unknown" },
               { schema_area: "conversations", current_version: 1, target_version: 2, status: "behind" },
             ],
             migrations: [],
@@ -316,7 +317,7 @@ describe("MigrationTab", () => {
 
     render(<MigrationTab isAdmin />);
 
-    expect(await screen.findByText(/2 schema areas are missing version metadata/i)).toBeInTheDocument();
+    expect(await screen.findByText(/1 schema areas are missing version metadata/i)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Initialize all to v1/i }));
 
     await waitFor(() => {
@@ -325,13 +326,13 @@ describe("MigrationTab", () => {
         expect.objectContaining({
           method: "POST",
           body: JSON.stringify({
-            schema_areas: ["messages", "feedback"],
+            schema_areas: ["dynamic_agents"],
             confirmation: "INITIALIZE SCHEMA VERSIONS TO v1",
           }),
         }),
       );
     });
-    expect(await screen.findByText(/schema_versions_initialized: 2/i)).toBeInTheDocument();
+    expect(await screen.findByText(/schema_versions_initialized: 1/i)).toBeInTheDocument();
   });
 
   it("allows registered migrations to be selected and dry-run", async () => {
