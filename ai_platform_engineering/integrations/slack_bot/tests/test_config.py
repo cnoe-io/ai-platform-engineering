@@ -175,7 +175,6 @@ class TestOverthinkConfigDefaults:
     oc = OverthinkConfig()
     assert oc.enabled is False
     assert oc.skip_markers == ["DEFER", "LOW_CONFIDENCE"]
-    assert oc.custom_prompt is None
     assert oc.followup_prompt is None
 
   def test_custom_markers(self):

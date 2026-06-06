@@ -98,6 +98,12 @@ class UserContext(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     email: str
+    name: str | None = None
+    groups: list[str] = []
+    is_admin: bool = False
+    raw_claims: dict[str, Any] = {}
+    access_token: str | None = Field(default=None, repr=False)
+    obo_jwt: str | None = Field(default=None, repr=False)
 
 
 # =============================================================================
@@ -120,12 +126,41 @@ class MCPServerConfigBase(BaseModel):
         description="Auth strategy. When set to user_oauth, the runtime injects a per-user bearer token at connection time.",
     )
     enabled: bool = Field(True, description="Whether the server is enabled")
+    credential_sources: list["MCPCredentialSource"] | None = Field(
+        None,
+        description="Server-side credential refs to resolve for MCP connections.",
+    )
 
 
-class MCPServerConfigCreate(MCPServerConfigBase):
-    """Model for creating an MCP server config."""
+class MCPCredentialSource(BaseModel):
+    """Credential source metadata for MCP server connection setup."""
 
-    id: str = Field(..., description="Unique slug ID (e.g., 'github')")
+    kind: Literal["secret_ref", "provider_connection", "caller_token"] = Field(
+        ..., description="Credential source type"
+    )
+    target: Literal["env", "header"] = Field(..., description="Where to inject the resolved credential")
+    name: str = Field(..., description="Environment variable or header name")
+    secret_ref: str | None = Field(None, description="Credential secret_ref id")
+    provider_connection_id: str | None = Field(None, description="Provider connection id")
+    provider: str | None = Field(None, description="Provider key for JWT subject-owned provider connection")
+    fallback_env: str | None = Field(
+        None,
+        description=(
+            "Optional env var read when no per-user credential resolves (e.g. the caller "
+            "has not connected this provider). Enables a static service-account fallback "
+            "so shared-token MCP servers (GitHub/GitLab) stay backward compatible."
+        ),
+    )
+    fallback_client_credentials: bool = Field(
+        False,
+        description=(
+            "When true and no per-request user JWT is available (e.g. background "
+            "reconcile/probe with no caller context), mint a service-to-service "
+            "OAuth2 client-credentials token from Keycloak. Used by backends that "
+            "enforce their own OIDC auth (e.g. the RAG knowledge-base) so they accept "
+            "the caller's user JWT for per-user RBAC and a service token otherwise."
+        ),
+    )
 
 
 class MCPServerConfigUpdate(BaseModel):
@@ -140,6 +175,7 @@ class MCPServerConfigUpdate(BaseModel):
     env: dict[str, str] | None = None
     auth: MCPServerAuth | None = None
     enabled: bool | None = None
+    credential_sources: list[MCPCredentialSource] | None = None
 
 
 class MCPServerConfig(MCPServerConfigBase):
@@ -147,6 +183,18 @@ class MCPServerConfig(MCPServerConfigBase):
 
     id: str = Field(..., alias="_id", description="Unique slug ID")
     config_driven: bool = Field(False, description="Whether this server was loaded from config.yaml")
+    source: Literal["manual", "config", "agentgateway"] | None = Field(
+        None,
+        description="Where this MCP server record came from.",
+    )
+    agentgateway_discovered: bool = Field(
+        False,
+        description="Whether this MCP server was discovered from AgentGateway.",
+    )
+    agentgateway_target_endpoint: str | None = Field(
+        None,
+        description="Upstream MCP endpoint behind the AgentGateway route.",
+    )
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -180,6 +228,67 @@ class ModelConfig(BaseModel):
 
     id: str = Field(..., description="LLM model identifier (e.g., 'claude-sonnet-4-20250514')")
     provider: str = Field(..., description="LLM provider (anthropic-claude, openai, azure-openai, aws-bedrock, etc.)")
+
+
+# =============================================================================
+# Agent Backend Configuration
+# =============================================================================
+
+# Backend type constants
+BACKEND_STATE = "state"
+BACKEND_STORE = "store"
+BACKEND_SANDBOX = "sandbox"
+
+
+class AgentBackendConfig(BaseModel):
+    """Backend-specific configuration options."""
+
+    fs_ttl_seconds: int | None = Field(
+        None,
+        ge=0,
+        description="Filesystem TTL in seconds. 0 = infinite. None = use server default.",
+    )
+    fs_namespace: list[str] | None = Field(
+        None,
+        min_length=3,
+        max_length=3,
+        description=(
+            "Override filesystem namespace as [scope, id, 'filesystem']. "
+            "Defaults to [agent_id, session_id, 'filesystem']. "
+            "Used by workflow service to scope files to a workflow run."
+        ),
+    )
+    checkpoint_collection: str | None = Field(
+        None,
+        description=(
+            "Override checkpoint collection name for MongoDBSaver. "
+            "Use 'workflow_checkpoints' for workflow steps to isolate from regular chat history. "
+            "None = use server default collection."
+        ),
+    )
+    checkpoint_ttl: int | None = Field(
+        None,
+        ge=0,
+        description=(
+            "TTL in seconds for checkpoint documents (MongoDBSaver ttl param). "
+            "Creates a MongoDB TTL index that auto-expires documents. "
+            "Only effective with a custom checkpoint_collection to avoid expiring regular chats. "
+            "None = no TTL (checkpoints persist indefinitely)."
+        ),
+    )
+
+
+class AgentBackend(BaseModel):
+    """Agent backend configuration — controls filesystem storage strategy."""
+
+    type: Literal["state", "store", "sandbox"] | None = Field(
+        None,
+        description="Backend type. None = use server default_runtime_backend.",
+    )
+    config: AgentBackendConfig | None = Field(
+        None,
+        description="Backend-specific config (TTL, etc.)",
+    )
 
 
 # =============================================================================
@@ -243,6 +352,28 @@ class FetchUrlToolConfig(BaseModel):
             "Use * for all, *.domain.com for subdomains, or exact domain. "
             "Empty string blocks all domains."
         ),
+    )
+
+
+class CurlToolConfig(BaseModel):
+    """Configuration for the curl built-in tool."""
+
+    enabled: bool = Field(False, description="Whether the tool is enabled")
+    allowed_domains: str = Field(
+        default="*",
+        description=(
+            "Comma-separated domain patterns. "
+            "Use * for all, *.domain.com for subdomains, or exact domain. "
+            "Empty string blocks all domains."
+        ),
+    )
+    https_only: bool = Field(
+        default=True,
+        description="If True (default), reject non-https:// URLs.",
+    )
+    allow_non_public_urls: bool = Field(
+        default=False,
+        description="If True, allow URLs that resolve to private/internal IP addresses. Off by default (SSRF protection).",
     )
 
 
@@ -324,6 +455,10 @@ class BuiltinToolsConfig(BaseModel):
         None,
         description="Configuration for the fetch_url tool (fetches content from URLs)",
     )
+    curl: CurlToolConfig | None = Field(
+        None,
+        description="Configuration for the curl tool (HTTP requests including PUT/POST/PATCH/DELETE)",
+    )
     current_datetime: CurrentDatetimeToolConfig | None = Field(
         None,
         description="Configuration for the current_datetime tool (returns current date/time)",
@@ -349,6 +484,11 @@ class BuiltinToolsConfig(BaseModel):
         None,
         description="Configuration for the memory built-in tool group",
     )
+    workflows: list[str] | None = Field(
+        None,
+        description="List of workflow config IDs this agent can interact with. "
+        "When set, adds list_workflow_runs, get_workflow_run_status, and start_workflow_run tools.",
+    )
 
     @model_validator(mode="before")
     @classmethod
@@ -368,7 +508,6 @@ class BuiltinToolsConfig(BaseModel):
                 data.pop("sleep")
                 logger.warning("Dropped deprecated 'builtin_tools.sleep' (explicit 'wait' already set)")
         return data
-
 
 # =============================================================================
 # HITL Input Fields (for request_user_input tool)
@@ -463,15 +602,32 @@ class FeaturesConfig(BaseModel):
 # =============================================================================
 
 
+class InterruptConfig(BaseModel):
+    """Per-tool interrupt configuration for HITL workflows.
+
+    Controls what decisions a human reviewer can make when a tool call
+    is intercepted.  See deepagents docs: human-in-the-loop.
+    """
+
+    allowed_decisions: list[str] = Field(
+        default=["approve", "edit", "reject"],
+        description="Decisions the reviewer is allowed to make",
+    )
+
+
 class DynamicAgentConfigBase(BaseModel):
     """Base fields for dynamic agent configuration."""
 
     name: str = Field(..., description="Display name")
     description: str | None = Field(None, description="Optional description")
     system_prompt: str = Field(..., description="Main system prompt / instructions")
-    allowed_tools: dict[str, list[str]] = Field(
+    allowed_tools: dict[str, list[str] | bool] = Field(
         default_factory=dict,
-        description="Map of server_id -> tool names (empty list = all tools)",
+        description=(
+            "Map of server_id -> tool names or boolean. "
+            "true = all tools from server, false = server disabled, "
+            "list = specific tools only, [] = legacy (treated as true)"
+        ),
     )
     model: ModelConfig = Field(..., description="LLM model configuration (id + provider)")
     visibility: VisibilityType = Field(VisibilityType.PRIVATE, description="Visibility scope")
@@ -497,6 +653,18 @@ class DynamicAgentConfigBase(BaseModel):
         description="Feature flags and middleware configuration. None = apply defaults.",
     )
     enabled: bool = Field(True, description="Whether the agent is active")
+    interrupt_on: dict[str, dict[str, bool | InterruptConfig]] = Field(
+        default_factory=lambda: {"builtin": {"request_user_input": True}},
+        description=(
+            "Tools that require human approval before execution. "
+            "Map of server_id -> {tool_name: config}. "
+            "Use 'builtin' as server_id for built-in tools (no namespace prefix)."
+        ),
+    )
+    backend: AgentBackend | None = Field(
+        None,
+        description="Backend configuration (storage type, TTL). None = use server defaults.",
+    )
 
     @model_validator(mode="before")
     @classmethod
@@ -513,30 +681,6 @@ class DynamicAgentConfigBase(BaseModel):
                 "provider": data.pop("model_provider", "unknown"),
             }
         return data
-
-
-class DynamicAgentConfigCreate(DynamicAgentConfigBase):
-    """Model for creating a dynamic agent config."""
-
-    pass
-
-
-class DynamicAgentConfigUpdate(BaseModel):
-    """Model for updating a dynamic agent config."""
-
-    name: str | None = None
-    description: str | None = None
-    system_prompt: str | None = None
-    allowed_tools: dict[str, list[str]] | None = None
-    model: ModelConfig | None = None
-    visibility: VisibilityType | None = None
-    shared_with_teams: list[str] | None = None
-    subagents: list[SubAgentRef] | None = None
-    skills: list[str] | None = None
-    builtin_tools: BuiltinToolsConfig | None = None
-    ui: AgentUIConfig | None = None
-    features: FeaturesConfig | None = None
-    enabled: bool | None = None
 
 
 class DynamicAgentConfig(DynamicAgentConfigBase):
@@ -580,6 +724,15 @@ class ChatRequest(BaseModel):
     trace_id: str | None = Field(None, description="Optional trace ID for Langfuse tracing")
     client_context: ClientContext | None = Field(None, description="Opaque client context for system prompt rendering")
     memory_enabled: bool = Field(True, description="Whether memory retrieval/tools are enabled for this run")
+    config_override: dict | None = Field(
+        None,
+        description=(
+            "Override agent config fields for this request. "
+            "Supported: system_prompt, allowed_tools, model, builtin_tools, "
+            "interrupt_on, subagents, skills, features, backend. "
+            "Ignored: ui, name, description, owner_id, visibility, enabled, is_system, config_driven."
+        ),
+    )
 
 
 # =============================================================================
@@ -595,6 +748,7 @@ class AgentContext(BaseModel):
     user_groups: list[str] = []
     agent_config_id: str
     session_id: str
+    obo_jwt: str | None = None
 
 
 # =============================================================================
@@ -608,13 +762,3 @@ class ApiResponse(BaseModel):
     success: bool = True
     data: dict | list | None = None
     error: str | None = None
-
-
-class PaginatedResponse(BaseModel):
-    """Paginated list response."""
-
-    items: list
-    total: int
-    page: int
-    limit: int
-    total_pages: int

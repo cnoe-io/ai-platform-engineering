@@ -377,6 +377,12 @@ async def cleanup():
 #####
 # Health and config endpoints
 #####
+@app.get("/health")
+async def liveness():
+  """Liveness probe: process health only, no dependency checks."""
+  return {"status": "ok"}
+
+
 @app.get("/v1/graph/ontology/agent/status")
 async def healthz():
   return {

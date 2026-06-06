@@ -89,7 +89,12 @@ function useBuiltinDefinitions(): {
         const res = await fetch("/api/dynamic-agents/builtin-tools");
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const json = await res.json();
-        if (!cancelled) setDefinitions(json.data || []);
+        // The endpoint returns { data: { tools: [...] } }, but accept a bare
+        // array at json.data too for forward/backward compatibility.
+        const tools = Array.isArray(json.data)
+          ? json.data
+          : (json.data?.tools ?? []);
+        if (!cancelled) setDefinitions(tools);
       } catch (err) {
         if (!cancelled) {
           setError(
@@ -565,6 +570,13 @@ function McpServerRow({
       });
       const json = await res.json();
       if (json.success) {
+        if (json.data?.success === false) {
+          setProbe({
+            loading: false,
+            error: json.data.error || "Probe failed",
+          });
+          return;
+        }
         setProbe({ loading: false, tools: json.data?.tools ?? [] });
       } else {
         setProbe({ loading: false, error: json.error || "Probe failed" });

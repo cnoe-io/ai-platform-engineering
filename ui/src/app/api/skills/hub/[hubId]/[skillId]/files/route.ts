@@ -11,6 +11,7 @@ import {
   type HubSkillDoc,
   type SkillHubDoc,
 } from "@/lib/hub-crawl";
+import { requireResourcePermission } from "@/lib/rbac/resource-authz";
 
 const STORAGE_TYPE = isMongoDBConfigured ? "mongodb" : "none";
 
@@ -41,7 +42,12 @@ export const GET = withErrorHandler(
     const { searchParams } = new URL(request.url);
     const relPath = sanitizeRelPath(searchParams.get("path") ?? "");
 
-    return await withAuth(request, async () => {
+    return await withAuth(request, async (_req, _user, session) => {
+      await requireResourcePermission(session, {
+        type: "skill",
+        id: `hub-${hubId}-${skillId}`,
+        action: "read",
+      });
       const { hub, skillDir } = await resolveHubAndSkillDir(hubId, skillId);
 
       const fullPath = relPath ? `${skillDir}/${relPath}` : skillDir;

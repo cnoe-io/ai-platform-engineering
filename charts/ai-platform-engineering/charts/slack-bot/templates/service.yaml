@@ -1,4 +1,6 @@
-{{- if eq .Values.botMode "http" }}
+{{- $botMode := default "socket" (index .Values.config "SLACK_BOT_MODE") }}
+{{- $adminApiEnabled := eq (toString (default "false" (index .Values.config "SLACK_ADMIN_API_ENABLED"))) "true" }}
+{{- if or (eq $botMode "http") $adminApiEnabled }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -8,10 +10,18 @@ metadata:
 spec:
   type: ClusterIP
   ports:
+    {{- if eq $botMode "http" }}
     - port: 3000
       targetPort: 3000
       protocol: TCP
       name: http
+    {{- end }}
+    {{- if $adminApiEnabled }}
+    - port: {{ default "3001" (index .Values.config "SLACK_ADMIN_API_PORT") | int }}
+      targetPort: admin
+      protocol: TCP
+      name: admin
+    {{- end }}
   selector:
     {{- include "slack-bot.selectorLabels" . | nindent 4 }}
 {{- end }}

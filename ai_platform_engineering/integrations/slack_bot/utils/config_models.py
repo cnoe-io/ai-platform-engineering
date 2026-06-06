@@ -13,8 +13,6 @@ from pydantic import BaseModel, Field, model_validator
 
 
 class GlobalDefaults(BaseModel):
-  time_frame: int = 19800
-  max_messages: int = 3
   default_agent_id: str | None = None
   dm_agent_id: str | None = None
   victorops_agent_id: str | None = None
@@ -40,7 +38,6 @@ class EscalationConfig(BaseModel):
 class OverthinkConfig(BaseModel):
   enabled: bool = False
   skip_markers: list[str] = Field(default_factory=lambda: ["DEFER", "LOW_CONFIDENCE"])
-  custom_prompt: str | None = None
   followup_prompt: str | None = None
 
 
@@ -80,6 +77,11 @@ class AgentBinding(BaseModel):
 class ChannelConfig(BaseModel):
   name: str
   agents: list[AgentBinding] = Field(default_factory=list)
+  # Optional owning team slug. The YAML config has historically had no team
+  # concept; when set, the admin "import from config" flow can assign the
+  # channel to this team (writing the channel→team ReBAC binding) instead of
+  # leaving the imported channel team-less and unusable until a manual onboard.
+  team: str | None = None
 
 
 def get_escalation_config(agent_match: AgentBinding) -> EscalationConfig | None:

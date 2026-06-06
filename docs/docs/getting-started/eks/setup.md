@@ -127,7 +127,7 @@ Then:
 - [Configure Agent Secrets](./configure-agent-secrets) for the agents you enabled
 - [Configure LLMs](./configure-llms) for your chosen provider (Claude, OpenAI, etc.)
 
-Full details: [Deploy CAIPE with Helm](/getting-started/helm/setup).
+Full details: [Deploy CAIPE with Helm](/docs/getting-started/helm/setup).
 
 ### Option B: Use ArgoCD, then deploy CAIPE
 
@@ -146,7 +146,7 @@ kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/st
 kubectl port-forward svc/argocd-server -n argocd 8080:443
 ```
 
-Open http://localhost:8080. Then deploy CAIPE via the Helm chart (as in Option A) or by defining an ArgoCD Application that points at the same chart (see [Helm setup – ArgoCD](/getting-started/helm/setup#argocd)).
+Open http://localhost:8080. Then deploy CAIPE via the Helm chart (as in Option A) or by defining an ArgoCD Application that points at the same chart (see [Helm setup – ArgoCD](/docs/getting-started/helm/setup#argocd)).
 
 ---
 
@@ -255,5 +255,5 @@ aws cloudformation list-stacks --query 'StackSummaries[?contains(StackName, `eks
 
 - [Configure Agent Secrets](./configure-agent-secrets) — Secrets for GitHub, ArgoCD, and other agents
 - [Configure LLMs](./configure-llms) — LLM provider and API keys for CAIPE
-- [Deploy CAIPE with Helm](/getting-started/helm/setup) — Chart options, tags, and values
-- [Run with KinD](/getting-started/kind/setup) — Local one-command setup without AWS
+- [Deploy CAIPE with Helm](/docs/getting-started/helm/setup) — Chart options, tags, and values
+- [Run with KinD](/docs/getting-started/kind/setup) — Local one-command setup without AWS

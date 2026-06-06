@@ -17,6 +17,14 @@ import fs from "fs";
 import yaml from "js-yaml";
 import { getCollection } from "@/lib/mongodb";
 import { isMongoDBConfigured } from "@/lib/mongodb";
+import { writeOpenFgaTuples } from "@/lib/rbac/openfga";
+import { caipeOrgKey } from "@/lib/rbac/organization";
+import { BUILTIN_MCP_CREDENTIAL_SOURCES } from "@/lib/rbac/agentgateway-mcp-discovery";
+import {
+  reconcileConfigDrivenLlmModelRelationships,
+  reconcileConfigDrivenMcpServerRelationships,
+} from "@/lib/rbac/openfga-owned-resources";
+import { reconcileAgentRelationships } from "@/lib/rbac/openfga-agent-tools";
 import type {
   DynamicAgentConfig,
   MCPServerConfig,
@@ -24,6 +32,11 @@ import type {
   TransportType,
   VisibilityType,
 } from "@/types/dynamic-agent";
+import type {
+  WorkflowConfig,
+  WorkflowConfigVisibility,
+  StepEntry,
+} from "@/types/workflow-config";
 
 // Pattern to match ${VAR_NAME} or ${VAR_NAME:-default}
 const ENV_VAR_PATTERN = /\$\{([^}:]+)(?::-([^}]*))?\}/g;
@@ -43,6 +56,7 @@ interface SeedConfig {
   models: SeedModel[];
   agents: Record<string, unknown>[];
   mcp_servers: Record<string, unknown>[];
+  workflow_configs: Record<string, unknown>[];
 }
 
 /** Shape of documents in the llm_models collection. */
@@ -107,7 +121,7 @@ function loadSeedConfig(configPath: string): SeedConfig {
     console.warn(
       `[seed-config] Config not found at ${configPath}, skipping seed`,
     );
-    return { models: [], agents: [], mcp_servers: [] };
+    return { models: [], agents: [], mcp_servers: [], workflow_configs: [] };
   }
 
   const raw = fs.readFileSync(configPath, "utf-8");
@@ -124,8 +138,12 @@ function loadSeedConfig(configPath: string): SeedConfig {
     string,
     unknown
   >[];
+  const workflow_configs = expandEnvVars(parsed.workflow_configs ?? []) as Record<
+    string,
+    unknown
+  >[];
 
-  return { models, agents, mcp_servers };
+  return { models, agents, mcp_servers, workflow_configs };
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -156,6 +174,18 @@ async function seedAgents(
     const existing = await collection.findOne({ _id: agentId });
     const createdAt = existing?.created_at ?? now;
 
+    // Optional `owner_team` (slug) in the config makes the seeded agent owned by
+    // a team, which is what lets it be used in Slack channels mapped to that
+    // team — the bot's channel ReBAC check probes `team:<slug>#member can_use
+    // agent:<id>`, and only the OpenFGA reconcile below writes that tuple.
+    // `visibility: global` alone grants `user:*`, which does NOT satisfy a
+    // team-subject check.
+    const ownerTeamSlug =
+      (agentData.owner_team as string | undefined)?.trim() || null;
+    const sharedTeamSlugs = (
+      (agentData.shared_with_teams as string[] | undefined) ?? []
+    ).filter((slug) => slug && slug !== ownerTeamSlug);
+
     const doc = {
       _id: agentId,
       name: (agentData.name as string) ?? agentId,
@@ -172,12 +202,16 @@ async function seedAgents(
           },
       visibility: ((agentData.visibility as string) ?? "global") as VisibilityType,
       shared_with_teams:
-        (agentData.shared_with_teams as string[]) ?? undefined,
+        sharedTeamSlugs.length > 0 ? sharedTeamSlugs : undefined,
+      owner_team_slug: ownerTeamSlug ?? undefined,
       subagents: (agentData.subagents as SubAgentRef[]) ?? [],
       skills: (agentData.skills as string[]) ?? [],
       builtin_tools:
         (agentData.builtin_tools as DynamicAgentConfig["builtin_tools"]) ??
         undefined,
+      ui: (agentData.ui as DynamicAgentConfig["ui"]) ?? undefined,
+      features: (agentData.features as DynamicAgentConfig["features"]) ?? undefined,
+      interrupt_on: (agentData.interrupt_on as DynamicAgentConfig["interrupt_on"]) ?? undefined,
       enabled: (agentData.enabled as boolean) ?? true,
       owner_id: "system",
       is_system: false,
@@ -187,6 +221,34 @@ async function seedAgents(
     };
 
     await collection.replaceOne({ _id: agentId }, doc, { upsert: true });
+
+    // Write the OpenFGA ownership/share tuples (team#member→can_use,
+    // team#admin→can_manage) so an owner/shared team can actually use the agent
+    // — including in Slack channels mapped to that team. Without this, a seeded
+    // agent's team grants live only in Mongo and the PDP denies. Mirrors what
+    // the agent editor (POST /api/dynamic-agents) does. Best-effort: a failure
+    // here shouldn't abort seeding the rest of the config.
+    if (ownerTeamSlug) {
+      try {
+        await reconcileAgentRelationships({
+          agentId,
+          previousAllowedTools: {},
+          nextAllowedTools: doc.allowed_tools,
+          ownerSubject: null,
+          organizationId: caipeOrgKey(),
+          ownerTeamSlug,
+          nextSharedTeamSlugs: sharedTeamSlugs,
+          previousSharedTeamSlugs: [],
+          failClosed: false,
+        });
+      } catch (error) {
+        console.warn(
+          `[seed-config] Failed to reconcile OpenFGA team grants for agent ${agentId}:`,
+          error,
+        );
+      }
+    }
+
     console.log(`[seed-config] Seeded agent: ${agentId}`);
     count++;
   }
@@ -235,11 +297,33 @@ async function seedMCPServers(
     };
 
     await collection.replaceOne({ _id: serverId }, doc, { upsert: true });
+    await reconcileConfigDrivenMcpServerRelationships({
+      serverId,
+      organizationId: caipeOrgKey(),
+    });
     console.log(`[seed-config] Seeded MCP server: ${serverId}`);
     count++;
   }
 
   return count;
+}
+
+async function seedAgentGatewayAdminAccess(): Promise<void> {
+  try {
+    const orgKey = caipeOrgKey();
+    await writeOpenFgaTuples({
+      writes: [
+        {
+          user: `organization:${orgKey}#admin`,
+          relation: "manager",
+          object: "mcp_server:agentgateway",
+        },
+      ],
+      deletes: [],
+    });
+  } catch (error) {
+    console.warn("[seed-config] Failed to seed AgentGateway admin access:", error);
+  }
 }
 
 async function seedModels(models: SeedModel[]): Promise<number> {
@@ -271,10 +355,73 @@ async function seedModels(models: SeedModel[]): Promise<number> {
     await collection.replaceOne({ _id: model.model_id }, doc, {
       upsert: true,
     });
+    await reconcileConfigDrivenLlmModelRelationships({
+      modelId: model.model_id,
+      organizationId: caipeOrgKey(),
+    }).catch((error) => {
+      console.warn(
+        `[seed-config] Failed to reconcile config-driven LLM model OpenFGA tuples for ${model.model_id}:`,
+        error instanceof Error ? error.message : String(error),
+      );
+    });
     count++;
   }
 
   console.log(`[seed-config] Seeded ${count} models`);
+  return count;
+}
+
+async function seedWorkflowConfigs(
+  configs: Record<string, unknown>[],
+): Promise<number> {
+  if (configs.length === 0) return 0;
+
+  const collection = await getCollection<WorkflowConfig>("workflow_configs");
+  let count = 0;
+
+  for (const cfgData of configs) {
+    const cfgId = cfgData.id as string | undefined;
+    if (!cfgId) {
+      console.warn(
+        `[seed-config] Skipping workflow config without id: ${cfgData.name ?? "unknown"}`,
+      );
+      continue;
+    }
+
+    const now = new Date().toISOString();
+
+    // Preserve created_at if document already exists
+    const existing = await collection.findOne({ _id: cfgId });
+    const createdAt = existing?.created_at ?? now;
+
+    const visibility = ((cfgData.visibility as string) ?? "global") as WorkflowConfigVisibility;
+    const steps = (cfgData.steps ?? []) as StepEntry[];
+
+    // Ensure each step has type: "step" (YAML may omit it)
+    for (const step of steps) {
+      if (!step.type) {
+        (step as unknown as Record<string, unknown>).type = "step";
+      }
+    }
+
+    const doc = {
+      _id: cfgId,
+      name: (cfgData.name as string) ?? cfgId,
+      description: (cfgData.description as string) ?? "",
+      steps,
+      owner_id: "system",
+      visibility,
+      shared_with_teams: visibility === "team" ? (cfgData.shared_with_teams as string[]) : undefined,
+      config_driven: true,
+      created_at: createdAt,
+      updated_at: now,
+    };
+
+    await collection.replaceOne({ _id: cfgId }, doc, { upsert: true });
+    console.log(`[seed-config] Seeded workflow config: ${cfgId}`);
+    count++;
+  }
+
   return count;
 }
 
@@ -288,10 +435,11 @@ async function seedModels(models: SeedModel[]): Promise<number> {
  * When an entity is removed from config.yaml, it should be deleted
  * from the database on the next server restart.
  */
-async function cleanupStaleConfigDriven(
+export async function cleanupStaleConfigDriven(
   currentAgentIds: Set<string>,
   currentServerIds: Set<string>,
   currentModelIds: Set<string>,
+  currentWorkflowIds: Set<string>,
 ): Promise<void> {
   // Cleanup stale agents
   const agentCollection =
@@ -310,11 +458,19 @@ async function cleanupStaleConfigDriven(
     }
   }
 
-  // Cleanup stale MCP servers
+  // Cleanup stale MCP servers.
+  //
+  // Only delete servers that were seeded from the YAML config. AgentGateway-
+  // *discovered* servers also carry `config_driven: true` (so they're managed,
+  // not user-editable), but they are NOT part of the seed YAML — they're
+  // provisioned at runtime by MCP discovery/sync. Without the `source` guard,
+  // every restart wiped them (the seed config declares no `mcp_servers`),
+  // which silently removed e.g. the `knowledge-base` server and reintroduced
+  // the empty-Bearer 401 until the operator re-synced.
   const serverCollection =
     await getCollection<MCPServerConfig>("mcp_servers");
   const staleServers = await serverCollection
-    .find({ config_driven: true })
+    .find({ config_driven: true, source: { $ne: "agentgateway" } } as never)
     .toArray();
   let serversDeleted = 0;
   for (const server of staleServers) {
@@ -343,10 +499,26 @@ async function cleanupStaleConfigDriven(
     }
   }
 
-  if (agentsDeleted || serversDeleted || modelsDeleted) {
+  // Cleanup stale workflow configs
+  const workflowCollection = await getCollection<WorkflowConfig>("workflow_configs");
+  const staleWorkflows = await workflowCollection
+    .find({ config_driven: true })
+    .toArray();
+  let workflowsDeleted = 0;
+  for (const wf of staleWorkflows) {
+    if (!currentWorkflowIds.has(wf._id)) {
+      console.log(
+        `[seed-config] Removing stale config-driven workflow config: ${wf._id}`,
+      );
+      await workflowCollection.deleteOne({ _id: wf._id });
+      workflowsDeleted++;
+    }
+  }
+
+  if (agentsDeleted || serversDeleted || modelsDeleted || workflowsDeleted) {
     console.log(
       `[seed-config] Cleaned up stale config-driven entities: ` +
-        `${agentsDeleted} agents, ${serversDeleted} servers, ${modelsDeleted} models`,
+        `${agentsDeleted} agents, ${serversDeleted} servers, ${modelsDeleted} models, ${workflowsDeleted} workflows`,
     );
   }
 }
@@ -354,6 +526,288 @@ async function cleanupStaleConfigDriven(
 // ═══════════════════════════════════════════════════════════════
 // Main entry point
 // ═══════════════════════════════════════════════════════════════
+
+/**
+ * Default "Hello World" dynamic agent provisioned on a fresh install when
+ * no other agents exist. Exported for tests; callers should go through
+ * `bootstrapDefaultDynamicAgentIfEmpty()` so they get the empty-collection
+ * guard.
+ *
+ * Notes on the shape:
+ * - `config_driven: false` so admins can edit or delete it through the
+ *   normal Custom Agents UI. The bootstrap is a one-time seed, not a
+ *   policy lock — operators who want a curated default should add their
+ *   agent to the seed YAML and the bootstrap will then no-op (collection
+ *   no longer empty).
+ * - `model: { id: "", provider: "" }` defers model selection to the
+ *   dynamic-agents backend default. Hard-coding a model here would
+ *   couple bootstrap behavior to a specific deployment.
+ * - All four built-in tools enabled with conservative defaults
+ *   (`fetch_url` allow-list `*`, `sleep.max_seconds: 60`). Lock-down
+ *   environments can tighten these via the UI after first login.
+ */
+export const HELLO_WORLD_AGENT_ID = "hello-world";
+
+function buildHelloWorldAgentDoc(now: string): DynamicAgentConfig {
+  return {
+    _id: HELLO_WORLD_AGENT_ID,
+    name: "Hello World",
+    description:
+      "Default starter agent provisioned automatically when no dynamic agents exist. Has all built-in tools enabled (fetch URL, current time, user info, sleep). Edit or delete via the Custom Agents UI.",
+    system_prompt:
+      "You are Hello World, a friendly default assistant for testing and validating CAIPE. You can fetch web content, tell the current time, look up the signed-in user, and pause briefly when asked. Be concise and helpful.",
+    allowed_tools: {},
+    model: { id: "", provider: "" },
+    visibility: "global",
+    subagents: [],
+    skills: [],
+    builtin_tools: {
+      fetch_url: { enabled: true, allowed_domains: "*" },
+      current_datetime: { enabled: true },
+      user_info: { enabled: true },
+      sleep: { enabled: true, max_seconds: 60 },
+    },
+    enabled: true,
+    owner_id: "system",
+    is_system: false,
+    config_driven: false,
+    created_at: now,
+    updated_at: now,
+  } as DynamicAgentConfig;
+}
+
+/**
+ * Provision the "Hello World" default dynamic agent if and only if the
+ * `dynamic_agents` collection is empty. Idempotent and safe to call on
+ * every startup. Returns `true` when an agent was inserted, `false`
+ * otherwise (already populated, MongoDB unavailable, or insert failed).
+ */
+export async function bootstrapDefaultDynamicAgentIfEmpty(): Promise<boolean> {
+  if (!isMongoDBConfigured) return false;
+
+  const collection =
+    await getCollection<DynamicAgentConfig>("dynamic_agents");
+  const existingCount = await collection.countDocuments({});
+  if (existingCount > 0) return false;
+
+  const doc = buildHelloWorldAgentDoc(new Date().toISOString());
+  // Use insertOne to make the empty-collection invariant explicit. If a
+  // racing seedAgents() inserted something between countDocuments() and
+  // here, the unique _id index would already protect us, but a duplicate
+  // key error would still be reported — that's the right signal.
+  try {
+    await collection.insertOne(doc);
+  } catch (err) {
+    // Duplicate-key races are benign — another caller (or the YAML seed)
+    // beat us to it. Anything else is worth surfacing.
+    const code = (err as { code?: number } | null)?.code;
+    if (code === 11000) {
+      console.log(
+        "[seed-config] default dynamic agent already present (race), skipping",
+      );
+      return false;
+    }
+    throw err;
+  }
+  console.log(
+    `[seed-config] Provisioned default dynamic agent: ${HELLO_WORLD_AGENT_ID}`,
+  );
+  return true;
+}
+
+/**
+ * ID of the bootstrap identity-group-sync rule that gets seeded on a fresh
+ * install when IDENTITY_SYNC_LOGIN_AUTO_CREATE_TEAMS=true and no rules exist.
+ * Exposed so admins can recognize the seeded rule in the Admin UI / API and
+ * tests can target it.
+ */
+export const AUTO_CREATE_TEAMS_BOOTSTRAP_RULE_ID = "auto-create-teams-bootstrap";
+
+const AUTO_CREATE_TEAMS_BOOTSTRAP_ACTOR =
+  "system:auto-create-teams-bootstrap";
+
+/**
+ * Build the permissive default identity-group-sync rule. One rule that:
+ * - Matches every group claim via `^(?<team>.+)$` so the captured `team`
+ *   substitutes into the templates verbatim.
+ * - Names and slugs the team after the group itself (`{{team}}`); the slug
+ *   normalizer downstream handles casing and special chars.
+ * - Maps every member to `member` (admins still come from
+ *   BOOTSTRAP_ADMIN_EMAILS — silently promoting from claims would be
+ *   surprising and unsafe).
+ * - Has `auto_create_team: true` so the planner is allowed to create teams.
+ * - Sits at `priority: 1000` (higher numeric priority = lower precedence
+ *   per identity-group-rule-matcher.ts:73) so any admin-authored rule
+ *   wins for groups it cares about.
+ *
+ * Exported for tests; production callers should use the
+ * `bootstrapDefaultIdentityGroupSyncRuleIfEmpty()` wrapper which gates on
+ * the env var and the empty-collection invariant.
+ */
+export function buildAutoCreateTeamsBootstrapRule(now: string) {
+  return {
+    id: AUTO_CREATE_TEAMS_BOOTSTRAP_RULE_ID,
+    provider_id: "oidc-claims",
+    name: "Auto-create teams from OIDC group claims (bootstrap)",
+    priority: 1000,
+    enabled: true,
+    review_status: "enabled" as const,
+    include_patterns: ["^(?<team>.+)$"],
+    exclude_patterns: [],
+    team_name_template: "{{team}}",
+    team_slug_template: "{{team}}",
+    role_map: {},
+    auto_create_team: true,
+    created_by: AUTO_CREATE_TEAMS_BOOTSTRAP_ACTOR,
+    created_at: now,
+    updated_by: AUTO_CREATE_TEAMS_BOOTSTRAP_ACTOR,
+    updated_at: now,
+  };
+}
+
+/**
+ * Provision the bootstrap identity-group-sync rule if and only if:
+ * 1. `IDENTITY_SYNC_LOGIN_AUTO_CREATE_TEAMS === "true"` (the same opt-in
+ *    that gates the planner's allowTeamCreation; if you're not opting in,
+ *    we don't pre-create policy on your behalf), AND
+ * 2. The `identity_group_sync_rules` collection is empty (any
+ *    admin-curated rules — even unrelated to oidc-claims — are treated as
+ *    "the operator has taken over policy" and we step out of the way).
+ *
+ * Returns `true` on insert, `false` otherwise. Idempotent. Best-effort —
+ * race-conditioned duplicate keys are logged and swallowed.
+ */
+export async function bootstrapDefaultIdentityGroupSyncRuleIfEmpty(): Promise<boolean> {
+  if (process.env.IDENTITY_SYNC_LOGIN_AUTO_CREATE_TEAMS !== "true") {
+    return false;
+  }
+  if (!isMongoDBConfigured) return false;
+
+  const collection = await getCollection<{ id: string }>(
+    "identity_group_sync_rules",
+  );
+  const existingCount = await collection.countDocuments({});
+  if (existingCount > 0) return false;
+
+  const rule = buildAutoCreateTeamsBootstrapRule(new Date().toISOString());
+  try {
+    await collection.insertOne(rule as { id: string });
+  } catch (err) {
+    const code = (err as { code?: number } | null)?.code;
+    if (code === 11000) {
+      console.log(
+        "[seed-config] auto-create-teams bootstrap rule already present (race), skipping",
+      );
+      return false;
+    }
+    throw err;
+  }
+  console.log(
+    `[seed-config] Provisioned identity-group-sync rule: ${AUTO_CREATE_TEAMS_BOOTSTRAP_RULE_ID} (auto-create teams from any OIDC group claim, role=member)`,
+  );
+  return true;
+}
+
+/**
+ * Backfill `credential_sources` on built-in MCP servers that are missing them.
+ *
+ * AgentGateway discovery (the UI's MCP-server provisioning path) historically
+ * wrote `mcp_servers` documents without `credential_sources`, so transform-based
+ * routes received an empty Bearer and the upstream 401'd (most visibly
+ * `knowledge-base`/RAG). Fresh discoveries now attach the built-ins, but
+ * documents already persisted in an existing deployment need a one-time fix.
+ *
+ * This runs automatically on every server startup, so an operator's only
+ * "migration" step is rolling out the new image (e.g. `helm upgrade`). It is
+ * idempotent and non-destructive:
+ *   - Only matches docs where `credential_sources` is absent OR an empty array,
+ *     so re-runs are no-ops and an admin's customized sources are never clobbered.
+ *   - Keyed by the same {@link BUILTIN_MCP_CREDENTIAL_SOURCES} map used by fresh
+ *     discovery, so the backfill and insert paths cannot drift.
+ *
+ * @returns the number of documents actually updated (for logging).
+ */
+export async function backfillBuiltinMcpCredentialSources(): Promise<number> {
+  if (!isMongoDBConfigured) return 0;
+  const collection = await getCollection<MCPServerConfig>("mcp_servers");
+  let updated = 0;
+  for (const [id, sources] of Object.entries(BUILTIN_MCP_CREDENTIAL_SOURCES)) {
+    const result = await collection.updateOne(
+      {
+        _id: id,
+        $or: [
+          { credential_sources: { $exists: false } },
+          { credential_sources: { $size: 0 } },
+        ],
+      },
+      {
+        $set: {
+          credential_sources: sources,
+          updated_at: new Date().toISOString(),
+        },
+      },
+    );
+    if (result.modifiedCount > 0) {
+      updated += result.modifiedCount;
+      console.log(
+        `[seed-config] Backfilled credential_sources for MCP server: ${id}`,
+      );
+    }
+  }
+  return updated;
+}
+
+/**
+ * First-run / post-wipe safety net for AgentGateway-discovered MCP servers.
+ *
+ * Discovered servers (`source: "agentgateway"`) are runtime-provisioned by an
+ * explicit "Sync with AgentGateway" action — the YAML seed never declares them,
+ * and `backfillBuiltinMcpCredentialSources` only UPDATES existing docs. So once
+ * the `mcp_servers` collection loses its discovered rows (e.g. wiped by an
+ * older build that lacked the cleanup guard), nothing repopulates them until a
+ * human clicks Sync, leaving the MCP Servers tab empty (the recurring
+ * "No MCP Servers Yet" / knowledge-base 401 symptom).
+ *
+ * This runs ONE discovery pass at startup, but only when there are zero
+ * discovered servers, so it self-heals an empty/wiped collection without
+ * touching a healthy one. Idempotent and best-effort: any non-empty discovered
+ * set short-circuits, and a failed/unreachable AgentGateway is logged and
+ * swallowed (an empty collection is no worse than before).
+ *
+ * Returns the number of servers added/migrated by the heal (0 when skipped).
+ */
+export async function selfHealDiscoveredMcpServersIfEmpty(): Promise<number> {
+  if (!isMongoDBConfigured) return 0;
+
+  const collection = await getCollection<MCPServerConfig>("mcp_servers");
+  const discoveredCount = await collection.countDocuments({
+    source: "agentgateway",
+  });
+  if (discoveredCount > 0) return 0;
+
+  try {
+    const { syncSelectedAgentGatewayMcpServers } = await import(
+      "@/app/api/mcp-servers/agentgateway/_lib"
+    );
+    const result = await syncSelectedAgentGatewayMcpServers();
+    const healed = result.summary.added + result.summary.migrated;
+    if (healed > 0) {
+      console.log(
+        `[seed-config] Self-healed ${healed} AgentGateway MCP server(s) ` +
+          "into an empty collection (post-wipe / first-run recovery)",
+      );
+    }
+    return healed;
+  } catch (err) {
+    // AgentGateway unreachable or sync failed — leave the collection empty
+    // (operator can still click Sync). Never block startup.
+    console.error(
+      "[seed-config] AgentGateway MCP self-heal threw (collection left empty):",
+      err,
+    );
+    return 0;
+  }
+}
 
 /**
  * Load and apply seed configuration from YAML.
@@ -367,60 +821,149 @@ export async function applySeedConfig(): Promise<void> {
   const configPath = process.env.APP_CONFIG_PATH;
   if (!configPath) {
     console.log("[seed-config] APP_CONFIG_PATH not set, skipping seed");
-    return;
-  }
-
-  if (!isMongoDBConfigured) {
+  } else if (!isMongoDBConfigured) {
     console.warn(
       "[seed-config] MongoDB not configured, skipping seed",
     );
-    return;
+  } else {
+    try {
+      const config = loadSeedConfig(configPath);
+
+      console.log(
+        `[seed-config] Found ${config.models.length} models, ` +
+          `${config.mcp_servers.length} MCP servers, ` +
+          `${config.agents.length} agents, ` +
+          `${config.workflow_configs.length} workflow configs in config`,
+      );
+
+      // Extract current IDs for stale cleanup
+      const currentAgentIds = new Set(
+        config.agents
+          .map((a) => a.id as string)
+          .filter(Boolean),
+      );
+      const currentServerIds = new Set(
+        config.mcp_servers
+          .map((s) => s.id as string)
+          .filter(Boolean),
+      );
+      const currentModelIds = new Set(
+        config.models
+          .map((m) => m.model_id)
+          .filter(Boolean),
+      );
+      const currentWorkflowIds = new Set(
+        config.workflow_configs
+          .map((w) => w.id as string)
+          .filter(Boolean),
+      );
+
+      // Seed entities
+      const modelCount = await seedModels(config.models);
+      const serverCount = await seedMCPServers(config.mcp_servers);
+      await seedAgentGatewayAdminAccess();
+      const agentCount = await seedAgents(config.agents);
+      const workflowCount = await seedWorkflowConfigs(config.workflow_configs);
+
+      // Cleanup stale config-driven entities
+      await cleanupStaleConfigDriven(
+        currentAgentIds,
+        currentServerIds,
+        currentModelIds,
+        currentWorkflowIds,
+      );
+
+      // Backfill credential_sources on previously-discovered built-in MCP
+      // servers (idempotent self-migration for existing deployments).
+      const credBackfillCount = await backfillBuiltinMcpCredentialSources();
+
+      console.log(
+        `[seed-config] Applied: ${modelCount} models, ` +
+          `${serverCount} MCP servers, ${agentCount} agents, ${workflowCount} workflow configs` +
+          (credBackfillCount > 0
+            ? `, ${credBackfillCount} MCP credential_sources backfilled`
+            : ""),
+      );
+    } catch (err) {
+      // Log but don't crash — seeding failure shouldn't prevent startup
+      console.error("[seed-config] Failed to apply seed config:", err);
+    }
+  }
+
+  // Post-wipe / first-run safety net for AgentGateway-discovered MCP servers.
+  // Runs OUTSIDE the APP_CONFIG_PATH block so an empty collection self-heals
+  // even when no seed YAML is present. Best-effort — failures are logged but
+  // don't block startup, and a non-empty discovered set is a no-op.
+  if (isMongoDBConfigured) {
+    try {
+      await selfHealDiscoveredMcpServersIfEmpty();
+    } catch (err) {
+      console.error(
+        "[seed-config] AgentGateway MCP server self-heal threw:",
+        err,
+      );
+    }
+  }
+
+  // First-run safety net: if the dynamic_agents collection is still empty
+  // after the YAML seed runs (or if the YAML seed was skipped because
+  // APP_CONFIG_PATH was unset), provision a minimal "Hello World" default
+  // agent so freshly installed environments have something usable in the
+  // Custom Agents UI without operator action. Idempotent: only runs when
+  // collection.countDocuments({}) === 0, so any subsequent admin action
+  // (creating a real agent, deleting Hello World) prevents re-seeding.
+  // Best-effort — failures are logged but don't block startup.
+  if (isMongoDBConfigured) {
+    try {
+      await bootstrapDefaultDynamicAgentIfEmpty();
+    } catch (err) {
+      console.error(
+        "[seed-config] default dynamic agent bootstrap threw:",
+        err,
+      );
+    }
+  }
+
+  // First-run safety net for login-time team auto-creation. When
+  // IDENTITY_SYNC_LOGIN_AUTO_CREATE_TEAMS=true is set, the auth path forwards
+  // allowTeamCreation=true to the planner — but the planner still requires a
+  // matching identity_group_sync_rules row with auto_create_team=true. Without
+  // any rules, the reconciler bails silently at oidc-claim-reconciler.ts:99,
+  // making the env var look broken. Seed one permissive default rule so the
+  // env var actually works out of the box for fresh installs. Idempotent:
+  // only runs when the rules collection is empty, so admin-curated rules are
+  // never overwritten. Best-effort — failures are logged but don't block startup.
+  if (isMongoDBConfigured) {
+    try {
+      await bootstrapDefaultIdentityGroupSyncRuleIfEmpty();
+    } catch (err) {
+      console.error(
+        "[seed-config] default identity-group-sync rule bootstrap threw:",
+        err,
+      );
+    }
   }
 
   try {
-    const config = loadSeedConfig(configPath);
-
-    console.log(
-      `[seed-config] Found ${config.models.length} models, ` +
-        `${config.mcp_servers.length} MCP servers, ` +
-        `${config.agents.length} agents in config`,
+    const { bootstrapOAuthConnectorsFromEnv } = await import(
+      "@/lib/credentials/oauth-bootstrap"
     );
-
-    // Extract current IDs for stale cleanup
-    const currentAgentIds = new Set(
-      config.agents
-        .map((a) => a.id as string)
-        .filter(Boolean),
-    );
-    const currentServerIds = new Set(
-      config.mcp_servers
-        .map((s) => s.id as string)
-        .filter(Boolean),
-    );
-    const currentModelIds = new Set(
-      config.models
-        .map((m) => m.model_id)
-        .filter(Boolean),
-    );
-
-    // Seed entities
-    const modelCount = await seedModels(config.models);
-    const serverCount = await seedMCPServers(config.mcp_servers);
-    const agentCount = await seedAgents(config.agents);
-
-    // Cleanup stale config-driven entities
-    await cleanupStaleConfigDriven(
-      currentAgentIds,
-      currentServerIds,
-      currentModelIds,
-    );
-
-    console.log(
-      `[seed-config] Applied: ${modelCount} models, ` +
-        `${serverCount} MCP servers, ${agentCount} agents`,
-    );
+    await bootstrapOAuthConnectorsFromEnv();
   } catch (err) {
-    // Log but don't crash — seeding failure shouldn't prevent startup
-    console.error("[seed-config] Failed to apply seed config:", err);
+    console.error("[seed-config] credential OAuth bootstrap threw:", err);
+  }
+
+  // Spec 104: provision per-team Keycloak client scopes for any teams
+  // that pre-date the slug field. Lives inside applySeedConfig because
+  // Turbopack's instrumentation chunk tree-shakes a separate dynamic
+  // import (the seed-config chunk is reliably emitted, so we piggyback
+  // on it). Best-effort — failures are logged but don't block startup.
+  try {
+    const { syncTeamScopesOnStartup } = await import(
+      "@/lib/rbac/team-scope-sync"
+    );
+    await syncTeamScopesOnStartup();
+  } catch (err) {
+    console.error("[seed-config] team-scope sync threw:", err);
   }
 }

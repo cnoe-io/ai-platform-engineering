@@ -2,7 +2,7 @@
 
 import React from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useAdminRole } from "@/hooks/use-admin-role";
 import {
@@ -17,6 +17,9 @@ import {
   Bot,
   AlertTriangle,
   CalendarClock,
+  KeyRound,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 import { GithubIcon as Github } from "@/components/ui/icons";
 import { UserMenu } from "@/components/user-menu";
@@ -31,18 +34,17 @@ import { useCAIPEHealth } from "@/hooks/use-caipe-health";
 import { useRAGHealth } from "@/hooks/use-rag-health";
 import { useAgentRuntimeHealth } from "@/hooks/use-agent-runtime-health";
 import { useVersion } from "@/hooks/use-version";
+import { useReleaseUpgradePrompt } from "@/hooks/use-release-upgrade-prompt";
+import { useMigrationStatus } from "@/hooks/use-migration-status";
+import { useKeycloakHealthSummary } from "@/hooks/use-keycloak-health-summary";
+import { ReleaseUpgradeDialog } from "@/components/release/ReleaseUpgradeDialog";
 import { ReportProblemDialog } from "@/components/ticket/ReportProblemDialog";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { useToast } from "@/components/ui/toast";
 
 /** Format seconds into a human-readable interval (e.g., "3h", "30m", "45s") */
 function formatInterval(seconds: number): string {
@@ -73,6 +75,7 @@ function formatInterval(seconds: number): string {
  */
 const EDITOR_ROUTES_WITH_OWN_DISCARD_DIALOG = [
   "/task-builder",
+  "/workflows",
   "/skills/workspace",
   "/dynamic-agents",
 ];
@@ -87,6 +90,7 @@ const EDITOR_ROUTES_WITH_OWN_DISCARD_DIALOG = [
  */
 const EDITOR_ROUTES_WITH_HEADER_DIALOG = [
   "/task-builder",
+  "/workflows",
   "/dynamic-agents",
 ];
 
@@ -109,11 +113,15 @@ function GuardedLink({
   children,
   className,
   prefetch,
+  title,
+  "aria-label": ariaLabel,
 }: {
   href: string;
   children: React.ReactNode;
   className?: string;
   prefetch?: boolean;
+  title?: string;
+  "aria-label"?: string;
 }) {
   const { hasUnsavedChanges, requestNavigation } = useUnsavedChangesStore();
   const pathname = usePathname();
@@ -128,22 +136,71 @@ function GuardedLink({
   };
 
   return (
-    <Link href={href} prefetch={prefetch} className={className} onClick={handleClick}>
+    <Link
+      href={href}
+      prefetch={prefetch}
+      className={className}
+      onClick={handleClick}
+      title={title}
+      aria-label={ariaLabel}
+    >
       {children}
     </Link>
   );
 }
 
+// Baseline breakpoint: collapse the inline nav (Home/Chat/Skills/...) into
+// the "More" popover. Tuned so 8 primary nav pills + standard right-side
+// cluster (status pill + settings + user menu) still fit on a typical
+// laptop without overlap.
+const HEADER_NAV_COLLAPSE_QUERY = "(max-width: 1180px)";
+// Wider breakpoint used when an admin-only banner is showing on the right
+// (`migrationStatus.is_blocking` / `needs_version_bootstrap` /
+// `override_active`, or the Keycloak invariant alert chip). Each banner
+// pill adds ~140-200px of labelled width, and combined with the
+// full-text "Report a Problem" button can push the right cluster into
+// the inline nav — which then silently clips the last secondary item
+// (Admin) due to `overflow-hidden` on the left flex region. Collapsing
+// earlier in that case prevents the overlap that hides the Admin tab on
+// 1180-1500px viewports. Empirical: at 1440px with the Version metadata
+// chip showing, the inline nav was clipping Admin off-screen; 1500 is
+// the smallest breakpoint that gives reliable headroom for the wider
+// right cluster on every layout we've reproduced.
+const HEADER_NAV_COLLAPSE_QUERY_WITH_BANNER = "(max-width: 1500px)";
+
+function useHeaderNavCollapsed(earlyCollapse: boolean = false): boolean {
+  const query = earlyCollapse
+    ? HEADER_NAV_COLLAPSE_QUERY_WITH_BANNER
+    : HEADER_NAV_COLLAPSE_QUERY;
+
+  const [collapsed, setCollapsed] = React.useState(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return false;
+    return window.matchMedia(query).matches;
+  });
+
+  React.useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const media = window.matchMedia(query);
+    const handleChange = () => setCollapsed(media.matches);
+    handleChange();
+    media.addEventListener?.("change", handleChange);
+    return () => media.removeEventListener?.("change", handleChange);
+  }, [query]);
+
+  return collapsed;
+}
+
 export function AppHeader() {
   const pathname = usePathname();
   const { data: session } = useSession();
-  const { isAdmin, canViewAdmin, canAccessDynamicAgents } = useAdminRole();
+  const { isAdmin } = useAdminRole();
   const { isStreaming, streamingConversations, unviewedConversations, inputRequiredConversations } = useChatStore();
   const {
     hasUnsavedChanges,
     pendingNavigationHref,
     cancelNavigation,
     confirmNavigation,
+    requestNavigation,
     setUnsaved,
   } = useUnsavedChangesStore();
 
@@ -168,6 +225,15 @@ export function AppHeader() {
   }, [cancelNavigation]);
 
   const [reportDialogOpen, setReportDialogOpen] = React.useState(false);
+  // Controlled state for the admin alerts popover. Per-row clicks
+  // navigate programmatically via `router.push()` (not via an `<a>`
+  // inside the popover) because the popover's own outside-click
+  // listener tears down the floating layer before the browser's
+  // synthetic click on a nested `<a>` can fire — the navigation
+  // visibly does nothing in that race. Programmatic navigation + an
+  // explicit close-after-push is deterministic.
+  const [alertsPopoverOpen, setAlertsPopoverOpen] = React.useState(false);
+  const router = useRouter();
 
   // Debug logging for admin tab
   React.useEffect(() => {
@@ -206,6 +272,29 @@ export function AppHeader() {
 
   // Fetch version info
   const { versionInfo } = useVersion();
+  const releasePrompt = useReleaseUpgradePrompt();
+  const migrationStatus = useMigrationStatus();
+  // Admin-only Keycloak health summary so the header chip can surface
+  // invariant failures (e.g. missing OBO scope binding, AFFIRMATIVE policy
+  // misconfiguration) without making the admin navigate to Security &
+  // Policy → Keycloak just to notice. Gated by `isAdmin` so non-admin
+  // sessions never trigger the underlying Keycloak Admin round-trip.
+  const keycloakHealth = useKeycloakHealthSummary({ enabled: isAdmin });
+  const { toast } = useToast();
+  const noAuthConfigured = !config.ssoEnabled || config.unsafeRbacBypassEnabled;
+  const noAuthStatusText = config.unsafeRbacBypassEnabled
+    ? "RBAC bypass is enabled. UI authorization checks allow every operation."
+    : "SSO is disabled. This deployment is not enforcing browser sign-in.";
+
+  React.useEffect(() => {
+    if (!session || !releasePrompt.toastNotification) return;
+    toast(
+      releasePrompt.toastNotification.message,
+      "info",
+      releasePrompt.toastNotification.duration,
+    );
+    releasePrompt.markToastShown();
+  }, [releasePrompt, session, toast]);
 
   // Combined status: if either is checking -> checking, if supervisor is disconnected -> disconnected,
   // if only RAG is disconnected (supervisor connected) -> rag-disconnected (amber warning), else connected
@@ -219,11 +308,18 @@ export function AppHeader() {
   };
 
   const combinedStatus = getCombinedStatus();
+  const combinedStatusLabel =
+    combinedStatus === "connected" ? "Connected" :
+    combinedStatus === "checking" ? "Checking" :
+    combinedStatus === "rag-disconnected" ? "RAG Disconnected" :
+    "Disconnected";
 
   const getActiveTab = () => {
     if (pathname === "/") return "home";
     if (pathname?.startsWith("/chat")) return "chat";
     if (pathname?.startsWith("/knowledge-bases")) return "knowledge";
+    if (pathname?.startsWith("/credentials")) return "credentials";
+    if (pathname?.startsWith("/workflows")) return "workflows";
     if (pathname?.startsWith("/task-builder")) return "task-builder";
     if (pathname?.startsWith("/skills") || pathname?.startsWith("/use-cases")) return "skills";
     if (pathname?.startsWith("/dynamic-agents")) return "dynamic-agents";
@@ -233,11 +329,213 @@ export function AppHeader() {
   };
 
   const activeTab = getActiveTab();
+  // Admin-only alerts shown in the right cluster. Sources collapse into
+  // a SINGLE pill ("Alerts: <total>") to keep the header uncluttered —
+  // see the rendering block further down. Severity is `red` when the
+  // condition is service-down / blocking; `amber` otherwise.
+  //
+  // Order matters for two things:
+  //   - the unified pill's deep-link picks the first entry by severity
+  //     (red wins, then array order for ties), and
+  //   - the title / aria-label lists alerts in the same order so the
+  //     hover-text is stable.
+  //
+  // Counts use the same numbers each individual source previously
+  // displayed in its own chip, so the total in the unified pill is
+  // a simple sum across the visible sources.
+  type AdminAlertSource = {
+    id: string;
+    label: string;
+    count: number;
+    severity: "red" | "amber";
+    href: string;
+  };
+  const keycloakSummary = keycloakHealth.summary;
+  const keycloakStatus =
+    keycloakSummary?.status ?? (keycloakSummary?.reachable ? "reachable" : "unreachable");
+  const keycloakStatusAlert =
+    keycloakSummary?.configured && keycloakStatus !== "reachable"
+      ? {
+          id:
+            keycloakStatus === "admin_authorization_error"
+              ? "keycloak_admin_authorization"
+              : keycloakStatus === "reconciliation_error"
+                ? "keycloak_reconciliation_error"
+                : "keycloak_unreachable",
+          label:
+            keycloakStatus === "admin_authorization_error"
+              ? `Keycloak admin API authorization failed for realm ${keycloakSummary.realm}`
+              : keycloakStatus === "reconciliation_error"
+                ? `Keycloak reconciliation failing for realm ${keycloakSummary.realm}`
+                : `Keycloak realm ${keycloakSummary.realm} unreachable`,
+          count: 1,
+          severity: "red" as const,
+          href: "/admin?cat=security&tab=keycloak",
+        }
+      : null;
+  const adminAlerts: AdminAlertSource[] = isAdmin
+    ? ([
+        keycloakStatusAlert,
+        migrationStatus.status?.is_blocking
+          ? {
+              id: "migrations_blocking",
+              label: "Migrations required",
+              count: migrationStatus.status.blocking_required_count ?? 0,
+              severity: "red" as const,
+              href: "/admin?cat=security&tab=migrations",
+            }
+          : null,
+        keycloakHealth.summary?.invariants && keycloakHealth.summary.invariants.failing > 0
+          ? {
+              id: "keycloak_invariants",
+              label: `Keycloak invariant${keycloakHealth.summary.invariants.failing === 1 ? "" : "s"} failing`,
+              count: keycloakHealth.summary.invariants.failing,
+              severity: "amber" as const,
+              href: "/admin?cat=security&tab=keycloak",
+            }
+          : null,
+        !migrationStatus.status?.is_blocking && migrationStatus.status?.needs_version_bootstrap
+          ? {
+              id: "version_bootstrap",
+              label: "Version metadata needed",
+              count: migrationStatus.status.version_bootstrap_required_count ?? 0,
+              severity: "amber" as const,
+              href: "/admin?cat=security&tab=migrations",
+            }
+          : null,
+        !migrationStatus.status?.is_blocking && migrationStatus.status?.override_active
+          ? {
+              id: "migration_override",
+              label: "Migration override active",
+              count: 1,
+              severity: "amber" as const,
+              href: "/admin?cat=security&tab=migrations",
+            }
+          : null,
+      ].filter(Boolean) as AdminAlertSource[])
+    : [];
+  // The early-collapse signal for the inline nav: any time the admin
+  // alert pill is showing it adds ~140-200px of width to the right
+  // cluster, which can push the inline nav (including the Admin tab)
+  // into overflow. Keep the existing breakpoint behavior by treating
+  // the unified pill the same as the old per-source banners.
+  const hasMigrationBanner = adminAlerts.length > 0;
+  const headerNavCollapsed = useHeaderNavCollapsed(hasMigrationBanner);
+  const secondaryNavItems = [
+    config.taskBuilderEnabled && {
+      key: "task-builder",
+      href: "/task-builder",
+      label: "Task Builder",
+      Icon: Workflow,
+      activeClassName: "bg-primary text-primary-foreground shadow-sm",
+    },
+    config.workflowsEnabled && {
+      key: "workflows",
+      href: "/workflows",
+      label: "Workflows",
+      Icon: Workflow,
+      activeClassName: "bg-primary text-primary-foreground shadow-sm",
+    },
+    ragEnabled && {
+      key: "knowledge",
+      href: "/knowledge-bases",
+      label: "Knowledge Bases",
+      Icon: Database,
+      activeClassName: "bg-primary text-primary-foreground shadow-sm",
+    },
+    storageMode === "mongodb" && config.dynamicAgentsEnabled && {
+      key: "dynamic-agents",
+      href: "/dynamic-agents",
+      label: "Agents",
+      Icon: Bot,
+      activeClassName: "bg-purple-500 text-white shadow-sm",
+    },
+    storageMode === "mongodb" && config.dynamicAgentsEnabled && {
+      key: "schedules",
+      href: "/schedules",
+      label: "Schedules",
+      Icon: CalendarClock,
+      activeClassName: "bg-primary text-primary-foreground shadow-sm",
+    },
+    storageMode === "mongodb" && config.credentialsEnabled && {
+      key: "credentials",
+      href: "/credentials",
+      label: "Connections",
+      Icon: KeyRound,
+      activeClassName: "bg-primary text-primary-foreground shadow-sm",
+    },
+    (session || isAdmin) && {
+      key: "admin",
+      href: "/admin",
+      label: "Admin",
+      Icon: Shield,
+      disabled: storageMode !== "mongodb",
+      activeClassName:
+        activeTab === "admin" && isAdmin
+          ? "bg-red-500 text-white shadow-sm"
+          : "bg-primary text-primary-foreground shadow-sm",
+    },
+  ].filter(Boolean) as Array<{
+    key: string;
+    href: string;
+    label: string;
+    Icon: React.ComponentType<{ className?: string }>;
+    activeClassName: string;
+    disabled?: boolean;
+  }>;
+
+  const renderSecondaryNavItem = (
+    item: (typeof secondaryNavItems)[number],
+    variant: "inline" | "menu",
+  ) => {
+    const Icon = item.Icon;
+    const baseClassName =
+      variant === "inline"
+        ? "flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all"
+        : "flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors";
+    const inactiveClassName =
+      variant === "inline"
+        ? "text-muted-foreground hover:text-foreground"
+        : "text-muted-foreground hover:bg-muted hover:text-foreground";
+    const disabledClassName =
+      variant === "inline"
+        ? "text-muted-foreground/50 opacity-50 cursor-not-allowed"
+        : "text-muted-foreground/50 opacity-50 cursor-not-allowed";
+    const className = cn(
+      baseClassName,
+      item.disabled
+        ? disabledClassName
+        : activeTab === item.key
+          ? item.activeClassName
+          : inactiveClassName,
+    );
+
+    const content = (
+      <>
+        <Icon className="h-3.5 w-3.5 shrink-0" />
+        {item.label}
+      </>
+    );
+
+    if (item.disabled) {
+      return (
+        <div key={item.key} className={className}>
+          {content}
+        </div>
+      );
+    }
+
+    return (
+      <GuardedLink key={item.key} href={item.href} prefetch={true} className={className}>
+        {content}
+      </GuardedLink>
+    );
+  };
 
   return (
     <>
-    <header className="h-14 border-b border-border/50 bg-card/50 backdrop-blur-xl flex items-center justify-between px-4 shrink-0 z-50">
-      <div className="flex items-center gap-4 min-w-0">
+    <header className="h-14 overflow-hidden border-b border-border/50 bg-card/50 backdrop-blur-xl flex items-center justify-between gap-2 px-3 sm:px-4 shrink-0 z-50">
+      <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-4 overflow-hidden">
         {/* Logo - clickable to home */}
         <GuardedLink
           href="/"
@@ -248,9 +546,9 @@ export function AppHeader() {
             alt={`${config.appName} Logo`}
             className={`h-8 w-auto ${getLogoFilterClass(config.logoStyle)}`}
           />
-          <span className="font-bold text-base gradient-text">{config.appName}</span>
+          <span className="hidden sm:inline font-bold text-base gradient-text">{config.appName}</span>
           {config.envBadge && (
-            <span className="px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider bg-amber-500/20 text-amber-500 border border-amber-500/30 rounded">
+            <span className="hidden md:inline-flex px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider bg-amber-500/20 text-amber-500 border border-amber-500/30 rounded">
               {config.envBadge}
             </span>
           )}
@@ -319,121 +617,45 @@ export function AppHeader() {
             <Zap className="h-3.5 w-3.5 shrink-0" />
             Skills
           </GuardedLink>
-          <GuardedLink
-            href="/task-builder"
-            prefetch={true}
-            className={cn(
-              "flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all",
-              activeTab === "task-builder"
-                ? "bg-primary text-primary-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            <Workflow className="h-3.5 w-3.5 shrink-0" />
-            Task Builder
-          </GuardedLink>
-          {/* Knowledge Bases tab - only show if RAG is enabled */}
-          {ragEnabled && (
-            <GuardedLink
-              href="/knowledge-bases"
-              prefetch={true}
-              className={cn(
-                "flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all",
-                activeTab === "knowledge"
-                  ? "bg-primary text-primary-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              <Database className="h-3.5 w-3.5 shrink-0" />
-               Knowledge Bases
-            </GuardedLink>
-          )}
-          {/* Dynamic Agents tab - gated by OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP (falls back to admin) */}
-          {canAccessDynamicAgents && storageMode === 'mongodb' && config.dynamicAgentsEnabled && (
-            <GuardedLink
-              href="/dynamic-agents"
-              prefetch={true}
-              className={cn(
-                "flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all",
-                activeTab === "dynamic-agents"
-                  ? "bg-purple-500 text-white shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              <Bot className="h-3.5 w-3.5 shrink-0" />
-              Agents
-            </GuardedLink>
-          )}
-          {storageMode === 'mongodb' && config.dynamicAgentsEnabled && (
-            <GuardedLink
-              href="/schedules"
-              prefetch={true}
-              className={cn(
-                "flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all",
-                activeTab === "schedules"
-                  ? "bg-primary text-primary-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              <CalendarClock className="h-3.5 w-3.5 shrink-0" />
-              Schedules
-            </GuardedLink>
-          )}
-          {/* Admin tab - visible to all authenticated users (readonly), admins get full access */}
-          {canViewAdmin && (
-            <TooltipProvider delayDuration={300}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  {storageMode === 'mongodb' ? (
-                    <GuardedLink
-                      href="/admin"
-                      prefetch={true}
-                      className={cn(
-                        "flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all",
-                        activeTab === "admin" && isAdmin
-                          ? "bg-red-500 text-white shadow-sm"
-                          : activeTab === "admin"
-                          ? "bg-primary text-primary-foreground shadow-sm"
-                          : "text-muted-foreground hover:text-foreground"
-                      )}
-                    >
-                      <Shield className="h-3.5 w-3.5 shrink-0" />
-                      Admin
-                    </GuardedLink>
-                  ) : (
-                    <div
-                      className={cn(
-                        "flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all cursor-not-allowed",
-                        "text-muted-foreground/50 opacity-50"
-                      )}
-                    >
-                      <Shield className="h-3.5 w-3.5 shrink-0" />
-                      Admin
-                    </div>
+          {!headerNavCollapsed && secondaryNavItems.map((item) => renderSecondaryNavItem(item, "inline"))}
+          {headerNavCollapsed && secondaryNavItems.length > 0 && (
+            <Popover>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  aria-label="More navigation"
+                  className={cn(
+                    "flex h-8 items-center justify-center gap-1.5 rounded-full px-3 text-[13px] font-medium whitespace-nowrap transition-all",
+                    secondaryNavItems.some((item) => activeTab === item.key)
+                      ? "bg-primary text-primary-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground",
                   )}
-                </TooltipTrigger>
-                {storageMode !== 'mongodb' && (
-                  <TooltipContent side="bottom" className="max-w-xs">
-                    <p className="text-xs">
-                      Admin dashboard requires MongoDB to be configured. Please set up MongoDB to enable user and team management.
-                    </p>
-                  </TooltipContent>
-                )}
-              </Tooltip>
-            </TooltipProvider>
+                >
+                  <span>More</span>
+                  <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent side="bottom" align="start" className="w-56 p-2">
+                <div className="space-y-1">
+                  {secondaryNavItems.map((item) => renderSecondaryNavItem(item, "menu"))}
+                </div>
+              </PopoverContent>
+            </Popover>
           )}
         </div>
       </div>
 
       {/* Status & Actions */}
-      <div className="flex items-center gap-3">
+      <div className={cn("flex shrink-0 items-center", headerNavCollapsed ? "gap-1.5" : "gap-3")}>
         {/* Combined Connection Status */}
         <div className="flex items-center gap-2">
           <Popover>
             <PopoverTrigger asChild>
               <button
+                aria-label={`System status: ${combinedStatusLabel}`}
                 className={cn(
                   "flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium cursor-pointer transition-all hover:scale-105",
+                  headerNavCollapsed && "h-8 w-8 justify-center px-0",
                   combinedStatus === "connected" && "bg-green-500/15 text-green-400 border border-green-500/30 hover:bg-green-500/20",
                   combinedStatus === "checking" && "bg-amber-500/15 text-amber-400 border border-amber-500/30 hover:bg-amber-500/20",
                   combinedStatus === "rag-disconnected" && "bg-amber-500/15 text-amber-400 border border-amber-500/30 hover:bg-amber-500/20",
@@ -451,20 +673,17 @@ export function AppHeader() {
                     isStreaming && "animate-pulse"
                   )} />
                 )}
-                {combinedStatus === "connected" ? "Connected" :
-                 combinedStatus === "checking" ? "Checking" :
-                 combinedStatus === "rag-disconnected" ? "RAG Disconnected" :
-                 "Disconnected"}
+                <span className={headerNavCollapsed ? "sr-only" : ""}>{combinedStatusLabel}</span>
               </button>
             </PopoverTrigger>
-            <PopoverContent side="bottom" align="end" className="w-[600px] p-0 overflow-hidden border-2">
+            <PopoverContent side="bottom" align="end" className="w-[600px] max-w-[calc(100vw-1rem)] p-0 overflow-hidden border-2">
               <div className="bg-gradient-to-br from-card via-card to-card/95">
                 {/* Header with gradient */}
                 <div className="gradient-primary-br p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex-1">
                       <div className="text-base font-bold text-white mb-1">System Status</div>
-                      <div className="text-xs text-white/80">{config.appName} Supervisor & RAG Server</div>
+                      <div className="text-xs text-white/80">{config.appName} Agents & Knowledge Services</div>
                     </div>
                     <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/20 backdrop-blur-sm">
                       <span className={cn(
@@ -751,20 +970,181 @@ export function AppHeader() {
               </div>
             </PopoverContent>
           </Popover>
+          {noAuthConfigured && (
+            <Popover>
+              <PopoverTrigger asChild>
+                <button
+                  aria-label="No auth configured"
+                  className={cn(
+                    "flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-amber-500/30 bg-amber-500/15 text-xs font-medium text-amber-500 transition-all hover:bg-amber-500/20 hover:scale-105",
+                    headerNavCollapsed && "h-8 w-8 justify-center px-0",
+                  )}
+                >
+                  <AlertTriangle className="h-3 w-3" />
+                  <span className={headerNavCollapsed ? "sr-only" : ""}>No Auth</span>
+                </button>
+              </PopoverTrigger>
+              <PopoverContent side="bottom" align="end" className="w-80 p-3">
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 text-sm font-semibold text-amber-500">
+                    <AlertTriangle className="h-4 w-4" />
+                    No Auth Configured
+                  </div>
+                  <p className="text-xs leading-relaxed text-muted-foreground">
+                    {noAuthStatusText} All operations should be treated as admin-capable. Do not use this mode in production.
+                  </p>
+                </div>
+              </PopoverContent>
+            </Popover>
+          )}
+          {/*
+            Unified admin alerts pill. Replaces four previously separate
+            chips (Migrations required, Version metadata needed,
+            Migration override active, Keycloak unreachable / failing
+            invariants) with a single labelled `Alerts: <total>` trigger
+            so the header stays compact when multiple subsystems flag
+            issues simultaneously. Trigger severity is the worst across
+            all visible sources (red wins over amber).
+
+            Clicking the pill opens a popover that lists EVERY active
+            alert as its own row, each with its own GuardedLink to the
+            relevant admin tab. This replaces the previous "single
+            deep-link to the highest-severity source" behavior which
+            silently hid lower-severity items and produced confusing
+            no-ops when the user was already on the destination tab.
+
+            Per-row navigation uses GuardedLink so unsaved-changes
+            guards still fire. The popover closes itself on row click
+            via the controlled `alertsPopoverOpen` state so the
+            destination doesn't see a stale open popover after route
+            transition.
+          */}
+          {adminAlerts.length > 0 && (() => {
+            const hasRed = adminAlerts.some((a) => a.severity === "red");
+            const totalCount = adminAlerts.reduce((sum, a) => sum + a.count, 0);
+            const breakdown = adminAlerts
+              .map((a) => `${a.label}: ${a.count}`)
+              .join(" · ");
+            const triggerLabel = `${totalCount} admin alert${totalCount === 1 ? "" : "s"} — ${breakdown}. Click to see the list and choose which one to fix.`;
+            return (
+              <Popover open={alertsPopoverOpen} onOpenChange={setAlertsPopoverOpen}>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label={triggerLabel}
+                    aria-haspopup="dialog"
+                    title={triggerLabel}
+                    data-testid="header-admin-alerts-trigger"
+                    className={cn(
+                      "flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-all cursor-pointer hover:scale-105",
+                      hasRed
+                        ? "border-red-500/30 bg-red-500/15 text-red-500 hover:bg-red-500/20"
+                        : "border-amber-500/30 bg-amber-500/15 text-amber-500 hover:bg-amber-500/20",
+                    )}
+                  >
+                    <AlertTriangle className="h-3 w-3" />
+                    <span className="hidden xl:inline">Alerts:</span>
+                    <span>{totalCount}</span>
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent
+                  side="bottom"
+                  align="end"
+                  className="w-80 p-2"
+                  data-testid="header-admin-alerts-popover"
+                >
+                  <div className="px-2 py-1.5 border-b mb-1">
+                    <p className="text-xs font-semibold text-foreground">
+                      Admin alerts ({totalCount})
+                    </p>
+                    <p className="text-[11px] text-muted-foreground">
+                      Choose an alert to open its admin tab.
+                    </p>
+                  </div>
+                  <ul className="space-y-0.5" role="list">
+                    {adminAlerts.map((alert) => {
+                      const rowLabel = `${alert.label} (${alert.count}) — open ${alert.href.includes("tab=keycloak") ? "Keycloak" : "Migrations"} tab to fix`;
+                      const handleAlertNavigate = () => {
+                        // Honour the unsaved-changes guard the same way
+                        // GuardedLink does — if the user has pending edits
+                        // on the current page, defer navigation to the
+                        // discard dialog; otherwise push immediately.
+                        if (hasUnsavedChanges) {
+                          requestNavigation(alert.href);
+                        } else {
+                          router.push(alert.href);
+                        }
+                        setAlertsPopoverOpen(false);
+                      };
+                      return (
+                        <li key={alert.id}>
+                          <button
+                            type="button"
+                            onClick={handleAlertNavigate}
+                            aria-label={rowLabel}
+                            title={rowLabel}
+                            data-testid={`admin-alert-row-${alert.id}`}
+                            className={cn(
+                              "flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-xs transition-colors",
+                              "hover:bg-muted focus-visible:bg-muted focus-visible:outline-none",
+                              alert.severity === "red"
+                                ? "text-red-500"
+                                : "text-amber-500",
+                            )}
+                          >
+                            <span className="flex items-center gap-2 min-w-0">
+                              <span
+                                aria-hidden="true"
+                                className={cn(
+                                  "h-2 w-2 shrink-0 rounded-full",
+                                  alert.severity === "red"
+                                    ? "bg-red-500"
+                                    : "bg-amber-500",
+                                )}
+                              />
+                              <span className="truncate">{alert.label}</span>
+                            </span>
+                            <span className="flex items-center gap-1 shrink-0">
+                              <span
+                                className={cn(
+                                  "tabular-nums",
+                                  alert.severity === "red"
+                                    ? "text-red-500"
+                                    : "text-amber-500",
+                                )}
+                              >
+                                {alert.count}
+                              </span>
+                              <ChevronRight className="h-3 w-3 text-muted-foreground" />
+                            </span>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </PopoverContent>
+              </Popover>
+            );
+          })()}
         </div>
 
         {/* Personalization, Links & User */}
-        <div className="flex items-center gap-1 border-l border-border pl-3">
+        <div className={cn("flex items-center gap-1 border-l border-border", headerNavCollapsed ? "pl-1.5" : "pl-3")}>
           {config.reportProblemEnabled && (
             <>
               <Button
                 variant="ghost"
-                size="sm"
-                className="h-8 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+                size={headerNavCollapsed ? "icon" : "sm"}
+                aria-label="Report a Problem"
+                title="Report a Problem"
+                className={cn(
+                  "h-8 text-xs text-muted-foreground hover:text-foreground",
+                  headerNavCollapsed ? "w-8" : "gap-1.5",
+                )}
                 onClick={() => setReportDialogOpen(true)}
               >
                 <AlertTriangle className="h-3.5 w-3.5" />
-                Report a Problem
+                {!headerNavCollapsed && "Report a Problem"}
               </Button>
               <ReportProblemDialog
                 open={reportDialogOpen}
@@ -772,7 +1152,7 @@ export function AppHeader() {
               />
             </>
           )}
-          <SettingsPanel />
+          <SettingsPanel compact={headerNavCollapsed} />
           {config.docsUrl && (
             <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
               <a
@@ -798,7 +1178,7 @@ export function AppHeader() {
             </Button>
           )}
           {/* User Menu - Only shown when SSO is enabled */}
-          <UserMenu />
+          <UserMenu compact={headerNavCollapsed} />
         </div>
       </div>
     </header>
@@ -810,6 +1190,20 @@ export function AppHeader() {
         onCancel={handleCancel}
         title="Unsaved changes"
         description="You have unsaved changes. They will be lost if you leave now."
+      />
+    )}
+    {session && releasePrompt.releaseVersion && (
+      <ReleaseUpgradeDialog
+        open={releasePrompt.open}
+        isAdmin={releasePrompt.isAdmin}
+        releaseVersion={releasePrompt.releaseVersion}
+        release={releasePrompt.release}
+        releaseMarkdown={releasePrompt.releaseMarkdown}
+        onOpenMigrationAssistant={releasePrompt.openMigrationAssistant}
+        onSkipUntilNextLogin={releasePrompt.skipUntilNextLogin}
+        onDismissPermanently={releasePrompt.dismissPermanently}
+        showMigrationCta={releasePrompt.showMigrationCta}
+        isDismissing={releasePrompt.isDismissing}
       />
     )}
     </>

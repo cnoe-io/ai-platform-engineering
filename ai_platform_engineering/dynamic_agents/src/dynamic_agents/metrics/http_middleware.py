@@ -16,7 +16,7 @@ from dynamic_agents.metrics.agent_metrics import metrics
 logger = logging.getLogger(__name__)
 
 # Paths that we skip tracking (but still serve)
-_EXCLUDED = frozenset({"/health", "/ready", "/healthz", "/"})
+_EXCLUDED = frozenset({"/health", "/ready", "/healthz", "/", "/metrics"})
 
 
 class PrometheusHTTPMiddleware(BaseHTTPMiddleware):

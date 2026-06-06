@@ -34,9 +34,9 @@ jobs:
     if: >
       ${{
         !(
-          github.actor == 'caipe-release-bot[bot]' ||
-          github.event.head_commit.author.email == 'caipe-release-bot[bot]@users.noreply.github.com' ||
-          github.event.head_commit.committer.email == 'caipe-release-bot[bot]@users.noreply.github.com' ||
+          github.actor == 'caipe-ci-release[bot]' ||
+          github.event.head_commit.author.email == 'caipe-ci-release[bot]@users.noreply.github.com' ||
+          github.event.head_commit.committer.email == 'caipe-ci-release[bot]@users.noreply.github.com' ||
           (
             startsWith(github.ref, 'refs/heads/release/') &&
             startsWith(github.event.head_commit.message, 'chore: bump version to ') &&
@@ -54,16 +54,16 @@ jobs:
       }}
     steps:
       - name: 🔒 Harden runner
-        uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450 # v2.19.1
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
         with:
           egress-policy: audit
 
       - name: 🔑 Generate GitHub App token
         id: app-token
-        uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         with:
-          app-id: ${{ secrets.RELEASE_APP_ID }}
-          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          app-id: ${{ secrets.CI_RELEASE_APP_ID }}
+          private-key: ${{ secrets.CI_RELEASE_APP_PRIVATE_KEY }}
 
       - name: 📥 Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -187,15 +187,15 @@ jobs:
         env:
           TAG: ${{ steps.update.outputs.final_version }}
         run: |
-          git config user.name "caipe-release-bot[bot]"
-          git config user.email "caipe-release-bot[bot]@users.noreply.github.com"
+          git config user.name "caipe-ci-release[bot]"
+          git config user.email "caipe-ci-release[bot]@users.noreply.github.com"
 
           # Check if there are changes to commit
           if git diff --quiet && git diff --cached --quiet; then
             echo "ℹ️ No file changes to commit"
           else
             # Stage version-related files
-            git add pyproject.toml uv.lock || true
+            git add pyproject.toml uv.lock docs/docusaurus.config.ts docs/src/pages/index.tsx || true
             find charts -name "Chart.yaml" -type f -exec git add {} +
 
             git commit -m "chore: bump version to $TAG"

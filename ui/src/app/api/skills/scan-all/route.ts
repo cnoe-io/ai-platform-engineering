@@ -16,6 +16,7 @@ import {
   loadTemplateAncillaryFiles,
   resolveTemplateDir,
 } from "@/app/api/skills/skill-templates-loader";
+import { requireAdminSurfaceManage } from "@/lib/rbac/require-openfga";
 
 /**
  * Persistence shape for a built-in template scan. Built-ins live on the
@@ -647,10 +648,13 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     );
   }
 
-  return await withAuth(request, async (req, user) => {
+  return await withAuth(request, async (req, user, session) => {
     if (user.role !== "admin") {
       throw new ApiError("Bulk scan is restricted to admins.", 403);
     }
+    // Use the Skills admin surface bootstrapped for org admins (`admin_surface:skills`),
+    // not a separate `skills-scan-all` object that is never granted in baseline FGA.
+    await requireAdminSurfaceManage(session, "skills");
 
     const body = (await req.json().catch(() => ({}))) as BulkBody;
     const scope: Scope = body.scope ?? "all";

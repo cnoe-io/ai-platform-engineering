@@ -1,8 +1,0 @@
-{
-  "label": "Releases",
-  "position": 99,
-  "link": {
-    "type": "generated-index",
-    "description": "Release notes and migration guides for CAIPE"
-  }
-}

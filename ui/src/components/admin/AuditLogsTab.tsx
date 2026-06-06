@@ -237,7 +237,7 @@ export function AuditLogsTab({ isAdmin, onUserClick }: AuditLogsTabProps) {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <FileText className="h-5 w-5" />
-            Audit Logs
+            Chat Audit
           </CardTitle>
           <CardDescription>
             Browse all conversations and messages across all users for compliance and auditing.
@@ -522,6 +522,7 @@ export function AuditLogsTab({ isAdmin, onUserClick }: AuditLogsTabProps) {
         conversationId={selectedConversationId}
         open={detailOpen}
         onOpenChange={setDetailOpen}
+        onDeleted={() => fetchAuditLogs(1)}
       />
     </>
   );

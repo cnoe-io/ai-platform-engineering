@@ -70,6 +70,40 @@ function groupAdjacentTools(
   return items;
 }
 
+/** A tool segment plus how many consecutive identical calls it represents. */
+type CollapsedTool = SupervisorTimelineSegment & { count: number };
+
+/**
+ * Collapse consecutive identical tool calls into a single entry with a count.
+ * Two adjacent tool calls are "identical" when they share the same agent, tool
+ * name, and status. Non-consecutive repeats (interrupted by a different tool)
+ * are kept separate so the ordering stays faithful to execution.
+ */
+function coalesceConsecutiveTools(
+  tools: SupervisorTimelineSegment[],
+): CollapsedTool[] {
+  const out: CollapsedTool[] = [];
+
+  for (const seg of tools) {
+    const prev = out[out.length - 1];
+    const sameAsPrev =
+      prev &&
+      prev.toolCall &&
+      seg.toolCall &&
+      prev.toolCall.agent === seg.toolCall.agent &&
+      prev.toolCall.tool === seg.toolCall.tool &&
+      prev.toolCall.status === seg.toolCall.status;
+
+    if (sameAsPrev) {
+      prev.count += 1;
+    } else {
+      out.push({ ...seg, count: 1 });
+    }
+  }
+
+  return out;
+}
+
 // ─── Main Component ──────────────────────────────────────────────────────────
 
 interface SupervisorTimelineProps {
@@ -379,6 +413,11 @@ function ToolGroupDropdown({
   const completedCount = tools.filter((t) => t.toolCall?.status === "completed").length;
   const hasRunning = tools.some((t) => t.toolCall?.status === "running");
 
+  // Collapse consecutive identical tool calls (same agent + tool + status) into a
+  // single row with a ×N count. Chatty agents (e.g. AWS) fire the same tool dozens
+  // of times in a row, which otherwise floods the timeline with identical chips.
+  const collapsedTools = coalesceConsecutiveTools(tools);
+
   return (
     <div className="rounded-lg border border-border/50 bg-card/50 overflow-hidden">
       <button
@@ -413,8 +452,10 @@ function ToolGroupDropdown({
             exit={{ height: 0, opacity: 0 }}
             className="px-2 pb-2 space-y-1"
           >
-            {tools.map((t) =>
-              t.toolCall ? <ToolCallSegment key={t.id} tool={t.toolCall} compact /> : null,
+            {collapsedTools.map((t) =>
+              t.toolCall ? (
+                <ToolCallSegment key={t.id} tool={t.toolCall} compact count={t.count} />
+              ) : null,
             )}
           </motion.div>
         )}
@@ -536,7 +577,7 @@ function AgentBadge({ agent, muted }: { agent: string; muted?: boolean }) {
 
 // ─── Tool Call Segment ───────────────────────────────────────────────────────
 
-function ToolCallSegment({ tool, compact }: { tool: ToolCallInfo; compact?: boolean }) {
+function ToolCallSegment({ tool, compact, count }: { tool: ToolCallInfo; compact?: boolean; count?: number }) {
   const isRunning = tool.status === "running";
   const isFailed = tool.status === "failed";
 
@@ -569,6 +610,11 @@ function ToolCallSegment({ tool, compact }: { tool: ToolCallInfo; compact?: bool
         </span>
         <span className="text-foreground/40 mx-1">&rarr;</span>
         <span>{tool.tool}</span>
+        {count && count > 1 && (
+          <span className="ml-1.5 text-[10px] font-semibold text-muted-foreground/80 bg-muted/60 rounded px-1 py-0.5">
+            &times;{count}
+          </span>
+        )}
       </span>
       <span
         className={cn(

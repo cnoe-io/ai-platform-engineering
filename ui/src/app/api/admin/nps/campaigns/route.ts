@@ -7,12 +7,11 @@ import { ObjectId } from 'mongodb';
 import { getCollection, isMongoDBConfigured } from '@/lib/mongodb';
 import { getConfig } from '@/lib/config';
 import {
-  withAuth,
   withErrorHandler,
   successResponse,
-  requireAdmin,
-  requireAdminView,
   ApiError,
+  getAuthFromBearerOrSession,
+  requireRbacPermission,
 } from '@/lib/api-middleware';
 
 function npsDisabledResponse() {
@@ -32,8 +31,8 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     );
   }
 
-  return withAuth(request, async (req, user, session) => {
-    requireAdmin(session);
+  const { user, session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, 'admin_ui', 'admin');
 
     const body = await request.json();
 
@@ -83,7 +82,6 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     const result = await campaigns.insertOne(doc);
 
     return successResponse({ ...doc, _id: result.insertedId }, 201);
-  });
 });
 
 export const GET = withErrorHandler(async (request: NextRequest) => {
@@ -96,8 +94,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     );
   }
 
-  return withAuth(request, async (req, user, session) => {
-    requireAdminView(session);
+  const { session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, 'admin_ui', 'view');
 
     const campaigns = await getCollection('nps_campaigns');
     const npsResponses = await getCollection('nps_responses');
@@ -118,7 +116,6 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     );
 
     return successResponse({ campaigns: enriched });
-  });
 });
 
 export const PATCH = withErrorHandler(async (request: NextRequest) => {
@@ -131,8 +128,8 @@ export const PATCH = withErrorHandler(async (request: NextRequest) => {
     );
   }
 
-  return withAuth(request, async (req, user, session) => {
-    requireAdmin(session);
+  const { user, session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, 'admin_ui', 'admin');
 
     const body = await request.json();
     const { campaign_id } = body;
@@ -166,5 +163,4 @@ export const PATCH = withErrorHandler(async (request: NextRequest) => {
     );
 
     return successResponse({ stopped: true, ended_at: now });
-  });
 });

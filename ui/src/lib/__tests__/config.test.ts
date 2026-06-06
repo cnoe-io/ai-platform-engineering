@@ -72,6 +72,10 @@ describe('getServerConfig', () => {
         'LOGO_STYLE', 'SPINNER_COLOR', 'TAGLINE', 'DESCRIPTION',
         'APP_NAME', 'LOGO_URL', 'GRADIENT_FROM', 'GRADIENT_TO',
         'SUPPORT_EMAIL', 'FEEDBACK_ENABLED', 'NPS_ENABLED', 'AUDIT_LOGS_ENABLED',
+        'ACTION_AUDIT_ENABLED',
+        'DEFAULT_NEW_CHAT_AGENT_ID', 'SCHEDULE_EDITOR_AGENT_ID',
+        'CAIPE_CREDENTIALS_ENABLED', 'ENABLE_USER_INFO_TOOL',
+        'CAIPE_UNSAFE_RBAC_BYPASS',
         'DEFAULT_FONT_SIZE', 'DEFAULT_FONT_FAMILY',
         'DEFAULT_THEME', 'DEFAULT_GRADIENT_THEME',
       );
@@ -92,6 +96,7 @@ describe('getServerConfig', () => {
       expect(cfg.feedbackEnabled).toBe(true); // default true
       expect(cfg.npsEnabled).toBe(false);
       expect(cfg.mongodbEnabled).toBe(false);
+      expect(cfg.credentialsEnabled).toBe(false);
       expect(cfg.tagline).toBe('Multi-Agent Workflow Automation');
       expect(cfg.description).toBe(
         'Where Humans and AI agents collaborate to deliver high quality outcomes.',
@@ -106,9 +111,11 @@ describe('getServerConfig', () => {
       expect(cfg.showPoweredBy).toBe(true);
       expect(cfg.supportEmail).toBe('support@example.com');
       expect(cfg.allowDevAdminWhenSsoDisabled).toBe(false);
+      expect(cfg.unsafeRbacBypassEnabled).toBe(false);
       expect(cfg.auditLogsEnabled).toBe(false);
       expect(cfg.defaultNewChatAgentId).toBeNull();
       expect(cfg.scheduleEditorAgentId).toBeNull();
+      expect(cfg.actionAuditEnabled).toBe(true);
       expect(cfg.storageMode).toBe('localStorage');
     });
 
@@ -138,14 +145,15 @@ describe('getServerConfig', () => {
       const expectedKeys: (keyof Config)[] = [
         'agentProtocol',
         'caipeUrl', 'ragUrl', 'isDev', 'isProd', 'ssoEnabled',
-        'ragEnabled', 'mongodbEnabled',
+        'ragEnabled', 'mongodbEnabled', 'credentialsEnabled',
         'tagline', 'description', 'appName', 'logoUrl', 'envBadge',
         'gradientFrom', 'gradientTo', 'logoStyle', 'spinnerColor',
-        'showPoweredBy', 'supportEmail', 'allowDevAdminWhenSsoDisabled',
+        'showPoweredBy', 'supportEmail', 'allowDevAdminWhenSsoDisabled', 'unsafeRbacBypassEnabled',
         'storageMode', 'enabledIntegrationIcons', 'faviconUrl',
-        'docsUrl', 'sourceUrl', 'workflowRunnerEnabled', 'feedbackEnabled',
+        'docsUrl', 'sourceUrl', 'workflowRunnerEnabled', 'workflowsEnabled', 'taskBuilderEnabled', 'feedbackEnabled',
         'allowBuiltinSkillMutation',
         'npsEnabled', 'auditLogsEnabled',
+        'actionAuditEnabled',
         'defaultFontSize', 'defaultFontFamily', 'defaultTheme', 'defaultGradientTheme',
         'dynamicAgentsEnabled', 'dynamicAgentsUrl', 'defaultNewChatAgentId',
         'scheduleEditorAgentId',
@@ -153,6 +161,7 @@ describe('getServerConfig', () => {
         'jiraTicketEnabled', 'jiraTicketProject', 'jiraTicketLabel',
         'githubTicketEnabled', 'githubTicketRepo', 'githubTicketLabel',
         'ticketEnabled', 'ticketProvider',
+        'userInfoToolEnabled',
         'oidcRequiredGroup',
       ];
       expect(Object.keys(cfg).sort()).toEqual(expectedKeys.sort());
@@ -165,6 +174,11 @@ describe('getServerConfig', () => {
     it('should read SSO_ENABLED=true', () => {
       process.env.SSO_ENABLED = 'true';
       expect(getServerConfig().ssoEnabled).toBe(true);
+    });
+
+    it('should read CAIPE_CREDENTIALS_ENABLED=true', () => {
+      process.env.CAIPE_CREDENTIALS_ENABLED = 'true';
+      expect(getServerConfig().credentialsEnabled).toBe(true);
     });
 
     it('should treat SSO_ENABLED=false as false', () => {
@@ -272,6 +286,16 @@ describe('getServerConfig', () => {
     it('should read ALLOW_DEV_ADMIN_WHEN_SSO_DISABLED=true', () => {
       process.env.ALLOW_DEV_ADMIN_WHEN_SSO_DISABLED = 'true';
       expect(getServerConfig().allowDevAdminWhenSsoDisabled).toBe(true);
+    });
+
+    it('should read CAIPE_UNSAFE_RBAC_BYPASS=true', () => {
+      process.env.CAIPE_UNSAFE_RBAC_BYPASS = 'true';
+      expect(getServerConfig().unsafeRbacBypassEnabled).toBe(true);
+    });
+
+    it('should accept numeric CAIPE_UNSAFE_RBAC_BYPASS=1', () => {
+      process.env.CAIPE_UNSAFE_RBAC_BYPASS = '1';
+      expect(getServerConfig().unsafeRbacBypassEnabled).toBe(true);
     });
 
     it('should read SUPPORT_EMAIL', () => {
@@ -692,10 +716,10 @@ describe('getServerConfig', () => {
   // ---------- Production defaults ----------
 
   describe('production defaults (when no A2A/RAG URL set)', () => {
-    it('should use default caipeUrl when no NEXT_PUBLIC_A2A_BASE_URL is set', () => {
+    it('should use the same-origin A2A proxy when no NEXT_PUBLIC_A2A_BASE_URL is set', () => {
       process.env.NODE_ENV = 'production';
       clearEnv('A2A_BASE_URL');
-      expect(getServerConfig().caipeUrl).toBe('http://localhost:8000');
+      expect(getServerConfig().caipeUrl).toBe('/api/a2a');
     });
 
     it('should use k8s service URLs for ragUrl in production', () => {
@@ -753,19 +777,23 @@ describe('getServerConfig', () => {
       delete process.env.OIDC_REQUIRED_GROUP;
     });
 
-    it('defaults to "backstage-access" when OIDC_REQUIRED_GROUP is not set', () => {
-      expect(getServerConfig().oidcRequiredGroup).toBe('backstage-access');
+    it('defaults to no required group when OIDC_REQUIRED_GROUP is not set', () => {
+      expect(getServerConfig().oidcRequiredGroup).toBe('');
     });
 
     it('reads a custom value from OIDC_REQUIRED_GROUP', () => {
-      process.env.OIDC_REQUIRED_GROUP = 'my-org-platform-users';
-      expect(getServerConfig().oidcRequiredGroup).toBe('my-org-platform-users');
+      process.env.OIDC_REQUIRED_GROUP = 'my-org-caipe-users';
+      expect(getServerConfig().oidcRequiredGroup).toBe('my-org-caipe-users');
     });
 
-    it('falls back to the default when OIDC_REQUIRED_GROUP is an empty string', () => {
-      // config.ts uses || so an empty string is treated as absent
+    it('preserves whitespace exactly so invalid deployment config is visible', () => {
+      process.env.OIDC_REQUIRED_GROUP = '  caipe-users  ';
+      expect(getServerConfig().oidcRequiredGroup).toBe('  caipe-users  ');
+    });
+
+    it('keeps OIDC_REQUIRED_GROUP disabled when the env var is an empty string', () => {
       process.env.OIDC_REQUIRED_GROUP = '';
-      expect(getServerConfig().oidcRequiredGroup).toBe('backstage-access');
+      expect(getServerConfig().oidcRequiredGroup).toBe('');
     });
   });
 });
@@ -828,10 +856,11 @@ describe('getInternalA2AUrl', () => {
   });
 
   it('getServerConfig().caipeUrl does NOT use A2A_BASE_URL', () => {
+    process.env.NODE_ENV = 'production';
     process.env.A2A_BASE_URL = 'http://docker-internal:8000';
     delete process.env.NEXT_PUBLIC_A2A_BASE_URL;
-    // caipeUrl should fall back to its own default, not pick up A2A_BASE_URL
-    expect(getServerConfig().caipeUrl).toBe('http://localhost:8000');
+    // caipeUrl should fall back to the browser-safe proxy, not pick up A2A_BASE_URL
+    expect(getServerConfig().caipeUrl).toBe('/api/a2a');
   });
 });
 
@@ -929,20 +958,23 @@ describe('getClientConfigScript (XSS safety)', () => {
     const expectedKeys: (keyof Config)[] = [
       'agentProtocol',
       'caipeUrl', 'ragUrl', 'isDev', 'isProd', 'ssoEnabled',
-      'ragEnabled', 'mongodbEnabled',
+      'ragEnabled', 'mongodbEnabled', 'credentialsEnabled',
       'tagline', 'description', 'appName', 'logoUrl', 'envBadge',
       'gradientFrom', 'gradientTo', 'logoStyle', 'spinnerColor',
-      'showPoweredBy', 'supportEmail', 'allowDevAdminWhenSsoDisabled',
+      'showPoweredBy', 'supportEmail', 'allowDevAdminWhenSsoDisabled', 'unsafeRbacBypassEnabled',
       'storageMode', 'enabledIntegrationIcons', 'faviconUrl',
-      'docsUrl', 'sourceUrl', 'workflowRunnerEnabled', 'feedbackEnabled',
+      'docsUrl', 'sourceUrl', 'workflowRunnerEnabled', 'workflowsEnabled', 'taskBuilderEnabled', 'feedbackEnabled',
       'allowBuiltinSkillMutation',
       'npsEnabled', 'auditLogsEnabled',
+      'actionAuditEnabled',
       'defaultFontSize', 'defaultFontFamily', 'defaultTheme', 'defaultGradientTheme',
       'dynamicAgentsEnabled', 'dynamicAgentsUrl',
+      'defaultNewChatAgentId', 'scheduleEditorAgentId',
       'reportProblemEnabled',
       'jiraTicketEnabled', 'jiraTicketProject', 'jiraTicketLabel',
       'githubTicketEnabled', 'githubTicketRepo', 'githubTicketLabel',
       'ticketEnabled', 'ticketProvider',
+      'userInfoToolEnabled',
       'oidcRequiredGroup',
     ];
     expect(Object.keys(parsed).sort()).toEqual(expectedKeys.sort());
@@ -998,6 +1030,7 @@ describe('client-side config (window.__APP_CONFIG__)', () => {
         showPoweredBy: false,
         supportEmail: 'prod@example.com',
         allowDevAdminWhenSsoDisabled: false,
+        unsafeRbacBypassEnabled: false,
         storageMode: 'mongodb',
         defaultFontSize: 'large',
         defaultFontFamily: 'ibm-plex',
@@ -1031,7 +1064,7 @@ describe('client-side config (window.__APP_CONFIG__)', () => {
         gradientFrom: '#000', gradientTo: '#fff',
         logoStyle: 'default', spinnerColor: null,
         showPoweredBy: true, supportEmail: 'dev@test.com',
-        allowDevAdminWhenSsoDisabled: true, storageMode: 'localStorage',
+        allowDevAdminWhenSsoDisabled: true, unsafeRbacBypassEnabled: false, storageMode: 'localStorage',
         defaultFontSize: 'medium', defaultFontFamily: 'inter',
         defaultTheme: 'dark', defaultGradientTheme: 'default',
       });
@@ -1063,7 +1096,7 @@ describe('client-side config (window.__APP_CONFIG__)', () => {
         envBadge: 'Preview', gradientFrom: '#aaa', gradientTo: '#bbb',
         logoStyle: 'white', spinnerColor: '#ccc',
         showPoweredBy: false, supportEmail: 'proxy@test.com',
-        allowDevAdminWhenSsoDisabled: false, storageMode: 'mongodb',
+        allowDevAdminWhenSsoDisabled: false, unsafeRbacBypassEnabled: false, storageMode: 'mongodb',
         defaultFontSize: 'small', defaultFontFamily: 'system',
         defaultTheme: 'midnight', defaultGradientTheme: 'sunset',
       });
@@ -1118,7 +1151,7 @@ describe('getLogoFilterClass', () => {
       appName: '', logoUrl: '', envBadge: '',
       gradientFrom: '', gradientTo: '', logoStyle: 'white',
       spinnerColor: null, showPoweredBy: true, supportEmail: '',
-      allowDevAdminWhenSsoDisabled: false, storageMode: 'localStorage',
+      allowDevAdminWhenSsoDisabled: false, unsafeRbacBypassEnabled: false, storageMode: 'localStorage',
       defaultFontSize: 'medium', defaultFontFamily: 'inter',
       defaultTheme: 'dark', defaultGradientTheme: 'default',
     });
@@ -1237,7 +1270,9 @@ describe('edge cases', () => {
         'ALLOW_DEV_ADMIN_WHEN_SSO_DISABLED', 'SHOW_POWERED_BY',
         'LOGO_STYLE', 'SPINNER_COLOR', 'TAGLINE', 'DESCRIPTION',
         'APP_NAME', 'LOGO_URL', 'GRADIENT_FROM', 'GRADIENT_TO',
-        'SUPPORT_EMAIL',
+        'SUPPORT_EMAIL', 'CAIPE_UNSAFE_RBAC_BYPASS',
+        'DEFAULT_NEW_CHAT_AGENT_ID', 'SCHEDULE_EDITOR_AGENT_ID',
+        'CAIPE_CREDENTIALS_ENABLED', 'ENABLE_USER_INFO_TOOL',
       );
       delete process.env.MONGODB_URI;
       delete process.env.MONGODB_DATABASE;
@@ -1330,7 +1365,9 @@ describe('end-to-end: layout injection → client read', () => {
       'ALLOW_DEV_ADMIN_WHEN_SSO_DISABLED', 'SHOW_POWERED_BY',
       'LOGO_STYLE', 'SPINNER_COLOR', 'TAGLINE', 'DESCRIPTION',
       'APP_NAME', 'LOGO_URL', 'GRADIENT_FROM', 'GRADIENT_TO',
-      'SUPPORT_EMAIL',
+      'SUPPORT_EMAIL', 'CAIPE_UNSAFE_RBAC_BYPASS',
+      'DEFAULT_NEW_CHAT_AGENT_ID', 'SCHEDULE_EDITOR_AGENT_ID',
+      'CAIPE_CREDENTIALS_ENABLED', 'ENABLE_USER_INFO_TOOL',
     );
     delete process.env.MONGODB_URI;
     delete process.env.MONGODB_DATABASE;
@@ -1379,7 +1416,7 @@ describe('end-to-end: layout injection → client read', () => {
     expect(getConfig('storageMode')).toBe('mongodb');
     expect(getConfig('spinnerColor')).toBe('#4ecdc4');
     expect(getConfig('supportEmail')).toBe('support@grid.cisco.com');
-    expect(getConfig('caipeUrl')).toBe('http://localhost:8000');
+    expect(getConfig('caipeUrl')).toBe('/api/a2a');
 
     // Secrets must NOT be in the script
     expect(script).not.toContain('admin:secret');

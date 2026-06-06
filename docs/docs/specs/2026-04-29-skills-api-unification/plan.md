@@ -9,7 +9,7 @@
 
 ## Summary
 
-Unify all CAIPE UI and documented HTTP entry points for skills under `/api/skills/*`, retire `/api/agent-skills/*`, keep **catalog** (`GET /api/skills`) separate from **persisted config CRUD** (`/api/skills/configs`). Add **explicit** system-only template import with deterministic IDs (`skill-{slug}-{6hex}`) and **narrow** auto-seed to **at most one** example. Update **Skills API Gateway** copy and bootstrap flow so **live catalog + on-demand fetch** is primary; bulk install is advanced. MongoDB collection remains **`agent_skills`**. Distribution includes a real default packaged skill (incident post-mortem).
+Unify all CAIPE UI and documented HTTP entry points for skills under `/api/skills/*`, retire `/api/agent-skills/*`, keep **catalog** (`GET /api/skills`) separate from **persisted config CRUD** (`/api/skills/configs`). Add **explicit** system-only template import with deterministic IDs (`skill-{slug}-{6hex}`) and **narrow** auto-seed to **at most one** example. Update **Skills Gateway** copy and bootstrap flow so **live catalog + on-demand fetch** is primary; bulk install is advanced. MongoDB collection remains **`agent_skills`**. Distribution includes a real default packaged skill (incident post-mortem).
 
 ## Technical Context
 

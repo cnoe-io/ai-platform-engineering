@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
-  withAuth,
   withErrorHandler,
-  requireAdmin,
   getPaginationParams,
   ApiError,
   successResponse,
+  getAuthFromBearerOrSession,
+  requireRbacPermission,
 } from '@/lib/api-middleware';
 import { getCollection, isMongoDBConfigured } from '@/lib/mongodb';
 import { getServerConfig } from '@/lib/config';
@@ -27,8 +27,8 @@ export const GET = withErrorHandler(
       );
     }
 
-    return withAuth(request, async (req, _user, session) => {
-      requireAdmin(session);
+    const { session } = await getAuthFromBearerOrSession(request);
+    await requireRbacPermission(session, 'admin_ui', 'audit.view');
 
       const { id: conversationId } = await params;
 
@@ -43,7 +43,26 @@ export const GET = withErrorHandler(
         throw new ApiError('Conversation not found', 404, 'NOT_FOUND');
       }
 
-      const { page, pageSize, skip } = getPaginationParams(req);
+      // Get agent_id from conversation participants
+      const agentParticipant = conversation.participants?.find(
+        (p: { type: string; id: string }) => p.type === 'agent'
+      );
+      const agentId = agentParticipant?.id || null;
+
+      // Count GridFS files for this conversation namespace
+      let fileCount = 0;
+      if (agentId) {
+        try {
+          const gridfsFiles = await getCollection('agent_files.files');
+          fileCount = await gridfsFiles.countDocuments({
+            'metadata.namespace': [agentId, conversationId, 'filesystem'],
+          });
+        } catch {
+          // GridFS collection may not exist yet — not an error
+        }
+      }
+
+      const { page, pageSize, skip } = getPaginationParams(request);
       const messages = await getCollection<Message>('messages');
 
       const query = { conversation_id: conversationId };
@@ -66,7 +85,9 @@ export const GET = withErrorHandler(
           sharing: conversation.sharing,
           is_archived: conversation.is_archived,
           deleted_at: conversation.deleted_at,
+          agent_id: agentId,
         },
+        file_count: fileCount,
         messages: {
           items,
           total,
@@ -75,6 +96,5 @@ export const GET = withErrorHandler(
           has_more: page * pageSize < total,
         },
       });
-    });
   },
 );

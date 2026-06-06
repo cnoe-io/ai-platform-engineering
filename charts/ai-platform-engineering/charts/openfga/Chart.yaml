@@ -1,0 +1,6 @@
+apiVersion: v2
+name: openfga
+description: OpenFGA authorization service for CAIPE relationship-based access control
+type: application
+version: 0.5.9-dev.1
+appVersion: 0.5.9-dev.1

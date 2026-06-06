@@ -12,3 +12,15 @@ data:
   {{- range $key, $value := .Values.config }}
   {{ $key }}: {{ tpl ($value | toString) $ | quote }}
   {{- end }}
+  {{- /* R1 upstream fix (May 2026): when an operator wires up the
+         Keycloak Admin REST client via keycloakAdminClient.secretName,
+         also surface the client ID through the ConfigMap so the BFF's
+         `fetchFreshAdminToken` can pick it up without an extra env-var
+         entry on the Deployment. The matching client_secret is mounted
+         via valueFrom.secretKeyRef in deployment.yaml — never inlined
+         into a ConfigMap. We respect any explicit value the operator
+         already set under .Values.config to avoid clobbering a hand-roll.
+         See values.yaml `keycloakAdminClient` for the full contract. */}}
+  {{- if and .Values.keycloakAdminClient.secretName (not (hasKey .Values.config "KEYCLOAK_ADMIN_CLIENT_ID")) }}
+  KEYCLOAK_ADMIN_CLIENT_ID: {{ .Values.keycloakAdminClient.clientId | default "caipe-platform" | quote }}
+  {{- end }}

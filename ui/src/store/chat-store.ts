@@ -1,13 +1,29 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { Conversation, ChatMessage, A2AEvent, MessageFeedback, TurnStatus, getAgentId, isDynamicAgentConversation, buildParticipants } from "@/types/a2a";
-import { StreamEvent } from "@/components/dynamic-agents/sse-types";
+import { StreamEvent } from "@/lib/streaming/types";
 import { generateId } from "@/lib/utils";
 import { A2AClient } from "@/lib/a2a-client";
 import type { StreamAdapter } from "@/lib/streaming";
 import { apiClient } from "@/lib/api-client";
 import { getStorageMode, shouldUseLocalStorage } from "@/lib/storage-config";
 import { resolveNewConversationAgentId, type NewConversationAgentSelection } from "@/lib/new-chat-agent";
+
+const LAST_ACTIVE_CONVERSATION_KEY = "caipe-chat-last-active-conversation";
+
+export function getLastActiveConversationId(): string | null {
+  if (typeof window === "undefined") return null;
+  return window.localStorage.getItem(LAST_ACTIVE_CONVERSATION_KEY);
+}
+
+function persistLastActiveConversationId(id: string | null): void {
+  if (typeof window === "undefined") return;
+  if (id) {
+    window.localStorage.setItem(LAST_ACTIVE_CONVERSATION_KEY, id);
+  } else {
+    window.localStorage.removeItem(LAST_ACTIVE_CONVERSATION_KEY);
+  }
+}
 
 // Track streaming state per conversation
 interface StreamingState {
@@ -293,6 +309,7 @@ const storeImplementation = (set: any, get: any) => ({
           activeConversationId: id,
           a2aEvents: [],
         }));
+        persistLastActiveConversationId(id);
 
         return id;
       },
@@ -308,6 +325,7 @@ const storeImplementation = (set: any, get: any) => ({
           unviewedConversations: newUnviewed,
           inputRequiredConversations: newInputRequired,
         });
+        persistLastActiveConversationId(id);
       },
 
       addMessage: (conversationId: string, message: Omit<ChatMessage, "id" | "timestamp" | "events">, turnId?: string, messageId?: string) => {
@@ -717,6 +735,8 @@ const storeImplementation = (set: any, get: any) => ({
             a2aEvents: wasActiveConversation ? [] : state.a2aEvents,
           };
         });
+        const nextActiveId = get().activeConversationId;
+        persistLastActiveConversationId(nextActiveId);
 
         // In MongoDB mode, also delete from server
         if (storageMode === 'mongodb') {
@@ -740,6 +760,7 @@ const storeImplementation = (set: any, get: any) => ({
           activeConversationId: null,
           a2aEvents: [],
         });
+        persistLastActiveConversationId(null);
       },
 
       getActiveConversation: () => {
@@ -983,6 +1004,7 @@ const storeImplementation = (set: any, get: any) => ({
           });
 
           if (activeId && !activeStillExists) {
+            persistLastActiveConversationId(get().activeConversationId);
             console.log(`[ChatStore] Active conversation ${activeId.substring(0, 8)} was deleted on another device, switching to first conversation`);
           }
 
@@ -1047,9 +1069,25 @@ const storeImplementation = (set: any, get: any) => ({
         }
 
         let savedCount = 0;
-        for (let i = 0; i < conv.messages.length; i++) {
-          const msg = conv.messages[i];
 
+        // Only save the current turn (last user message + last assistant message).
+        // Messages are append-only: older messages were already persisted by prior
+        // saveMessagesToServer calls. Re-saving them all is wasteful and causes
+        // request spam (one POST per message × every turn).
+        const lastAssistantMsg = lastAssistantIdx >= 0 ? conv.messages[lastAssistantIdx] : null;
+        const lastUserIdx = (() => {
+          for (let i = conv.messages.length - 1; i >= 0; i--) {
+            if (conv.messages[i].role === 'user') return i;
+          }
+          return -1;
+        })();
+        const lastUserMsg = lastUserIdx >= 0 ? conv.messages[lastUserIdx] : null;
+
+        const messagesToSave: { msg: typeof conv.messages[0]; idx: number }[] = [];
+        if (lastUserMsg) messagesToSave.push({ msg: lastUserMsg, idx: lastUserIdx });
+        if (lastAssistantMsg) messagesToSave.push({ msg: lastAssistantMsg, idx: lastAssistantIdx });
+
+        for (const { msg, idx } of messagesToSave) {
           // PERIODIC SAVE GUARD: Skip non-final assistant messages during
           // periodic saves. These messages contain intermediate streaming
           // content that would overwrite (poison) MongoDB. The correct final
@@ -1061,24 +1099,20 @@ const storeImplementation = (set: any, get: any) => ({
           }
 
           try {
-            // Determine A2A events for this message:
-            // 1. If the message already has per-message events, use those
-            // 2. If this is the last assistant message and conversation has events, use conv events
-            // 3. Otherwise, don't send events (leave existing events in MongoDB unchanged)
+            // Determine events for this message:
+            // Attach conversation-level events to the last assistant message.
             let serializedA2AEvents: Record<string, unknown>[] | undefined;
             let serializedStreamEvents: Record<string, unknown>[] | undefined;
 
             if (isDynamic) {
-              // Dynamic Agent: serialize stream events
-              if (i === lastAssistantIdx && convStreamEvents.length > 0) {
+              if (idx === lastAssistantIdx && convStreamEvents.length > 0) {
                 serializedStreamEvents = convStreamEvents.map(serializeStreamEvent);
                 console.log(`[ChatStore] Attaching ${convStreamEvents.length} conversation-level stream events to assistant message ${msg.id}`);
               }
             } else {
-              // A2A/Platform Engineer: serialize A2A events
               if (msg.events?.length > 0) {
                 serializedA2AEvents = msg.events.map(serializeA2AEvent);
-              } else if (i === lastAssistantIdx && convA2AEvents.length > 0) {
+              } else if (idx === lastAssistantIdx && convA2AEvents.length > 0) {
                 serializedA2AEvents = convA2AEvents.map(serializeA2AEvent);
                 console.log(`[ChatStore] Attaching ${convA2AEvents.length} conversation-level A2A events to assistant message ${msg.id}`);
               }
@@ -1115,7 +1149,7 @@ const storeImplementation = (set: any, get: any) => ({
           }
         }
 
-        console.log(`[ChatStore] Upserted ${savedCount}/${conv.messages.length} messages to MongoDB`);
+        console.log(`[ChatStore] Upserted ${savedCount} messages (current turn) to MongoDB`);
       },
 
       // ═══════════════════════════════════════════════════════════════
@@ -1326,7 +1360,8 @@ const storeImplementation = (set: any, get: any) => ({
             }
 
             const isExplicitlyInterrupted = Boolean(msg.metadata?.is_interrupted);
-            const hasHitlForm = events.some((e: A2AEvent) => e.artifact?.name === 'UserInputMetaData');
+            const hasHitlForm = events.some((e: A2AEvent) => e.artifact?.name === 'UserInputMetaData')
+              || streamEvents.some((e: any) => e.type === 'input_required');
             const chatMsg: ChatMessage = {
               id: msg.message_id || msg._id?.toString() || generateId(),
               role: msg.role as "user" | "assistant",

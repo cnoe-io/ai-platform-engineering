@@ -1,30 +1,42 @@
 import { getCollection } from "@/lib/mongodb";
-import { getUserTeamIds } from "@/lib/api-middleware";
 import { canMutateBuiltinSkill } from "@/lib/builtin-skill-policy";
+import { readSkillSharedTeamSlugsFromOpenFga } from "@/lib/rbac/skill-team-grants";
 import type { AgentSkill } from "@/types/agent-skill";
 
 /**
- * Load a single agent_skills row if the user is allowed to see it
- * (system, owner, global, or team-shared).
+ * Load a single agent_skills row by id.
+ *
+ * Authorization is enforced by callers with concrete OpenFGA checks. Mongo
+ * stores `visibility` and `owner_id` as metadata; team shares are OpenFGA-only
+ * and exposed on API responses via {@link hydrateAgentSkillTeamShares}.
  */
 export async function getAgentSkillVisibleToUser(
   id: string,
-  ownerEmail: string,
+  _ownerEmail: string,
 ): Promise<AgentSkill | null> {
   const collection = await getCollection<AgentSkill>("agent_skills");
-  const userTeamIds = await getUserTeamIds(ownerEmail);
+  return collection.findOne({ id });
+}
 
-  return collection.findOne({
-    id,
-    $or: [
-      { is_system: true },
-      { owner_id: ownerEmail },
-      { visibility: "global" },
-      ...(userTeamIds.length > 0
-        ? [{ visibility: "team" as const, shared_with_teams: { $in: userTeamIds } }]
-        : []),
-    ],
-  });
+/**
+ * Attach `shared_with_teams` on API responses from OpenFGA (not Mongo).
+ * Values are team slugs (UI accepts slug or Mongo team `_id` refs).
+ */
+export async function hydrateAgentSkillTeamShares(skill: AgentSkill): Promise<AgentSkill> {
+  if (skill.visibility !== "team") {
+    return { ...skill, shared_with_teams: undefined };
+  }
+  const slugs = await readSkillSharedTeamSlugsFromOpenFga(skill.id);
+  return {
+    ...skill,
+    shared_with_teams: slugs.length > 0 ? slugs : undefined,
+  };
+}
+
+export async function hydrateAgentSkillTeamSharesList(
+  skills: AgentSkill[],
+): Promise<AgentSkill[]> {
+  return Promise.all(skills.map((skill) => hydrateAgentSkillTeamShares(skill)));
 }
 
 /**
@@ -38,9 +50,9 @@ export async function getAgentSkillVisibleToUser(
  *      escape via the ``POST /api/skills/configs/[id]/clone`` route
  *      that produces an editable user-owned copy.
  *
- *   2. Ownership: a user can mutate a non-built-in row when they
- *      own it. (Visibility-based read access is handled by
- *      ``getAgentSkillVisibleToUser`` separately.)
+ *   2. Concrete resource authorization is enforced by callers through OpenFGA
+ *      (`skill#write`, `skill#manage`, etc.). Non-built-in rows reach this
+ *      helper only after that check has allowed the operation.
  *
  * Note: the ``user`` argument is kept for forward-compatibility with
  * an admin override (e.g. ``user.role === "admin"`` could in future
@@ -54,5 +66,5 @@ export function userCanModifyAgentSkill(
   if (existing.is_system) {
     return canMutateBuiltinSkill(existing);
   }
-  return existing.owner_id === user.email;
+  return true;
 }

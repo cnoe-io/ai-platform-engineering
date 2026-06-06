@@ -26,9 +26,14 @@ jest.mock("@/lib/config", () => ({
 // and forward their `value`/`onChange` so we can introspect what file is
 // active.
 jest.mock("@/components/skills/workspace/SkillMdEditor", () => ({
-  SkillMdEditor: (p: { value: string; onChange?: (v: string) => void }) => (
+  SkillMdEditor: (p: {
+    value: string;
+    height?: string;
+    onChange?: (v: string) => void;
+  }) => (
     <textarea
       data-testid="md-editor"
+      data-height={p.height ?? ""}
       value={p.value}
       onChange={(e) => p.onChange?.(e.target.value)}
     />
@@ -38,11 +43,13 @@ jest.mock("@/components/skills/workspace/RichCodeEditor", () => ({
   RichCodeEditor: (p: {
     value: string;
     filename?: string;
+    fillContainer?: boolean;
     onChange?: (v: string) => void;
   }) => (
     <textarea
       data-testid="rich-editor"
       data-filename={p.filename}
+      data-fill-container={p.fillContainer ? "true" : "false"}
       value={p.value}
       onChange={(e) => p.onChange?.(e.target.value)}
     />
@@ -174,6 +181,15 @@ describe("FilesTab — file selection", () => {
     expect(screen.queryByTestId("rich-editor")).toBeNull();
   });
 
+  it("passes height='100%' to SkillMdEditor for SKILL.md", () => {
+    const form = makeForm();
+    render(<FilesTab form={form} />);
+    expect(screen.getByTestId("md-editor")).toHaveAttribute(
+      "data-height",
+      "100%",
+    );
+  });
+
   it("clicking an ancillary file switches to RichCodeEditor with the right filename", () => {
     const form = makeForm({
       ancillaryFiles: { "tools.py": "print('hi')" },
@@ -183,6 +199,18 @@ describe("FilesTab — file selection", () => {
     const rich = screen.getByTestId("rich-editor");
     expect(rich).toHaveAttribute("data-filename", "tools.py");
     expect(rich).toHaveValue("print('hi')");
+  });
+
+  it("passes fillContainer to RichCodeEditor for ancillary files", () => {
+    const form = makeForm({
+      ancillaryFiles: { "tools.py": "print('hi')" },
+    });
+    render(<FilesTab form={form} />);
+    fireEvent.click(screen.getByText("tools.py"));
+    expect(screen.getByTestId("rich-editor")).toHaveAttribute(
+      "data-fill-container",
+      "true",
+    );
   });
 });
 

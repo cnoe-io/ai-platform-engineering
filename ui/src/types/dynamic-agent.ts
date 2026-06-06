@@ -8,7 +8,31 @@
 
 export type TransportType = 'stdio' | 'sse' | 'http';
 
-export type VisibilityType = 'private' | 'team' | 'global';
+/**
+ * Visibility of a dynamic agent.
+ *
+ *   - `team`:   the owner team's members get `can_use`; the owner team's
+ *               admins get `can_manage`. Additional teams in
+ *               `shared_with_teams` get `can_use`.
+ *   - `global`: everyone gets `can_use` (via `user:* user agent:<id>`).
+ *               The owner team's admins still manage the agent.
+ *
+ * NOTE: `'private'` was retired on 2026-05-22. Every dynamic agent is now
+ * team-owned. Users who want a truly personal agent should create a
+ * single-member team and own the agent through that team. Legacy
+ * `visibility: 'private'` documents are coerced to `'team'` at read time
+ * and converted in place by the admin "Reconcile dynamic agent OpenFGA"
+ * migration. See `docs/docs/changes/2026-05-22-remove-private-agents.md`.
+ */
+export type VisibilityType = 'team' | 'global';
+
+/**
+ * Wire-level type accepted on the way IN to the BFF. We still accept the
+ * historical `'private'` string so old clients (and Mongo docs being
+ * re-saved) don't fail outright — the BFF normalizes it to `'team'` and
+ * surfaces a deprecation warning in the response.
+ */
+export type LegacyVisibilityType = VisibilityType | 'private';
 
 // =============================================================================
 // MCP Server Types
@@ -46,10 +70,31 @@ export interface MCPServerConfig {
   args?: string[];    // For stdio transport
   env?: Record<string, string>;  // For stdio transport
   auth?: MCPServerAuth;  // Per-user OAuth (e.g. Webex Meetings)
+  credential_sources?: MCPCredentialSource[];
   enabled: boolean;
   config_driven?: boolean;  // Whether loaded from config.yaml (not editable)
+  source?: 'manual' | 'config' | 'agentgateway';
+  agentgateway_discovered?: boolean;
+  agentgateway_endpoint?: string;
+  agentgateway_target_endpoint?: string;
+  owner_id?: string;
+  owner_subject?: string;
+  owner_team_slug?: string;
   created_at: string;
   updated_at: string;
+}
+
+export interface MCPCredentialSource {
+  kind: 'secret_ref' | 'provider_connection' | 'caller_token';
+  target: 'env' | 'header';
+  name: string;
+  secret_ref?: string;
+  provider_connection_id?: string;
+  provider?: string;
+  /** provider_connection: env var holding the shared fallback token (e.g. PAT). */
+  fallback_env?: string;
+  /** caller_token: mint a service client-credentials token when no user JWT. */
+  fallback_client_credentials?: boolean;
 }
 
 export interface MCPServerConfigCreate {
@@ -62,7 +107,9 @@ export interface MCPServerConfigCreate {
   args?: string[];
   env?: Record<string, string>;
   auth?: MCPServerAuth;
+  credential_sources?: MCPCredentialSource[];
   enabled?: boolean;
+  owner_team_slug?: string;
 }
 
 export interface MCPServerConfigUpdate {
@@ -74,6 +121,7 @@ export interface MCPServerConfigUpdate {
   args?: string[];
   env?: Record<string, string>;
   auth?: MCPServerAuth;
+  credential_sources?: MCPCredentialSource[];
   enabled?: boolean;
 }
 
@@ -183,6 +231,7 @@ export interface BuiltinToolsConfig {
   self_identity?: { enabled: boolean };
   agent_info?: { enabled: boolean };
   memory?: MemoryToolConfig;
+  workflows?: string[] | null;  // Workflow config IDs the agent can trigger/monitor
   // Allow dynamic tool configs for future extensibility
   // Using Record type to avoid index signature conflicts with specific tool types
 }
@@ -205,11 +254,22 @@ export type BuiltinToolsConfigWithIndex = BuiltinToolsConfig & {
 // =============================================================================
 
 /**
+ * Custom theme configuration for agents.
+ * Used when gradient_theme is "custom".
+ */
+export interface CustomThemeConfig {
+  gradient_from: string;   // CSS color for gradient start (hex, hsl, etc.)
+  gradient_to: string;     // CSS color for gradient end
+  accent_color: string;    // Tint color for the bot avatar SVG stroke
+}
+
+/**
  * UI configuration for dynamic agents.
  * Controls visual appearance like gradient themes.
  */
 export interface AgentUIConfig {
-  gradient_theme?: string;  // Theme ID (e.g., 'ocean', 'sunset') or empty for global default
+  gradient_theme?: string;  // Theme ID (e.g., 'ocean', 'sunset'), "custom", or empty for global default
+  custom_theme_config?: CustomThemeConfig;  // Only used when gradient_theme === "custom"
 }
 
 // =============================================================================
@@ -283,12 +343,70 @@ export interface SubAgentRef {
   description: string;  // Description for LLM routing decisions
 }
 
+/**
+ * Per-tool interrupt configuration for HITL approval workflows.
+ * Controls what decisions a reviewer can make when a tool call is intercepted.
+ */
+export type DecisionType = "approve" | "edit" | "reject";
+
+export interface InterruptToolConfig {
+  allowed_decisions: DecisionType[];
+}
+
+/**
+ * Interrupt configuration: namespace -> { tool_name: true | InterruptToolConfig }
+ * "builtin" is the reserved namespace for built-in tools (no server prefix).
+ * Tool name "*" means all tools in that namespace.
+ * `true` is shorthand for { allowed_decisions: ["approve", "edit", "reject"] }.
+ */
+export type InterruptOn = Record<string, Record<string, boolean | InterruptToolConfig>>;
+
+/**
+ * SSE interrupt payload — discriminated union by `type`.
+ */
+export interface FormInputInterrupt {
+  type: "form_input";
+  interrupt_id: string;
+  prompt: string;
+  fields: Array<{ field_name: string; field_type: string; description?: string; required?: boolean; options?: string[] }>;
+  agent: string;
+}
+
+export interface ToolApprovalInterrupt {
+  type: "tool_approval";
+  interrupt_id: string;
+  tool_name: string;
+  tool_args: Record<string, unknown>;
+  allowed_decisions: DecisionType[];
+  agent: string;
+  /** Multiple tool calls needing approval (when LLM batches gated tools) */
+  tool_approvals?: Array<{
+    tool_name: string;
+    tool_args: Record<string, unknown>;
+    tool_call_id: string;
+    allowed_decisions: string[];
+  }>;
+}
+
+export type InterruptPayload = FormInputInterrupt | ToolApprovalInterrupt;
+
+/**
+ * Resume data sent to POST /chat/stream/resume — discriminated union by `type`.
+ */
+export type ResumeData =
+  | { type: "form_input"; values: Record<string, unknown> }
+  | { type: "form_input"; dismissed: true }
+  | { type: "tool_approval"; decision: "approve" }
+  | { type: "tool_approval"; decision: "reject" }
+  | { type: "tool_approval"; decision: "edit"; edited_args: Record<string, unknown> }
+  | { type: "tool_approval"; decisions: Array<{ decision: string; tool_name?: string; edited_args?: Record<string, unknown> }> };
+
 export interface DynamicAgentConfig {
   _id: string;
   name: string;
   description?: string;
   system_prompt: string;
-  allowed_tools: Record<string, string[]>;  // server_id -> tool names (empty = all)
+  allowed_tools: Record<string, string[] | boolean>;  // server_id -> tool names, true=all, false=disabled
   builtin_tools?: BuiltinToolsConfig;  // Built-in tools configuration
   model: ModelConfig;  // Required: LLM model configuration
   visibility: VisibilityType;
@@ -297,10 +415,26 @@ export interface DynamicAgentConfig {
   skills: string[];  // Skill document IDs from agent_skills collection
   ui?: AgentUIConfig;  // UI configuration (gradient theme, etc.)
   features?: FeaturesConfig;  // Middleware and feature flags
+  interrupt_on?: InterruptOn;  // Tools requiring human approval before execution
   enabled: boolean;
   owner_id: string;
+  owner_subject?: string;
+  /**
+   * Every dynamic agent is owned by a team (visibility was either `team`
+   * or `global`). `owner_team_slug` is the source of truth; `owner_team_id`
+   * is the matching Mongo ObjectId string for legacy lookups. Both are
+   * effectively required from 2026-05-22 onward — the BFF rejects writes
+   * that omit them. They remain optional on the type only so the legacy
+   * coercion path (`normalizeLegacyVisibility`) can flag drift.
+   */
+  owner_team_slug?: string;
+  owner_team_id?: string;
   is_system: boolean;
   config_driven?: boolean;  // Whether loaded from config.yaml (not editable)
+  /** Compact AI Review verdict from the last save. Drives the Grade column
+   *  in the agent list. Optional — agents created before AI Review was wired
+   *  up have this missing. */
+  last_review?: import("./ai-review").LastReview;
   created_at: string;
   updated_at: string;
 }
@@ -310,32 +444,44 @@ export interface DynamicAgentConfigCreate {
   name: string;
   description?: string;
   system_prompt: string;
-  allowed_tools?: Record<string, string[]>;
+  allowed_tools?: Record<string, string[] | boolean>;
   builtin_tools?: BuiltinToolsConfig;
   model: ModelConfig;  // Required: LLM model configuration
-  visibility?: VisibilityType;
+  /** Accepts legacy `'private'` for back-compat; the BFF coerces it to `'team'`. */
+  visibility?: LegacyVisibilityType;
   shared_with_teams?: string[];
+  /** Required for the new contract. */
+  owner_team_slug?: string;
+  owner_team_id?: string;
   subagents?: SubAgentRef[];
   skills?: string[];
   ui?: AgentUIConfig;
   features?: FeaturesConfig;
+  interrupt_on?: InterruptOn;
   enabled?: boolean;
+  last_review?: import("./ai-review").LastReview;
 }
 
 export interface DynamicAgentConfigUpdate {
   name?: string;
   description?: string;
   system_prompt?: string;
-  allowed_tools?: Record<string, string[]>;
+  allowed_tools?: Record<string, string[] | boolean>;
   builtin_tools?: BuiltinToolsConfig;
   model?: ModelConfig;
-  visibility?: VisibilityType;
+  /** Accepts legacy `'private'` for back-compat; the BFF coerces it to `'team'`. */
+  visibility?: LegacyVisibilityType;
+  /** Updates may move the agent to a different owner team. */
+  owner_team_slug?: string;
+  owner_team_id?: string;
   shared_with_teams?: string[];
   subagents?: SubAgentRef[];
   skills?: string[];
   ui?: AgentUIConfig;
   features?: FeaturesConfig;
+  interrupt_on?: InterruptOn;
   enabled?: boolean;
+  last_review?: import("./ai-review").LastReview;
 }
 
 /**
@@ -347,6 +493,7 @@ export interface AvailableSubagent {
   description?: string;
   visibility: VisibilityType;
   gradient_theme?: string;
+  custom_theme_config?: CustomThemeConfig;
 }
 
 // =============================================================================
@@ -360,6 +507,8 @@ export interface LLMModelConfig {
   provider: string;
   description?: string;
   config_driven?: boolean;  // Whether loaded from config.yaml (not editable)
+  owner_subject?: string;
+  owner_id?: string;
   updated_at: string;
 }
 

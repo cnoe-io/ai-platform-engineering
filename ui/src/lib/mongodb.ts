@@ -78,7 +78,7 @@ async function safeCreateIndex(
   db: Db,
   collectionName: string,
   keys: Record<string, 1 | -1>,
-  options?: { unique?: boolean },
+  options?: { unique?: boolean; expireAfterSeconds?: number },
 ): Promise<boolean> {
   try {
     await db.collection(collectionName).createIndex(keys, options ?? {});
@@ -179,6 +179,8 @@ async function createIndexes(db: Db) {
   await Promise.all([
     // Users collection
     safeCreateIndex(db, 'users', { email: 1 }, { unique: true }),
+    safeCreateIndex(db, 'users', { keycloak_sub: 1 }),
+    safeCreateIndex(db, 'users', { 'metadata.keycloak_sub': 1 }),
     safeCreateIndex(db, 'users', { 'metadata.sso_id': 1 }),
     safeCreateIndex(db, 'users', { last_login: -1 }),
 
@@ -242,6 +244,10 @@ async function createIndexes(db: Db) {
     safeCreateIndex(db, 'sharing_access', { granted_to: 1 }),
     safeCreateIndex(db, 'sharing_access', { conversation_id: 1, granted_to: 1 }),
 
+    // Catalog API keys (Skills Gateway machine auth; BFF-owned)
+    safeCreateIndex(db, 'catalog_api_keys', { key_id: 1 }, { unique: true }),
+    safeCreateIndex(db, 'catalog_api_keys', { owner_user_id: 1, created_at: -1 }),
+
     // Agent skills collection (catalog source agent_skills)
     safeCreateIndex(db, 'agent_skills', { id: 1 }, { unique: true }),
     safeCreateIndex(db, 'agent_skills', { owner_id: 1 }),
@@ -262,14 +268,10 @@ async function createIndexes(db: Db) {
     safeCreateIndex(db, 'skill_hubs', { enabled: 1 }),
     safeCreateIndex(db, 'skill_hubs', { location: 1 }),
 
-    // Workflow runs collection (skill / workflow run history)
-    safeCreateIndex(db, 'workflow_runs', { id: 1 }, { unique: true }),
-    safeCreateIndex(db, 'workflow_runs', { workflow_id: 1 }),
-    safeCreateIndex(db, 'workflow_runs', { owner_id: 1 }),
+    // Workflow runs collection (v2 — uses _id as primary key)
+    safeCreateIndex(db, 'workflow_runs', { workflow_config_id: 1 }),
     safeCreateIndex(db, 'workflow_runs', { status: 1 }),
     safeCreateIndex(db, 'workflow_runs', { started_at: -1 }),
-    safeCreateIndex(db, 'workflow_runs', { owner_id: 1, workflow_id: 1 }),
-    safeCreateIndex(db, 'workflow_runs', { owner_id: 1, started_at: -1 }),
 
     // Task configs collection (Task Builder)
     safeCreateIndex(db, 'task_configs', { id: 1 }, { unique: true }),
@@ -298,151 +300,55 @@ async function createIndexes(db: Db) {
     safeCreateIndex(db, 'conversations', { source: 1, created_at: -1 }),
     safeCreateIndex(db, 'conversations', { 'slack_meta.channel_name': 1, created_at: -1 }),
     safeCreateIndex(db, 'conversations', { 'slack_meta.escalated': 1, created_at: -1 }),
+
+    // 098 RBAC: Team/KB ownership assignments
+    safeCreateIndex(db, 'team_kb_ownership', { team_id: 1, tenant_id: 1 }, { unique: true }),
+    safeCreateIndex(db, 'team_kb_ownership', { tenant_id: 1 }),
+    safeCreateIndex(db, 'team_kb_ownership', { keycloak_role: 1 }),
+
+    // 098 RBAC: Team-scoped RAG tool configurations
+    safeCreateIndex(db, 'team_rag_tools', { tool_id: 1 }, { unique: true }),
+    safeCreateIndex(db, 'team_rag_tools', { team_id: 1, tenant_id: 1 }),
+    safeCreateIndex(db, 'team_rag_tools', { tenant_id: 1 }),
+    safeCreateIndex(db, 'team_rag_tools', { created_by: 1 }),
+    safeCreateIndex(db, 'team_rag_tools', { updated_at: -1 }),
+
+    // 098 RBAC: Authorization decision audit records (FR-005, data-model.md)
+    safeCreateIndex(db, 'authorization_decision_records', { tenant_id: 1, ts: -1 }),
+    safeCreateIndex(db, 'authorization_decision_records', { subject_hash: 1, ts: -1 }),
+    safeCreateIndex(db, 'authorization_decision_records', { capability: 1 }),
+    safeCreateIndex(db, 'authorization_decision_records', { outcome: 1, ts: -1 }),
+    safeCreateIndex(db, 'authorization_decision_records', { correlation_id: 1 }),
+
+    // 098 US9: Slack channel ↔ team mappings + admin Slack dashboard
+    safeCreateIndex(db, 'channel_team_mappings', { slack_channel_id: 1 }, { unique: true }),
+    safeCreateIndex(db, 'slack_channel_agent_routes', { workspace_id: 1, channel_id: 1, agent_id: 1 }, { unique: true }),
+    safeCreateIndex(db, 'slack_channel_agent_routes', { workspace_id: 1, channel_id: 1, status: 1 }),
+    safeCreateIndex(db, 'slack_link_nonces', { nonce: 1 }, { unique: true }),
+    safeCreateIndex(db, 'slack_link_nonces', { created_at: 1 }, { expireAfterSeconds: 600 }),
+    safeCreateIndex(db, 'slack_user_metrics', { slack_user_id: 1 }, { unique: true }),
   ]);
 
   console.log('✅ MongoDB indexes ensured');
 
-  await migrateWebFeedback(db);
-  await migrateAgentConfigsToAgentSkills(db);
-}
-
-/**
- * One-time migration: move embedded messages.feedback into a standalone
- * feedback collection, then remove the embedded field.  Also tags
- * existing conversations and users with source:"web" where missing
- * (Slack entries are tagged separately by the Slack bot / backfill).
- *
- * No-op when no messages have an embedded feedback.rating field.
- */
-async function migrateWebFeedback(db: Db): Promise<void> {
-  const messages = db.collection('messages');
-  const feedbackCount = await messages.countDocuments({ 'feedback.rating': { $exists: true } });
-  if (feedbackCount === 0) {
-    return; // nothing to migrate
-  }
-
-  console.log(`🔄 Migrating ${feedbackCount} embedded feedback docs → feedback collection...`);
-
-  const feedback = db.collection('feedback');
-
-  const cursor = messages.find({ 'feedback.rating': { $exists: true } });
-  let migrated = 0;
-  let skipped = 0;
-
-  for await (const doc of cursor) {
-    const fb = doc.feedback as Record<string, unknown> | undefined;
-    if (!fb) {
-      skipped++;
-      continue;
+  // Drop stale indexes left by previous schema versions (v1 used { id: 1 }
+  // as unique key; v2 uses _id directly). MongoDB never drops indexes
+  // automatically when createIndex calls are removed from code.
+  const staleIndexes: Array<{ collection: string; index: string }> = [
+    { collection: 'workflow_runs', index: 'id_1' },
+    { collection: 'workflow_runs', index: 'workflow_id_1' },
+    { collection: 'workflow_runs', index: 'owner_id_1' },
+    { collection: 'workflow_runs', index: 'owner_id_1_workflow_id_1' },
+    { collection: 'workflow_runs', index: 'owner_id_1_started_at_-1' },
+  ];
+  for (const { collection, index } of staleIndexes) {
+    try {
+      await db.collection(collection).dropIndex(index);
+      console.log(`🗑️  Dropped stale index ${collection}.${index}`);
+    } catch {
+      // Index doesn't exist — nothing to do
     }
-
-    const messageId = doc._id.toString();
-    const exists = await feedback.findOne({ message_id: messageId, source: 'web' });
-    if (exists) {
-      skipped++;
-      continue;
-    }
-
-    const rating = fb.rating as string;
-    await feedback.insertOne({
-      trace_id: null,
-      source: 'web',
-      rating,
-      value: rating === 'positive' ? 'thumbs_up' : 'thumbs_down',
-      comment: (fb.comment as string) ?? null,
-      user_email: (fb.submitted_by as string) ?? doc.owner_id ?? null,
-      user_id: null,
-      message_id: messageId,
-      conversation_id: doc.conversation_id ?? null,
-      channel_id: null,
-      channel_name: null,
-      thread_ts: null,
-      slack_permalink: null,
-      created_at: (fb.submitted_at as Date) ?? doc.created_at ?? new Date(),
-    });
-    migrated++;
   }
-
-  // Remove the embedded feedback field — feedback collection is now source of truth
-  const unsetResult = await messages.updateMany(
-    { 'feedback.rating': { $exists: true } },
-    { $unset: { feedback: '' } },
-  );
-
-  // Tag conversations and users without source as "web"
-  const convResult = await db.collection('conversations').updateMany(
-    { source: { $exists: false } },
-    { $set: { source: 'web' } },
-  );
-  const userResult = await db.collection('users').updateMany(
-    { source: { $exists: false } },
-    { $set: { source: 'web' } },
-  );
-
-  console.log(
-    `✅ Web feedback migration: ${migrated} copied, ${skipped} skipped, ` +
-    `${unsetResult.modifiedCount} messages cleaned, ` +
-    `${convResult.modifiedCount} conversations tagged, ${userResult.modifiedCount} users tagged`,
-  );
-}
-
-/**
- * One-time migration: copy documents from the legacy `agent_configs`
- * collection into `agent_skills`.  Skips documents whose `id` already
- * exists in `agent_skills` to avoid duplicates.  After a successful
- * migration the old collection is renamed to `agent_configs_migrated`
- * so this function becomes a no-op on subsequent startups.
- */
-async function migrateAgentConfigsToAgentSkills(db: Db): Promise<void> {
-  const collections = await db.listCollections({ name: 'agent_configs' }).toArray();
-  if (collections.length === 0) {
-    return; // nothing to migrate
-  }
-
-  const source = db.collection('agent_configs');
-  const sourceCount = await source.countDocuments();
-  if (sourceCount === 0) {
-    // Empty collection — just drop it
-    await source.drop().catch(() => {});
-    console.log('🗑️  Dropped empty legacy agent_configs collection');
-    return;
-  }
-
-  const target = db.collection('agent_skills');
-  const docs = await source.find({}).toArray();
-
-  let migrated = 0;
-  let skipped = 0;
-
-  for (const doc of docs) {
-    const docId = doc.id ?? doc._id?.toString();
-    if (!docId) {
-      skipped++;
-      continue;
-    }
-
-    const exists = await target.findOne({ id: docId });
-    if (exists) {
-      skipped++;
-      continue;
-    }
-
-    const { _id, ...rest } = doc;
-    await target.insertOne(rest);
-    migrated++;
-  }
-
-  // Rename so migration never runs again
-  try {
-    await source.rename('agent_configs_migrated');
-  } catch {
-    // If rename fails (e.g. target exists), drop instead
-    await source.drop().catch(() => {});
-  }
-
-  console.log(
-    `✅ Migrated agent_configs → agent_skills: ${migrated} copied, ${skipped} skipped (already existed or invalid)`
-  );
 }
 
 /**

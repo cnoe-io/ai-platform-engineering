@@ -16,8 +16,8 @@ import type {
   StreamEvent,
   ToolStartEventData,
   ToolEndEventData,
-} from "@/components/dynamic-agents/sse-types";
-import { isToolStartData } from "@/components/dynamic-agents/sse-types";
+} from "@/lib/streaming/types";
+import { isToolStartData } from "@/lib/streaming/types";
 
 // ═══════════════════════════════════════════════════════════════
 // Types
@@ -107,7 +107,7 @@ export function useAgentTimeline(
             if (toolData.error) {
               manager.pushToolFailed(toolData.tool_call_id, namespace, toolData.error);
             } else {
-              manager.pushToolEnd(toolData.tool_call_id, namespace, toolData.args);
+              manager.pushToolEnd(toolData.tool_call_id, namespace, toolData.args, toolData.result);
             }
           }
           break;

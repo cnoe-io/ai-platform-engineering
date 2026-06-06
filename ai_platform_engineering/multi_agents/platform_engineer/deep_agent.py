@@ -34,6 +34,7 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 from pydantic import BaseModel, Field
 from langchain.tools.tool_node import InjectedState
 
+from ai_platform_engineering.utils.auth.jwt_context import get_jwt_user_context
 from ai_platform_engineering.utils.subagent_prompts import load_subagent_prompt_config
 
 # Upstream deepagents package (pip-installed)
@@ -56,6 +57,7 @@ from langchain.agents.middleware.model_retry import ModelRetryMiddleware
 from langchain.agents.middleware.model_call_limit import ModelCallLimitMiddleware
 from langchain.agents.middleware.tool_call_limit import ToolCallLimitMiddleware
 from ai_platform_engineering.utils.deepagents_custom.tools import (
+    get_file_line_count,
     tool_result_to_file,
     wait,
 )
@@ -128,6 +130,9 @@ ENABLE_MODEL_CALL_LIMIT_MIDDLEWARE = ENABLE_MIDDLEWARE and os.getenv("ENABLE_MOD
 MODEL_CALL_LIMIT = int(os.getenv("MODEL_CALL_LIMIT", "20"))
 MODEL_CALL_LIMIT_EXIT_BEHAVIOR = os.getenv("MODEL_CALL_LIMIT_EXIT_BEHAVIOR", "end")
 
+ENABLE_USER_INFO_TOOL = os.getenv("ENABLE_USER_INFO_TOOL", "false").lower() in ("true", "1", "yes")
+FORWARD_JWT_TO_MCP = os.getenv("FORWARD_JWT_TO_MCP", "false").lower() in ("true", "1", "yes")
+
 
 def _build_llm_from_prefixed_env(env_prefix: str) -> Optional[LanguageModelLike]:
     """Create an LLM via LLMFactory using prefixed environment variables.
@@ -146,7 +151,15 @@ def _build_llm_from_prefixed_env(env_prefix: str) -> Optional[LanguageModelLike]
     """
     provider = os.getenv(f"{env_prefix}LLM_PROVIDER")
     if not provider:
-        return None
+        has_prefixed_vars = any(k.startswith(env_prefix) for k in os.environ if k != f"{env_prefix}LLM_PROVIDER")
+        if not has_prefixed_vars:
+            return None
+        provider = os.getenv("LLM_PROVIDER")
+        if not provider:
+            return None
+        logger.info(
+            f"{env_prefix}LLM_PROVIDER not set, defaulting to global LLM_PROVIDER={provider}"
+        )
 
     overrides: Dict[str, str] = {}
     for key, value in os.environ.items():
@@ -634,6 +647,38 @@ def create_get_workflow_definition_tool():
     return get_workflow_definition
 
 
+def create_supervisor_user_info_tool():
+    """Create a user_info tool that reads user context from graph state.
+
+    The tool is added once at graph build time but returns per-request data
+    because the user fields (email, name, groups) are populated in the
+    graph state dict on every invocation.
+    """
+
+    @tool
+    def user_info(
+        state: Annotated[dict, InjectedState],
+    ) -> dict:
+        """Get information about the current user.
+
+        Use this tool when you need to personalize responses, check user identity,
+        or access user group memberships for authorization decisions.
+
+        Returns:
+            Dictionary with user information:
+            - email: User's email address
+            - name: User's display name (may be null)
+            - groups: List of group names the user belongs to
+        """
+        return {
+            "email": state.get("user_email", "unknown"),
+            "name": state.get("user_name"),
+            "groups": state.get("user_groups", []),
+        }
+
+    return user_info
+
+
 # =============================================================================
 # Subagent Creation Functions - Using SubAgent dict format
 # =============================================================================
@@ -644,6 +689,24 @@ def create_get_workflow_definition_tool():
 # 2. Get system prompt from agent._get_system_instruction_with_date()
 # 3. Return SubAgent dict with {name, description, system_prompt, tools}
 # 4. SubAgentMiddleware adds FilesystemMiddleware with shared StateBackend
+
+FILESYSTEM_READ_GUIDANCE = """
+
+## Filesystem Reads
+
+When complete file content matters, call `get_file_line_count(file_path=...)`
+before `read_file`. Use the returned `total_lines` to choose explicit `offset`
+and `limit` values, or paginate deliberately for large files. Do not rely on
+`read_file`'s default limit for content that will be used in downstream actions.
+"""
+
+
+def _with_filesystem_read_guidance(system_prompt: str) -> str:
+    """Append filesystem read guidance to local subagent prompts."""
+    if "## Filesystem Reads" in system_prompt:
+        return system_prompt
+    return system_prompt + FILESYSTEM_READ_GUIDANCE
+
 
 def create_user_input_subagent_def() -> dict:
     """Create the user input collection subagent definition.
@@ -661,6 +724,7 @@ def create_user_input_subagent_def() -> dict:
     # Include utility tools for filesystem operations
     tools = [
         response_tool,
+        get_file_line_count,  # Count lines before paginated reads
         tool_result_to_file,  # Save tool output to filesystem
         wait,  # Async sleep for waiting scenarios
     ]
@@ -668,7 +732,7 @@ def create_user_input_subagent_def() -> dict:
     subagent_def = {
         "name": "user_input",
         "description": "Collects user input via forms, writes to filesystem for downstream agents",
-        "system_prompt": system_prompt,
+        "system_prompt": _with_filesystem_read_guidance(system_prompt),
         "tools": tools,
         "interrupt_on": {"CAIPEAgentResponse": True},
         "middleware": [
@@ -720,17 +784,18 @@ async def create_subagent_def(agent_instance, name: str, description: str, promp
         logger.warning(f"{name}: MCP tools unavailable — subagent will have no domain tools (MCP-only mode)")
 
     # Add utility tools available to all subagents
+    # - get_file_line_count: Count lines before paginated reads
     # - tool_result_to_file: Save tool output to filesystem for downstream agents
     # - wait: Async sleep for polling/waiting scenarios
     # Note: FilesystemMiddleware provides read_file, write_file, etc. separately
-    tools.extend([tool_result_to_file, wait])
+    tools.extend([get_file_line_count, tool_result_to_file, wait])
 
     # Always use the agent's built-in system prompt — it matches what the agent
     # uses in multi-node (standalone) mode and contains rich operational details
     # (tool usage SOPs, account lists, URL patterns, etc.).
     # prompt_config.agent_prompts entries are routing hints for the supervisor,
     # not subagent system prompts.
-    system_prompt = agent_instance._get_system_instruction_with_date()
+    system_prompt = _with_filesystem_read_guidance(agent_instance._get_system_instruction_with_date())
     logger.info(f"📝 Using built-in system_prompt for {name} subagent")
 
     subagent_def = {
@@ -815,10 +880,10 @@ async def create_github_subagent_def(prompt_config: dict = None) -> dict:
         tools.extend(gh_tool)
         logger.info(f"{name}: Added gh CLI fallback tool")
 
-    tools.extend([tool_result_to_file, wait, terraform_fmt])
+    tools.extend([get_file_line_count, tool_result_to_file, wait, terraform_fmt])
 
     # Always use the agent's built-in system prompt (matches multi-node mode)
-    system_prompt = agent._get_system_instruction_with_date()
+    system_prompt = _with_filesystem_read_guidance(agent._get_system_instruction_with_date())
     logger.info(f"📝 Using built-in system_prompt for {name} subagent")
 
     subagent_def = {
@@ -919,19 +984,20 @@ async def create_aws_subagent_def(prompt_config: dict = None) -> dict:
     except Exception as e:
         logger.warning(f"{name}: Failed to load EKS kubectl tool: {e}")
 
-    tools.extend([tool_result_to_file, wait])
+    tools.extend([get_file_line_count, tool_result_to_file, wait])
 
-    if not any(t for t in tools if t not in (tool_result_to_file, wait)):
+    utility_tools = (get_file_line_count, tool_result_to_file, wait)
+    if not any(t for t in tools if t not in utility_tools):
         logger.error(f"{name}: No domain tools available — check MCP config and USE_AWS_CLI_AS_TOOL")
 
     # Always use the agent's built-in system prompt — it contains dynamically
     # generated account details, profile names, and tool usage patterns from
     # get_system_instruction(). The prompt_config.agent_prompts.aws entry is a
     # routing hint for the supervisor, not an actual subagent system prompt.
-    system_prompt = agent._get_system_instruction_with_date()
+    system_prompt = _with_filesystem_read_guidance(agent._get_system_instruction_with_date())
     logger.info(f"📝 Using built-in system_prompt for {name} subagent (has account/profile details)")
 
-    cli_count = sum(1 for t in tools if t not in (tool_result_to_file, wait) and t not in mcp_tools)
+    cli_count = sum(1 for t in tools if t not in utility_tools and t not in mcp_tools)
     subagent_def = {
         "name": name,
         "description": "AWS: EC2, EKS, S3 resource management",
@@ -1252,11 +1318,18 @@ class PlatformEngineerDeepAgent:
         try:
             if self.rag_mcp_client is None:
                 logger.info(f"Initializing RAG MCP client for {RAG_SERVER_URL}/mcp")
+                rag_config: Dict[str, Any] = {
+                    "url": f"{RAG_SERVER_URL}/mcp",
+                    "transport": "streamable_http",
+                }
+                if FORWARD_JWT_TO_MCP:
+                    user_jwt_ctx = get_jwt_user_context()
+                    user_jwt = user_jwt_ctx.token if user_jwt_ctx else ""
+                    if user_jwt:
+                        rag_config["headers"] = {"Authorization": f"Bearer {user_jwt}"}
+                        logger.info("Forwarding user JWT to RAG MCP server")
                 self.rag_mcp_client = MultiServerMCPClient({
-                    "rag": {
-                        "url": f"{RAG_SERVER_URL}/mcp",
-                        "transport": "streamable_http",
-                    }
+                    "rag": rag_config,
                 })
 
             tools = await self.rag_mcp_client.get_tools()
@@ -1387,6 +1460,8 @@ class PlatformEngineerDeepAgent:
             get_current_date,
             jq,
             yq,
+            # Count lines before paginated reads
+            get_file_line_count,
             # Filesystem utility tool for tool output capture
             tool_result_to_file,
             # Wait tool for polling and async operations
@@ -1399,6 +1474,10 @@ class PlatformEngineerDeepAgent:
 
         # All supervisor tools
         all_tools = utility_tools + [invoke_task_tool, get_workflow_def_tool]
+
+        if ENABLE_USER_INFO_TOOL:
+            all_tools.append(create_supervisor_user_info_tool())
+            logger.info("✅ user_info tool enabled (ENABLE_USER_INFO_TOOL=true)")
 
         # RAG connectivity check and tool loading
         if self.rag_enabled and self.rag_config is None:
@@ -1425,6 +1504,11 @@ class PlatformEngineerDeepAgent:
                                 if self.rag_tools:
                                     logger.info(f"✅📚 Loaded {len(self.rag_tools)} RAG tools")
                                     logger.info(f"📋 RAG tool names: {[t.name for t in self.rag_tools]}")
+                                    try:
+                                        from ai_platform_engineering.utils.auth_mcp_tools import wrap_rag_tools_with_auth
+                                        self.rag_tools = wrap_rag_tools_with_auth(self.rag_tools)
+                                    except Exception as wrap_err:
+                                        logger.warning(f"Failed to wrap RAG tools with auth: {wrap_err}")
                                 else:
                                     logger.warning("No RAG tools loaded (empty list returned)")
                                 break
@@ -1562,6 +1646,7 @@ Each todo item's `content` MUST include the agent/tool name in square brackets, 
 
 This format is required so the UI can display agent stickers next to each task.
 """
+        system_prompt = _with_filesystem_read_guidance(system_prompt)
 
         logger.info(f"📝 Generated system prompt with {len(agents_for_prompt)} agent routing instructions")
 
@@ -1705,7 +1790,13 @@ This format is required so the UI can display agent stickers next to each task.
 
         logger.info(f"✅ Deep agent created (generation {self._graph_generation})")
 
-    async def serve(self, prompt: str, user_email: str = "") -> str:
+    async def serve(
+        self,
+        prompt: str,
+        user_email: str = "",
+        user_name: Optional[str] = None,
+        user_groups: Optional[List[str]] = None,
+    ) -> str:
         """Process prompt and return response."""
         try:
             logger.debug(f"Received prompt: {prompt}")
@@ -1726,9 +1817,13 @@ This format is required so the UI can display agent stickers next to each task.
             enhanced_prompt = f"{prompt}\n\n[{', '.join(context_parts)}]"
 
             graph = self.get_graph()
-            state_dict = {"messages": [{"role": "user", "content": enhanced_prompt}]}
+            state_dict: Dict[str, Any] = {"messages": [{"role": "user", "content": enhanced_prompt}]}
             if user_email:
                 state_dict["user_email"] = user_email
+            if user_name is not None:
+                state_dict["user_name"] = user_name
+            if user_groups is not None:
+                state_dict["user_groups"] = user_groups
             # Inject skills files into state for SkillsMiddleware / StateBackend (FR-015)
             if getattr(self, "_skills_files", None):
                 state_dict["files"] = dict(self._skills_files)
@@ -1750,7 +1845,13 @@ This format is required so the UI can display agent stickers next to each task.
             logger.error(f"Error in serve: {e}")
             raise
 
-    async def serve_stream(self, prompt: str, user_email: str = ""):
+    async def serve_stream(
+        self,
+        prompt: str,
+        user_email: str = "",
+        user_name: Optional[str] = None,
+        user_groups: Optional[List[str]] = None,
+    ):
         """Process prompt and stream responses."""
         try:
             logger.info(f"Received streaming prompt: {prompt}")
@@ -1763,9 +1864,13 @@ This format is required so the UI can display agent stickers next to each task.
             graph = self.get_graph()
             thread_id = str(uuid.uuid4())
 
-            state_dict = {"messages": [{"role": "user", "content": prompt}]}
+            state_dict: Dict[str, Any] = {"messages": [{"role": "user", "content": prompt}]}
             if user_email:
                 state_dict["user_email"] = user_email
+            if user_name is not None:
+                state_dict["user_name"] = user_name
+            if user_groups is not None:
+                state_dict["user_groups"] = user_groups
             # Inject skills files into state for SkillsMiddleware / StateBackend (FR-015)
             if getattr(self, "_skills_files", None):
                 state_dict["files"] = dict(self._skills_files)

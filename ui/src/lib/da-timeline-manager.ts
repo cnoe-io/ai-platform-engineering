@@ -23,8 +23,8 @@ import type {
   StatusSegment,
   StatusType,
 } from "@/types/dynamic-agent-timeline";
-import type { ToolStartEventData } from "@/components/dynamic-agents/sse-types";
-import { SUBAGENT_TOOL_NAME } from "@/components/dynamic-agents/sse-types";
+import type { ToolStartEventData } from "@/lib/streaming/types";
+import { SUBAGENT_TOOL_NAME } from "@/lib/streaming/types";
 
 // ═══════════════════════════════════════════════════════════════
 // Internal Types
@@ -252,7 +252,7 @@ export class TimelineManager {
   /**
    * Push a tool end event.
    */
-  pushToolEnd(toolCallId: string, namespace: string[], args?: Record<string, unknown>): void {
+  pushToolEnd(toolCallId: string, namespace: string[], args?: Record<string, unknown>, result?: string): void {
     const now = new Date();
     const currentIndex = this.eventIndex++;
 
@@ -263,6 +263,7 @@ export class TimelineManager {
         tool.status = "completed";
         tool.endedAt = now;
         if (args) tool.args = args;
+        if (result) tool.result = result;
         this.lastToolEndIndex = currentIndex;
       }
 
@@ -307,6 +308,7 @@ export class TimelineManager {
           tool.status = "completed";
           tool.endedAt = now;
           if (args) tool.args = args;
+          if (result) tool.result = result;
           subagent.lastToolEndIndex = currentIndex;
         }
       }

@@ -66,7 +66,7 @@ agentForge:
 
 ## Connecting to CAIPE
 
-Point the plugin to your running CAIPE supervisor endpoint. The plugin uses the A2A protocol for all agent communication. See [Getting Started](/getting-started/quick-start) for how to stand up a CAIPE instance.
+Point the plugin to your running CAIPE supervisor endpoint. The plugin uses the A2A protocol for all agent communication. See [Getting Started](/docs/getting-started/quick-start) for how to stand up a CAIPE instance.
 
 ## Resources
 

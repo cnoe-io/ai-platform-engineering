@@ -20,8 +20,9 @@ import {
 } from "lucide-react";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 import { DynamicAgentEditor } from "./DynamicAgentEditor";
-import { getGradientStyle } from "@/lib/gradient-themes";
+import { AgentAvatar } from "./AgentAvatar";
 import { toYaml } from "@/lib/yaml-serializer";
+import { LastReviewBadge } from "@/components/ai-review";
 
 export function DynamicAgentsTab() {
   const [agents, setAgents] = React.useState<DynamicAgentConfig[]>([]);
@@ -90,10 +91,11 @@ export function DynamicAgentsTab() {
   };
 
   /**
-   * Export agent configuration as YAML file
+   * Export agent configuration as YAML file.
    */
   const handleExportYaml = (agent: DynamicAgentConfig) => {
-    // Build a clean config object for export (excluding internal fields)
+    // Build a complete config object for export (excluding only internal metadata)
+    const agentRecord = agent as unknown as Record<string, unknown>;
     const exportConfig = {
       id: agent._id,
       name: agent.name,
@@ -106,6 +108,8 @@ export function DynamicAgentsTab() {
       builtin_tools: agent.builtin_tools,
       subagents: agent.subagents?.length ? agent.subagents : undefined,
       skills: agent.skills?.length ? agent.skills : undefined,
+      features: agent.features,
+      interrupt_on: agentRecord.interrupt_on || undefined,
       ui: agent.ui?.gradient_theme ? agent.ui : undefined,
       enabled: agent.enabled,
     };
@@ -226,7 +230,8 @@ export function DynamicAgentsTab() {
             <div className="grid grid-cols-12 gap-4 pb-2 border-b text-xs font-medium text-muted-foreground px-2">
               <div className="col-span-4">Name</div>
               <div className="col-span-2">Visibility</div>
-              <div className="col-span-2">Tools</div>
+              <div className="col-span-1">Tools</div>
+              <div className="col-span-1">Grade</div>
               <div className="col-span-2">Status</div>
               <div className="col-span-2 text-right">Actions</div>
             </div>
@@ -240,12 +245,12 @@ export function DynamicAgentsTab() {
               >
                 <div className="col-span-4">
                     <div className="flex items-center gap-3">
-                      <div 
-                        className="h-9 w-9 rounded-lg flex items-center justify-center shrink-0"
-                        style={getGradientStyle(agent.ui?.gradient_theme)}
-                      >
-                        <Bot className="h-5 w-5 text-white" />
-                      </div>
+                      <AgentAvatar
+                        agent={agent}
+                        rounded="rounded-lg"
+                        size="h-9 w-9"
+                        iconSize="h-5 w-5"
+                      />
                       <div className="min-w-0 flex-1">
                         <div className="font-medium text-sm truncate">{agent.name}</div>
                         {agent.description && (
@@ -267,10 +272,14 @@ export function DynamicAgentsTab() {
                   </Badge>
                 </div>
 
-                <div className="col-span-2">
+                <div className="col-span-1">
                   <span className="text-sm text-muted-foreground">
-                    {Object.keys(agent.allowed_tools || {}).length} server(s)
+                    {Object.keys(agent.allowed_tools || {}).length}
                   </span>
+                </div>
+
+                <div className="col-span-1">
+                  <LastReviewBadge review={agent.last_review} />
                 </div>
 
                 <div className="col-span-2">

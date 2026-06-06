@@ -17,6 +17,18 @@ skills/
 
 ## Available Skills
 
+### 📝 [update-docs](./update-docs/)
+Audit and sync all documentation surfaces after a release or feature addition.
+Checks release blog posts, homepage version strings, Docusaurus version config,
+versioned snapshots, features page, agent doc coverage, and sidebar completeness.
+
+**Quick Start:**
+```
+/update-docs
+```
+
+See [update-docs/SKILL.md](./update-docs/SKILL.md) for the full audit checklist.
+
 ### 📊 [persistence](./persistence/)
 Test and manage LangGraph persistence backends and fact extraction.
 

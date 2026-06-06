@@ -13,8 +13,12 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea as UiTextarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useChatStore } from "@/store/chat-store";
-import { createStreamAdapter, type StreamCallbacks } from "@/lib/streaming";
-import { type StreamEvent, createStreamEvent, FILE_TOOL_NAMES, TODO_TOOL_NAME } from "@/components/dynamic-agents/sse-types";
+import { useToast } from "@/components/ui/toast";
+import { createStreamAdapter, StreamError, type StreamCallbacks } from "@/lib/streaming";
+import { authErrorToastTitle, type AuthError } from "@/lib/auth-error";
+import { APIClientError } from "@/lib/api-client";
+import { signIn } from "next-auth/react";
+import { type StreamEvent, createStreamEvent, FILE_TOOL_NAMES, TODO_TOOL_NAME } from "@/lib/streaming/types";
 import { useFeatureFlagStore } from "@/store/feature-flag-store";
 import { cn, deduplicateByKey } from "@/lib/utils";
 import { ChatMessage as ChatMessageType, TurnStatus, Conversation } from "@/types/a2a";
@@ -22,9 +26,10 @@ import { getConfig } from "@/lib/config";
 import { FeedbackButton, Feedback } from "./FeedbackButton";
 import { DEFAULT_AGENTS } from "./CustomCallButtons";
 import { MetadataInputForm, type UserInputMetadata, type InputField } from "./MetadataInputForm";
+import { ToolApprovalCard } from "./ToolApprovalCard";
 import { SlashCommandMenu, getFilteredCommands, type SlashCommand } from "./SlashCommandMenu";
 import { useSlashCommands } from "./useSlashCommands";
-import { getGradientStyle } from "@/lib/gradient-themes";
+import { AgentAvatar } from "@/components/dynamic-agents/AgentAvatar";
 import { AgentTimeline, type SubagentLookupInfo } from "./DynamicAgentTimeline";
 import { useAgentTimeline } from "@/hooks/useDynamicAgentTimeline";
 import type { TaskItem } from "@/components/shared/timeline";
@@ -41,16 +46,53 @@ interface ChatPanelProps {
   readOnly?: boolean;
   readOnlyReason?: ReadOnlyReason;
   agentId: string; // Mandatory for Dynamic Agents
-  agentGradient?: string | null; // Gradient theme for agent avatar
-  agentName?: string; // Agent name for display
-  agentSkills?: string[]; // Configured skill IDs for this agent
+  agent?: DynamicAgentConfig | null; // Full agent config object
   isLoadingMessages?: boolean; // Whether messages are still loading (show skeleton)
 }
 
-export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnly, readOnlyReason, agentId, agentGradient, agentName, agentSkills, isLoadingMessages }: ChatPanelProps) {
+export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnly, readOnlyReason, agentId, agent, isLoadingMessages }: ChatPanelProps) {
+  // Derive display values from agent object
+  const agentGradient = agent?.ui?.gradient_theme ?? null;
+  const agentCustomTheme = agent?.ui?.custom_theme_config ?? null;
+  const agentName = agent?.name;
+  const agentSkills = agent?.skills;
   const { data: session } = useSession();
+  const { toast } = useToast();
   const autoScrollEnabled = useFeatureFlagStore((s) => s.flags.autoScroll ?? true);
   const showTimestamps = useFeatureFlagStore((s) => s.flags.showTimestamps ?? false);
+
+  /**
+   * Surface a structured auth-failure (from the Web UI backend or stream adapters) to
+   * the user as a toast with a short title + the server-supplied message,
+   * and trigger NextAuth re-sign-in when the server's `action` hint is
+   * `sign_in`. Returns true so callers can short-circuit the inline error
+   * rendering.
+   *
+   * Why a toast over inline error text: auth failures are recoverable
+   * (sign in / contact admin), not part of the conversation. Burying them
+   * inside an `**Error:** ...` blob in the assistant turn taught users to
+   * blame the agent and made the recovery path invisible. See
+   * docs/docs/specs/098-enterprise-rbac-slack-ui/how-rbac-works.md.
+   */
+  const showAuthErrorToast = useCallback(
+    (err: AuthError) => {
+      const title = authErrorToastTitle(err);
+      // Toast component renders message as text; combine title + body with
+      // a newline so both are visible without exposing custom JSX.
+      toast(`${title}\n${err.message}`, "error", 8000);
+
+      // For session-expired / not-signed-in, redirect to NextAuth sign-in
+      // after a short delay so the user has time to read the toast. We use
+      // signIn() (not router.push) because NextAuth handles the OIDC flow
+      // and round-trips the user back to the current page on success.
+      if (err.action === "sign_in") {
+        setTimeout(() => {
+          void signIn(undefined, { callbackUrl: window.location.href });
+        }, 1500);
+      }
+    },
+    [toast],
+  );
 
   // Derive the user's first name for message labels (falls back to "You")
   const userDisplayName = useMemo(() => {
@@ -83,9 +125,29 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     agentId?: string;
   } | null>(null);
 
+  // Tool approval state (HITL for gated tools)
+  const [pendingToolApproval, setPendingToolApproval] = useState<{
+    messageId: string;
+    interruptId: string;
+    agentId: string;
+    /** All tool calls needing approval in this interrupt batch */
+    tools: Array<{
+      toolName: string;
+      toolArgs: Record<string, unknown>;
+      allowedDecisions: string[];
+    }>;
+    /** Index of the tool currently being shown to the user */
+    currentIndex: number;
+    /** Accumulated decisions (one per tool, filled as user decides) */
+    decisions: Array<{ decision: string; toolName: string; editedArgs?: Record<string, unknown> }>;
+  } | null>(null);
+
   // Track message IDs where the user explicitly dismissed the input form,
   // so we don't re-show it after the restore effect runs.
   const dismissedInputForMessageRef = useRef<Set<string>>(new Set());
+
+  // Whether we're still checking for a pending HITL interrupt (after page refresh)
+  const [checkingInterrupt, setCheckingInterrupt] = useState(false);
 
   // Auto-scroll state
   const [isUserScrolledUp, setIsUserScrolledUp] = useState(false);
@@ -103,6 +165,8 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     createConversation,
     addMessage,
     updateMessage,
+    // appendToMessage, // Unused in filtered code? Let's check. Used in error handling.
+    appendToMessage,
     addStreamEvent,
     clearStreamEvents,
     setConversationStreaming,
@@ -119,7 +183,6 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     // Let's remove it for now to avoid errors, as Dynamic Agents rely on SSE resume, not task polling.
     evictOldMessageContent,
     loadMessagesFromServer,
-    saveMessagesToServer,
     updateConversationTitle,
   } = useChatStore();
 
@@ -166,6 +229,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
             const info: SubagentLookupInfo = {
               name: agent.name,
               gradientTheme: agent.ui?.gradient_theme,
+              customThemeConfig: agent.ui?.custom_theme_config,
             };
             cache.set(agent._id, info);
             // Also index by lowercase name for name-based lookup
@@ -297,14 +361,20 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
   useEffect(() => {
     // Skip if no conversationId (new conversation) or agentId
     if (!conversationId || !agentId) return;
-    
+
+    // Wait for messages to be loaded (race condition on page refresh:
+    // this effect can fire before ChatContainer finishes loading messages
+    // from MongoDB, causing lastMsg to be undefined and recovery to fail)
+    if (isLoadingMessages) return;
+
     // Skip if already checked this conversation
     if (interruptCheckedRef.current.has(conversationId)) return;
-    
+
     // Mark as checked BEFORE async to prevent duplicate checks in Strict Mode
     interruptCheckedRef.current.add(conversationId);
 
     const checkInterruptState = async () => {
+      setCheckingInterrupt(true);
       try {
         // Check for pending HITL interrupt state (lightweight call to checkpointer)
         // Messages are already loaded by ChatContainer - we only check interrupt state here
@@ -315,49 +385,75 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
         if (interruptResponse.ok) {
           const interruptData = await interruptResponse.json();
           
-          // Handle pending interrupt - restore the HITL form if present
+          // Handle pending interrupt - restore the HITL form or tool approval card
           if (interruptData.has_pending_interrupt && interruptData.interrupt_data) {
-            const { prompt, fields } = interruptData.interrupt_data;
+            const idata = interruptData.interrupt_data;
             
             // Get the last message from the store (already loaded by ChatContainer)
             const currentConv = useChatStore.getState().conversations.find(c => c.id === conversationId);
             const lastMsg = currentConv?.messages?.[currentConv.messages.length - 1];
             
             if (lastMsg && lastMsg.role === "assistant") {
-              const inputFields: InputField[] = fields.map((f: { field_name: string; field_label?: string; field_description?: string; field_type?: string; field_values?: string[]; required?: boolean; default_value?: string; placeholder?: string }) => ({
-                field_name: f.field_name,
-                field_label: f.field_label,
-                field_description: f.field_description,
-                field_type: f.field_type,
-                field_values: f.field_values,
-                required: f.required,
-                default_value: f.default_value,
-                placeholder: f.placeholder,
-              }));
+              if (idata.type === "tool_approval") {
+                // Build tools list from tool_approvals if available, else single tool
+                const tools = idata.tool_approvals && idata.tool_approvals.length > 1
+                  ? idata.tool_approvals.map((t: { tool_name: string; tool_args: Record<string, unknown>; allowed_decisions?: string[] }) => ({
+                      toolName: t.tool_name,
+                      toolArgs: t.tool_args || {},
+                      allowedDecisions: t.allowed_decisions || ["approve", "edit", "reject"],
+                    }))
+                  : [{
+                      toolName: idata.tool_name,
+                      toolArgs: idata.tool_args || {},
+                      allowedDecisions: idata.allowed_decisions || ["approve", "edit", "reject"],
+                    }];
+                setPendingToolApproval({
+                  messageId: lastMsg.id,
+                  interruptId: idata.interrupt_id,
+                  agentId,
+                  tools,
+                  currentIndex: 0,
+                  decisions: [],
+                });
+              } else {
+                const { prompt, fields } = idata;
+                const inputFields: InputField[] = (fields || []).map((f: { field_name: string; field_label?: string; field_description?: string; field_type?: string; field_values?: string[]; required?: boolean; default_value?: string; placeholder?: string }) => ({
+                  field_name: f.field_name,
+                  field_label: f.field_label,
+                  field_description: f.field_description,
+                  field_type: f.field_type,
+                  field_values: f.field_values,
+                  required: f.required,
+                  default_value: f.default_value,
+                  placeholder: f.placeholder,
+                }));
 
-              setPendingUserInput({
-                messageId: lastMsg.id,
-                metadata: {
-                  user_input: true,
-                  input_title: `Input Required`,
-                  input_description: prompt,
-                  input_fields: inputFields,
-                },
-                contextId: conversationId,
-                isSSE: true,
-                agentId: agentId,
-              });
+                setPendingUserInput({
+                  messageId: lastMsg.id,
+                  metadata: {
+                    user_input: true,
+                    input_title: `Input Required`,
+                    input_description: prompt || "",
+                    input_fields: inputFields,
+                  },
+                  contextId: conversationId,
+                  isSSE: true,
+                  agentId: agentId,
+                });
+              }
             }
           }
         }
       } catch (interruptError) {
         // Non-fatal: HITL state check failed
         console.warn("[ChatPanel] Failed to check interrupt state:", interruptError);
+      } finally {
+        setCheckingInterrupt(false);
       }
     };
 
     checkInterruptState();
-  }, [conversationId, agentId]);
+  }, [conversationId, agentId, isLoadingMessages]);
 
   // ═══════════════════════════════════════════════════════════════
   // FILES & TASKS FETCH (for timeline display in latest message)
@@ -386,8 +482,9 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       try {
         // No Authorization header — session cookie handles auth for same-origin requests.
         // Bearer tokens resolve email from JWT `sub` which may not match conversation owner_id.
+        const fsNamespace = JSON.stringify([agentId, conversationId, "filesystem"]);
         const response = await fetch(
-          `/api/dynamic-agents/conversations/${conversationId}/files/list?agent_id=${encodeURIComponent(agentId)}`,
+          `/api/files/list?fs_namespace=${encodeURIComponent(fsNamespace)}`,
         );
         if (response.ok) {
           const data = await response.json();
@@ -410,8 +507,9 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       setDownloadingFilePath(path);
 
       try {
+        const fsNamespace = JSON.stringify([agentId, conversationId, "filesystem"]);
         const response = await fetch(
-          `/api/dynamic-agents/conversations/${conversationId}/files/content?agent_id=${encodeURIComponent(agentId)}&path=${encodeURIComponent(path)}`,
+          `/api/files/content?fs_namespace=${encodeURIComponent(fsNamespace)}&path=${encodeURIComponent(path)}`,
         );
 
         if (response.ok) {
@@ -449,8 +547,9 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       setDeletingFilePath(path);
 
       try {
+        const fsNamespace = JSON.stringify([agentId, conversationId, "filesystem"]);
         const response = await fetch(
-          `/api/dynamic-agents/conversations/${conversationId}/files/content?agent_id=${encodeURIComponent(agentId)}&path=${encodeURIComponent(path)}`,
+          `/api/files/content?fs_namespace=${encodeURIComponent(fsNamespace)}&path=${encodeURIComponent(path)}`,
           {
             method: "DELETE",
           }
@@ -516,6 +615,9 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
        if (hasUserReplyAfter) {
          return;
        }
+
+       // Tool approval events don't have fields — skip form restore for those
+       if (!fields) return;
 
        const inputFields: InputField[] = fields.map(f => ({
             field_name: f.field_name,
@@ -631,9 +733,9 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       }
     },
 
-    onToolEnd(toolCallId, toolName, error, namespace, args) {
+    onToolEnd(toolCallId, toolName, error, namespace, args, result) {
       const resolvedName = toolName ?? toolCallIdToName.get(toolCallId);
-      // Parse accumulated args string (from AG-UI TOOL_CALL_ARGS deltas) into object
+      // Parse accumulated args string (from AG-UI TOOL_CALL_ARGS deltas) into object.
       let parsedArgs: Record<string, unknown> | undefined;
       if (args) {
         try {
@@ -642,12 +744,13 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
             parsedArgs = parsed as Record<string, unknown>;
           }
         } catch {
-          // Args string wasn't valid JSON — ignore
+          // Args string was not valid JSON; omit it from the timeline event.
         }
       }
       const streamEvent = createStreamEvent("tool_end", {
         tool_call_id: toolCallId,
         error,
+        result,
         args: parsedArgs,
         namespace: namespace ?? [],
       });
@@ -704,6 +807,46 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
         loopState.accumulatedText = prompt;
         updateMessage(convId, assistantMsgId, { content: loopState.accumulatedText });
       }
+    },
+
+    onToolApprovalRequired(interruptId, toolName, toolArgs, allowedDecisions, agent, toolApprovals) {
+      loopState.hitlFormRequested = true;
+
+      const streamEvent = createStreamEvent("input_required", {
+        type: "tool_approval",
+        interrupt_id: interruptId,
+        tool_name: toolName,
+        tool_args: toolArgs,
+        allowed_decisions: allowedDecisions,
+        agent,
+        namespace: [],
+      });
+      addStreamEvent(streamEvent, convId);
+
+      // Build the list of tools needing approval
+      const tools = toolApprovals && toolApprovals.length > 1
+        ? toolApprovals.map(t => ({
+            toolName: t.tool_name,
+            toolArgs: t.tool_args,
+            allowedDecisions: t.allowed_decisions,
+          }))
+        : [{ toolName, toolArgs, allowedDecisions }];
+
+      setPendingToolApproval({
+        messageId: assistantMsgId,
+        interruptId,
+        agentId,
+        tools,
+        currentIndex: 0,
+        decisions: [],
+      });
+
+      const toolCount = tools.length;
+      updateMessage(convId, assistantMsgId, {
+        content: toolCount > 1
+          ? `Requesting approval for ${toolCount} tool calls...`
+          : `Requesting approval to run \`${toolName}\`...`,
+      });
     },
 
     onWarning(message, namespace) {
@@ -768,9 +911,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     const turnStreamEvents = currentConv?.streamEvents || [];
 
     if (wasAlreadyCancelled) {
-      saveMessagesToServer(conversationId).catch((err) => {
-        console.error('[DynamicAgent] Failed to save cancelled messages:', err);
-      });
+      // Store's setConversationStreaming(null) hook already saved — nothing to do.
       return;
     }
 
@@ -790,19 +931,42 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       streamEvents: turnStreamEvents.length > 0 ? turnStreamEvents : undefined,
     });
     setConversationStreaming(conversationId, null);
-    saveMessagesToServer(conversationId).catch((err) => {
-      console.error('[DynamicAgent] Failed to save messages:', err);
-    });
-  }, [updateMessage, setConversationStreaming, saveMessagesToServer]);
+    // Store's setConversationStreaming(null) hook auto-saves after 500ms.
+  }, [updateMessage, setConversationStreaming]);
 
   // Core submit function that accepts a message directly
   const submitMessage = useCallback(async (messageToSend: string) => {
     if (!messageToSend.trim() || isThisConversationStreaming) return;
 
-    // Create conversation if needed
+    // Create conversation if needed. This hits POST /api/chat/conversations
+    // which is gated by the Web UI backend auth middleware, so we have to handle the
+    // structured auth-error here too (not just on the stream call) — without
+    // this, an expired session looks like a generic "Failed to create
+    // conversation" with no recovery hint.
     let convId = activeConversationId;
     if (!convId) {
-      convId = await createConversation(agentId);
+      try {
+        convId = await createConversation(agentId);
+      } catch (err) {
+        if (err instanceof APIClientError && (err.reason || err.status === 401 || err.status === 403)) {
+          showAuthErrorToast({
+            status: err.status,
+            message: err.message,
+            code: err.code,
+            reason: err.reason,
+            action: err.action,
+          });
+          return;
+        }
+        // Non-auth failure — fall through to existing toast surface so the
+        // user still sees something instead of a silent no-op.
+        toast(
+          `Failed to start conversation: ${err instanceof Error ? err.message : String(err)}`,
+          "error",
+          8000,
+        );
+        return;
+      }
     }
 
     // Build client context for system prompt rendering and user_info tool
@@ -861,24 +1025,32 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
 
     } catch (error) {
       console.error("[DynamicAgent] Stream error:", error);
-      const errorMsg = (error as Error).message || "Failed to connect to agent endpoint";
-      if (!(error as Error).message?.startsWith("Session expired:")) {
-        updateMessage(convId, assistantMsgId, {
-          error: errorMsg,
-          turnStatus: "interrupted" as TurnStatus,
+
+      // Auth failures (401/403/503-pdp_unavailable) come through as
+      // StreamError with structured fields populated by the Web UI backend. Surface
+      // them as a toast (with sign-in CTA when applicable) instead of
+      // burying them inside the assistant turn — see showAuthErrorToast
+      // for the rationale.
+      const isAuthError = error instanceof StreamError && error.isAuthError();
+      if (isAuthError) {
+        const se = error as StreamError;
+        showAuthErrorToast({
+          status: se.status,
+          message: se.message,
+          code: se.code,
+          reason: se.reason,
+          action: se.action,
         });
-      } else {
-        updateMessage(convId, assistantMsgId, {
-          turnStatus: "interrupted" as TurnStatus,
-        });
+      } else if (!(error as Error).message?.startsWith("Session expired:")) {
+        appendToMessage(convId, assistantMsgId, `\n\n**Error:** ${(error as Error).message || "Failed to connect to agent endpoint"}`);
       }
       // Set interrupted status on error
-      setConversationStreaming(convId, null);
-      saveMessagesToServer(convId).catch((err) => {
-        console.error('[DynamicAgent] Failed to save error messages:', err);
+      updateMessage(convId!, assistantMsgId, {
+        turnStatus: "interrupted" as TurnStatus,
       });
+      setConversationStreaming(convId, null);
     }
-  }, [isThisConversationStreaming, activeConversationId, accessToken, agentId, agentProtocol, createConversation, clearStreamEvents, addMessage, updateMessage, setConversationStreaming, saveMessagesToServer, buildStreamCallbacks, finalizeStreamLoop, session?.user, memoryEnabled]);
+  }, [isThisConversationStreaming, activeConversationId, accessToken, agentId, agentProtocol, createConversation, clearStreamEvents, addMessage, appendToMessage, updateMessage, setConversationStreaming, buildStreamCallbacks, finalizeStreamLoop, session?.user, showAuthErrorToast, toast, memoryEnabled]);
 
   // Handle queued messages after streaming completes
   useEffect(() => {
@@ -1114,8 +1286,8 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       ...(conv?.sharing && { chat_sharing: conv.sharing }),
     };
 
-    // Send form data as JSON string
-    const formDataJson = JSON.stringify(formData);
+    // Send form data as discriminated resume payload
+    const formDataJson = JSON.stringify({ type: "form_input", values: formData });
 
     setConversationStreaming(activeConversationId, {
       conversationId: activeConversationId,
@@ -1136,7 +1308,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       const callbacks = buildStreamCallbacks(activeConversationId, assistantMsgId, loopState, toolCallIdToName);
 
       await adapter.resumeStream(
-        { conversationId: activeConversationId, agentId: resumeAgentId, formData: formDataJson, clientContext, memoryEnabled },
+        { conversationId: activeConversationId, agentId: resumeAgentId, resumeData: formDataJson, clientContext, memoryEnabled },
         callbacks,
       );
 
@@ -1145,18 +1317,122 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
 
     } catch (error) {
       console.error("[DynamicAgent] HITL resume error:", error);
+      appendToMessage(activeConversationId, assistantMsgId,
+        `\n\n**Error:** ${(error as Error).message || "Failed to resume"}`);
+      updateMessage(activeConversationId, assistantMsgId, { turnStatus: "interrupted" as TurnStatus });
+      setConversationStreaming(activeConversationId, null);
+    }
+  }, [pendingUserInput, activeConversationId, accessToken, agentProtocol, addMessage, updateMessage,
+      appendToMessage, setConversationStreaming,
+      clearStreamEvents, buildStreamCallbacks, finalizeStreamLoop, memoryEnabled]);
+
+  // Handle tool approval decisions (approve/reject/edit)
+  // Shows cards sequentially; only resumes after all tools are decided.
+  const handleToolApprovalDecision = useCallback(async (
+    decision: "approve" | "reject" | "edit",
+    editedArgs?: Record<string, unknown>,
+  ) => {
+    if (!pendingToolApproval || !activeConversationId) return;
+
+    const { tools, currentIndex, decisions } = pendingToolApproval;
+    const currentTool = tools[currentIndex];
+
+    // Accumulate this decision
+    const newDecisions = [
+      ...decisions,
+      { decision, toolName: currentTool.toolName, editedArgs },
+    ];
+
+    // If there are more tools to decide, advance to the next card
+    if (currentIndex + 1 < tools.length) {
+      setPendingToolApproval({
+        ...pendingToolApproval,
+        currentIndex: currentIndex + 1,
+        decisions: newDecisions,
+      });
+      return;
+    }
+
+    // All tools decided — send the resume with all decisions
+    const turnId = `turn-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    const summaryParts = newDecisions.map(d => {
+      const label = d.decision === "approve" ? "Approved" : d.decision === "reject" ? "Rejected" : "Edited & approved";
+      return `${label} \`${d.toolName}\``;
+    });
+    addMessage(activeConversationId, {
+      role: "user",
+      content: summaryParts.join("\n"),
+    }, turnId);
+    const assistantMsgId = addMessage(activeConversationId, { role: "assistant", content: "" }, turnId);
+
+    const resumeAgentId = pendingToolApproval.agentId;
+    setPendingToolApproval(null);
+
+    clearStreamEvents(activeConversationId);
+
+    const adapter = createStreamAdapter({
+      protocol: agentProtocol as "custom" | "agui",
+      accessToken,
+    });
+
+    const clientContext: Record<string, unknown> = { source: "webui" };
+
+    // Build resume payload — use batched decisions format
+    let resumePayload: Record<string, unknown>;
+    if (newDecisions.length === 1) {
+      // Single tool — use legacy format for backwards compat
+      const d = newDecisions[0];
+      if (d.decision === "edit" && d.editedArgs) {
+        resumePayload = { type: "tool_approval", decision: "edit", edited_args: d.editedArgs };
+      } else {
+        resumePayload = { type: "tool_approval", decision: d.decision };
+      }
+    } else {
+      // Multi-tool — use batched format
+      resumePayload = {
+        type: "tool_approval",
+        decisions: newDecisions.map(d => {
+          if (d.decision === "edit" && d.editedArgs) {
+            return { decision: "edit", tool_name: d.toolName, edited_args: d.editedArgs };
+          }
+          return { decision: d.decision };
+        }),
+      };
+    }
+    const resumeData = JSON.stringify(resumePayload);
+
+    setConversationStreaming(activeConversationId, {
+      conversationId: activeConversationId,
+      messageId: assistantMsgId,
+      client: { abort: () => adapter.abort() } as any,
+      streamAdapter: adapter,
+    });
+
+    const loopState: StreamLoopState = {
+      accumulatedText: "",
+      rawStreamContent: "",
+      hitlFormRequested: false,
+      hasError: false,
+    };
+    const toolCallIdToName = new Map<string, string>();
+
+    try {
+      const callbacks = buildStreamCallbacks(activeConversationId, assistantMsgId, loopState, toolCallIdToName);
+      await adapter.resumeStream(
+        { conversationId: activeConversationId, agentId: resumeAgentId, resumeData, clientContext, memoryEnabled },
+        callbacks,
+      );
+      finalizeStreamLoop(activeConversationId, assistantMsgId, loopState);
+    } catch (error) {
+      console.error("[DynamicAgent] Tool approval resume error:", error);
       updateMessage(activeConversationId, assistantMsgId, {
         error: (error as Error).message || "Failed to resume",
         turnStatus: "interrupted" as TurnStatus,
       });
       setConversationStreaming(activeConversationId, null);
-      saveMessagesToServer(activeConversationId).catch((err) => {
-        console.error('[DynamicAgent] Failed to save HITL resume error messages:', err);
-      });
     }
-  }, [pendingUserInput, activeConversationId, accessToken, agentProtocol, addMessage, updateMessage,
-      setConversationStreaming, saveMessagesToServer,
-      clearStreamEvents, buildStreamCallbacks, finalizeStreamLoop, memoryEnabled]);
+  }, [pendingToolApproval, activeConversationId, accessToken, agentProtocol, addMessage, updateMessage,
+      setConversationStreaming, clearStreamEvents, buildStreamCallbacks, finalizeStreamLoop, memoryEnabled]);
 
   // Handle slash command detection in input
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -1296,39 +1572,24 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
                   </>
                 ) : (
                   <>
-                    {(() => {
-                      const gradientStyle = agentGradient ? getGradientStyle(agentGradient) : null;
-                      return (
-                        <div 
-                          className={cn(
-                            "w-16 h-16 mx-auto mb-6 rounded-2xl flex items-center justify-center",
-                            !gradientStyle && "bg-gradient-to-br from-primary to-primary/60"
-                          )}
-                          style={gradientStyle || undefined}
-                        >
-                          <Sparkles className="h-8 w-8 text-white" />
-                        </div>
-                      );
-                    })()}
+                    <AgentAvatar
+                      agent={agent}
+                      rounded="rounded-2xl"
+                      size="w-16 h-16 mx-auto mb-6"
+                      iconSize="h-8 w-8"
+                      icon={Sparkles}
+                    />
                     <h2 className="text-2xl font-bold mb-4">Welcome to {getConfig('appName')}</h2>
                     <p className="text-muted-foreground mb-3">
                       Start your conversation with
                     </p>
                     <div className="flex items-center justify-center gap-3">
-                      {(() => {
-                        const gradientStyle = agentGradient ? getGradientStyle(agentGradient) : null;
-                        return (
-                          <div 
-                            className={cn(
-                              "w-8 h-8 rounded-lg flex items-center justify-center",
-                              !gradientStyle && "bg-gradient-to-br from-primary to-primary/60"
-                            )}
-                            style={gradientStyle || undefined}
-                          >
-                            <Bot className="h-4 w-4 text-white" />
-                          </div>
-                        );
-                      })()}
+                      <AgentAvatar
+                        agent={agent}
+                        rounded="rounded-lg"
+                        size="w-8 h-8"
+                        iconSize="h-4 w-4"
+                      />
                       <span className="text-lg font-semibold">
                         {agentName || "your agent"}
                       </span>
@@ -1475,6 +1736,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
                           userDisplayName={userDisplayName}
                           showTimestamp={showTimestamps}
                           agentGradient={agentGradient}
+                          agentCustomTheme={agentCustomTheme}
                           agentName={agentName}
                           turnEvents={turnEvents}
                           memoryInjectedIds={memoryInjectedIds}
@@ -1488,9 +1750,10 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
                           onFileDelete={handleTimelineFileDelete}
                           isDownloadingFile={isDownloadingFile}
                           downloadingFilePath={downloadingFilePath}
-                          isDeletingFile={isDeletingFile}
+                           isDeletingFile={isDeletingFile}
                           deletingFilePath={deletingFilePath}
                           getSubagentInfo={getSubagentInfo}
+                          pendingHitl={!!(pendingUserInput || pendingToolApproval)}
                         />
                       );
                     })}
@@ -1519,12 +1782,12 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
                         accessToken,
                       });
                       // Fire-and-forget: resume with rejection message
-                      const dismissalMessage = "User dismissed the input form without providing values.";
+                      const dismissalPayload = JSON.stringify({ type: "form_input", dismissed: true });
                       dismissAdapter.resumeStream(
                         {
                           conversationId: activeConversationId,
                           agentId: pendingUserInput.agentId,
-                          formData: dismissalMessage,
+                          resumeData: dismissalPayload,
                           memoryEnabled,
                         },
                         {}, // No callbacks — we don't render the response
@@ -1537,6 +1800,33 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
                 }}
                 disabled={isThisConversationStreaming}
               />
+            )}
+
+            {/* Tool Approval Card */}
+            {pendingToolApproval && (() => {
+              const currentTool = pendingToolApproval.tools[pendingToolApproval.currentIndex];
+              const total = pendingToolApproval.tools.length;
+              const current = pendingToolApproval.currentIndex + 1;
+              return (
+                <ToolApprovalCard
+                  toolName={total > 1 ? `${currentTool.toolName} (${current}/${total})` : currentTool.toolName}
+                  toolArgs={currentTool.toolArgs}
+                  allowedDecisions={currentTool.allowedDecisions}
+                  onApprove={() => handleToolApprovalDecision("approve")}
+                  onReject={() => handleToolApprovalDecision("reject")}
+                  onEdit={(editedArgs) => handleToolApprovalDecision("edit", editedArgs)}
+                  disabled={isThisConversationStreaming}
+                  totalCount={total}
+                />
+              );
+            })()}
+
+            {/* Loading indicator while checking for pending HITL interrupt */}
+            {checkingInterrupt && !pendingUserInput && !pendingToolApproval && (
+              <div className="flex items-center gap-2 px-4 py-3 text-xs text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                <span>Checking conversation state...</span>
+              </div>
             )}
 
             {/* Invisible marker for scroll-to-bottom */}
@@ -1892,6 +2182,7 @@ interface ChatMessageProps {
   userDisplayName?: string;
   showTimestamp?: boolean;
   agentGradient?: string | null;
+  agentCustomTheme?: import("@/types/dynamic-agent").CustomThemeConfig | null;
   agentName?: string;
   turnEvents?: StreamEvent[];
   memoryInjectedIds?: string[];
@@ -1908,6 +2199,7 @@ interface ChatMessageProps {
   isDeletingFile?: boolean;
   deletingFilePath?: string;
   getSubagentInfo?: (agentId: string) => SubagentLookupInfo | undefined;
+  pendingHitl?: boolean;
 }
 
 interface MemoryDialogProps {
@@ -2243,6 +2535,7 @@ const ChatMessage = React.memo(function ChatMessage({
   userDisplayName = "You",
   showTimestamp = false,
   agentGradient,
+  agentCustomTheme,
   agentName,
   turnEvents = [],
   memoryInjectedIds = [],
@@ -2259,6 +2552,7 @@ const ChatMessage = React.memo(function ChatMessage({
   isDeletingFile,
   deletingFilePath,
   getSubagentInfo,
+  pendingHitl = false,
 }: ChatMessageProps) {
   const isUser = message.role === "user";
   const [isHovered, setIsHovered] = useState(false);
@@ -2285,37 +2579,33 @@ const ChatMessage = React.memo(function ChatMessage({
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
-      {(() => {
-        const gradientStyle = !isUser && agentGradient ? getGradientStyle(agentGradient) : null;
-        return (
-          <div
-            className={cn(
-              "w-9 h-9 rounded-xl flex items-center justify-center shrink-0 shadow-sm overflow-hidden",
-              isUser
-                ? "bg-primary"
-                : !gradientStyle && "gradient-primary-br",
-              isStreaming && "animate-pulse"
-            )}
-            style={gradientStyle || undefined}
-          >
-            {isUser ? (
-              message.senderImage ? (
-                <img
-                  src={message.senderImage}
-                  alt={message.senderName || userDisplayName}
-                  className="w-9 h-9 rounded-xl object-cover"
-                />
-              ) : (
-                <User className="h-4 w-4 text-white" />
-              )
-            ) : isStreaming ? (
-              <Loader2 className="h-4 w-4 text-white animate-spin" />
-            ) : (
-              <Bot className="h-4 w-4 text-white" />
-            )}
-          </div>
-        );
-      })()}
+      {isUser ? (
+        <div
+          className={cn(
+            "w-9 h-9 rounded-xl flex items-center justify-center shrink-0 shadow-sm overflow-hidden bg-primary",
+          )}
+        >
+          {message.senderImage ? (
+            <img
+              src={message.senderImage}
+              alt={message.senderName || userDisplayName}
+              className="w-9 h-9 rounded-xl object-cover"
+            />
+          ) : (
+            <User className="h-4 w-4 text-white" />
+          )}
+        </div>
+      ) : (
+        <AgentAvatar
+          gradientTheme={agentGradient}
+          customThemeConfig={agentCustomTheme}
+          rounded="rounded-xl"
+          size="w-9 h-9"
+          iconSize="h-4 w-4"
+          isStreaming={isStreaming}
+          className="overflow-hidden"
+        />
+      )}
 
       <div className={cn(
         "flex-1 min-w-0",
@@ -2518,6 +2808,7 @@ const ChatMessage = React.memo(function ChatMessage({
                 isDeletingFile={isDeletingFile}
                 deletingFilePath={deletingFilePath}
                 getSubagentInfo={getSubagentInfo}
+                pendingHitl={pendingHitl}
               />
             ) : displayContent ? (
               // Legacy fallback: completed message with no persisted events

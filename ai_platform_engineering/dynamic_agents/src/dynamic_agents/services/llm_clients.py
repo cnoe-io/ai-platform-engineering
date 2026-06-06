@@ -1,9 +1,9 @@
-"""Shared LLM transport clients — one per (provider, region/endpoint).
+"""Shared LLM transport clients and LLM instantiation.
 
-Avoids duplicating boto3 sessions, SSL contexts, and connection pools
-(~20MB savings per runtime for Bedrock).
+Provides a single entry point (`get_llm`) for obtaining a LangChain chat model
+with shared transport clients (boto3/httpx) to avoid duplicating heavy resources.
 
-Set LLM_CLIENT_SHARING=false to disable caching (each runtime gets its own client).
+Set LLM_CLIENT_SHARING=false to disable client sharing (each call creates its own).
 """
 
 from __future__ import annotations
@@ -13,9 +13,16 @@ import os
 from functools import lru_cache
 from typing import Any
 
+from langchain_core.language_models import BaseChatModel
+
 logger = logging.getLogger(__name__)
 
 SHARE_CLIENTS = os.getenv("LLM_CLIENT_SHARING", "true").lower() != "false"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Transport client creation and caching
+# ─────────────────────────────────────────────────────────────────────────────
 
 
 def _create_bedrock_clients(region: str) -> tuple[Any, Any]:
@@ -52,7 +59,7 @@ def _cached_httpx_client(endpoint: str) -> Any:
     return _create_httpx_client(endpoint)
 
 
-def get_bedrock_clients(region: str | None = None) -> tuple[Any, Any]:
+def _get_bedrock_clients(region: str | None = None) -> tuple[Any, Any]:
     """Get (bedrock-runtime, bedrock) client pair. Cached by region when sharing enabled."""
     region = region or os.getenv("AWS_REGION", "us-east-1")
     if SHARE_CLIENTS:
@@ -60,23 +67,113 @@ def get_bedrock_clients(region: str | None = None) -> tuple[Any, Any]:
     return _create_bedrock_clients(region)
 
 
-def get_httpx_client(endpoint: str) -> Any:
+def _get_httpx_client(endpoint: str) -> Any:
     """Get httpx.Client for OpenAI/Azure. Cached by endpoint when sharing enabled."""
     if SHARE_CLIENTS:
         return _cached_httpx_client(endpoint)
     return _create_httpx_client(endpoint)
 
 
-def get_shared_llm_client(provider: str) -> Any | None:
-    """Return shared transport client for the given provider, or None."""
-    p = provider.lower().replace("-", "_")
-    if "bedrock" in p or "aws" in p:
-        return get_bedrock_clients()
-    elif "azure" in p:
-        return get_httpx_client(os.getenv("AZURE_OPENAI_ENDPOINT", "azure"))
-    elif "openai" in p:
-        return get_httpx_client(os.getenv("OPENAI_ENDPOINT", "https://api.openai.com/v1"))
-    return None
+# ─────────────────────────────────────────────────────────────────────────────
+# Public API
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class LLMConfigError(ValueError):
+    """Raised when an agent has no usable LLM configuration.
+
+    Distinct from `LLMFactory`'s generic `ValueError` so callers (and the
+    chat SSE wrapper) can map it to a user-actionable message instead of
+    the misleading "Something went wrong - some tools or subagents may
+    have timed out" fallback.
+    """
+
+
+def _resolve_llm_defaults(provider: str | None, model_id: str | None) -> tuple[str, str | None]:
+    """Fill in provider/model from environment when an agent leaves them blank.
+
+    The bootstrap "Hello World" agent (see ui/src/lib/seed-config.ts) is
+    intentionally seeded with empty model/provider so it doesn't pin the
+    install to a specific deployment. Per the comment there, the dynamic-
+    agents backend is supposed to substitute the deployment default; this
+    helper is that promise.
+
+    Resolution order:
+    - `provider`: agent value → `LLM_PROVIDER` env var
+    - `model_id`: agent value → `None` (LLMFactory then reads the
+      provider-specific env var, e.g. `AWS_BEDROCK_MODEL_ID`,
+      `OPENAI_MODEL_NAME`, `ANTHROPIC_MODEL_NAME`, etc.)
+
+    Empty `model_id` is returned as `None` rather than `""` so the
+    downstream `model_override` check in LLMFactory falls through to
+    its env-based lookup.
+    """
+    resolved_provider = (provider or "").strip() or os.getenv("LLM_PROVIDER", "").strip()
+    if not resolved_provider:
+        raise LLMConfigError(
+            "Agent has no LLM provider configured and no deployment default "
+            "(LLM_PROVIDER) is set. Open Admin UI → Custom Agents and pick a "
+            "provider/model for this agent, or set LLM_PROVIDER on the "
+            "dynamic-agents service."
+        )
+    resolved_model = (model_id or "").strip() or None
+    return resolved_provider, resolved_model
+
+
+def get_llm(provider: str, model_id: str) -> BaseChatModel:
+    """Get a LangChain chat model for the given provider and model.
+
+    Injects shared transport clients (boto3/httpx) when LLM_CLIENT_SHARING=true,
+    avoiding ~20MB of duplicated boto3 sessions per runtime for Bedrock.
+
+    For Google (Gemini/Vertex AI), no shared client is needed — the SDK
+    manages its own transport internally.
+
+    When `provider` or `model_id` are empty, falls back to environment
+    defaults (`LLM_PROVIDER` and provider-specific model vars). Raises
+    `LLMConfigError` with an actionable message if neither agent nor env
+    define a usable provider.
+    """
+    from cnoe_agent_utils import LLMFactory
+
+    resolved_provider, resolved_model = _resolve_llm_defaults(provider, model_id)
+
+    kwargs: dict[str, Any] = {}
+    if resolved_model is not None:
+        kwargs["model"] = resolved_model
+
+    if SHARE_CLIENTS:
+        p = resolved_provider.lower().replace("-", "_")
+        if "bedrock" in p or "aws" in p:
+            rt, ctrl = _get_bedrock_clients()
+            kwargs["client"] = rt
+            kwargs["bedrock_client"] = ctrl
+        elif "azure" in p:
+            endpoint = os.getenv("AZURE_OPENAI_ENDPOINT") or os.getenv("OPENAI_ENDPOINT", "https://api.openai.com/v1")
+            kwargs["http_client"] = _get_httpx_client(endpoint)
+        elif "openai" in p:
+            endpoint = os.getenv("OPENAI_ENDPOINT", "https://api.openai.com/v1")
+            kwargs["http_client"] = _get_httpx_client(endpoint)
+        # google-gemini / google-vertex-ai: no shared client needed
+
+    try:
+        llm = LLMFactory(provider=resolved_provider).get_llm(**kwargs)
+    except ValueError as exc:
+        # LLMFactory raises ValueError for unknown providers OR missing
+        # provider-specific env vars. Re-raise as LLMConfigError so the
+        # SSE chat wrapper can translate to an actionable user message.
+        raise LLMConfigError(
+            f"Cannot initialize LLM (provider={resolved_provider!r}, "
+            f"model={resolved_model!r}): {exc}"
+        ) from exc
+    logger.info(
+        "[llm] Instantiated %s (provider=%s, model=%s, shared_clients=%s)",
+        type(llm).__name__,
+        resolved_provider,
+        resolved_model or "<from env>",
+        SHARE_CLIENTS,
+    )
+    return llm
 
 
 def close_all() -> None:

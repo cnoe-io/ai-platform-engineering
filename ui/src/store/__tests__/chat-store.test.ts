@@ -50,7 +50,7 @@ jest.mock('@/lib/timeline-manager', () => ({
 // Imports — after mocks
 // ============================================================================
 
-import { useChatStore } from '../chat-store';
+import { getLastActiveConversationId, useChatStore } from '../chat-store';
 import { apiClient } from '@/lib/api-client';
 import { getAgentId, type Conversation, type ChatMessage } from '@/types/a2a';
 
@@ -104,6 +104,7 @@ describe('chat-store', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     jest.useFakeTimers();
+    window.localStorage.clear();
     (global as any).__mockStorageMode = 'mongodb';
     delete (window as unknown as { __APP_CONFIG__?: unknown }).__APP_CONFIG__;
     resetStore();
@@ -111,8 +112,30 @@ describe('chat-store', () => {
 
   afterEach(() => {
     jest.useRealTimers();
+    window.localStorage.clear();
   });
 
+
+  // --------------------------------------------------------------------------
+  // last active conversation pointer
+  // --------------------------------------------------------------------------
+
+  describe('last active conversation pointer', () => {
+    it('persists only the last active conversation id in MongoDB mode', () => {
+      useChatStore.getState().setActiveConversation('conv-last');
+
+      expect(getLastActiveConversationId()).toBe('conv-last');
+      expect(window.localStorage.getItem('caipe-chat-history')).toBeNull();
+    });
+
+    it('clears the last active conversation id when conversations are cleared', () => {
+      useChatStore.getState().setActiveConversation('conv-last');
+
+      useChatStore.getState().clearAllConversations();
+
+      expect(getLastActiveConversationId()).toBeNull();
+    });
+  });
 
   // --------------------------------------------------------------------------
   // loadMessagesFromServer

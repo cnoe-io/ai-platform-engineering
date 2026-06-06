@@ -33,10 +33,19 @@ on:
         description: 'Version tag to apply (e.g., 0.4.5-dev.5)'
         required: false
         type: string
+      force_build:
+        description: 'Force a fresh build of all components (bypass change-detection/retag). Use for coordinated releases.'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
   packages: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   determine-changes:
@@ -53,12 +62,21 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: 🔑 Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ secrets.CI_BUILD_APP_ID }}
+          private-key: ${{ secrets.CI_BUILD_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+
       - name: Determine Tag
         id: version
         uses: ./.github/actions/determine-release-tag
         with:
           manual_tag: ${{ inputs.tag_version }}
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Detect changed paths
         id: filter
@@ -89,6 +107,7 @@ jobs:
         env:
           SCANNER_CHANGED: ${{ steps.filter.outputs.scanner }}
           TAG_VERSION: ${{ steps.version.outputs.tag_version }}
+          FORCE_BUILD: ${{ inputs.force_build }}
         run: |
           SHOULD_BUILD="false"
           SHOULD_RETAG="false"
@@ -119,7 +138,11 @@ jobs:
             IMAGE_PREFIX=""
           fi
 
-          if [ -n "$TAG_VERSION" ]; then
+          if [ "$FORCE_BUILD" == "true" ]; then
+            SHOULD_BUILD="true"
+            SHOULD_RETAG="false"
+            echo "🔁 force_build requested: building fresh regardless of changes"
+          elif [ -n "$TAG_VERSION" ]; then
             if [ "$IS_PRERELEASE" == "true" ] && [ "$PRERELEASE_NUM" -gt 1 ]; then
               if [ "$SCANNER_CHANGED" == "true" ]; then
                 SHOULD_BUILD="true"
@@ -157,9 +180,18 @@ jobs:
 
     steps:
       - name: 🔒 Harden runner
-        uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450  # v2.19.1
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411  # v2.19.4
         with:
           egress-policy: audit
+
+      - name: 🔑 Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ secrets.CI_BUILD_APP_ID }}
+          private-key: ${{ secrets.CI_BUILD_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
 
       - name: Free disk space
         run: |
@@ -185,17 +217,17 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          password: ${{ github.token }}
 
       - name: Extract metadata for Docker
         id: meta
-        uses: docker/metadata-action@030e881283bb7a6894de51c315a6bfe6a94e05cf # v6
+        uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9 # v6
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
@@ -205,9 +237,9 @@ jobs:
             type=sha,format=short,prefix=
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4
+        uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4
       - name: Build and Push Docker image
-        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7
         with:
           context: .
           file: ${{ env.DOCKERFILE }}
@@ -241,9 +273,18 @@ jobs:
 
     steps:
       - name: 🔒 Harden runner
-        uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450  # v2.19.1
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411  # v2.19.4
         with:
           egress-policy: audit
+
+      - name: 🔑 Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ secrets.CI_BUILD_APP_ID }}
+          private-key: ${{ secrets.CI_BUILD_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
 
       - name: 📦 Install crane
         run: |
@@ -253,7 +294,7 @@ jobs:
 
       - name: 🔐 Log in to registry
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           echo "$GH_TOKEN" | crane auth login ghcr.io -u ${{ github.actor }} --password-stdin
 
@@ -265,15 +306,28 @@ jobs:
           FULL_IMAGE="${REGISTRY}/${IMAGE_NAME}"
           echo "🏷️ Processing skill-scanner..."
 
+          # Determine source tag (previous version). Walk back from N-1 to the
+          # latest rc/hotfix that actually has a published image, so a component
+          # that was skipped for an intermediate tag (e.g. rc.9 missing) still
+          # retags from the most recent real image (rc.8) instead of a phantom
+          # rc.9. Falls back to the base version, then to a fresh build.
           if [[ "$TAG_VERSION" =~ ^(.+)-(dev|rc|hotfix)\.([0-9]+)$ ]]; then
             BASE_VERSION="${BASH_REMATCH[1]}"
             SUFFIX_TYPE="${BASH_REMATCH[2]}"
             SUFFIX_NUM="${BASH_REMATCH[3]}"
 
+            SOURCE_TAG=""
             if [[ "$SUFFIX_NUM" -gt 1 ]]; then
-              PREV_NUM=$((SUFFIX_NUM - 1))
-              SOURCE_TAG="${BASE_VERSION}-${SUFFIX_TYPE}.${PREV_NUM}"
-            else
+              for ((p=SUFFIX_NUM-1; p>=1; p--)); do
+                CANDIDATE="${BASE_VERSION}-${SUFFIX_TYPE}.${p}"
+                if crane manifest "${FULL_IMAGE}:${CANDIDATE}" >/dev/null 2>&1; then
+                  SOURCE_TAG="$CANDIDATE"
+                  echo "  ↩️  Latest existing source: ${SOURCE_TAG}"
+                  break
+                fi
+              done
+            fi
+            if [[ -z "$SOURCE_TAG" ]]; then
               SOURCE_TAG="${BASE_VERSION}"
             fi
           else
@@ -326,21 +380,21 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Set up Docker Buildx
         if: steps.retag-or-build.outputs.needs_build == 'true'
-        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
       - name: Log in to GitHub Container Registry
         if: steps.retag-or-build.outputs.needs_build == 'true'
-        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          password: ${{ github.token }}
 
       - name: Set up QEMU
         if: steps.retag-or-build.outputs.needs_build == 'true'
-        uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4
+        uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4
       - name: 🔨 Build and Push (fallback)
         if: steps.retag-or-build.outputs.needs_build == 'true'
-        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7
         with:
           context: .
           file: ${{ env.DOCKERFILE }}
@@ -372,9 +426,18 @@ jobs:
       needs.determine-changes.outputs.tag_version != '' &&
       !contains(needs.determine-changes.outputs.tag_version, '-')
     steps:
+      - name: 🔑 Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ secrets.CI_BUILD_APP_ID }}
+          private-key: ${{ secrets.CI_BUILD_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+
       - name: 🔔 Notify release finalize
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           TAG_VERSION: ${{ needs.determine-changes.outputs.tag_version }}
         run: |
           BUILD_RESULT="${{ needs.build-and-push.result }}"

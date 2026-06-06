@@ -2,7 +2,7 @@
  * Unit tests for CapabilityCards component
  *
  * Tests:
- * - Renders Chat, Skills, Task Builder, and Knowledge Bases cards when RAG is enabled
+ * - Renders Chat, Agents, MCP Servers, Skills, Task Builder, and Knowledge Bases cards when RAG is enabled
  * - Hides Knowledge Bases card when RAG is disabled
  * - Each card links to the correct route
  * - Each card renders title and description
@@ -27,6 +27,8 @@ jest.mock('next/link', () => {
 
 jest.mock('lucide-react', () => ({
   MessageSquare: (props: any) => <svg data-testid="icon-message-square" {...props} />,
+  Bot: (props: any) => <svg data-testid="icon-bot" {...props} />,
+  Server: (props: any) => <svg data-testid="icon-server" {...props} />,
   Zap: (props: any) => <svg data-testid="icon-zap" {...props} />,
   Workflow: (props: any) => <svg data-testid="icon-workflow" {...props} />,
   Database: (props: any) => <svg data-testid="icon-database" {...props} />,
@@ -49,9 +51,11 @@ import { CapabilityCards } from '../CapabilityCards'
 
 describe('CapabilityCards', () => {
   describe('with RAG enabled', () => {
-    it('renders all 4 capability cards', () => {
+    it('renders all 6 capability cards', () => {
       render(<CapabilityCards ragEnabled={true} />)
       expect(screen.getByTestId('capability-card-chat')).toBeInTheDocument()
+      expect(screen.getByTestId('capability-card-agents')).toBeInTheDocument()
+      expect(screen.getByTestId('capability-card-mcp-servers')).toBeInTheDocument()
       expect(screen.getByTestId('capability-card-skills')).toBeInTheDocument()
       expect(screen.getByTestId('capability-card-task-builder')).toBeInTheDocument()
       expect(screen.getByTestId('capability-card-knowledge-bases')).toBeInTheDocument()
@@ -70,6 +74,16 @@ describe('CapabilityCards', () => {
     it('Skills card links to /skills', () => {
       render(<CapabilityCards ragEnabled={true} />)
       expect(screen.getByTestId('capability-card-skills')).toHaveAttribute('href', '/skills')
+    })
+
+    it('Agents card links to /dynamic-agents', () => {
+      render(<CapabilityCards ragEnabled={true} />)
+      expect(screen.getByTestId('capability-card-agents')).toHaveAttribute('href', '/dynamic-agents')
+    })
+
+    it('MCP Servers card links to the MCP Servers tab', () => {
+      render(<CapabilityCards ragEnabled={true} />)
+      expect(screen.getByTestId('capability-card-mcp-servers')).toHaveAttribute('href', '/dynamic-agents?tab=mcp-servers')
     })
 
     it('Task Builder card links to /task-builder', () => {
@@ -94,6 +108,18 @@ describe('CapabilityCards', () => {
       expect(screen.getByText(/Browse and run pre-built agent workflows/)).toBeInTheDocument()
     })
 
+    it('renders Agents card title and description', () => {
+      render(<CapabilityCards ragEnabled={true} />)
+      expect(screen.getByText('Agents')).toBeInTheDocument()
+      expect(screen.getByText(/Create and manage custom AI agents/)).toBeInTheDocument()
+    })
+
+    it('renders MCP Servers card title and description', () => {
+      render(<CapabilityCards ragEnabled={true} />)
+      expect(screen.getByText('MCP Servers')).toBeInTheDocument()
+      expect(screen.getByText(/Configure tool servers/)).toBeInTheDocument()
+    })
+
     it('renders Task Builder card title and description', () => {
       render(<CapabilityCards ragEnabled={true} />)
       expect(screen.getByText('Task Builder')).toBeInTheDocument()
@@ -113,9 +139,11 @@ describe('CapabilityCards', () => {
   })
 
   describe('with RAG disabled', () => {
-    it('renders Chat, Skills, and Task Builder cards but not Knowledge Bases', () => {
+    it('renders non-RAG cards but not Knowledge Bases', () => {
       render(<CapabilityCards ragEnabled={false} />)
       expect(screen.getByTestId('capability-card-chat')).toBeInTheDocument()
+      expect(screen.getByTestId('capability-card-agents')).toBeInTheDocument()
+      expect(screen.getByTestId('capability-card-mcp-servers')).toBeInTheDocument()
       expect(screen.getByTestId('capability-card-skills')).toBeInTheDocument()
       expect(screen.getByTestId('capability-card-task-builder')).toBeInTheDocument()
       expect(screen.queryByTestId('capability-card-knowledge-bases')).not.toBeInTheDocument()

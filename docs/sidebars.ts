@@ -243,7 +243,23 @@ const sidebars: SidebarsConfig = {
           type: 'doc',
           id: 'development/ci-cd-and-releases',
           label: 'CI/CD & Releases',
-        }
+        },
+        {
+          type: 'doc',
+          id: 'development/prebuild-flow',
+          label: 'Prebuild Flow',
+        },
+        { type: 'doc', id: 'repo-ops/ci', label: 'CI Workflows' },
+        { type: 'doc', id: 'repo-ops/releases', label: 'How to Cut a Release' },
+        { type: 'doc', id: 'repo-ops/issue-triage', label: 'Issue Triage Dashboard' },
+        {
+          type: 'category',
+          label: 'Skills',
+          items: [
+            { type: 'doc', id: 'repo-ops/skills/index', label: 'Overview' },
+            { type: 'doc', id: 'repo-ops/skills/create-skill', label: 'Create a Skill' },
+          ],
+        },
       ],
     },
     {
@@ -257,6 +273,21 @@ const sidebars: SidebarsConfig = {
         {
           type: 'doc',
           id: 'architecture/gateway',
+        },
+        {
+          type: 'doc',
+          id: 'architecture/enterprise-identity-federation',
+          label: 'Enterprise Identity Federation',
+        },
+        {
+          type: 'doc',
+          id: 'architecture/slack-bot-authorization',
+          label: 'Slack Bot Authorization',
+        },
+        {
+          type: 'doc',
+          id: 'architecture/slack-io-guardrails',
+          label: 'Slack I/O Guardrails',
         }
       ],
     },
@@ -264,32 +295,94 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: 'Features',
       items: [
+        { type: 'doc', id: 'features/custom-agents', label: 'Custom Agents' },
+        { type: 'doc', id: 'features/byo-agents', label: 'BYO A2A & MCP Servers' },
         {
-          type: 'doc',
-          id: 'features/skills/README',
+          type: 'category',
+          label: 'Rich Web UI',
+          items: [
+            { type: 'doc', id: 'ui/index', label: 'Overview' },
+            { type: 'doc', id: 'ui/features', label: 'Features' },
+            { type: 'doc', id: 'features/admin-settings', label: 'Admin Settings' },
+            { type: 'doc', id: 'ui/auth-flow', label: 'Authentication Flow' },
+            { type: 'doc', id: 'ui/configuration', label: 'Configuration' },
+            { type: 'doc', id: 'ui/customization', label: 'Customization & Branding' },
+            { type: 'doc', id: 'ui/development', label: 'Development Guide' },
+            { type: 'doc', id: 'ui/api-reference', label: 'API Reference' },
+            { type: 'doc', id: 'ui/troubleshooting', label: 'Troubleshooting' },
+          ],
+        },
+        {
+          type: 'category',
+          label: 'Knowledge Bases',
+          items: [
+            { type: 'doc', id: 'knowledge_bases/index', label: 'Overview' },
+            // assisted-by Codex Codex-sonnet-4-6
+            { type: 'doc', id: 'knowledge_bases/api-reference', label: 'API Reference' },
+            { type: 'doc', id: 'knowledge_bases/architecture', label: 'Architecture' },
+            { type: 'doc', id: 'knowledge_bases/ingestors', label: 'Ingestors' },
+            { type: 'doc', id: 'knowledge_bases/ontology-agent', label: 'Ontology Agent' },
+            { type: 'doc', id: 'knowledge_bases/mcp-tools', label: 'MCP Tools' },
+            { type: 'doc', id: 'knowledge_bases/authentication-overview', label: 'Authentication' },
+          ],
+        },
+        {
+          type: 'category',
           label: 'Skills',
-        },
-      ],
-    },
-    {
-      type: 'category',
-      label: 'Security',
-      items: [
-        {
-          type: 'doc',
-          id: 'security/index',
-          label: 'Overview',
+          items: [
+            { type: 'doc', id: 'features/skills/README', label: 'Overview' },
+          ],
         },
         {
-          type: 'doc',
-          id: 'security/a2a-auth',
-          label: 'A2A Authentication',
+          type: 'category',
+          label: 'Integrations',
+          items: [
+            { type: 'doc', id: 'integrations/slack-bot', label: 'Slack Bot' },
+            { type: 'doc', id: 'integrations/backstage-plugin', label: 'Agent Forge (Backstage)' },
+            { type: 'doc', id: 'integrations/webex-bot', label: 'Webex Bot' },
+            { type: 'doc', id: 'api/webex-integration', label: 'Webex Bot RBAC API' },
+            { type: 'doc', id: 'integrations/cli', label: 'CAIPE CLI' },
+          ],
         },
         {
-          type: 'doc',
-          id: 'security/supply-chain',
-          label: 'Supply Chain Security',
+          type: 'category',
+          label: 'Security',
+          items: [
+            { type: 'doc', id: 'security/index', label: 'Overview' },
+            { type: 'doc', id: 'security/a2a-auth', label: 'A2A Authentication' },
+            {
+              type: 'category',
+              label: 'RBAC',
+              link: { type: 'doc', id: 'security/rbac/index' },
+              items: [
+                { type: 'doc', id: 'security/rbac/feature-guide', label: 'Feature Guide' },
+                { type: 'doc', id: 'security/rbac/architecture', label: 'Architecture' },
+                { type: 'doc', id: 'security/rbac/pdp-coverage-audit', label: 'PDP Coverage Audit (BFF /api/*)' },
+                { type: 'doc', id: 'security/rbac/comprehensive-rbac-refactor', label: 'Comprehensive Refactor' },
+                { type: 'doc', id: 'security/rbac/workflows', label: 'Workflows' },
+                { type: 'doc', id: 'security/rbac/usage', label: 'Usage' },
+                { type: 'doc', id: 'security/rbac/roles-scopes-comparison', label: 'Roles vs Scopes' },
+                { type: 'doc', id: 'security/rbac/helm-install-upgrade', label: 'Helm Install and Upgrade' },
+                { type: 'doc', id: 'security/rbac/caipe-rbac-migration', label: 'CAIPE RBAC Migration' },
+                { type: 'doc', id: 'security/rbac/secrets-bootstrap', label: 'Secrets Bootstrap' },
+                { type: 'doc', id: 'security/rbac/file-map', label: 'File Map' },
+              ],
+            },
+            { type: 'doc', id: 'security/supply-chain', label: 'Supply Chain Security' },
+          ],
         },
+        { type: 'doc', id: 'prompt-library/index', label: 'Prompt Library' },
+        {
+          type: 'category',
+          label: 'Tracing & Evaluations',
+          items: [
+            { type: 'doc', id: 'evaluations/index', label: 'Overview' },
+            { type: 'doc', id: 'evaluations/distributed-tracing-info', label: 'Distributed Tracing' },
+            { type: 'doc', id: 'evaluations/tracing-implementation-guide', label: 'Tracing Implementation Guide' },
+            { type: 'doc', id: 'evaluations/slack-streaming-conformance', label: 'Slack Streaming Conformance' },
+          ],
+        },
+        { type: 'doc', id: 'agent-ops/index', label: 'AgentOps' },
       ],
     },
     {
@@ -365,145 +458,6 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
-      label: 'Integrations',
-      items: [
-        {
-          type: 'doc',
-          id: 'integrations/slack-bot',
-          label: 'Slack Bot',
-        },
-        {
-          type: 'doc',
-          id: 'integrations/backstage-plugin',
-          label: 'Agent Forge (Backstage)',
-        },
-        {
-          type: 'doc',
-          id: 'integrations/webex-bot',
-          label: 'Webex Bot',
-        },
-        {
-          type: 'doc',
-          id: 'integrations/cli',
-          label: 'CAIPE CLI',
-        },
-      ],
-    },
-    {
-      type: 'category',
-      label: 'Knowledge Bases',
-      items: [
-        {
-          type: 'doc',
-          id: 'knowledge_bases/index',
-          label: 'Overview',
-        },
-        {
-          type: 'doc',
-          id: 'knowledge_bases/architecture',
-          label: 'Architecture',
-        },
-        {
-          type: 'doc',
-          id: 'knowledge_bases/ingestors',
-          label: 'Ingestors',
-        },
-        {
-          type: 'doc',
-          id: 'knowledge_bases/ontology-agent',
-          label: 'Ontology Agent',
-        },
-        {
-          type: 'doc',
-          id: 'knowledge_bases/mcp-tools',
-          label: 'MCP Tools',
-        },
-        {
-          type: 'doc',
-          id: 'knowledge_bases/authentication-overview',
-          label: 'Authentication',
-        },
-      ],
-    },
-    {
-      type: 'category',
-      label: '🎨 CAIPE UI',
-      items: [
-        {
-          type: 'doc',
-          id: 'ui/index',
-          label: 'Overview',
-        },
-        {
-          type: 'doc',
-          id: 'ui/features',
-          label: 'Features',
-        },
-        {
-          type: 'doc',
-          id: 'ui/auth-flow',
-          label: 'Authentication Flow',
-        },
-        {
-          type: 'doc',
-          id: 'ui/configuration',
-          label: 'Configuration',
-        },
-        {
-          type: 'doc',
-          id: 'ui/customization',
-          label: 'Customization & Branding',
-        },
-        {
-          type: 'doc',
-          id: 'ui/development',
-          label: 'Development Guide',
-        },
-        {
-          type: 'doc',
-          id: 'ui/api-reference',
-          label: 'API Reference',
-        },
-        {
-          type: 'doc',
-          id: 'ui/troubleshooting',
-          label: 'Troubleshooting',
-        },
-      ],
-    },
-    {
-      type: 'doc',
-      id: 'prompt-library/index',
-      label: 'Prompt Library',
-    },
-    {
-      type: 'category',
-      label: 'Tracing & Evaluations',
-      items: [
-        {
-          type: 'doc',
-          id: 'evaluations/index',
-          label: 'Overview',
-        },
-        {
-          type: 'doc',
-          id: 'evaluations/distributed-tracing-info',
-          label: 'Distributed Tracing Architecture',
-        },
-        {
-          type: 'doc',
-          id: 'evaluations/tracing-implementation-guide',
-          label: 'Tracing Implementation Guide',
-        },
-        {
-          type: 'doc',
-          id: 'evaluations/slack-streaming-conformance',
-          label: 'Slack Streaming Conformance',
-        },
-      ],
-    },
-    {
-      type: 'category',
       label: 'Tools & Utilities',
       items: [
         {
@@ -522,57 +476,6 @@ const sidebars: SidebarsConfig = {
           type: 'doc',
           id: 'tools-utils/jira-mcp-implementations-comparison',
         }
-      ],
-    },
-    {
-      type: 'doc',
-      id: 'agent-ops/index',
-      label: 'AgentOps',
-    },
-    {
-      type: 'category',
-      label: 'Releases',
-      items: [
-        {
-          type: 'doc',
-          id: 'releases/index',
-          label: 'Overview',
-        },
-        {
-          type: 'category',
-          label: '0.4.x Release Notes',
-          items: [
-            { type: 'doc', id: 'releases/release-0.4.8', label: '0.4.8' },
-            { type: 'doc', id: 'releases/release-0.4.7', label: '0.4.7' },
-            { type: 'doc', id: 'releases/release-0.4.6', label: '0.4.6' },
-            { type: 'doc', id: 'releases/release-0.4.5', label: '0.4.5' },
-            { type: 'doc', id: 'releases/release-0.4.4', label: '0.4.4' },
-            { type: 'doc', id: 'releases/release-0.4.3', label: '0.4.3' },
-            { type: 'doc', id: 'releases/release-0.4.2', label: '0.4.2' },
-            { type: 'doc', id: 'releases/release-0.4.1', label: '0.4.1' },
-            { type: 'doc', id: 'releases/release-0.4.0', label: '0.4.0' },
-          ],
-        },
-        {
-          type: 'category',
-          label: '0.4.x Migration Guides',
-          items: [
-            { type: 'doc', id: 'releases/migration-0.4.7-to-0.4.8', label: '0.4.7 → 0.4.8' },
-            { type: 'doc', id: 'releases/migration-0.4.6-to-0.4.7', label: '0.4.6 → 0.4.7' },
-            { type: 'doc', id: 'releases/migration-0.4.5-to-0.4.6', label: '0.4.5 → 0.4.6' },
-            { type: 'doc', id: 'releases/migration-0.4.4-to-0.4.5', label: '0.4.4 → 0.4.5' },
-            { type: 'doc', id: 'releases/migration-0.4.3-to-0.4.4', label: '0.4.3 → 0.4.4' },
-            { type: 'doc', id: 'releases/migration-0.4.2-to-0.4.3', label: '0.4.2 → 0.4.3' },
-            { type: 'doc', id: 'releases/migration-0.4.1-to-0.4.2', label: '0.4.1 → 0.4.2' },
-            { type: 'doc', id: 'releases/migration-0.4.0-to-0.4.1', label: '0.4.0 → 0.4.1' },
-            { type: 'doc', id: 'releases/migration-0.3.x-to-0.4.0', label: '0.3.x → 0.4.0' },
-          ],
-        },
-        {
-          type: 'doc',
-          id: 'releases/migration-0.2.41-to-0.3.2',
-          label: 'Migration: 0.2.41 → 0.3.2',
-        },
       ],
     },
     {

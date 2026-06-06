@@ -27,7 +27,7 @@ from typing import Any
 from uuid import uuid4
 
 from dynamic_agents.services.stream_encoders import StreamEncoder
-from dynamic_agents.services.stream_encoders.langgraph_helpers import LangGraphStreamHelper
+from dynamic_agents.services.stream_encoders.langgraph_helpers import LangGraphStreamHelper, truncate_tool_result
 
 logger = logging.getLogger(__name__)
 
@@ -240,18 +240,39 @@ class AGUIStreamEncoder(StreamEncoder):
     def on_input_required(
         self,
         interrupt_id: str,
+        interrupt_type: str,
         prompt: str,
         fields: list[dict[str, Any]],
         agent: str,
+        tool_name: str | None = None,
+        tool_args: dict[str, Any] | None = None,
+        allowed_decisions: list[str] | None = None,
+        tool_approvals: list[dict[str, Any]] | None = None,
     ) -> list[str]:
         """Emit RUN_FINISHED with outcome ``"interrupt"`` per the AG-UI spec.
 
-        The interrupt payload carries form metadata so the UI can render a
-        HITL form.  Because this *is* the RUN_FINISHED frame, the caller
-        must **not** call ``on_run_finish`` afterwards.
-
-        See https://docs.ag-ui.com/drafts/interrupts
+        The interrupt payload carries metadata so the UI can render the
+        appropriate HITL component.  Because this *is* the RUN_FINISHED frame,
+        the caller must **not** call ``on_run_finish`` afterwards.
         """
+        if interrupt_type == "tool_approval":
+            payload: dict[str, Any] = {
+                "tool_name": tool_name,
+                "tool_args": tool_args or {},
+                "allowed_decisions": allowed_decisions or ["approve", "edit", "reject"],
+                "agent": agent,
+            }
+            if tool_approvals and len(tool_approvals) > 1:
+                payload["tool_approvals"] = tool_approvals
+            reason = "tool_approval"
+        else:
+            payload = {
+                "prompt": prompt,
+                "fields": fields,
+                "agent": agent,
+            }
+            reason = "human_input"
+
         return [
             _sse_frame(
                 "RUN_FINISHED",
@@ -262,12 +283,8 @@ class AGUIStreamEncoder(StreamEncoder):
                     "outcome": "interrupt",
                     "interrupt": {
                         "id": interrupt_id,
-                        "reason": "human_input",
-                        "payload": {
-                            "prompt": prompt,
-                            "fields": fields,
-                            "agent": agent,
-                        },
+                        "reason": reason,
+                        "payload": payload,
                     },
                     "timestamp": _ts(),
                 },
@@ -278,6 +295,9 @@ class AGUIStreamEncoder(StreamEncoder):
 
     def get_accumulated_content(self) -> str:
         return self._helper.get_accumulated_content()
+
+    def get_thinking_content(self) -> str:
+        return self._helper.get_thinking_content()
 
     # ── Namespace tracking ────────────────────────────────
 
@@ -410,6 +430,28 @@ class AGUIStreamEncoder(StreamEncoder):
             if not isinstance(messages, list):
                 continue
 
+            # ── Pre-scan: identify rejected tool_call_ids ──────────────────
+            # LangGraph quirk: when a tool call is rejected via HITL
+            # (HumanInTheLoopMiddleware), the resume stream re-emits the
+            # original AIMessage (with tool_calls) AND a ToolMessage containing
+            # the rejection text — all in the same "updates" chunk.
+            # We suppress ALL tool events (START, ARGS, END) for rejected tools
+            # because:
+            #   1. The tool was already shown in the pre-interrupt stream
+            #   2. The tool never actually executed — showing it as "completed"
+            #      would be misleading
+            #   3. AG-UI has no "tool_rejected" event; TOOL_CALL_END implies
+            #      successful completion
+            # The LLM still receives the rejection ToolMessage in its context,
+            # so it knows the tool was blocked and can respond accordingly.
+            rejected_tool_call_ids: set[str] = set()
+            for msg in messages:
+                tc_id = getattr(msg, "tool_call_id", None)
+                if tc_id:
+                    content = getattr(msg, "content", "")
+                    if isinstance(content, str) and "rejected" in content.lower():
+                        rejected_tool_call_ids.add(tc_id)
+
             for msg in messages:
                 # Handle AIMessage with tool_calls
                 tool_calls = getattr(msg, "tool_calls", None)
@@ -420,7 +462,15 @@ class AGUIStreamEncoder(StreamEncoder):
                         tool_call_id = tc_info["id"]
                         args = tc_info["args"]
 
+                        # Skip rejected tools (see pre-scan comment above)
+                        if tool_call_id in rejected_tool_call_ids:
+                            logger.debug(
+                                f"[sse:TOOL_CALL_START] SUPPRESSED (rejected) {tool_name} id={tool_call_id[:8]}..."
+                            )
+                            continue
+
                         logger.debug(f"[sse:TOOL_CALL_START] {tool_name} id={tool_call_id[:8]}... ns={namespace}")
+                        self._helper.reset_accumulated_content()
                         results.extend(self._emit_namespace_if_changed(namespace))
                         results.append(
                             _sse_frame(
@@ -439,7 +489,7 @@ class AGUIStreamEncoder(StreamEncoder):
                                 {
                                     "type": "TOOL_CALL_ARGS",
                                     "toolCallId": tool_call_id,
-                                    "delta": json.dumps(LangGraphStreamHelper.truncate_args(args)),
+                                    "delta": json.dumps(args),
                                     "timestamp": _ts(),
                                 },
                             )
@@ -448,7 +498,21 @@ class AGUIStreamEncoder(StreamEncoder):
                 # Handle ToolMessage (tool results)
                 tool_call_id = getattr(msg, "tool_call_id", None)
                 if tool_call_id:
+                    # Skip rejected tools — already suppressed above
+                    if tool_call_id in rejected_tool_call_ids:
+                        logger.debug(f"[sse:TOOL_CALL_END] SUPPRESSED (rejected) id={tool_call_id[:8]}...")
+                        continue
+
                     content = getattr(msg, "content", "")
+                    # MCP tools return content as list of blocks, e.g. [{"type": "text", "text": "..."}]
+                    if isinstance(content, list):
+                        text_parts = []
+                        for block in content:
+                            if isinstance(block, dict) and block.get("type") == "text":
+                                text_parts.append(block.get("text", ""))
+                            elif isinstance(block, str):
+                                text_parts.append(block)
+                        content = "\n".join(p for p in text_parts if p)
                     error = None
                     if isinstance(content, str) and content.startswith("ERROR: "):
                         error = content
@@ -468,21 +532,23 @@ class AGUIStreamEncoder(StreamEncoder):
                                 },
                             )
                         )
-                    if error:
+
+                    # Emit TOOL_CALL_RESULT with the content (errors have "ERROR:" prefix)
+                    if isinstance(content, str) and content:
                         results.append(
                             _sse_frame(
-                                "CUSTOM",
+                                "TOOL_CALL_RESULT",
                                 {
-                                    "type": "CUSTOM",
-                                    "name": "TOOL_ERROR",
-                                    "value": {
-                                        "tool_call_id": tool_call_id,
-                                        "error": error,
-                                    },
+                                    "type": "TOOL_CALL_RESULT",
+                                    "message_id": getattr(msg, "id", tool_call_id),
+                                    "tool_call_id": tool_call_id,
+                                    "content": truncate_tool_result(content),
+                                    "role": "tool",
                                     "timestamp": _ts(),
                                 },
                             )
                         )
+
                     results.append(
                         _sse_frame(
                             "TOOL_CALL_END",

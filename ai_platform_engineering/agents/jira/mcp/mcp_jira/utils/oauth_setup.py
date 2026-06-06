@@ -9,6 +9,7 @@ This module helps with the OAuth 2.0 (3LO) authorization flow for Jira Cloud:
 """
 
 import http.server
+import json
 import logging
 import os
 import socketserver
@@ -20,6 +21,7 @@ from dataclasses import dataclass
 
 from ..utils.oauth import OAuthConfig
 
+# assisted-by Codex Codex-sonnet-4-6
 # Configure logging
 logger = logging.getLogger("mcp-jiraq.oauth-setup")
 
@@ -294,10 +296,8 @@ def run_oauth_flow(args: OAuthSetupArgs) -> bool:
                 f"Token storage location (backup): ~/.mcp-atlassian/oauth-{oauth_config.client_id}.json"
             )
 
-            # Generate VS Code configuration JSON snippet
-            import json
-
-            vscode_config = {
+            # Pretty print a redacted VS Code configuration JSON.
+            vscode_config_log = {
                 "mcpServers": {
                     "mcp-atlassian": {
                         "command": "docker",
@@ -327,7 +327,7 @@ def run_oauth_flow(args: OAuthSetupArgs) -> bool:
                             "CONFLUENCE_URL": "https://your-company.atlassian.net/wiki",
                             "JIRA_URL": "https://your-company.atlassian.net",
                             "ATLASSIAN_OAUTH_CLIENT_ID": oauth_config.client_id,
-                            "ATLASSIAN_OAUTH_CLIENT_SECRET": oauth_config.client_secret,
+                            "ATLASSIAN_OAUTH_CLIENT_SECRET": "[redacted]",
                             "ATLASSIAN_OAUTH_REDIRECT_URI": oauth_config.redirect_uri,
                             "ATLASSIAN_OAUTH_SCOPE": oauth_config.scope,
                             "ATLASSIAN_OAUTH_CLOUD_ID": oauth_config.cloud_id,
@@ -335,11 +335,6 @@ def run_oauth_flow(args: OAuthSetupArgs) -> bool:
                     }
                 }
             }
-
-            # Pretty print the VS Code configuration JSON (redact client_secret)
-            import copy
-            vscode_config_log = copy.deepcopy(vscode_config)
-            vscode_config_log["mcpServers"]["mcp-atlassian"]["env"]["ATLASSIAN_OAUTH_CLIENT_SECRET"] = "[redacted]"
             vscode_json = json.dumps(vscode_config_log, indent=4)
 
             logger.info("\n=== VS CODE CONFIGURATION ===")

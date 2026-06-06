@@ -38,7 +38,10 @@ import {
   ArrowRight,
   Layers,
   Info,
-  Eraser
+  Eraser,
+  Users,
+  Pencil,
+  Check
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import type { IngestionJob, DataSourceInfo, IngestorInfo } from './Models'
@@ -56,6 +59,7 @@ import {
   getDatasourceDocuments,
   getChunkContent,
   cleanupDataSource,
+  renameDataSource,
   WEBLOADER_INGESTOR_ID,
   CONFLUENCE_INGESTOR_ID,
   JIRA_INGESTOR_ID
@@ -63,10 +67,13 @@ import {
 import type { DatasourceDocumentsResponse, DocumentInfo, ChunkInfo } from './api/index'
 import { getIconForType, ingestTypeConfigs, isIngestTypeAvailable } from './typeConfig'
 import { useRagPermissions, Permission } from '@/hooks/useRagPermissions'
+import { useTeamKbOwnership } from '@/hooks/useTeamKbOwnership'
+import { KbTeamAccessPanel } from './KbTeamAccessPanel'
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
+import { useToast } from "@/components/ui/toast"
 import {
   Dialog,
   DialogContent,
@@ -199,7 +206,11 @@ const ProgressBar = ({ progress, total, current }: { progress: number; total: nu
 
 export default function IngestView() {
   const { hasPermission } = useRagPermissions()
-  
+  const canIngest = hasPermission(Permission.INGEST)
+  const canDelete = hasPermission(Permission.DELETE)
+  const { toast } = useToast()
+  const { getTeamsForKb, reload: reloadTeamKb } = useTeamKbOwnership()
+
   // Ingestion state
   const [url, setUrl] = useState('')
   const [ingestType, setIngestType] = useState<string>('web')
@@ -223,6 +234,14 @@ export default function IngestView() {
   const [chunkOverlap, setChunkOverlap] = useState(2000)
   const [reloadInterval, setReloadInterval] = useState<number>(86400) // Default to 24 hours
   const [isCustomReloadInterval, setIsCustomReloadInterval] = useState(false)
+
+  // Owning-team state for new ingestions (spec 2026-06-03). The owning team is
+  // required for non-org-admin authors; org admins may leave it unset to create
+  // a personal/admin-owned source. Populated from /api/rbac/ingest-teams, which
+  // returns only the teams the caller may author for.
+  const [ingestOwnerTeamSlug, setIngestOwnerTeamSlug] = useState('')
+  const [availableTeams, setAvailableTeams] = useState<{ _id: string; slug: string; name: string }[]>([])
+  const [ingestIsOrgAdmin, setIngestIsOrgAdmin] = useState(false)
 
   // DataSources state
   const [dataSources, setDataSources] = useState<DataSourceInfo[]>([])
@@ -250,6 +269,7 @@ export default function IngestView() {
   const [isDeletingDataSource, setIsDeletingDataSource] = useState(false)
   const [isReIngesting, setIsReIngesting] = useState(false)
   const [isCleaningUp, setIsCleaningUp] = useState(false)
+  const [reIngestError, setReIngestError] = useState<string | null>(null)
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1)
@@ -272,6 +292,39 @@ export default function IngestView() {
     offset: number;
     hasMore: boolean;
   }>>({})
+
+  // Inline-rename state for data source display names (datasource_id is immutable)
+  const [renamingDsId, setRenamingDsId] = useState<string | null>(null)
+  const [renameDraft, setRenameDraft] = useState<string>("")
+  const [renameSaving, setRenameSaving] = useState(false)
+
+  const beginRename = useCallback((ds: DataSourceInfo) => {
+    setRenamingDsId(ds.datasource_id)
+    setRenameDraft(ds.name || "")
+  }, [])
+
+  const cancelRename = useCallback(() => {
+    setRenamingDsId(null)
+    setRenameDraft("")
+    setRenameSaving(false)
+  }, [])
+
+  const commitRename = useCallback(async (datasourceId: string) => {
+    const trimmed = renameDraft.trim()
+    if (!trimmed) {
+      cancelRename()
+      return
+    }
+    setRenameSaving(true)
+    try {
+      const res = await renameDataSource(datasourceId, trimmed)
+      setDataSources(prev => prev.map(d => d.datasource_id === datasourceId ? { ...d, name: res.name } : d))
+      cancelRename()
+    } catch (err) {
+      console.error("Failed to rename data source", err)
+      setRenameSaving(false)
+    }
+  }, [renameDraft, cancelRename])
 
   // Metadata modal state
   const [metadataModal, setMetadataModal] = useState<{
@@ -312,7 +365,8 @@ export default function IngestView() {
     // Filter by search query
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase().trim()
-      filtered = filtered.filter(ds => 
+      filtered = filtered.filter(ds =>
+        (ds.name?.toLowerCase().includes(query) ?? false) ||
         ds.datasource_id.toLowerCase().includes(query) ||
         ds.source_type.toLowerCase().includes(query) ||
         ds.description?.toLowerCase().includes(query) ||
@@ -348,6 +402,13 @@ export default function IngestView() {
   useEffect(() => {
     fetchDataSources()
     fetchIngestors()
+    fetch('/api/rbac/ingest-teams')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        setAvailableTeams(d?.teams ?? [])
+        setIngestIsOrgAdmin(Boolean(d?.org_admin))
+      })
+      .catch(() => {})
   }, [])
 
   // Effect to auto-select first available ingest type when ingestors load
@@ -807,8 +868,17 @@ export default function IngestView() {
     })
   }
 
+  // Non-org-admins MUST choose an owning team for a new data source; org admins
+  // may leave it unset (personal/admin-owned). See spec 2026-06-03.
+  const ingestOwnerTeamRequired = !ingestIsOrgAdmin
+  const ingestOwnerTeamMissing = ingestOwnerTeamRequired && !ingestOwnerTeamSlug
+
   const handleIngest = async () => {
     if (!url) return
+    if (ingestOwnerTeamMissing) {
+      toast('Select an owning team for this data source', 'error')
+      return
+    }
 
     try {
       const response = await ingestUrl({
@@ -816,6 +886,7 @@ export default function IngestView() {
         description: description,
         ingest_type: ingestType,
         get_child_pages: ingestType === 'confluence' ? includeSubPages : undefined,
+        owner_team_slug: ingestOwnerTeamSlug || undefined,
         // ScrapySettings for web ingest type
         settings: ingestType === 'web' ? {
           crawl_mode: crawlMode,
@@ -839,12 +910,18 @@ export default function IngestView() {
       await fetchDataSources()
       if (datasource_id) {
         await fetchJobsForDataSource(datasource_id)
+        // Ownership tuples for the owning team are written server-side during
+        // ingest (spec 2026-06-03) — no client-side admin kb-assignment call.
+        if (ingestOwnerTeamSlug) {
+          reloadTeamKb()
+        }
       }
       setUrl('')
       setDescription('')
+      setIngestOwnerTeamSlug('')
     } catch (error: any) {
       console.error('Error ingesting data:', error)
-      alert(`❌ Ingestion failed: ${error?.message || 'unknown error'}`)
+      toast(`Ingestion failed: ${error?.message || 'unknown error'}`, 'error')
     }
   }
 
@@ -855,7 +932,7 @@ export default function IngestView() {
       fetchDataSources()
     } catch (error: any) {
       console.error('Error deleting data source:', error)
-      alert(`Failed to delete data source: ${error?.message || 'unknown error'}`)
+      toast(`Failed to delete data source: ${error?.message || 'unknown error'}`, 'error')
     } finally {
       setIsDeletingDataSource(false)
       setShowDeleteDataSourceConfirm(null)
@@ -866,23 +943,24 @@ export default function IngestView() {
     try {
       await deleteIngestor(ingestorId)
       fetchIngestors()
-      alert('✅ Ingestor deleted successfully')
+      toast('Ingestor deleted successfully', 'success')
     } catch (error: any) {
       console.error('Error deleting ingestor:', error)
-      alert(`❌ Failed to delete ingestor: ${error?.message || 'unknown error'}`)
+      toast(`Failed to delete ingestor: ${error?.message || 'unknown error'}`, 'error')
     }
     setShowDeleteIngestorConfirm(null)
   }
 
   const handleReloadDataSource = async (datasourceId: string) => {
     setIsReIngesting(true)
+    setReIngestError(null)
     try {
       await reloadDataSource(datasourceId)
       await fetchDataSources()
       await fetchJobsForDataSource(datasourceId)
     } catch (error: any) {
       console.error('Error re-ingesting data source:', error)
-      alert(`❌ Re-ingest failed: ${error?.message || 'unknown error'}`)
+      setReIngestError(error?.message || 'unknown error')
     } finally {
       setIsReIngesting(false)
       setShowReIngestConfirm(null)
@@ -895,10 +973,10 @@ export default function IngestView() {
       const result = await cleanupDataSource(datasourceId)
       // Clear documents state since cleanup may have removed chunks
       clearDocumentsState(datasourceId)
-      alert(`✅ ${result.message}`)
+      toast(result.message, 'success')
     } catch (error: any) {
       console.error('Error cleaning up data source:', error)
-      alert(`❌ Cleanup failed: ${error?.message || 'unknown error'}`)
+      toast(`Cleanup failed: ${error?.message || 'unknown error'}`, 'error')
     } finally {
       setIsCleaningUp(false)
       setShowCleanupConfirm(null)
@@ -909,10 +987,10 @@ export default function IngestView() {
     try {
       await terminateJob(jobId)
       await pollJob(datasourceId, jobId)
-      alert('⏹️ Job termination requested...')
+      toast('Job termination requested...', 'info')
     } catch (error: any) {
       console.error('Error terminating job:', error)
-      alert(`❌ Termination failed: ${error?.message || 'unknown error'}`)
+      toast(`Termination failed: ${error?.message || 'unknown error'}`, 'error')
     }
   }
 
@@ -968,7 +1046,8 @@ export default function IngestView() {
       {/* Scrollable Content */}
       <ScrollArea className="flex-1">
         <div className="p-6 space-y-6">
-          {/* Ingest Section */}
+          {/* Ingest Section — hidden for users without INGEST permission */}
+          {canIngest && (
           <motion.section 
             className="bg-card rounded-xl shadow-sm border border-border p-5"
             initial={{ opacity: 0, y: 10 }}
@@ -1039,13 +1118,50 @@ export default function IngestView() {
                 </div>
                 <Button
                   onClick={handleIngest}
-                  disabled={!url || !hasPermission(Permission.INGEST)}
-                  title={!hasPermission(Permission.INGEST) ? 'Insufficient permissions to ingest data' : 'Ingest this URL'}
+                  disabled={!url || !hasPermission(Permission.INGEST) || ingestOwnerTeamMissing}
+                  title={
+                    !hasPermission(Permission.INGEST)
+                      ? 'Insufficient permissions to ingest data'
+                      : ingestOwnerTeamMissing
+                        ? 'Select an owning team for this data source'
+                        : 'Ingest this URL'
+                  }
                 >
                   Ingest
                 </Button>
               </div>
-              
+
+              {/* Owning team (spec 2026-06-03). Required for non-org-admins;
+                  the new data source is created owned by this team and its
+                  members get read/ingest. Org admins may leave it as "None"
+                  to create a personal/admin-owned source. */}
+              {(availableTeams.length > 0 || ingestOwnerTeamRequired) && (
+                <div className="flex items-center gap-2 mt-2 ml-1">
+                  <Users className="h-3.5 w-3.5 text-muted-foreground" />
+                  <span className="text-sm text-muted-foreground">
+                    Owning team{ingestOwnerTeamRequired ? ' *' : ''}:
+                  </span>
+                  <select
+                    className="flex h-8 rounded-md border border-input bg-background px-2 py-1 text-xs ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    value={ingestOwnerTeamSlug}
+                    onChange={(e) => setIngestOwnerTeamSlug(e.target.value)}
+                    aria-label="Owning team"
+                  >
+                    <option value="">
+                      {ingestOwnerTeamRequired ? 'Select a team…' : 'None (personal)'}
+                    </option>
+                    {availableTeams.map((t) => (
+                      <option key={t._id} value={t.slug}>{t.name}</option>
+                    ))}
+                  </select>
+                  {ingestOwnerTeamRequired && availableTeams.length === 0 && (
+                    <span className="text-xs text-amber-600 dark:text-amber-400">
+                      No team grants you data-source authoring — ask an admin.
+                    </span>
+                  )}
+                </div>
+              )}
+
               {/* Quick options - Crawl Mode for web */}
               {ingestType === 'web' && (
                 <div className="flex items-center gap-4 mt-2 ml-1">
@@ -1428,6 +1544,7 @@ export default function IngestView() {
               </AnimatePresence>
             </div>
           </motion.section>
+          )}
 
           {/* Data Sources Section */}
           <motion.section 
@@ -1592,14 +1709,87 @@ export default function IngestView() {
                             
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2">
-                                <span className="font-medium text-sm truncate max-w-md" title={ds.datasource_id}>
-                                  {ds.datasource_id.length > 60 ? `${ds.datasource_id.substring(0, 60)}...` : ds.datasource_id}
-                                </span>
+                                {renamingDsId === ds.datasource_id ? (
+                                  <div className="flex items-center gap-1 max-w-md flex-1" onClick={(e) => e.stopPropagation()}>
+                                    <Input
+                                      autoFocus
+                                      value={renameDraft}
+                                      onChange={(e) => setRenameDraft(e.target.value)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === "Enter") { e.preventDefault(); void commitRename(ds.datasource_id); }
+                                        else if (e.key === "Escape") { e.preventDefault(); cancelRename(); }
+                                      }}
+                                      disabled={renameSaving}
+                                      maxLength={120}
+                                      className="h-7 text-sm"
+                                      placeholder="Display name"
+                                    />
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="h-7 w-7 p-0"
+                                      disabled={renameSaving || !renameDraft.trim()}
+                                      onClick={() => void commitRename(ds.datasource_id)}
+                                      title="Save name (Enter)"
+                                    >
+                                      <Check className="h-3.5 w-3.5" />
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="h-7 w-7 p-0"
+                                      disabled={renameSaving}
+                                      onClick={cancelRename}
+                                      title="Cancel (Esc)"
+                                    >
+                                      <X className="h-3.5 w-3.5" />
+                                    </Button>
+                                  </div>
+                                ) : (
+                                  <>
+                                    <span
+                                      className="font-medium text-sm truncate max-w-md"
+                                      title={ds.name ? `${ds.name}\n${ds.datasource_id}` : ds.datasource_id}
+                                    >
+                                      {ds.name || (ds.datasource_id.length > 60 ? `${ds.datasource_id.substring(0, 60)}\u2026` : ds.datasource_id)}
+                                    </span>
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="h-6 w-6 p-0 opacity-50 hover:opacity-100 shrink-0"
+                                      onClick={(e) => { e.stopPropagation(); beginRename(ds); }}
+                                      title="Rename data source"
+                                    >
+                                      <Pencil className="h-3 w-3" />
+                                    </Button>
+                                  </>
+                                )}
+                                {getTeamsForKb(ds.datasource_id).map((ti) => (
+                                  <Badge key={ti.teamId} variant="outline" className="text-[10px] px-1.5 py-0 h-4 shrink-0">
+                                    {ti.teamName}
+                                  </Badge>
+                                ))}
+                                <KbTeamAccessPanel
+                                  datasourceId={ds.datasource_id}
+                                  mode="compact"
+                                  onUpdate={reloadTeamKb}
+                                />
                                 <Badge variant="secondary" className="text-[10px] shrink-0">
                                   {ds.source_type}
                                 </Badge>
                               </div>
                               <div className="flex items-center gap-3 text-xs text-muted-foreground mt-0.5">
+                                {ds.name && (
+                                  <>
+                                    <span
+                                      className="font-mono text-[10px] truncate max-w-[18rem]"
+                                      title={ds.datasource_id}
+                                    >
+                                      {ds.datasource_id}
+                                    </span>
+                                    <span className="text-border">|</span>
+                                  </>
+                                )}
                                 <span>Updated {formatRelativeTime(ds.last_updated)}</span>
                                 {hasReloadInterval && (
                                   <>
@@ -1626,7 +1816,9 @@ export default function IngestView() {
                                 <span className="text-xs text-muted-foreground">No jobs</span>
                               )}
 
+                              {(canIngest || canDelete) && (
                               <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
+                                {canIngest && (
                                 <Button
                                   variant="ghost"
                                   size="sm"
@@ -1637,6 +1829,9 @@ export default function IngestView() {
                                 >
                                   <RotateCcw className="h-3.5 w-3.5" />
                                 </Button>
+                                )}
+                                {canDelete && (
+                                <>
                                 <Button
                                   variant="ghost"
                                   size="sm"
@@ -1657,7 +1852,10 @@ export default function IngestView() {
                                 >
                                   <Trash2 className="h-3.5 w-3.5" />
                                 </Button>
+                                </>
+                                )}
                               </div>
+                              )}
                             </div>
                           </div>
 
@@ -1731,6 +1929,15 @@ export default function IngestView() {
                                       </div>
                                     </details>
                                   )}
+
+                                  {/* Team Access */}
+                                  <div className="rounded-lg bg-muted/50 border border-border/50 p-3">
+                                    <KbTeamAccessPanel
+                                      datasourceId={ds.datasource_id}
+                                      mode="full"
+                                      onUpdate={reloadTeamKb}
+                                    />
+                                  </div>
 
                                   {/* Jobs Section - Collapsible */}
                                   {jobs.length > 0 && (
@@ -2351,16 +2558,18 @@ export default function IngestView() {
                                   </p>
                                 </div>
 
+                                {canDelete && (
                                 <Button
                                   variant="ghost"
                                   size="sm"
                                   onClick={(e) => { e.stopPropagation(); setShowDeleteIngestorConfirm(ingestor.ingestor_id); }}
-                                  disabled={isDefaultWebloader || !hasPermission(Permission.DELETE)}
+                                  disabled={isDefaultWebloader}
                                   className="h-7 w-7 p-0 hover:bg-destructive/10 hover:text-destructive"
                                   title={isDefaultWebloader ? 'Cannot delete default webloader' : 'Delete ingestor'}
                                 >
                                   <Trash2 className="h-3.5 w-3.5" />
                                 </Button>
+                                )}
                               </div>
 
                               <AnimatePresence>
@@ -2525,6 +2734,27 @@ export default function IngestView() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Re-ingest Error Dialog */}
+      <Dialog open={Boolean(reIngestError)} onOpenChange={(open) => !open && setReIngestError(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertCircle className="h-5 w-5 text-destructive" />
+              Re-ingest failed
+            </DialogTitle>
+            <DialogDescription>
+              The data source could not be re-ingested. Check your ReBAC assignment for this knowledge base and try again.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            {reIngestError}
+          </div>
+          <div className="flex justify-end">
+            <Button onClick={() => setReIngestError(null)}>OK</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Cleanup Confirmation Dialog */}
       <AnimatePresence>

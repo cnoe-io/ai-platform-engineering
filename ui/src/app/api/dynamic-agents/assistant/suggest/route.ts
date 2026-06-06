@@ -11,18 +11,17 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import {
-  withAuth,
   withErrorHandler,
   successResponse,
   ApiError,
 } from "@/lib/api-middleware";
-import { authenticateRequest } from "@/lib/da-proxy";
+import { authenticateRequest, buildBackendHeaders } from "@/lib/da-proxy";
 import { gradientThemes } from "@/lib/gradient-themes";
 
 const DYNAMIC_AGENTS_URL =
   process.env.DYNAMIC_AGENTS_URL || "http://localhost:8100";
 
-type SuggestField = "description" | "system_prompt" | "theme";
+type SuggestField = "description" | "system_prompt" | "theme" | "slack_followup_prompt";
 
 interface SuggestFieldRequest {
   field: SuggestField;
@@ -37,6 +36,9 @@ interface SuggestFieldRequest {
       name: string;
       description?: string;
     }>;
+    slack_channel_name?: string;
+    slack_agent_id?: string;
+    followup_prompt?: string;
   };
   model: { id: string; provider: string };
   /** @deprecated Use model.id / model.provider instead */
@@ -137,6 +139,34 @@ function buildPrompts(body: SuggestFieldRequest): {
       };
     }
 
+    case "slack_followup_prompt": {
+      const instructionPart = instruction
+        ? ` Additional guidance from the admin: ${instruction}`
+        : "";
+      const existingPart = context.followup_prompt
+        ? ` Existing follow-up prompt to improve:\n${context.followup_prompt}\n\n`
+        : "";
+      const channelPart = context.slack_channel_name
+        ? ` for Slack channel "${context.slack_channel_name}"`
+        : "";
+      const agentPart = context.slack_agent_id
+        ? ` routed to agent:${context.slack_agent_id}`
+        : "";
+      const isConcise = body.prompt_style !== "comprehensive";
+      return {
+        system_prompt:
+          "You are an expert Slack bot conversation designer. " +
+          "Write follow-up prompt text that is prepended when the bot re-evaluates or humbly follows up before replying. " +
+          "The text should guide the selected agent's behavior in Slack, be safe for production, and avoid mentioning implementation details. " +
+          "Output ONLY the prompt content — no wrapping, no preamble, no explanation.",
+        user_message:
+          `${existingPart}Write a ${isConcise ? "concise" : "detailed"} Slack follow-up prompt${channelPart}${agentPart}.${instructionPart} ` +
+          (isConcise
+            ? "Focus on tone, uncertainty handling, and when to ask a clarifying question."
+            : "Cover tone, uncertainty handling, clarification behavior, escalation boundaries, and how to keep Slack replies brief."),
+      };
+    }
+
     case "theme": {
       const themeList = gradientThemes
         .map((t) => `- ${t.id}: ${t.label} — ${t.description}`)
@@ -148,10 +178,15 @@ function buildPrompts(body: SuggestFieldRequest): {
         system_prompt:
           "You are a UI design assistant. You pick visual themes that best match " +
           "an agent's purpose and personality. Output ONLY the theme ID — nothing else, " +
-          "no explanation, no quotes.",
+          "no explanation, no quotes. " +
+          "You may also create a custom theme if none of the presets fit well. " +
+          "For custom themes output exactly: custom:<gradient_from>,<gradient_to>,<icon_color> " +
+          "using hex colors. Example: custom:#6366f1,#1e1b4b,#e0e7ff",
         user_message:
           `Pick the most fitting visual theme for an agent named "${context.name}"${descPart}.\n\n` +
-          `Available themes:\n${themeList}\n\nOutput ONLY the theme ID.`,
+          `Available preset themes:\n${themeList}\n\n` +
+          `Or create a custom theme: custom:<from_hex>,<to_hex>,<icon_hex>\n\n` +
+          `Output ONLY the theme ID or custom spec.`,
       };
     }
 
@@ -165,8 +200,13 @@ function buildPrompts(body: SuggestFieldRequest): {
  * AI-assisted field suggestion for the Custom Agent Builder.
  */
 export const POST = withErrorHandler(async (request: NextRequest) => {
-  return await withAuth(request, async (req, user, session) => {
-    const body: SuggestFieldRequest = await request.json();
+  const auth = await authenticateRequest(request, {
+    resource: "dynamic_agent",
+    scope: "manage",
+  });
+  if (auth instanceof NextResponse) return auth;
+
+  const body: SuggestFieldRequest = await request.json();
 
     // Normalize legacy model_id/model_provider → model
     if (body.model_id && !body.model) {
@@ -181,9 +221,9 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       );
     }
 
-    if (!["description", "system_prompt", "theme"].includes(body.field)) {
+    if (!["description", "system_prompt", "theme", "slack_followup_prompt"].includes(body.field)) {
       throw new ApiError(
-        `Invalid field: ${body.field}. Must be one of: description, system_prompt, theme`,
+        `Invalid field: ${body.field}. Must be one of: description, system_prompt, theme, slack_followup_prompt`,
         400
       );
     }
@@ -191,15 +231,10 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     // Build prompts from templates
     const { system_prompt, user_message } = buildPrompts(body);
 
-    // Forward to backend with X-User-Context auth (same as chat routes)
-    const auth = await authenticateRequest(request);
-    if (auth instanceof NextResponse) return auth;
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-    };
-    if (auth.userContextHeader) {
-      headers["X-User-Context"] = auth.userContextHeader;
-    }
+    // Forward to backend with X-User-Context AND Authorization: Bearer
+    // (Spec 102 Phase 11.4 — DA now requires Bearer; X-User-Context kept
+    // for legacy claim hints but is no longer authoritative).
+    const headers = buildBackendHeaders("application/json", auth);
 
     const response = await fetch(
       `${DYNAMIC_AGENTS_URL}/api/v1/assistant/suggest`,
@@ -226,5 +261,4 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       field: body.field,
       content: data.content,
     });
-  });
 });

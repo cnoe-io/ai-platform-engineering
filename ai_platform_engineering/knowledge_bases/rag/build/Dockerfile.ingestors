@@ -1,5 +1,6 @@
 # First, build the application in the `/app` directory.
 # See `Dockerfile` for details.
+# assisted-by Codex Codex-sonnet-4-6
 FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim AS builder
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
 
@@ -24,17 +25,17 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=ingestors/uv.lock,target=uv.lock \
     --mount=type=bind,source=ingestors/pyproject.toml,target=pyproject.toml \
     if [ "$VARIANT" = "slim" ]; then \
-        UV_HTTP_TIMEOUT=300 uv sync --locked --no-install-project --no-dev; \
+        UV_HTTP_TIMEOUT=900 uv sync --locked --no-install-project --no-dev; \
     else \
-        UV_HTTP_TIMEOUT=300 uv sync --locked --no-install-project --no-dev --extra playwright; \
+        UV_HTTP_TIMEOUT=900 uv sync --locked --no-install-project --no-dev --extra playwright; \
     fi
 
 COPY ingestors .
 RUN --mount=type=cache,target=/root/.cache/uv \
     if [ "$VARIANT" = "slim" ]; then \
-        UV_HTTP_TIMEOUT=300 uv sync --locked --no-dev; \
+        UV_HTTP_TIMEOUT=900 uv sync --locked --no-dev; \
     else \
-        UV_HTTP_TIMEOUT=300 uv sync --locked --no-dev --extra playwright; \
+        UV_HTTP_TIMEOUT=900 uv sync --locked --no-dev --extra playwright; \
     fi
 
 # Clean up .venv to reduce image size (remove ~100MB of unnecessary files)
@@ -45,44 +46,53 @@ RUN find /app/ingestors/.venv -type d -name "__pycache__" -exec rm -rf {} + 2>/d
     rm -rf /app/ingestors/.venv/include 2>/dev/null || true
 
 
-# Then, use a final image without uv
-FROM python:3.13-slim-bookworm
-# It is important to use the image that matches the builder, as the path to the
-# Python executable must be the same, e.g., using `python:3.13-slim-bookworm`
-# will fail.
+# Then, use a final image without uv. We use Chainguard Wolfi (a minimal,
+# continuously-patched distro) instead of Debian Bookworm to eliminate the large
+# backlog of OS-package CVEs that ship with the python:3.13-slim-bookworm base.
+# Wolfi's python-3.13 provides the same CPython 3.13 interpreter at the same
+# /usr/local/bin/python3 path the builder venv expects.
+FROM cgr.dev/chainguard/wolfi-base
 
 # Re-declare ARG after FROM to make it available in this stage
 ARG VARIANT=default
 
-# Install system dependencies:
-# - AWS CLI v2 for EKS authentication (k8s ingestor)
-# - Playwright/Chromium dependencies (default variant only, not slim)
-RUN apt-get update && \
-    apt-get upgrade -y --no-install-recommends && \
-    apt-get install -y --no-install-recommends \
-    # For AWS CLI installation
-    curl unzip && \
-    # Conditionally install Playwright dependencies (default variant)
+# Install system dependencies from the Wolfi package repository:
+# - python-3.13            : system CPython matching the builder
+# - ca-certificates-bundle : TLS trust store
+# - curl / unzip           : AWS CLI v2 download + extraction
+# - bash                   : login shell for the non-root user
+# - shadow                 : provides groupadd/useradd for non-root user creation
+# - chromium (default var) : distro browser for Playwright full-browser launches.
+#                            Wolfi's chromium apk resolves its own runtime libs,
+#                            so the long manual Debian lib list is no longer needed.
+RUN echo "https://packages.wolfi.dev/os" > /etc/apk/repositories && \
+    apk update && \
+    apk add --no-cache \
+        python-3.13 \
+        ca-certificates-bundle \
+        curl \
+        unzip \
+        bash \
+        shadow && \
     if [ "$VARIANT" != "slim" ]; then \
-        apt-get install -y --no-install-recommends \
-        libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 \
-        libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 \
-        libgbm1 libasound2 libpango-1.0-0 libcairo2 libatspi2.0-0; \
+        apk add --no-cache chromium; \
     fi && \
-    # Install AWS CLI v2 (detect architecture)
+    # Ensure /usr/local/bin/python3 (the path baked into the builder venv) exists
+    if [ ! -e /usr/local/bin/python3 ]; then \
+        mkdir -p /usr/local/bin && \
+        ln -sf "$(command -v python3.13 || command -v python3)" /usr/local/bin/python3; \
+    fi && \
+    ln -sf /usr/local/bin/python3 /usr/local/bin/python && \
+    # Install AWS CLI v2 (detect architecture) for EKS authentication (k8s ingestor)
     ARCH=$(uname -m) && \
     if [ "$ARCH" = "aarch64" ]; then \
         curl "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o "awscliv2.zip"; \
     else \
         curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"; \
     fi && \
-    unzip awscliv2.zip && \
+    unzip -q awscliv2.zip && \
     ./aws/install && \
-    rm -rf awscliv2.zip aws && \
-    # Keep curl and unzip — needed later for Chrome for Testing download
-    apt-get autoremove -y && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+    rm -rf awscliv2.zip aws
 
 # Create a non-root user
 RUN groupadd --gid 1001 app && \
@@ -96,47 +106,16 @@ WORKDIR /app/ingestors
 # Place executables in the environment at the front of the path
 ENV PATH="/app/ingestors/.venv/bin:$PATH"
 
-# Install Chrome for Testing (latest stable) — replaces playwright's bundled Chrome 145
-# which carries ~90 High/Critical CVEs. PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH tells
-# playwright to use this binary instead of its bundled one.
-# A fixed symlink /opt/chrome/chrome makes the ENV path arch-independent.
+# Use the distro Chromium instead of Playwright's bundled full Chromium, which can
+# lag security updates. PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH tells Playwright to
+# use the distro browser. A fixed symlink /opt/chrome/chrome makes the ENV path
+# arch-independent and decoupled from the exact Wolfi chromium install location.
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright
 RUN if [ "$VARIANT" != "slim" ]; then \
-        ARCH=$(uname -m) && \
-        if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then \
-            # Chrome for Testing has no linux-arm64 build; use playwright's bundled chromium
-            playwright install chromium && \
-            mkdir -p /opt/chrome && \
-            ln -sf "$(find /opt/playwright -name chrome -type f 2>/dev/null | head -1)" /opt/chrome/chrome; \
-        else \
-            # linux64 is the only Linux platform offered by Chrome for Testing
-            PLATFORM="linux64" && \
-            for i in 1 2 3 4 5; do \
-                CHROME_VERSION=$(curl -sfL --retry 3 --retry-delay 5 \
-                    "https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions.json" \
-                    | python3 -c "import sys,json; print(json.load(sys.stdin)['channels']['Stable']['version'])" 2>/dev/null) && \
-                [ -n "$CHROME_VERSION" ] && break; \
-                echo "Attempt $i: failed to fetch Chrome version, retrying in $((i*10))s..." && sleep $((i * 10)); \
-            done && \
-            [ -n "$CHROME_VERSION" ] || (echo "ERROR: Could not fetch Chrome version after 5 attempts" && exit 1) && \
-            echo "Chrome version: $CHROME_VERSION" && \
-            mkdir -p /opt/chrome && \
-            for i in 1 2 3; do \
-                curl -sfL --retry 3 --retry-delay 5 \
-                    "https://storage.googleapis.com/chrome-for-testing-public/${CHROME_VERSION}/${PLATFORM}/chrome-${PLATFORM}.zip" \
-                    -o /tmp/chrome.zip && break; \
-                [ $i -lt 3 ] && sleep $((i * 10)); \
-            done && \
-            unzip -q /tmp/chrome.zip -d /opt/chrome && \
-            rm /tmp/chrome.zip && \
-            ln -sf /opt/chrome/chrome-${PLATFORM}/chrome /opt/chrome/chrome && \
-            chmod -R 755 /opt/chrome && \
-            playwright install-deps chromium && \
-            # Also install Playwright's chromium_headless_shell (used by headless launches)
-            # PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH only overrides full-chromium; headless shell
-            # resolves via PLAYWRIGHT_BROWSERS_PATH and must be present there.
-            playwright install chromium; \
-        fi; \
+        mkdir -p /opt/chrome && \
+        ln -sf "$(command -v chromium || echo /usr/bin/chromium)" /opt/chrome/chrome && \
+        playwright install chromium && \
+        rm -rf /opt/playwright/chromium-[0-9]*; \
     fi
 
 ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/opt/chrome/chrome

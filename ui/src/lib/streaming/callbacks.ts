@@ -8,7 +8,7 @@
  * All callbacks are optional — adapters check before calling.
  */
 
-import type { InputFieldDefinition } from "@/components/dynamic-agents/sse-types";
+import type { InputFieldDefinition } from "@/lib/streaming/types";
 
 // ═══════════════════════════════════════════════════════════════
 // Raw event type for persistence / replay
@@ -43,8 +43,8 @@ export interface StreamParams {
   conversationId: string;
   /** Agent config ID (determines routing in unified gateway) */
   agentId: string;
-  /** JSON-stringified form data (for HITL resume) */
-  formData?: string;
+  /** JSON-stringified resume data (for HITL resume — form input or tool approval) */
+  resumeData?: string;
   /** Turn ID for request/response pairing */
   turnId?: string;
   /** Client source identifier */
@@ -80,6 +80,7 @@ export interface StreamCallbacks {
     error?: string,
     namespace?: string[],
     args?: string,
+    result?: string,
   ): void;
 
   /** Agent is requesting user input via a form (HITL) */
@@ -88,6 +89,22 @@ export interface StreamCallbacks {
     prompt: string,
     fields: InputFieldDefinition[],
     agent: string,
+  ): void;
+
+  /** Agent tool call requires human approval (HITL) */
+  onToolApprovalRequired?(
+    interruptId: string,
+    toolName: string,
+    toolArgs: Record<string, unknown>,
+    allowedDecisions: string[],
+    agent: string,
+    /** When the LLM batches multiple gated tool calls in one AI message */
+    toolApprovals?: Array<{
+      tool_name: string;
+      tool_args: Record<string, unknown>;
+      tool_call_id: string;
+      allowed_decisions: string[];
+    }>,
   ): void;
 
   /** Non-fatal warning from the agent */

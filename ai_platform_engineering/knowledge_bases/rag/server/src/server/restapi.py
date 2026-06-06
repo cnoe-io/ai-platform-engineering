@@ -5,7 +5,7 @@ import traceback
 import uuid
 from urllib.parse import urlparse
 from common import utils
-from fastapi import FastAPI, status, HTTPException, Query, Depends
+from fastapi import FastAPI, status, HTTPException, Query, Depends, Response
 from fastapi.responses import JSONResponse
 from fastapi.encoders import jsonable_encoder
 from fastmcp import FastMCP
@@ -39,10 +39,30 @@ from common.models.server import (
   ChunkInfo,
   ChunkContentResponse,
   CleanupResponse,
+  QueryRequest,
+  QueryResult,
 )
 from common.models.rag import DataSourceInfo, IngestorInfo, valid_metadata_keys, valid_metadata_keys_with_types, MCPToolConfig, MCPBuiltinToolsConfig
 from common.models.rbac import Role, UserContext, UserInfoResponse
-from server.rbac import get_user_or_anonymous, require_role, has_permission, get_permissions, is_trusted_request, UserInfoCache, set_userinfo_cache, get_auth_manager, _authenticate_from_token
+from contextvars import ContextVar
+from server.rbac import (
+  require_authenticated_user,
+  require_role,
+  has_permission,
+  get_permissions,
+  get_auth_manager,
+  _authenticate_from_token,
+  authorize_mcp_tool_create,
+  authorize_mcp_tool_manage,
+  authorize_datasource_create,
+  authorize_search,
+  write_datasource_ownership,
+  check_datasource_access,
+  derive_team_for_request,
+  get_accessible_datasource_ids,
+  inject_kb_filter,
+  RBAC_TEAM_SCOPE_ENABLED,
+)
 from common.graph_db.neo4j.graph_db import Neo4jDB
 from common.graph_db.base import GraphDB
 from common.constants import DATASOURCE_ID_KEY, WEBLOADER_INGESTOR_REDIS_QUEUE, WEBLOADER_INGESTOR_NAME, WEBLOADER_INGESTOR_TYPE, CONFLUENCE_INGESTOR_REDIS_QUEUE, CONFLUENCE_INGESTOR_NAME, CONFLUENCE_INGESTOR_TYPE, DEFAULT_DATA_LABEL, DEFAULT_SCHEMA_LABEL
@@ -57,6 +77,8 @@ from server.query_service import VectorDBQueryService
 from langchain_core.globals import set_verbose as set_langchain_verbose
 from server.ingestion import DocumentProcessor
 from common.utils import get_fresh_until, sanitize_url
+
+mcp_user_context_var: ContextVar[Optional[UserContext]] = ContextVar("mcp_user_context", default=None)
 
 metadata_storage: Optional[MetadataStorage] = None
 vector_db: Optional[Milvus] = None
@@ -86,8 +108,9 @@ max_ingestion_concurrency = int(os.getenv("MAX_INGESTION_CONCURRENCY", 30))  # m
 ui_url = os.getenv("UI_URL", "http://localhost:9447")
 mcp_enabled = os.getenv("ENABLE_MCP", "true").lower() in ("true", "1", "yes")
 mcp_auth_enabled = os.getenv("MCP_AUTH_ENABLED", "true").lower() in ("true", "1", "yes")
-sleep_on_init_failure = int(os.getenv("SLEEP_ON_INIT_FAILURE_SECONDS", 180))  # seconds to sleep on init failure before shutdown
+sleep_on_init_failure = int(os.getenv("SLEEP_ON_INIT_FAILURE_SECONDS", 0))  # seconds to sleep on init failure before shutdown
 max_documents_per_ingest = int(os.getenv("MAX_DOCUMENTS_PER_INGEST", 1000))  # max number of documents to ingest per ingestion request
+max_results_per_query = int(os.getenv("MAX_RESULTS_PER_QUERY", 100))  # max results per query (matches QueryRequest.limit le=100)
 confluence_url = os.getenv("CONFLUENCE_URL")  # optional - base URL for Confluence instance (e.g., https://company.atlassian.net/wiki)
 
 default_collection_name_docs = "rag_default"
@@ -256,10 +279,6 @@ async def app_lifespan(app: FastAPI):
   metadata_storage = MetadataStorage(redis_client=redis_client)
   jobmanager = JobManager(redis_client=redis_client)
 
-  # Initialize userinfo cache for RBAC (caches email/groups fetched from OIDC userinfo)
-  userinfo_cache = UserInfoCache(redis_client=redis_client)
-  set_userinfo_cache(userinfo_cache)
-
   # Use EmbeddingsFactory to get embeddings based on EMBEDDINGS_PROVIDER env var
   embeddings = EmbeddingsFactory.get_embeddings()
 
@@ -397,8 +416,7 @@ class MCPAuthMiddleware(BaseHTTPMiddleware):
   so they cannot use Depends()-based auth guards. This middleware intercepts
   requests to /mcp* paths and applies the same auth logic as require_authenticated_user():
     1. Valid Bearer JWT -> allowed through
-    2. Trusted network (CIDR / X-Trust-Token) -> allowed through
-    3. Anything else -> 401
+    2. Anything else -> 401
 
   Non-MCP routes are unaffected and continue to use their own Depends() guards.
   """
@@ -407,7 +425,6 @@ class MCPAuthMiddleware(BaseHTTPMiddleware):
     if not request.url.path.startswith("/mcp"):
       return await call_next(request)
 
-    # Allow OPTIONS (CORS preflight) without auth
     if request.method == "OPTIONS":
       return await call_next(request)
 
@@ -418,11 +435,13 @@ class MCPAuthMiddleware(BaseHTTPMiddleware):
       auth_manager = get_auth_manager()
       user = await _authenticate_from_token(request, auth_manager)
       if user:
-        return await call_next(request)
+        request.state.user = user
+        token = mcp_user_context_var.set(user)
+        try:
+          return await call_next(request)
+        finally:
+          mcp_user_context_var.reset(token)
       return self._unauthorized("Invalid or expired token.", request)
-
-    if is_trusted_request(request):
-      return await call_next(request)
 
     return self._unauthorized("Missing or malformed Authorization header.", request)
 
@@ -478,10 +497,8 @@ def generate_ingestor_id(ingestor_name: str, ingestor_type: str) -> str:
     - Show/hide features based on role-based permissions
     - Enable/disable action buttons based on what the user can do
     
-    **No authentication required** - this endpoint is accessible to all users.
-    - Authenticated users will see their email, role, and groups
-    - Unauthenticated users will see email as "anonymous" with no permissions
-    - Trusted network users will see email as "trusted-network"
+    **Authentication required** - callers must provide a valid bearer token.
+    Authenticated users will see their email and baseline role.
     
     **Permissions list:**
     - `read`: Can query and view data (READONLY, INGESTONLY, ADMIN)
@@ -494,21 +511,16 @@ def generate_ingestor_id(ingestor_name: str, ingestor_type: str) -> str:
       "content": {
         "application/json": {
           "examples": {
-            "authenticated": {"summary": "Authenticated user", "value": {"email": "user@example.com", "role": "readonly", "is_authenticated": True, "groups": ["engineering", "platform-team"], "permissions": ["read"], "in_trusted_network": False}},
-            "anonymous": {"summary": "Anonymous user", "value": {"email": "anonymous", "role": "anonymous", "is_authenticated": False, "groups": [], "permissions": [], "in_trusted_network": False}},
-            "trusted_network": {"summary": "Trusted network user", "value": {"email": "trusted-network", "role": "admin", "is_authenticated": False, "groups": [], "permissions": ["read", "ingest", "delete"], "in_trusted_network": True}},
+            "authenticated": {"summary": "Authenticated user", "value": {"email": "user@example.com", "role": "readonly", "is_authenticated": True, "permissions": ["read"]}},
           }
         }
       },
     }
   },
 )
-async def get_user_info(request: Request, user: UserContext = Depends(get_user_or_anonymous)):
+async def get_user_info(request: Request, user: UserContext = Depends(require_authenticated_user)):
   """Get current user's authentication and role information."""
-  # Determine if request is from trusted network
-  trusted = is_trusted_request(request)
-
-  return UserInfoResponse(email=user.email, role=user.role, is_authenticated=user.is_authenticated, groups=user.groups, permissions=get_permissions(user.role), in_trusted_network=trusted)
+  return UserInfoResponse(email=user.email, role=user.role, is_authenticated=user.is_authenticated, permissions=get_permissions(user.role))
 
 
 # ============================================================================
@@ -568,18 +580,71 @@ async def delete_ingestor(ingestor_id: str, user: UserContext = Depends(require_
 
 
 @app.post("/v1/datasource", status_code=status.HTTP_202_ACCEPTED)
-async def upsert_datasource(datasource_info: DataSourceInfo, user: UserContext = Depends(require_role(Role.INGESTONLY))):
+async def upsert_datasource(
+  datasource_info: DataSourceInfo,
+  request: Request,
+  user: UserContext = Depends(require_authenticated_user),
+):
   """Create or update datasource metadata entry."""
   if not metadata_storage:
     raise HTTPException(status_code=500, detail="Server not initialized")
 
+  await check_datasource_access(request, user, datasource_info.datasource_id, "ingest")
   await metadata_storage.store_datasource_info(datasource_info)
 
   return status.HTTP_202_ACCEPTED
 
 
+from pydantic import BaseModel as _PydBaseModel, Field as _PydField  # noqa: E402
+
+
+class DatasourceRenameRequest(_PydBaseModel):
+  """Request body for renaming a datasource's display label.
+
+  Only the ``name`` (display label) is mutable; ``datasource_id`` is the
+  immutable RBAC/storage key and cannot be changed via this endpoint.
+  """
+
+  name: str = _PydField(..., min_length=1, max_length=120, description="New human-friendly display label. Whitespace-trimmed; must be non-empty after trimming.")
+
+
+@app.patch("/v1/datasource/{datasource_id}", status_code=status.HTTP_200_OK)
+async def rename_datasource(
+  datasource_id: str,
+  body: DatasourceRenameRequest,
+  request: Request,
+  user: UserContext = Depends(require_authenticated_user),
+):
+  """Rename a datasource's display label. The ``datasource_id`` is immutable."""
+  if not metadata_storage:
+    raise HTTPException(status_code=500, detail="Server not initialized")
+
+  # Authz: must have admin scope on this specific datasource
+  await check_datasource_access(request, user, datasource_id, "admin")
+
+  existing = await metadata_storage.get_datasource_info(datasource_id)
+  if not existing:
+    raise HTTPException(status_code=404, detail="Datasource not found")
+
+  new_name = body.name.strip()
+  if not new_name:
+    raise HTTPException(status_code=400, detail="name must be non-empty after trimming")
+
+  if existing.name == new_name:
+    return {"datasource_id": datasource_id, "name": new_name, "changed": False}
+
+  existing.name = new_name
+  await metadata_storage.store_datasource_info(existing)
+  logger.info(f"Renamed datasource {datasource_id} -> {new_name!r} by user={user.email}")
+  return {"datasource_id": datasource_id, "name": new_name, "changed": True}
+
+
 @app.delete("/v1/datasource", status_code=status.HTTP_200_OK)
-async def delete_datasource(datasource_id: str, user: UserContext = Depends(require_role(Role.ADMIN))):
+async def delete_datasource(
+  datasource_id: str,
+  request: Request,
+  user: UserContext = Depends(require_authenticated_user),
+):
   """Delete datasource from vector storage and metadata."""
 
   # Check initialization
@@ -587,6 +652,8 @@ async def delete_datasource(datasource_id: str, user: UserContext = Depends(requ
     raise HTTPException(status_code=500, detail="Server not initialized")
   if graph_rag_enabled and not data_graph_db:
     raise HTTPException(status_code=500, detail="Server not initialized")
+
+  await check_datasource_access(request, user, datasource_id, "admin")
 
   # Fetch datasource info
   datasource_info = await metadata_storage.get_datasource_info(datasource_id)
@@ -697,14 +764,51 @@ async def cleanup_all_stale(
 
 
 @app.get("/v1/datasources")
-async def list_datasources(ingestor_id: Optional[str] = None, user: UserContext = Depends(require_role(Role.READONLY))):
-  """List all stored datasources"""
+async def list_datasources(
+  request: Request,
+  ingestor_id: Optional[str] = None,
+  user: UserContext = Depends(require_authenticated_user),
+):
+  """List all stored datasources, filtered by team-KB access when enabled."""
   if not metadata_storage:
     raise HTTPException(status_code=500, detail="Server not initialized")
   try:
     datasources = await metadata_storage.fetch_all_datasource_info()
     if ingestor_id:
       datasources = [ds for ds in datasources if ds.ingestor_id == ingestor_id]
+
+    # Derive a display name for records that do not store one. We do not persist
+    # this here because `datasource_id` remains the immutable storage/RBAC key;
+    # admins can rename via PATCH /v1/datasource/{id}.
+    for ds in datasources:
+      if not getattr(ds, "name", None):
+        meta = ds.metadata or {}
+        url = (meta.get("url_ingest_request") or {}).get("url") or meta.get("confluence_url")
+        space_key = meta.get("space_key")
+        project_key = meta.get("project_key")
+        channel_name = meta.get("channel_name") or meta.get("space_name")
+        ds.name = utils.derive_friendly_name(
+          url=url,
+          source_type=ds.source_type,
+          space_key=space_key,
+          project_key=project_key,
+          channel_name=channel_name,
+          fallback=ds.datasource_id,
+        )
+
+    if RBAC_TEAM_SCOPE_ENABLED and user.is_authenticated:
+      team_id = await derive_team_for_request(request, user)
+      tenant_id = request.headers.get("X-Tenant-Id") or "default"
+      accessible = await get_accessible_datasource_ids(
+        user, "read", tenant_id, team_id=team_id, request=request,
+      )
+      if "*" not in accessible:
+        datasources = [
+          ds for ds in datasources
+          if getattr(ds, "datasource_id", None) in accessible
+          or getattr(ds, "id", None) in accessible
+        ]
+
     return {"success": True, "datasources": datasources, "count": len(datasources)}
   except Exception as e:
     logger.error(f"Failed to list datasources: {e}")
@@ -1021,12 +1125,61 @@ async def add_job_errors(job_id: str, error_messages: List[str], user: UserConte
 
 
 # ============================================================================
+# Query Endpoint
+# ============================================================================
+
+
+@app.post("/v1/query", response_model=List[QueryResult])
+async def query_documents(
+  query_request: QueryRequest,
+  request: Request,
+  user: UserContext = Depends(require_authenticated_user),
+):
+  """Query for relevant documents using semantic search in the unified collection."""
+
+  # Explicit org-level search capability (spec 2026-06-03-explicit-search-capability).
+  # Defense-in-depth alongside the BFF gate; the per-datasource ACL below
+  # (inject_kb_filter) still narrows results to readable sources.
+  await authorize_search(user)
+
+  # Enforce max results limit
+  if query_request.limit > max_results_per_query:
+    raise HTTPException(status_code=400, detail=f"Query limit exceeds maximum allowed of {max_results_per_query} results.")
+
+  # If weighted ranker specified but no weights then use default weights
+  if query_request.ranker_type == "weighted":
+    if query_request.ranker_params is None:
+      query_request.ranker_params = {"weights": [0.7, 0.3]}  # More weight to dense (semantic) score
+
+  # If no ranker specified then set ranker params to None
+  if not query_request.ranker_type or query_request.ranker_type == "":
+    query_request.ranker_params = None
+
+  tenant_id = request.headers.get("X-Tenant-Id") or "default"
+  if await inject_kb_filter(query_request, user, tenant_id, request):
+    return []
+
+  results = await vector_db_query_service.query(
+    query=query_request.query,
+    filters=query_request.filters,
+    limit=query_request.limit,
+    ranker=query_request.ranker_type,
+    ranker_params=query_request.ranker_params,
+  )
+  return results
+
+
+# ============================================================================
 # Ingestion Endpoints
 # ============================================================================
 
 
 @app.post("/v1/ingest/webloader/url", status_code=status.HTTP_202_ACCEPTED)
-async def ingest_url(url_request: UrlIngestRequest, user: UserContext = Depends(require_role(Role.INGESTONLY))):
+async def ingest_url(
+  url_request: UrlIngestRequest,
+  request: Request,
+  user: UserContext = Depends(require_authenticated_user),
+):
   """Queue a URL for ingestion by the webloader ingestor."""
   if not metadata_storage or not jobmanager:
     raise HTTPException(status_code=500, detail="Server not initialized")
@@ -1039,6 +1192,9 @@ async def ingest_url(url_request: UrlIngestRequest, user: UserContext = Depends(
 
   # Generate datasource ID and create datasource
   datasource_id = utils.generate_datasource_id_from_url(url_request.url)
+  # Creating a NEW data source requires the explicit org-level author capability
+  # plus owning-team membership (spec 2026-06-03), not just per-KB ingest.
+  await authorize_datasource_create(request, user, datasource_id, url_request.owner_team_slug)
 
   # Check if datasource already exists (for web, each URL is unique)
   existing_datasource = await metadata_storage.get_datasource_info(datasource_id)
@@ -1076,6 +1232,7 @@ async def ingest_url(url_request: UrlIngestRequest, user: UserContext = Depends(
   # Metadata schema for source_type="web": {"url_ingest_request": UrlIngestRequest, "reload_interval": int | None}
   datasource_info = DataSourceInfo(
     datasource_id=datasource_id,
+    name=utils.derive_friendly_name(url=url_request.url, source_type="web"),
     ingestor_id=generate_ingestor_id(WEBLOADER_INGESTOR_NAME, WEBLOADER_INGESTOR_TYPE),
     description=url_request.description,
     source_type="web",
@@ -1091,6 +1248,10 @@ async def ingest_url(url_request: UrlIngestRequest, user: UserContext = Depends(
   await metadata_storage.store_datasource_info(datasource_info)
   logger.info(f"Created datasource: {datasource_id}")
 
+  # Write ownership tuples so the owning team (or the author) gets access to
+  # the brand-new data source (spec 2026-06-03). Best-effort; non-fatal.
+  await write_datasource_ownership(datasource_id, url_request.owner_team_slug, user)
+
   # Queue the request for the ingestor
   ingestor_request = IngestorRequest(ingestor_id=generate_ingestor_id(WEBLOADER_INGESTOR_NAME, WEBLOADER_INGESTOR_TYPE), command=WebIngestorCommand.INGEST_URL, payload=url_request.model_dump())
 
@@ -1102,7 +1263,11 @@ async def ingest_url(url_request: UrlIngestRequest, user: UserContext = Depends(
 
 
 @app.post("/v1/ingest/webloader/reload", status_code=status.HTTP_202_ACCEPTED)
-async def reload_url(reload_request: UrlReloadRequest, user: UserContext = Depends(require_role(Role.INGESTONLY))):
+async def reload_url(
+  reload_request: UrlReloadRequest,
+  request: Request,
+  user: UserContext = Depends(require_authenticated_user),
+):
   """Reloads a previously ingested URL by re-queuing it for ingestion."""
   if not metadata_storage or not jobmanager:
     raise HTTPException(status_code=500, detail="Server not initialized")
@@ -1111,6 +1276,7 @@ async def reload_url(reload_request: UrlReloadRequest, user: UserContext = Depen
   datasource_info = await metadata_storage.get_datasource_info(reload_request.datasource_id)
   if not datasource_info:
     raise HTTPException(status_code=404, detail="Datasource not found")
+  await check_datasource_access(request, user, reload_request.datasource_id, "ingest")
 
   # Queue the request for the ingestor
   ingestor_request = IngestorRequest(ingestor_id=datasource_info.ingestor_id, command=WebIngestorCommand.RELOAD_DATASOURCE, payload=reload_request.model_dump())
@@ -1138,7 +1304,11 @@ async def reload_all_urls(user: UserContext = Depends(require_role(Role.ADMIN)))
 
 
 @app.post("/v1/ingest/confluence/page", status_code=status.HTTP_202_ACCEPTED)
-async def ingest_confluence_page(confluence_request: ConfluenceIngestRequest, user: UserContext = Depends(require_role(Role.INGESTONLY))):
+async def ingest_confluence_page(
+  confluence_request: ConfluenceIngestRequest,
+  request: Request,
+  user: UserContext = Depends(require_authenticated_user),
+):
   """Queue a Confluence page for ingestion by the confluence ingestor."""
   if not metadata_storage or not jobmanager:
     raise HTTPException(status_code=500, detail="Server not initialized")
@@ -1170,8 +1340,15 @@ async def ingest_confluence_page(confluence_request: ConfluenceIngestRequest, us
   # Build page config for this ingestion
   page_config = {"page_id": page_id, "source": confluence_request.url, "get_child_pages": confluence_request.get_child_pages}
 
-  # Check if datasource already exists
+  # Check if datasource already exists. Appending a page to an existing space
+  # is an "ingest into KB X" operation (per-KB check); creating a NEW space is
+  # the explicit org-level author capability + owning-team gate (spec 2026-06-03).
   existing_datasource = await metadata_storage.get_datasource_info(datasource_id)
+  if existing_datasource:
+    await check_datasource_access(request, user, datasource_id, "ingest")
+  else:
+    await authorize_datasource_create(request, user, datasource_id, confluence_request.owner_team_slug)
+
   if existing_datasource:
     if not existing_datasource.metadata:
       existing_datasource.metadata = {}
@@ -1207,6 +1384,7 @@ async def ingest_confluence_page(confluence_request: ConfluenceIngestRequest, us
 
     datasource_info = DataSourceInfo(
       datasource_id=datasource_id,
+      name=utils.derive_friendly_name(source_type="confluence", space_key=space_key, url=confluence_url_base),
       ingestor_id=generate_ingestor_id(CONFLUENCE_INGESTOR_NAME, CONFLUENCE_INGESTOR_TYPE),
       description=confluence_request.description,
       source_type="confluence",
@@ -1225,6 +1403,10 @@ async def ingest_confluence_page(confluence_request: ConfluenceIngestRequest, us
 
     await metadata_storage.store_datasource_info(datasource_info)
     logger.info(f"Created datasource: {datasource_id}")
+
+    # Write ownership tuples for the brand-new Confluence space (spec
+    # 2026-06-03). Best-effort; non-fatal.
+    await write_datasource_ownership(datasource_id, confluence_request.owner_team_slug, user)
 
   # Check if there is already a job for this datasource in progress or pending
   existing_jobs = await jobmanager.get_jobs_by_datasource(datasource_id)
@@ -1260,7 +1442,11 @@ async def ingest_confluence_page(confluence_request: ConfluenceIngestRequest, us
 
 
 @app.post("/v1/ingest/confluence/reload", status_code=status.HTTP_202_ACCEPTED)
-async def reload_confluence_page(reload_request: ConfluenceReloadRequest, user: UserContext = Depends(require_role(Role.INGESTONLY))):
+async def reload_confluence_page(
+  reload_request: ConfluenceReloadRequest,
+  request: Request,
+  user: UserContext = Depends(require_authenticated_user),
+):
   """Reloads a previously ingested Confluence page by re-queuing it for ingestion."""
   if not metadata_storage or not jobmanager:
     raise HTTPException(status_code=500, detail="Server not initialized")
@@ -1269,6 +1455,7 @@ async def reload_confluence_page(reload_request: ConfluenceReloadRequest, user: 
   datasource_info = await metadata_storage.get_datasource_info(reload_request.datasource_id)
   if not datasource_info:
     raise HTTPException(status_code=404, detail="Datasource not found")
+  await check_datasource_access(request, user, reload_request.datasource_id, "ingest")
 
   # Queue the request for the ingestor
   ingestor_request = IngestorRequest(ingestor_id=datasource_info.ingestor_id, command=ConfluenceIngestorCommand.RELOAD_DATASOURCE, payload=reload_request.model_dump())
@@ -1296,11 +1483,16 @@ async def reload_all_confluence_pages(user: UserContext = Depends(require_role(R
 
 
 @app.post("/v1/ingest")
-async def ingest_documents(ingest_request: DocumentIngestRequest, user: UserContext = Depends(require_role(Role.INGESTONLY))):
+async def ingest_documents(
+  ingest_request: DocumentIngestRequest,
+  request: Request,
+  user: UserContext = Depends(require_authenticated_user),
+):
   """Updates/Ingests text and graph data to the appropriate databases"""
 
   if not vector_db or not metadata_storage or not ingestor or not jobmanager:
     raise HTTPException(status_code=500, detail="Server not initialized")
+  await check_datasource_access(request, user, ingest_request.datasource_id, "ingest")
   logger.info(f"Starting data ingestion for datasource: {ingest_request.datasource_id}")
 
   # Check if datasource exists
@@ -1591,7 +1783,7 @@ async def _reverse_proxy(request: Request):
   # Manually invoke the RBAC check since app.add_route doesn't support Depends()
   # We must manually resolve the auth_manager since Depends() doesn't work here
   auth_manager = get_auth_manager()
-  user = await get_user_or_anonymous(request, auth_manager)
+  user = await require_authenticated_user(request, auth_manager)
 
   # Determine required role based on method and path
   # GET /status endpoints are read-only, allow READONLY access
@@ -1626,9 +1818,15 @@ if graph_rag_enabled:  # Only add reverse proxy if graph RAG is enabled
 # ============================================================================
 
 
+@app.get("/health")
+async def liveness():
+  """Liveness probe — process health only, no dependency checks."""
+  return {"status": "ok"}
+
+
 @app.get("/healthz")
-async def health_check():
-  """Health check endpoint."""
+async def health_check(response: Response):
+  """Health check endpoint — returns 503 if any required service is not initialized."""
   health_status = "healthy"
   health_details = {}
 
@@ -1663,8 +1861,9 @@ async def health_check():
         "structured_entity_types": await data_graph_db.get_all_entity_types() if data_graph_db else [],
       }
 
-  response = {"status": health_status, "timestamp": int(time.time()), "details": health_details, "config": config}
-  return response
+  if health_status == "unhealthy":
+    response.status_code = 503
+  return {"status": health_status, "timestamp": int(time.time()), "details": health_details, "config": config}
 
 
 async def init_tests(logger: logging.Logger, redis_client: redis.Redis, embeddings: EmbeddingsFactory, milvus_uri: str):
@@ -1799,8 +1998,14 @@ async def list_mcp_tools(user: UserContext = Depends(require_role(Role.READONLY)
 
 
 @app.post("/v1/mcp/custom-tools", tags=["MCP Tools"])
-async def create_mcp_tool(config: MCPToolConfig, user: UserContext = Depends(require_role(Role.ADMIN))):
-  """Create a new custom MCP search tool. The tool_id must be unique and not reserved."""
+async def create_mcp_tool(config: MCPToolConfig, user: UserContext = Depends(require_authenticated_user)):
+  """Create a new custom MCP search tool. The tool_id must be unique and not reserved.
+
+  Authorization is OpenFGA-based (spec 2026-06-03-unified-shareable-resource-rbac):
+  the caller must be an org admin or a member of the owner team. Coarse-ADMIN
+  service principals are still permitted for backward compatibility.
+  """
+  await authorize_mcp_tool_create(user, getattr(config, "owner_team_slug", None))
   if not metadata_storage:
     raise HTTPException(status_code=500, detail="Server not initialized")
   if config.tool_id in RESERVED_TOOL_IDS:
@@ -1818,8 +2023,14 @@ async def create_mcp_tool(config: MCPToolConfig, user: UserContext = Depends(req
 
 
 @app.put("/v1/mcp/custom-tools/{tool_id}", tags=["MCP Tools"])
-async def update_mcp_tool(tool_id: str, config: MCPToolConfig, user: UserContext = Depends(require_role(Role.ADMIN))):
-  """Update an existing MCP search tool configuration (including the seeded 'search' tool)."""
+async def update_mcp_tool(tool_id: str, config: MCPToolConfig, user: UserContext = Depends(require_authenticated_user)):
+  """Update an existing MCP search tool configuration (including the seeded 'search' tool).
+
+  Authorization is OpenFGA-based: the caller must hold `mcp_tool#can_manage`
+  (owner, owner-team admin, or org admin). Coarse-ADMIN service principals are
+  still permitted for backward compatibility.
+  """
+  await authorize_mcp_tool_manage(user, tool_id)
   if not metadata_storage:
     raise HTTPException(status_code=500, detail="Server not initialized")
   if tool_id in RESERVED_TOOL_IDS:
@@ -1838,8 +2049,14 @@ async def update_mcp_tool(tool_id: str, config: MCPToolConfig, user: UserContext
 
 
 @app.delete("/v1/mcp/custom-tools/{tool_id}", tags=["MCP Tools"])
-async def delete_mcp_tool(tool_id: str, user: UserContext = Depends(require_role(Role.ADMIN))):
-  """Delete a custom MCP search tool. Reserved tool IDs (e.g. 'search') cannot be deleted."""
+async def delete_mcp_tool(tool_id: str, user: UserContext = Depends(require_authenticated_user)):
+  """Delete a custom MCP search tool. Reserved tool IDs (e.g. 'search') cannot be deleted.
+
+  Authorization is OpenFGA-based: the caller must hold `mcp_tool#can_manage`
+  (owner, owner-team admin, or org admin). Coarse-ADMIN service principals are
+  still permitted for backward compatibility.
+  """
+  await authorize_mcp_tool_manage(user, tool_id)
   if not metadata_storage:
     raise HTTPException(status_code=500, detail="Server not initialized")
   if tool_id in RESERVED_TOOL_IDS:
@@ -1912,7 +2129,7 @@ async def get_mcp_tool_schemas(user: UserContext = Depends(require_role(Role.REA
 
 
 @app.post("/v1/mcp/invoke", response_model=MCPToolInvokeResponse, tags=["MCP Tools"])
-async def invoke_mcp_tool(request: MCPToolInvokeRequest, user: UserContext = Depends(require_role(Role.READONLY))):
+async def invoke_mcp_tool(request: MCPToolInvokeRequest, user: UserContext = Depends(require_authenticated_user)):
   """
   Invoke an MCP tool via REST API.
 
@@ -1927,6 +2144,12 @@ async def invoke_mcp_tool(request: MCPToolInvokeRequest, user: UserContext = Dep
   if not agent_tools:
     raise HTTPException(status_code=500, detail="MCP tools not initialized")
 
+  # Explicit org-level search capability (spec 2026-06-03-explicit-search-capability).
+  # Gates BOTH built-in (search/fetch_document) and custom search tools here, so
+  # holding `mcp_tool#can_call` on a shared tool does not, by itself, permit
+  # search. The per-tool `can_call` gate (BFF) and per-datasource ACL still apply.
+  await authorize_search(user)
+
   # Find the tool
   registered_tools = await mcp.list_tools()
   tool = next((t for t in registered_tools if t.name == request.tool_name), None)
@@ -1936,7 +2159,11 @@ async def invoke_mcp_tool(request: MCPToolInvokeRequest, user: UserContext = Dep
 
   try:
     # Invoke the tool using tool.run()
-    result = await tool.run(request.arguments)
+    token = mcp_user_context_var.set(user)
+    try:
+      result = await tool.run(request.arguments)
+    finally:
+      mcp_user_context_var.reset(token)
 
     # Extract the raw result from ToolResult.content
     # Each content block has a .text attribute containing JSON-encoded data

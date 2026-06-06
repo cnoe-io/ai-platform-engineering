@@ -15,7 +15,7 @@ export type WorkflowDifficulty = "beginner" | "intermediate" | "advanced";
  * Visibility level for skills
  *
  * - "private":  Only the owner can see and use this skill
- * - "team":     Owner + members of shared_with_teams can see it
+ * - "team":     Owner + members of teams granted in OpenFGA can see it
  * - "global":   All authenticated users can see it
  */
 export type SkillVisibility = "private" | "team" | "global";
@@ -218,7 +218,10 @@ export interface AgentSkill {
   skill_content?: string;
   /** Visibility level: private (owner only), team (shared teams), global (everyone) */
   visibility?: SkillVisibility;
-  /** Team IDs this skill is shared with (when visibility is "team") */
+  /**
+   * Team slugs/refs shared via OpenFGA when `visibility` is `team`.
+   * Populated on API read only — not stored in MongoDB.
+   */
   shared_with_teams?: string[];
   /**
    * Persisted scan status: the scanner verdict, OR
@@ -240,6 +243,10 @@ export interface AgentSkill {
   scan_override?: ScanOverride;
   /** Ancillary files (scripts, references, assets) keyed by relative path (FR-028) */
   ancillary_files?: Record<string, string>;
+  /** Compact AI Review verdict from the last save. Drives the grade badge
+   *  next to the scanner badge on skill cards. Optional — skills created
+   *  before AI Review was wired up have this missing. */
+  last_review?: import("./ai-review").LastReview;
 }
 
 /**
@@ -260,12 +267,14 @@ export interface CreateAgentSkillInput {
   skill_content?: string;
   /** Visibility level: private (default), team, or global */
   visibility?: SkillVisibility;
-  /** Team IDs to share with (when visibility is "team") */
+  /** Teams to share with when visibility is `team` (written to OpenFGA only). */
   shared_with_teams?: string[];
   /** Scan status from skill-scanner on save (FR-027) */
   scan_status?: ScanStatus;
   /** Ancillary files keyed by relative path (FR-028) */
   ancillary_files?: Record<string, string>;
+  /** AI Review verdict from save time. */
+  last_review?: import("./ai-review").LastReview;
 }
 
 /**
@@ -286,12 +295,14 @@ export interface UpdateAgentSkillInput {
   skill_content?: string;
   /** Visibility level: private, team, or global */
   visibility?: SkillVisibility;
-  /** Team IDs to share with (when visibility is "team") */
+  /** Teams to share with when visibility is `team` (written to OpenFGA only). */
   shared_with_teams?: string[];
   /** Scan status from skill-scanner on save (FR-027) */
   scan_status?: ScanStatus;
   /** Ancillary files keyed by relative path (FR-028) */
   ancillary_files?: Record<string, string>;
+  /** AI Review verdict from save time. */
+  last_review?: import("./ai-review").LastReview;
 }
 
 /**

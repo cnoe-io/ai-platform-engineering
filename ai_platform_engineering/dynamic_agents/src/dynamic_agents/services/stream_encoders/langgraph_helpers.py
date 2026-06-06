@@ -31,6 +31,18 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# Max chars of tool result content to send to the frontend.
+# Larger results are truncated with a "[...N chars]" suffix.
+TOOL_RESULT_DISPLAY_LIMIT = 2000
+
+
+def truncate_tool_result(content: str, limit: int = TOOL_RESULT_DISPLAY_LIMIT) -> str:
+    """Truncate tool result content for frontend display."""
+    if len(content) <= limit:
+        return content
+    remaining = len(content) - limit
+    return content[:limit] + f"...[{remaining} chars]"
+
 
 class LangGraphStreamHelper:
     """Stateful helper for parsing LangGraph stream chunks.
@@ -44,7 +56,10 @@ class LangGraphStreamHelper:
 
     def __init__(self) -> None:
         self._namespace_mapping: dict[str, str] = {}
-        self._accumulated_content: list[str] = []
+        # LLM text tokens in stream order; used by invoke to extract final answer vs thinking.
+        # _last_tool_start_pos marks where the last tool_start boundary is in the array.
+        self._content_chunks: list[str] = []
+        self._last_tool_start_pos: int = 0
 
     # ── Stateful methods ──────────────────────────────────
 
@@ -128,12 +143,22 @@ class LangGraphStreamHelper:
             return ()
 
     def accumulate_content(self, content: str) -> None:
-        """Track accumulated content for later retrieval."""
-        self._accumulated_content.append(content)
+        """Append a content chunk to the buffer."""
+        self._content_chunks.append(content)
+
+    def reset_accumulated_content(self) -> None:
+        """Mark the current position as a tool boundary."""
+        self._last_tool_start_pos = len(self._content_chunks)
 
     def get_accumulated_content(self) -> str:
-        """Return all accumulated content joined as a single string."""
-        return "".join(self._accumulated_content)
+        """Return content after the last tool call (the final answer)."""
+        return "".join(self._content_chunks[self._last_tool_start_pos :])
+
+    def get_thinking_content(self) -> str:
+        """Return content before the last tool call (intermediate reasoning)."""
+        if self._last_tool_start_pos == 0:
+            return ""
+        return "".join(self._content_chunks[: self._last_tool_start_pos])
 
     # ── Static/stateless methods ──────────────────────────
 
@@ -172,14 +197,3 @@ class LangGraphStreamHelper:
             "id": getattr(tc, "id", ""),
             "args": getattr(tc, "args", {}),
         }
-
-    @staticmethod
-    def truncate_args(args: dict[str, Any], max_len: int = 100) -> dict[str, Any]:
-        """Truncate string values in args dict for display."""
-        result = {}
-        for k, v in args.items():
-            if isinstance(v, str) and len(v) > max_len:
-                result[k] = v[:max_len] + "..."
-            else:
-                result[k] = v
-        return result

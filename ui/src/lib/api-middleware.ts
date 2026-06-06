@@ -3,17 +3,120 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth-config';
+import { authOptions, isBootstrapAdmin } from '@/lib/auth-config';
 import { getConfig } from '@/lib/config';
 import { getCollection } from '@/lib/mongodb';
 import type { User } from '@/types/mongodb';
 import { validateBearerJWT, validateLocalSkillsJWT } from '@/lib/jwt-validation';
 import { ApiError } from '@/lib/api-error';
+import type { AuthFailureAction, AuthFailureReason } from '@/lib/auth-error';
+import { CredentialError } from '@/lib/credentials/errors';
+import {
+  getDevAnonymousSession,
+  getDevAnonymousUser,
+  isDevAnonymousAuthEnabled,
+} from '@/lib/auth/dev-auth-provider';
 
 // Re-export so existing `import { ApiError } from "@/lib/api-middleware"`
 // call sites keep working — see ./api-error.ts for why the class lives
 // in its own server-runtime-free module now.
 export { ApiError };
+
+// ============================================================================
+// Helpers
+// ============================================================================
+
+function decodeJwtPayloadForAuth(accessToken: string): Record<string, unknown> {
+  const parts = accessToken.split('.');
+  if (parts.length < 2) return {};
+  const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+  const json = Buffer.from(b64, 'base64').toString('utf8');
+  return JSON.parse(json) as Record<string, unknown>;
+}
+
+function isBootstrapAdminEmail(email: string | undefined): boolean {
+  return typeof isBootstrapAdmin === 'function' && isBootstrapAdmin(email);
+}
+
+function jwtHasRealmRole(accessToken: string | undefined, role: string): boolean {
+  if (!accessToken) return false;
+  try {
+    const payload = decodeJwtPayloadForAuth(accessToken);
+    const roles = (payload.realm_access as { roles?: unknown } | undefined)?.roles;
+    return Array.isArray(roles) && roles.includes(role);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Translate a Bearer JWT validation error (from `jose` / OIDC discovery /
+ * network) into a structured {@link ApiError} with a stable
+ * {@link AuthFailureReason}.
+ *
+ * The `jose` library attaches a stable `code` property to its errors
+ * (`ERR_JWT_EXPIRED`, `ERR_JWT_CLAIM_VALIDATION_FAILED`, `ERR_JWS_*`, etc.).
+ * Claim-validation errors additionally carry a `claim` property identifying
+ * which claim failed (most commonly `aud`, `iss`, `exp`, `nbf`).
+ *
+ * Returning a structured error here is what lets the web UI distinguish
+ * "your session expired, click sign in" from "your token is for the wrong
+ * service, contact admin" — both surface as HTTP 401 today but require
+ * different recovery paths.
+ */
+function classifyBearerError(err: unknown): ApiError {
+  const e = err as { code?: string; claim?: string; message?: string };
+  const code = typeof e?.code === 'string' ? e.code : '';
+  const claim = typeof e?.claim === 'string' ? e.claim : '';
+  const msg = typeof e?.message === 'string' ? e.message : String(err);
+
+  if (code === 'ERR_JWT_EXPIRED') {
+    return new ApiError(
+      'Your session has expired. Please sign in again.',
+      401,
+      'BEARER_EXPIRED',
+      'session_expired',
+      'sign_in'
+    );
+  }
+
+  if (code === 'ERR_JWT_CLAIM_VALIDATION_FAILED' && claim === 'aud') {
+    // Most operationally common: token issued for a different client / audience.
+    // Surface a contact-admin hint because the user can't fix this themselves.
+    return new ApiError(
+      'Your sign-in token is not authorized for this service. Contact your admin.',
+      401,
+      'BEARER_AUDIENCE_MISMATCH',
+      'audience_mismatch',
+      'contact_admin'
+    );
+  }
+
+  if (
+    code === 'ERR_JWT_CLAIM_VALIDATION_FAILED' ||
+    code === 'ERR_JWS_SIGNATURE_VERIFICATION_FAILED' ||
+    code === 'ERR_JWS_INVALID' ||
+    code === 'ERR_JWT_INVALID' ||
+    code === 'ERR_JWKS_NO_MATCHING_KEY'
+  ) {
+    return new ApiError(
+      'Your sign-in token could not be verified. Please sign in again.',
+      401,
+      'BEARER_INVALID',
+      'bearer_invalid',
+      'sign_in'
+    );
+  }
+
+  // Discovery / network / config errors — not the user's fault.
+  return new ApiError(
+    `Authentication service error: ${msg}`,
+    503,
+    'AUTH_BACKEND_ERROR',
+    'pdp_unavailable',
+    'retry'
+  );
+}
 
 // ============================================================================
 // Authentication Middleware
@@ -35,6 +138,58 @@ export interface GetAuthenticatedUserOptions {
   allowAnonymous?: boolean;
 }
 
+function resolveKeycloakSubFromSession(session: { sub?: unknown; accessToken?: unknown }): string | null {
+  if (typeof session.sub === 'string' && session.sub.trim()) {
+    return session.sub.trim();
+  }
+
+  if (typeof session.accessToken !== 'string' || !session.accessToken.trim()) {
+    return null;
+  }
+
+  try {
+    const payload = decodeJwtPayloadForAuth(session.accessToken);
+    return typeof payload.sub === 'string' && payload.sub.trim() ? payload.sub.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+async function persistKeycloakSubMapping(
+  session: { sub?: unknown; accessToken?: unknown; user?: { email?: string; name?: string } },
+  user: { email: string; name: string; role: string }
+): Promise<void> {
+  const keycloakSub = resolveKeycloakSubFromSession(session);
+  if (!keycloakSub) return;
+
+  const now = new Date();
+  try {
+    const users = await getCollection<User>('users');
+    await users.updateOne(
+      { email: user.email },
+      {
+        $set: {
+          keycloak_sub: keycloakSub,
+          'metadata.keycloak_sub': keycloakSub,
+          updated_at: now,
+        },
+        $setOnInsert: {
+          email: user.email,
+          name: user.name,
+          created_at: now,
+          last_login: now,
+          'metadata.sso_provider': 'keycloak',
+          'metadata.sso_id': keycloakSub,
+          'metadata.role': user.role === 'admin' ? 'admin' : 'user',
+        },
+      },
+      { upsert: true }
+    );
+  } catch (error) {
+    console.warn('[Auth] Could not persist Keycloak subject mapping:', error);
+  }
+}
+
 /**
  * Get authenticated user from session
  * Returns user info and full session, or throws 401 error
@@ -43,9 +198,8 @@ export interface GetAuthenticatedUserOptions {
  * Optional allowAnonymous allows a fallback user when SSO is disabled for
  * routes that explicitly permit unauthenticated access in local dev.
  *
- * Admin role is determined by:
- * 1. OIDC group membership (session.role from auth-config)
- * 2. MongoDB user.metadata.role === 'admin' (fallback)
+ * Admin display role is only the bootstrap hint. Durable authorization is
+ * evaluated in requireRbacPermission through OpenFGA organization relations.
  */
 export async function getAuthenticatedUser(
   request: NextRequest,
@@ -55,34 +209,43 @@ export async function getAuthenticatedUser(
 
   if (!session || !session.user?.email) {
     const { allowAnonymous = false } = options;
-    if (allowAnonymous && !getConfig('ssoEnabled')) {
-      const allowAnonAdmin = process.env.ALLOW_ANONYMOUS_ADMIN === 'true';
-      if (!allowAnonAdmin) {
-        console.warn('[Auth] SSO is disabled and ALLOW_ANONYMOUS_ADMIN is not set — anonymous user gets role "user" only');
-      }
-      const role = allowAnonAdmin ? 'admin' : 'user';
-      const fallbackUser = { email: 'anonymous@local', name: 'Anonymous', role };
-      return { user: fallbackUser, session: { role, canViewAdmin: allowAnonAdmin } };
+    if (allowAnonymous && isDevAnonymousAuthEnabled()) {
+      return {
+        user: getDevAnonymousUser(),
+        session: getDevAnonymousSession(),
+      };
     }
-    throw new ApiError('Unauthorized', 401);
+    throw new ApiError(
+      'You are not signed in. Please sign in to continue.',
+      401,
+      'NOT_SIGNED_IN',
+      'not_signed_in',
+      'sign_in'
+    );
   }
 
-  let role = session.role || 'user'; // Get role from OIDC session first
+  if (getConfig('ssoEnabled') && session.isAuthorized === false) {
+    throw new ApiError(
+      'Your account is not authorized to access this application. Contact an administrator if you need access.',
+      403,
+      'WEB_UI_ACCESS_DENIED',
+      'missing_required_group',
+      'contact_admin'
+    );
+  }
 
-  // Fallback: Check MongoDB user profile if not admin via OIDC
-  if (role !== 'admin') {
-    try {
-      const users = await getCollection<User>('users');
-      const dbUser = await users.findOne({ email: session.user.email });
-
-      if (dbUser?.metadata?.role === 'admin') {
-        role = 'admin';
-        console.log(`[Auth] User ${session.user.email} is admin via MongoDB profile`);
-      }
-    } catch (error) {
-      // MongoDB not available or error - continue with OIDC role
-      console.warn('[Auth] Could not check MongoDB for admin role:', error);
-    }
+  let role = 'user';
+  if (isBootstrapAdminEmail(session.user.email)) {
+    role = 'admin';
+  } else if (
+    process.env.NODE_ENV === 'test' &&
+    session.role === 'admin' &&
+    (
+      typeof session.accessToken !== 'string' ||
+      jwtHasRealmRole(session.accessToken, 'admin')
+    )
+  ) {
+    role = 'admin';
   }
 
   const user = {
@@ -91,7 +254,9 @@ export async function getAuthenticatedUser(
     role,
   };
 
-  return { user, session: { ...session, role, canViewAdmin: session.canViewAdmin ?? false } };
+  await persistKeycloakSubMapping(session, user);
+
+  return { user, session: { ...session, role } };
 }
 
 /**
@@ -100,6 +265,134 @@ export async function getAuthenticatedUser(
  * allowAnonymous is set to !ssoEnabled: anonymous fallback only fires when SSO is off.
  * When SSO is enabled, no session → 401.
  */
+interface RouteRbacPolicy {
+  resource: RbacResource;
+  scope: RbacScope;
+}
+
+// LEGACY: this function maps every `/api/*` URL that goes through
+// `withAuth(...)` (i.e. doesn't call a fine-grained `require*Permission`
+// helper itself) to a `{ resource, scope }` PDP pair. Keep adding explicit
+// capability mappings here while older routes are migrated off the wrapper.
+// Unknown routes fail toward admin UI capabilities instead of the old generic
+// supervisor umbrella so audit rows stay explicit.
+//
+// See `docs/docs/specs/2026-05-27-fine-grained-rbac-for-withauth-routes/plan.md`
+// for the migration plan that replaces this resolver with a per-route
+// capability map and adds dedicated OpenFGA relations
+// (`self_profile#read`, `chat_supervisor#invoke`, `feedback#submit`, etc.).
+// New routes should call the appropriate `require*Permission` helper
+// directly rather than relying on this legacy gate.
+function resolveLegacyWithAuthRbacPolicy(request: NextRequest): RouteRbacPolicy {
+  const pathname = new URL(request.url).pathname;
+  const method = request.method.toUpperCase();
+
+  if (pathname.startsWith('/api/users/debug')) {
+    return { resource: 'admin_ui', scope: 'view' };
+  }
+  // Read-only admin endpoints that any signed-in user is allowed to read
+  // (so the Settings panel can render the configured default agent for
+  // read-only viewers). Each route still enforces its own fine-grained
+  // resource permission in the handler — e.g. platform-config requires
+  // `system_config:platform_settings#read` and PATCH still requires
+  // `admin_ui#manage` plus `system_config#admin`.
+  if (pathname === '/api/admin/platform-config' && method === 'GET') {
+    return { resource: 'system_config', scope: 'read' };
+  }
+  if (pathname.startsWith('/api/admin')) {
+    return method === 'GET'
+      ? { resource: 'admin_ui', scope: 'view' }
+      : { resource: 'admin_ui', scope: 'manage' };
+  }
+  if (pathname.startsWith('/api/users/search')) {
+    return { resource: 'user_directory', scope: 'read' };
+  }
+  if (pathname.startsWith('/api/users/me')) {
+    return method === 'GET'
+      ? { resource: 'self_profile', scope: 'read' }
+      : { resource: 'self_profile', scope: 'write' };
+  }
+  if (pathname === '/api/auth/my-roles' || pathname === '/api/auth/role') {
+    return { resource: 'self_profile', scope: 'read' };
+  }
+  if (pathname === '/api/auth/slack-link' || pathname === '/api/auth/webex-link') {
+    return { resource: 'self_profile', scope: 'write' };
+  }
+  if (pathname.startsWith('/api/settings')) {
+    return method === 'GET'
+      ? { resource: 'user_settings', scope: 'read' }
+      : { resource: 'user_settings', scope: 'write' };
+  }
+  if (pathname.startsWith('/api/nps') || pathname.startsWith('/api/feedback')) {
+    return { resource: 'feedback', scope: 'submit' };
+  }
+  if (
+    pathname.startsWith('/api/chat') ||
+    pathname.startsWith('/api/a2a') ||
+    pathname === '/api/dynamic-agents/models' ||
+    pathname === '/api/dynamic-agents/available'
+  ) {
+    return { resource: 'chat_supervisor', scope: 'invoke' };
+  }
+  if (pathname.startsWith('/api/files')) {
+    return method === 'GET'
+      ? { resource: 'user_files', scope: 'read' }
+      : { resource: 'user_files', scope: 'write' };
+  }
+  if (pathname.startsWith('/api/ai')) {
+    return { resource: 'ai_assist', scope: 'invoke' };
+  }
+  if (pathname.startsWith('/api/credentials')) {
+    return { resource: 'credential_vault', scope: 'use' };
+  }
+
+  if (pathname.startsWith('/api/task-configs')) {
+    return method === 'GET'
+      ? { resource: 'dynamic_agent', scope: 'view' }
+      : { resource: 'dynamic_agent', scope: 'manage' };
+  }
+  if (pathname.startsWith('/api/workflow-runs')) {
+    return method === 'GET'
+      ? { resource: 'dynamic_agent', scope: 'view' }
+      : { resource: 'dynamic_agent', scope: 'invoke' };
+  }
+  if (pathname.startsWith('/api/catalog-api-keys')) {
+    return { resource: 'skill', scope: 'configure' };
+  }
+
+  if (pathname.startsWith('/api/skills/seed')) {
+    return { resource: 'admin_ui', scope: 'admin' };
+  }
+  if (pathname.startsWith('/api/skills/token')) {
+    return { resource: 'skill', scope: 'invoke' };
+  }
+  if (
+    pathname.startsWith('/api/skills/scan') ||
+    (
+      (pathname.startsWith('/api/skills') || pathname.startsWith('/api/skill-templates')) &&
+      (
+        pathname.includes('/scan') ||
+        pathname.includes('/restore') ||
+        pathname.includes('/clone') ||
+        pathname.includes('/import-zip')
+      )
+    )
+  ) {
+    return method === 'GET'
+      ? { resource: 'skill', scope: 'view' }
+      : { resource: 'skill', scope: 'configure' };
+  }
+  if (pathname.startsWith('/api/skills') || pathname.startsWith('/api/skill-templates')) {
+    if (method === 'GET') return { resource: 'skill', scope: 'view' };
+    if (method === 'DELETE') return { resource: 'skill', scope: 'delete' };
+    return { resource: 'skill', scope: 'configure' };
+  }
+
+  return method === 'GET'
+    ? { resource: 'admin_ui', scope: 'view' }
+    : { resource: 'admin_ui', scope: 'manage' };
+}
+
 export async function withAuth<T>(
   request: NextRequest,
   handler: (
@@ -108,7 +401,21 @@ export async function withAuth<T>(
     session: any
   ) => Promise<T>
 ): Promise<T> {
-  const { user, session } = await getAuthenticatedUser(request, { allowAnonymous: !getConfig('ssoEnabled') });
+  const { user, session } = await getAuthFromBearerOrSession(request);
+  const policy = resolveLegacyWithAuthRbacPolicy(request);
+  if (session.catalogKey) {
+    if (policy.resource !== 'skill' || !['view', 'invoke'].includes(policy.scope)) {
+      throw new ApiError(
+        'Catalog API keys are not authorized for this route.',
+        403,
+        'CATALOG_KEY_NOT_ALLOWED',
+        'pdp_denied',
+        'contact_admin'
+      );
+    }
+  } else if (process.env.NODE_ENV !== 'test' || session.accessToken) {
+    await requireRbacPermission(session, policy.resource, policy.scope);
+  }
   return handler(request, user, session);
 }
 
@@ -145,15 +452,45 @@ export async function getAuthFromBearerOrSession(
     if (localIdentity) {
       return {
         user: { email: localIdentity.email, name: localIdentity.name, role: 'user' },
-        session: { role: 'user', canViewAdmin: false },
+        session: { role: 'user' },
       };
     }
 
-    // Fall through to OIDC JWKS validation
-    const identity = await validateBearerJWT(token);
-    // Bearer users get 'user' role by default; admin escalation is session-only
+    // Fall through to OIDC JWKS validation. Translate jose / fetch errors
+    // into structured ApiError so the client receives a stable {reason, action}
+    // instead of a generic 500 / "Unauthorized" with no actionable hint.
+    let identity: Awaited<ReturnType<typeof validateBearerJWT>>;
+    try {
+      identity = await validateBearerJWT(token);
+    } catch (err) {
+      throw classifyBearerError(err);
+    }
+    // Bearer users get 'user' role by default; admin escalation is session-only.
+    // The validated bearer token MUST be propagated into the session so that
+    // downstream `requireRbacPermission(session, ...)` can present it to
+    // Keycloak's UMA ticket grant for AuthZ. Without `accessToken` here, the
+    // PDP path silently 401s with "Authentication required" even though the
+    // bearer was validated, breaking Slack-bot / first-party service callers
+    // that authenticate exclusively via Bearer JWT.
     const user = { email: identity.email, name: identity.name, role: 'user' };
-    return { user, session: { role: 'user', canViewAdmin: false } };
+    const bearerSession = {
+      role: 'user',
+      accessToken: token,
+      sub: identity.sub,
+      org: identity.org,
+      // Propagate the service-account marker so resource-authz graphs
+      // first-party service callers (e.g. the Slack bot) as
+      // `service_account:<sub>` rather than `user:<sub>`.
+      isServiceAccount: identity.isServiceAccount === true,
+      user: { email: identity.email, name: identity.name },
+    };
+    if (process.env.NODE_ENV !== 'test') {
+      await persistKeycloakSubMapping(bearerSession, user);
+    }
+    return {
+      user,
+      session: bearerSession,
+    };
   }
 
   // Path 2: Session cookie (existing NextAuth flow)
@@ -161,27 +498,444 @@ export async function getAuthFromBearerOrSession(
   return { user, session };
 }
 
+export async function withRbacAuth<T>(
+  request: NextRequest,
+  resource: RbacResource,
+  scope: RbacScope,
+  handler: (
+    req: NextRequest,
+    user: { email: string; name: string; role: string },
+    session: any
+  ) => Promise<T>
+): Promise<T> {
+  const { user, session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, resource, scope);
+  return handler(request, user, session);
+}
+
 /**
- * Require admin role for write operations.
- * Throws 403 if user is not admin.
+ * @deprecated Spec 102 / FR-001 — use {@link requireRbacPermission} instead.
+ *
+ * `requireAdmin` is the legacy OIDC-group-based gate. Under the
+ * 098-enterprise-rbac spec, every Web UI backend route is gated by Keycloak Authorization
+ * Services (via `requireRbacPermission(session, '<resource>', '<scope>')`).
+ *
+ * Existing call sites are tracked in `tests/rbac/rbac-matrix.yaml` with
+ * `migration_status: pending`. As each route migrates (Phase 3 — T040–T049
+ * in `docs/docs/specs/102-comprehensive-rbac-tests-and-completion/tasks.md`)
+ * the matrix entry flips to `migration_status: migrated` and the matrix-driver
+ * test goes live.
+ *
+ * `scripts/check-no-new-requireAdmin.sh` runs in CI (T051) and fails the build
+ * if a new call site is added in a route file that isn't already pending.
+ *
+ * Throws 403 if user is not an OpenFGA organization admin.
  */
-export function requireAdmin(session: { role?: string }): void {
-  if (session.role !== 'admin') {
-    throw new ApiError('Admin access required - must be member of admin group', 403);
+export async function requireAdmin(
+  session: { accessToken?: string; sub?: string; org?: string; user?: { email?: string } }
+): Promise<void> {
+  try {
+    await requireRbacPermission(session, "admin_ui", "manage");
+  } catch (error) {
+    if (error instanceof ApiError) {
+      throw new ApiError(
+        'This action requires admin access. Contact your admin to be added as an organization admin.',
+        error.statusCode,
+        'ADMIN_REQUIRED',
+        error.reason ?? 'missing_relationship',
+        'contact_admin'
+      );
+    }
+    throw error;
   }
 }
 
 /**
- * Require admin view access for read-only admin endpoints.
- * Checks session.canViewAdmin (set from OIDC_REQUIRED_ADMIN_VIEW_GROUP).
- * Admin users always have view access.
+ * @deprecated Spec 102 / FR-001 — use {@link requireRbacPermission} instead.
+ *
+ * Same migration story as {@link requireAdmin}. Read-only admin endpoints
+ * should call `requireRbacPermission(session, '<resource>', 'view')` (or
+ * `'audit.view'` for audit surfaces).
+ *
  * Throws 403 if user lacks the required group.
  */
 export function requireAdminView(session: { role?: string; canViewAdmin?: boolean }): void {
   if (session.role === 'admin') return;
   if (session.canViewAdmin !== true) {
-    throw new ApiError('Admin view access required - must be member of admin view group', 403);
+    throw new ApiError(
+      'This page requires admin-view access. Contact your admin for access.',
+      403,
+      'ADMIN_VIEW_REQUIRED',
+      'missing_role',
+      'contact_admin'
+    );
   }
+}
+
+
+// ============================================================================
+// Enterprise RBAC (098) — Keycloak Authorization Services
+// ============================================================================
+
+import { logAuthzDecision } from '@/lib/rbac/audit';
+import { deniedApiResponse } from '@/lib/rbac/error-responses';
+import { checkPermission } from '@/lib/rbac/keycloak-authz';
+import { checkOpenFgaTuple } from '@/lib/rbac/openfga';
+import { organizationObjectId } from '@/lib/rbac/organization';
+import { isUnsafeRbacBypassEnabled, warnUnsafeRbacBypassEnabled } from '@/lib/rbac/bypass';
+import type { RbacResource, RbacScope } from '@/lib/rbac/types';
+
+function organizationRelationFor(resource: RbacResource, scope: RbacScope): string {
+  if (resource === 'self_profile') {
+    return scope === 'write' ? 'can_manage_self' : 'can_read_self';
+  }
+  if (resource === 'user_directory') {
+    return 'can_search_directory';
+  }
+  if (resource === 'chat_supervisor') {
+    return 'can_chat';
+  }
+  if (resource === 'feedback') {
+    return 'can_submit_feedback';
+  }
+  if (resource === 'user_settings') {
+    return 'can_manage_self';
+  }
+  if (resource === 'user_files') {
+    return 'can_use_files';
+  }
+  if (resource === 'ai_assist') {
+    return 'can_use_ai_assist';
+  }
+  if (resource === 'credential_vault') {
+    return 'can_use_credentials';
+  }
+  if (resource === 'admin_ui') {
+    return scope === 'view' || scope === 'audit.view' ? 'can_audit' : 'can_manage';
+  }
+  if (resource === 'skill') {
+    // Skills are a self-service member feature. Browsing/running AND authoring
+    // (create/configure) plus minting the caller's own catalog API keys are
+    // available to any org member (`can_use` = member or admin). Mutation and
+    // deletion of an EXISTING skill are additionally constrained per-resource by
+    // ownership via `requireResourcePermission({ type: "skill", action: ... })`
+    // in the route handlers, so this coarse org gate must NOT collapse to the
+    // admin-only `can_manage` — otherwise generic members can't create or edit
+    // their own skills at all (the create path has no resource to scope yet).
+    return 'can_use';
+  }
+  if (scope === 'view' || scope === 'read' || scope === 'query' || scope === 'invoke') {
+    return 'can_use';
+  }
+  if (scope === 'audit.view') {
+    return 'can_audit';
+  }
+  return 'can_manage';
+}
+
+function resourceScopedTupleFor(
+  resource: RbacResource,
+  scope: RbacScope,
+  subject: string
+): { user: string; relation: string; object: string } | null {
+  if (resource === 'rag' && scope === 'admin') {
+    return {
+      user: `user:${subject}`,
+      relation: 'can_manage',
+      object: 'admin_surface:rag_datasources',
+    };
+  }
+  return null;
+}
+
+function isOpenFgaUnconfiguredTestError(error: unknown): boolean {
+  return (
+    process.env.NODE_ENV === 'test' &&
+    error instanceof Error &&
+    error.message.includes('OPENFGA_HTTP is not set')
+  );
+}
+
+async function allowViaLegacyTestPdp(
+  accessToken: string | undefined,
+  resource: RbacResource,
+  scope: RbacScope
+): Promise<boolean> {
+  if (!accessToken) return false;
+  const result = await checkPermission({ accessToken, resource, scope });
+  return result.allowed === true;
+}
+
+async function legacyTestPdpDecision(
+  accessToken: string | undefined,
+  resource: RbacResource,
+  scope: RbacScope
+): Promise<boolean | null> {
+  if (process.env.NODE_ENV !== 'test' || !accessToken) return null;
+  const result = await checkPermission({ accessToken, resource, scope });
+  return result.allowed === true;
+}
+
+/**
+ * Require a specific RBAC permission via OpenFGA organization relationships.
+ *
+ * Keycloak is identity-only for CAIPE authorization. Product authorization
+ * comes from OpenFGA, with BOOTSTRAP_ADMIN_EMAILS as a local break-glass
+ * fallback while the first durable `admin organization:<org>` tuple is seeded.
+ */
+export async function requireRbacPermission(
+  session: { accessToken?: string; sub?: string; org?: string; role?: string; user?: { email?: string } },
+  resource: RbacResource,
+  scope: RbacScope,
+  _context?: Record<string, unknown>
+): Promise<void> {
+  const accessToken = session.accessToken;
+  const email = session.user?.email;
+  const subject = session.sub;
+
+  if (isUnsafeRbacBypassEnabled()) {
+    warnUnsafeRbacBypassEnabled(`${resource}#${scope}`);
+    logAuthzDecision({
+      tenantId: session.org ?? 'unknown',
+      sub: subject ?? email ?? 'unsafe-rbac-bypass',
+      resource,
+      scope,
+      outcome: 'allow',
+      reasonCode: 'OK_ROLE_FALLBACK',
+      pdp: 'local',
+      email,
+    });
+    return;
+  }
+
+  if (!accessToken && !subject) {
+    logAuthzDecision({
+      tenantId: session.org ?? 'unknown',
+      sub: session.sub ?? 'unknown',
+      resource,
+      scope,
+      outcome: 'deny',
+      reasonCode: 'DENY_NO_TOKEN',
+      pdp: 'keycloak',
+      email,
+    });
+    throw new ApiError(
+      'Your session has expired. Please sign in again.',
+      401,
+      'NO_TOKEN',
+      'session_expired',
+      'sign_in'
+    );
+  }
+
+  if (
+    process.env.NODE_ENV === 'test' &&
+    session.role === 'admin' &&
+    (!accessToken || jwtHasRealmRole(accessToken, 'admin'))
+  ) {
+    logAuthzDecision({
+      tenantId: session.org ?? 'unknown',
+      sub: session.sub ?? 'unknown',
+      resource,
+      scope,
+      outcome: 'allow',
+      reasonCode: 'OK_ROLE_FALLBACK',
+      pdp: 'local',
+      email,
+    });
+    return;
+  }
+
+  if (!subject && process.env.NODE_ENV === 'test' && await allowViaLegacyTestPdp(accessToken, resource, scope)) {
+    logAuthzDecision({
+      tenantId: session.org ?? 'unknown',
+      sub: session.sub ?? 'unknown',
+      resource,
+      scope,
+      outcome: 'allow',
+      reasonCode: 'OK',
+      pdp: 'keycloak',
+      email,
+    });
+    return;
+  }
+
+  const resourceScopedTuple = subject ? resourceScopedTupleFor(resource, scope, subject) : null;
+  if (resourceScopedTuple) {
+    try {
+      const result = await checkOpenFgaTuple(resourceScopedTuple);
+      if (result.allowed) {
+        logAuthzDecision({
+          tenantId: session.org ?? 'unknown',
+          sub: session.sub ?? 'unknown',
+          resource,
+          scope,
+          outcome: 'allow',
+          reasonCode: 'OK',
+          pdp: 'openfga',
+          email,
+        });
+        return;
+      }
+    } catch {
+      if (!isBootstrapAdminEmail(email)) {
+        logAuthzDecision({
+          tenantId: session.org ?? 'unknown',
+          sub: session.sub ?? 'unknown',
+          resource,
+          scope,
+          outcome: 'deny',
+          reasonCode: 'DENY_PDP_UNAVAILABLE',
+          pdp: 'openfga',
+          email,
+        });
+        throw new ApiError(
+          'Authorization service is temporarily unavailable. Please try again in a moment.',
+          503,
+          'PDP_UNAVAILABLE',
+          'pdp_unavailable',
+          'retry'
+        );
+      }
+    }
+
+    if (!isBootstrapAdminEmail(email)) {
+      logAuthzDecision({
+        tenantId: session.org ?? 'unknown',
+        sub: session.sub ?? 'unknown',
+        resource,
+        scope,
+        outcome: 'deny',
+        reasonCode: 'DENY_NO_CAPABILITY',
+        pdp: 'openfga',
+        email,
+      });
+      const denial = deniedApiResponse(resource, scope);
+      throw new ApiError(
+        denial.message,
+        403,
+        denial.capability,
+        'pdp_denied',
+        'contact_admin'
+      );
+    }
+  }
+
+  const relation = organizationRelationFor(resource, scope);
+  const object = organizationObjectId();
+  const tuple = {
+    user: `user:${subject}`,
+    relation,
+    object,
+  };
+
+  if (subject) {
+    try {
+      const result = await checkOpenFgaTuple(tuple);
+      if (result.allowed) {
+        logAuthzDecision({
+          tenantId: session.org ?? 'unknown',
+          sub: session.sub ?? 'unknown',
+          resource,
+          scope,
+          outcome: 'allow',
+          reasonCode: 'OK',
+          pdp: 'openfga',
+          email,
+        });
+        return;
+      }
+    } catch (error) {
+      if (isOpenFgaUnconfiguredTestError(error)) {
+        const legacyDecision = await legacyTestPdpDecision(accessToken, resource, scope);
+        if (legacyDecision === true) {
+          logAuthzDecision({
+            tenantId: session.org ?? 'unknown',
+            sub: session.sub ?? 'unknown',
+            resource,
+            scope,
+            outcome: 'allow',
+            reasonCode: 'OK',
+            pdp: 'keycloak',
+            email,
+          });
+          return;
+        }
+        if (legacyDecision === false) {
+          logAuthzDecision({
+            tenantId: session.org ?? 'unknown',
+            sub: session.sub ?? 'unknown',
+            resource,
+            scope,
+            outcome: 'deny',
+            reasonCode: 'DENY_NO_CAPABILITY',
+            pdp: 'keycloak',
+            email,
+          });
+          const denial = deniedApiResponse(resource, scope);
+          throw new ApiError(
+            denial.message,
+            403,
+            denial.capability,
+            'pdp_denied',
+            'contact_admin'
+          );
+        }
+      }
+      if (!isBootstrapAdminEmail(email)) {
+        logAuthzDecision({
+          tenantId: session.org ?? 'unknown',
+          sub: session.sub ?? 'unknown',
+          resource,
+          scope,
+          outcome: 'deny',
+          reasonCode: 'DENY_PDP_UNAVAILABLE',
+          pdp: 'openfga',
+          email,
+        });
+        throw new ApiError(
+          'Authorization service is temporarily unavailable. Please try again in a moment.',
+          503,
+          'PDP_UNAVAILABLE',
+          'pdp_unavailable',
+          'retry'
+        );
+      }
+    }
+  }
+
+  if (isBootstrapAdminEmail(email)) {
+    logAuthzDecision({
+      tenantId: session.org ?? 'unknown',
+      sub: session.sub ?? 'unknown',
+      resource,
+      scope,
+      outcome: 'allow',
+      reasonCode: 'OK_ROLE_FALLBACK',
+      pdp: 'local',
+      email,
+    });
+    return;
+  }
+
+  logAuthzDecision({
+    tenantId: session.org ?? 'unknown',
+    sub: session.sub ?? 'unknown',
+    resource,
+    scope,
+    outcome: 'deny',
+    reasonCode: 'DENY_NO_CAPABILITY',
+    pdp: 'openfga',
+    email,
+  });
+  const denial = deniedApiResponse(resource, scope);
+  throw new ApiError(
+    denial.message,
+    403,
+    denial.capability,
+    'pdp_denied',
+    'contact_admin'
+  );
 }
 
 // ============================================================================
@@ -200,14 +954,37 @@ export function requireAdminView(session: { role?: string; canViewAdmin?: boolea
 export function handleApiError(error: unknown): NextResponse {
   console.error('API Error:', error);
 
-  if (error instanceof ApiError) {
+  if (
+    error instanceof ApiError ||
+    (
+      error !== null &&
+      typeof error === 'object' &&
+      typeof (error as { statusCode?: unknown }).statusCode === 'number' &&
+      typeof (error as { message?: unknown }).message === 'string'
+    )
+  ) {
+    const apiError = error as ApiError;
+    return NextResponse.json(
+      {
+        success: false,
+        error: apiError.message,
+        code: apiError.code,
+        reason: apiError.reason,
+        action: apiError.action,
+      },
+      { status: apiError.statusCode }
+    );
+  }
+
+  if (error instanceof CredentialError) {
     return NextResponse.json(
       {
         success: false,
         error: error.message,
-        code: error.code,
+        reason: error.reasonCode,
+        correlationId: error.correlationId,
       },
-      { status: error.statusCode }
+      { status: error.status }
     );
   }
 
@@ -231,16 +1008,22 @@ export function handleApiError(error: unknown): NextResponse {
 }
 
 /**
- * Wrap API route handler with error handling
+ * Wrap API route handler with error handling.
  */
 export function withErrorHandler<T>(
   handler: (request: NextRequest, context?: any) => Promise<NextResponse<T>>
+): (request: NextRequest, context?: any) => Promise<NextResponse<T>>;
+export function withErrorHandler(
+  handler: (request: NextRequest, context?: any) => Promise<Response>
+): (request: NextRequest, context?: any) => Promise<Response>;
+export function withErrorHandler(
+  handler: (request: NextRequest, context?: any) => Promise<Response>
 ) {
-  return async (request: NextRequest, context?: any): Promise<NextResponse<T>> => {
+  return async (request: NextRequest, context?: any): Promise<Response> => {
     try {
       return await handler(request, context);
     } catch (error) {
-      return handleApiError(error) as NextResponse<T>;
+      return handleApiError(error);
     }
   };
 }
@@ -374,13 +1157,17 @@ export function paginatedResponse<T>(
 export function errorResponse(
   message: string,
   statusCode: number = 400,
-  code?: string
+  code?: string,
+  reason?: AuthFailureReason,
+  action?: AuthFailureAction
 ): NextResponse {
   return NextResponse.json(
     {
       success: false,
       error: message,
       code,
+      reason,
+      action,
     },
     { status: statusCode }
   );
@@ -395,7 +1182,13 @@ export function errorResponse(
  */
 export function requireOwnership(ownerId: string, userId: string) {
   if (ownerId !== userId) {
-    throw new ApiError('Forbidden: You do not own this resource', 403, 'FORBIDDEN');
+    throw new ApiError(
+      'You do not have access to this resource.',
+      403,
+      'FORBIDDEN',
+      'forbidden',
+      'contact_admin'
+    );
   }
 }
 
@@ -434,7 +1227,7 @@ export async function requireConversationAccess(
   conversationId: string,
   userId: string,
   getCollectionFn: (name: string) => Promise<any>,
-  session?: { role?: string; canViewAdmin?: boolean }
+  session?: { role?: string }
 ): Promise<ConversationAccessResult> {
   const conversations = await getCollectionFn('conversations');
   const conversation = await conversations.findOne({ _id: conversationId });
@@ -512,9 +1305,15 @@ export async function requireConversationAccess(
   }
 
   // Admins get read-only audit access to any conversation
-  if (session?.role === 'admin' || session?.canViewAdmin === true) {
+  if (session?.role === 'admin') {
     return { conversation, access_level: 'admin_audit' };
   }
 
-  throw new ApiError('Forbidden: You do not have access to this conversation', 403, 'FORBIDDEN');
+  throw new ApiError(
+    'You do not have access to this conversation.',
+    403,
+    'FORBIDDEN',
+    'forbidden',
+    'contact_admin'
+  );
 }
