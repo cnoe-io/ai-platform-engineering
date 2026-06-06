@@ -9,15 +9,15 @@ Runs before :func:`obo_exchange.impersonate_user`. Maps:
                carried via the dispatch envelope and ``X-Team-Id`` /
                ``X-Channel-Id`` headers — never in the OBO token).
 
-We also verify that the requesting user is a member of that team — the
-bot is the first of two RBAC checkpoints (the second is AgentGateway
-ext_authz/OpenFGA). Doing it here lets us return a friendly "you're not
-in this team" message rather than letting the request 403 silently
-downstream.
+Channel access is gated on agent-level ``can_use`` permission, not team
+membership. Any authenticated user in the Slack workspace can interact
+with an agent in a channel as long as:
+  1. The channel is registered to a team (has a mapping).
+  2. The agent is assigned to the channel (channel→agent grant).
+  3. The user has ``can_use`` on the agent (direct or via team membership).
 
-Uses an in-process TTL cache to avoid hammering Mongo on every Slack
-event; admins should restart bots after large team-membership changes or rely
-on the 60s TTL.
+Uses an in-process TTL cache (channel → team doc, 60s TTL) to avoid
+hammering Mongo on every Slack event.
 """
 
 from __future__ import annotations
@@ -29,7 +29,6 @@ import time
 from dataclasses import dataclass
 from typing import Any, Optional
 
-import requests
 from bson import ObjectId
 from bson.errors import InvalidId
 from pymongo import MongoClient
@@ -39,19 +38,22 @@ from pymongo.errors import PyMongoError
 from .user_messages import TEAM_SETUP_INCOMPLETE_MESSAGE
 
 logger = logging.getLogger("caipe.slack_bot.channel_team_resolver")
-DEFAULT_OPENFGA_HTTP = "http://openfga:8080"
 
 
-CHANNEL_NOT_MAPPED_TO_TEAM_MESSAGE = (
-    "This channel isn't assigned to a CAIPE team yet. "
-    "Ask your admin to assign it to a team in the CAIPE Admin panel "
-    "(Teams ▸ <team> ▸ Slack channels)."
-)
+def _app_name() -> str:
+    return os.environ.get("SLACK_INTEGRATION_APP_NAME") or os.environ.get("APP_NAME") or "CAIPE"
 
-USER_NOT_IN_TEAM_MESSAGE_TMPL = (
-    "You aren't a member of the team that owns this channel ({team_name}). "
-    "Ask your team admin to add you, or move the conversation to a DM with the bot."
-)
+
+def _channel_not_mapped_message() -> str:
+    name = _app_name()
+    return (
+        f"This channel isn't assigned to a {name} team yet. "
+        f"Ask your admin to assign it to a team in the {name} Admin panel "
+        "(Teams ▸ <team> ▸ Slack channels)."
+    )
+
+
+CHANNEL_NOT_MAPPED_TO_TEAM_MESSAGE = _channel_not_mapped_message()
 
 
 @dataclass
@@ -68,13 +70,11 @@ class ChannelTeamResolution:
 
 
 class ChannelTeamResolver:
-    """Resolve Slack channel → team slug with membership gating."""
+    """Resolve Slack channel → team slug."""
 
     def __init__(self, ttl_seconds: int = 60) -> None:
         # Cache key: channel_id → (team doc, monotonic timestamp).
         self._team_by_channel: dict[str, tuple[dict[str, Any], float]] = {}
-        # Cache key: (channel_id, kc_user_id) → (allowed?, monotonic ts).
-        self._membership: dict[tuple[str, str], tuple[bool, float]] = {}
         self._ttl = ttl_seconds
         self._client: Optional[MongoClient] = None
         self._db_name = os.environ.get("MONGODB_DATABASE", "caipe")
@@ -145,16 +145,16 @@ class ChannelTeamResolver:
 
     def invalidate(self, channel_id: str) -> None:
         self._team_by_channel.pop(channel_id, None)
-        # Also drop any membership cache entries for this channel.
-        for key in [k for k in self._membership if k[0] == channel_id]:
-            self._membership.pop(key, None)
 
     async def resolve(
         self,
         channel_id: str,
-        keycloak_user_id: str,
     ) -> ChannelTeamResolution:
-        """Resolve channel → team_slug, gated on user membership.
+        """Resolve channel → team metadata.
+
+        Returns team slug/id/name for routing and logging. Access control
+        (whether the user can use a given agent) is enforced downstream via
+        agent-level ``can_use`` checks, not team membership.
 
         Caller is expected to have already handled the DM / personal case
         (no channel_id, or channel starts with ``D``) before calling this.
@@ -195,11 +195,8 @@ class ChannelTeamResolver:
         team_id = str(team_doc.get("_id"))
 
         if not isinstance(slug, str) or not slug.strip():
-            # Team predates Spec 104 and the BFF startup auto-sync hasn't
-            # backfilled a slug yet. Fail loud — the bot can't mint a
-            # token-exchange scope without a slug.
             logger.error(
-                "Team %s (id=%s) has no slug; cannot apply team-member ReBAC subject. "
+                "Team %s (id=%s) has no slug. "
                 "Run the team-slug migration or repair the Mongo `teams.slug` field.",
                 team_name,
                 team_id,
@@ -211,148 +208,12 @@ class ChannelTeamResolver:
                 deny_message=TEAM_SETUP_INCOMPLETE_MESSAGE.format(surface="channel"),
             )
 
-        # Membership pre-check: prefer OpenFGA team#member so ReBAC is the
-        # source of truth. Legacy Mongo members are a fallback only when the
-        # PDP is not configured or temporarily unavailable.
-        member_key = (channel_id, keycloak_user_id)
-        cached_member = self._membership.get(member_key)
-        if cached_member and now - cached_member[1] < self._ttl:
-            is_member = cached_member[0]
-        else:
-            openfga_member = await self._user_is_openfga_team_member(
-                slug.strip(), keycloak_user_id
-            )
-            is_member = (
-                openfga_member
-                if openfga_member is not None
-                else await self._user_is_member(team_doc, keycloak_user_id)
-            )
-            self._membership[member_key] = (is_member, now)
-
-        if not is_member:
-            return ChannelTeamResolution(
-                team_slug=None,
-                team_id=team_id,
-                team_name=team_name,
-                deny_message=USER_NOT_IN_TEAM_MESSAGE_TMPL.format(team_name=team_name),
-            )
-
         return ChannelTeamResolution(
             team_slug=slug.strip(),
             team_id=team_id,
             team_name=team_name,
             deny_message=None,
         )
-
-    async def _user_is_openfga_team_member(
-        self, team_slug: str, keycloak_user_id: str
-    ) -> Optional[bool]:
-        """Return an OpenFGA team#member decision, or None when unavailable."""
-
-        return await asyncio.to_thread(
-            _check_openfga_team_member_sync, team_slug, keycloak_user_id
-        )
-
-    @staticmethod
-    async def _user_is_member(
-        team_doc: dict[str, Any], keycloak_user_id: str
-    ) -> bool:
-        """Return True if ``keycloak_user_id`` is in the team's member list.
-
-        Team members are stored by *email* in the BFF (see
-        ``CreateTeamRequest`` in `ui/src/types/teams.ts`), but the Slack bot
-        knows the user only by their Keycloak ``sub`` UUID. We try the UUID
-        form first (free, no extra HTTP); if that misses, we resolve the
-        UUID → email via Keycloak Admin API and try again. This lets the
-        resolver work whether admins use email- or UUID-keyed membership
-        lists, including the common case where the BFF's team CRUD writes
-        emails.
-        """
-        members = team_doc.get("members") or []
-        if not isinstance(members, list):
-            return False
-
-        member_keys: set[str] = set()
-        for m in members:
-            if not isinstance(m, dict):
-                continue
-            uid = m.get("user_id")
-            if isinstance(uid, str) and uid:
-                member_keys.add(uid.lower())
-
-        if not member_keys:
-            return False
-
-        if keycloak_user_id.lower() in member_keys:
-            return True
-
-        # Fall back to the user's email — the common BFF-writes-email case.
-        # Best-effort: any KC Admin failure returns False (the request will
-        # be denied with the standard "not in team" message, which is the
-        # safe default).
-        try:
-            from utils.keycloak_admin import get_user_by_id
-
-            user = await get_user_by_id(keycloak_user_id)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "Could not look up Keycloak user %s for membership check: %s",
-                keycloak_user_id,
-                exc,
-            )
-            return False
-
-        if not user:
-            return False
-        email = user.get("email")
-        if isinstance(email, str) and email.lower() in member_keys:
-            return True
-        username = user.get("username")
-        if isinstance(username, str) and username.lower() in member_keys:
-            return True
-        return False
-
-
-def _check_openfga_team_member_sync(
-    team_slug: str, keycloak_user_id: str
-) -> Optional[bool]:
-    base_url = os.environ.get("OPENFGA_HTTP", "").strip().rstrip("/")
-    store_id = os.environ.get("OPENFGA_STORE_ID", "").strip()
-    if not base_url and not store_id:
-        return None
-    base_url = base_url or DEFAULT_OPENFGA_HTTP
-    try:
-        if not store_id:
-            store_id = _openfga_store_id(base_url)
-        response = requests.post(
-            f"{base_url}/stores/{store_id}/check",
-            headers={"Content-Type": "application/json"},
-            json={
-                "tuple_key": {
-                    "user": f"user:{keycloak_user_id}",
-                    "relation": "member",
-                    "object": f"team:{team_slug}",
-                }
-            },
-            timeout=5,
-        )
-        response.raise_for_status()
-        return bool(response.json().get("allowed"))
-    except requests.RequestException as exc:
-        logger.warning("OpenFGA team membership check failed: %s", exc)
-        return None
-
-
-def _openfga_store_id(base_url: str) -> str:
-    store_name = os.environ.get("OPENFGA_STORE_NAME", "caipe-openfga").strip()
-    response = requests.get(
-        f"{base_url}/stores", headers={"Content-Type": "application/json"}, timeout=5
-    )
-    response.raise_for_status()
-    for store in response.json().get("stores", []):
-        if store.get("name") == store_name and store.get("id"):
-            return str(store["id"])
-    raise requests.RequestException(f"OpenFGA store {store_name!r} was not found")
 
 
 _default_resolver: Optional[ChannelTeamResolver] = None
@@ -367,7 +228,6 @@ def get_channel_team_resolver() -> ChannelTeamResolver:
 
 async def resolve_channel_team(
     channel_id: Optional[str],
-    keycloak_user_id: str,
 ) -> ChannelTeamResolution:
     """Convenience wrapper around the default resolver instance."""
     if not channel_id:
@@ -377,7 +237,7 @@ async def resolve_channel_team(
             team_name=None,
             deny_message=CHANNEL_NOT_MAPPED_TO_TEAM_MESSAGE,
         )
-    return await get_channel_team_resolver().resolve(channel_id, keycloak_user_id)
+    return await get_channel_team_resolver().resolve(channel_id)
 
 
 def is_dm_channel(channel_id: Optional[str]) -> bool:

@@ -82,6 +82,5 @@ export interface SlackChannelAccessCheckRequest {
 export interface SlackChannelAccessCheckResult {
   allowed: boolean;
   channel_allowed: boolean;
-  user_allowed: boolean;
-  reason: "allowed" | "missing_channel_grant" | "missing_user_grant" | "unsupported_action";
+  reason: "allowed" | "missing_channel_grant" | "unsupported_action";
 }

@@ -494,7 +494,7 @@ async def handle_webex_message(
         )
 
     explicit_invocation = parsed.is_direct or infer_listen_mode(parsed.text) == "mention"
-    require_space_mapping = not explicit_invocation and not parsed.is_direct
+    require_space_mapping = not explicit_invocation
 
     team_resolution = await resolver.resolve(parsed.space_id)
     if not team_resolution.team_slug:
@@ -559,6 +559,7 @@ async def handle_webex_message(
             deny_message=TEAM_SESSION_UNAVAILABLE_MESSAGE,
             keycloak_user_id=keycloak_user_id,
             team_slug=team_slug,
+            explicit_invocation=explicit_invocation,
         )
 
     # Phase 2 (spec 2026-05-24): personal-DM commands intercept BEFORE

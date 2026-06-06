@@ -12,13 +12,16 @@ description: "Create an rc/hotfix tag on a release/* branch and trigger a coordi
 #   1. Lists available release/* branches in the job summary.
 #   2. Validates the specified branch and derives the next rc/hotfix tag (or
 #      uses the one you provide).
-#   3. Creates and pushes the rc image tag AND the matching chart tag on the
-#      release branch.  The push-tag event then triggers all container CI
-#      workflows (ci-caipe-ui, ci-dynamic-agents, ci-supervisor-agent,
-#      ci-slack-bot, ci-webex-bot, ci-skill-scanner, ci-a2a-sub-agent,
-#      ci-mcp-sub-agent, ci-a2a-rag) automatically.
-#   4. Explicitly dispatches ci-helm.yml with force_build=true so the Helm
-#      chart is published even if no chart files changed in this commit.
+#   3. Mirrors what auto-tag.yml does on a branch push:
+#        a. Bumps pyproject.toml + uv.lock + ALL Chart.yaml (version + appVersion)
+#           to the rc version, commits, then creates the rc image tag.
+#        b. Bumps Chart.yaml version fields to the chart tag, commits, then
+#           creates the chart tag.
+#      Both commits are pushed to the release branch so that ci-helm.yml
+#      finds the expected version in Chart.yaml when it checks out at the tag.
+#   4. The push-tag event triggers all container CI workflows automatically.
+#   5. Explicitly dispatches ci-helm.yml with force_build=true so the Helm
+#      chart is published even when no chart files changed in this commit.
 #
 # To force-rebuild every container image fresh (bypass retag for unchanged
 # components), run each ci-*.yml individually via workflow_dispatch with
@@ -41,13 +44,13 @@ on:
         type: string
 
 permissions:
-  contents: write   # push tags
+  contents: write   # push commits + tags
   packages: write
   actions: write    # dispatch ci-helm.yml
 
 jobs:
   prepare:
-    name: Validate branch, create tags
+    name: Bump versions, commit, create tags
     runs-on: ubuntu-latest
     outputs:
       rc_tag: ${{ steps.tag.outputs.rc_tag }}
@@ -66,9 +69,13 @@ jobs:
           app-id: ${{ secrets.CI_RELEASE_APP_ID }}
           private-key: ${{ secrets.CI_RELEASE_APP_PRIVATE_KEY }}
 
-      - name: 📥 Checkout repository
+      # Check out the release branch so we can bump version files on it.
+      # The workflow file itself comes from main (dispatch ref); code comes from
+      # the release branch.
+      - name: 📥 Checkout release branch
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
+          ref: ${{ inputs.release_branch }}
           fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
 
@@ -98,9 +105,6 @@ jobs:
           # Validate branch exists on the remote
           if ! git ls-remote --exit-code --heads origin "refs/heads/${RELEASE_BRANCH}" >/dev/null 2>&1; then
             echo "❌ Branch '${RELEASE_BRANCH}' not found in remote."
-            echo "   Available release/* branches:"
-            git ls-remote --heads origin 'refs/heads/release/*' \
-              | awk '{print $2}' | sed 's|refs/heads/||' | sort | sed 's/^/     /'
             exit 1
           fi
 
@@ -119,60 +123,111 @@ jobs:
           # Determine rc/hotfix tag
           if [[ -n "$TAG_VERSION" ]]; then
             RC_TAG="$TAG_VERSION"
-            # Validate provided tag matches the branch
             if ! [[ "$RC_TAG" =~ ^${BASE_VERSION}-(rc|hotfix)\.[0-9]+$ ]]; then
-              echo "❌ tag_version '${RC_TAG}' doesn't match branch base version '${BASE_VERSION}'"
+              echo "❌ tag_version '${RC_TAG}' does not match branch base version '${BASE_VERSION}'"
               exit 1
             fi
           else
-            # Auto-detect next rc/hotfix number
             LATEST_NUM=$(git tag --list "${BASE_VERSION}-${SUFFIX_TYPE}.*" \
               | grep -oP "(?<=${SUFFIX_TYPE}\.)[0-9]+$" | sort -n | tail -1)
-            if [[ -n "$LATEST_NUM" ]]; then
-              NEXT_NUM=$((LATEST_NUM + 1))
-            else
-              NEXT_NUM=1
-            fi
+            NEXT_NUM=$(( ${LATEST_NUM:-0} + 1 ))
             RC_TAG="${BASE_VERSION}-${SUFFIX_TYPE}.${NEXT_NUM}"
           fi
 
-          # Check the rc tag doesn't already exist
+          # Verify the rc tag does not already exist
           if git rev-parse "${RC_TAG}" >/dev/null 2>&1; then
             echo "❌ Tag '${RC_TAG}' already exists. Provide a different tag_version."
             exit 1
           fi
 
-          # Determine chart tag (auto-detect next chart suffix for this rc)
+          # Determine chart tag (auto-detect next chart suffix)
           LATEST_CHART_NUM=$(git tag --list "${RC_TAG}-chart.*" \
             | grep -oP "(?<=chart\.)[0-9]+$" | sort -n | tail -1)
-          if [[ -n "$LATEST_CHART_NUM" ]]; then
-            NEXT_CHART_NUM=$((LATEST_CHART_NUM + 1))
-          else
-            NEXT_CHART_NUM=1
-          fi
+          NEXT_CHART_NUM=$(( ${LATEST_CHART_NUM:-0} + 1 ))
           CHART_TAG="${RC_TAG}-chart.${NEXT_CHART_NUM}"
 
           echo "rc_tag=${RC_TAG}" >> "$GITHUB_OUTPUT"
           echo "chart_tag=${CHART_TAG}" >> "$GITHUB_OUTPUT"
           echo "✅ rc_tag=${RC_TAG}  chart_tag=${CHART_TAG}"
 
-      - name: 🏷️ Create and push tags
+      - name: 🐍 Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: '3.13'
+
+      - name: 📦 Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+
+      - name: ⚙️ Install yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq \
+            https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+          yq --version
+
+      - name: 📝 Bump to rc version and create rc tag
+        env:
+          RC_TAG: ${{ steps.tag.outputs.rc_tag }}
+        run: |
+          git config user.name "caipe-ci-release[bot]"
+          git config user.email "caipe-ci-release[bot]@users.noreply.github.com"
+
+          # pyproject.toml: hotfix needs PEP 440 local version (x.y.z+hotfix.N)
+          PYPROJECT_VERSION="${RC_TAG}"
+          if [[ "$RC_TAG" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-hotfix\.([0-9]+)$ ]]; then
+            PYPROJECT_VERSION="${BASH_REMATCH[1]}+hotfix.${BASH_REMATCH[2]}"
+          fi
+          sed -i "s/^version = \".*\"/version = \"${PYPROJECT_VERSION}\"/" pyproject.toml
+          echo "  ✅ pyproject.toml → ${PYPROJECT_VERSION}"
+
+          # Regenerate uv.lock
+          uv lock
+          echo "  ✅ uv.lock regenerated"
+
+          # All Chart.yaml: version + appVersion
+          while IFS= read -r chart_file; do
+            yq -i ".version = \"${RC_TAG}\"" "$chart_file"
+            yq -i ".appVersion = \"${RC_TAG}\"" "$chart_file"
+            echo "  ✅ $chart_file → ${RC_TAG}"
+          done < <(find charts -name "Chart.yaml" -type f | sort)
+
+          # Commit version bump
+          git add pyproject.toml uv.lock
+          find charts -name "Chart.yaml" -type f | xargs git add
+          git commit -m "chore: bump version to ${RC_TAG}"
+          echo "  ✅ Committed rc version bump"
+
+          # Create annotated rc tag on this commit
+          git tag -a "${RC_TAG}" -m "Pre-release ${RC_TAG}"
+          echo "  ✅ Tagged ${RC_TAG}"
+
+      - name: 📝 Bump Chart.yaml to chart tag and create chart tag
+        env:
+          RC_TAG: ${{ steps.tag.outputs.rc_tag }}
+          CHART_TAG: ${{ steps.tag.outputs.chart_tag }}
+        run: |
+          # Chart-only bump: version → chart tag, appVersion stays at rc tag
+          while IFS= read -r chart_file; do
+            yq -i ".version = \"${CHART_TAG}\"" "$chart_file"
+            echo "  ✅ $chart_file version → ${CHART_TAG} (appVersion stays ${RC_TAG})"
+          done < <(find charts -name "Chart.yaml" -type f | sort)
+
+          find charts -name "Chart.yaml" -type f | xargs git add
+          git commit -m "chore: bump version to ${CHART_TAG}"
+          echo "  ✅ Committed chart version bump"
+
+          # Create annotated chart tag on this commit
+          git tag -a "${CHART_TAG}" -m "Pre-release chart ${CHART_TAG}"
+          echo "  ✅ Tagged ${CHART_TAG}"
+
+      - name: 🚀 Push commits and tags
         env:
           RC_TAG: ${{ steps.tag.outputs.rc_tag }}
           CHART_TAG: ${{ steps.tag.outputs.chart_tag }}
           RELEASE_BRANCH: ${{ inputs.release_branch }}
         run: |
-          git config user.name "caipe-ci-release[bot]"
-          git config user.email "caipe-ci-release[bot]@users.noreply.github.com"
-
-          git fetch origin "${RELEASE_BRANCH}"
-          BRANCH_SHA=$(git rev-parse "origin/${RELEASE_BRANCH}")
-
-          git tag -a "${RC_TAG}"    "${BRANCH_SHA}" -m "Pre-release ${RC_TAG}"
-          git tag -a "${CHART_TAG}" "${BRANCH_SHA}" -m "Pre-release chart ${CHART_TAG}"
-          git push origin "${RC_TAG}" "${CHART_TAG}"
-
-          echo "✅ Pushed: ${RC_TAG}  ${CHART_TAG}"
+          git push origin HEAD:${RELEASE_BRANCH} "${RC_TAG}" "${CHART_TAG}"
+          echo "✅ Pushed branch + tags: ${RC_TAG}  ${CHART_TAG}"
 
       - name: 📊 Summary
         env:

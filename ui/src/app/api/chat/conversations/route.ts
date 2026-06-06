@@ -181,6 +181,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   }
 
   if (body.agent_id) {
+    // Dynamic agent conversation — gate on agent-level can_use, not supervisor#invoke.
     const denial = await requireAgentUsePermission({
       subject: session.sub,
       agentId: body.agent_id,
@@ -190,10 +191,8 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       return denial;
     }
   } else {
-    const supervisorDenial = await requireRbacPermission(session, 'supervisor', 'invoke');
-    if (supervisorDenial) {
-      return supervisorDenial;
-    }
+    // No specific agent — routing through the supervisor.
+    await requireRbacPermission(session, 'supervisor', 'invoke');
   }
 
   const conversations = await getCollection<Conversation>('conversations');

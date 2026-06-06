@@ -200,6 +200,22 @@ def test_obo_failure_denies() -> None:
     assert dispatcher.calls == []
 
 
+def test_obo_failure_sets_explicit_invocation_for_mention() -> None:
+    """OBO failures on explicit invocations must surface to the user (not silently suppressed)."""
+    dispatcher = FakeDispatcher()
+    result = asyncio.run(
+        handle_webex_message(
+            _event(text="@bot hello"),
+            identity_linker=FakeIdentityLinker(),
+            team_resolver=FakeTeamResolver(),
+            obo_exchanger=FakeOboExchanger(fail=True),
+            dispatcher=dispatcher,
+        )
+    )
+    assert result.reason_code == REASON_OBO_FAILED
+    assert result.explicit_invocation is True
+
+
 def test_pdp_unavailable_denies_before_dispatch() -> None:
     dispatcher = FakeDispatcher()
     result = asyncio.run(
