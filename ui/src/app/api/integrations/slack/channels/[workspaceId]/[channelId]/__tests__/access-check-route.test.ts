@@ -60,21 +60,17 @@ describe("Slack runtime access-check route", () => {
     mockCheckUniversalRebacRelationship.mockReset();
   });
 
-  it("checks channel and user grants without requiring admin UI permission", async () => {
-    mockCheckPermission.mockResolvedValue({ allowed: false, reason: "denied" });
-    mockCheckOpenFgaTuple
-      .mockResolvedValueOnce({ allowed: false })
-      .mockResolvedValueOnce({ allowed: true });
+  // The bot only checks the channel→agent grant. User-level can_use is enforced
+  // downstream by the conversation creation API, not here.
+  it("allows when channel grant exists", async () => {
     mockCheckUniversalRebacRelationship
-      .mockResolvedValueOnce({ allowed: true })
-      .mockResolvedValueOnce({ allowed: true });
+      .mockResolvedValueOnce({ allowed: true }); // channel→agent
     const { POST } = await import("../access-check/route");
 
     const response = await POST(
       request("/api/integrations/slack/channels/T123456789/C123456789/access-check", {
         method: "POST",
         body: JSON.stringify({
-          user_subject: "team:platform-engineering#member",
           resource: { type: "agent", id: "incident-agent" },
           action: "use",
         }),
@@ -87,37 +83,33 @@ describe("Slack runtime access-check route", () => {
     expect(body.data).toMatchObject({
       allowed: true,
       channel_allowed: true,
-      user_allowed: true,
       reason: "allowed",
     });
     expect(mockCheckPermission).not.toHaveBeenCalled();
-    expect(mockCheckOpenFgaTuple).toHaveBeenCalledWith({
-      user: "user:alice-sub",
-      relation: "can_read",
-      object: "slack_channel:T123456789--C123456789",
-    });
   });
 
-  it("denies before evaluating grants when caller cannot read the channel", async () => {
-    mockCheckPermission.mockResolvedValue({ allowed: false, reason: "denied" });
-    mockCheckOpenFgaTuple
-      .mockResolvedValueOnce({ allowed: false })
-      .mockResolvedValueOnce({ allowed: false });
+  it("denies when channel grant is missing", async () => {
+    mockCheckUniversalRebacRelationship
+      .mockResolvedValueOnce({ allowed: false }); // channel→agent denied
     const { POST } = await import("../access-check/route");
 
     const response = await POST(
       request("/api/integrations/slack/channels/T123456789/C123456789/access-check", {
         method: "POST",
         body: JSON.stringify({
-          user_subject: "team:platform-engineering#member",
           resource: { type: "agent", id: "incident-agent" },
           action: "use",
         }),
       }),
       { params: Promise.resolve({ workspaceId: "T123456789", channelId: "C123456789" }) }
     );
+    const body = await response.json();
 
-    expect(response.status).toBe(403);
-    expect(mockCheckUniversalRebacRelationship).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    expect(body.data).toMatchObject({
+      allowed: false,
+      channel_allowed: false,
+      reason: "missing_channel_grant",
+    });
   });
 });
