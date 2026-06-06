@@ -7,7 +7,6 @@ import type {
   UniversalRebacResourceAction,
   UniversalRebacResourceRef,
   UniversalRebacSubjectRef,
-  UniversalRebacSubjectType,
 } from "@/types/rbac-universal";
 
 import { checkUniversalRebacRelationship } from "./openfga";
@@ -15,39 +14,6 @@ import {
   WEBEX_SPACE_GRANT_RESOURCE_TYPES,
   webexSpaceSubjectId,
 } from "./webex-space-grant-store";
-
-const VALID_WEBEX_GRANT_SUBJECT_TYPES = new Set<UniversalRebacSubjectType>([
-  "user",
-  "team",
-  "slack_channel",
-  "webex_space",
-  "external_group",
-  "service_account",
-]);
-
-const VALID_WEBEX_GRANT_SUBJECT_RELATIONS = new Set<NonNullable<UniversalRebacSubjectRef["relation"]>>([
-  "member",
-  "admin",
-  "owner",
-]);
-
-function parseSubjectRef(value: string): UniversalRebacSubjectRef | null {
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  const [base, relation] = trimmed.split("#", 2);
-  const [type, ...idParts] = base.split(":");
-  const id = idParts.join(":");
-  if (!type || !id) return null;
-  if (!VALID_WEBEX_GRANT_SUBJECT_TYPES.has(type as UniversalRebacSubjectType)) return null;
-  if (relation && !VALID_WEBEX_GRANT_SUBJECT_RELATIONS.has(relation as UniversalRebacSubjectRef["relation"])) {
-    return null;
-  }
-  return {
-    type: type as UniversalRebacSubjectRef["type"],
-    id,
-    ...(relation ? { relation: relation as UniversalRebacSubjectRef["relation"] } : {}),
-  };
-}
 
 export function webexSpaceSubjectRef(
   workspaceId: string,
@@ -66,7 +32,7 @@ export function webexSpaceGrantRelationship(
   action: UniversalRebacResourceAction
 ): UniversalRebacRelationship {
   return {
-    subject: webexSpaceSubjectRef(workspaceId, spaceId),
+    subject: { type: "webex_space", id: webexSpaceSubjectId(workspaceId, spaceId) },
     action,
     resource,
   };
@@ -99,16 +65,9 @@ export function webexSpaceTeamVisibilityRelationships(
   ];
 }
 
-export function parseWebexSpaceGrantSubject(
-  userSubject: string | undefined
-): UniversalRebacSubjectRef | null {
-  return userSubject ? parseSubjectRef(userSubject) : null;
-}
-
 export async function checkWebexSpaceAccess(input: {
   workspace_id: string;
   space_id: string;
-  user_subject?: string;
   resource: UniversalRebacResourceRef;
   action: UniversalRebacResourceAction;
 }): Promise<WebexSpaceAccessCheckResult> {
@@ -116,45 +75,19 @@ export async function checkWebexSpaceAccess(input: {
     return {
       allowed: false,
       space_allowed: false,
-      user_allowed: false,
       reason: "unsupported_resource",
     };
   }
 
   const spaceResult = await checkUniversalRebacRelationship({
-    subject: webexSpaceSubjectRef(input.workspace_id, input.space_id),
-    action: input.action,
-    resource: input.resource,
-  });
-  if (!spaceResult.allowed) {
-    return {
-      allowed: false,
-      space_allowed: false,
-      user_allowed: false,
-      reason: "missing_space_grant",
-    };
-  }
-
-  const subject = parseWebexSpaceGrantSubject(input.user_subject);
-  if (!subject) {
-    return {
-      allowed: false,
-      space_allowed: true,
-      user_allowed: false,
-      reason: "missing_user_grant",
-    };
-  }
-
-  const userResult = await checkUniversalRebacRelationship({
-    subject,
+    subject: { type: "webex_space", id: webexSpaceSubjectId(input.workspace_id, input.space_id) },
     action: input.action,
     resource: input.resource,
   });
 
   return {
-    allowed: Boolean(userResult.allowed),
-    space_allowed: true,
-    user_allowed: Boolean(userResult.allowed),
-    reason: userResult.allowed ? "allowed" : "missing_user_grant",
+    allowed: spaceResult.allowed,
+    space_allowed: spaceResult.allowed,
+    reason: spaceResult.allowed ? "allowed" : "missing_space_grant",
   };
 }

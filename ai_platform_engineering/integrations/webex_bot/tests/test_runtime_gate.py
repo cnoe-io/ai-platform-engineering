@@ -62,7 +62,7 @@ class FakeTeamResolver:
     team_slug: Optional[str] = "platform-eng"
     deny_message: Optional[str] = None
 
-    async def resolve(self, space_id: str, keycloak_user_id: str) -> SpaceTeamResolution:
+    async def resolve(self, space_id: str) -> SpaceTeamResolution:
         return SpaceTeamResolution(
             team_slug=self.team_slug,
             team_id="team-mongo-id" if self.team_slug else None,
@@ -98,11 +98,10 @@ class FakeRebacChecker:
     allowed: bool = True
     reason: str = "allowed"
 
-    def check_agent_access(self, **kwargs: Any) -> WebexSpaceRebacDecision:
+    def check_space_grant(self, **kwargs: Any) -> WebexSpaceRebacDecision:
         return WebexSpaceRebacDecision(
             allowed=self.allowed,
             space_allowed=self.allowed,
-            user_allowed=self.allowed,
             reason=self.reason,  # type: ignore[arg-type]
         )
 
@@ -201,6 +200,22 @@ def test_obo_failure_denies() -> None:
     assert dispatcher.calls == []
 
 
+def test_obo_failure_sets_explicit_invocation_for_mention() -> None:
+    """OBO failures on explicit invocations must surface to the user (not silently suppressed)."""
+    dispatcher = FakeDispatcher()
+    result = asyncio.run(
+        handle_webex_message(
+            _event(text="@bot hello"),
+            identity_linker=FakeIdentityLinker(),
+            team_resolver=FakeTeamResolver(),
+            obo_exchanger=FakeOboExchanger(fail=True),
+            dispatcher=dispatcher,
+        )
+    )
+    assert result.reason_code == REASON_OBO_FAILED
+    assert result.explicit_invocation is True
+
+
 def test_pdp_unavailable_denies_before_dispatch() -> None:
     dispatcher = FakeDispatcher()
     result = asyncio.run(
@@ -228,14 +243,14 @@ def test_rebac_denial_preserves_reason_category() -> None:
             identity_linker=FakeIdentityLinker(),
             team_resolver=FakeTeamResolver(),
             obo_exchanger=FakeOboExchanger(),
-            rebac_checker=FakeRebacChecker(allowed=False, reason="missing_user_grant"),
+            rebac_checker=FakeRebacChecker(allowed=False, reason="missing_space_grant"),
             route_resolver=FakeRouteResolver(),
             dispatcher=dispatcher,
         )
     )
     assert result.allowed is False
-    assert result.reason_code == "missing_user_grant"
-    assert result.rebac_reason == "missing_user_grant"
+    assert result.reason_code == "missing_space_grant"
+    assert result.rebac_reason == "missing_space_grant"
     assert dispatcher.calls == []
 
 
