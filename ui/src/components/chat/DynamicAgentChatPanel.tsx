@@ -1005,9 +1005,11 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       } else if (!(error as Error).message?.startsWith("Session expired:")) {
         appendToMessage(convId, assistantMsgId, `\n\n**Error:** ${(error as Error).message || "Failed to connect to agent endpoint"}`);
       }
-      // Set interrupted status on error
+      // Set interrupted status on error; tag auth failures so the UI can
+      // show a session-expired hint instead of the generic "no content" copy.
       updateMessage(convId!, assistantMsgId, {
         turnStatus: "interrupted" as TurnStatus,
+        ...(isAuthError ? { error: "bearer_invalid" } : {}),
       });
       setConversationStreaming(convId, null);
     }
@@ -2330,7 +2332,9 @@ const ChatMessage = React.memo(function ChatMessage({
               </div>
             ) : message.turnStatus === "interrupted" ? (
               <div className="text-xs text-muted-foreground italic px-1">
-                This response failed to complete. No content was generated.
+                {message.error === "bearer_invalid"
+                  ? "Session expired — signing you in again…"
+                  : "This response failed to complete. No content was generated."}
               </div>
             ) : null}
 
