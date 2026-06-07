@@ -20,7 +20,6 @@ from pymongo import MongoClient
 from pymongo.errors import PyMongoError
 
 from dynamic_agents.auth.token_context import current_traceparent, current_user_token
-from dynamic_agents.auth.workflow_execution_authz import can_use_agent_via_workflow
 from dynamic_agents.models import UserContext
 from dynamic_agents.services.mongo import MongoDBService
 
@@ -324,6 +323,34 @@ async def _check_agent_use(subject: str, agent_id: str) -> bool:
         return bool(body.get("allowed"))
 
 
+def _org_admin_bypass_enabled() -> bool:
+    """Org-admin bypass is on unless RAG_ADMIN_BYPASS_DISABLED is set (mirrors the BFF/CAS)."""
+    raw = os.getenv("RAG_ADMIN_BYPASS_DISABLED", "").strip().lower()
+    return raw not in {"1", "true", "yes"}
+
+
+async def _check_org_admin(subject: str) -> bool:
+    """Whether the subject can_manage the organization — mirrors the BFF/CAS isOrgAdmin
+    short-circuit so DA agrees with the UI-server decision (org admins use any agent)."""
+    base_url = _openfga_http_url()
+    org_key = os.getenv("CAIPE_ORG_KEY", "caipe").strip() or "caipe"
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        store_id = await _get_openfga_store_id(client, base_url)
+        response = await client.post(
+            f"{base_url}/stores/{store_id}/check",
+            headers=_openfga_headers(),
+            json={
+                "tuple_key": {
+                    "user": f"user:{subject}",
+                    "relation": "can_manage",
+                    "object": f"organization:{org_key}",
+                }
+            },
+        )
+        response.raise_for_status()
+        return bool(response.json().get("allowed"))
+
+
 async def require_agent_use_permission(
     agent_id: str,
     *,
@@ -421,14 +448,16 @@ async def require_agent_use_permission(
             },
         )
 
-    if (
-        not allowed
-        and workflow_config_id
-        and mongo is not None
-        and user is not None
-        and can_use_agent_via_workflow(agent_id, workflow_config_id, user, mongo)
-    ):
-        allowed = True
+    # Org-admin bypass — mirrors the BFF/CAS. Workflow agent-use is now decided
+    # in the UI server (CAS); DA no longer reads workflow_configs from Mongo.
+    # `workflow_config_id`/`mongo`/`user` are accepted for caller compatibility
+    # but unused.
+    if not allowed and _org_admin_bypass_enabled() and subject:
+        try:
+            allowed = await _check_org_admin(subject)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("OpenFGA org-admin bypass check failed for agent=%s: %s", agent_id, exc)
+            allowed = False
 
     if allowed:
         _log_openfga_rebac_audit(
