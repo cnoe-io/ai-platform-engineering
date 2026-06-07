@@ -146,11 +146,19 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   // Verify user has access to this workflow config (via CAS)
   await requireWorkflowAccess(session, workflow_config_id, "read");
 
-  // Build auth headers for DA server calls
+  // Build auth headers for DA server calls. Prefer the incoming Bearer; fall
+  // back to the session's OIDC access token so browser (cookie) sessions still
+  // forward a valid bearer — DA + the BFF per-step CAS gate both need the
+  // run-owner's token.
   const authHeaders: Record<string, string> = {};
-  const authHeader = request.headers.get("Authorization");
-  if (authHeader) {
-    authHeaders["Authorization"] = authHeader;
+  const incomingAuth = request.headers.get("Authorization");
+  const sessionAccessToken = typeof (session as { accessToken?: unknown }).accessToken === "string"
+    ? (session as { accessToken?: string }).accessToken
+    : undefined;
+  if (incomingAuth) {
+    authHeaders["Authorization"] = incomingAuth;
+  } else if (sessionAccessToken) {
+    authHeaders["Authorization"] = `Bearer ${sessionAccessToken}`;
   }
   authHeaders["X-User-Context"] = Buffer.from(JSON.stringify({
     email: user.email,
