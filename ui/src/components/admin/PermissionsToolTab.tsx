@@ -14,6 +14,11 @@ const RESOURCE_TYPES = [
   "agent", "skill", "mcp_tool", "knowledge_base", "data_source",
   "task", "slack_channel", "webex_space", "organization", "team", "conversation",
 ];
+// Friendlier labels where the OpenFGA type name isn't self-evident. Workflows
+// are graphed as `task`, so surface that so admins can find them.
+const RESOURCE_TYPE_LABELS: Record<string, string> = {
+  task: "workflow (task)",
+};
 const ACTIONS = [
   "discover", "read", "read-metadata", "use", "write", "create",
   "manage", "share", "delete", "ingest", "call", "invoke", "audit",
@@ -220,7 +225,7 @@ export function PermissionsToolTab({ isAdmin }: { isAdmin: boolean }) {
             <label className="text-xs font-medium text-muted-foreground">Resource</label>
             <div className="flex gap-2 flex-wrap items-center">
               <select aria-label="Resource type" value={resourceType} onChange={(e) => { setResourceType(e.target.value); setResourceId(""); }} className={`${SELECT_CLS} w-44`}>
-                {RESOURCE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                {RESOURCE_TYPES.map((t) => <option key={t} value={t}>{RESOURCE_TYPE_LABELS[t] ?? t}</option>)}
               </select>
               {valueField("Resource", resourceOptions, resourceId, setResourceId, () => void loadResourceOptions(), refreshingResource, "resource id")}
             </div>

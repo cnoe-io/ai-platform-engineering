@@ -31,9 +31,9 @@ const PAGE_SIZE = 100;
 const LABEL_LOOKUP_LIMIT = 2000;
 
 /**
- * For channel-like types whose OpenFGA ids are opaque (`workspace--channel`),
- * map each id to its human-readable name from the team-mapping collections.
- * Best-effort: falls back to the id if Mongo is unavailable or unmapped.
+ * Map opaque OpenFGA ids to human-readable names where a source of truth
+ * exists: slack/webex channels (mapping collections) and workflows (the
+ * `task` type → workflow_configs). Best-effort: falls back to the id.
  */
 async function buildLabelMap(type: string): Promise<Map<string, string>> {
   const map = new Map<string, string>();
@@ -52,6 +52,14 @@ async function buildLabelMap(type: string): Promise<Map<string, string>> {
         if (!r.webex_space_id) continue;
         const name = r.space_name ?? r.space_title;
         if (name) map.set(webexSpaceSubjectId(r.webex_workspace_id ?? "", r.webex_space_id), name);
+      }
+    } else if (type === "task") {
+      // Workflows are graphed as `task` — surface the workflow's display name.
+      const coll = await getCollection<{ _id: unknown; name?: string }>("workflow_configs");
+      const rows = await coll.find({}).limit(LABEL_LOOKUP_LIMIT).toArray();
+      for (const r of rows) {
+        const id = typeof r._id === "string" ? r._id : String(r._id);
+        if (id && r.name) map.set(id, r.name);
       }
     }
   } catch {

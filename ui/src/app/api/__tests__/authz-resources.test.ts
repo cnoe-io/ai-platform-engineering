@@ -92,6 +92,21 @@ it("labels slack_channel ids with their canonical channel name", async () => {
   expect(body.resources).toEqual([{ id: "caipe--C06H2HEG6N", label: "platform-eng" }]);
 });
 
+it("labels task ids with the workflow's canonical name", async () => {
+  mockReadTuples.mockResolvedValue({
+    tuples: [{ key: { object: "task:wf-1780625072483-fz5heofst" } }],
+    continuationToken: undefined,
+  });
+  mockToArray.mockImplementation(async (name: string) =>
+    name === "workflow_configs"
+      ? [{ _id: "wf-1780625072483-fz5heofst", name: "Movie guessing workflow" }]
+      : [],
+  );
+  const res = await GET(req("?type=task"));
+  const body = await res.json();
+  expect(body.resources).toEqual([{ id: "wf-1780625072483-fz5heofst", label: "Movie guessing workflow" }]);
+});
+
 it("rejects an unknown resource type with 400", async () => {
   const res = await GET(req("?type=nope"));
   expect(res.status).toBe(400);
