@@ -17,6 +17,28 @@ import { isToolStartData } from "@/lib/streaming/types";
 import { renderPrompt, buildTemplateContext, type StepContext } from "./workflow-templating";
 import type { WorkflowConfig, WorkflowStep } from "@/types/workflow-config";
 import { flattenStepEntries } from "@/types/workflow-config";
+import { authorize } from "@/lib/authz";
+
+/**
+ * Decode the run owner's subject from the forwarded Bearer token. Per-step
+ * agent-use is authorized in the UI server (this engine) via CAS — workflow
+ * RBAC is a UI-server concept (the engine invokes agents one step at a time),
+ * so DA no longer needs workflow_execution_authz. Returns null for system /
+ * config-driven runs with no user token (already authorized at run start).
+ */
+function runOwnerSubject(authHeaders: Record<string, string>): string | null {
+  const auth = authHeaders["Authorization"] ?? authHeaders["authorization"];
+  if (!auth?.startsWith("Bearer ")) return null;
+  const parts = auth.slice(7).split(".");
+  if (parts.length < 2) return null;
+  try {
+    const json = Buffer.from(parts[1].replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8");
+    const sub = (JSON.parse(json) as { sub?: unknown }).sub;
+    return typeof sub === "string" && sub.trim() ? sub.trim() : null;
+  } catch {
+    return null;
+  }
+}
 
 // ═══════════════════════════════════════════════════════════════
 // Configuration
@@ -255,8 +277,26 @@ async function executeSteps(
     }
   }
 
+  const ownerSub = runOwnerSubject(authHeaders);
+
   for (let i = startFrom; i < steps.length; i++) {
     const step = steps[i];
+
+    // Per-step authorization gate (CAS) — the @subbaksh fix: workflow agent-use
+    // is decided here in the UI server, not in DA. Org-admin bypass + standing
+    // team/global grants apply via CAS. System runs (no owner token) were
+    // already authorized at run start, so they skip this.
+    if (ownerSub) {
+      const decision = await authorize(
+        { subject: { type: "user", id: ownerSub }, resource: { type: "agent", id: step.agent_id }, action: "use" },
+        { correlationId: runId },
+      );
+      if (decision.decision !== "ALLOW") {
+        await markStepFailed(col, runId, i, `Not authorized to use agent "${step.agent_id}" (${decision.reason})`);
+        await markRunFailed(col, runId);
+        return;
+      }
+    }
 
     // Mark step running
     await col.updateOne(
