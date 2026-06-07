@@ -286,11 +286,11 @@ async function executeSteps(
     // is decided here in the UI server, not in DA. Org-admin bypass + standing
     // team/global grants apply via CAS. System runs (no owner token) skip this.
     //
-    // FLAG-GATED (default off): this gate requires a real can_use grant, which
-    // only reconciles with #1751's visibility model once Phase 4 (DA stops
-    // gating) + Phase 5 (standing grants) land. Until then it would over-deny,
-    // so it's opt-in via WORKFLOW_CAS_STEP_GATE=true.
-    if (ownerSub && process.env.WORKFLOW_CAS_STEP_GATE === "true") {
+    // Per-step agent-use is authorized here in the UI server via CAS. Standing
+    // grants come from the share/agent-access modal (team→agent tuples) and
+    // global wildcards; org admins pass via the CAS bypass. Set
+    // WORKFLOW_CAS_STEP_GATE=false to fall back to DA-only gating.
+    if (ownerSub && process.env.WORKFLOW_CAS_STEP_GATE !== "false") {
       const decision = await authorize(
         { subject: { type: "user", id: ownerSub }, resource: { type: "agent", id: step.agent_id }, action: "use" },
         { correlationId: runId },
