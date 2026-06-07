@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { motion } from "framer-motion";
-import { Users, MessageSquare, TrendingUp, Activity, Database, Share2, ShieldCheck, ShieldOff, UserPlus, Trash2, UsersIcon, Loader2, Bot, ThumbsUp, ThumbsDown, Clock, Zap, CheckCircle2, AlertCircle, Layers, Eye, Star, Filter, ExternalLink, Plus, Calendar, X, FileText, Shield, HelpCircle, Globe, RefreshCw, Settings, Wrench, Hash, Search, type LucideIcon } from "lucide-react";
+import { Users, MessageSquare, TrendingUp, Activity, Database, Share2, ShieldCheck, ShieldOff, UserPlus, Trash2, UsersIcon, Loader2, Bot, ThumbsUp, ThumbsDown, Clock, Zap, CheckCircle2, AlertCircle, Layers, Eye, Star, Filter, ExternalLink, Plus, Calendar, X, FileText, Shield, HelpCircle, Globe, RefreshCw, Settings, Wrench, Hash, Search, Bug, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AuthGuard } from "@/components/auth-guard";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -35,6 +35,8 @@ import { TeamDetailsDialog, type DialogMode as TeamDialogMode } from "@/componen
 import { AuditLogsTab } from "@/components/admin/AuditLogsTab";
 import { UnifiedAuditTab } from "@/components/admin/UnifiedAuditTab";
 import { OpenFgaRebacTab } from "@/components/admin/OpenFgaRebacTab";
+import { CasInsightsTab } from "@/components/admin/CasInsightsTab";
+import { PermissionDebuggerTab } from "@/components/admin/PermissionDebuggerTab";
 import { RagTeamAccessPanel } from "@/components/admin/rebac/RagTeamAccessPanel";
 import { SlackChannelRebacPanel } from "@/components/admin/rebac/SlackChannelRebacPanel";
 import { WebexSpaceRebacPanel } from "@/components/admin/rebac/WebexSpaceRebacPanel";
@@ -250,7 +252,7 @@ interface SimulationTeamOption {
   description?: string;
 }
 
-const VALID_TABS = ['users', 'teams', 'stats', 'skills', 'feedback', 'nps', 'metrics', 'health', 'credentials', 'audit-logs', 'action-audit', 'identity-groups', 'openfga', 'keycloak', 'migrations', 'ai-review', 'settings', 'release-notes', 'slack', 'webex', 'rag-access'] as const;
+const VALID_TABS = ['users', 'teams', 'stats', 'skills', 'feedback', 'nps', 'metrics', 'health', 'cas-insights', 'credentials', 'audit-logs', 'action-audit', 'cas-debugger', 'identity-groups', 'openfga', 'keycloak', 'migrations', 'ai-review', 'settings', 'release-notes', 'slack', 'webex', 'rag-access'] as const;
 const VALID_OPENFGA_SUBTABS = ['builder', 'explorer', 'graph', 'tuples', 'access', 'baseline', 'diagnostics'] as const;
 const MOVED_ADMIN_TAB_MAP = {
   insights: 'stats',
@@ -328,6 +330,7 @@ const CATEGORIES: Category[] = [
     tabs: [
       { value: 'metrics', label: 'Metrics', icon: Activity, gateKey: 'metrics' },
       { value: 'health', label: 'Health', icon: Database, gateKey: 'health' },
+      { value: 'cas-insights', label: 'Authorization Insights', icon: Activity, gateKey: 'metrics' },
     ],
   },
   {
@@ -338,6 +341,7 @@ const CATEGORIES: Category[] = [
       { value: 'openfga', label: 'OpenFGA ReBAC', icon: Shield, gateKey: 'openfga' },
       { value: 'action-audit', label: 'RBAC Audit', icon: Shield, gateKey: 'action_audit' },
       { value: 'audit-logs', label: 'Chat Audit', icon: FileText, gateKey: 'audit_logs' },
+      { value: 'cas-debugger', label: 'Permission Debugger', icon: Bug, gateKey: 'openfga' },
       { value: 'keycloak', label: 'Keycloak', icon: ShieldCheck, gateKey: 'migrations' },
       { value: 'migrations', label: 'Migrations', icon: Database, gateKey: 'migrations' },
     ],
@@ -3089,9 +3093,23 @@ function AdminPage() {
                 <HealthTab />
               </TabsContent>
 
+              {/* CAS Insights — authorization service health + decision stats */}
+              {tabGateValues.metrics && (
+                <TabsContent value="cas-insights" className="space-y-4">
+                  <CasInsightsTab isAdmin={isAdmin} />
+                </TabsContent>
+              )}
+
               {tabGateValues.audit_logs && (
                 <TabsContent value="audit-logs" className="space-y-4">
                   <AuditLogsTab isAdmin={isAdmin} onUserClick={setSelectedUserEmail} />
+                </TabsContent>
+              )}
+
+              {/* Permission Debugger — interactive OpenFGA /explain */}
+              {tabGateValues.openfga && (
+                <TabsContent value="cas-debugger" className="space-y-4">
+                  <PermissionDebuggerTab isAdmin={isAdmin} />
                 </TabsContent>
               )}
 

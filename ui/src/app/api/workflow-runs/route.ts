@@ -24,10 +24,11 @@ import {
 } from "@/lib/server/workflow-engine";
 import { readEventsByRun, deleteEventsByRun } from "@/lib/server/event-store";
 import {
-  filterResourcesByPermission,
-  requireResourcePermission,
-  type ResourceAuthzSession,
-} from "@/lib/rbac/resource-authz";
+  filterAccessibleWorkflowConfigs,
+  requireWorkflowAccess,
+  workflowAccessAllowed,
+  type WorkflowAuthzSession,
+} from "@/lib/server/workflow-cas-authz";
 import type { WorkflowConfig } from "@/types/workflow-config";
 
 const STORAGE_TYPE = isMongoDBConfigured ? "mongodb" : "none";
@@ -45,35 +46,19 @@ const CLEANUP_INTERVAL_MS = 30 * 60 * 1000;
 
 async function userCanAccessConfig(
   configId: string,
-  session: ResourceAuthzSession,
+  session: WorkflowAuthzSession,
 ): Promise<boolean> {
-  try {
-    await requireResourcePermission(
-      session,
-      { type: "task", id: configId, action: "read" },
-      { bypassForOrgAdmin: true },
-    );
-    return true;
-  } catch {
-    return false;
-  }
+  // Migrated to CAS (spec 2026-06-06): org-admin bypass is preserved inside
+  // workflowAccessAllowed; clean reason codes replace task#read / pdp_denied.
+  return workflowAccessAllowed(session, configId, "read");
 }
 
 /** Check if user can delete runs for the workflow config. */
 async function userCanDeleteConfigRuns(
   configId: string,
-  session: ResourceAuthzSession,
+  session: WorkflowAuthzSession,
 ): Promise<boolean> {
-  try {
-    await requireResourcePermission(
-      session,
-      { type: "task", id: configId, action: "delete" },
-      { bypassForOrgAdmin: true },
-    );
-    return true;
-  } catch {
-    return false;
-  }
+  return workflowAccessAllowed(session, configId, "delete");
 }
 
 /**
@@ -158,12 +143,8 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     throw new ApiError(`Workflow config ${workflow_config_id} not found`, 404);
   }
 
-  // Verify user has access to this workflow config
-  await requireResourcePermission(
-    session,
-    { type: "task", id: workflow_config_id, action: "read" },
-    { bypassForOrgAdmin: true },
-  );
+  // Verify user has access to this workflow config (via CAS)
+  await requireWorkflowAccess(session, workflow_config_id, "read");
 
   // Build auth headers for DA server calls
   const authHeaders: Record<string, string> = {};
@@ -256,11 +237,11 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   // List all runs — filter to only those whose configs the user can read.
   const configCol = await getCollection<WorkflowConfig>("workflow_configs");
   const configCandidates = await configCol.find({}).project({ _id: 1 }).toArray();
-  const accessibleConfigs = await filterResourcesByPermission(
+  const accessibleConfigs = await filterAccessibleWorkflowConfigs(
     session,
     configCandidates,
-    { type: "task", action: "read", id: (config) => config._id },
-    { bypassForOrgAdmin: true },
+    (config) => config._id as string,
+    "read",
   );
 
   const accessibleIds = accessibleConfigs.map((c) => c._id);

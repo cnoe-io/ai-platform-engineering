@@ -16,6 +16,7 @@ import {
   X,
   ChevronDown,
   ChevronUp,
+  KeyRound,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -38,6 +39,7 @@ const TYPE_OPTIONS: { value: string; label: string }[] = [
   { value: "", label: "All" },
   { value: "auth", label: "Authorization" },
   { value: "openfga_rebac", label: "OpenFGA ReBAC" },
+  { value: "cas_decision", label: "Authorization Service" },
   { value: "tool_action", label: "Tool Action" },
   { value: "agent_delegation", label: "Agent Delegation" },
 ];
@@ -71,6 +73,13 @@ function TypeBadge({ type }: { type: AuditEventType }) {
         <Badge variant="outline" className="text-cyan-600 border-cyan-300 bg-cyan-50 dark:bg-cyan-950 dark:text-cyan-400 dark:border-cyan-800 gap-1">
           <Network className="h-3 w-3" />
           OpenFGA ReBAC
+        </Badge>
+      );
+    case "cas_decision":
+      return (
+        <Badge variant="outline" className="text-indigo-600 border-indigo-300 bg-indigo-50 dark:bg-indigo-950 dark:text-indigo-400 dark:border-indigo-800 gap-1">
+          <KeyRound className="h-3 w-3" />
+          Authorization Service
         </Badge>
       );
     case "agent_delegation":

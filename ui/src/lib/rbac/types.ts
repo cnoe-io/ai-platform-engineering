@@ -122,7 +122,12 @@ export interface KeycloakAuthzConfig {
 }
 
 /** Unified audit event types (FR-037) */
-export type AuditEventType = "auth" | "tool_action" | "agent_delegation" | "openfga_rebac";
+export type AuditEventType =
+  | "auth"
+  | "tool_action"
+  | "agent_delegation"
+  | "openfga_rebac"
+  | "cas_decision";
 
 /** Unified audit event outcome — superset of AuditOutcome for tool/delegation */
 export type UnifiedAuditOutcome = "allow" | "deny" | "success" | "error";

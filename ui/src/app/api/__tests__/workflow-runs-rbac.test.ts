@@ -6,8 +6,9 @@ import { NextRequest } from "next/server";
 
 const mockGetCollection = jest.fn();
 const mockGetUserTeamIds = jest.fn();
-const mockRequireResourcePermission = jest.fn();
-const mockFilterResourcesByPermission = jest.fn();
+const mockRequireWorkflowAccess = jest.fn();
+const mockWorkflowAccessAllowed = jest.fn();
+const mockFilterAccessibleWorkflowConfigs = jest.fn();
 const mockStartWorkflowRun = jest.fn();
 
 jest.mock("@/lib/mongodb", () => ({
@@ -48,9 +49,10 @@ jest.mock("@/lib/api-middleware", () => {
   };
 });
 
-jest.mock("@/lib/rbac/resource-authz", () => ({
-  filterResourcesByPermission: (...args: unknown[]) => mockFilterResourcesByPermission(...args),
-  requireResourcePermission: (...args: unknown[]) => mockRequireResourcePermission(...args),
+jest.mock("@/lib/server/workflow-cas-authz", () => ({
+  filterAccessibleWorkflowConfigs: (...args: unknown[]) => mockFilterAccessibleWorkflowConfigs(...args),
+  requireWorkflowAccess: (...args: unknown[]) => mockRequireWorkflowAccess(...args),
+  workflowAccessAllowed: (...args: unknown[]) => mockWorkflowAccessAllowed(...args),
 }));
 
 jest.mock("@/lib/server/workflow-engine", () => ({
@@ -78,8 +80,9 @@ describe("workflow runs OpenFGA config access", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockGetUserTeamIds.mockResolvedValue(["legacy-team"]);
-    mockRequireResourcePermission.mockResolvedValue(undefined);
-    mockFilterResourcesByPermission.mockImplementation(async (_session, resources) =>
+    mockRequireWorkflowAccess.mockResolvedValue(undefined);
+    mockWorkflowAccessAllowed.mockResolvedValue(true);
+    mockFilterAccessibleWorkflowConfigs.mockImplementation(async (_session, resources) =>
       resources.filter((resource: { _id?: string }) => resource._id === "wf-visible"),
     );
     mockStartWorkflowRun.mockResolvedValue("run-new");
@@ -104,11 +107,11 @@ describe("workflow runs OpenFGA config access", () => {
     expect(response.status).toBe(200);
     expect(mockGetUserTeamIds).not.toHaveBeenCalled();
     expect(configCollection.find).toHaveBeenCalledWith({});
-    expect(mockFilterResourcesByPermission).toHaveBeenCalledWith(
+    expect(mockFilterAccessibleWorkflowConfigs).toHaveBeenCalledWith(
       expect.objectContaining({ sub: "alice-sub" }),
       [{ _id: "wf-visible" }, { _id: "wf-hidden" }],
-      { type: "task", action: "read", id: expect.any(Function) },
-      { bypassForOrgAdmin: true },
+      expect.any(Function),
+      "read",
     );
     expect(runCollection.find).toHaveBeenCalledWith({ workflow_config_id: { $in: ["wf-visible"] } });
     expect(body).toEqual([{ _id: "run-1", workflow_config_id: "wf-visible" }]);
@@ -129,10 +132,10 @@ describe("workflow runs OpenFGA config access", () => {
 
     expect(response.status).toBe(201);
     expect(mockGetUserTeamIds).not.toHaveBeenCalled();
-    expect(mockRequireResourcePermission).toHaveBeenCalledWith(
+    expect(mockRequireWorkflowAccess).toHaveBeenCalledWith(
       expect.objectContaining({ sub: "alice-sub" }),
-      { type: "task", id: "wf-visible", action: "read" },
-      { bypassForOrgAdmin: true },
+      "wf-visible",
+      "read",
     );
     expect(mockStartWorkflowRun).toHaveBeenCalledWith(
       config,

@@ -11,7 +11,7 @@ import type {
 
 const COLLECTION = "audit_events";
 
-const VALID_TYPES: AuditEventType[] = ["auth", "tool_action", "agent_delegation", "openfga_rebac"];
+const VALID_TYPES: AuditEventType[] = ["auth", "tool_action", "agent_delegation", "openfga_rebac", "cas_decision"];
 const VALID_OUTCOMES: UnifiedAuditOutcome[] = ["allow", "deny", "success", "error"];
 
 interface AuditEventDocument {

@@ -685,6 +685,7 @@ describe('Admin Dashboard Page', () => {
         'OpenFGA ReBAC',
         'RBAC Audit',
         'Chat Audit',
+        'Permission Debugger',
         'Keycloak',
         'Migrations',
       ]);
