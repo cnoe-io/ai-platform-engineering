@@ -6,14 +6,44 @@
 // decision plus the OpenFGA debug block (the relation actually checked).
 // Admin-gated (admin_ui / audit.view); no subject-binding because this is a
 // privileged forensic tool, not a self-service decision call.
+//
+// Single action  → { decision, reason, retriable, debug }            (back-compat)
+// `actions: [..]` (or neither field) → { results: [ {action, decision, reason, retriable, debug} ] }
+//   — the permission-matrix view: every action for one subject+resource at once.
 
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 
 import { authOptions } from "@/lib/auth-config";
 import { requireRbacPermission, withErrorHandler, ApiError } from "@/lib/api-middleware";
-import { authorize, describeFgaCheck } from "@/lib/authz";
+import { authorize, describeFgaCheck, type Action, type Resource, type Subject } from "@/lib/authz";
 import { HttpAuthzError, parseAction, parseResource, parseSubject } from "@/lib/authz/http";
+
+const ALL_ACTIONS: Action[] = [
+  "discover", "read", "read-metadata", "use", "write", "create",
+  "manage", "share", "delete", "ingest", "call", "invoke", "audit",
+];
+
+function explainOne(subject: Subject, resource: Resource, action: Action, tenantId?: string) {
+  return (async () => {
+    const req = { subject, resource, action };
+    const result = await authorize(req, { tenantId });
+    const fga = describeFgaCheck(req);
+    return {
+      action,
+      decision: result.decision,
+      reason: result.reason,
+      retriable: result.retriable,
+      via: result.via ?? null,
+      debug: {
+        engine: fga.engine,
+        relation: fga.relation,
+        checked: [`${fga.user} ${fga.relation} ${fga.object}`],
+        store: fga.store,
+      },
+    };
+  })();
+}
 
 export const POST = withErrorHandler(async (request: NextRequest): Promise<NextResponse> => {
   const session = (await getServerSession(authOptions)) as {
@@ -49,13 +79,23 @@ export const POST = withErrorHandler(async (request: NextRequest): Promise<NextR
   }
   const b = body as Record<string, unknown>;
 
-  let req;
+  let subject: Subject;
+  let resource: Resource;
+  let singleAction: Action | null = null;
+  let actions: Action[];
   try {
-    req = {
-      subject: parseSubject(b.subject),
-      resource: parseResource(b.resource),
-      action: parseAction(b.action),
-    };
+    subject = parseSubject(b.subject);
+    resource = parseResource(b.resource);
+    if (Array.isArray(b.actions)) {
+      // Matrix mode: validate each requested action (empty → all).
+      actions = (b.actions.length > 0 ? b.actions : ALL_ACTIONS).map(parseAction);
+    } else if (b.action != null) {
+      singleAction = parseAction(b.action);
+      actions = [singleAction];
+    } else {
+      // Neither field → evaluate the full matrix.
+      actions = ALL_ACTIONS;
+    }
   } catch (err) {
     if (err instanceof HttpAuthzError) {
       throw new ApiError(err.message, err.status, err.code);
@@ -63,21 +103,11 @@ export const POST = withErrorHandler(async (request: NextRequest): Promise<NextR
     throw err;
   }
 
-  const result = await authorize(req, { tenantId: session.org });
-  const fga = describeFgaCheck(req);
+  const results = await Promise.all(actions.map((a) => explainOne(subject, resource, a, session.org)));
 
-  return NextResponse.json(
-    {
-      decision: result.decision,
-      reason: result.reason,
-      retriable: result.retriable,
-      debug: {
-        engine: fga.engine,
-        relation: fga.relation,
-        checked: [`${fga.user} ${fga.relation} ${fga.object}`],
-        store: fga.store,
-      },
-    },
-    { headers: { "Cache-Control": "no-store" } },
-  );
+  // Back-compat: a single `action` returns the flat shape; everything else
+  // (matrix) returns { results: [...] }.
+  const payload = singleAction !== null ? results[0] : { results };
+
+  return NextResponse.json(payload, { headers: { "Cache-Control": "no-store" } });
 });

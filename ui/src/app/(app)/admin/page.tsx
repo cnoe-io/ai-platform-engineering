@@ -36,7 +36,7 @@ import { AuditLogsTab } from "@/components/admin/AuditLogsTab";
 import { UnifiedAuditTab } from "@/components/admin/UnifiedAuditTab";
 import { OpenFgaRebacTab } from "@/components/admin/OpenFgaRebacTab";
 import { CasInsightsTab } from "@/components/admin/CasInsightsTab";
-import { PermissionDebuggerTab } from "@/components/admin/PermissionDebuggerTab";
+import { PermissionsToolTab } from "@/components/admin/PermissionsToolTab";
 import { RagTeamAccessPanel } from "@/components/admin/rebac/RagTeamAccessPanel";
 import { SlackChannelRebacPanel } from "@/components/admin/rebac/SlackChannelRebacPanel";
 import { WebexSpaceRebacPanel } from "@/components/admin/rebac/WebexSpaceRebacPanel";
@@ -252,8 +252,8 @@ interface SimulationTeamOption {
   description?: string;
 }
 
-const VALID_TABS = ['users', 'teams', 'stats', 'skills', 'feedback', 'nps', 'metrics', 'health', 'cas-insights', 'credentials', 'audit-logs', 'action-audit', 'cas-debugger', 'identity-groups', 'openfga', 'keycloak', 'migrations', 'ai-review', 'settings', 'release-notes', 'slack', 'webex', 'rag-access'] as const;
-const VALID_OPENFGA_SUBTABS = ['builder', 'explorer', 'graph', 'tuples', 'access', 'baseline', 'diagnostics'] as const;
+const VALID_TABS = ['users', 'teams', 'stats', 'skills', 'feedback', 'nps', 'metrics', 'health', 'cas-insights', 'credentials', 'audit-logs', 'action-audit', 'cas-permissions-tool', 'identity-groups', 'openfga', 'keycloak', 'migrations', 'ai-review', 'settings', 'release-notes', 'slack', 'webex', 'rag-access'] as const;
+const VALID_OPENFGA_SUBTABS = ['builder', 'explorer', 'graph', 'tuples', 'baseline'] as const;
 const MOVED_ADMIN_TAB_MAP = {
   insights: 'stats',
 } as const;
@@ -264,8 +264,8 @@ const MOVED_OPENFGA_DEEPLINK_TAB_MAP = {
 } as const;
 
 type CategoryKey = 'settings' | 'people' | 'integrations' | 'insights' | 'platform' | 'security';
-const DEFAULT_ADMIN_CATEGORY: CategoryKey = 'settings';
-const DEFAULT_ADMIN_TAB = 'settings';
+const DEFAULT_ADMIN_CATEGORY: CategoryKey = 'security';
+const DEFAULT_ADMIN_TAB = 'cas-permissions-tool';
 const DEFAULT_READONLY_TAB = 'users';
 
 interface Category {
@@ -338,10 +338,10 @@ const CATEGORIES: Category[] = [
     label: 'Security & Policy',
     icon: Shield,
     tabs: [
+      { value: 'cas-permissions-tool', label: 'Permissions Tool', icon: Bug, gateKey: 'openfga' },
       { value: 'openfga', label: 'OpenFGA ReBAC', icon: Shield, gateKey: 'openfga' },
       { value: 'action-audit', label: 'RBAC Audit', icon: Shield, gateKey: 'action_audit' },
       { value: 'audit-logs', label: 'Chat Audit', icon: FileText, gateKey: 'audit_logs' },
-      { value: 'cas-debugger', label: 'Permission Debugger', icon: Bug, gateKey: 'openfga' },
       { value: 'keycloak', label: 'Keycloak', icon: ShieldCheck, gateKey: 'migrations' },
       { value: 'migrations', label: 'Migrations', icon: Database, gateKey: 'migrations' },
     ],
@@ -3108,8 +3108,8 @@ function AdminPage() {
 
               {/* Permission Debugger — interactive OpenFGA /explain */}
               {tabGateValues.openfga && (
-                <TabsContent value="cas-debugger" className="space-y-4">
-                  <PermissionDebuggerTab isAdmin={isAdmin} />
+                <TabsContent value="cas-permissions-tool" className="space-y-4">
+                  <PermissionsToolTab isAdmin={isAdmin} />
                 </TabsContent>
               )}
 

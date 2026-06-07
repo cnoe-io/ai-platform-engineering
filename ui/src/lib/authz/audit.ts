@@ -12,7 +12,7 @@ import { createHash, randomUUID } from "crypto";
 
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 
-import type { Action, AuthorizeResult, DecisionContext, Resource, Subject } from "./contract";
+import type { Action, AuthorizeResult, DecisionContext, GrantIntent, Resource, Subject } from "./contract";
 
 const AUDIT_EVENTS = "audit_events";
 const SUBJECT_SALT = process.env.AUDIT_SUBJECT_SALT ?? "caipe-098-audit";
@@ -92,6 +92,45 @@ export function emitDecisionAudit(
       await coll.insertOne(event);
     } catch (err) {
       console.warn("[cas/audit] Failed to persist decision event:", err);
+    }
+  })();
+}
+
+function granteeLabel(g: GrantIntent["grantee"]): string {
+  return g.type === "everyone" ? "user:*" : `${g.type}:${g.id ?? ""}`;
+}
+
+/** One audit event per grant/revoke (cas_grant) → unified `audit_events`. */
+export function emitGrantAudit(
+  op: "grant" | "revoke",
+  intent: GrantIntent,
+  ctx: DecisionContext = {},
+): void {
+  if (!isMongoDBConfigured) return;
+
+  const event = {
+    audit_event_id: randomUUID(),
+    ts: new Date(),
+    type: "cas_grant" as const,
+    tenant_id: ctx.tenantId ?? process.env.TENANT_ID ?? "default",
+    action: intent.capability,
+    outcome: op,
+    resource_ref: `${intent.resource.type}:${intent.resource.id}`,
+    resource_type: intent.resource.type,
+    resource_id: intent.resource.id,
+    grantee_ref: granteeLabel(intent.grantee),
+    pdp: "openfga" as const,
+    source: "cas" as const,
+    correlation_id: ctx.correlationId ?? randomUUID(),
+    ...(ctx.traceId ? { trace_id: ctx.traceId } : {}),
+  };
+
+  void (async () => {
+    try {
+      const coll = await getCollection<typeof event>(AUDIT_EVENTS);
+      await coll.insertOne(event);
+    } catch (err) {
+      console.warn("[cas/audit] Failed to persist grant event:", err);
     }
   })();
 }

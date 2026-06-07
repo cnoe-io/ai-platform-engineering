@@ -57,11 +57,16 @@ export interface AuthorizeRequest {
   context?: Record<string, unknown>;
 }
 
+/** How an ALLOW was reached — for explainability (debugger / audit). */
+export type DecisionVia = "tuple" | "org_admin";
+
 export interface AuthorizeResult {
   decision: DecisionValue;
   reason: ReasonCode;
   retriable: boolean;
   ttl_seconds?: number;
+  /** Set on ALLOW: which path granted it (direct tuple vs. org-admin bypass vs. workflow delegation). */
+  via?: DecisionVia;
 }
 
 /**
@@ -73,4 +78,25 @@ export interface DecisionContext {
   correlationId?: string;
   traceId?: string;
   spanId?: string;
+}
+
+// ─── Grant / administration (PAP) ─────────────────────────────────────────────
+
+export type GranteeType = "user" | "service_account" | "team" | "everyone";
+
+/** Who a capability is granted to. `everyone` needs no id (maps to a wildcard). */
+export interface Grantee {
+  type: GranteeType;
+  id?: string;
+}
+
+/**
+ * Intent-based grant. Callers describe "this grantee may perform this
+ * capability on this resource" — never a raw (user, relation, object) tuple.
+ * The adapter translates intent → engine-specific write.
+ */
+export interface GrantIntent {
+  resource: Resource;
+  grantee: Grantee;
+  capability: Action;
 }

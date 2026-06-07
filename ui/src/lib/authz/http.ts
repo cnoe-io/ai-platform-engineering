@@ -12,6 +12,9 @@ import { authorize } from "./index";
 import type {
   Action,
   DecisionContext,
+  Grantee,
+  GranteeType,
+  GrantIntent,
   Resource,
   ResourceType,
   Subject,
@@ -31,6 +34,7 @@ const ID_MAX_LEN = 256;
 const ID_PATTERN = /^[A-Za-z0-9._%+\-@]+$/;
 
 const SUBJECT_TYPES: ReadonlySet<string> = new Set<SubjectType>(["user", "service_account"]);
+const GRANTEE_TYPES: ReadonlySet<string> = new Set<GranteeType>(["user", "service_account", "team", "everyone"]);
 const RESOURCE_TYPES: ReadonlySet<string> = new Set<ResourceType>([
   "agent", "skill", "mcp_tool", "knowledge_base", "data_source",
   "task", "slack_channel", "webex_space", "organization", "team", "conversation",
@@ -178,5 +182,45 @@ export async function requireAuditCapability(caller: Caller, ctx: DecisionContex
   );
   if (audit.decision !== "ALLOW") {
     throw new HttpAuthzError(403, "FORBIDDEN", "can_audit permission is required to use /explain");
+  }
+}
+
+// ─── Grant (PAP) parsing + meta-authz ─────────────────────────────────────────
+
+export function parseGrantee(raw: unknown): Grantee {
+  if (!raw || typeof raw !== "object") {
+    throw new HttpAuthzError(400, "INVALID_REQUEST", "grantee is required");
+  }
+  const r = raw as Record<string, unknown>;
+  if (!GRANTEE_TYPES.has(r.type as string)) {
+    throw new HttpAuthzError(400, "INVALID_REQUEST", "grantee.type must be user, service_account, team or everyone");
+  }
+  if (r.type === "everyone") return { type: "everyone" };
+  if (!isValidId(r.id)) {
+    throw new HttpAuthzError(400, "INVALID_REQUEST", "grantee.id is missing or contains invalid characters");
+  }
+  return { type: r.type as GranteeType, id: r.id as string };
+}
+
+export function parseGrantIntent(raw: unknown): GrantIntent {
+  if (!raw || typeof raw !== "object") {
+    throw new HttpAuthzError(400, "INVALID_REQUEST", "request body must be an object");
+  }
+  const b = raw as Record<string, unknown>;
+  return {
+    resource: parseResource(b.resource),
+    grantee: parseGrantee(b.grantee),
+    capability: parseAction(b.capability),
+  };
+}
+
+/**
+ * Meta-authz for the grant API: to grant/revoke a capability on a resource,
+ * the caller must hold `manage` on that resource (org admins pass via bypass).
+ */
+export async function requireManage(caller: Caller, resource: Resource, ctx: DecisionContext): Promise<void> {
+  const decision = await authorize({ subject: caller, resource, action: "manage" }, ctx);
+  if (decision.decision !== "ALLOW") {
+    throw new HttpAuthzError(403, "FORBIDDEN", "You must be able to manage this resource to grant or revoke access to it");
   }
 }

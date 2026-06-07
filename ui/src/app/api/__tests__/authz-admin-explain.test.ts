@@ -72,6 +72,33 @@ it("returns the decision plus the OpenFGA debug block for an admin", async () =>
   expect(mockRequireRbac).toHaveBeenCalledWith(expect.anything(), "admin_ui", "audit.view");
 });
 
+it("evaluates a permission matrix when actions[] is provided", async () => {
+  mockAuthorize.mockImplementation(async (req: { action: string }) =>
+    req.action === "use"
+      ? { decision: "ALLOW", reason: "OK", retriable: false, via: "org_admin" }
+      : { decision: "DENY", reason: "NO_CAPABILITY", retriable: false },
+  );
+  mockDescribe.mockImplementation((req: { action: string }) => ({
+    engine: "openfga",
+    relation: `can_${req.action}`,
+    user: "user:bob",
+    object: "agent:pe",
+    store: "store-xyz",
+  }));
+  const res = await POST(
+    post({ subject: { type: "user", id: "bob" }, resource: { type: "agent", id: "pe" }, actions: ["use", "read"] }),
+  );
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.results).toHaveLength(2);
+  const use = body.results.find((r: { action: string }) => r.action === "use");
+  const read = body.results.find((r: { action: string }) => r.action === "read");
+  expect(use.decision).toBe("ALLOW");
+  expect(use.via).toBe("org_admin"); // source surfaced for the matrix
+  expect(read.decision).toBe("DENY");
+  expect(read.debug.relation).toBe("can_read");
+});
+
 it("returns 401 when there is no session", async () => {
   mockGetServerSession.mockResolvedValue(null);
   const res = await POST(post(validBody));

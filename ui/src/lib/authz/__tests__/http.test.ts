@@ -16,10 +16,13 @@ import {
   enforceSubjectBinding,
   isValidId,
   parseAction,
+  parseGrantIntent,
+  parseGrantee,
   parseResource,
   parseResourceType,
   parseSubject,
   requireAuditCapability,
+  requireManage,
   resolveCaller,
   type Caller,
 } from "../http";
@@ -136,6 +139,36 @@ describe("enforceSubjectBinding — the core control", () => {
     await expect(
       enforceSubjectBinding(caller, { type: "service_account", id: "alice" }, {}),
     ).rejects.toMatchObject({ status: 403 });
+  });
+});
+
+describe("grant parsing", () => {
+  it("parseGrantee accepts user/team/everyone and rejects bad types/ids", () => {
+    expect(parseGrantee({ type: "team", id: "eng" })).toEqual({ type: "team", id: "eng" });
+    expect(parseGrantee({ type: "everyone" })).toEqual({ type: "everyone" });
+    expect(() => parseGrantee({ type: "nope", id: "x" })).toThrow(HttpAuthzError);
+    expect(() => parseGrantee({ type: "user", id: "a*b" })).toThrow(HttpAuthzError);
+  });
+  it("parseGrantIntent validates resource + grantee + capability", () => {
+    expect(parseGrantIntent({ resource: { type: "agent", id: "pe" }, grantee: { type: "team", id: "eng" }, capability: "use" })).toEqual({
+      resource: { type: "agent", id: "pe" },
+      grantee: { type: "team", id: "eng" },
+      capability: "use",
+    });
+    expect(() => parseGrantIntent({ resource: { type: "agent", id: "pe" }, grantee: { type: "team", id: "eng" }, capability: "frobnicate" })).toThrow(HttpAuthzError);
+  });
+});
+
+describe("requireManage (grant meta-authz)", () => {
+  const caller: Caller = { type: "user", id: "admin" };
+  it("passes when the caller can manage the resource", async () => {
+    mockAuthorize.mockResolvedValue({ decision: "ALLOW", reason: "OK" });
+    await expect(requireManage(caller, { type: "agent", id: "pe" }, {})).resolves.toBeUndefined();
+    expect(mockAuthorize).toHaveBeenCalledWith(expect.objectContaining({ action: "manage", resource: { type: "agent", id: "pe" } }), expect.anything());
+  });
+  it("throws 403 when the caller cannot manage the resource", async () => {
+    mockAuthorize.mockResolvedValue({ decision: "DENY", reason: "NO_CAPABILITY" });
+    await expect(requireManage(caller, { type: "agent", id: "pe" }, {})).rejects.toMatchObject({ status: 403, code: "FORBIDDEN" });
   });
 });
 

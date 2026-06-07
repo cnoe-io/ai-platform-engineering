@@ -1,7 +1,7 @@
 /**
  * @jest-environment node
  */
-import { createOpenFgaEngine, describeFgaCheck, getEngineStats, __resetAdapterStateForTests } from "../engines/openfga";
+import { createOpenFgaAdmin, createOpenFgaEngine, describeFgaCheck, getEngineStats, __resetAdapterStateForTests } from "../engines/openfga";
 import type { AuthorizeRequest } from "../contract";
 
 const realFetch = global.fetch;
@@ -38,11 +38,12 @@ describe("OpenFGA engine adapter", () => {
     delete process.env.OPENFGA_STORE_ID;
   });
 
-  it("maps allowed:true → ALLOW", async () => {
+  it("maps allowed:true → ALLOW (via tuple)", async () => {
     fetchMock.mockResolvedValue(checkResponse(true));
     const r = await createOpenFgaEngine().check(req);
     expect(r.decision).toBe("ALLOW");
     expect(r.reason).toBe("OK");
+    expect(r.via).toBe("tuple");
   });
 
   it("maps allowed:false → DENY/NO_CAPABILITY", async () => {
@@ -191,6 +192,50 @@ describe("OpenFGA engine adapter", () => {
       expect((await p2).reason).toBe("AUTHZ_UNAVAILABLE");
       release(checkResponse(true));
       expect((await p1).decision).toBe("ALLOW");
+    });
+  });
+
+  describe("PolicyAdmin (grant/revoke)", () => {
+    function writeResponse(): Response {
+      return { ok: true, status: 200, json: async () => ({}) } as unknown as Response;
+    }
+
+    it("grant writes the base-relation tuple (team→use agent)", async () => {
+      fetchMock.mockResolvedValue(writeResponse());
+      await createOpenFgaAdmin().grant({ resource: { type: "agent", id: "pe" }, grantee: { type: "team", id: "eng" }, capability: "use" });
+      const writeCall = fetchMock.mock.calls.find((c) => String(c[0]).endsWith("/write"));
+      const body = JSON.parse((writeCall![1] as RequestInit).body as string);
+      expect(body.writes.tuple_keys[0]).toEqual({ user: "team:eng#member", relation: "user", object: "agent:pe" });
+      expect(body.deletes).toBeUndefined();
+    });
+
+    it("grant for 'everyone' writes a user:* wildcard tuple", async () => {
+      fetchMock.mockResolvedValue(writeResponse());
+      await createOpenFgaAdmin().grant({ resource: { type: "agent", id: "pe" }, grantee: { type: "everyone" }, capability: "use" });
+      const body = JSON.parse((fetchMock.mock.calls.find((c) => String(c[0]).endsWith("/write"))![1] as RequestInit).body as string);
+      expect(body.writes.tuple_keys[0]).toEqual({ user: "user:*", relation: "user", object: "agent:pe" });
+    });
+
+    it("revoke deletes the tuple", async () => {
+      fetchMock.mockResolvedValue(writeResponse());
+      await createOpenFgaAdmin().revoke({ resource: { type: "knowledge_base", id: "kb1" }, grantee: { type: "user", id: "alice" }, capability: "read" });
+      const body = JSON.parse((fetchMock.mock.calls.find((c) => String(c[0]).endsWith("/write"))![1] as RequestInit).body as string);
+      expect(body.deletes.tuple_keys[0]).toEqual({ user: "user:alice", relation: "reader", object: "knowledge_base:kb1" });
+      expect(body.writes).toBeUndefined();
+    });
+
+    it("is idempotent — a 'tuple already exists' 400 does not throw", async () => {
+      fetchMock.mockResolvedValue({ ok: false, status: 400, text: async () => '{"code":"write_failed_due_to_invalid_input","message":"cannot write a tuple which already exists"}' } as unknown as Response);
+      await expect(
+        createOpenFgaAdmin().grant({ resource: { type: "agent", id: "pe" }, grantee: { type: "user", id: "x" }, capability: "use" }),
+      ).resolves.toBeUndefined();
+    });
+
+    it("throws on a real write failure", async () => {
+      fetchMock.mockResolvedValue({ ok: false, status: 500, text: async () => "boom" } as unknown as Response);
+      await expect(
+        createOpenFgaAdmin().grant({ resource: { type: "agent", id: "pe" }, grantee: { type: "user", id: "x" }, capability: "use" }),
+      ).rejects.toThrow(/write failed/i);
     });
   });
 

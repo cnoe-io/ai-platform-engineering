@@ -10,13 +10,34 @@ import type {
   Action,
   AuthorizeRequest,
   AuthorizeResult,
+  Grantee,
+  GrantIntent,
   Resource,
   ResourceType,
   Subject,
 } from "../contract";
-import type { PolicyEngine } from "../engine";
+import type { PolicyAdmin, PolicyEngine } from "../engine";
 import { BoundedTtlCache } from "../cache";
 import { getReasonMeta } from "../reasons";
+
+// Action → OpenFGA BASE relation (what gets WRITTEN). Distinct from the
+// can_* check relations: you write `user`/`reader`/`member`, OpenFGA computes
+// `can_use`/`can_read`. Mirrors lib/rbac/tuple-builders ACTION_TO_BASE_RELATION.
+const ACTION_TO_BASE_RELATION: Record<Action, string> = {
+  discover:        "reader",
+  read:            "reader",
+  "read-metadata": "metadata_reader",
+  use:             "user",
+  write:           "writer",
+  create:          "owner",
+  manage:          "manager",
+  share:           "sharer",
+  delete:          "manager",
+  ingest:          "ingestor",
+  call:            "caller",
+  invoke:          "invoker",
+  audit:           "auditor",
+};
 
 // ─── Action → OpenFGA check-relation map ─────────────────────────────────────
 // Mirrors lib/rbac/tuple-builders.ts ACTION_TO_CHECK_RELATION. Kept in sync
@@ -217,7 +238,7 @@ async function boundedParallel<T>(
 }
 
 function allow(): AuthorizeResult {
-  return { decision: "ALLOW", reason: "OK", retriable: getReasonMeta("OK").retriable, ttl_seconds: Math.floor(READ_TTL_MS / 1000) };
+  return { decision: "ALLOW", reason: "OK", retriable: getReasonMeta("OK").retriable, ttl_seconds: Math.floor(READ_TTL_MS / 1000), via: "tuple" };
 }
 
 function deny(reason: AuthorizeResult["reason"] = "NO_CAPABILITY"): AuthorizeResult {
@@ -281,6 +302,68 @@ export function createOpenFgaEngine(): PolicyEngine {
         results.set(id, result);
       });
       return results;
+    },
+  };
+}
+
+// ─── Admin / PAP (writes) ─────────────────────────────────────────────────────
+
+interface FgaTuple {
+  user: string;
+  relation: string;
+  object: string;
+}
+
+function granteeRef(g: Grantee): string {
+  switch (g.type) {
+    case "user":
+      return `user:${g.id}`;
+    case "service_account":
+      return `service_account:${g.id}`;
+    case "team":
+      return `team:${g.id}#member`;
+    case "everyone":
+      return "user:*";
+  }
+}
+
+function grantTuple(intent: GrantIntent): FgaTuple {
+  return {
+    user: granteeRef(intent.grantee),
+    relation: ACTION_TO_BASE_RELATION[intent.capability],
+    object: `${RESOURCE_TO_OPENFGA_TYPE[intent.resource.type]}:${intent.resource.id}`,
+  };
+}
+
+async function fgaWrite(storeId: string, writes: FgaTuple[], deletes: FgaTuple[]): Promise<void> {
+  const body = {
+    ...(writes.length ? { writes: { tuple_keys: writes } } : {}),
+    ...(deletes.length ? { deletes: { tuple_keys: deletes } } : {}),
+  };
+  const res = await fetch(`${baseUrl()}/stores/${storeId}/write`, {
+    method: "POST",
+    headers: fgaHeaders(),
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    // Idempotent: writing an existing tuple / deleting an absent one is a no-op.
+    if (res.status === 400 && /already exist|does not exist|duplicate/i.test(text)) return;
+    throw new Error(`OpenFGA write failed: ${res.status} ${text.slice(0, 200)}`);
+  }
+}
+
+export function createOpenFgaAdmin(): PolicyAdmin {
+  return {
+    async grant(intent: GrantIntent): Promise<void> {
+      const storeId = await resolveStoreId();
+      await fgaWrite(storeId, [grantTuple(intent)], []);
+      decisionCache.clear(); // the graph changed — drop cached decisions
+    },
+    async revoke(intent: GrantIntent): Promise<void> {
+      const storeId = await resolveStoreId();
+      await fgaWrite(storeId, [], [grantTuple(intent)]);
+      decisionCache.clear();
     },
   };
 }
