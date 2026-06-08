@@ -8,7 +8,7 @@ import {
   listIdpConnectors,
   type IdpConnectorHealth,
 } from "@/lib/rbac/idp-connectors";
-import { getIdpSyncSettings, listIdpSyncRuns } from "@/lib/rbac/idp-sync-store";
+import { getIdpSyncSettings, listIdpSyncRuns, reapStaleIdpSyncRuns } from "@/lib/rbac/idp-sync-store";
 
 import { withIdentityGroupSyncViewAuth } from "../../_lib";
 import { resolveProviderParam } from "../_provider";
@@ -23,6 +23,9 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   return withIdentityGroupSyncViewAuth(request, async () => {
     const provider = resolveProviderParam(request);
     const configured = isConnectorConfigured(provider);
+    // Reap dead `running` rows (interrupted by a pod/process restart) before
+    // reading, so the UI reflects them as failed rather than stuck "running".
+    await reapStaleIdpSyncRuns(provider, Date.now());
     const [settings, recentRuns] = await Promise.all([
       getIdpSyncSettings(provider),
       listIdpSyncRuns(provider, 20),

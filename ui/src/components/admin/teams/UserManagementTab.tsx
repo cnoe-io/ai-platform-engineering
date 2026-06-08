@@ -1,37 +1,26 @@
 "use client";
 
-import React, {
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { MultiSelect } from "@/components/ui/multi-select";
+import { AlertCircle, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import {
   useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { AlertCircle, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
 
 const PAGE_SIZE = 20;
 
 const UM_SEARCH = "umSearch";
 const UM_PAGE = "umPage";
 const UM_TEAMS = "umTeams";
-const UM_IDP = "umIdp";
 const UM_SLACK = "umSlack";
 const UM_WEBEX = "umWebex";
 const UM_ENABLED = "umEnabled";
-
-const IDP_OPTIONS = [
-  { value: "", label: "All IdPs" },
-  { value: "duo-sso", label: "duo-sso" },
-  { value: "local", label: "local" },
-];
 
 type SlackFilter = "all" | "linked" | "pending" | "unlinked";
 type WebexFilter = "all" | "linked" | "unlinked";
@@ -89,111 +78,6 @@ function webexStatusForUser(u: AdminUserRow): "linked" | "unlinked" {
   return v != null && String(v).trim() !== "" ? "linked" : "unlinked";
 }
 
-function emailKey(email: string): string {
-  return email.trim().toLowerCase();
-}
-
-function userInAllTeamsByMembership(
-  email: string,
-  teamIds: string[],
-  teams: TeamListItem[]
-): boolean {
-  if (teamIds.length === 0) return true;
-  const key = emailKey(email);
-  for (const tid of teamIds) {
-    const t = teams.find((x) => x._id === tid);
-    const ok = t?.members?.some(
-      (m) => emailKey(String(m.user_id)) === key
-    );
-    if (!ok) return false;
-  }
-  return true;
-}
-
-function buildEmailToTeamNames(teams: TeamListItem[]): Map<string, string[]> {
-  const m = new Map<string, string[]>();
-  for (const t of teams) {
-    for (const mem of t.members ?? []) {
-      const k = emailKey(String(mem.user_id));
-      if (!m.has(k)) m.set(k, []);
-      m.get(k)!.push(t.name);
-    }
-  }
-  return m;
-}
-
-function MultiSelectFilter({
-  label,
-  options,
-  selected,
-  onChange,
-  placeholder,
-}: {
-  label: string;
-  options: { value: string; label: string }[];
-  selected: string[];
-  onChange: (next: string[]) => void;
-  placeholder: string;
-}) {
-  const summary =
-    selected.length === 0
-      ? placeholder
-      : selected.length === 1
-        ? options.find((o) => o.value === selected[0])?.label ?? selected[0]
-        : `${selected.length} selected`;
-
-  const toggle = (value: string) => {
-    if (selected.includes(value)) {
-      onChange(selected.filter((v) => v !== value));
-    } else {
-      onChange([...selected, value]);
-    }
-  };
-
-  return (
-    <div className="flex flex-col gap-1 min-w-[140px]">
-      <span className="text-xs font-medium text-muted-foreground">{label}</span>
-      <Popover>
-        <PopoverTrigger asChild>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="justify-between font-normal h-9"
-          >
-            <span className="truncate">{summary}</span>
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent
-          className="w-56 p-2 max-h-64 overflow-y-auto"
-          align="start"
-        >
-          {options.length === 0 ? (
-            <p className="text-xs text-muted-foreground px-2 py-1">No options</p>
-          ) : (
-            <div className="space-y-1">
-              {options.map((o) => (
-                <label
-                  key={o.value || "__all__"}
-                  className="flex items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted/60 cursor-pointer"
-                >
-                  <input
-                    type="checkbox"
-                    className="rounded border-input"
-                    checked={selected.includes(o.value)}
-                    onChange={() => toggle(o.value)}
-                  />
-                  <span className="truncate">{o.label}</span>
-                </label>
-              ))}
-            </div>
-          )}
-        </PopoverContent>
-      </Popover>
-    </div>
-  );
-}
-
 export function UserManagementTab({ onSelectUser }: UserManagementTabProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -208,7 +92,6 @@ export function UserManagementTab({ onSelectUser }: UserManagementTabProps) {
     () => parseListParam(searchParams.get(UM_TEAMS)),
     [searchParams]
   );
-  const idpFilter = searchParams.get(UM_IDP) ?? "";
   const slackFilter = (searchParams.get(UM_SLACK) ?? "all") as SlackFilter;
   const webexFilter = (searchParams.get(UM_WEBEX) ?? "all") as WebexFilter;
   const enabledFilter = (searchParams.get(UM_ENABLED) ??
@@ -266,9 +149,6 @@ export function UserManagementTab({ onSelectUser }: UserManagementTabProps) {
     });
   };
 
-  const setIdpFilter = (v: string) => {
-    patchUrl({ [UM_IDP]: v || null, [UM_PAGE]: null });
-  };
 
   const setSlackFilter = (v: SlackFilter) => {
     patchUrl({
@@ -316,15 +196,26 @@ export function UserManagementTab({ onSelectUser }: UserManagementTabProps) {
     };
   }, []);
 
-  const emailToTeams = useMemo(() => buildEmailToTeamNames(teams), [teams]);
 
-  const teamOptions = useMemo(
-    () =>
-      teams
-        .slice()
-        .sort((a, b) => a.name.localeCompare(b.name))
-        .map((t) => ({ value: t._id, label: t.name })),
+  // The shared MultiSelect works on plain string options, while `teamsFilter`
+  // (URL state + backend `?team=`) is keyed by team id. Bridge the two with
+  // name<->id maps so the picker shows names but selection stays id-based.
+  const sortedTeams = useMemo(
+    () => teams.slice().sort((a, b) => a.name.localeCompare(b.name)),
     [teams]
+  );
+  const teamNameOptions = useMemo(() => sortedTeams.map((t) => t.name), [sortedTeams]);
+  const nameToId = useMemo(
+    () => new Map(sortedTeams.map((t) => [t.name, t._id])),
+    [sortedTeams]
+  );
+  const idToName = useMemo(
+    () => new Map(sortedTeams.map((t) => [t._id, t.name])),
+    [sortedTeams]
+  );
+  const selectedTeamNames = useMemo(
+    () => teamsFilter.map((id) => idToName.get(id)).filter((n): n is string => Boolean(n)),
+    [teamsFilter, idToName]
   );
 
   const teamsFilterKey = teamsFilter.join("\u0001");
@@ -341,7 +232,6 @@ export function UserManagementTab({ onSelectUser }: UserManagementTabProps) {
         const q = searchFromUrl.trim();
         if (q) qs.set("search", q);
         if (teamsFilter.length >= 1) qs.set("team", teamsFilter[0]);
-        if (idpFilter.trim()) qs.set("idp", idpFilter.trim());
         if (slackFilter === "linked" || slackFilter === "pending" || slackFilter === "unlinked") {
           qs.set("slackStatus", slackFilter);
         }
@@ -360,12 +250,7 @@ export function UserManagementTab({ onSelectUser }: UserManagementTabProps) {
               : "Failed to load users"
           );
         }
-        let rows = (data.users as AdminUserRow[] | undefined) ?? [];
-        if (teamsFilter.length > 1) {
-          rows = rows.filter((u) =>
-            userInAllTeamsByMembership(u.email, teamsFilter, teams)
-          );
-        }
+        const rows = (data.users as AdminUserRow[] | undefined) ?? [];
         if (!cancelled) {
           setUsers(rows);
           setTotal(typeof data.total === "number" ? data.total : 0);
@@ -387,7 +272,6 @@ export function UserManagementTab({ onSelectUser }: UserManagementTabProps) {
     page,
     searchFromUrl,
     teamsFilterKey,
-    idpFilter,
     slackFilter,
     webexFilter,
     enabledFilter,
@@ -425,26 +309,21 @@ export function UserManagementTab({ onSelectUser }: UserManagementTabProps) {
             className="h-9"
           />
         </div>
-        <MultiSelectFilter
-          label="Teams"
-          options={teamOptions}
-          selected={teamsFilter}
-          onChange={setTeamsFilter}
-          placeholder="All teams"
-        />
-        <div className="flex flex-col gap-1 min-w-[120px]">
-          <span className="text-xs font-medium text-muted-foreground">IdP</span>
-          <select
-            className="h-9 rounded-md border border-input bg-background px-2 text-sm"
-            value={idpFilter}
-            onChange={(e) => setIdpFilter(e.target.value)}
-          >
-            {IDP_OPTIONS.map((o) => (
-              <option key={o.value || "all"} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
+        <div className="flex flex-col gap-1 min-w-[140px]">
+          <span className="text-xs font-medium text-muted-foreground">Teams</span>
+          <MultiSelect
+            options={teamNameOptions}
+            selected={selectedTeamNames}
+            onChange={(names) =>
+              setTeamsFilter(
+                names.map((n) => nameToId.get(n)).filter((id): id is string => Boolean(id))
+              )
+            }
+            placeholder="All teams"
+            searchPlaceholder="Search teams..."
+            badgeLabel="teams"
+            className="h-9"
+          />
         </div>
         <div className="flex flex-col gap-1 min-w-[130px]">
           <span className="text-xs font-medium text-muted-foreground">
@@ -498,8 +377,6 @@ export function UserManagementTab({ onSelectUser }: UserManagementTabProps) {
               <tr className="border-b bg-muted/40 text-left text-xs font-medium text-muted-foreground">
                 <th className="px-4 py-3">Name</th>
                 <th className="px-4 py-3">Email</th>
-                <th className="px-4 py-3">Teams</th>
-                <th className="px-4 py-3">IdP</th>
                 <th className="px-4 py-3">Slack</th>
                 <th className="px-4 py-3">Webex</th>
                 <th className="px-4 py-3 w-20">Enabled</th>
@@ -508,7 +385,7 @@ export function UserManagementTab({ onSelectUser }: UserManagementTabProps) {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-16 text-center">
+                  <td colSpan={5} className="px-4 py-16 text-center">
                     <div className="flex flex-col items-center gap-2 text-muted-foreground">
                       <Loader2 className="h-8 w-8 animate-spin" />
                       <span>Loading…</span>
@@ -518,7 +395,7 @@ export function UserManagementTab({ onSelectUser }: UserManagementTabProps) {
               ) : users.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={7}
+                    colSpan={5}
                     className="px-4 py-12 text-center text-muted-foreground"
                   >
                     No users match the current filters.
@@ -530,8 +407,6 @@ export function UserManagementTab({ onSelectUser }: UserManagementTabProps) {
                     [u.firstName, u.lastName].filter(Boolean).join(" ") ||
                     u.username ||
                     "—";
-                  const teamNames =
-                    emailToTeams.get(emailKey(u.email)) ?? [];
                   const slackStatus = slackStatusForUser(u);
                   const linked = isSlackLinked(u);
                   const webexStatus = webexStatusForUser(u);
@@ -547,16 +422,6 @@ export function UserManagementTab({ onSelectUser }: UserManagementTabProps) {
                       <td className="px-4 py-2.5 text-muted-foreground">
                         {u.email || "—"}
                       </td>
-                      <td className="px-4 py-2.5 text-muted-foreground max-w-[180px]">
-                        {teamNames.length ? (
-                          <span className="line-clamp-2">
-                            {teamNames.join(", ")}
-                          </span>
-                        ) : (
-                          "—"
-                        )}
-                      </td>
-                      <td className="px-4 py-2.5 text-muted-foreground">—</td>
                       <td className="px-4 py-2.5">
                         {slackStatus === "pending" ? (
                           <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-500/15 text-amber-800 dark:text-amber-400 border border-amber-500/25">

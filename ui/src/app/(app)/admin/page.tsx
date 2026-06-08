@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { motion } from "framer-motion";
-import { Users, MessageSquare, TrendingUp, Activity, Database, Share2, ShieldCheck, ShieldOff, UserPlus, Trash2, UsersIcon, Loader2, Bot, ThumbsUp, ThumbsDown, Clock, Zap, CheckCircle2, AlertCircle, Layers, Eye, Star, Filter, ExternalLink, Plus, Calendar, X, FileText, Shield, HelpCircle, Globe, RefreshCw, Settings, Wrench, Hash, Search, type LucideIcon } from "lucide-react";
+import { User, Users, MessageSquare, TrendingUp, Activity, Database, Share2, ShieldCheck, ShieldOff, UserPlus, Trash2, UsersIcon, Loader2, Bot, ThumbsUp, ThumbsDown, Clock, Zap, CheckCircle2, AlertCircle, Layers, Eye, Star, Filter, ExternalLink, Plus, Calendar, X, FileText, Shield, HelpCircle, Globe, RefreshCw, Settings, Wrench, Hash, Search, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AuthGuard } from "@/components/auth-guard";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -213,6 +213,10 @@ interface Team {
   // the team document is almost always empty, so the team-card KBs badge
   // must prefer this field.
   kb_count?: number;
+  // Distinct IdP membership source types (okta / oidc_claim / ...) present on
+  // the team, server-decorated from team_membership_sources. Drives the
+  // "synced from <IdP>" badge so synced teams are distinguishable from manual.
+  idp_source_types?: string[];
   members?: Array<{
     user_id: string;
     role: string;
@@ -297,7 +301,7 @@ const CATEGORIES: Category[] = [
     label: 'Teams & Users',
     icon: Users,
     tabs: [
-      { value: 'users', label: 'Users', icon: Users, gateKey: 'users' },
+      { value: 'users', label: 'Users', icon: User, gateKey: 'users' },
       { value: 'teams', label: 'Teams', icon: UsersIcon, gateKey: 'teams' },
       { value: 'identity-sync', label: 'Identity Sync', icon: RefreshCw, gateKey: 'identity_sync' },
     ],
@@ -349,6 +353,41 @@ function categoryForTab(tab: string): CategoryKey {
     if (cat.tabs.some((t) => t.value === tab)) return cat.key;
   }
   return DEFAULT_ADMIN_CATEGORY;
+}
+
+// IdP membership source types (okta / oidc_claim / active_directory) → display
+// label + optional logo asset, for the "synced from <IdP>" team badge.
+const IDP_SOURCE_META: Record<string, { label: string; logo?: string }> = {
+  okta: { label: 'Okta', logo: '/provider-logos/okta.svg' },
+  oidc_claim: { label: 'OIDC' },
+  active_directory: { label: 'Active Directory' },
+};
+
+// Badge shown on a team card when its membership was synced from an IdP. Renders
+// the provider logo (e.g. Okta) when available, falling back to a label, with a
+// "Synced with <IdP>" tooltip.
+function IdpSyncedBadge({ sourceTypes }: { sourceTypes: string[] }) {
+  const metas = sourceTypes.map((t) => IDP_SOURCE_META[t] ?? { label: t });
+  const labels = metas.map((m) => m.label).join(', ');
+  const title = `Synced with ${labels}`;
+  return (
+    <span
+      className="inline-flex items-center gap-1 rounded-full bg-muted px-1.5 py-0.5 border border-border"
+      title={title}
+      aria-label={title}
+    >
+      {metas.map((m, i) =>
+        m.logo ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img key={i} src={m.logo} alt={m.label} className="h-3.5 w-3.5" />
+        ) : (
+          <span key={i} className="text-[10px] font-medium text-muted-foreground">
+            {m.label}
+          </span>
+        )
+      )}
+    </span>
+  );
 }
 
 function isValidTab(tab: string | null): tab is typeof VALID_TABS[number] {
@@ -1572,7 +1611,12 @@ function AdminPage() {
                         <CardHeader>
                           <div className="flex items-center justify-between">
                             <div>
-                              <CardTitle className="text-lg">{team.name}</CardTitle>
+                              <div className="flex items-center gap-2">
+                                <CardTitle className="text-lg">{team.name}</CardTitle>
+                                {(team.idp_source_types?.length ?? 0) > 0 && (
+                                  <IdpSyncedBadge sourceTypes={team.idp_source_types!} />
+                                )}
+                              </div>
                               {team.description && (
                                 <CardDescription>{team.description}</CardDescription>
                               )}

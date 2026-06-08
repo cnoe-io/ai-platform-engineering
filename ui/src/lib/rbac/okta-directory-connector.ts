@@ -1,40 +1,6 @@
-import { SignJWT, importJWK, importPKCS8 } from "jose";
-import type { JWK } from "jose";
-
-/** The signing-key type accepted by SignJWT.sign. Inferred from importJWK
- * (CryptoKey | Uint8Array in jose 6) so we don't depend on the removed
- * `KeyLike` type name. */
-type OktaPrivateKey = Awaited<ReturnType<typeof importJWK>>;
-
-interface OktaSigningKey {
-  key: OktaPrivateKey;
-  /** Resolved `kid` for the client-assertion header: explicit config wins,
-   * else the JWK's own `kid` if present. */
-  keyId?: string;
-}
+import { Client, type Group, type User } from "@okta/okta-sdk-nodejs";
 
 import type { ExternalGroup } from "@/types/identity-group-sync";
-
-interface OktaGroup {
-  id: string;
-  profile?: {
-    name?: string;
-    description?: string;
-  };
-  lastUpdated?: string;
-}
-
-interface OktaUser {
-  id: string;
-  status?: string;
-  profile?: {
-    email?: string;
-    login?: string;
-    displayName?: string;
-    firstName?: string;
-    lastName?: string;
-  };
-}
 
 export type OktaExternalGroup = ExternalGroup & {
   members: Array<{
@@ -45,11 +11,11 @@ export type OktaExternalGroup = ExternalGroup & {
   }>;
 };
 
-// Scopes for the directory read paths — least privilege, matching the Roadie
-// Okta entity provider. Used by the OAuth2 client-credentials flow.
-const OKTA_OAUTH_SCOPES = "okta.groups.read okta.users.read";
-// Refresh the OAuth bearer this many ms before its stated expiry.
-const OKTA_TOKEN_EXPIRY_SKEW_MS = 60_000;
+// Least-privilege scopes for the OAuth2 (private-key JWT) service app, matching
+// the Roadie Okta provider. Ignored for SSWS token auth.
+const OKTA_OAUTH_SCOPES = ["okta.groups.read", "okta.users.read"];
+// Okta recommends a page size <= 200 for group listing.
+const OKTA_GROUPS_PAGE_SIZE = 200;
 
 interface OktaOAuthConfig {
   clientId: string;
@@ -63,23 +29,33 @@ interface OktaConnectorConfig {
   apiToken?: string;
   /** Private-key JWT client-credentials, when using OAuth2. */
   oauth?: OktaOAuthConfig;
+  /**
+   * Default Okta group filter expression (env fallback), sent via listGroups'
+   * `search` param. We use `search` rather than `filter` because `filter` only
+   * supports id/type/lastUpdated, while `search` covers profile attributes like
+   * `profile.name` (Okta's recommended query param). There is no per-group user
+   * filter (the `listGroupUsers` call takes no filter/search param).
+   */
+  groupFilter?: string;
 }
 
 function readOktaConfig(): OktaConnectorConfig | null {
   const orgUrl = process.env.IDENTITY_SYNC_OKTA_ORG_URL?.replace(/\/+$/, "");
   if (!orgUrl) return null;
 
+  const groupFilter = process.env.IDENTITY_SYNC_OKTA_GROUP_FILTER?.trim() || undefined;
+
   const clientId = process.env.IDENTITY_SYNC_OKTA_OAUTH_CLIENT_ID?.trim();
   const privateKey = process.env.IDENTITY_SYNC_OKTA_OAUTH_PRIVATE_KEY?.trim();
   const keyId = process.env.IDENTITY_SYNC_OKTA_OAUTH_KEY_ID?.trim();
   // OAuth2 (private-key JWT) takes precedence when configured.
   if (clientId && privateKey) {
-    return { orgUrl, oauth: { clientId, privateKey, keyId: keyId || undefined } };
+    return { orgUrl, oauth: { clientId, privateKey, keyId: keyId || undefined }, groupFilter };
   }
 
   const apiToken = process.env.IDENTITY_SYNC_OKTA_API_TOKEN?.trim();
   if (apiToken) {
-    return { orgUrl, apiToken };
+    return { orgUrl, apiToken, groupFilter };
   }
 
   return null;
@@ -103,277 +79,134 @@ function oktaConfig(): OktaConnectorConfig {
   return config;
 }
 
-/** Resolves the `Authorization` header value for each Okta request. */
-type OktaAuthHeader = () => Promise<string>;
-
-interface CachedToken {
-  header: string;
-  expiresAt: number;
-}
-
 /**
- * Import the OAuth signing key, accepting BOTH formats Okta hands out for a
- * service-app key:
- *   • PEM (PKCS#8) — begins with "-----BEGIN PRIVATE KEY-----"
- *   • JWK (JSON)   — e.g. {"kty":"RSA","d":"...",...}
- * The JWK form is what the Backstage Okta provider's
- * `$include vault/secrets.json#okta_provider.private_key` typically yields.
+ * Build an Okta SDK client for the configured auth mode. The SDK owns
+ * pagination AND rate-limit handling (it honors Okta's X-Rate-Limit-* headers
+ * and retries/queues internally), which is why we no longer hand-roll backoff
+ * or bounded concurrency. The private key accepts BOTH formats Okta exports:
+ * PEM (PKCS#8) and JWK (JSON); the SDK parses either.
  */
-async function importOktaSigningKey(oauth: OktaOAuthConfig): Promise<OktaSigningKey> {
-  const rawPrivateKey = oauth.privateKey.trim();
-  if (rawPrivateKey.startsWith("{")) {
-    const jwk = JSON.parse(rawPrivateKey) as JWK;
-    return {
-      key: await importJWK(jwk, "RS256"),
-      // Fall back to the JWK's own kid when no explicit key id is configured —
-      // Okta requires the assertion's kid to match the registered public key.
-      keyId: oauth.keyId || (typeof jwk.kid === "string" ? jwk.kid : undefined),
-    };
-  }
-  // PEM (PKCS#8). Tolerate keys stored with escaped newlines (single-line env vars).
-  return {
-    key: await importPKCS8(rawPrivateKey.replace(/\\n/g, "\n"), "RS256"),
-    keyId: oauth.keyId,
-  };
-}
-
-/**
- * Mint (and cache) an OAuth2 access token via the private-key JWT
- * client-credentials grant against Okta's org authorization server. The client
- * assertion is a short-lived RS256 JWT signed with the configured private key.
- */
-function createOAuthAuthHeader(orgUrl: string, oauth: OktaOAuthConfig): OktaAuthHeader {
-  let cached: CachedToken | null = null;
-
-  return async () => {
-    if (cached && Date.now() < cached.expiresAt - OKTA_TOKEN_EXPIRY_SKEW_MS) {
-      return cached.header;
-    }
-
-    const tokenUrl = `${orgUrl}/oauth2/v1/token`;
-    const { key, keyId } = await importOktaSigningKey(oauth);
-    const now = Math.floor(Date.now() / 1000);
-    const assertion = await new SignJWT({})
-      .setProtectedHeader(keyId ? { alg: "RS256", kid: keyId } : { alg: "RS256" })
-      .setIssuer(oauth.clientId)
-      .setSubject(oauth.clientId)
-      .setAudience(tokenUrl)
-      .setIssuedAt(now)
-      .setExpirationTime(now + 300)
-      .setJti(`${oauth.clientId}-${now}`)
-      .sign(key);
-
-    const body = new URLSearchParams({
-      grant_type: "client_credentials",
-      scope: OKTA_OAUTH_SCOPES,
-      client_assertion_type: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
-      client_assertion: assertion,
-    });
-
-    const response = await fetch(tokenUrl, {
-      method: "POST",
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body,
-    });
-    if (!response.ok) {
-      throw new Error(`Okta OAuth token request failed with status ${response.status}`);
-    }
-    const json = (await response.json()) as { access_token?: string; expires_in?: number };
-    if (!json.access_token) {
-      throw new Error("Okta OAuth token response did not include an access_token");
-    }
-
-    const header = `Bearer ${json.access_token}`;
-    const ttlMs = (json.expires_in ?? 3600) * 1000;
-    cached = { header, expiresAt: Date.now() + ttlMs };
-    return header;
-  };
-}
-
-function createAuthHeader(config: OktaConnectorConfig): OktaAuthHeader {
+function buildOktaClient(config: OktaConnectorConfig): Client {
   if (config.oauth) {
-    return createOAuthAuthHeader(config.orgUrl, config.oauth);
+    const trimmed = config.oauth.privateKey.trim();
+    const privateKey: string | Record<string, unknown> = trimmed.startsWith("{")
+      ? (JSON.parse(trimmed) as Record<string, unknown>)
+      : trimmed;
+    return new Client({
+      orgUrl: config.orgUrl,
+      authorizationMode: "PrivateKey",
+      clientId: config.oauth.clientId,
+      scopes: OKTA_OAUTH_SCOPES,
+      privateKey,
+      ...(config.oauth.keyId ? { keyId: config.oauth.keyId } : {}),
+    });
   }
-  // SSWS API-token auth — static header.
-  const header = `SSWS ${config.apiToken}`;
-  return async () => header;
+  return new Client({ orgUrl: config.orgUrl, token: config.apiToken });
 }
 
-function nextLink(header: string | null): string | null {
-  if (!header) return null;
-  const links = header.split(",").map((part) => part.trim());
-  for (const link of links) {
-    const match = link.match(/^<([^>]+)>;\s*rel="next"$/);
-    if (match) return match[1];
-  }
-  return null;
+function oktaUserDisplayName(user: User): string | undefined {
+  const profile = user.profile;
+  if (profile?.displayName) return profile.displayName;
+  const fullName = [profile?.firstName, profile?.lastName].filter(Boolean).join(" ").trim();
+  return fullName || profile?.email || profile?.login || undefined;
 }
 
-// Page sizes are an implementation detail tuned to Okta's documented maximums,
-// not a user setting: the groups-list endpoint caps at 200, and the
-// group-members endpoint at 1000. Larger pages mean fewer round-trips (and
-// fewer chances to hit the rate limit) for the same data.
-const OKTA_GROUPS_PAGE_SIZE = 200;
-const OKTA_GROUP_MEMBERS_PAGE_SIZE = 1000;
-
-// Retry posture for Okta's per-minute rate limit (429) and transient
-// server/network errors. Okta returns `Retry-After` (seconds) on a 429; we
-// honor it when present, otherwise fall back to exponential backoff. 4xx
-// errors other than 429 are caller/config problems and fail fast.
-const OKTA_MAX_RETRIES = 5;
-const OKTA_BASE_BACKOFF_MS = 1000;
-const OKTA_MAX_BACKOFF_MS = 30_000;
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+async function collectGroupMembers(client: Client, groupId: string): Promise<OktaExternalGroup["members"]> {
+  const members: OktaExternalGroup["members"] = [];
+  // `.each` transparently follows Okta's pagination cursor.
+  const userCollection = await client.groupApi.listGroupUsers({ groupId });
+  await userCollection.each((user: User) => {
+    const email = user.profile?.email ?? user.profile?.login ?? user.id;
+    if (!email) return;
+    members.push({
+      subject: undefined,
+      email,
+      display_name: oktaUserDisplayName(user),
+      active: user.status !== "DEPROVISIONED" && user.status !== "SUSPENDED",
+    });
+  });
+  return members;
 }
 
-function retryDelayMs(response: Response | null, attempt: number): number {
-  const retryAfter = response?.headers.get("retry-after");
-  if (retryAfter) {
-    const seconds = Number(retryAfter);
-    if (Number.isFinite(seconds) && seconds >= 0) {
-      return Math.min(seconds * 1000, OKTA_MAX_BACKOFF_MS);
-    }
-  }
-  // Exponential backoff: base * 2^attempt, capped.
-  return Math.min(OKTA_BASE_BACKOFF_MS * 2 ** attempt, OKTA_MAX_BACKOFF_MS);
+export interface FetchOktaGroupsOptions {
+  providerId: string;
+  /** Okta group filter expression. Overrides the env default when provided. */
+  groupFilter?: string;
+  /**
+   * Reports member-scan progress: called after each group's members are
+   * resolved, with how many of `total` groups have been scanned so far.
+   */
+  onProgress?: (scanned: number, total: number) => void;
 }
 
-function isRetryableStatus(status: number): boolean {
-  return status === 429 || status >= 500;
-}
-
-async function fetchOktaPage<T>(
-  url: string,
-  authHeader: OktaAuthHeader
-): Promise<{ items: T[]; next: string | null }> {
-  let lastError: Error | null = null;
-
-  for (let attempt = 0; attempt <= OKTA_MAX_RETRIES; attempt++) {
-    let response: Response | null = null;
-    try {
-      response = await fetch(url, {
-        headers: {
-          Accept: "application/json",
-          Authorization: await authHeader(),
-        },
-      });
-    } catch (err) {
-      // Network-level failure — retry with backoff.
-      lastError = err instanceof Error ? err : new Error(String(err));
-      if (attempt < OKTA_MAX_RETRIES) {
-        await sleep(retryDelayMs(null, attempt));
-        continue;
-      }
-      break;
-    }
-
-    if (response.ok) {
-      return {
-        items: (await response.json()) as T[],
-        next: nextLink(response.headers.get("link")),
-      };
-    }
-
-    lastError = new Error(`Okta directory request failed with status ${response.status}`);
-    if (isRetryableStatus(response.status) && attempt < OKTA_MAX_RETRIES) {
-      await sleep(retryDelayMs(response, attempt));
-      continue;
-    }
-    // Non-retryable (e.g. 401/403/404) — fail fast.
-    throw lastError;
-  }
-
-  throw lastError ?? new Error("Okta directory request failed");
-}
-
-async function fetchAllOktaPages<T>(firstUrl: string, authHeader: OktaAuthHeader): Promise<T[]> {
-  const items: T[] = [];
-  let url: string | null = firstUrl;
-  while (url) {
-    const page = await fetchOktaPage<T>(url, authHeader);
-    items.push(...page.items);
-    url = page.next;
-  }
-  return items;
-}
-
-// Bounded parallelism for per-group member fetches. Large orgs have thousands
-// of groups; fetching members serially is slow, while unbounded parallelism
-// floods Okta's rate limit. A small pool balances throughput against 429s
-// (adapts the Roadie provider's chunked membership resolution).
-const OKTA_MEMBER_FETCH_CONCURRENCY = 10;
-
-async function mapWithConcurrency<T, R>(
-  items: T[],
-  limit: number,
-  worker: (item: T, index: number) => Promise<R>
-): Promise<R[]> {
-  const results: R[] = new Array(items.length);
-  let cursor = 0;
-
-  async function runner(): Promise<void> {
-    while (cursor < items.length) {
-      const index = cursor++;
-      results[index] = await worker(items[index], index);
-    }
-  }
-
-  const runners = Array.from({ length: Math.min(limit, items.length) }, runner);
-  await Promise.all(runners);
-  return results;
-}
-
-function oktaUserDisplayName(user: OktaUser): string | undefined {
-  if (user.profile?.displayName) return user.profile.displayName;
-  const fullName = [user.profile?.firstName, user.profile?.lastName].filter(Boolean).join(" ").trim();
-  return fullName || user.profile?.email || user.profile?.login;
-}
-
-export async function fetchOktaExternalGroups(input: { providerId: string }): Promise<OktaExternalGroup[]> {
+export async function fetchOktaExternalGroups(
+  input: FetchOktaGroupsOptions
+): Promise<OktaExternalGroup[]> {
   const config = oktaConfig();
-  const { orgUrl } = config;
-  const authHeader = createAuthHeader(config);
+  const client = buildOktaClient(config);
+  const startedAt = Date.now();
+  // Caller-supplied filter (from saved sync settings) wins over the env default.
+  const groupFilter = input.groupFilter?.trim() || config.groupFilter;
 
-  const groups = await fetchAllOktaPages<OktaGroup>(
-    `${orgUrl}/api/v1/groups?limit=${OKTA_GROUPS_PAGE_SIZE}`,
-    authHeader
+  // Phase logs (one line each, not per-request) so operators can follow a sync
+  // in the server log: start, group count, and the final tally. The SDK's
+  // built-in throttling means a large org slows down rather than 429-failing.
+  console.log(
+    `[OktaSync] fetching groups from ${config.orgUrl} (auth: ${config.oauth ? "oauth" : "token"}` +
+      `${groupFilter ? `, filter: ${groupFilter}` : ""})`
   );
 
-  // Resolve each group's members with bounded concurrency rather than serially.
-  return mapWithConcurrency(groups, OKTA_MEMBER_FETCH_CONCURRENCY, async (group) => {
-    const displayName = group.profile?.name ?? group.id;
-    const users = await fetchAllOktaPages<OktaUser>(
-      `${orgUrl}/api/v1/groups/${encodeURIComponent(group.id)}/users?limit=${OKTA_GROUP_MEMBERS_PAGE_SIZE}`,
-      authHeader
-    );
+  const groups: Group[] = [];
+  const groupCollection = await client.groupApi.listGroups({
+    // `search` (not `filter`) so profile-attribute expressions like
+    // `profile.name eq "..."` work; `filter` only supports id/type/lastUpdated.
+    search: groupFilter,
+    limit: OKTA_GROUPS_PAGE_SIZE,
+  });
+  await groupCollection.each((group: Group) => {
+    groups.push(group);
+  });
 
-    return {
+  console.log(`[OktaSync] ${groups.length} groups; resolving members`);
+
+  // Report the total up front (0 scanned) so the UI shows "Scanning members
+  // (0/N)" immediately, before the first group's members finish resolving.
+  input.onProgress?.(0, groups.length);
+
+  const result: OktaExternalGroup[] = [];
+  for (const group of groups) {
+    const displayName = group.profile?.name ?? group.id ?? "";
+    // Members are fetched by Okta's group id, but `external_group_id` keys the
+    // membership identity by group NAME to match the login/OIDC path (whose
+    // claim carries names). Keying by Okta id here would create a second,
+    // duplicate membership row (and badge) for the same group a user got via
+    // login. The 1:1 model is name-based throughout (the catch-all rule slugs
+    // off the name), so the name is the stable cross-path key.
+    const externalGroupId = group.profile?.name ?? group.id ?? "";
+    const members = await collectGroupMembers(client, group.id ?? "");
+    result.push({
       provider_id: input.providerId,
-      external_group_id: group.id,
+      external_group_id: externalGroupId,
       display_name: displayName,
       normalized_name: displayName.toLowerCase(),
       status: "active",
-      member_count: users.length,
+      member_count: members.length,
       last_seen_at: new Date().toISOString(),
       metadata: {
         description: group.profile?.description ?? "",
-        lastUpdated: group.lastUpdated ?? "",
+        lastUpdated: group.lastUpdated ? new Date(group.lastUpdated).toISOString() : "",
       },
-      members: users
-        .map((user) => ({
-          subject: undefined,
-          email: user.profile?.email ?? user.profile?.login ?? user.id,
-          display_name: oktaUserDisplayName(user),
-          active: user.status !== "DEPROVISIONED" && user.status !== "SUSPENDED",
-        }))
-        .filter((member) => Boolean(member.email)),
-    } satisfies OktaExternalGroup;
-  });
+      members,
+    });
+    input.onProgress?.(result.length, groups.length);
+  }
+
+  const totalMembers = result.reduce((sum, g) => sum + (g.member_count ?? 0), 0);
+  console.log(
+    `[OktaSync] done: ${result.length} groups, ${totalMembers} memberships in ` +
+      `${((Date.now() - startedAt) / 1000).toFixed(1)}s`
+  );
+  return result;
 }
 
 export type OktaConnectorHealth =
@@ -382,11 +215,8 @@ export type OktaConnectorHealth =
 
 /**
  * One-shot credential probe for the Identity Sync page. Validates that the
- * configured auth (SSWS token or OAuth2 private-key JWT — including the token
- * exchange) actually works, via a single cheap `GET /api/v1/groups?limit=1`.
- *
- * Unlike the sync path this does NOT retry: a misconfigured credential should
- * yield a fast, honest verdict instead of waiting through the backoff loop.
+ * configured auth (SSWS token or OAuth2 private-key JWT, including the token
+ * exchange) actually works, via a single cheap one-group list call.
  */
 export async function checkOktaConnectorHealth(): Promise<OktaConnectorHealth> {
   const config = readOktaConfig();
@@ -396,28 +226,17 @@ export async function checkOktaConnectorHealth(): Promise<OktaConnectorHealth> {
   const mode: "oauth" | "token" = config.oauth ? "oauth" : "token";
 
   try {
-    const authHeader = createAuthHeader(config);
-    const authorization = await authHeader();
-    const response = await fetch(`${config.orgUrl}/api/v1/groups?limit=1`, {
-      headers: { Accept: "application/json", Authorization: authorization },
-    });
-    if (response.ok) {
-      return { ok: true, mode };
-    }
-    const hint =
-      response.status === 401 || response.status === 403
-        ? " — check the credential and that scopes okta.groups.read / okta.users.read are granted."
-        : "";
-    return {
-      ok: false,
-      mode,
-      error: `Okta returned ${response.status} ${response.statusText}${hint}`,
-    };
+    const client = buildOktaClient(config);
+    // Pull at most one group to exercise auth (and, for OAuth, the token grant).
+    const probe = await client.groupApi.listGroups({ limit: 1 });
+    await probe.next();
+    return { ok: true, mode };
   } catch (err) {
-    return {
-      ok: false,
-      mode,
-      error: err instanceof Error ? err.message : "Okta connectivity check failed.",
-    };
+    const message = err instanceof Error ? err.message : "Okta connectivity check failed.";
+    console.warn(`[OktaSync] health check failed (${mode}) for ${config.orgUrl}: ${message}`);
+    const hint = /401|403|unauthor|forbidden|scope/i.test(message)
+      ? " (check the credential and that scopes okta.groups.read / okta.users.read are granted)."
+      : "";
+    return { ok: false, mode, error: `${message}${hint}` };
   }
 }

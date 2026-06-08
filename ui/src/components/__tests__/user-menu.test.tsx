@@ -215,7 +215,8 @@ describe("UserMenu", () => {
     expect(screen.getByText("john@example.com")).toBeInTheDocument();
     expect(screen.getByText("User")).toBeInTheDocument();
     expect(screen.getByText("Authenticated via SSO")).toBeInTheDocument();
-    expect(screen.getByText("System")).toBeInTheDocument();
+    expect(screen.getByText("Settings")).toBeInTheDocument();
+    expect(screen.getByText("About")).toBeInTheDocument();
     expect(screen.getByText("Sign Out")).toBeInTheDocument();
   });
 

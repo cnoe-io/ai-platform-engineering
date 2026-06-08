@@ -29,7 +29,6 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     const body = (await request.json()) as {
       enabled?: boolean;
       group_filter?: string;
-      user_filter?: string;
       schedule_mode?: "interval" | "cron";
       sync_interval_minutes?: number;
       sync_cron?: string;

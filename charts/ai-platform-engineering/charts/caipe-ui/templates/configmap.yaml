@@ -42,7 +42,4 @@ data:
   {{- if .Values.oktaSync.groupFilter }}
   IDENTITY_SYNC_OKTA_GROUP_FILTER: {{ .Values.oktaSync.groupFilter | quote }}
   {{- end }}
-  {{- if .Values.oktaSync.userFilter }}
-  IDENTITY_SYNC_OKTA_USER_FILTER: {{ .Values.oktaSync.userFilter | quote }}
-  {{- end }}
   {{- end }}

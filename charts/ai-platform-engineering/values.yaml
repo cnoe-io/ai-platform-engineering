@@ -1022,9 +1022,9 @@ caipe-ui:
     oauth:
       clientId: ""             # non-sensitive (service app client id)
       keyId: ""                # optional kid; required for PEM keys
-    # Optional Okta SCIM-style filter expressions (non-sensitive).
+    # Optional Okta group filter expression (non-sensitive), applied to the
+    # group listing.
     # groupFilter: 'profile.name eq "Engineering"'
-    # userFilter: 'status eq "ACTIVE"'
 
   # External Secrets configuration for sensitive data (OIDC, NextAuth, MongoDB/DocumentDB)
   # BYO MongoDB or DocumentDB: add data entry with secretKey: MONGODB_URI and remoteRef to your store.

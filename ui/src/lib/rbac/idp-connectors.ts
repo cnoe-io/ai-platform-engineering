@@ -22,8 +22,17 @@ export interface IdpConnectorDescriptor {
   implemented: boolean;
 }
 
+// Options a caller (the sync runner) can pass per fetch. `groupFilter` narrows
+// which directory groups are pulled; `onProgress` reports member-scan progress
+// for the live "Scanning members (x/y)" status.
+export interface FetchGroupsOptions {
+  providerId: string;
+  groupFilter?: string;
+  onProgress?: (scanned: number, total: number) => void;
+}
+
 interface IdpConnectorImpl extends IdpConnectorDescriptor {
-  fetchExternalGroups: (input: { providerId: string }) => Promise<ExternalGroup[]>;
+  fetchExternalGroups: (options: FetchGroupsOptions) => Promise<ExternalGroup[]>;
   checkHealth: () => Promise<IdpConnectorHealth>;
   isConfigured: () => boolean;
 }
@@ -32,7 +41,7 @@ const OKTA_CONNECTOR: IdpConnectorImpl = {
   id: "okta",
   label: "Okta",
   implemented: true,
-  fetchExternalGroups: (input) => fetchOktaExternalGroups(input),
+  fetchExternalGroups: (options) => fetchOktaExternalGroups(options),
   checkHealth: async () => (await checkOktaConnectorHealth()) as OktaConnectorHealth,
   isConfigured: () => isOktaConnectorConfigured(),
 };
@@ -65,9 +74,10 @@ function requireConnector(providerId: string): IdpConnectorImpl {
 }
 
 export async function fetchExternalGroupsForProvider(
-  providerId: string
+  providerId: string,
+  options?: Omit<FetchGroupsOptions, "providerId">
 ): Promise<ExternalGroup[]> {
-  return requireConnector(providerId).fetchExternalGroups({ providerId });
+  return requireConnector(providerId).fetchExternalGroups({ providerId, ...options });
 }
 
 export async function checkConnectorHealthForProvider(
