@@ -13,6 +13,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import {
   Bot,
   KeyRound,
+  Link2,
   Loader2,
   Plus,
   RefreshCw,
@@ -90,6 +91,27 @@ interface MyTeam {
   slug: string; // the canonical `team:<slug>` OpenFGA subject — use this as owning_team_id (#48).
   name: string;
 }
+
+// ─── SA credential types (mirrors GET /api/admin/service-accounts/[id]/credentials) ───
+
+interface ServiceAccountCredential {
+  id: string;
+  provider: string;
+  status: string;
+  connectedAt?: string;
+  requestedScopes?: string[];
+  connectorId?: string;
+}
+
+// The 5 built-in providers (kept local to avoid importing the lib file from a client component
+// that lives outside app/ — this avoids a cross-boundary import warning from Next.js).
+const BUILT_IN_PROVIDERS: { provider: string; name: string }[] = [
+  { provider: "github", name: "GitHub" },
+  { provider: "gitlab", name: "GitLab" },
+  { provider: "atlassian", name: "Atlassian Cloud" },
+  { provider: "webex", name: "Webex" },
+  { provider: "pagerduty", name: "PagerDuty" },
+];
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Component
@@ -614,6 +636,29 @@ function ManageServiceAccountDialog({
   const [addAgents, setAddAgents] = useState<string[]>([]);
   const [addTools, setAddTools] = useState<string[]>([]);
 
+  // ── Credentials section state ──────────────────────────────────────────────
+  const [credentials, setCredentials] = useState<ServiceAccountCredential[]>([]);
+  const [credLoading, setCredLoading] = useState(false);
+  const [credBusy, setCredBusy] = useState(false);
+  const [credError, setCredError] = useState<string | null>(null);
+  const [pendingRemoveCred, setPendingRemoveCred] = useState<string | null>(null);
+  const [addCredProvider, setAddCredProvider] = useState(BUILT_IN_PROVIDERS[0].provider);
+  const [addCredToken, setAddCredToken] = useState("");
+
+  const refreshCredentials = useCallback(async () => {
+    if (!saId) return;
+    setCredLoading(true);
+    try {
+      const res = await fetch(
+        `/api/admin/service-accounts/${encodeURIComponent(saId)}/credentials`,
+      ).then((r) => r.json()).catch(() => ({ success: false }));
+      if (res.success) setCredentials(res.data as ServiceAccountCredential[]);
+      else setCredError(res.error || "Failed to load credentials");
+    } finally {
+      setCredLoading(false);
+    }
+  }, [saId]);
+
   const refresh = useCallback(async () => {
     if (!saId) return;
     setLoading(true);
@@ -638,8 +683,11 @@ function ManageServiceAccountDialog({
   }, [saId]);
 
   useEffect(() => {
-    if (saId) void refresh();
-  }, [saId, refresh]);
+    if (saId) {
+      void refresh();
+      void refreshCredentials();
+    }
+  }, [saId, refresh, refreshCredentials]);
 
   // Held refs available to ADD (exclude ones the SA already has), per type.
   const existingRefs = new Set((detail?.scopes ?? []).map((s) => `${s.type}:${s.ref}`));
@@ -762,6 +810,64 @@ function ManageServiceAccountDialog({
       setBusy(false);
     }
   }, [saId, onClose, onMutated]);
+
+  // ── Credentials section callbacks ──────────────────────────────────────────
+
+  const addCredential = useCallback(async () => {
+    if (!saId || !addCredToken.trim()) return;
+    setCredBusy(true);
+    setCredError(null);
+    const tokenSnapshot = addCredToken;
+    // Drop the token from state immediately — it must not persist in memory
+    // after the request is sent (shown-once safety).
+    setAddCredToken("");
+    try {
+      const res = await fetch(
+        `/api/admin/service-accounts/${encodeURIComponent(saId)}/credentials`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ provider: addCredProvider, token: tokenSnapshot }),
+        },
+      );
+      const body = await res.json();
+      if (!res.ok || !body.success) {
+        setCredError(body.error || "Failed to add credential");
+        return;
+      }
+      await refreshCredentials();
+    } finally {
+      setCredBusy(false);
+    }
+  }, [saId, addCredProvider, addCredToken, refreshCredentials]);
+
+  const removeCredential = useCallback(
+    async (connectionId: string) => {
+      if (!saId) return;
+      setCredBusy(true);
+      setCredError(null);
+      try {
+        const res = await fetch(
+          `/api/admin/service-accounts/${encodeURIComponent(saId)}/credentials`,
+          {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ connection_id: connectionId }),
+          },
+        );
+        const body = await res.json();
+        if (!res.ok || !body.success) {
+          setCredError(body.error || "Failed to remove credential");
+          return;
+        }
+        setPendingRemoveCred(null);
+        await refreshCredentials();
+      } finally {
+        setCredBusy(false);
+      }
+    },
+    [saId, refreshCredentials],
+  );
 
   return (
     <Dialog open={Boolean(saId)} onOpenChange={(o) => { if (!o) onClose(); }}>
@@ -926,6 +1032,148 @@ function ManageServiceAccountDialog({
                 {error}
               </div>
             )}
+
+            {/* ── Provider credentials ─────────────────────────────────────── */}
+            <div className="space-y-2 border-t pt-3">
+              <div className="flex items-center gap-1.5">
+                <Link2 className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm font-medium">Provider credentials</span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Paste a provider access token to let this service account use its own
+                credential for that provider. If no credential is set, the shared org
+                token is used as a fallback — the same behaviour as for user accounts.
+              </p>
+
+              {/* Current credentials list */}
+              {credLoading ? (
+                <div className="flex items-center gap-2 py-1 text-xs text-muted-foreground">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading credentials…
+                </div>
+              ) : credentials.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No provider credentials — org fallback will be used for all providers.
+                </p>
+              ) : (
+                <ul className="space-y-1">
+                  {credentials.map((cred) => {
+                    const providerLabel =
+                      BUILT_IN_PROVIDERS.find((p) => p.provider === cred.provider)?.name ??
+                      cred.provider;
+                    const isPendingRemove = pendingRemoveCred === cred.id;
+                    return (
+                      <li
+                        key={cred.id}
+                        className="flex items-center justify-between gap-2 rounded-md border border-input px-2.5 py-1.5"
+                      >
+                        <span className="inline-flex items-center gap-1.5 text-sm">
+                          <KeyRound className="h-3.5 w-3.5 text-muted-foreground" />
+                          <span className="font-medium">{providerLabel}</span>
+                          <span
+                            className={cn(
+                              "rounded-full px-1.5 py-0.5 text-xs font-medium",
+                              cred.status === "connected"
+                                ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                                : "bg-muted text-muted-foreground",
+                            )}
+                          >
+                            {cred.status}
+                          </span>
+                          {cred.connectedAt && (
+                            <span className="text-xs text-muted-foreground">
+                              {new Date(cred.connectedAt).toLocaleDateString()}
+                            </span>
+                          )}
+                        </span>
+                        {isPendingRemove ? (
+                          <span className="inline-flex items-center gap-1.5">
+                            <span className="text-xs text-muted-foreground">Remove?</span>
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              className="h-7 gap-1.5"
+                              disabled={credBusy}
+                              onClick={() => removeCredential(cred.id)}
+                            >
+                              {credBusy && <Loader2 className="h-3 w-3 animate-spin" />}
+                              Confirm
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7"
+                              disabled={credBusy}
+                              onClick={() => setPendingRemoveCred(null)}
+                            >
+                              Cancel
+                            </Button>
+                          </span>
+                        ) : (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-7 w-7 text-destructive hover:text-destructive"
+                            aria-label={`Remove ${providerLabel} credential`}
+                            disabled={credBusy}
+                            onClick={() => setPendingRemoveCred(cred.id)}
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+
+              {/* Add credential form */}
+              <div className="space-y-2 rounded-md border border-dashed border-input p-3">
+                <span className="text-sm font-medium">Add a credential</span>
+                <p className="text-xs text-muted-foreground">
+                  The token is stored encrypted and is <span className="font-semibold">never shown again</span> after
+                  submission.
+                </p>
+                <div className="flex gap-2">
+                  <select
+                    value={addCredProvider}
+                    onChange={(e) => setAddCredProvider(e.target.value)}
+                    className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+                  >
+                    {BUILT_IN_PROVIDERS.map((p) => (
+                      <option key={p.provider} value={p.provider}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    type="password"
+                    value={addCredToken}
+                    onChange={(e) => setAddCredToken(e.target.value)}
+                    placeholder="Paste access token…"
+                    autoComplete="new-password"
+                    className="h-9 flex-1 rounded-md border border-input bg-background px-3 text-sm"
+                  />
+                  <Button
+                    onClick={addCredential}
+                    disabled={credBusy || !addCredToken.trim()}
+                    className="gap-1.5"
+                  >
+                    {credBusy ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Plus className="h-4 w-4" />
+                    )}
+                    Add
+                  </Button>
+                </div>
+              </div>
+
+              {credError && (
+                <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                  {credError}
+                </div>
+              )}
+            </div>
 
             {/* Credential lifecycle (rotate / revoke). Both are destructive and
                 spec'd "with confirm" (T032) / "delete-confirm" (T028), so each

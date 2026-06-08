@@ -6,6 +6,7 @@ import {
   type OAuthConnectorDocument,
   ProviderConnectionService,
   type ProviderConnectionDocument,
+  type ProviderConnectionServiceOptions,
 } from "../oauth-service";
 
 class MemoryCollection<T extends object> {
@@ -797,6 +798,224 @@ describe("ProviderConnectionService", () => {
     expect(payloadStore.putSecret).not.toHaveBeenCalledWith(
       expect.objectContaining({ secretRefId: "provider_connection:provider-connection-1:refresh_token" }),
     );
+  });
+
+  describe("registerStaticToken", () => {
+    function makeConnector(overrides?: Partial<OAuthConnectorDocument>): OAuthConnectorDocument {
+      return {
+        id: "connector-1",
+        name: "GitLab",
+        provider: "gitlab",
+        clientId: "client-id",
+        clientSecretRef: "oauth_connector:connector-1:client_secret",
+        authorizationUrl: "https://gitlab.example.com/oauth/authorize",
+        tokenUrl: "https://gitlab.example.com/oauth/token",
+        scopes: ["api", "read_repository"],
+        redirectUri: "https://caipe.example.com/api/credentials/oauth/gitlab/callback",
+        enabled: true,
+        createdAt: new Date("2026-01-01T00:00:00Z"),
+        updatedAt: new Date("2026-01-01T00:00:00Z"),
+        ...overrides,
+      };
+    }
+
+    function makeService(
+      connectors: MemoryCollection<OAuthConnectorDocument>,
+      connections: MemoryCollection<ProviderConnectionDocument>,
+      overrides?: Partial<ProviderConnectionServiceOptions>,
+    ) {
+      return new ProviderConnectionService({
+        providerConnectionsCollection: connections,
+        connectorsCollection: connectors,
+        payloadStore: {
+          getSecret: jest.fn(async () => "secret"),
+          putSecret: mockPutSecret(),
+        },
+        tokenClient: mockTokenClient({ access_token: "should-not-be-used" }),
+        idGenerator: () => "static-conn-1",
+        now: () => new Date("2026-06-08T00:00:00.000Z"),
+        ...overrides,
+      });
+    }
+
+    it("creates a connected, refresh-less connection for a service_account owner", async () => {
+      const connectors = new MemoryCollection<OAuthConnectorDocument>();
+      const connections = new MemoryCollection<ProviderConnectionDocument>();
+      connectors.docs.push(makeConnector());
+      const putSecret = mockPutSecret();
+      const service = makeService(connectors, connections, {
+        payloadStore: {
+          getSecret: jest.fn(async () => "secret"),
+          putSecret,
+        },
+      });
+
+      const result = await service.registerStaticToken({
+        providerKey: "gitlab",
+        owner: { type: "service_account", id: "sa-sub-abc" },
+        accessToken: "glpat-mysecrettoken",
+      });
+
+      expect(result).toMatchObject({
+        id: "static-conn-1",
+        provider: "gitlab",
+        status: "connected",
+        owner: { type: "service_account", id: "sa-sub-abc" },
+      });
+      // No token material in the returned metadata
+      expect(JSON.stringify(result)).not.toContain("glpat-mysecrettoken");
+      // No expiresAt on a static token
+      expect(result.expiresAt).toBeUndefined();
+    });
+
+    it("stores the access token secret but writes no refresh token secret", async () => {
+      const connectors = new MemoryCollection<OAuthConnectorDocument>();
+      const connections = new MemoryCollection<ProviderConnectionDocument>();
+      connectors.docs.push(makeConnector());
+      const putSecret = mockPutSecret();
+      const service = makeService(connectors, connections, {
+        payloadStore: {
+          getSecret: jest.fn(async () => "secret"),
+          putSecret,
+        },
+      });
+
+      await service.registerStaticToken({
+        providerKey: "gitlab",
+        owner: { type: "service_account", id: "sa-sub-abc" },
+        accessToken: "glpat-mysecrettoken",
+      });
+
+      expect(putSecret).toHaveBeenCalledTimes(1);
+      expect(putSecret).toHaveBeenCalledWith({
+        secretRefId: "provider_connection:static-conn-1:access_token",
+        plaintext: "glpat-mysecrettoken",
+      });
+      // Confirm no refresh_token secret was written
+      const calls = putSecret.mock.calls as Array<[{ secretRefId: string; plaintext: string }]>;
+      expect(calls.every(([{ secretRefId }]) => !secretRefId.includes("refresh_token"))).toBe(true);
+    });
+
+    it("persists the document with the correct shape (no refresh token ref set)", async () => {
+      const connectors = new MemoryCollection<OAuthConnectorDocument>();
+      const connections = new MemoryCollection<ProviderConnectionDocument>();
+      connectors.docs.push(makeConnector());
+      const service = makeService(connectors, connections);
+
+      await service.registerStaticToken({
+        providerKey: "gitlab",
+        owner: { type: "service_account", id: "sa-sub-abc" },
+        accessToken: "glpat-mysecrettoken",
+      });
+
+      expect(connections.docs).toHaveLength(1);
+      const doc = connections.docs[0];
+      expect(doc).toMatchObject({
+        id: "static-conn-1",
+        connectorId: "connector-1",
+        provider: "gitlab",
+        owner: { type: "service_account", id: "sa-sub-abc" },
+        status: "connected",
+        accessTokenRef: "provider_connection:static-conn-1:access_token",
+      });
+      // refreshTokenRef is set to empty string (not a real secret ref)
+      expect(doc.refreshTokenRef).toBe("");
+      expect(doc.expiresAt).toBeUndefined();
+      // Raw token must never appear in the stored document
+      expect(JSON.stringify(doc)).not.toContain("glpat-mysecrettoken");
+    });
+
+    it("accepts a user owner (owner-agnostic)", async () => {
+      const connectors = new MemoryCollection<OAuthConnectorDocument>();
+      const connections = new MemoryCollection<ProviderConnectionDocument>();
+      connectors.docs.push(makeConnector());
+      const service = makeService(connectors, connections);
+
+      const result = await service.registerStaticToken({
+        providerKey: "gitlab",
+        owner: { type: "user", id: "alice-sub" },
+        accessToken: "glpat-usertok",
+      });
+
+      expect(result.owner).toEqual({ type: "user", id: "alice-sub" });
+      expect(result.status).toBe("connected");
+    });
+
+    it("bounds requestedScopes to the connector's allowed set", async () => {
+      const connectors = new MemoryCollection<OAuthConnectorDocument>();
+      const connections = new MemoryCollection<ProviderConnectionDocument>();
+      connectors.docs.push(makeConnector());
+      const service = makeService(connectors, connections);
+
+      const result = await service.registerStaticToken({
+        providerKey: "gitlab",
+        owner: { type: "service_account", id: "sa-sub-abc" },
+        accessToken: "glpat-mysecrettoken",
+        requestedScopes: ["api"],
+      });
+
+      expect(result.requestedScopes).toEqual(["api"]);
+    });
+
+    it("rejects a scope outside the connector's allowed set", async () => {
+      const connectors = new MemoryCollection<OAuthConnectorDocument>();
+      connectors.docs.push(makeConnector());
+      const service = makeService(connectors, new MemoryCollection<ProviderConnectionDocument>());
+
+      await expect(
+        service.registerStaticToken({
+          providerKey: "gitlab",
+          owner: { type: "service_account", id: "sa-sub-abc" },
+          accessToken: "glpat-mysecrettoken",
+          requestedScopes: ["admin"],
+        }),
+      ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it("rejects an empty or blank accessToken", async () => {
+      const connectors = new MemoryCollection<OAuthConnectorDocument>();
+      connectors.docs.push(makeConnector());
+      const service = makeService(connectors, new MemoryCollection<ProviderConnectionDocument>());
+
+      await expect(
+        service.registerStaticToken({
+          providerKey: "gitlab",
+          owner: { type: "service_account", id: "sa-sub-abc" },
+          accessToken: "   ",
+        }),
+      ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it("rejects when no enabled connector matches the providerKey", async () => {
+      const service = makeService(
+        new MemoryCollection<OAuthConnectorDocument>(),
+        new MemoryCollection<ProviderConnectionDocument>(),
+      );
+
+      await expect(
+        service.registerStaticToken({
+          providerKey: "nonexistent",
+          owner: { type: "service_account", id: "sa-sub-abc" },
+          accessToken: "some-token",
+        }),
+      ).rejects.toMatchObject({ statusCode: 404 });
+    });
+
+    it("does not call tokenClient (no OAuth exchange for static tokens)", async () => {
+      const connectors = new MemoryCollection<OAuthConnectorDocument>();
+      const connections = new MemoryCollection<ProviderConnectionDocument>();
+      connectors.docs.push(makeConnector());
+      const tokenClient = mockTokenClient({ access_token: "should-not-be-used" });
+      const service = makeService(connectors, connections, { tokenClient });
+
+      await service.registerStaticToken({
+        providerKey: "gitlab",
+        owner: { type: "service_account", id: "sa-sub-abc" },
+        accessToken: "glpat-mysecrettoken",
+      });
+
+      expect(tokenClient).not.toHaveBeenCalled();
+    });
   });
 
   it("lists provider connection metadata for an owner without token refs", async () => {
