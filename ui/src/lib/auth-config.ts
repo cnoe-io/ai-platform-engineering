@@ -71,12 +71,6 @@ function bootstrapAdminEmails(): Set<string> {
 
 const BOOTSTRAP_ADMIN_EMAILS = bootstrapAdminEmails();
 
-if (BOOTSTRAP_ADMIN_EMAILS.size > 0) {
-  console.log(
-    `[Auth] 🔑 Bootstrap admins configured (${BOOTSTRAP_ADMIN_EMAILS.size}):`,
-    Array.from(BOOTSTRAP_ADMIN_EMAILS).join(", ")
-  );
-}
 
 export function isBootstrapAdmin(email: string | undefined | null): boolean {
   if (!email) return false;

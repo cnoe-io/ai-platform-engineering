@@ -15,6 +15,8 @@ import {
   getUserFederatedIdentities,
   updateUser,
 } from "@/lib/rbac/keycloak-admin";
+import { getRbacCollection } from "@/lib/rbac/mongo-collections";
+import type { TeamMembershipSource } from "@/types/identity-group-sync";
 
 function normalizeAttributes(raw: unknown): Record<string, string[]> {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
@@ -49,19 +51,22 @@ export const GET = withErrorHandler(
     ]);
 
     const email = String(kcUser.email ?? "").trim().toLowerCase();
-    type TeamOwnRow = { team_id: string; tenant_id: string; members?: string[] };
     let teams: Array<{ team_id: string; tenant_id: string }> = [];
 
     if (isMongoDBConfigured && email) {
-      const ownership = await getCollection<TeamOwnRow>("team_kb_ownership");
-      const rows = await ownership
-        .find({ members: email })
-        .project({ team_id: 1, tenant_id: 1 })
+      const sources = await getRbacCollection<TeamMembershipSource>("teamMembershipSources");
+      const rows = await sources
+        .find({ user_email: email, status: "active" })
+        .project({ team_slug: 1, team_id: 1 })
         .toArray();
-      teams = rows.map((t) => ({
-        team_id: t.team_id,
-        tenant_id: t.tenant_id,
-      }));
+      // Deduplicate by team_slug — a user may have multiple source rows per team.
+      const seen = new Set<string>();
+      for (const row of rows) {
+        const slug = row.team_slug;
+        if (!slug || seen.has(slug)) continue;
+        seen.add(slug);
+        teams.push({ team_id: slug, tenant_id: row.team_id ?? "" });
+      }
     }
 
     const attributes = normalizeAttributes(kcUser.attributes);

@@ -16,6 +16,7 @@ import { OktaSyncPanel } from "./OktaSyncPanel";
 interface IdentityGroupSyncTabProps {
   isAdmin: boolean;
   oktaSyncEnabled?: boolean;
+  onTeamCreated?: () => void;
 }
 
 interface ClaimSuggestion {
@@ -27,7 +28,7 @@ interface ClaimSuggestion {
   suggested_org_admin: boolean;
 }
 
-export function IdentityGroupSyncTab({ isAdmin, oktaSyncEnabled = false }: IdentityGroupSyncTabProps) {
+export function IdentityGroupSyncTab({ isAdmin, oktaSyncEnabled = false, onTeamCreated }: IdentityGroupSyncTabProps) {
   const [providerCount, setProviderCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -154,22 +155,30 @@ export function IdentityGroupSyncTab({ isAdmin, oktaSyncEnabled = false }: Ident
     }
   };
 
-  const buildSelectedTeamDryRun = (selected: ClaimSuggestion[]): IdentityGroupSyncDryRunResult => ({
-    matched_groups: [],
-    ignored_groups: [],
-    teams_to_create: selected.map((suggestion) => ({
-      slug: suggestion.suggested_team_slug,
-      name: suggestion.suggested_team_name,
-      source_group_id: suggestion.source_group_id,
-    })),
-    membership_sources_to_add: [],
-    membership_sources_to_remove: [],
-    tuple_writes: [],
-    tuple_deletes: [],
-    skipped_users: [],
-    conflicts: [],
-    safety_warnings: [],
-  });
+  const buildSelectedTeamDryRun = (selected: ClaimSuggestion[]): IdentityGroupSyncDryRunResult => {
+    const selectedSlugs = new Set(selected.map((s) => s.suggested_team_slug));
+    const membershipSourcesToAdd = dryRun?.membership_sources_to_add.filter(
+      (src) => src.team_slug && selectedSlugs.has(src.team_slug)
+    ) ?? [];
+    return {
+      matched_groups: [],
+      ignored_groups: [],
+      teams_to_create: selected.map((suggestion) => ({
+        slug: suggestion.suggested_team_slug,
+        name: suggestion.suggested_team_name,
+        source_group_id: suggestion.source_group_id,
+      })),
+      membership_sources_to_add: membershipSourcesToAdd,
+      membership_sources_to_remove: [],
+      tuple_writes: dryRun?.tuple_writes.filter(
+        (t) => t.object && selectedSlugs.has(t.object.replace(/^team:/, ""))
+      ) ?? [],
+      tuple_deletes: [],
+      skipped_users: [],
+      conflicts: [],
+      safety_warnings: [],
+    };
+  };
 
   const addSelectedSuggestionsAsTeams = async () => {
     const selected = suggestions.filter((suggestion) => selectedSuggestionIds.has(suggestion.source_group_id));
@@ -196,6 +205,7 @@ export function IdentityGroupSyncTab({ isAdmin, oktaSyncEnabled = false }: Ident
       );
       setSelectedSuggestionIds(new Set());
       await loadProviders();
+      onTeamCreated?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Apply failed");
     } finally {

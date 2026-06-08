@@ -156,15 +156,16 @@ export function UserDetailModal({
   }, [refreshProfile, loadTeams, readOnly]);
 
   const runAction = useCallback(
-    async (key: string, fn: () => Promise<void>) => {
+    async (key: string, fn: () => Promise<void>, opts?: { refreshSession?: boolean }) => {
       setActionError(null);
       setBusy(key);
       try {
         await fn();
         await refreshProfile();
         onSaved();
-        // Refresh client session-derived UI after account/team mutations.
-        void updateSession({ forceRefresh: true });
+        if (opts?.refreshSession) {
+          void updateSession({ forceRefresh: true });
+        }
       } catch (e) {
         setActionError(e instanceof Error ? e.message : "Request failed");
       } finally {
@@ -239,7 +240,7 @@ export function UserDetailModal({
       if (!res.ok || !json?.success) {
         throw new Error(json?.error || `Update failed (${res.status})`);
       }
-    });
+    }, { refreshSession: true });
   };
 
   const removeTeam = (teamId: string) => {
