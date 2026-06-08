@@ -157,8 +157,8 @@ if RBAC_ENABLED:
                     # surfaces (commands return ephemeral replies). We
                     # mark the surface so downstream handlers can
                     # decide whether the body of the command requires
-                    # a channel mapping (it never does for /caipe-help
-                    # or /caipe-list).
+                    # a channel mapping (it never does for /{cmd}-help
+                    # or /{cmd}-list).
                     context["surface_kind"] = "dm"
                     logger.info(
                         "Channel={} has no team mapping; allowing surface_kind=dm "
@@ -642,97 +642,111 @@ def _ack_ephemeral(ack, result: SlashCommandResult) -> None:
     logger.warning("Failed to ack slash command (code={}): {}", result.code, exc)
 
 
-@app.command("/caipe-help")
-def slash_caipe_help(ack, body, context=None):
-  """``/caipe-help`` — list available commands (FR-030)."""
-  user_id = body.get("user_id") or ""
-  result = handle_help_command(
-      user_key=user_id,
-      rate_limiter=_command_rate_limiter(),
-  )
-  _ack_ephemeral(ack, result)
+def _register_slash_commands() -> None:
+  """Register /{cmd}-help, /{cmd}-list, /{cmd}-use with the Bolt app.
 
+  The command prefix is derived from APP_NAME at startup time so that
+  ``APP_NAME=Forge`` registers ``/forge-help`` etc.
+  """
+  from utils.slash_commands import _cmd_prefix  # local import to avoid circular refs
+  cmd = _cmd_prefix()
 
-@app.command("/caipe-list")
-def slash_caipe_list(ack, body, context=None):
-  """``/caipe-list`` — show user's accessible agents (FR-028, FR-036)."""
-  user_id = body.get("user_id") or ""
-  bearer_token = _obo_token_from_context(context) or ""
-  if not bearer_token:
-    _ack_ephemeral(
-        ack,
-        SlashCommandResult(
-            text=(
-                "I couldn't verify your identity for this command. "
-                "Please re-link your account and try again."
-            ),
-            code="no_bearer",
-        ),
+  @app.command(f"/{cmd}-help")
+  def slash_help(ack, body, context=None):
+    channel_id = body.get("channel_id") or ""
+    is_dm = bool(channel_id) and channel_id.startswith("D")
+    user_id = body.get("user_id") or ""
+    result = handle_help_command(
+        user_key=user_id,
+        is_dm=is_dm,
+        rate_limiter=_command_rate_limiter(),
     )
-    return
-  result = handle_list_command(
-      user_key=user_id,
-      bearer_token=bearer_token,
-      accessible_agents_client=_accessible_agents_client(),
-      rate_limiter=_command_rate_limiter(),
-  )
-  _ack_ephemeral(ack, result)
+    _ack_ephemeral(ack, result)
 
-
-@app.command("/caipe-use")
-def slash_caipe_use(ack, body, context=None):
-  """``/caipe-use <agent>|default`` — set DM thread override or clear preferences."""
-  user_id = body.get("user_id") or ""
-  bearer_token = _obo_token_from_context(context) or ""
-  if not bearer_token:
-    _ack_ephemeral(
-        ack,
-        SlashCommandResult(
-            text=(
-                "I couldn't verify your identity for this command. "
-                "Please re-link your account and try again."
-            ),
-            code="no_bearer",
-        ),
-    )
-    return
-
-  raw_text = body.get("text") or ""
-  channel_id = body.get("channel_id") or ""
-  workspace_id = (context or {}).get("slack_workspace_id") or body.get("team_id") or ""
-  # Slack slash commands fire against a single channel; for DM threads
-  # the "thread" identity is the channel itself (Slack DMs don't carry
-  # a thread_ts in the command body). This matches the override key the
-  # DM message handler builds below for root messages.
-  thread_ts = channel_id  # one thread-key per DM channel for command-level overrides
-
-  # Slack DM channel ids start with "D" — this is a stable Slack
-  # convention, so it works regardless of whether RBAC enrichment ran.
-  is_dm = bool(channel_id) and channel_id.startswith("D")
-  override_key = (
-      _override_key_for_dm(
-          workspace_id=workspace_id,
-          channel_id=channel_id,
-          user_id=user_id,
-          thread_ts=thread_ts,
+  @app.command(f"/{cmd}-list")
+  def slash_list(ack, body, context=None):
+    channel_id = body.get("channel_id") or ""
+    is_dm = bool(channel_id) and channel_id.startswith("D")
+    user_id = body.get("user_id") or ""
+    bearer_token = _obo_token_from_context(context) or ""
+    if not bearer_token:
+      _ack_ephemeral(
+          ack,
+          SlashCommandResult(
+              text=(
+                  "I couldn't verify your identity for this command. "
+                  "Please re-link your account and try again."
+              ),
+              code="no_bearer",
+          ),
       )
-      if is_dm
-      else None
-  )
+      return
+    result = handle_list_command(
+        user_key=user_id,
+        bearer_token=bearer_token,
+        accessible_agents_client=_accessible_agents_client(),
+        is_dm=is_dm,
+        rate_limiter=_command_rate_limiter(),
+    )
+    _ack_ephemeral(ack, result)
 
-  result = handle_use_command(
-      user_key=user_id,
-      raw_text=raw_text,
-      bearer_token=bearer_token,
-      is_dm=is_dm,
-      override_key=override_key,
-      override_store=get_default_override_store(),
-      dm_authz_client=_dm_authz_client(),
-      user_preferences_client=_user_preferences_client(),
-      accessible_agents_client=_accessible_agents_client(),
-      rate_limiter=_command_rate_limiter(),
-  )
-  _ack_ephemeral(ack, result)
+
+  @app.command(f"/{cmd}-use")
+  def slash_use(ack, body, context=None):
+    user_id = body.get("user_id") or ""
+    bearer_token = _obo_token_from_context(context) or ""
+    if not bearer_token:
+      _ack_ephemeral(
+          ack,
+          SlashCommandResult(
+              text=(
+                  "I couldn't verify your identity for this command. "
+                  "Please re-link your account and try again."
+              ),
+              code="no_bearer",
+          ),
+      )
+      return
+
+    raw_text = body.get("text") or ""
+    channel_id = body.get("channel_id") or ""
+    workspace_id = (context or {}).get("slack_workspace_id") or body.get("team_id") or ""
+    # Slack slash commands fire against a single channel; for DM threads
+    # the "thread" identity is the channel itself (Slack DMs don't carry
+    # a thread_ts in the command body). This matches the override key the
+    # DM message handler builds below for root messages.
+    thread_ts = channel_id  # one thread-key per DM channel for command-level overrides
+
+    # Slack DM channel ids start with "D" — this is a stable Slack
+    # convention, so it works regardless of whether RBAC enrichment ran.
+    is_dm = bool(channel_id) and channel_id.startswith("D")
+    override_key = (
+        _override_key_for_dm(
+            workspace_id=workspace_id,
+            channel_id=channel_id,
+            user_id=user_id,
+            thread_ts=thread_ts,
+        )
+        if is_dm
+        else None
+    )
+
+    result = handle_use_command(
+        user_key=user_id,
+        raw_text=raw_text,
+        bearer_token=bearer_token,
+        is_dm=is_dm,
+        override_key=override_key,
+        override_store=get_default_override_store(),
+        dm_authz_client=_dm_authz_client(),
+        user_preferences_client=_user_preferences_client(),
+        accessible_agents_client=_accessible_agents_client(),
+        rate_limiter=_command_rate_limiter(),
+    )
+    _ack_ephemeral(ack, result)
+
+
+_register_slash_commands()
 
 
 def _resolve_conversation_id(thread_ts: str, channel_id: str, agent_id: str = "", owner_id: str = "") -> str:
@@ -946,7 +960,7 @@ def rbac_global_middleware(body, context, next, logger):
     # run regardless of channel mapping — the command itself decides whether
     # its semantics require DM context. So we treat both like mentions for the
     # mapping requirement and the command handlers enforce DM-only semantics
-    # for `/caipe-use <agent>` themselves.
+    # for `/{cmd}-use <agent>` themselves.
     is_mention = event.get("type") == "app_mention"
     is_command = bool(body.get("command"))
 
@@ -1565,7 +1579,7 @@ def handle_dm_message(event, say, client, context=None):
         say(
             text=(
                 "You don't have access to any agents that can answer this "
-                "DM. Use `/caipe-list` to see what's available, or ask "
+                f"DM. Use `/{APP_NAME.lower()}-list` to see what's available, or ask "
                 "your admin for a grant."
             ),
             thread_ts=thread_ts,

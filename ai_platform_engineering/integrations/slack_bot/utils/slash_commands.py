@@ -1,4 +1,14 @@
-"""Slack slash-command handlers for /caipe-list, /caipe-use, /caipe-help.
+"""Slack slash-command handlers for /{cmd}-list, /{cmd}-use, /{cmd}-help.
+
+The command prefix (``cmd``) is derived from the ``APP_NAME`` /
+``SLACK_INTEGRATION_APP_NAME`` environment variable at runtime
+(default: ``caipe``).  When ``APP_NAME=Forge`` the commands become
+``/forge-list``, ``/forge-use``, and ``/forge-help``.
+
+All three commands are DM-only.  Invoking them in a public channel
+returns an ephemeral error pointing the user to a DM.  The one
+exception is ``/forge-use default``, which clears a saved preference
+and is intentionally allowed anywhere.
 
 Phase 2 of spec ``2026-05-24-derive-team-from-channel``. These
 handlers implement FR-028 / FR-029 / FR-029a / FR-030 / FR-033 /
@@ -13,15 +23,14 @@ Design:
   fakes. We don't import Bolt here.
 * Return type is :class:`SlashCommandResult` — a structured value
   with the ephemeral text the bot should post back to Slack.
-* All user-visible copy is centralized here so spec FR-037 (use
-  ``user_messages.py`` templating, not ad-hoc strings) stays
-  satisfied for the slash-command surface. The other user-message
-  constants live in ``user_messages.py``; the command-specific copy
-  lives here next to its single call site.
+* User-visible copy that references command names is generated via
+  module-level helper functions so the prefix stays consistent with
+  the environment-configured app name.
 """
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import Optional, Protocol
 
@@ -31,6 +40,20 @@ from .dm_authz_client import DmAuthzClient
 from .dm_thread_overrides import OverrideKey
 from .user_preferences_client import UserPreferencesClient
 
+
+def _cmd_prefix() -> str:
+    """Return the slash-command prefix derived from APP_NAME (e.g. ``forge``)."""
+    name = (
+        os.environ.get("SLACK_INTEGRATION_APP_NAME")
+        or os.environ.get("APP_NAME")
+        or "caipe"
+    )
+    return name.lower()
+
+
+# ---------------------------------------------------------------------------
+# Static messages (no command-name references)
+# ---------------------------------------------------------------------------
 
 RATE_LIMITED_MESSAGE = (
     "You're sending commands too fast. Wait a few seconds and try again."
@@ -42,32 +65,7 @@ LIST_UNAVAILABLE_MESSAGE = (
 
 LIST_EMPTY_MESSAGE = (
     "You don't have access to any agents yet. Ask your admin to grant you "
-    "agent access in CAIPE."
-)
-
-LIST_HEADER = (
-    "Agents you can use ({count} total). Use `/caipe-use <agent>` to override "
-    "for this thread."
-)
-
-USE_MISSING_ARG_MESSAGE = (
-    "Usage: `/caipe-use <agent-id>` (or `/caipe-use default` to clear your "
-    "saved preference and revert to the deployment default)."
-)
-
-USE_DENIED_MESSAGE = (
-    "You don't have access to agent `{agent_id}`. Your existing preference "
-    "is unchanged. Use `/caipe-list` to see what you can use."
-)
-
-USE_UNKNOWN_AGENT_MESSAGE = (
-    "I don't recognize an agent called `{agent_id}`. Use `/caipe-list` to "
-    "see what's available."
-)
-
-USE_DM_ONLY_MESSAGE = (
-    "`/caipe-use` only applies in direct messages — it sets a per-thread "
-    "agent override for your DM with the bot."
+    "agent access."
 )
 
 USE_OK_MESSAGE = (
@@ -82,24 +80,84 @@ USE_DEFAULT_OK_MESSAGE = (
 
 USE_DEFAULT_PARTIAL_OK_MESSAGE = (
     "Cleared the thread override. I couldn't update your saved preference "
-    "right now — try again later, or set it in the CAIPE Settings UI."
+    "right now — try again later, or set it in the Settings UI."
 )
 
 PDP_UNAVAILABLE_MESSAGE = (
     "I can't verify agent access right now. Try again in a moment."
 )
 
-HELP_MESSAGE = (
-    "*CAIPE bot commands*\n"
-    "• `/caipe-list` — show the agents you can use\n"
-    "• `/caipe-use <agent>` — route this DM thread to a specific agent "
-    "(use `/caipe-use default` to clear your saved preference)\n"
-    "• `/caipe-help` — show this message\n"
-    "\n"
-    "Direct messages dispatch via: thread override → your saved default → "
-    "the deployment default."
-)
 
+# ---------------------------------------------------------------------------
+# Dynamic messages (reference the command prefix)
+# ---------------------------------------------------------------------------
+
+def help_message() -> str:
+    cmd = _cmd_prefix()
+    return (
+        f"*Bot commands*\n"
+        f"• `/{cmd}-list` — show the agents you can use\n"
+        f"• `/{cmd}-use <agent>` — route this DM thread to a specific agent "
+        f"(use `/{cmd}-use default` to clear your saved preference)\n"
+        f"• `/{cmd}-help` — show this message\n"
+        "\n"
+        "Direct messages dispatch via: thread override → your saved default → "
+        "the deployment default."
+    )
+
+
+def list_header(count: int) -> str:
+    cmd = _cmd_prefix()
+    return (
+        f"Agents you can use ({count} total). "
+        f"Use `/{cmd}-use <agent>` to override for this thread."
+    )
+
+
+def use_missing_arg_message() -> str:
+    cmd = _cmd_prefix()
+    return (
+        f"Usage: `/{cmd}-use <agent-id>` (or `/{cmd}-use default` to clear your "
+        "saved preference and revert to the deployment default)."
+    )
+
+
+def use_denied_message(agent_id: str) -> str:
+    cmd = _cmd_prefix()
+    return (
+        f"You don't have access to agent `{agent_id}`. Your existing preference "
+        f"is unchanged. Use `/{cmd}-list` to see what you can use."
+    )
+
+
+def use_unknown_agent_message(agent_id: str) -> str:
+    cmd = _cmd_prefix()
+    return (
+        f"I don't recognize an agent called `{agent_id}`. Use `/{cmd}-list` to "
+        "see what's available."
+    )
+
+
+def use_dm_only_message() -> str:
+    cmd = _cmd_prefix()
+    return (
+        f"`/{cmd}-use` only applies in direct messages — it sets a per-thread "
+        "agent override for your DM with the bot."
+    )
+
+
+def dm_only_message(command: str) -> str:
+    """Ephemeral shown when a DM-only command is invoked outside a DM."""
+    cmd = _cmd_prefix()
+    return (
+        f"`/{cmd}-{command}` only works in direct messages with the bot. "
+        f"Open a DM and try again."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Core types
+# ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
 class SlashCommandResult:
@@ -131,15 +189,25 @@ def _rate_limited(
     return not rate_limiter.check_and_consume(user_key)
 
 
+# ---------------------------------------------------------------------------
+# Command handlers
+# ---------------------------------------------------------------------------
+
 def handle_help_command(
     *,
     user_key: str,
+    is_dm: bool = True,
     rate_limiter: Optional[CommandRateLimiter] = None,
 ) -> SlashCommandResult:
-    """Return the help text (FR-030, FR-037)."""
+    """Return the help text (FR-030, FR-037).
+
+    DM-only.  Returns a ``dm_only`` error when invoked in a channel.
+    """
+    if not is_dm:
+        return SlashCommandResult(text=dm_only_message("help"), code="dm_only")
     if _rate_limited(rate_limiter, user_key):
         return SlashCommandResult(text=RATE_LIMITED_MESSAGE, code="rate_limited")
-    return SlashCommandResult(text=HELP_MESSAGE, code="help")
+    return SlashCommandResult(text=help_message(), code="help")
 
 
 def handle_list_command(
@@ -147,9 +215,15 @@ def handle_list_command(
     user_key: str,
     bearer_token: str,
     accessible_agents_client: AccessibleAgentsClient,
+    is_dm: bool = True,
     rate_limiter: Optional[CommandRateLimiter] = None,
 ) -> SlashCommandResult:
-    """Return the user's accessible agents (FR-028, FR-036)."""
+    """Return the user's accessible agents (FR-028, FR-036).
+
+    DM-only.  Returns a ``dm_only`` error when invoked in a channel.
+    """
+    if not is_dm:
+        return SlashCommandResult(text=dm_only_message("list"), code="dm_only")
     if _rate_limited(rate_limiter, user_key):
         return SlashCommandResult(text=RATE_LIMITED_MESSAGE, code="rate_limited")
 
@@ -161,7 +235,7 @@ def handle_list_command(
     if not result.agents:
         return SlashCommandResult(text=LIST_EMPTY_MESSAGE, code="list_empty")
 
-    lines = [LIST_HEADER.format(count=len(result.agents))]
+    lines = [list_header(len(result.agents))]
     for agent in result.agents:
         if agent.description:
             lines.append(f"• `{agent.id}` — {agent.name}: {agent.description}")
@@ -192,7 +266,9 @@ def handle_use_command(
         bearer_token: User's OBO/session bearer for downstream PDP +
             preferences calls.
         is_dm: Whether the command was issued in a DM channel.
-            ``/caipe-use`` is DM-only (per FR-029 dispatch chain).
+            The ``<agent>`` form is DM-only (per FR-029 dispatch chain).
+            The ``default`` form is allowed anywhere (clears your own
+            saved preference).
         override_key: Identity for the override store. ``None`` is
             allowed for the ``default`` argument when ``is_dm`` is
             False (we still clear the saved preference; but for
@@ -214,7 +290,7 @@ def handle_use_command(
     argument = (raw_text or "").strip()
     if not argument:
         return SlashCommandResult(
-            text=USE_MISSING_ARG_MESSAGE, code="use_missing_arg"
+            text=use_missing_arg_message(), code="use_missing_arg"
         )
 
     if argument.lower() == "default":
@@ -227,7 +303,7 @@ def handle_use_command(
 
     if not is_dm or override_key is None:
         return SlashCommandResult(
-            text=USE_DM_ONLY_MESSAGE, code="use_dm_only"
+            text=use_dm_only_message(), code="use_dm_only"
         )
 
     decision = dm_authz_client.check_agent_access(
@@ -253,7 +329,7 @@ def _handle_use_default(
     override_store: _OverrideStoreProto,
     user_preferences_client: UserPreferencesClient,
 ) -> SlashCommandResult:
-    """``/caipe-use default`` — FR-029a.
+    """``/{cmd}-use default`` — FR-029a.
 
     Always succeeds at clearing the user's local state. If clearing
     the saved preference in the BFF fails (network/5xx), we still
@@ -292,19 +368,19 @@ def _denied_use_response(
     """
     if accessible_agents_client is None:
         return SlashCommandResult(
-            text=USE_DENIED_MESSAGE.format(agent_id=agent_id), code="use_denied"
+            text=use_denied_message(agent_id), code="use_denied"
         )
     listing = accessible_agents_client.list_agents(bearer_token=bearer_token)
     if not listing.available:
         return SlashCommandResult(
-            text=USE_DENIED_MESSAGE.format(agent_id=agent_id), code="use_denied"
+            text=use_denied_message(agent_id), code="use_denied"
         )
     known_ids = {agent.id for agent in listing.agents}
     if agent_id in known_ids:
         return SlashCommandResult(
-            text=USE_DENIED_MESSAGE.format(agent_id=agent_id), code="use_denied"
+            text=use_denied_message(agent_id), code="use_denied"
         )
     return SlashCommandResult(
-        text=USE_UNKNOWN_AGENT_MESSAGE.format(agent_id=agent_id),
+        text=use_unknown_agent_message(agent_id),
         code="use_unknown",
     )
