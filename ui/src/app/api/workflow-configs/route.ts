@@ -14,9 +14,9 @@ import type {
   StepEntry,
 } from "@/types/workflow-config";
 import {
-  filterResourcesByPermission,
-  requireResourcePermission,
-} from "@/lib/rbac/resource-authz";
+  filterAccessibleWorkflowConfigs,
+  workflowAccessAllowed,
+} from "@/lib/server/workflow-cas-authz";
 import {
   buildTeamRefToSlugMap,
   filterWorkflowConfigsByRunAccess,
@@ -142,17 +142,22 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       if (!config) {
         throw new ApiError("Workflow config not found", 404);
       }
-      await requireWorkflowConfigRunAccess(
-        session,
-        {
-          _id: String(config._id),
-          owner_id: config.owner_id,
-          visibility: config.visibility,
-          shared_with_teams: config.shared_with_teams,
-        },
-        user.email,
-        userTeamSlugs,
-      );
+      // Additive CAS read (Phase 2) — mirrors the list's "visibility ∪ FGA read"
+      // semantics: if CAS grants task#read (org-admin bypass included) serve it;
+      // otherwise fall back to the legacy visibility check unchanged.
+      if (!(await workflowAccessAllowed(session, String(config._id), "read"))) {
+        await requireWorkflowConfigRunAccess(
+          session,
+          {
+            _id: String(config._id),
+            owner_id: config.owner_id,
+            visibility: config.visibility,
+            shared_with_teams: config.shared_with_teams,
+          },
+          user.email,
+          userTeamSlugs,
+        );
+      }
       return NextResponse.json(config) as NextResponse;
     }
 
@@ -165,16 +170,13 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       teamRefToSlug,
     );
     // Match workflow-runs list: org-wide global workflows use Mongo visibility;
-    // FGA `read` supplements legacy per-user/team grants (discover is not written).
-    const byFga = await filterResourcesByPermission(
+    // CAS `task#read` supplements legacy per-user/team grants (org-admin bypass
+    // included). This is the PDP call re-pointed onto CAS (Phase 2).
+    const byFga = await filterAccessibleWorkflowConfigs(
       session,
       configs,
-      {
-        type: "task",
-        action: "read",
-        id: (config) => String(config._id),
-      },
-      { bypassForOrgAdmin: true },
+      (config) => String(config._id),
+      "read",
     );
     const visibleConfigs = mergeWorkflowConfigsById(byVisibility, byFga);
     return NextResponse.json(visibleConfigs) as NextResponse;
