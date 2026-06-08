@@ -40,11 +40,32 @@ DEFAULT_MCP_ROUTE_POLICIES: dict[str, Any] = {
     "extAuthz": {
         "host": "openfga-authz-bridge:9100",
         "failureMode": {"denyWithStatus": 403},
+        # Forward the HTTP request body to the bridge so it can parse the
+        # JSON-RPC `tools/call` method+name and run the caller-keyed per-tool
+        # check (FR-012/SC-010). Without this only gRPC metadata reaches the
+        # bridge, `tool_call` is always None, and the caller-keyed block is
+        # skipped — every MCP call would pass on the coarse `mcp_gateway:list`
+        # check alone. Headers (x-caipe-agent-context*) are already delivered by
+        # the gRPC protocol when includeRequestHeaders is empty; only the body
+        # needs requesting. packAsBytes -> CheckRequest.http.raw_body, which the
+        # bridge's _request_body_text() reads first. See issue #36. The per-route
+        # overrides below only add `transformations` (shallow-merged), so they
+        # inherit this extAuthz block unchanged.
         # Keep this in sync with deploy/agentgateway/config.yaml (bootstrap seed).
+        "includeRequestBody": {
+            "maxRequestBytes": 65536,
+            "allowPartialMessage": False,
+            "packAsBytes": True,
+        },
         "protocol": {
             "grpc": {
                 "metadata": {
-                    "caipe.auth": '{"sub": jwt.sub}',
+                    # Carry preferred_username alongside sub so the bridge can
+                    # detect service accounts (T002 rule) — the gateway's jwtAuth
+                    # consumes the Authorization bearer and does NOT forward it in
+                    # the ext_authz CheckRequest, so metadata is the only channel
+                    # for the SA signal (#46/#49). Keep in sync with config.yaml.
+                    "caipe.auth": '{"sub": jwt.sub, "preferred_username": jwt.preferred_username}',
                 },
             },
         },

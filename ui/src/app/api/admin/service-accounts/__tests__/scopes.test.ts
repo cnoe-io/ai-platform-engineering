@@ -124,9 +124,12 @@ describe("POST .../[id]/scopes (add)", () => {
     expect(mockWriteOpenFgaTuples).not.toHaveBeenCalled();
   });
 
-  it("400 on malformed scope ref", async () => {
+  it("400 on genuinely malformed scope ref", async () => {
     manageableWithHeld(new Set());
-    const res = await POST(scopeRequest({ type: "tool", ref: "no-slash" }), ctx());
+    // A space is genuinely malformed (not OpenFGA-safe). NOTE: a bare
+    // separator-less id like "no-slash" is NOT malformed — it's a valid
+    // single-segment tool id (#43), so it would proceed to the can_call check.
+    const res = await POST(scopeRequest({ type: "tool", ref: "bad ref" }), ctx());
     expect(res.status).toBe(400);
     // can_manage not even checked when the body is malformed.
     expect(mockWriteOpenFgaTuples).not.toHaveBeenCalled();

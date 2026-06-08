@@ -388,6 +388,48 @@ def caller_is_service_account(headers: dict[str, str]) -> bool:
     )
 
 
+def _preferred_username_from_metadata(request: CheckRequest) -> str | None:
+    """Read `preferred_username` from the ext_authz `caipe.auth` gRPC metadata.
+
+    AgentGateway's jwtAuth listener consumes the Authorization bearer and does
+    NOT forward it in the ext_authz CheckRequest, so the bridge cannot re-decode
+    the token (#46/#49). Instead the gateway is configured to pass the SA signal
+    in the `caipe.auth` metadata expression alongside `sub`
+    (`{"sub": jwt.sub, "preferred_username": jwt.preferred_username}`). Mirrors
+    `_subject_from_metadata`. assisted-by Claude claude-opus-4-8
+    """
+    metadata = request.attributes.metadata_context.filter_metadata
+    for key in ("caipe.auth", "dev.agentgateway.jwt"):
+        if key not in metadata:
+            continue
+        fields = metadata[key].fields
+        if "preferred_username" in fields:
+            value = _string_value(fields["preferred_username"])
+            if value:
+                return value
+        if "claims" in fields:
+            claim_fields = fields["claims"].struct_value.fields
+            if "preferred_username" in claim_fields:
+                value = _string_value(claim_fields["preferred_username"])
+                if value:
+                    return value
+    return None
+
+
+def request_caller_is_service_account(request: CheckRequest, headers: dict[str, str]) -> bool:
+    """Whether the caller is a Keycloak service account, T002 rule.
+
+    Prefers the `preferred_username` carried in `caipe.auth` gRPC metadata (the
+    only signal available when AgentGateway's jwtAuth has already consumed the
+    bearer — the production path). Falls back to decoding the Authorization
+    bearer directly (local diagnostics / metadata-less callers).
+    """
+    preferred = _preferred_username_from_metadata(request)
+    if preferred is not None:
+        return preferred.startswith("service-account-")
+    return caller_is_service_account(headers)
+
+
 def _headers_from_check_request(request: CheckRequest) -> dict[str, str]:
     headers = request.attributes.request.http.headers
     return {str(k).lower(): str(v) for k, v in headers.items()}
@@ -517,6 +559,7 @@ def build_check_request(
     path: str = "/",
     method: str = "GET",
     metadata_subject: str | None = None,
+    metadata_preferred_username: str | None = None,
     body: str = "",
 ) -> CheckRequest:
     """Build a CheckRequest for unit tests and local diagnostics."""
@@ -530,6 +573,10 @@ def build_check_request(
         request.attributes.metadata_context.filter_metadata["caipe.auth"].fields[
             "sub"
         ].string_value = metadata_subject
+    if metadata_preferred_username:
+        request.attributes.metadata_context.filter_metadata["caipe.auth"].fields[
+            "preferred_username"
+        ].string_value = metadata_preferred_username
     return request
 
 
@@ -638,8 +685,10 @@ class OpenFgaAuthorizationService:
         # Namespace the caller subject. Service-account tokens (Keycloak
         # client-credentials) are graphed as `service_account:<sub>`; everything
         # else stays `user:<sub>`. The rule (preferred_username startsWith
-        # "service-account-") matches the BFF and DA layers (T002).
-        if caller_is_service_account(headers):
+        # "service-account-") matches the BFF and DA layers (T002). SA-ness is
+        # read from `caipe.auth` gRPC metadata (the gateway consumes the bearer
+        # and doesn't forward it — #46/#49), falling back to the bearer header.
+        if request_caller_is_service_account(request, headers):
             user = f"service_account:{sub}"
         else:
             user = f"user:{sub}"

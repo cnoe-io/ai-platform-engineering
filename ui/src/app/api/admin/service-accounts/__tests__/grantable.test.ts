@@ -10,8 +10,6 @@
  * anything beyond what the caller holds.
  */
 
-import { NextRequest } from "next/server";
-
 const mockGetServerSession = jest.fn();
 jest.mock("next-auth", () => ({
   getServerSession: (...args: unknown[]) => mockGetServerSession(...args),
@@ -32,10 +30,6 @@ import { GET } from "../grantable/route";
 
 const SESSION = { sub: "caller-sub", user: { email: "caller@example.com" } };
 
-function req(): NextRequest {
-  return new NextRequest("http://localhost:3000/api/admin/service-accounts/grantable");
-}
-
 beforeEach(() => {
   jest.clearAllMocks();
   mockGetServerSession.mockResolvedValue(SESSION);
@@ -51,7 +45,7 @@ describe("GET /api/admin/service-accounts/grantable", () => {
       resources: [{ type: "agent", id: "incident-resolver", display_name: "Incident Resolver" }],
     });
 
-    const res = await GET(req());
+    const res = await GET();
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.success).toBe(true);
@@ -76,7 +70,7 @@ describe("GET /api/admin/service-accounts/grantable", () => {
       .mockResolvedValueOnce({ objects: ["agent:mystery-agent"] })
       .mockResolvedValueOnce({ objects: [] });
 
-    const res = await GET(req());
+    const res = await GET();
     const body = await res.json();
     expect(body.data.agents).toEqual([{ ref: "mystery-agent", name: "mystery-agent" }]);
     expect(body.data.tools).toEqual([]);
@@ -88,7 +82,7 @@ describe("GET /api/admin/service-accounts/grantable", () => {
       .mockResolvedValueOnce({ objects: ["tool:srv/do"] });
     mockListRebacCatalog.mockRejectedValue(new Error("catalog down"));
 
-    const res = await GET(req());
+    const res = await GET();
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.data.agents).toEqual([{ ref: "a1", name: "a1" }]);
@@ -97,13 +91,13 @@ describe("GET /api/admin/service-accounts/grantable", () => {
 
   it("401 when unauthenticated", async () => {
     mockGetServerSession.mockResolvedValue(null);
-    const res = await GET(req());
+    const res = await GET();
     expect(res.status).toBe(401);
   });
 
   it("503 when the OpenFGA list call fails", async () => {
     mockListOpenFgaObjects.mockRejectedValue(new Error("openfga down"));
-    const res = await GET(req());
+    const res = await GET();
     expect(res.status).toBe(503);
   });
 });

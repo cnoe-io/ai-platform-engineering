@@ -354,13 +354,23 @@ depth on top of the UI's grantable list). Removal is unconditional for any
 owning-team member. Granted access is **static** — it does not re-derive from the
 creator's later permission changes.
 
-**Subject detection (all layers agree):** a token is a service account iff
+**Subject detection (all FOUR enforcement layers agree):** a token is a service account iff
 `preferred_username` starts with `service-account-`; such callers namespace as
 `service_account:<sub>`, everyone else as `user:<sub>`. Enforced identically at
-the BFF (`jwt-validation.ts`), the Dynamic Agents backend (`openfga_authz.py`),
-and the AgentGateway bridge (`bridge/main.py`). The bridge additionally enforces
-the **caller-keyed tool check** (see
-[Workflows › Caller-Keyed Tool Authorization](./workflows.md#caller-keyed-tool-authorization-service-accounts-fr-012a)).
+(1) the BFF resource-authz (`jwt-validation.ts` / `resource-authz.ts`), (2) the **BFF agent-use check**
+(`requireAgentUsePermission` in `openfga-agent-authz.ts` — the gate the SA invoke path `/api/v1/chat/*`
+actually hits; for SA subjects it also skips the human-only email-principal and team-union fallbacks),
+(3) the Dynamic Agents backend (`openfga_authz.py`), and (4) the AgentGateway bridge (`bridge/main.py`).
+The bridge additionally enforces the **caller-keyed tool check** (see
+[Workflows › Caller-Keyed Tool Authorization](./workflows.md#caller-keyed-tool-authorization-service-accounts-fr-012a)),
+which only receives the data to run because the gateway's `extAuthz` policy forwards the request body
+(`includeRequestBody`). Note: SAs invoke via the **dynamic-agent** path and never traverse the deprecated
+`supervisor#invoke` org gate, so they hold **no** organization-membership grant (keeps them least-privilege
+per FR-004 — their reach is exactly their agent/tool scopes).
+
+**Coarse-gate baseline:** SAs also hold `service_account:<sub> caller mcp_gateway:list` (written at create,
+deleted at revoke) so they pass AgentGateway's coarse ext_authz gate — humans get this at login bootstrap;
+SAs never log in. This required adding `service_account` to `mcp_gateway.caller` in the model.
 
 **Team-deletion guard (FR-025):** a team cannot be deleted while it still owns any
 service account — `DELETE /api/admin/teams/[id]` lists
@@ -370,8 +380,8 @@ unmanageable identities.
 
 The create + external-call sequences are in
 [Workflows › Service Account create & external call](./workflows.md#service-account-create--external-call).
-The collection, env, and naming details are in
-[the BFF library README](../../../../ui/src/lib/README-service-accounts.md).
+The collection, env, and naming details are in the BFF library README at
+`ui/src/lib/README-service-accounts.md` (outside the docs tree).
 
 ---
 

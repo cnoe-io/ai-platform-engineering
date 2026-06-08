@@ -85,7 +85,8 @@ interface ServiceAccountDetail {
 }
 
 interface MyTeam {
-  _id: string; // team slug — the OpenFGA subject
+  _id: string; // Mongo ObjectId — NOT the OpenFGA subject; do not use for grants.
+  slug: string; // the canonical `team:<slug>` OpenFGA subject — use this as owning_team_id (#48).
   name: string;
 }
 
@@ -327,6 +328,7 @@ function CreateServiceAccountDialog({
   const [owningTeam, setOwningTeam] = useState("");
   const [teams, setTeams] = useState<MyTeam[]>([]);
   const [grantable, setGrantable] = useState<GrantableData>({ agents: [], tools: [] });
+  const [grantableError, setGrantableError] = useState(false);
   const [selectedAgents, setSelectedAgents] = useState<string[]>([]);
   const [selectedTools, setSelectedTools] = useState<string[]>([]);
   const [loadingOptions, setLoadingOptions] = useState(false);
@@ -342,6 +344,8 @@ function CreateServiceAccountDialog({
     setSelectedAgents([]);
     setSelectedTools([]);
     setFormError(null);
+    setGrantableError(false);
+    setGrantable({ agents: [], tools: [] });
     setLoadingOptions(true);
 
     let cancelled = false;
@@ -356,9 +360,14 @@ function CreateServiceAccountDialog({
         if (cancelled) return;
         const myTeams = (teamsRes.teams ?? []) as MyTeam[];
         setTeams(myTeams);
-        if (myTeams.length === 1) setOwningTeam(myTeams[0]._id);
+        if (myTeams.length === 1) setOwningTeam(myTeams[0].slug);
         if (grantableRes.success) {
           setGrantable(grantableRes.data as GrantableData);
+        } else {
+          // Distinguish a load FAILURE from a genuine zero-grant user (#40):
+          // both leave the pickers empty, but only the failure should tell the
+          // user to retry rather than implying they hold nothing.
+          setGrantableError(true);
         }
       } finally {
         if (!cancelled) setLoadingOptions(false);
@@ -477,10 +486,17 @@ function CreateServiceAccountDialog({
                 ariaLabel="Owning team"
                 value={owningTeam}
                 onChange={setOwningTeam}
-                options={teams.map<TeamPickerOption>((t) => ({ slug: t._id, name: t.name }))}
+                options={teams.map<TeamPickerOption>((t) => ({ slug: t.slug, name: t.name }))}
                 placeholder="Select one of your teams..."
               />
             </div>
+
+            {grantableError && (
+              <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                Couldn&apos;t load your grantable resources — the agent/tool lists below may be
+                incomplete. Close and reopen this dialog to try again.
+              </div>
+            )}
 
             <div className="space-y-1">
               <label className="text-sm font-medium">Agents</label>
@@ -571,12 +587,17 @@ function ManageServiceAccountDialog({
   const [confirmRevoke, setConfirmRevoke] = useState(false);
   const [confirmRotate, setConfirmRotate] = useState(false);
   const [pendingRemove, setPendingRemove] = useState<ScopeRef | null>(null);
-  const [addType, setAddType] = useState<"agent" | "tool">("agent");
-  const [addRef, setAddRef] = useState("");
+  // Add-scope selection — ref arrays, mirroring the create dialog's grantable
+  // pickers (#54: styled MultiSelect, not native <select>).
+  const [addAgents, setAddAgents] = useState<string[]>([]);
+  const [addTools, setAddTools] = useState<string[]>([]);
 
   const refresh = useCallback(async () => {
     if (!saId) return;
     setLoading(true);
+    // Clear any prior error so a fail-then-Retry-succeeds path doesn't leak the
+    // stale "Failed to load..." string into the content view's inline error div.
+    setError(null);
     try {
       const [detailRes, grantableRes] = await Promise.all([
         fetch(`/api/admin/service-accounts/${encodeURIComponent(saId)}`)
@@ -598,39 +619,57 @@ function ManageServiceAccountDialog({
     if (saId) void refresh();
   }, [saId, refresh]);
 
-  // Held refs available to ADD (exclude ones the SA already has).
-  const held =
-    addType === "agent" ? grantable.agents : grantable.tools;
+  // Held refs available to ADD (exclude ones the SA already has), per type.
   const existingRefs = new Set((detail?.scopes ?? []).map((s) => `${s.type}:${s.ref}`));
-  const addableOptions = held.filter(
-    (item) => !existingRefs.has(`${addType}:${item.ref}`),
+  const addableAgents = grantable.agents.filter(
+    (item) => !existingRefs.has(`agent:${item.ref}`),
   );
+  const addableTools = grantable.tools.filter(
+    (item) => !existingRefs.has(`tool:${item.ref}`),
+  );
+  // label↔ref maps so the MultiSelect shows friendly names while we submit refs
+  // (same pattern as the create dialog).
+  const agentLabelToRef = new Map(addableAgents.map((a) => [a.name, a.ref]));
+  const agentRefToLabel = new Map(addableAgents.map((a) => [a.ref, a.name]));
+  const toolLabelToRef = new Map(addableTools.map((t) => [t.name, t.ref]));
+  const toolRefToLabel = new Map(addableTools.map((t) => [t.ref, t.name]));
 
   const addScope = useCallback(async () => {
-    if (!saId || !addRef) return;
+    if (!saId) return;
+    const selected: ScopeRef[] = [
+      ...addAgents.map((ref) => ({ type: "agent" as const, ref })),
+      ...addTools.map((ref) => ({ type: "tool" as const, ref })),
+    ];
+    if (selected.length === 0) return;
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch(
-        `/api/admin/service-accounts/${encodeURIComponent(saId)}/scopes`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ type: addType, ref: addRef }),
-        },
-      );
-      const body = await res.json();
-      if (!res.ok || !body.success) {
-        setError(body.error || "Failed to add scope");
-        return;
+      for (const scope of selected) {
+        const res = await fetch(
+          `/api/admin/service-accounts/${encodeURIComponent(saId)}/scopes`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(scope),
+          },
+        );
+        const body = await res.json();
+        if (!res.ok || !body.success) {
+          setError(body.error || `Failed to add ${scope.type} ${scope.ref}`);
+          // Refresh so any scopes that DID get added show, then stop.
+          await refresh();
+          onMutated();
+          return;
+        }
       }
-      setAddRef("");
+      setAddAgents([]);
+      setAddTools([]);
       await refresh();
       onMutated();
     } finally {
       setBusy(false);
     }
-  }, [saId, addType, addRef, refresh, onMutated]);
+  }, [saId, addAgents, addTools, refresh, onMutated]);
 
   const removeScope = useCallback(
     async (scope: ScopeRef) => {
@@ -713,9 +752,26 @@ function ManageServiceAccountDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {loading || !detail ? (
+        {loading ? (
           <div className="flex items-center justify-center py-8 text-muted-foreground">
             <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading...
+          </div>
+        ) : !detail ? (
+          // Detail failed to load (e.g. transient 503): show the error + a way
+          // out instead of an infinite spinner (the content branch below is
+          // unreachable when detail is null). #39.
+          <div className="space-y-3 py-6">
+            <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+              {error ?? "Failed to load service account."}
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => refresh()}>
+                Retry
+              </Button>
+              <Button variant="ghost" onClick={onClose}>
+                Close
+              </Button>
+            </div>
           </div>
         ) : (
           <div className="space-y-4">
@@ -788,38 +844,55 @@ function ManageServiceAccountDialog({
               )}
             </div>
 
-            {/* Add scope (bounded by what the editor holds) */}
-            <div className="space-y-2 rounded-md border border-dashed border-input p-3">
-              <span className="text-sm font-medium">Add a scope</span>
-              <div className="flex gap-2">
-                <select
-                  value={addType}
-                  onChange={(e) => {
-                    setAddType(e.target.value as "agent" | "tool");
-                    setAddRef("");
-                  }}
-                  className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+            {/* Add scope (bounded by what the editor holds). Uses the app's
+                styled MultiSelect — same picker as the create dialog (#54), not
+                native browser <select>. */}
+            <div className="space-y-3 rounded-md border border-dashed border-input p-3">
+              <span className="text-sm font-medium">Add scopes</span>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-muted-foreground">Agents</label>
+                <MultiSelect
+                  options={addableAgents.map((a) => a.name)}
+                  selected={addAgents
+                    .map((ref) => agentRefToLabel.get(ref))
+                    .filter((v): v is string => Boolean(v))}
+                  onChange={(labels) =>
+                    setAddAgents(
+                      labels
+                        .map((l) => agentLabelToRef.get(l))
+                        .filter((v): v is string => Boolean(v)),
+                    )
+                  }
+                  placeholder="Add agents you hold..."
+                  emptyLabel="No more agents you can grant"
+                  badgeLabel="agents"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-muted-foreground">Tools</label>
+                <MultiSelect
+                  options={addableTools.map((t) => t.name)}
+                  selected={addTools
+                    .map((ref) => toolRefToLabel.get(ref))
+                    .filter((v): v is string => Boolean(v))}
+                  onChange={(labels) =>
+                    setAddTools(
+                      labels
+                        .map((l) => toolLabelToRef.get(l))
+                        .filter((v): v is string => Boolean(v)),
+                    )
+                  }
+                  placeholder="Add tools you hold..."
+                  emptyLabel="No more tools you can grant"
+                  badgeLabel="tools"
+                />
+              </div>
+              <div className="flex justify-end">
+                <Button
+                  onClick={addScope}
+                  disabled={busy || (addAgents.length === 0 && addTools.length === 0)}
+                  className="gap-1.5"
                 >
-                  <option value="agent">Agent</option>
-                  <option value="tool">Tool</option>
-                </select>
-                <select
-                  value={addRef}
-                  onChange={(e) => setAddRef(e.target.value)}
-                  className="h-9 flex-1 rounded-md border border-input bg-background px-2 text-sm"
-                >
-                  <option value="">
-                    {addableOptions.length === 0
-                      ? `No more ${addType}s you can grant`
-                      : `Select a ${addType} you hold...`}
-                  </option>
-                  {addableOptions.map((item) => (
-                    <option key={item.ref} value={item.ref}>
-                      {item.name}
-                    </option>
-                  ))}
-                </select>
-                <Button onClick={addScope} disabled={busy || !addRef} className="gap-1.5">
                   <Plus className="h-4 w-4" />
                   Add
                 </Button>
@@ -876,10 +949,14 @@ function ManageServiceAccountDialog({
                 </Button>
               )}
 
-              {/* Revoke — terminal. */}
+              {/* Delete (terminal). Labeled "Delete service account" for clarity
+                  (#53 — Erik found "Revoke" unclear); the underlying route +
+                  audit event (service_account.revoke) are unchanged. */}
               {confirmRevoke ? (
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-sm text-muted-foreground">Revoke permanently?</span>
+                  <span className="text-sm text-muted-foreground">
+                    Delete service account{detail.name ? ` ${detail.name}` : ""}? This is permanent.
+                  </span>
                   <Button
                     variant="destructive"
                     size="sm"
@@ -888,7 +965,7 @@ function ManageServiceAccountDialog({
                     onClick={revoke}
                   >
                     {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                    Confirm revoke
+                    Confirm delete
                   </Button>
                   <Button
                     variant="ghost"
@@ -910,7 +987,7 @@ function ManageServiceAccountDialog({
                   }}
                 >
                   <Trash2 className="h-4 w-4" />
-                  Revoke
+                  Delete service account
                 </Button>
               )}
             </div>
@@ -967,6 +1044,8 @@ function CredentialRevealDialog({
           <CredentialField label="Token URL" value={credential.token_url} />
         </div>
 
+        <EnvBlock credential={credential} />
+
         <label className="flex items-center gap-2 pt-2 text-sm">
           <input
             type="checkbox"
@@ -999,12 +1078,74 @@ function CredentialField({
   return (
     <div className="space-y-1">
       <span className="text-xs font-medium text-muted-foreground">{label}</span>
-      <div className="flex items-center gap-2 rounded-md border border-input bg-muted/30 px-3 py-2">
-        <code className={cn("flex-1 truncate text-xs", secret && "tracking-wider")}>
+      <div className="flex items-start gap-2 rounded-md border border-input bg-muted/30 px-3 py-2">
+        {/* break-all (not truncate) so long secrets/URLs WRAP inside the box
+            instead of overflowing the dialog to the right (#51). min-w-0 lets
+            the flex child shrink so the copy button stays in view. */}
+        <code className={cn("min-w-0 flex-1 break-all text-xs", secret && "tracking-wider")}>
           {value}
         </code>
         <CopyButton value={value} label={`Copy ${label.toLowerCase()}`} />
       </div>
+    </div>
+  );
+}
+
+/**
+ * The CAIPE base URL to auto-fill into the .env block (#52). The SA tab calls
+ * the API via RELATIVE paths, so the page origin IS the authoritative base —
+ * EXCEPT for the scheme on loopback hosts: local dev serves plain HTTP on
+ * :3000, but the browser origin can report `https` (e.g. reached via a
+ * TLS-terminating dev proxy / HSTS). Emitting `https://localhost:3000` makes a
+ * host-shell curl attempt TLS against a non-TLS port → connection refused →
+ * HTTP 000 (#58). So for loopback we force `http`; for real hosts we trust the
+ * origin scheme (don't downgrade legit prod https). Overridable + SSR-guarded.
+ */
+function deriveApiBase(): string {
+  if (typeof window === "undefined" || !window.location?.origin) {
+    return "http://localhost:3000";
+  }
+  const { protocol, hostname, host } = window.location;
+  const isLoopback =
+    hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]" || hostname === "::1";
+  if (isLoopback && protocol === "https:") {
+    // Loopback dev is HTTP — downgrade the scheme so paste-and-go curl works.
+    return `http://${host}`;
+  }
+  return window.location.origin;
+}
+
+/**
+ * Copyable .env block for the one-time reveal (#52). One CopyButton for the
+ * whole block; var names are the canonical `CAIPE_SA_*` set confirmed with
+ * testing-manager (they map 1:1 to the create-response credential fields and
+ * match the credential-usage curl/token doc).
+ *
+ * `CAIPE_API_URL` is auto-filled via deriveApiBase() (origin, with a loopback
+ * http fix — see #58). Overridable for a split UI/API-host or non-loopback
+ * scheme. See-once is preserved: rendered only inside the never-refetchable reveal.
+ */
+function EnvBlock({ credential }: { credential: CreatedCredential }) {
+  const apiBase = deriveApiBase();
+  const envText = [
+    `CAIPE_SA_CLIENT_ID=${credential.client_id}`,
+    `CAIPE_SA_CLIENT_SECRET=${credential.client_secret}`,
+    `CAIPE_SA_TOKEN_URL=${credential.token_url}`,
+    "# CAIPE base URL for /api/v1/chat/* (auto-filled from this page; edit if your API host/scheme differs):",
+    `CAIPE_API_URL=${apiBase}`,
+  ].join("\n");
+
+  return (
+    <div className="space-y-1 pt-1">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-medium text-muted-foreground">.env</span>
+        <CopyButton value={envText} label="Copy .env block" copiedLabel="Copied .env">
+          Copy block
+        </CopyButton>
+      </div>
+      <pre className="overflow-x-auto rounded-md border border-input bg-muted/30 px-3 py-2 text-xs">
+        <code className="whitespace-pre-wrap break-all">{envText}</code>
+      </pre>
     </div>
   );
 }

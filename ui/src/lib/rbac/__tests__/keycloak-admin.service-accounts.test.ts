@@ -229,3 +229,76 @@ describe("Keycloak service-account client helpers", () => {
     );
   });
 });
+
+describe("getServiceAccountTokenUrl — host-reachable derivation (#55)", () => {
+  const originalEnv = { ...process.env };
+
+  beforeEach(() => {
+    jest.resetModules();
+    process.env = {
+      ...originalEnv,
+      // KEYCLOAK_URL is the Docker-INTERNAL host — must NOT leak into the token URL.
+      KEYCLOAK_URL: "http://keycloak:7080",
+      KEYCLOAK_REALM: "caipe",
+    };
+    delete process.env.KEYCLOAK_PUBLIC_URL;
+    delete process.env.OIDC_ISSUER;
+  });
+
+  afterEach(() => {
+    process.env = { ...originalEnv };
+  });
+
+  it("derives from OIDC_ISSUER (browser-facing) — NOT the internal KEYCLOAK_URL", async () => {
+    process.env.OIDC_ISSUER = "http://localhost:7080/realms/caipe";
+    const { getServiceAccountTokenUrl } = await import("../keycloak-admin");
+    expect(getServiceAccountTokenUrl()).toBe(
+      "http://localhost:7080/realms/caipe/protocol/openid-connect/token",
+    );
+    expect(getServiceAccountTokenUrl()).not.toContain("keycloak:7080");
+  });
+
+  it("prefers KEYCLOAK_PUBLIC_URL when set", async () => {
+    process.env.KEYCLOAK_PUBLIC_URL = "https://auth.example.com";
+    process.env.OIDC_ISSUER = "http://localhost:7080/realms/caipe";
+    const { getServiceAccountTokenUrl } = await import("../keycloak-admin");
+    expect(getServiceAccountTokenUrl()).toBe(
+      "https://auth.example.com/realms/caipe/protocol/openid-connect/token",
+    );
+  });
+
+  it("does not double the realm segment when OIDC_ISSUER ends in /realms/<realm>", async () => {
+    process.env.OIDC_ISSUER = "https://auth.example.com/realms/caipe/";
+    const { getServiceAccountTokenUrl } = await import("../keycloak-admin");
+    expect(getServiceAccountTokenUrl()).toBe(
+      "https://auth.example.com/realms/caipe/protocol/openid-connect/token",
+    );
+  });
+
+  it("PRESERVES the issuer's realm even if KEYCLOAK_REALM diverges (reviewer-a nit)", async () => {
+    // The issuer IS the realm URL — its realm must win, not KEYCLOAK_REALM.
+    process.env.KEYCLOAK_REALM = "other-realm";
+    process.env.OIDC_ISSUER = "https://auth.example.com/realms/caipe";
+    const { getServiceAccountTokenUrl } = await import("../keycloak-admin");
+    expect(getServiceAccountTokenUrl()).toBe(
+      "https://auth.example.com/realms/caipe/protocol/openid-connect/token",
+    );
+  });
+
+  it("treats a bare-base OIDC_ISSUER (no /realms/<realm>) by appending the full token path", async () => {
+    process.env.KEYCLOAK_REALM = "caipe";
+    process.env.OIDC_ISSUER = "https://auth.example.com";
+    const { getServiceAccountTokenUrl } = await import("../keycloak-admin");
+    expect(getServiceAccountTokenUrl()).toBe(
+      "https://auth.example.com/realms/caipe/protocol/openid-connect/token",
+    );
+  });
+
+  it("falls back to KEYCLOAK_URL for single-URL deployments (no issuer set)", async () => {
+    // No OIDC_ISSUER / KEYCLOAK_PUBLIC_URL → use the (assumed host-reachable) KEYCLOAK_URL.
+    const { getServiceAccountTokenUrl } = await import("../keycloak-admin");
+    expect(getServiceAccountTokenUrl()).toBe(
+      "http://keycloak:7080/realms/caipe/protocol/openid-connect/token",
+    );
+  });
+});
