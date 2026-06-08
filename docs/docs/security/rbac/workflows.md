@@ -212,6 +212,153 @@ conversation write check, so a Slack OBO token for the conversation owner can
 update thread metadata such as `last_processed_ts` without a separate
 `conversation:<id>#writer` tuple.
 
+## Service Account Create & External Call
+
+Service accounts (spec `2026-06-05-service-accounts`) are self-service, team-owned
+bot identities. See [Architecture › Service Accounts](./architecture.md#service-accounts-self-service-bot-identities)
+for the identity/authorization model.
+
+### Create flow (US1)
+
+A team member creates an SA scoped only to access they themselves hold. The BFF
+orchestrates Keycloak (credential), OpenFGA (access), and Mongo (metadata), and
+returns the credential **exactly once**.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant User as Team member (browser)
+    participant BFF as Next.js BFF
+    participant FGA as OpenFGA PDP
+    participant KC as Keycloak Admin API
+    participant MDB as MongoDB
+
+    User->>BFF: POST /api/admin/service-accounts<br/>{name, owning_team_id, scopes[]}
+    BFF->>FGA: Check user:<caller> member team:<team>
+    alt not a member
+        BFF-->>User: 403 (not a member of owning team)
+    else member
+        BFF->>MDB: name unique among ACTIVE SAs in team?
+        alt name collision (case-insensitive)
+            BFF-->>User: 409 (name already exists)
+        else unique
+            loop each requested scope
+                BFF->>FGA: Check user:<caller> can_use/can_call <scope>
+            end
+            alt any scope not held by caller
+                BFF-->>User: 403 {rejected_scopes}
+            else all held
+                BFF->>KC: POST /clients (confidential, serviceAccountsEnabled)
+                KC-->>BFF: client_uuid + client_secret + service-account-user sub
+                BFF->>FGA: write team:<team>#member owner_team service_account:<sub><br/>+ one tuple per granted scope
+                BFF->>MDB: insert service_accounts doc (status active, scopes_snapshot)
+                BFF->>MDB: audit service_account.create (actor, target, scopes)
+                BFF-->>User: 201 { credential: {client_id, client_secret, token_url} }<br/>(shown ONCE — never refetchable)
+            end
+        end
+    end
+```
+
+A brand-new SA with no scopes can access nothing (default-deny). Rotate
+(`POST …/[id]/rotate`) regenerates the secret (shown once, scopes unchanged);
+revoke (`DELETE …/[id]`) deletes the Keycloak client + all tuples and marks the
+doc revoked (terminal; name freed for reuse).
+
+### External-call flow (US2) — dual agent + caller tool authorization
+
+An external system authenticates as the SA (client-credentials grant) and calls
+a granted agent. Both the agent invocation AND each downstream tool call are
+authorized against the **SA's own** grants — holding an agent does not confer its
+tools (FR-012).
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Ext as External caller (CI / webhook)
+    participant KC as Keycloak
+    participant BFF as Next.js BFF
+    participant DA as Dynamic Agents
+    participant AG as AgentGateway (ext_authz bridge)
+    participant FGA as OpenFGA PDP
+
+    Ext->>KC: client-credentials grant (client_id + secret)
+    KC-->>Ext: SA JWT (preferred_username=service-account-<client>)
+    Ext->>BFF: POST /api/v1/chat/* (Authorization: Bearer <SA JWT>)
+    BFF->>BFF: validate JWT (JWKS); namespace service_account:<sub>
+    BFF->>DA: proxy, forwarding the SA JWT unchanged
+    DA->>DA: detect SA (preferred_username rule) → service_account:<sub>
+    DA->>FGA: Check service_account:<sub> can_use agent:<id>
+    alt SA not granted the agent
+        DA-->>Ext: 403 (audited)
+    else granted
+        DA->>AG: MCP tools/call (Bearer SA JWT + signed agent context)
+        AG->>FGA: Check service_account:<sub> can_call mcp_gateway:list
+        AG->>FGA: Check service_account:<sub> can_use agent:<id>
+        AG->>FGA: Check agent:<id> can_call tool:<server>/<tool>  (agent-keyed)
+        AG->>FGA: Check service_account:<sub> can_call tool:<server>/<tool>  (caller-keyed, FR-012)
+        alt agent-keyed AND caller-keyed both pass
+            AG-->>DA: allow (OK_CALLER_TOOL audited)
+        else either missing
+            AG-->>DA: 403 (DENY_AGENT_TOOL or DENY_CALLER_TOOL, audited)
+        end
+    end
+```
+
+### Caller-Keyed Tool Authorization (Service Accounts, FR-012a)
+
+The AgentGateway ext_authz bridge historically authorized a `tools/call` against
+the **agent's** identity only (`agent:<id> can_call tool:<server>/<tool>`). That
+left a confused-deputy gap: a caller's effective tool reach was the *union* of
+tools granted to every agent they could invoke. The service-accounts work
+(spec `2026-06-05-service-accounts`) closes it by ANDing a **caller-keyed** check
+so a tool call is permitted only when **both** the agent and the calling subject
+hold the tool grant.
+
+Subject namespacing is consistent across every enforcement layer: a token is a
+**service account** iff its `preferred_username` claim starts with
+`service-account-` (Keycloak client-credentials tokens). Such callers are graphed
+as `service_account:<sub>`; everyone else is `user:<sub>`. The same rule is used
+by the BFF (`ui/src/lib/jwt-validation.ts`), the Dynamic Agents backend
+(`auth/openfga_authz.py`), and the bridge (`deploy/openfga/bridge/main.py`).
+
+The bridge's per-`tools/call` decision (replaces the single agent-tool check above):
+
+1. `<subject> can_use agent:<agent_id>` — caller may use the agent.
+2. `agent:<agent_id> can_call tool:<server>/<tool>` (or `tool:<server>/*`) — agent may call the tool.
+3. **NEW:** `<subject> can_call tool:<server>/<tool>` (or `tool:<server>/*`) — **caller** may call the tool.
+
+All three must pass. Each decision is audited (`OK_CALLER_TOOL` on allow,
+`DENY_CALLER_TOOL` on the new denial) so call-time decisions under any credential
+are recorded (FR-027/SC-009).
+
+#### Rollout safety (FR-012c / SC-011)
+
+Turning the caller-keyed check on in a shared environment **before** callers hold
+direct tool grants would break existing human users who rely on transitive
+(agent-granted) tool access. The check is therefore **gated behind a config flag,
+default-off**, in the bridge:
+
+```
+CAIPE_CALLER_TOOL_CHECK_ENABLED   # unset/false/0/no/off (default) → legacy agent-only behavior
+                                  # true/1/yes/on               → enforce dual agent+caller tool check
+```
+
+**Enable steps (per environment):**
+
+1. **Inventory** current effective tool reach: for every `user:`/`service_account:`
+   subject, determine which `tool:<server>/<tool>` it can reach via
+   `agent:<id> can_call`. (OpenFGA list/expand over each agent the subject can use.)
+2. **Backfill** a direct `<subject> can_call tool:<server>/<tool>` grant for every
+   reach you intend to preserve (a one-off OpenFGA write), or intentionally drop
+   it per policy.
+3. **Flip** `CAIPE_CALLER_TOOL_CHECK_ENABLED=true` on the bridge and verify zero
+   unintended denials (SC-011) before considering the rollout complete.
+
+> **Coordinate with the platform owner** before enabling in any shared
+> environment. New service accounts are unaffected by the backfill — they are
+> granted their caller tool tuples (`service_account:<sub> can_call tool:…`) at
+> create/scope-add time, so they work correctly the moment the flag is on.
+
 ## Self-Service Resource Creation
 
 Private and team-scoped Dynamic Agents, MCP servers, and RAG data sources use the

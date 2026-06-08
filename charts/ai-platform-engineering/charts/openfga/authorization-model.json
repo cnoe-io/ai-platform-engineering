@@ -7,7 +7,28 @@
     },
     {
       "type": "service_account",
-      "relations": {}
+      "relations": {
+        "owner_team": {
+          "this": {}
+        },
+        "can_manage": {
+          "computedUserset": {
+            "relation": "owner_team"
+          }
+        }
+      },
+      "metadata": {
+        "relations": {
+          "owner_team": {
+            "directly_related_user_types": [
+              {
+                "type": "team",
+                "relation": "member"
+              }
+            ]
+          }
+        }
+      }
     },
     {
       "type": "anonymous",
@@ -1956,6 +1977,9 @@
             "directly_related_user_types": [
               {
                 "type": "user"
+              },
+              {
+                "type": "service_account"
               }
             ]
           }

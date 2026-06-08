@@ -308,6 +308,71 @@ token with the selected active team scope. The Webex bot clients are
 client-credentials tokens. The full runtime sequence is in
 [Workflows › Webex space ReBAC](./workflows.md#webex-space-rebac-and-bot-dispatch).
 
+### Service Accounts (self-service bot identities)
+
+> **Badge analogy:** A contractor badge any team lead can issue from the front
+> desk — scoped to specific doors, owned by their team, revocable, and never
+> more powerful than the person who issued it. Distinct from the operator-issued
+> Slack/Webex bot badges.
+
+Service accounts (spec `2026-05-24` → `2026-06-05-service-accounts`) are
+**user-minted, team-owned** bot identities for external/API callers (CI jobs,
+webhooks, alerts). Unlike the operator-provisioned Slack/Webex bots, any team
+member creates them self-service from **Admin → Settings → Service Accounts**.
+Three stores of record, each authoritative for one concern:
+
+| Store | Owns | Authoritative for |
+|-------|------|-------------------|
+| **Keycloak** | a confidential client (`serviceAccountsEnabled`) per SA | the **credential** (identity) |
+| **OpenFGA** | tuples on `service_account:<sub>` | **access** (ownership + scopes) |
+| **MongoDB** `service_accounts` | a display doc | **metadata** (name, status, links) |
+
+**Identity chain:** the SA is a dynamically-created Keycloak confidential client
+(`caipe-sa-<slug>-<short-rand>`); its service-account-user `sub` (UUID) IS the
+OpenFGA subject id. The credential = `client_id` + `client_secret` (Keycloak
+client-credentials grant), shown **once** on create/rotate and never persisted
+in CAIPE. Rotation regenerates the secret; revocation deletes the client.
+
+**Authorization model** (additive — `service_account` was subject-only before):
+
+```
+type service_account
+  relations
+    define owner_team: [team#member]
+    define can_manage: owner_team
+```
+
+- Ownership: `team:<team>#member owner_team service_account:<sub>` (exactly one team).
+- Management authority derives from ownership — the BFF gates every manage action
+  with `check(user:<caller>, can_manage, service_account:<sub>)`.
+- Scope grants reuse existing patterns: `service_account:<sub> can_use agent:<id>`
+  and `service_account:<sub> can_call tool:<server>/<tool>` (+ `tool:<server>/*`).
+
+**Permission-bound granting:** a creator/editor can only grant the SA scopes they
+themselves currently hold (`check(user:<editor>, …)` at write time — defense in
+depth on top of the UI's grantable list). Removal is unconditional for any
+owning-team member. Granted access is **static** — it does not re-derive from the
+creator's later permission changes.
+
+**Subject detection (all layers agree):** a token is a service account iff
+`preferred_username` starts with `service-account-`; such callers namespace as
+`service_account:<sub>`, everyone else as `user:<sub>`. Enforced identically at
+the BFF (`jwt-validation.ts`), the Dynamic Agents backend (`openfga_authz.py`),
+and the AgentGateway bridge (`bridge/main.py`). The bridge additionally enforces
+the **caller-keyed tool check** (see
+[Workflows › Caller-Keyed Tool Authorization](./workflows.md#caller-keyed-tool-authorization-service-accounts-fr-012a)).
+
+**Team-deletion guard (FR-025):** a team cannot be deleted while it still owns any
+service account — `DELETE /api/admin/teams/[id]` lists
+`service_account` objects via `owner_team` and returns `409
+TEAM_OWNS_SERVICE_ACCOUNTS` until they are revoked, preventing orphaned
+unmanageable identities.
+
+The create + external-call sequences are in
+[Workflows › Service Account create & external call](./workflows.md#service-account-create--external-call).
+The collection, env, and naming details are in
+[the BFF library README](../../../../ui/src/lib/README-service-accounts.md).
+
 ---
 
 ## Component 2: CAIPE UI — The Reception Desk

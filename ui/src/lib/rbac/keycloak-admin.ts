@@ -1,3 +1,5 @@
+import { randomBytes } from "crypto";
+
 export interface KeycloakRole {
   id: string;
   name: string;
@@ -1652,4 +1654,168 @@ export async function findRealmUserIdByAttribute(
     }
   }
   return null;
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Service-account clients (spec 2026-06-05-service-accounts, WS-B / T008).
+//
+// Each service account is a dynamically-created Keycloak confidential client
+// with serviceAccountsEnabled — one client = one credential. The client's
+// service-account-user `sub` (UUID) becomes the OpenFGA subject id
+// (`service_account:<sub>`). These mirror the existing adminFetch/assertOk
+// helpers above; they add no new abstraction. assisted-by Claude claude-opus-4-8
+// ───────────────────────────────────────────────────────────────────────────
+
+/** The credential + identity read back after creating a service-account client. */
+export interface ServiceAccountClient {
+  /** Keycloak internal client UUID — used for secret/delete admin calls. */
+  clientUuid: string;
+  /** Keycloak clientId string, e.g. "caipe-sa-incident-bot-a1b2c3". */
+  clientId: string;
+  /** The generated client secret. Shown to the operator exactly once. */
+  clientSecret: string;
+  /** The service-account-user `sub` (UUID) — the OpenFGA subject id. */
+  saSub: string;
+}
+
+/**
+ * Turn a human-friendly name into a clientId-safe slug fragment: lowercase
+ * alphanumerics + hyphen, collapsed, trimmed, capped. Empty input (or a name
+ * with no usable characters) falls back to "sa" so the clientId is always
+ * well-formed.
+ */
+function slugifyServiceAccountName(name: string): string {
+  const slug = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 32)
+    .replace(/-+$/g, "");
+  return slug || "sa";
+}
+
+/**
+ * Parse the Keycloak client UUID out of the `Location` header returned by a
+ * `POST /clients` (201) — e.g. `…/admin/realms/caipe/clients/<uuid>`.
+ */
+function clientUuidFromLocation(location: string | null): string | null {
+  if (!location) return null;
+  const trimmed = location.replace(/\/$/, "");
+  const uuid = trimmed.slice(trimmed.lastIndexOf("/") + 1);
+  return uuid || null;
+}
+
+/**
+ * Create a confidential service-account client and read back its UUID, secret,
+ * and service-account-user `sub`.
+ *
+ * Shape mirrors the static `caipe-slack-bot` client (publicClient:false,
+ * serviceAccountsEnabled:true, standardFlowEnabled:false,
+ * directAccessGrantsEnabled:false). clientId = `caipe-sa-<slug>-<short-rand>`,
+ * where the random suffix guarantees uniqueness even when two teams reuse a
+ * display name (FR-002a allows that).
+ */
+export async function createServiceAccountClient(name: string): Promise<ServiceAccountClient> {
+  const slug = slugifyServiceAccountName(name);
+  const suffix = randomBytes(3).toString("hex"); // 6 hex chars
+  const clientId = `caipe-sa-${slug}-${suffix}`;
+
+  const createResponse = await adminFetch("/clients", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId,
+      name,
+      enabled: true,
+      publicClient: false,
+      bearerOnly: false,
+      standardFlowEnabled: false,
+      directAccessGrantsEnabled: false,
+      serviceAccountsEnabled: true,
+      authorizationServicesEnabled: false,
+      protocol: "openid-connect",
+    }),
+  });
+  await assertOk(createResponse, `createServiceAccountClient(${clientId})`);
+
+  let clientUuid = clientUuidFromLocation(createResponse.headers.get("Location"));
+  if (!clientUuid) {
+    const client = await getClientByClientId(clientId);
+    if (!client) {
+      throw new Error(
+        `Keycloak service-account client "${clientId}" was not found after create`,
+      );
+    }
+    clientUuid = client.id;
+  }
+  const encUuid = encodeURIComponent(clientUuid);
+
+  // Keycloak generates a secret on create; read it back explicitly.
+  const secretResponse = await adminFetch(`/clients/${encUuid}/client-secret`, {
+    method: "GET",
+  });
+  await assertOk(secretResponse, `getServiceAccountClientSecret(${clientId})`);
+  const secretBody = (await secretResponse.json()) as { value?: string };
+  if (!secretBody.value) {
+    throw new Error(`Keycloak service-account client "${clientId}" has no secret`);
+  }
+
+  const saUserResponse = await adminFetch(`/clients/${encUuid}/service-account-user`, {
+    method: "GET",
+  });
+  await assertOk(saUserResponse, `getServiceAccountUser(${clientId})`);
+  const saUser = (await saUserResponse.json()) as { id?: string };
+  if (!saUser.id) {
+    throw new Error(
+      `Keycloak service-account client "${clientId}" service account has no id`,
+    );
+  }
+
+  return {
+    clientUuid,
+    clientId,
+    clientSecret: secretBody.value,
+    saSub: saUser.id,
+  };
+}
+
+/**
+ * Rotate a service account's credential by regenerating its client secret.
+ * Returns the new secret (shown once). The old secret stops working
+ * immediately (FR-017).
+ */
+export async function regenerateClientSecret(clientUuid: string): Promise<string> {
+  const encUuid = encodeURIComponent(clientUuid);
+  const response = await adminFetch(`/clients/${encUuid}/client-secret`, {
+    method: "POST",
+  });
+  await assertOk(response, `regenerateClientSecret(${clientUuid})`);
+  const body = (await response.json()) as { value?: string };
+  if (!body.value) {
+    throw new Error(`Keycloak did not return a new secret for client ${clientUuid}`);
+  }
+  return body.value;
+}
+
+/**
+ * Delete a service-account client (revoke). After deletion the credential no
+ * longer authenticates (FR-018). A 404 is treated as already-gone (idempotent).
+ */
+export async function deleteServiceAccountClient(clientUuid: string): Promise<void> {
+  const encUuid = encodeURIComponent(clientUuid);
+  const response = await adminFetch(`/clients/${encUuid}`, { method: "DELETE" });
+  if (response.status === 404) {
+    return;
+  }
+  await assertOk(response, `deleteServiceAccountClient(${clientUuid})`);
+}
+
+/**
+ * The realm's client-credentials token endpoint — the URL an external service
+ * account POSTs to (with its client_id + client_secret) to obtain a JWT. Shown
+ * once alongside the credential on create/rotate (FR-005). Reuses the same
+ * `KEYCLOAK_URL`/`KEYCLOAK_REALM` config as the admin token path.
+ */
+export function getServiceAccountTokenUrl(): string {
+  return getRealmTokenEndpoint();
 }
