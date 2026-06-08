@@ -14,6 +14,7 @@ export interface TicketRequest {
   userEmail: string;
   contextUrl: string;
   feedbackContext?: FeedbackContext;
+  screenshotDataUrl?: string;
 }
 
 export interface TicketResult {
@@ -56,12 +57,20 @@ function buildPrompt(request: TicketRequest): string {
     }
   }
 
+  if (request.screenshotDataUrl) {
+    descriptionLines.push(`Screenshot: [attached as base64 PNG — ${Math.round(request.screenshotDataUrl.length / 1024)}KB]`);
+  }
+
   const label =
     provider === "jira"
       ? getConfig("jiraTicketLabel")
       : getConfig("githubTicketLabel");
 
-  return `Create ${target} with the following details:\n${descriptionLines.join("\n")}\n\nSet the issue type to Bug. Add the label "${label}" to the ticket. Include the Context URL in the description so the team can navigate directly to the conversation.`;
+  const screenshotNote = request.screenshotDataUrl
+    ? "\n\nA screenshot was captured by the reporter and is available as a base64 PNG attachment. Include a note in the ticket description that a screenshot was provided."
+    : "";
+
+  return `Create ${target} with the following details:\n${descriptionLines.join("\n")}\n\nSet the issue type to Bug. Add the label "${label}" to the ticket. Include the Context URL in the description so the team can navigate directly to the conversation.${screenshotNote}`;
 }
 
 /**
