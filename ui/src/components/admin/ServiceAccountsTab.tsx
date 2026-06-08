@@ -258,7 +258,6 @@ function ServiceAccountCard({
       </CardHeader>
       <CardContent className="space-y-2 text-sm">
         <Row label="Team" value={sa.owning_team_id} />
-        <Row label="Created by" value={sa.created_by} mono />
         <div className="flex items-center gap-3 pt-1">
           <span className="inline-flex items-center gap-1 text-muted-foreground">
             <Bot className="h-3.5 w-3.5" /> {sa.scope_counts.agents} agent
