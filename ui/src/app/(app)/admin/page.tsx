@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { motion } from "framer-motion";
-import { Users, MessageSquare, TrendingUp, Activity, Database, Share2, ShieldCheck, ShieldOff, UserPlus, Trash2, UsersIcon, Loader2, Bot, ThumbsUp, ThumbsDown, Clock, Zap, CheckCircle2, AlertCircle, Layers, Eye, Star, Filter, ExternalLink, Plus, Calendar, X, FileText, Shield, HelpCircle, Globe, RefreshCw, Settings, Wrench, Hash, Search, type LucideIcon } from "lucide-react";
+import { User, Users, MessageSquare, TrendingUp, Activity, Database, Share2, ShieldCheck, UserPlus, Trash2, UsersIcon, Loader2, Bot, ThumbsUp, ThumbsDown, Clock, Zap, CheckCircle2, Layers, Eye, Star, Filter, ExternalLink, Plus, Calendar, X, FileText, Shield, HelpCircle, Globe, RefreshCw, Settings, Wrench, Hash, Search, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AuthGuard } from "@/components/auth-guard";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -30,15 +30,15 @@ import {
   RunStatsTable,
   TopCreatorsCard,
 } from "@/components/admin/SkillMetricsCards";
-import { CreateTeamDialog } from "@/components/admin/CreateTeamDialog";
-import { TeamDetailsDialog, type DialogMode as TeamDialogMode } from "@/components/admin/TeamDetailsDialog";
+import { CreateTeamDialog } from "@/components/admin/teams/CreateTeamDialog";
+import { TeamDetailsDialog, type DialogMode as TeamDialogMode } from "@/components/admin/teams/TeamDetailsDialog";
 import { AuditLogsTab } from "@/components/admin/AuditLogsTab";
 import { UnifiedAuditTab } from "@/components/admin/UnifiedAuditTab";
 import { OpenFgaRebacTab } from "@/components/admin/OpenFgaRebacTab";
 import { RagTeamAccessPanel } from "@/components/admin/rebac/RagTeamAccessPanel";
 import { SlackChannelRebacPanel } from "@/components/admin/rebac/SlackChannelRebacPanel";
 import { WebexSpaceRebacPanel } from "@/components/admin/rebac/WebexSpaceRebacPanel";
-import { IdentityGroupSyncTab } from "@/components/admin/identity-group-sync/IdentityGroupSyncTab";
+import { IdentitySyncPanel } from "@/components/admin/teams/IdentitySyncPanel";
 import { ReviewConfigsTab } from "@/components/admin/ReviewConfigsTab";
 import { CheckpointStatsSection } from "@/components/admin/CheckpointStatsSection";
 import { SlackStatsSection } from "@/components/admin/SlackStatsSection";
@@ -46,10 +46,10 @@ import { DateRangeFilter, type DateRangePreset, type DateRange, presetToRange } 
 import { SkillHubsSection } from "@/components/admin/SkillHubsSection";
 import { CrawlConsoleDialog } from "@/components/admin/CrawlConsoleDialog";
 import { CrawlConsoleHeaderPill } from "@/components/admin/CrawlConsoleHeaderPill";
-import { UserDetailPanel } from "@/components/admin/UserDetailPanel";
+import { UserDetailPanel } from "@/components/admin/teams/UserDetailPanel";
 import { SupervisorSkillsStatusSection } from "@/components/admin/SupervisorSkillsStatusSection";
-import { UserManagementTab } from "@/components/admin/UserManagementTab";
-import { UserDetailModal } from "@/components/admin/UserDetailModal";
+import { UserManagementTab } from "@/components/admin/teams/UserManagementTab";
+import { UserDetailModal } from "@/components/admin/teams/UserDetailModal";
 import { PlatformSettingsTab } from "@/components/admin/PlatformSettingsTab";
 import { ReleaseNotesSettingsTab } from "@/components/admin/ReleaseNotesSettingsTab";
 import { MigrationTab } from "@/components/admin/MigrationTab";
@@ -213,6 +213,10 @@ interface Team {
   // the team document is almost always empty, so the team-card KBs badge
   // must prefer this field.
   kb_count?: number;
+  // Distinct IdP membership source types (okta / oidc_claim / ...) present on
+  // the team, server-decorated from team_membership_sources. Drives the
+  // "synced from <IdP>" badge so synced teams are distinguishable from manual.
+  idp_source_types?: string[];
   members?: Array<{
     user_id: string;
     role: string;
@@ -250,7 +254,7 @@ interface SimulationTeamOption {
   description?: string;
 }
 
-const VALID_TABS = ['users', 'teams', 'stats', 'skills', 'feedback', 'nps', 'metrics', 'health', 'credentials', 'audit-logs', 'action-audit', 'identity-groups', 'openfga', 'keycloak', 'migrations', 'ai-review', 'settings', 'release-notes', 'slack', 'webex', 'rag-access'] as const;
+const VALID_TABS = ['users', 'teams', 'identity-sync', 'stats', 'skills', 'feedback', 'nps', 'metrics', 'health', 'credentials', 'audit-logs', 'action-audit', 'openfga', 'keycloak', 'migrations', 'ai-review', 'settings', 'release-notes', 'slack', 'webex', 'rag-access'] as const;
 const VALID_OPENFGA_SUBTABS = ['builder', 'explorer', 'graph', 'tuples', 'access', 'baseline', 'diagnostics'] as const;
 const MOVED_ADMIN_TAB_MAP = {
   insights: 'stats',
@@ -297,9 +301,9 @@ const CATEGORIES: Category[] = [
     label: 'Teams & Users',
     icon: Users,
     tabs: [
-      { value: 'users', label: 'Users', icon: Users, gateKey: 'users' },
+      { value: 'users', label: 'Users', icon: User, gateKey: 'users' },
       { value: 'teams', label: 'Teams', icon: UsersIcon, gateKey: 'teams' },
-      { value: 'identity-groups', label: 'Identity Groups', icon: UserPlus, gateKey: 'identity_group_sync' },
+      { value: 'identity-sync', label: 'Identity Sync', icon: RefreshCw, gateKey: 'identity_sync' },
     ],
   },
   {
@@ -349,6 +353,41 @@ function categoryForTab(tab: string): CategoryKey {
     if (cat.tabs.some((t) => t.value === tab)) return cat.key;
   }
   return DEFAULT_ADMIN_CATEGORY;
+}
+
+// IdP membership source types (okta / oidc_claim / active_directory) → display
+// label + optional logo asset, for the "synced from <IdP>" team badge.
+const IDP_SOURCE_META: Record<string, { label: string; logo?: string }> = {
+  okta: { label: 'Okta', logo: '/provider-logos/okta.svg' },
+  oidc_claim: { label: 'OIDC' },
+  active_directory: { label: 'Active Directory' },
+};
+
+// Badge shown on a team card when its membership was synced from an IdP. Renders
+// the provider logo (e.g. Okta) when available, falling back to a label, with a
+// "Synced with <IdP>" tooltip.
+function IdpSyncedBadge({ sourceTypes }: { sourceTypes: string[] }) {
+  const metas = sourceTypes.map((t) => IDP_SOURCE_META[t] ?? { label: t });
+  const labels = metas.map((m) => m.label).join(', ');
+  const title = `Synced with ${labels}`;
+  return (
+    <span
+      className="inline-flex items-center gap-1 rounded-full bg-muted px-1.5 py-0.5 border border-border"
+      title={title}
+      aria-label={title}
+    >
+      {metas.map((m, i) =>
+        m.logo ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img key={i} src={m.logo} alt={m.label} className="h-3.5 w-3.5" />
+        ) : (
+          <span key={i} className="text-[10px] font-medium text-muted-foreground">
+            {m.label}
+          </span>
+        )
+      )}
+    </span>
+  );
 }
 
 function isValidTab(tab: string | null): tab is typeof VALID_TABS[number] {
@@ -502,6 +541,9 @@ function AdminPage() {
       credentials: Boolean(gates.credentials && getConfig('credentialsEnabled')),
       settings: !isSimulationActive,
       ai_review: isAdmin && !isSimulationActive,
+      // Identity Sync tab: superadmin-only (reuses the identity_group_sync
+      // OpenFGA surface) AND only when an IdP directory connector is enabled.
+      identity_sync: Boolean(gates.identity_group_sync && getConfig('oktaSyncEnabled')),
     }),
     [auditLogsEnabled, feedbackEnabled, gates, isAdmin, isSimulationActive, npsEnabled]
   );
@@ -1569,7 +1611,12 @@ function AdminPage() {
                         <CardHeader>
                           <div className="flex items-center justify-between">
                             <div>
-                              <CardTitle className="text-lg">{team.name}</CardTitle>
+                              <div className="flex items-center gap-2">
+                                <CardTitle className="text-lg">{team.name}</CardTitle>
+                                {(team.idp_source_types?.length ?? 0) > 0 && (
+                                  <IdpSyncedBadge sourceTypes={team.idp_source_types!} />
+                                )}
+                              </div>
                               {team.description && (
                                 <CardDescription>{team.description}</CardDescription>
                               )}
@@ -1677,6 +1724,14 @@ function AdminPage() {
                   </div>
                 )}
               </TabsContent>
+
+              {/* Identity Sync Tab — IdP directory sync (Okta, etc.). Superadmin-only,
+                  shown only when a directory connector is enabled. */}
+              {tabGateValues.identity_sync && (
+                <TabsContent value="identity-sync" className="space-y-4">
+                  <IdentitySyncPanel isAdmin={isAdmin} />
+                </TabsContent>
+              )}
 
               {/* Skills Tab */}
               <TabsContent value="skills" className="space-y-4">
@@ -3116,12 +3171,6 @@ function AdminPage() {
               {tabGateValues.migrations && (
                 <TabsContent value="migrations" className="space-y-4">
                   <MigrationTab isAdmin={tabGateValues.migrations} />
-                </TabsContent>
-              )}
-
-              {tabGateValues.identity_group_sync && (
-                <TabsContent value="identity-groups" className="space-y-4">
-                  <IdentityGroupSyncTab isAdmin={isAdmin} />
                 </TabsContent>
               )}
 

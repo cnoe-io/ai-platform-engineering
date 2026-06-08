@@ -915,6 +915,8 @@ caipe-ui:
     # Feature flags
     ENABLE_SUBAGENT_CARDS: "true"
     SSO_ENABLED: "false"
+    # Okta background sync is configured via the structured `oktaSync:` block
+    # below (sibling of `config:`), modeled after the Backstage Okta provider.
     # Built-in skill IDs to seed (comma-separated whitelist).
     # When set, only listed templates are seeded; unlisted ones are removed on deploy.
     # When unset or empty, all built-in templates are seeded automatically.
@@ -997,6 +999,33 @@ caipe-ui:
     # SOURCE_URL: "https://github.com/your-org/your-repo"
     # Enable Prometheus metrics
     # PROMETHEUS_URL: "http://prometheus-server.monitoring.svc.cluster.local:9090"
+
+  # ── Okta directory sync (Identity Sync admin tab) ──────────────────────────
+  # Structured config modeled after the Backstage Okta entity provider. The
+  # chart flattens this into IDENTITY_SYNC_OKTA_* env vars on the caipe-ui
+  # Deployment (non-sensitive → ConfigMap; sensitive → Secret) so the app can
+  # run identically locally (plain env vars) and in-cluster.
+  #
+  # Choose ONE auth mode:
+  #   • token: SSWS API token (simplest)
+  #   • oauth: OAuth 2.0 service app, private-key JWT (least privilege; grant
+  #            scopes okta.groups.read + okta.users.read). Takes precedence.
+  #
+  # Secrets are NOT inlined here. Provide them via `existingSecret` /
+  # `externalSecrets` using these keys, which the Deployment maps by name:
+  #   IDENTITY_SYNC_OKTA_API_TOKEN          (token mode)
+  #   IDENTITY_SYNC_OKTA_OAUTH_PRIVATE_KEY  (oauth mode, PEM PKCS#8)
+  oktaSync:
+    enabled: false
+    # Non-sensitive — rendered into the ConfigMap.
+    orgUrl: ""                 # e.g. https://your-org.okta.com
+    oauth:
+      clientId: ""             # non-sensitive (service app client id)
+      keyId: ""                # optional kid; required for PEM keys
+    # Optional Okta group filter expression (non-sensitive), applied to the
+    # group listing.
+    # groupFilter: 'profile.name eq "Engineering"'
+
   # External Secrets configuration for sensitive data (OIDC, NextAuth, MongoDB/DocumentDB)
   # BYO MongoDB or DocumentDB: add data entry with secretKey: MONGODB_URI and remoteRef to your store.
   externalSecrets:
@@ -1010,6 +1039,9 @@ caipe-ui:
 
   # BYO MongoDB/DocumentDB: set existingSecret to a Secret containing MONGODB_URI (and other keys as needed).
   # Leave mongodb.enabled false and provide MONGODB_URI via existingSecret or externalSecrets above.
+  # For Okta sync, add the sensitive credential to the same secret:
+  #   token mode → IDENTITY_SYNC_OKTA_API_TOKEN
+  #   oauth mode → IDENTITY_SYNC_OKTA_OAUTH_PRIVATE_KEY (PEM PKCS#8)
   existingSecret: ""
 
   # MongoDB configuration for CAIPE UI persistence (in-cluster; disable for BYO)

@@ -191,6 +191,14 @@ export interface Config {
   userInfoToolEnabled: boolean;
   /** OIDC group required for UI access (injected server-side so the unauthorized page shows the real group) */
   oidcRequiredGroup: string;
+  /**
+   * Whether Okta background sync is enabled.
+   * Derived server-side: true when IDENTITY_SYNC_OKTA_ORG_URL is set AND either
+   * an SSWS API token (IDENTITY_SYNC_OKTA_API_TOKEN) or OAuth2 private-key JWT
+   * credentials (IDENTITY_SYNC_OKTA_OAUTH_CLIENT_ID + _PRIVATE_KEY) are present.
+   * Controls the Identity Sync tab in Admin > Teams & Users.
+   */
+  oktaSyncEnabled: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -268,6 +276,7 @@ const DEFAULT_CONFIG: Config = {
   ticketProvider: null,
   userInfoToolEnabled: false,
   oidcRequiredGroup: '',
+  oktaSyncEnabled: false,
 };
 
 // ---------------------------------------------------------------------------
@@ -376,6 +385,16 @@ export function getServerConfig(): Config {
   const credentialsEnabled = env('CAIPE_CREDENTIALS_ENABLED') === 'true';
   const userInfoToolEnabled = env('ENABLE_USER_INFO_TOOL') === 'true';
 
+  // Enabled when an org URL is set AND we have credentials in EITHER mode:
+  // SSWS API token, or OAuth2 private-key JWT (client id + private key). Kept
+  // in sync with isOktaConnectorConfigured() in okta-directory-connector.ts.
+  const oktaSyncEnabled = !!(
+    process.env.IDENTITY_SYNC_OKTA_ORG_URL?.trim() &&
+    (process.env.IDENTITY_SYNC_OKTA_API_TOKEN?.trim() ||
+      (process.env.IDENTITY_SYNC_OKTA_OAUTH_CLIENT_ID?.trim() &&
+        process.env.IDENTITY_SYNC_OKTA_OAUTH_PRIVATE_KEY?.trim()))
+  );
+
   const dynamicAgentsUrl = env('DYNAMIC_AGENTS_URL')
     || (isProduction ? 'http://dynamic-agents:8100' : 'http://localhost:8100');
 
@@ -451,6 +470,7 @@ export function getServerConfig(): Config {
     ticketProvider,
     userInfoToolEnabled,
     oidcRequiredGroup: process.env.OIDC_REQUIRED_GROUP ?? DEFAULT_CONFIG.oidcRequiredGroup,
+    oktaSyncEnabled,
   };
 }
 

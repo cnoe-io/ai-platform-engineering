@@ -668,6 +668,71 @@ export async function findUserIdByEmail(email: string): Promise<string | null> {
   return null;
 }
 
+// Parse the new user's UUID from the `Location` header of a Keycloak user
+// create (`.../users/<uuid>`).
+function parseUserIdFromLocation(location: string | null): string | null {
+  if (!location) return null;
+  const id = location.split("/").pop()?.trim();
+  return id || null;
+}
+
+/**
+ * Create a federated-only "shell" Keycloak user from an email so RBAC can be
+ * granted before the person ever logs into CAIPE. Mirrors the Slack bot's
+ * spec-103 shape: lowercased email as username+email, no password, no required
+ * actions, `emailVerified: true`. On a first OIDC login the user "resumes" this
+ * account (Keycloak matches by email). Idempotent: a 409 (already exists) falls
+ * back to resolving the existing user by email.
+ *
+ * NOTE: the canonical JIT implementation will eventually live behind a shared
+ * BFF endpoint that both this sync and the Slack bot call (tracked separately);
+ * this is the in-process seed of that shared logic.
+ */
+export async function createFederatedShellUser(
+  email: string,
+  attributes: Record<string, string[]> = {}
+): Promise<string> {
+  const emailLower = email.trim().toLowerCase();
+  const body = {
+    username: emailLower,
+    email: emailLower,
+    emailVerified: true,
+    enabled: true,
+    requiredActions: [],
+    attributes,
+  };
+  const response = await adminFetch(`/users`, { method: "POST", body: JSON.stringify(body) });
+
+  if (response.status === 409) {
+    // Race or pre-existing: re-resolve by email.
+    const existing = await findUserIdByEmail(emailLower);
+    if (existing) return existing;
+    throw new Error(`createFederatedShellUser(${emailLower}): 409 but user not found on re-query`);
+  }
+  await assertOk(response, `createFederatedShellUser(${emailLower})`);
+
+  const id = parseUserIdFromLocation(response.headers.get("location"));
+  if (id) return id;
+  // Some Keycloak configs omit a usable Location; fall back to lookup.
+  const resolved = await findUserIdByEmail(emailLower);
+  if (resolved) return resolved;
+  throw new Error(`createFederatedShellUser(${emailLower}): could not determine new user id`);
+}
+
+/**
+ * Resolve an email to a Keycloak `sub`, creating a federated shell user when no
+ * account exists yet. Returns the sub plus whether it was newly created.
+ */
+export async function resolveOrProvisionUserSub(
+  email: string,
+  attributes: Record<string, string[]> = {}
+): Promise<{ sub: string; created: boolean }> {
+  const existing = await findUserIdByEmail(email);
+  if (existing) return { sub: existing, created: false };
+  const sub = await createFederatedShellUser(email, attributes);
+  return { sub, created: true };
+}
+
 function exactEmailUserId(email: string, users: Array<Record<string, unknown>>): string | null {
   const matches = users.filter((u) => {
     const userEmail = typeof u.email === "string" ? u.email.toLowerCase() : "";

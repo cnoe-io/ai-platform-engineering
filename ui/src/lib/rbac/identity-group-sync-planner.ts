@@ -33,9 +33,16 @@ export interface PlanIdentityGroupSyncInput {
   now: string;
   actor: string;
   allowTeamCreation?: boolean;
+  /**
+   * When true, `groups` is only a subset of the directory (e.g. a group filter
+   * was applied), so removals are scoped to the fetched groups only. When false
+   * / omitted, `groups` is the complete directory snapshot and a full
+   * add+remove reconcile runs.
+   */
+  partialFetch?: boolean;
 }
 
-function sourceTypeForProvider(providerId: string): TeamMembershipSource["source_type"] {
+export function sourceTypeForProvider(providerId: string): TeamMembershipSource["source_type"] {
   if (providerId.startsWith("okta")) return "okta";
   if (providerId.startsWith("ad")) return "active_directory";
   return "oidc_claim";
@@ -179,6 +186,11 @@ export function planIdentityGroupSync(input: PlanIdentityGroupSyncInput): Identi
     existingSources: input.existingMembershipSources,
     desiredSources,
     now: input.now,
+    // On a partial (filtered) fetch, only reconcile removals within the groups
+    // we actually fetched, so we never drop memberships for unseen groups.
+    observedGroupIds: input.partialFetch
+      ? new Set(input.groups.map((g) => g.external_group_id))
+      : undefined,
   });
   const safety_warnings = buildSafetyWarnings({
     existingSources: input.existingMembershipSources,

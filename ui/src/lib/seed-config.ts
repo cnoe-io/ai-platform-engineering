@@ -645,8 +645,11 @@ const AUTO_CREATE_TEAMS_BOOTSTRAP_ACTOR =
 export function buildAutoCreateTeamsBootstrapRule(now: string) {
   return {
     id: AUTO_CREATE_TEAMS_BOOTSTRAP_RULE_ID,
-    provider_id: "oidc-claims",
-    name: "Auto-create teams from OIDC group claims (bootstrap)",
+    // Wildcard so the single catch-all applies to every IdP (login OIDC
+    // claims AND the background Okta directory sync). listIdentityGroupSyncRules
+    // returns "*" rules alongside any provider-scoped rules.
+    provider_id: "*",
+    name: "Auto-create teams from IdP group claims (bootstrap)",
     priority: 1000,
     enabled: true,
     review_status: "enabled" as const,

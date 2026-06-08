@@ -1,24 +1,24 @@
-import { type NextRequest, NextResponse } from "next/server";
-import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import {
-  withErrorHandler,
   ApiError,
   getAuthFromBearerOrSession,
   requireRbacPermission,
+  withErrorHandler,
 } from "@/lib/api-middleware";
-import { requireBaselineAdminSurfaceRead } from "@/lib/rbac/require-openfga";
+import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import {
-  searchRealmUsers,
   countRealmUsers,
-  listUsersWithRole,
-  listRealmRoleMappingsForUser,
-  getUserFederatedIdentities,
   getRealmUserById,
+  listRealmRoleMappingsForUser,
+  listUsersWithRole,
+  searchRealmUsers,
 } from "@/lib/rbac/keycloak-admin";
 import {
   curateRealmRolesForUser,
   type RealmRoleClassification,
 } from "@/lib/rbac/keycloak-transition";
+import { requireBaselineAdminSurfaceRead } from "@/lib/rbac/require-openfga";
+import { listTeamMembershipSources } from "@/lib/rbac/team-membership-source-store";
+import { type NextRequest, NextResponse } from "next/server";
 
 type AdminUsersListBase = {
   id: string;
@@ -132,13 +132,15 @@ async function loadRoleUserIdSet(roleName: string): Promise<Set<string>> {
 }
 
 async function loadTeamMemberEmails(teamId: string): Promise<Set<string>> {
-  const col = await getCollection<{ members?: string[] }>("team_kb_ownership");
-  const docs = await col.find({ team_id: teamId }).toArray();
+  // Canonical source of team membership is `team_membership_sources` (post
+  // 2026-05-26 canonical-membership refactor). The legacy `team_kb_ownership`
+  // store this used to read is no longer populated, which is why the team
+  // filter silently matched nobody.
+  const sources = await listTeamMembershipSources(teamId);
   const emails = new Set<string>();
-  for (const d of docs) {
-    for (const m of d.members ?? []) {
-      emails.add(String(m).trim().toLowerCase());
-    }
+  for (const s of sources) {
+    if (s.status !== "active") continue;
+    if (s.user_email) emails.add(s.user_email.trim().toLowerCase());
   }
   return emails;
 }
@@ -181,17 +183,16 @@ async function enrichListRow(
   };
 }
 
-async function userMatchesFilters(
+function userMatchesFilters(
   u: Record<string, unknown>,
   opts: {
     roleIdSet: Set<string> | null;
     teamEmailSet: Set<string> | null;
-    idp: string | null;
     slackStatus: AdminUsersListItem["slack_link_status"] | null;
     webexStatus: AdminUsersListItem["webex_link_status"] | null;
     pendingSlackIds: Set<string>;
   }
-): Promise<boolean> {
+): boolean {
   const id = String(u.id ?? "");
   if (opts.roleIdSet && !opts.roleIdSet.has(id)) return false;
 
@@ -200,12 +201,6 @@ async function userMatchesFilters(
 
   if (opts.slackStatus && getSlackLinkStatus(u, opts.pendingSlackIds) !== opts.slackStatus) return false;
   if (opts.webexStatus && getWebexLinkStatus(u) !== opts.webexStatus) return false;
-
-  if (opts.idp) {
-    const feds = await getUserFederatedIdentities(id);
-    const ok = feds.some((f) => f.identityProvider === opts.idp);
-    if (!ok) return false;
-  }
 
   return true;
 }
@@ -252,7 +247,6 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
     const search = (url.searchParams.get("search") ?? "").trim() || undefined;
     const role = (url.searchParams.get("role") ?? "").trim() || undefined;
     const team = (url.searchParams.get("team") ?? "").trim() || undefined;
-    const idp = (url.searchParams.get("idp") ?? "").trim() || undefined;
     const slackRaw = (url.searchParams.get("slackStatus") ?? "").trim().toLowerCase();
     const slackStatus =
       slackRaw === "linked" || slackRaw === "pending" || slackRaw === "unlinked"
@@ -319,7 +313,6 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
     const needsScan =
       Boolean(roleIdSet) ||
       Boolean(teamEmailSet) ||
-      Boolean(idp) ||
       Boolean(slackStatus) ||
       Boolean(webexStatus);
     const pendingSlackIds =
@@ -350,7 +343,6 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
     const filterOpts = {
       roleIdSet,
       teamEmailSet,
-      idp: idp ?? null,
       slackStatus,
       webexStatus,
       pendingSlackIds,
@@ -371,7 +363,7 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
       if (batch.length === 0) break;
 
       for (const row of batch) {
-        if (!(await userMatchesFilters(row, filterOpts))) continue;
+        if (!userMatchesFilters(row, filterOpts)) continue;
         if (matchCount >= skip && pageRows.length < pageSize) {
           pageRows.push(await enrichListRow(row, pendingSlackIds, includeRoles));
         }

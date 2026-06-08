@@ -20,7 +20,9 @@ describe("identity group sync stores", () => {
     await listIdentityGroupSyncRules("oidc-claims");
 
     expect(getRbacCollection).toHaveBeenCalledWith("identityGroupSyncRules");
-    expect(find).toHaveBeenCalledWith({ provider_id: "oidc-claims" });
+    // Provider-scoped queries also include wildcard ("*") rules so the shared
+    // catch-all applies regardless of which IdP produced the groups.
+    expect(find).toHaveBeenCalledWith({ provider_id: { $in: ["oidc-claims", "*"] } });
     expect(sort).toHaveBeenCalledWith({ priority: 1, name: 1 });
   });
 

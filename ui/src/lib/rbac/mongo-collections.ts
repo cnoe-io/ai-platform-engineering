@@ -24,6 +24,8 @@ export const RBAC_COLLECTION_NAMES = {
   rebacEnforcementStatus: "rebac_enforcement_status",
   rebacDriftFindings: "rebac_drift_findings",
   userPreferences: "user_preferences",
+  idpSyncSettings: "idp_sync_settings",
+  idpSyncRuns: "idp_sync_runs",
 } as const;
 
 export type RbacCollectionKey = keyof typeof RBAC_COLLECTION_NAMES;
@@ -60,6 +62,55 @@ export interface RebacRelationshipDocument extends Document, UniversalRebacRelat
   created_at: string;
   revoked_by?: string;
   revoked_at?: string;
+}
+
+// One settings document per IdP connector (provider_id is the key). Today the
+// only implemented connector is "okta"; the schedule/filters below are scoped
+// to that connector, not global.
+export interface IdpSyncSettings extends Document {
+  provider_id: string;
+  enabled: boolean;
+  /** Okta group filter expression applied to the group listing. */
+  group_filter?: string;
+  /**
+   * "interval" → run every `sync_interval_minutes` (preset: 1h/6h/24h).
+   * "cron" → run on the `sync_cron` schedule (standard 5-field cron).
+   */
+  schedule_mode: "interval" | "cron";
+  sync_interval_minutes: number;
+  sync_cron?: string;
+  updated_by: string;
+  updated_at: string;
+}
+
+// One run record per sync execution, tagged with the connector it ran for.
+export interface IdpSyncRun extends Document {
+  id: string;
+  provider_id: string;
+  status: "running" | "success" | "failed" | "partial";
+  triggered_by: "schedule" | "manual";
+  triggered_by_user?: string;
+  // The group filter expression this run used, if any. Surfaced in Sync History
+  // so a partial/scoped run is distinguishable from a full directory sync.
+  group_filter?: string;
+  started_at: string;
+  // Liveness heartbeat: the executing process refreshes this periodically.
+  // A `running` run whose heartbeat goes stale is treated as interrupted (the
+  // pod/process died), which both unblocks new syncs and clears the UI status.
+  // This is heartbeat- not elapsed-time-based, so a slow-but-alive sync is
+  // never falsely reaped.
+  heartbeat_at?: string;
+  completed_at?: string;
+  groups_fetched?: number;
+  groups_matched?: number;
+  membership_sources_added?: number;
+  membership_sources_removed?: number;
+  error_message?: string;
+  // Live progress for the member-scan phase (the long part), shown on a
+  // `running` row in Sync History. `progress_scanned` of `progress_total`
+  // groups have had their members resolved.
+  progress_total?: number;
+  progress_scanned?: number;
 }
 
 export function getRbacCollectionName(key: RbacCollectionKey): RbacCollectionName {

@@ -3,7 +3,7 @@ import type { ExternalGroup, TeamMembershipSource } from "@/types/identity-group
 
 import { applyIdentityGroupSyncPlan } from "./identity-group-sync-reconciler";
 import { listIdentityGroupSyncRules } from "./identity-group-sync-rule-store";
-import { planIdentityGroupSync } from "./identity-group-sync-planner";
+import { planIdentityGroupSync, sourceTypeForProvider } from "./identity-group-sync-planner";
 import { listActiveTeamMembershipSourcesForUser } from "./team-membership-source-store";
 
 const DEFAULT_OIDC_CLAIM_PROVIDER_ID = "oidc-claims";
@@ -98,11 +98,16 @@ export async function reconcileOidcClaimGroupsForUser(input: {
   const rules = await listIdentityGroupSyncRules(providerId);
   if (rules.length === 0) return;
 
+  // Source type must follow the provider so the existing-rows lookup matches
+  // the rows the planner writes (e.g. provider "okta" → source_type "okta").
+  // Hardcoding "oidc_claim" here would make removals miss okta-tagged rows.
+  const sourceType = sourceTypeForProvider(providerId);
+
   const [existingTeams, existingMembershipSources] = await Promise.all([
     listExistingTeams(),
     listActiveTeamMembershipSourcesForUser({
       providerId,
-      sourceType: "oidc_claim",
+      sourceType,
       userSubject: input.subject,
       userEmail: input.email,
     }),
