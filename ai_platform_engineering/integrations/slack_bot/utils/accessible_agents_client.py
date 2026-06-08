@@ -1,7 +1,7 @@
 """BFF client for ``GET /api/user/accessible-agents``.
 
 Phase 2 of spec 2026-05-24-derive-team-from-channel. Used by the
-``/caipe-list`` slash command (Slack) and the ``list`` text command
+``/{cmd}-list`` slash command (Slack) and the ``list`` text command
 (Webex) to show the signed-in user which agents they can dispatch to.
 
 The BFF route is paginated (default 25, max 100); the bot only ever
