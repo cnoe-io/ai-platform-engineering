@@ -272,7 +272,7 @@ function ChangelogSection({ release, defaultOpen, onScopeClick }: {
   );
 }
 
-export function UserMenu({ compact = false }: { compact?: boolean } = {}) {
+export function UserMenu() {
   const { data: session, status, update } = useSession();
   const { initialize } = useFeatureFlagStore();
   const [open, setOpen] = useState(false);
@@ -466,33 +466,20 @@ export function UserMenu({ compact = false }: { compact?: boolean } = {}) {
     <div className="relative" ref={menuRef}>
       <button
         onClick={() => setOpen(!open)}
-        aria-label={compact ? `User menu for ${displayName}` : undefined}
+        aria-label={`User menu for ${displayName}`}
         className={cn(
-          "flex items-center gap-2 px-2 py-1 rounded-full transition-colors",
-          compact && "px-1.5",
-          open
-            ? "bg-primary/10"
-            : "hover:bg-muted"
+          "flex items-center gap-1.5 px-1.5 py-1 rounded-full transition-colors",
+          open ? "bg-primary/10" : "hover:bg-muted"
         )}
       >
         {session?.user?.image ? (
-          <img
-            src={session.user.image}
-            alt={displayName}
-            className="h-6 w-6 rounded-full"
-          />
+          <img src={session.user.image} alt={displayName} className="h-6 w-6 rounded-full" />
         ) : (
           <div className="h-6 w-6 rounded-full gradient-primary-br flex items-center justify-center">
             <span className="text-[10px] font-medium text-white">{userInitials}</span>
           </div>
         )}
-        {!compact && <span className="text-xs font-medium max-w-[100px] truncate">{firstName}</span>}
-        {!compact && (
-          <ChevronDown className={cn(
-            "h-3 w-3 text-muted-foreground transition-transform",
-            open && "rotate-180"
-          )} />
-        )}
+        <ChevronDown className={cn("h-3 w-3 text-muted-foreground transition-transform duration-200", open && "rotate-180")} />
       </button>
 
       <AnimatePresence>

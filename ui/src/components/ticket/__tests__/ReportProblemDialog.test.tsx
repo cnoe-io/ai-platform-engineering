@@ -82,15 +82,19 @@ jest.mock("framer-motion", () => ({
 
 jest.mock("lucide-react", () => ({
   AlertCircle: () => <span data-testid="icon-alert" />,
+  Camera: () => <span data-testid="icon-camera" />,
   CheckCircle2: () => <span data-testid="icon-check" />,
   ChevronDown: () => <span data-testid="icon-chevron-down" />,
   ChevronUp: () => <span data-testid="icon-chevron-up" />,
   Copy: () => <span data-testid="icon-copy" />,
   ExternalLink: () => <span data-testid="icon-external" />,
   Loader2: () => <span data-testid="icon-loader" />,
+  Monitor: () => <span data-testid="icon-monitor" />,
   RefreshCw: () => <span data-testid="icon-refresh" />,
   Square: () => <span data-testid="icon-square" />,
   Terminal: () => <span data-testid="icon-terminal" />,
+  Upload: () => <span data-testid="icon-upload" />,
+  X: () => <span data-testid="icon-x" />,
 }));
 
 jest.mock("@/components/ui/dialog", () => ({

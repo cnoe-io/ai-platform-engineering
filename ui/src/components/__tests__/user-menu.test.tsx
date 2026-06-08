@@ -199,32 +199,26 @@ describe("UserMenu", () => {
     expect(screen.getByText("JS")).toBeInTheDocument();
   });
 
-  it("shows first name", () => {
-    mockUseSession.mockReturnValue({
-      data: {
-        user: { name: "Alice Johnson", email: "alice@example.com" },
-        role: "user",
-      },
-      status: "authenticated",
-      update: jest.fn(),
-    });
+  it("button shows avatar only (no name) but carries user name in aria-label", () => {
     render(<UserMenu />);
-    expect(screen.getByText("Alice")).toBeInTheDocument();
+    const btn = screen.getByRole("button", { name: /user menu for John/i });
+    // The button itself should not contain the user's name as visible text
+    expect(btn).toBeInTheDocument();
+    expect(btn.textContent).not.toContain("John");
   });
 
-  it("opens dropdown on click", () => {
+  it("opens dropdown and shows user info, role badge, SSO note, and actions", () => {
     render(<UserMenu />);
-    fireEvent.click(screen.getByText("John"));
+    fireEvent.click(screen.getByRole("button", { name: /user menu for John/i }));
     expect(screen.getByText("john@example.com")).toBeInTheDocument();
+    expect(screen.getByText("User")).toBeInTheDocument();
+    expect(screen.getByText("Authenticated via SSO")).toBeInTheDocument();
+    expect(screen.getByText("System")).toBeInTheDocument();
+    expect(screen.getByText("Sign Out")).toBeInTheDocument();
   });
 
-  it("shows user email in dropdown", () => {
-    render(<UserMenu />);
-    fireEvent.click(screen.getByText("John"));
-    expect(screen.getByText("john@example.com")).toBeInTheDocument();
-  });
-
-  it("shows Admin badge for admin role", () => {
+  it("shows Admin badge and Personal Insights when role is admin and mongodb is enabled", () => {
+    mockConfig = { ...mockConfig, mongodbEnabled: true };
     mockUseSession.mockReturnValue({
       data: {
         user: { name: "Admin User", email: "admin@example.com" },
@@ -234,63 +228,31 @@ describe("UserMenu", () => {
       update: jest.fn(),
     });
     render(<UserMenu />);
-    fireEvent.click(screen.getByText("Admin"));
-    expect(screen.getAllByText("Admin").length).toBeGreaterThanOrEqual(1);
-  });
-
-  it("shows User badge for regular user", () => {
-    render(<UserMenu />);
-    fireEvent.click(screen.getByText("John"));
-    expect(screen.getByText("User")).toBeInTheDocument();
-  });
-
-  it("shows 'Authenticated via SSO'", () => {
-    render(<UserMenu />);
-    fireEvent.click(screen.getByText("John"));
-    expect(screen.getByText("Authenticated via SSO")).toBeInTheDocument();
-  });
-
-  it("shows System button", () => {
-    render(<UserMenu />);
-    fireEvent.click(screen.getByText("John"));
-    expect(screen.getByText("System")).toBeInTheDocument();
-  });
-
-  it("shows Sign Out button", () => {
-    render(<UserMenu />);
-    fireEvent.click(screen.getByText("John"));
-    expect(screen.getByText("Sign Out")).toBeInTheDocument();
-  });
-
-  it("calls signOut on Sign Out click", () => {
-    render(<UserMenu />);
-    fireEvent.click(screen.getByText("John"));
-    fireEvent.click(screen.getByText("Sign Out"));
-    expect(mockSignOut).toHaveBeenCalledWith({ callbackUrl: "/login" });
-  });
-
-  it("shows Personal Insights link when mongodbEnabled", () => {
-    mockConfig = { ...mockConfig, mongodbEnabled: true };
-    render(<UserMenu />);
-    fireEvent.click(screen.getByText("John"));
+    fireEvent.click(screen.getByRole("button", { name: /user menu for Admin User/i }));
+    expect(screen.getByText("Admin")).toBeInTheDocument();
     expect(screen.getByText("Personal Insights")).toBeInTheDocument();
   });
 
-  it("hides Personal Insights when mongodbEnabled=false", () => {
+  it("hides Personal Insights when mongodbEnabled is false", () => {
     mockConfig = { ...mockConfig, mongodbEnabled: false };
     render(<UserMenu />);
-    fireEvent.click(screen.getByText("John"));
+    fireEvent.click(screen.getByRole("button", { name: /user menu for John/i }));
     expect(screen.queryByText("Personal Insights")).not.toBeInTheDocument();
   });
 
-  it("closes on outside click", () => {
+  it("calls signOut and closes dropdown on Sign Out", () => {
     render(
       <div>
         <UserMenu />
         <button data-testid="outside">Outside</button>
       </div>
     );
-    fireEvent.click(screen.getByText("John"));
+    fireEvent.click(screen.getByRole("button", { name: /user menu for John/i }));
+    fireEvent.click(screen.getByText("Sign Out"));
+    expect(mockSignOut).toHaveBeenCalledWith({ callbackUrl: "/login" });
+
+    // Dropdown should also close on outside click
+    fireEvent.click(screen.getByRole("button", { name: /user menu for John/i }));
     expect(screen.getByText("john@example.com")).toBeInTheDocument();
     fireEvent.mouseDown(screen.getByTestId("outside"));
     expect(screen.queryByText("john@example.com")).not.toBeInTheDocument();
@@ -315,7 +277,7 @@ describe("UserMenu", () => {
     expect(img).toHaveAttribute("src", "https://example.com/avatar.png");
   });
 
-  it("handles missing name (shows 'User')", () => {
+  it("handles missing name (falls back to 'User')", () => {
     mockUseSession.mockReturnValue({
       data: {
         user: { email: "noname@example.com" },
@@ -325,6 +287,7 @@ describe("UserMenu", () => {
       update: jest.fn(),
     });
     render(<UserMenu />);
-    expect(screen.getByText("User")).toBeInTheDocument();
+    // Button shows avatar + chevron; name fallback visible in aria-label
+    expect(screen.getByRole("button", { name: /user menu for User/i })).toBeInTheDocument();
   });
 });

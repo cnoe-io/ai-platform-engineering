@@ -59,7 +59,7 @@ export function isMemoryEnabled(): boolean {
   return isFeatureEnabled("memory");
 }
 
-export function SettingsPanel({ compact = false }: { compact?: boolean } = {}) {
+export function SettingsPanel() {
   const [open, setOpen] = useState(false);
   const { theme, setTheme } = useTheme();
 
@@ -475,18 +475,16 @@ export function SettingsPanel({ compact = false }: { compact?: boolean } = {}) {
 
   return (
     <>
-      <Button
-        variant="ghost"
-        size={compact ? "icon" : "sm"}
-        className={cn("h-8", compact ? "w-8" : "gap-1.5 text-xs")}
+      <button
         onClick={() => setOpen(true)}
         title="UI Personalization"
         aria-label="UI Personalization"
+        className="flex items-center gap-1.5 h-8 px-2 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
       >
-        <Palette className="h-3.5 w-3.5" />
-        {!compact && <span className="hidden sm:inline">{currentTheme.label}</span>}
-        {!compact && <ChevronDown className="h-3 w-3" />}
-      </Button>
+        <Palette className="h-3.5 w-3.5 shrink-0" />
+        <span className="overflow-hidden whitespace-nowrap hidden sm:block">{currentTheme.label}</span>
+        <ChevronDown className="h-3 w-3 shrink-0 hidden sm:block" />
+      </button>
 
       {typeof document !== "undefined" && createPortal(modalContent, document.body)}
     </>
