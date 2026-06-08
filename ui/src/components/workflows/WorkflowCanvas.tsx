@@ -664,19 +664,21 @@ function WorkflowCanvasInner({
   }, [doSave, visibility, steps, sharedWithTeams]);
 
   const handleGrantAndSave = useCallback(async () => {
+    // assisted-by claude code claude-sonnet-4-6
+    // Route grants through the Centralized Authorization Service PAP so CAS owns
+    // grants (audit + meta-authz: caller must manage the agent). This writes the
+    // same `team:<slug>#member user agent:<id>` tuple the direct OpenFGA write did.
     for (const gap of agentAccessGaps) {
       for (const teamSlug of gap.teamsWithoutAccess) {
         if (teamSlug === "(all users)") continue;
         try {
-          await fetch("/api/admin/openfga/relationship", {
+          await fetch("/api/admin/authz/grants", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              teamSlug,
-              resourceType: "agent",
-              resourceId: gap.agentId,
-              relation: "user",
-              operation: "grant",
+              resource: { type: "agent", id: gap.agentId },
+              grantee: { type: "team", id: teamSlug },
+              capability: "use",
             }),
           });
         } catch { /* best-effort */ }
