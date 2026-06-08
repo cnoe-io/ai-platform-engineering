@@ -325,6 +325,19 @@ async function createIndexes(db: Db) {
     safeCreateIndex(db, 'authorization_decision_records', { outcome: 1, ts: -1 }),
     safeCreateIndex(db, 'authorization_decision_records', { correlation_id: 1 }),
 
+    // Projects label dimensions (executive dashboard + label discovery)
+    safeCreateIndex(db, 'projects', { 'labels.domain': 1 }),
+    safeCreateIndex(db, 'projects', { 'labels.initiatives': 1 }),
+    safeCreateIndex(db, 'projects', { 'labels.swimlanes': 1 }),
+
+    // Backstage-style software catalog (domains, subdomains, systems, components)
+    safeCreateIndex(db, 'catalog', { slug: 1 }, { unique: true }),
+    safeCreateIndex(db, 'catalog', { kind: 1 }),
+    safeCreateIndex(db, 'catalog', { parent: 1 }),
+    safeCreateIndex(db, 'catalog', { domain: 1 }),
+    safeCreateIndex(db, 'catalog', { owner: 1 }),
+    safeCreateIndex(db, 'catalog', { updated_at: -1 }),
+
     // 098 US9: Slack channel ↔ team mappings + admin Slack dashboard
     safeCreateIndex(db, 'channel_team_mappings', { slack_channel_id: 1 }, { unique: true }),
     safeCreateIndex(db, 'slack_channel_agent_routes', { workspace_id: 1, channel_id: 1, agent_id: 1 }, { unique: true }),

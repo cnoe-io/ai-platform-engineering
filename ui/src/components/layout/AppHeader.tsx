@@ -13,7 +13,9 @@ import {
   Shield,
   FileText,
   Workflow,
+  FolderKanban,
   Home,
+  LayoutGrid,
   Bot,
   AlertTriangle,
   KeyRound,
@@ -254,6 +256,9 @@ export function AppHeader() {
     storageMode
   } = useCAIPEHealth();
 
+  const mongoNavEnabled =
+    storageMode === "mongodb" || config.storageMode === "mongodb";
+
   // Health check for RAG server (polls every 30 seconds)
   const {
     status: ragStatus,
@@ -322,6 +327,7 @@ export function AppHeader() {
     if (pathname?.startsWith("/task-builder")) return "task-builder";
     if (pathname?.startsWith("/skills") || pathname?.startsWith("/use-cases")) return "skills";
     if (pathname?.startsWith("/dynamic-agents")) return "dynamic-agents";
+    if (pathname?.startsWith("/projects")) return "projects";
     if (pathname?.startsWith("/apps")) return "apps";
     if (pathname?.startsWith("/admin")) return "admin";
     return "home";
@@ -420,6 +426,50 @@ export function AppHeader() {
   // the unified pill the same as the old per-source banners.
   const hasMigrationBanner = adminAlerts.length > 0;
   const headerNavCollapsed = useHeaderNavCollapsed(hasMigrationBanner);
+  // Pinned agentic apps: any installed app whose manifest sets
+  // surfaces.showInTopNav renders as a top-nav tab (sorted by navOrder by the
+  // API). Lets admins promote apps like Outshift Context Graph into the nav.
+  const [pinnedAppNavItems, setPinnedAppNavItems] = React.useState<
+    Array<{
+      key: string;
+      href: string;
+      label: string;
+      Icon: React.ComponentType<{ className?: string }>;
+      activeClassName: string;
+    }>
+  >([]);
+  React.useEffect(() => {
+    if (!(mongoNavEnabled && config.agenticAppsEnabled)) return;
+    let cancelled = false;
+    fetch("/api/agentic-apps")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body) => {
+        if (cancelled || !body) return;
+        const items = (body.items ?? body.data?.items ?? []) as Array<{
+          appId: string;
+          href?: string;
+          displayName?: string;
+          surfaces?: { showInTopNav?: boolean };
+        }>;
+        setPinnedAppNavItems(
+          items
+            .filter(
+              (a) => a?.surfaces?.showInTopNav === true && typeof a.href === "string",
+            )
+            .map((a) => ({
+              key: `app-${a.appId}`,
+              href: a.href as string,
+              label: a.displayName ?? a.appId,
+              Icon: LayoutGrid,
+              activeClassName: "bg-cyan-600 text-white shadow-sm",
+            })),
+        );
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const secondaryNavItems = [
     config.taskBuilderEnabled && {
       key: "task-builder",
@@ -442,14 +492,22 @@ export function AppHeader() {
       Icon: Database,
       activeClassName: "bg-primary text-primary-foreground shadow-sm",
     },
-    storageMode === "mongodb" && config.dynamicAgentsEnabled && {
+    mongoNavEnabled && config.dynamicAgentsEnabled && {
       key: "dynamic-agents",
       href: "/dynamic-agents",
       label: "Agents",
       Icon: Bot,
       activeClassName: "bg-purple-500 text-white shadow-sm",
     },
-    storageMode === "mongodb" && config.credentialsEnabled && {
+    mongoNavEnabled && config.agenticAppsEnabled && {
+      key: "apps",
+      href: "/apps",
+      label: "Apps",
+      Icon: LayoutGrid,
+      activeClassName: "bg-cyan-600 text-white shadow-sm",
+    },
+    ...pinnedAppNavItems,
+    mongoNavEnabled && config.credentialsEnabled && {
       key: "credentials",
       href: "/credentials",
       label: "Connections",
@@ -461,7 +519,7 @@ export function AppHeader() {
       href: "/admin",
       label: "Admin",
       Icon: Shield,
-      disabled: storageMode !== "mongodb",
+      disabled: !mongoNavEnabled,
       activeClassName:
         activeTab === "admin" && isAdmin
           ? "bg-red-500 text-white shadow-sm"
@@ -595,6 +653,19 @@ export function AppHeader() {
                 </span>
               </span>
             )}
+          </GuardedLink>
+          <GuardedLink
+            href="/projects"
+            prefetch={true}
+            className={cn(
+              "flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all",
+              activeTab === "projects"
+                ? "bg-indigo-600 text-white shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <FolderKanban className="h-3.5 w-3.5 shrink-0" />
+            Projects
           </GuardedLink>
           <GuardedLink
             href="/skills"

@@ -1,0 +1,12 @@
+# OSS-default project onboarding wizard configuration.
+# Mount a custom file at this path (or set PROJECTS_ONBOARDING_CONFIG_PATH)
+# to add organization-specific provisioning steps without forking the UI.
+
+hero:
+  title: "Projects for your teams"
+  description: >
+    Create projects aligned with your Backstage catalog. Optional onboarding
+    steps are driven entirely by this configuration file.
+
+# Empty steps = create project and finish (no internal integrations exposed).
+steps: []
