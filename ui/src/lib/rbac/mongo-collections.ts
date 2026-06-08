@@ -24,8 +24,8 @@ export const RBAC_COLLECTION_NAMES = {
   rebacEnforcementStatus: "rebac_enforcement_status",
   rebacDriftFindings: "rebac_drift_findings",
   userPreferences: "user_preferences",
-  oktaSyncSettings: "okta_sync_settings",
-  oktaSyncRuns: "okta_sync_runs",
+  idpSyncSettings: "idp_sync_settings",
+  idpSyncRuns: "idp_sync_runs",
 } as const;
 
 export type RbacCollectionKey = keyof typeof RBAC_COLLECTION_NAMES;
@@ -64,19 +64,29 @@ export interface RebacRelationshipDocument extends Document, UniversalRebacRelat
   revoked_at?: string;
 }
 
-export interface OktaSyncSettings extends Document {
-  id: string;
+// One settings document per IdP connector (provider_id is the key). Today the
+// only implemented connector is "okta"; the schedule/filters below are scoped
+// to that connector, not global.
+export interface IdpSyncSettings extends Document {
+  provider_id: string;
   enabled: boolean;
   group_filter?: string;
   user_filter?: string;
+  /**
+   * "interval" → run every `sync_interval_minutes` (preset: 1h/6h/24h).
+   * "cron" → run on the `sync_cron` schedule (standard 5-field cron).
+   */
+  schedule_mode: "interval" | "cron";
   sync_interval_minutes: number;
-  chunk_size: number;
+  sync_cron?: string;
   updated_by: string;
   updated_at: string;
 }
 
-export interface OktaSyncRun extends Document {
+// One run record per sync execution, tagged with the connector it ran for.
+export interface IdpSyncRun extends Document {
   id: string;
+  provider_id: string;
   status: "running" | "success" | "failed" | "partial";
   triggered_by: "schedule" | "manual";
   triggered_by_user?: string;

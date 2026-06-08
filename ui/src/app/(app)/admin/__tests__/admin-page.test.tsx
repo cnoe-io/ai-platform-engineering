@@ -124,9 +124,6 @@ jest.mock('@/components/admin/rebac/RagTeamAccessPanel', () => ({
   RagTeamAccessPanel: () => <div data-testid="rag-team-access-panel">RagTeamAccessPanel</div>,
 }));
 
-jest.mock('@/components/admin/identity-group-sync/IdentityGroupSyncTab', () => ({
-  IdentityGroupSyncTab: () => <div data-testid="identity-group-sync-tab">IdentityGroupSyncTab</div>,
-}));
 
 jest.mock('@/components/admin/MigrationTab', () => ({
   MigrationTab: () => <div data-testid="migration-tab">MigrationTab</div>,
@@ -144,11 +141,11 @@ jest.mock('@/components/admin/UnifiedAuditTab', () => ({
   UnifiedAuditTab: () => <div data-testid="unified-audit-tab">UnifiedAuditTab</div>,
 }));
 
-jest.mock('@/components/admin/CreateTeamDialog', () => ({
+jest.mock('@/components/admin/teams/CreateTeamDialog', () => ({
   CreateTeamDialog: () => null,
 }));
 
-jest.mock('@/components/admin/TeamDetailsDialog', () => ({
+jest.mock('@/components/admin/teams/TeamDetailsDialog', () => ({
   TeamDetailsDialog: () => null,
 }));
 
@@ -285,7 +282,6 @@ const allGatesOpen = {
   action_audit: true,
   openfga: true,
   migrations: true,
-  identity_group_sync: true,
 };
 
 function setupFetchMock(overrides: Record<string, any> = {}): jest.Mock {
@@ -517,7 +513,6 @@ describe('Admin Dashboard Page', () => {
         tabGates: {
           ...allGatesOpen,
           roles: false,
-          identity_group_sync: false,
           feedback: false,
           nps: false,
           stats: false,
@@ -793,7 +788,6 @@ describe('Admin Dashboard Page', () => {
           action_audit: false,
           openfga: false,
           migrations: false,
-          identity_group_sync: false,
         },
         statsStatus: 403,
       });
@@ -846,7 +840,6 @@ describe('Admin Dashboard Page', () => {
       ['settings', 'skills', /^Skills$/i],
       ['people', 'users', /^Users$/i],
       ['people', 'teams', /^Teams$/i],
-      ['people', 'identity-groups', /^Identity Groups$/i],
       ['integrations', 'slack', /^Slack$/i],
       ['integrations', 'webex', /^Webex$/i],
       ['insights', 'stats', /^Statistics$/i],

@@ -94,17 +94,19 @@ jest.mock("lucide-react", () => ({
   Search: () => <span data-testid="icon-search" />,
   X: () => <span data-testid="icon-x" />,
   SlidersHorizontal: () => <span data-testid="icon-sliders" />,
+  Brain: () => <span data-testid="icon-brain" />,
+  Eye: () => <span data-testid="icon-eye" />,
+  ArrowDownToLine: () => <span data-testid="icon-arrowdown" />,
+  Info: () => <span data-testid="icon-info" />,
 }));
 
 jest.mock("@/store/feature-flag-store", () => ({
-  useFeatureFlagStore: () => ({ initialize: jest.fn() }),
+  useFeatureFlagStore: () => ({ initialize: jest.fn(), flags: {}, toggle: jest.fn() }),
   isFeatureEnabled: jest.fn(() => false),
+  FEATURE_FLAGS: [],
+  CATEGORY_LABELS: {},
 }));
 
-jest.mock("@/components/preferences-modal", () => ({
-  PreferencesModal: ({ open }: { open: boolean }) =>
-    open ? <div data-testid="preferences-modal">Preferences</div> : null,
-}));
 
 jest.mock("@/components/ui/button", () => ({
   Button: React.forwardRef(

@@ -4,16 +4,15 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { getAuthFromBearerOrSession, successResponse, withErrorHandler } from "@/lib/api-middleware";
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
+import { fetchExternalGroupsForProvider } from "@/lib/rbac/idp-connectors";
+import { insertIdpSyncRun, updateIdpSyncRun } from "@/lib/rbac/idp-sync-store";
 import { planIdentityGroupSync } from "@/lib/rbac/identity-group-sync-planner";
 import { applyIdentityGroupSyncPlan } from "@/lib/rbac/identity-group-sync-reconciler";
 import { listIdentityGroupSyncRules } from "@/lib/rbac/identity-group-sync-rule-store";
-import { fetchOktaExternalGroups } from "@/lib/rbac/okta-directory-connector";
-import { insertOktaSyncRun, updateOktaSyncRun } from "@/lib/rbac/okta-sync-store";
 import { listActiveTeamMembershipSourcesForProvider } from "@/lib/rbac/team-membership-source-store";
 
 import { withIdentityGroupSyncAdminAuth } from "../../_lib";
-
-const PROVIDER_ID = "okta";
+import { resolveProviderParam } from "../_provider";
 
 interface TeamDocument {
   id?: string;
@@ -41,14 +40,16 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   }
 
   return withIdentityGroupSyncAdminAuth(request, async () => {
+    const provider = resolveProviderParam(request);
     const { session } = await getAuthFromBearerOrSession(request);
     const actor = session?.user?.email ?? "api";
 
     const runId = randomUUID();
     const startedAt = new Date().toISOString();
 
-    await insertOktaSyncRun({
+    await insertIdpSyncRun({
       id: runId,
+      provider_id: provider,
       status: "running",
       triggered_by: "manual",
       triggered_by_user: actor,
@@ -57,10 +58,10 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
 
     try {
       const [groups, rules, existingTeams, existingMembershipSources] = await Promise.all([
-        fetchOktaExternalGroups({ providerId: PROVIDER_ID }),
-        listIdentityGroupSyncRules(PROVIDER_ID),
+        fetchExternalGroupsForProvider(provider),
+        listIdentityGroupSyncRules(provider),
         listExistingTeams(),
-        listActiveTeamMembershipSourcesForProvider(PROVIDER_ID),
+        listActiveTeamMembershipSourcesForProvider(provider),
       ]);
 
       const plan = planIdentityGroupSync({
@@ -78,10 +79,9 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
         now: new Date().toISOString(),
       });
 
-      const completedAt = new Date().toISOString();
-      await updateOktaSyncRun(runId, {
+      await updateIdpSyncRun(runId, {
         status: "success",
-        completed_at: completedAt,
+        completed_at: new Date().toISOString(),
         groups_fetched: groups.length,
         groups_matched: plan.matched_groups.length,
         membership_sources_added: result.membershipSourcesAdded,
@@ -90,6 +90,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
 
       return successResponse({
         run_id: runId,
+        provider,
         status: "success",
         groups_fetched: groups.length,
         groups_matched: plan.matched_groups.length,
@@ -97,7 +98,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
         membership_sources_removed: result.membershipSourcesRemoved,
       });
     } catch (err) {
-      await updateOktaSyncRun(runId, {
+      await updateIdpSyncRun(runId, {
         status: "failed",
         completed_at: new Date().toISOString(),
         error_message: err instanceof Error ? err.message : String(err),

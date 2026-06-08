@@ -193,9 +193,10 @@ export interface Config {
   oidcRequiredGroup: string;
   /**
    * Whether Okta background sync is enabled.
-   * Derived server-side: true when both IDENTITY_SYNC_OKTA_ORG_URL and
-   * IDENTITY_SYNC_OKTA_API_TOKEN are set. Controls the Okta Sync sub-tab
-   * in Admin > Teams & Users > Identity Groups.
+   * Derived server-side: true when IDENTITY_SYNC_OKTA_ORG_URL is set AND either
+   * an SSWS API token (IDENTITY_SYNC_OKTA_API_TOKEN) or OAuth2 private-key JWT
+   * credentials (IDENTITY_SYNC_OKTA_OAUTH_CLIENT_ID + _PRIVATE_KEY) are present.
+   * Controls the Identity Sync tab in Admin > Teams & Users.
    */
   oktaSyncEnabled: boolean;
 }
@@ -384,9 +385,14 @@ export function getServerConfig(): Config {
   const credentialsEnabled = env('CAIPE_CREDENTIALS_ENABLED') === 'true';
   const userInfoToolEnabled = env('ENABLE_USER_INFO_TOOL') === 'true';
 
+  // Enabled when an org URL is set AND we have credentials in EITHER mode:
+  // SSWS API token, or OAuth2 private-key JWT (client id + private key). Kept
+  // in sync with isOktaConnectorConfigured() in okta-directory-connector.ts.
   const oktaSyncEnabled = !!(
     process.env.IDENTITY_SYNC_OKTA_ORG_URL?.trim() &&
-    process.env.IDENTITY_SYNC_OKTA_API_TOKEN?.trim()
+    (process.env.IDENTITY_SYNC_OKTA_API_TOKEN?.trim() ||
+      (process.env.IDENTITY_SYNC_OKTA_OAUTH_CLIENT_ID?.trim() &&
+        process.env.IDENTITY_SYNC_OKTA_OAUTH_PRIVATE_KEY?.trim()))
   );
 
   const dynamicAgentsUrl = env('DYNAMIC_AGENTS_URL')

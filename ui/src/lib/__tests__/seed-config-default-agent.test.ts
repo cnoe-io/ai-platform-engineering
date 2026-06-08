@@ -107,7 +107,8 @@ describe("buildAutoCreateTeamsBootstrapRule", () => {
     const rule = buildAutoCreateTeamsBootstrapRule("2026-01-01T00:00:00Z");
 
     expect(rule.id).toBe(AUTO_CREATE_TEAMS_BOOTSTRAP_RULE_ID);
-    expect(rule.provider_id).toBe("oidc-claims");
+    // Wildcard so the catch-all applies to every IdP (login claims + Okta sync).
+    expect(rule.provider_id).toBe("*");
     // Catch-all regex with a `team` named capture; matcher uses RegExp().
     expect(rule.include_patterns).toEqual(["^(?<team>.+)$"]);
     // Templates use Handlebars-style refs that the renderer substitutes

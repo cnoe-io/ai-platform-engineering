@@ -30,15 +30,15 @@ import {
   RunStatsTable,
   TopCreatorsCard,
 } from "@/components/admin/SkillMetricsCards";
-import { CreateTeamDialog } from "@/components/admin/CreateTeamDialog";
-import { TeamDetailsDialog, type DialogMode as TeamDialogMode } from "@/components/admin/TeamDetailsDialog";
+import { CreateTeamDialog } from "@/components/admin/teams/CreateTeamDialog";
+import { TeamDetailsDialog, type DialogMode as TeamDialogMode } from "@/components/admin/teams/TeamDetailsDialog";
 import { AuditLogsTab } from "@/components/admin/AuditLogsTab";
 import { UnifiedAuditTab } from "@/components/admin/UnifiedAuditTab";
 import { OpenFgaRebacTab } from "@/components/admin/OpenFgaRebacTab";
 import { RagTeamAccessPanel } from "@/components/admin/rebac/RagTeamAccessPanel";
 import { SlackChannelRebacPanel } from "@/components/admin/rebac/SlackChannelRebacPanel";
 import { WebexSpaceRebacPanel } from "@/components/admin/rebac/WebexSpaceRebacPanel";
-import { IdentityGroupSyncTab } from "@/components/admin/identity-group-sync/IdentityGroupSyncTab";
+import { IdentitySyncPanel } from "@/components/admin/teams/IdentitySyncPanel";
 import { ReviewConfigsTab } from "@/components/admin/ReviewConfigsTab";
 import { CheckpointStatsSection } from "@/components/admin/CheckpointStatsSection";
 import { SlackStatsSection } from "@/components/admin/SlackStatsSection";
@@ -46,10 +46,10 @@ import { DateRangeFilter, type DateRangePreset, type DateRange, presetToRange } 
 import { SkillHubsSection } from "@/components/admin/SkillHubsSection";
 import { CrawlConsoleDialog } from "@/components/admin/CrawlConsoleDialog";
 import { CrawlConsoleHeaderPill } from "@/components/admin/CrawlConsoleHeaderPill";
-import { UserDetailPanel } from "@/components/admin/UserDetailPanel";
+import { UserDetailPanel } from "@/components/admin/teams/UserDetailPanel";
 import { SupervisorSkillsStatusSection } from "@/components/admin/SupervisorSkillsStatusSection";
-import { UserManagementTab } from "@/components/admin/UserManagementTab";
-import { UserDetailModal } from "@/components/admin/UserDetailModal";
+import { UserManagementTab } from "@/components/admin/teams/UserManagementTab";
+import { UserDetailModal } from "@/components/admin/teams/UserDetailModal";
 import { PlatformSettingsTab } from "@/components/admin/PlatformSettingsTab";
 import { ReleaseNotesSettingsTab } from "@/components/admin/ReleaseNotesSettingsTab";
 import { MigrationTab } from "@/components/admin/MigrationTab";
@@ -250,7 +250,7 @@ interface SimulationTeamOption {
   description?: string;
 }
 
-const VALID_TABS = ['users', 'teams', 'stats', 'skills', 'feedback', 'nps', 'metrics', 'health', 'credentials', 'audit-logs', 'action-audit', 'identity-groups', 'openfga', 'keycloak', 'migrations', 'ai-review', 'settings', 'release-notes', 'slack', 'webex', 'rag-access'] as const;
+const VALID_TABS = ['users', 'teams', 'identity-sync', 'stats', 'skills', 'feedback', 'nps', 'metrics', 'health', 'credentials', 'audit-logs', 'action-audit', 'openfga', 'keycloak', 'migrations', 'ai-review', 'settings', 'release-notes', 'slack', 'webex', 'rag-access'] as const;
 const VALID_OPENFGA_SUBTABS = ['builder', 'explorer', 'graph', 'tuples', 'access', 'baseline', 'diagnostics'] as const;
 const MOVED_ADMIN_TAB_MAP = {
   insights: 'stats',
@@ -299,7 +299,7 @@ const CATEGORIES: Category[] = [
     tabs: [
       { value: 'users', label: 'Users', icon: Users, gateKey: 'users' },
       { value: 'teams', label: 'Teams', icon: UsersIcon, gateKey: 'teams' },
-      { value: 'identity-groups', label: 'Identity Groups', icon: UserPlus, gateKey: 'identity_group_sync' },
+      { value: 'identity-sync', label: 'Identity Sync', icon: RefreshCw, gateKey: 'identity_sync' },
     ],
   },
   {
@@ -502,6 +502,9 @@ function AdminPage() {
       credentials: Boolean(gates.credentials && getConfig('credentialsEnabled')),
       settings: !isSimulationActive,
       ai_review: isAdmin && !isSimulationActive,
+      // Identity Sync tab: superadmin-only (reuses the identity_group_sync
+      // OpenFGA surface) AND only when an IdP directory connector is enabled.
+      identity_sync: Boolean(gates.identity_group_sync && getConfig('oktaSyncEnabled')),
     }),
     [auditLogsEnabled, feedbackEnabled, gates, isAdmin, isSimulationActive, npsEnabled]
   );
@@ -1677,6 +1680,14 @@ function AdminPage() {
                   </div>
                 )}
               </TabsContent>
+
+              {/* Identity Sync Tab — IdP directory sync (Okta, etc.). Superadmin-only,
+                  shown only when a directory connector is enabled. */}
+              {tabGateValues.identity_sync && (
+                <TabsContent value="identity-sync" className="space-y-4">
+                  <IdentitySyncPanel isAdmin={isAdmin} />
+                </TabsContent>
+              )}
 
               {/* Skills Tab */}
               <TabsContent value="skills" className="space-y-4">
@@ -3116,12 +3127,6 @@ function AdminPage() {
               {tabGateValues.migrations && (
                 <TabsContent value="migrations" className="space-y-4">
                   <MigrationTab isAdmin={tabGateValues.migrations} />
-                </TabsContent>
-              )}
-
-              {tabGateValues.identity_group_sync && (
-                <TabsContent value="identity-groups" className="space-y-4">
-                  <IdentityGroupSyncTab isAdmin={isAdmin} oktaSyncEnabled={getConfig('oktaSyncEnabled')} onTeamCreated={() => setActiveTab('teams')} />
                 </TabsContent>
               )}
 

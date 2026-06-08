@@ -38,7 +38,7 @@ import {
 } from "lucide-react";
 import type { Team, TeamMember } from "@/types/teams";
 import type { TeamMembershipSource } from "@/types/identity-group-sync";
-import { TeamKbAssignmentPanel } from "@/components/admin/TeamKbAssignmentPanel";
+import { TeamKbAssignmentPanel } from "@/components/admin/teams/TeamKbAssignmentPanel";
 import { IngestCapabilityToggle } from "@/components/admin/IngestCapabilityToggle";
 import { SearchCapabilityToggle } from "@/components/admin/SearchCapabilityToggle";
 import { SaveButton } from "@/components/admin/SaveButton";
@@ -442,12 +442,19 @@ export function TeamDetailsDialog({
     fetch(`/api/admin/teams/${currentTeam._id}`)
       .then(async (res) => {
         const data = await res.json();
-        if (!cancelled && data.success && data.data?.openfga_sync) {
+        if (cancelled || !data.success) return;
+        if (data.data?.openfga_sync) {
           setOpenFgaSync(data.data.openfga_sync as TeamMembershipSyncReport);
+        }
+        // Canonical team route also returns the membership sources, so we
+        // hydrate them here instead of from the (now-removed) identity-group
+        // -sync membership-sources endpoint.
+        if (Array.isArray(data.data?.membership_sources)) {
+          setMembershipSources(data.data.membership_sources as TeamMembershipSource[]);
         }
       })
       .catch((err: unknown) => {
-        console.error("[TeamDetails] Failed to load openfga_sync:", err);
+        console.error("[TeamDetails] Failed to load team detail:", err);
       });
     return () => {
       cancelled = true;
@@ -509,28 +516,8 @@ export function TeamDetailsDialog({
     };
   }, [open, activeMode, newMemberEmail]);
 
-  useEffect(() => {
-    if (!open || activeMode !== "members" || !currentTeam?._id) return;
-    let cancelled = false;
-    fetch(`/api/admin/identity-group-sync/teams/${currentTeam._id}/membership-sources`)
-      .then(async (res) => {
-        const data = await res.json();
-        if (!data.success) {
-          throw new Error(data.error || "Failed to load membership sources");
-        }
-        if (!cancelled) {
-          setMembershipSources((data.data?.sources ?? []) as TeamMembershipSource[]);
-        }
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Failed to load membership sources");
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [open, activeMode, currentTeam?._id]);
+  // Membership sources are loaded together with openfga_sync from the
+  // canonical GET /api/admin/teams/[id] effect above — no separate fetch.
 
   // Spec 104 — load the resources catalog the first time the user opens
   // the tab for a given team. We refetch on every open of the tab so the

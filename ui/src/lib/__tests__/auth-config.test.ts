@@ -29,6 +29,7 @@ import {
   extractGroups,
   cacheOidcClaimGroups,
   getCachedOidcClaimGroups,
+  resolveLoginProviderId,
 } from '../auth-config'
 
 function withRequiredGroup<T>(requiredGroup: string | undefined, cb: (mod: typeof import('../auth-config')) => T): T {
@@ -1011,6 +1012,46 @@ describe('auth-config', () => {
         }),
       }))
       expect(getCachedOidcClaimGroups('sub-123')).toEqual(['caipe-users'])
+    })
+  })
+
+  describe('resolveLoginProviderId', () => {
+    const ENV_KEYS = ['OIDC_IDP_HINT', 'IDENTITY_SYNC_OIDC_CLAIM_PROVIDER_ID'] as const
+    let saved: Record<string, string | undefined>
+
+    beforeEach(() => {
+      saved = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]))
+      for (const k of ENV_KEYS) delete process.env[k]
+    })
+    afterEach(() => {
+      for (const k of ENV_KEYS) {
+        if (saved[k] === undefined) delete process.env[k]
+        else process.env[k] = saved[k]
+      }
+    })
+
+    it('prefers the identity_provider token claim and normalizes it', () => {
+      process.env.OIDC_IDP_HINT = 'duo-sso'
+      expect(resolveLoginProviderId({ identity_provider: 'okta-prod' })).toBe('okta')
+    })
+
+    it('falls back to OIDC_IDP_HINT, normalizing the connection suffix', () => {
+      process.env.OIDC_IDP_HINT = 'duo-sso'
+      expect(resolveLoginProviderId({})).toBe('duo')
+    })
+
+    it('maps an okta hint to the okta provider so source_type lines up', () => {
+      process.env.OIDC_IDP_HINT = 'okta'
+      expect(resolveLoginProviderId(undefined)).toBe('okta')
+    })
+
+    it('uses IDENTITY_SYNC_OIDC_CLAIM_PROVIDER_ID when no hint is set', () => {
+      process.env.IDENTITY_SYNC_OIDC_CLAIM_PROVIDER_ID = 'custom-idp'
+      expect(resolveLoginProviderId({})).toBe('custom-idp')
+    })
+
+    it('defaults to oidc-claims when nothing is configured', () => {
+      expect(resolveLoginProviderId({})).toBe('oidc-claims')
     })
   })
 

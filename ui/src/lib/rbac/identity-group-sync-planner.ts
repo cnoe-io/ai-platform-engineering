@@ -35,7 +35,7 @@ export interface PlanIdentityGroupSyncInput {
   allowTeamCreation?: boolean;
 }
 
-function sourceTypeForProvider(providerId: string): TeamMembershipSource["source_type"] {
+export function sourceTypeForProvider(providerId: string): TeamMembershipSource["source_type"] {
   if (providerId.startsWith("okta")) return "okta";
   if (providerId.startsWith("ad")) return "active_directory";
   return "oidc_claim";
