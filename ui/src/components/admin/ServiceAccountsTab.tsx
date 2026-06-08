@@ -36,6 +36,10 @@ import { MultiSelect } from "@/components/ui/multi-select";
 import { TeamPicker, type TeamPickerOption } from "@/components/ui/team-picker";
 import { CopyButton } from "@/components/ui/copy-button";
 import { cn } from "@/lib/utils";
+import {
+  PROVIDER_DISPLAY_LIST,
+  getProviderDisplayName,
+} from "@/lib/credentials/provider-display-names";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types (mirror the BFF contract; never include secret material on list/detail)
@@ -103,15 +107,11 @@ interface ServiceAccountCredential {
   connectorId?: string;
 }
 
-// The 5 built-in providers (kept local to avoid importing the lib file from a client component
-// that lives outside app/ — this avoids a cross-boundary import warning from Next.js).
-const BUILT_IN_PROVIDERS: { provider: string; name: string }[] = [
-  { provider: "github", name: "GitHub" },
-  { provider: "gitlab", name: "GitLab" },
-  { provider: "atlassian", name: "Atlassian Cloud" },
-  { provider: "webex", name: "Webex" },
-  { provider: "pagerduty", name: "PagerDuty" },
-];
+// Use the shared provider-display-names module (ui/src/lib/credentials/provider-display-names.ts)
+// as the single source of truth for the 5 built-in providers and their display names.
+// That module is plain-data with no browser or next/server imports, so it is safe
+// for "use client" components.
+const BUILT_IN_PROVIDERS = PROVIDER_DISPLAY_LIST;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Component
@@ -643,12 +643,16 @@ function ManageServiceAccountDialog({
   const [credBusy, setCredBusy] = useState(false);
   const [credError, setCredError] = useState<string | null>(null);
   const [pendingRemoveCred, setPendingRemoveCred] = useState<string | null>(null);
-  const [addCredProvider, setAddCredProvider] = useState(BUILT_IN_PROVIDERS[0].provider);
+  const [addCredProvider, setAddCredProvider] = useState<string>(BUILT_IN_PROVIDERS[0].provider);
   const [addCredToken, setAddCredToken] = useState("");
 
   const refreshCredentials = useCallback(async () => {
     if (!saId) return;
     setCredLoading(true);
+    // M-2: clear any stale error banner on a successful (re)load — mirrors how
+    // addCredential/removeCredential already call setCredError(null) before their
+    // fetch, so a successful refresh wipes the error too.
+    setCredError(null);
     try {
       const res = await fetch(
         `/api/admin/service-accounts/${encodeURIComponent(saId)}/credentials`,
@@ -818,24 +822,38 @@ function ManageServiceAccountDialog({
     if (!saId || !addCredToken.trim()) return;
     setCredBusy(true);
     setCredError(null);
+    // M-1: snapshot the token BEFORE any await so the request body is stable
+    // regardless of when React flushes state. The token is cleared from state
+    // ONLY on success (after refreshCredentials) — clearing on entry would wipe
+    // the pasted value if the request fails and force a re-paste. Matches the
+    // pattern in SecretsManager.tsx (handleCreate).
     const tokenSnapshot = addCredToken;
-    // Drop the token from state immediately — it must not persist in memory
-    // after the request is sent (shown-once safety).
-    setAddCredToken("");
     try {
-      const res = await fetch(
-        `/api/admin/service-accounts/${encodeURIComponent(saId)}/credentials`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ provider: addCredProvider, token: tokenSnapshot }),
-        },
-      );
-      const body = await res.json();
+      let res: Response;
+      try {
+        res = await fetch(
+          `/api/admin/service-accounts/${encodeURIComponent(saId)}/credentials`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ provider: addCredProvider, token: tokenSnapshot }),
+          },
+        );
+      } catch (networkErr) {
+        // Network-level failure (no response) — surface as a credError instead
+        // of an unhandled rejection.
+        setCredError(
+          networkErr instanceof Error ? networkErr.message : "Network error — please retry",
+        );
+        return;
+      }
+      const body = (await res.json()) as { success: boolean; error?: string };
       if (!res.ok || !body.success) {
         setCredError(body.error || "Failed to add credential");
         return;
       }
+      // Success — safe to clear the token from state now.
+      setAddCredToken("");
       await refreshCredentials();
     } finally {
       setCredBusy(false);
@@ -903,7 +921,9 @@ function ManageServiceAccountDialog({
             </div>
           </div>
         ) : (
-          <div className="space-y-4">
+          // Dialog scroll: cap height and let content scroll vertically so the
+          // dialog doesn't overflow the viewport when credentials + scopes stack up.
+          <div className="max-h-[65vh] overflow-y-auto space-y-4 pr-1">
             {/* Current scopes */}
             <div className="space-y-2">
               <span className="text-sm font-medium">Current scopes</span>
@@ -1058,9 +1078,7 @@ function ManageServiceAccountDialog({
               ) : (
                 <ul className="space-y-1">
                   {credentials.map((cred) => {
-                    const providerLabel =
-                      BUILT_IN_PROVIDERS.find((p) => p.provider === cred.provider)?.name ??
-                      cred.provider;
+                    const providerLabel = getProviderDisplayName(cred.provider);
                     const isPendingRemove = pendingRemoveCred === cred.id;
                     return (
                       <li
@@ -1136,6 +1154,7 @@ function ManageServiceAccountDialog({
                 </p>
                 <div className="flex gap-2">
                   <select
+                    aria-label="Provider"
                     value={addCredProvider}
                     onChange={(e) => setAddCredProvider(e.target.value)}
                     className="h-9 rounded-md border border-input bg-background px-2 text-sm"
@@ -1146,8 +1165,12 @@ function ManageServiceAccountDialog({
                       </option>
                     ))}
                   </select>
+                  {/* autoComplete="new-password" is intentional: suppresses
+                      password-manager autofill for this pasted external token
+                      field — we do not want saved login credentials injected. */}
                   <input
                     type="password"
+                    aria-label="Access token"
                     value={addCredToken}
                     onChange={(e) => setAddCredToken(e.target.value)}
                     placeholder="Paste access token…"

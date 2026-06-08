@@ -141,7 +141,7 @@ describe("/api/credentials/exchange — service account caller", () => {
     });
   });
 
-  it("calls requireResourcePermission when SA fetches another principal's connection by id", async () => {
+  it("calls requireResourcePermission with isServiceAccount:true when SA fetches another principal's connection by id", async () => {
     // Connection belongs to a different service account
     mockGetConnection.mockResolvedValue({
       ...SA_CONN,
@@ -156,10 +156,47 @@ describe("/api/credentials/exchange — service account caller", () => {
       ),
     );
 
+    // Must forward isServiceAccount:true so subjectFromSession graphs the caller
+    // as `service_account:<sub>` — matching the OpenFGA tuple — not `user:<sub>`.
     expect(mockRequireResourcePermission).toHaveBeenCalledWith(
-      { sub: SA_SUB, user: { email: expect.any(String) } },
+      { sub: SA_SUB, user: { email: expect.any(String) }, isServiceAccount: true },
       { type: "secret_ref", id: "provider_connection:sa-conn-1", action: "use" },
     );
+  });
+
+  it("SA WITH a service_account secret_ref#use grant is allowed to fetch another principal's connection", async () => {
+    // Connection belongs to a user, not the SA
+    mockGetConnection.mockResolvedValue({
+      ...SA_CONN,
+      id: "user-conn-99",
+      owner: { type: "user", id: "human-user-sub" },
+    });
+    // OpenFGA has granted service_account:<SA_SUB> can_use secret_ref:provider_connection:user-conn-99
+    mockRequireResourcePermission.mockResolvedValue(undefined);
+    mockRefreshConnection.mockResolvedValue({ accessToken: "delegated-token", expiresIn: 3600 });
+
+    const { POST } = await import("../route");
+    const response = await POST(
+      request(
+        { provider_connection_id: "user-conn-99", intended_use: "mcp_server" },
+        SERVICE_HEADERS,
+      ),
+    );
+
+    // requireResourcePermission must be called with isServiceAccount:true so the
+    // correct service_account:<sub> subject is used in the OpenFGA check.
+    expect(mockRequireResourcePermission).toHaveBeenCalledWith(
+      expect.objectContaining({ sub: SA_SUB, isServiceAccount: true }),
+      { type: "secret_ref", id: "provider_connection:user-conn-99", action: "use" },
+    );
+    // With the grant resolving, the request must succeed and return the token.
+    await expect(response.json()).resolves.toMatchObject({
+      success: true,
+      data: {
+        provider_connection_id: "user-conn-99",
+        access_token: "delegated-token",
+      },
+    });
   });
 
   it("404 when no connected SA-owned connection exists for the provider", async () => {
@@ -201,5 +238,38 @@ describe("/api/credentials/exchange — service account caller", () => {
       id: "user-sub-42",
     });
     expect(mockRequireResourcePermission).not.toHaveBeenCalled();
+  });
+
+  it("user caller fetching a cross-principal connection passes isServiceAccount:false (not true)", async () => {
+    // User identity
+    mockValidateBearerJWT.mockResolvedValue({
+      sub: "user-sub-42",
+      email: "alice@example.test",
+      isServiceAccount: false,
+    });
+    // Connection belongs to a different user
+    mockGetConnection.mockResolvedValue({
+      id: "other-user-conn-5",
+      connectorId: "connector-github",
+      provider: "github",
+      owner: { type: "user", id: "other-user-sub" },
+      status: "connected",
+    });
+    mockRequireResourcePermission.mockResolvedValue(undefined);
+    mockRefreshConnection.mockResolvedValue({ accessToken: "cross-token", expiresIn: 3600 });
+
+    const { POST } = await import("../route");
+    await POST(
+      request(
+        { provider_connection_id: "other-user-conn-5", intended_use: "mcp_server" },
+        SERVICE_HEADERS,
+      ),
+    );
+
+    // isServiceAccount must NOT be true — caller is a user, not a service account.
+    expect(mockRequireResourcePermission).toHaveBeenCalledWith(
+      expect.not.objectContaining({ isServiceAccount: true }),
+      { type: "secret_ref", id: "provider_connection:other-user-conn-5", action: "use" },
+    );
   });
 });

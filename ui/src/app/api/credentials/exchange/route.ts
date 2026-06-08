@@ -52,7 +52,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     connection.owner.type === ownerType && connection.owner.id === identity.sub;
   if (!callerOwnsConnection) {
     await requireResourcePermission(
-      { sub: identity.sub, user: { email: identity.email } },
+      { sub: identity.sub, user: { email: identity.email }, isServiceAccount: identity.isServiceAccount },
       { type: "secret_ref", id: `provider_connection:${connection.id}`, action: "use" },
     );
   }
