@@ -2,11 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth-config";
 import { checkOpenFgaTuple } from "@/lib/rbac/openfga";
+import { logOpenFgaRebacAuditEvent } from "@/lib/rbac/audit";
 import { getBySub } from "@/lib/service-accounts";
 import { getProviderConnectionService } from "@/lib/credentials/oauth-service-factory";
 import { BUILT_IN_OAUTH_CONNECTORS } from "@/lib/credentials/built-in-oauth-connectors";
 import { getCollection } from "@/lib/mongodb";
 import { CREDENTIAL_COLLECTIONS } from "@/lib/credentials/collections";
+import { getCredentialFeatureConfig } from "@/lib/feature-flags/credentials";
+import { ApiError } from "@/lib/api-error";
 import type { ProviderConnectionDocument } from "@/lib/credentials/oauth-service";
 
 /**
@@ -22,19 +25,31 @@ import type { ProviderConnectionDocument } from "@/lib/credentials/oauth-service
  *         metadata; NEVER returns token material (FR-005).
  * POST — register a pasted access token for a provider. Body: { provider,
  *         token, requestedScopes? }. Provider must be one of the 5
- *         built-in connectors.
+ *         built-in connectors. Returns 409 if a connected credential for
+ *         that provider already exists.
  * DELETE — remove a connection. Body (or query): { connection_id }. The
  *           cross-owner guard verifies the connection belongs to this SA
  *           before deleting, so a caller cannot delete another principal's
  *           connection by guessing an id.
  */
 
-const BUILT_IN_PROVIDER_KEYS = new Set(
-  BUILT_IN_OAUTH_CONNECTORS.map((c) => c.provider as string),
+const BUILT_IN_PROVIDER_KEYS = new Set<string>(
+  BUILT_IN_OAUTH_CONNECTORS.map((c) => c.provider),
 );
 
 interface RouteContext {
   params: Promise<{ id: string }>;
+}
+
+/** Return 404 when credential features are disabled (mirrors connections/route.ts). */
+function assertFeatureEnabled(): NextResponse | null {
+  if (!getCredentialFeatureConfig().enabled) {
+    return NextResponse.json(
+      { success: false, error: "Credential features are disabled", code: "CREDENTIALS_DISABLED" },
+      { status: 404 },
+    );
+  }
+  return null;
 }
 
 /** Resolve the SA and gate by can_manage. Returns [sa_sub, 403/404 response | null]. */
@@ -92,6 +107,9 @@ function safeConnectionShape(conn: {
 }
 
 export async function GET(_request: NextRequest, context: RouteContext) {
+  const featureGuard = assertFeatureEnabled();
+  if (featureGuard) return featureGuard;
+
   const session = (await getServerSession(authOptions)) as {
     sub?: string;
     user?: { email?: string | null };
@@ -131,6 +149,9 @@ export async function GET(_request: NextRequest, context: RouteContext) {
 }
 
 export async function POST(request: NextRequest, context: RouteContext) {
+  const featureGuard = assertFeatureEnabled();
+  if (featureGuard) return featureGuard;
+
   const session = (await getServerSession(authOptions)) as {
     sub?: string;
     user?: { email?: string | null };
@@ -197,11 +218,37 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const { sa_sub } = result;
 
     const service = await getProviderConnectionService();
+
+    // Duplicate-provider guard: reject if a connected credential for this
+    // provider already exists on the SA (prevents non-deterministic exchange).
+    const existing = await service.listConnections({ type: "service_account", id: sa_sub });
+    const duplicate = existing.find(
+      (c) => c.provider === provider && c.status === "connected",
+    );
+    if (duplicate) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `A connected credential for provider "${provider}" already exists (id: ${duplicate.id}). Delete it first or rotate it.`,
+        },
+        { status: 409 },
+      );
+    }
+
     const connection = await service.registerStaticToken({
       providerKey: provider,
       owner: { type: "service_account", id: sa_sub },
       accessToken: token,
       requestedScopes,
+    });
+
+    logOpenFgaRebacAuditEvent({
+      sub: session.sub,
+      operation: "service_account.credential.add",
+      scope: "admin",
+      resourceRef: `service_account:${id}`,
+      email: session.user.email ?? undefined,
+      correlationId: `service_account.credential.add:${id}:${provider}:${connection.id}`,
     });
 
     return NextResponse.json(
@@ -232,6 +279,9 @@ export async function POST(request: NextRequest, context: RouteContext) {
 }
 
 export async function DELETE(request: NextRequest, context: RouteContext) {
+  const featureGuard = assertFeatureEnabled();
+  if (featureGuard) return featureGuard;
+
   const session = (await getServerSession(authOptions)) as {
     sub?: string;
     user?: { email?: string | null };
@@ -281,15 +331,20 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
     const { sa_sub } = result;
 
     // Fetch the connection to verify cross-owner guard.
+    // Only return 404 for genuine not-found (ApiError with statusCode 404);
+    // let infra errors (DB timeout, etc.) propagate to the outer handler.
     const service = await getProviderConnectionService();
     let connection;
     try {
       connection = await service.getConnection(connectionId);
-    } catch {
-      return NextResponse.json(
-        { success: false, error: "Provider connection not found" },
-        { status: 404 },
-      );
+    } catch (err) {
+      if (err instanceof ApiError && err.statusCode === 404) {
+        return NextResponse.json(
+          { success: false, error: "Provider connection not found" },
+          { status: 404 },
+        );
+      }
+      throw err;
     }
 
     // Cross-owner guard: only delete if the connection belongs to this SA.
@@ -316,16 +371,27 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
     }).deleteOne({ id: connectionId });
 
     // Best-effort: purge the encrypted payload for the access token secret.
+    // The key is deterministic: provider_connection:<connectionId>:access_token
+    // (matches oauth-service.ts registerStaticToken line 460).
     try {
       const payloadsCollection = await getCollection(
         CREDENTIAL_COLLECTIONS.encryptedPayloads,
       );
       await (payloadsCollection as unknown as {
         deleteOne(query: Record<string, unknown>): Promise<unknown>;
-      }).deleteOne({ secretRefId: (connection as { accessTokenRef?: string }).accessTokenRef ?? "" });
+      }).deleteOne({ secretRefId: `provider_connection:${connectionId}:access_token` });
     } catch {
       // Non-fatal — the token is inaccessible once the connection doc is gone.
     }
+
+    logOpenFgaRebacAuditEvent({
+      sub: session.sub,
+      operation: "service_account.credential.remove",
+      scope: "admin",
+      resourceRef: `service_account:${id}`,
+      email: session.user.email ?? undefined,
+      correlationId: `service_account.credential.remove:${id}:${connectionId}`,
+    });
 
     return NextResponse.json({ success: true, data: { id: connectionId, deleted: true } });
   } catch (error) {

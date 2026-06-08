@@ -8,8 +8,13 @@
  * - Happy paths for all three verbs
  * - 401 when unauthenticated
  * - 404 when caller is not a can_manage member (non-member, revoked SA)
+ * - 404 when credential feature flag is disabled
  * - POST: provider validation (unknown provider → 400)
+ * - POST: duplicate provider → 409
  * - DELETE: cross-owner guard (connection belongs to a different SA → 404)
+ * - DELETE: deletes encrypted payload by deterministic key
+ * - DELETE: only 404 on genuine not-found, propagates infra errors
+ * - Audit events emitted on POST and DELETE success
  */
 
 import { NextRequest } from "next/server";
@@ -23,6 +28,12 @@ jest.mock("@/lib/auth-config", () => ({ authOptions: {} }));
 const mockCheckOpenFgaTuple = jest.fn();
 jest.mock("@/lib/rbac/openfga", () => ({
   checkOpenFgaTuple: (...args: unknown[]) => mockCheckOpenFgaTuple(...args),
+}));
+
+const mockLogOpenFgaRebacAuditEvent = jest.fn();
+jest.mock("@/lib/rbac/audit", () => ({
+  logOpenFgaRebacAuditEvent: (...args: unknown[]) =>
+    mockLogOpenFgaRebacAuditEvent(...args),
 }));
 
 const mockGetBySub = jest.fn();
@@ -54,6 +65,12 @@ jest.mock("@/lib/mongodb", () => ({
     }
     return {};
   }),
+}));
+
+// Feature-flag mock — enabled by default, toggled in specific tests
+const mockIsEnabled = jest.fn().mockReturnValue(true);
+jest.mock("@/lib/feature-flags/credentials", () => ({
+  getCredentialFeatureConfig: () => ({ enabled: mockIsEnabled() }),
 }));
 
 import { GET, POST, DELETE } from "../route";
@@ -105,6 +122,7 @@ function ctx() {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockIsEnabled.mockReturnValue(true);
   mockGetServerSession.mockResolvedValue(SESSION);
   mockCheckOpenFgaTuple.mockResolvedValue({ allowed: true });
   mockGetBySub.mockResolvedValue(DOC);
@@ -113,6 +131,46 @@ beforeEach(() => {
   mockGetConnection.mockResolvedValue(CONN);
   mockConnectionsDeleteOne.mockResolvedValue({ deletedCount: 1 });
   mockPayloadsDeleteOne.mockResolvedValue({ deletedCount: 1 });
+});
+
+// ---------------------------------------------------------------------------
+// Feature-flag guard — all verbs
+// ---------------------------------------------------------------------------
+
+describe("feature-flag disabled", () => {
+  beforeEach(() => {
+    mockIsEnabled.mockReturnValue(false);
+  });
+
+  it("GET returns 404 CREDENTIALS_DISABLED", async () => {
+    const res = await GET(makeRequest("GET"), ctx());
+    expect(res.status).toBe(404);
+    const body = await res.json();
+    expect(body.code).toBe("CREDENTIALS_DISABLED");
+    expect(mockListConnections).not.toHaveBeenCalled();
+  });
+
+  it("POST returns 404 CREDENTIALS_DISABLED", async () => {
+    const res = await POST(
+      makeRequest("POST", { provider: "gitlab", token: "tok" }),
+      ctx(),
+    );
+    expect(res.status).toBe(404);
+    const body = await res.json();
+    expect(body.code).toBe("CREDENTIALS_DISABLED");
+    expect(mockRegisterStaticToken).not.toHaveBeenCalled();
+  });
+
+  it("DELETE returns 404 CREDENTIALS_DISABLED", async () => {
+    const res = await DELETE(
+      makeRequest("DELETE", { connection_id: "conn-1" }),
+      ctx(),
+    );
+    expect(res.status).toBe(404);
+    const body = await res.json();
+    expect(body.code).toBe("CREDENTIALS_DISABLED");
+    expect(mockConnectionsDeleteOne).not.toHaveBeenCalled();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -168,6 +226,8 @@ describe("GET .../[id]/credentials", () => {
 
 describe("POST .../[id]/credentials", () => {
   it("registers a static token and returns connection metadata (no token)", async () => {
+    // No existing connections for this provider
+    mockListConnections.mockResolvedValue([]);
     const res = await POST(
       makeRequest("POST", { provider: "gitlab", token: "glpat-abc123" }),
       ctx(),
@@ -189,6 +249,7 @@ describe("POST .../[id]/credentials", () => {
   });
 
   it("forwards requestedScopes when provided", async () => {
+    mockListConnections.mockResolvedValue([]);
     await POST(
       makeRequest("POST", { provider: "github", token: "ghp-token", requestedScopes: ["repo"] }),
       ctx(),
@@ -196,6 +257,48 @@ describe("POST .../[id]/credentials", () => {
     expect(mockRegisterStaticToken).toHaveBeenCalledWith(
       expect.objectContaining({ requestedScopes: ["repo"] }),
     );
+  });
+
+  it("emits audit event on success", async () => {
+    mockListConnections.mockResolvedValue([]);
+    await POST(
+      makeRequest("POST", { provider: "gitlab", token: "glpat-abc123" }),
+      ctx(),
+    );
+    expect(mockLogOpenFgaRebacAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sub: SESSION.sub,
+        operation: "service_account.credential.add",
+        scope: "admin",
+        resourceRef: `service_account:${SA_ID}`,
+        email: SESSION.user.email,
+      }),
+    );
+  });
+
+  it("409 when a connected credential for the same provider already exists", async () => {
+    // CONN is provider=gitlab, status=connected — same provider as the request
+    mockListConnections.mockResolvedValue([CONN]);
+    const res = await POST(
+      makeRequest("POST", { provider: "gitlab", token: "glpat-new" }),
+      ctx(),
+    );
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.success).toBe(false);
+    expect(body.error).toMatch(/already exists/);
+    expect(mockRegisterStaticToken).not.toHaveBeenCalled();
+  });
+
+  it("allows POST when existing connection for same provider is NOT connected", async () => {
+    // Existing is "disconnected" — not a blocker
+    mockListConnections.mockResolvedValue([{ ...CONN, status: "disconnected" }]);
+    const res = await POST(
+      makeRequest("POST", { provider: "gitlab", token: "glpat-new" }),
+      ctx(),
+    );
+    expect(res.status).toBe(201);
+    expect(mockRegisterStaticToken).toHaveBeenCalled();
   });
 
   it("400 when provider is unknown", async () => {
@@ -264,6 +367,26 @@ describe("DELETE .../[id]/credentials", () => {
     expect(mockConnectionsDeleteOne).toHaveBeenCalledWith({ id: "conn-1" });
   });
 
+  it("deletes encrypted payload by deterministic key", async () => {
+    await DELETE(makeRequest("DELETE", { connection_id: "conn-1" }), ctx());
+    expect(mockPayloadsDeleteOne).toHaveBeenCalledWith({
+      secretRefId: "provider_connection:conn-1:access_token",
+    });
+  });
+
+  it("emits audit event on success", async () => {
+    await DELETE(makeRequest("DELETE", { connection_id: "conn-1" }), ctx());
+    expect(mockLogOpenFgaRebacAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sub: SESSION.sub,
+        operation: "service_account.credential.remove",
+        scope: "admin",
+        resourceRef: `service_account:${SA_ID}`,
+        email: SESSION.user.email,
+      }),
+    );
+  });
+
   it("404 via cross-owner guard — connection belongs to a different SA", async () => {
     // Connection is owned by a DIFFERENT service account
     mockGetConnection.mockResolvedValue({
@@ -291,13 +414,28 @@ describe("DELETE .../[id]/credentials", () => {
     expect(mockConnectionsDeleteOne).not.toHaveBeenCalled();
   });
 
-  it("404 when connection not found", async () => {
-    mockGetConnection.mockRejectedValue(new Error("not found"));
+  it("404 when connection genuinely not found (ApiError 404)", async () => {
+    const { ApiError } = jest.requireActual<{ ApiError: new (msg: string, status: number, code?: string) => Error & { statusCode: number } }>(
+      "@/lib/api-error",
+    );
+    mockGetConnection.mockRejectedValue(new ApiError("not found", 404, "CREDENTIAL_NOT_FOUND"));
     const res = await DELETE(
       makeRequest("DELETE", { connection_id: "nonexistent" }),
       ctx(),
     );
     expect(res.status).toBe(404);
+    expect(mockConnectionsDeleteOne).not.toHaveBeenCalled();
+  });
+
+  it("503 when getConnection throws a non-404 infra error (not swallowed as 404)", async () => {
+    mockGetConnection.mockRejectedValue(new Error("DB timeout"));
+    const res = await DELETE(
+      makeRequest("DELETE", { connection_id: "conn-1" }),
+      ctx(),
+    );
+    // Must propagate to outer handler → 503, NOT 404
+    expect(res.status).toBe(503);
+    expect(mockConnectionsDeleteOne).not.toHaveBeenCalled();
   });
 
   it("400 when connection_id is missing", async () => {
