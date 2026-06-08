@@ -399,6 +399,7 @@ class AgentRuntime:
                 self.mcp_servers,
                 connections,
                 credential_client=self._credential_exchange_client(),
+                caller_token=self._auth_bearer,
             )
 
             if not connections:
@@ -953,6 +954,7 @@ class AgentRuntime:
                 self.mcp_servers,
                 connections,
                 credential_client=self._credential_exchange_client(),
+                caller_token=self._auth_bearer,
             )
             if connections:
                 # Use resilient connection so one failing server doesn't break the subagent
