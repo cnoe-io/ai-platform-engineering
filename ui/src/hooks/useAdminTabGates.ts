@@ -23,6 +23,7 @@ const EMPTY_GATES: AdminTabGatesMap = {
   action_audit: false,
   openfga: false,
   migrations: false,
+  service_accounts: false,
 };
 
 const ALL_GATES = allAdminTabGates(EMPTY_GATES);

@@ -3027,6 +3027,11 @@ services:
       OPENFGA_OBJECT: mcp_gateway:list
       OPENFGA_BYPASS_SUBS: ${OPENFGA_BYPASS_SUBS:-}
       CAIPE_AGENT_CONTEXT_HMAC_SECRET: ${CAIPE_AGENT_CONTEXT_HMAC_SECRET:-}
+      # Caller-keyed tool-authorization rollout flag (FR-012c). Default-off so
+      # prod/compose without the var keeps legacy agent-only tool enforcement;
+      # set CAIPE_CALLER_TOOL_CHECK_ENABLED=true (in .env) to enforce the dual
+      # agent+caller tool check for E2E.
+      CAIPE_CALLER_TOOL_CHECK_ENABLED: ${CAIPE_CALLER_TOOL_CHECK_ENABLED:-false}
       MONGODB_URI: ${MONGODB_URI:-mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin}
       MONGODB_DATABASE: ${MONGODB_DATABASE:-caipe}
       TENANT_ID: ${TENANT_ID:-default}

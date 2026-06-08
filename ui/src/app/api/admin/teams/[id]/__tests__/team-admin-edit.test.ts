@@ -35,12 +35,14 @@ jest.mock("@/lib/rbac/audit", () => ({
   logAuthzDecision: jest.fn(),
 }));
 
+const mockListOpenFgaObjects = jest.fn(async () => ({ objects: [] as string[] }));
 jest.mock("@/lib/rbac/openfga", () => ({
   checkOpenFgaTuple: jest.fn(async () => ({ allowed: false })),
   writeOpenFgaTuples: jest.fn(async () => ({ enabled: true, writes: 0, deletes: 0 })),
   writeOpenFgaTupleDiff: jest.fn(async () => ({ enabled: true, writes: 0, deletes: 0 })),
   buildTeamResourceTupleDiff: jest.fn(() => ({ writes: [], deletes: [] })),
   isOpenFgaConfigured: jest.fn(() => true),
+  listOpenFgaObjects: (...args: unknown[]) => mockListOpenFgaObjects(...(args as [])),
 }));
 
 jest.mock("@/lib/rbac/keycloak-admin", () => ({
@@ -154,6 +156,8 @@ function makeRequest(url: string, options: RequestInit = {}): NextRequest {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // Default: the team owns no service accounts (FR-025 guard passes).
+  mockListOpenFgaObjects.mockResolvedValue({ objects: [] });
   Object.keys(mockCollections).forEach((key) => delete mockCollections[key]);
   // Fresh deep-cloned team doc so PATCH/updateOne side effects don't leak.
   mockCollections.teams = createMockCollection([{ ...TEAM_DOC }]);
@@ -238,6 +242,45 @@ describe("DELETE /api/admin/teams/[id] (issue #1509)", () => {
     );
 
     expect(response.status).toBe(403);
+    expect(mockCollections.teams.deleteOne).not.toHaveBeenCalled();
+  });
+
+  it("blocks deletion while the team still owns service accounts (FR-025)", async () => {
+    mockGetServerSession.mockResolvedValue(session("team-admin@example.com"));
+    mockListOpenFgaObjects.mockResolvedValue({
+      objects: ["service_account:sa-1", "service_account:sa-2"],
+    });
+    const { DELETE } = await import("../route");
+
+    const response = await DELETE(
+      makeRequest(`/api/admin/teams/${TEAM_ID}`, { method: "DELETE" }),
+      makeContext()
+    );
+
+    expect(response.status).toBe(409);
+    const body = await response.json();
+    expect(body.code).toBe("TEAM_OWNS_SERVICE_ACCOUNTS");
+    // The guard queries OpenFGA with the team's owner_team relation.
+    expect(mockListOpenFgaObjects).toHaveBeenCalledWith({
+      user: `team:${TEAM_DOC.slug}#member`,
+      relation: "owner_team",
+      type: "service_account",
+    });
+    // The team is NOT deleted.
+    expect(mockCollections.teams.deleteOne).not.toHaveBeenCalled();
+  });
+
+  it("fails closed (503) when the ownership check errors", async () => {
+    mockGetServerSession.mockResolvedValue(session("team-admin@example.com"));
+    mockListOpenFgaObjects.mockRejectedValue(new Error("openfga down"));
+    const { DELETE } = await import("../route");
+
+    const response = await DELETE(
+      makeRequest(`/api/admin/teams/${TEAM_ID}`, { method: "DELETE" }),
+      makeContext()
+    );
+
+    expect(response.status).toBe(503);
     expect(mockCollections.teams.deleteOne).not.toHaveBeenCalled();
   });
 });
