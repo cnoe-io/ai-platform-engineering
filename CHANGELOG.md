@@ -1,3 +1,42 @@
+## 0.5.10 (2026-06-08)
+
+### Feat
+
+- **slack**: derive slash-command prefix from APP_NAME, enforce DM-only on all commands (#1785)
+
+## 0.5.9-dev.4 (2026-06-08)
+
+### Feat
+
+- **rbac**: Okta directory sync (SDK) with JIT provisioning, IdP-sync admin UI, and admin RBAC fixes (#1783)
+
+## 0.5.9-dev.3 (2026-06-08)
+
+### Feat
+
+- **ui**: dynamic nav overflow, compact right cluster, screenshot in report dialog (#1777)
+
+## 0.5.9-dev.2 (2026-06-06)
+
+### Feat
+
+- **release**: add release-prerelease.yml for coordinated rc builds
+
+### Fix
+
+- **slack**: gate channel access on agent assignment, not team membership (#1761)
+- **release**: bump version files before tagging in release-prerelease.yml
+- **ci**: restore build_all input name in a2a/mcp sub-agent workflows
+- **docs**: escape MDX JSX in FGA module-api spec
+
+## 0.5.9-dev.1 (2026-06-05)
+
+### Feat
+
+- **ui**: make config-driven agent panels expandable for viewing
+
+## 0.5.9 (2026-06-05)
+
 ## 0.5.8-dev.4 (2026-06-05)
 
 ### Feat
