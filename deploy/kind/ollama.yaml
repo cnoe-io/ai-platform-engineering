@@ -1,0 +1,178 @@
+---
+# Persistent storage for Ollama model weights.
+# local-path provisioner writes to /var/local-path-provisioner on the kind node.
+# 10Gi comfortably holds mistral Q4_K_M (4.1 GB) plus headroom for additional models.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ollama-models
+  namespace: caipe
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: standard
+  resources:
+    requests:
+      storage: 10Gi
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama
+  namespace: caipe
+  labels:
+    app: ollama
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ollama
+  template:
+    metadata:
+      labels:
+        app: ollama
+    spec:
+      # Allow enough time for the first-run model pull (4 GB download).
+      # Subsequent restarts skip the pull and start in seconds.
+      terminationGracePeriodSeconds: 60
+
+      initContainers:
+        # Pulls the configured model on first run; skips silently if already present.
+        # Runs as a separate init container so the pull completes before the
+        # main container's readiness probe starts.
+        - name: pull-model
+          image: ollama/ollama:0.30.0
+          command:
+            - sh
+            - -c
+            - |
+              ollama serve &
+              SERVE_PID=$!
+              # Wait until the API is accepting connections (curl not in image; use ollama list)
+              until ollama list >/dev/null 2>&1; do
+                sleep 1
+              done
+              echo "Ollama ready. Pulling ${OPENAI_MODEL_NAME} (skips if already cached)..."
+              ollama pull "${OPENAI_MODEL_NAME}"
+              if [ -n "${EMBEDDINGS_MODEL}" ] && [ "${EMBEDDINGS_MODEL}" != "${OPENAI_MODEL_NAME}" ]; then
+                echo "Pulling embeddings model ${EMBEDDINGS_MODEL} (skips if already cached)..."
+                ollama pull "${EMBEDDINGS_MODEL}"
+              fi
+              echo "Pull complete. Stopping temporary serve."
+              kill $SERVE_PID
+              wait $SERVE_PID 2>/dev/null || true
+          env:
+            - name: OPENAI_MODEL_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: llm-secret
+                  key: OPENAI_MODEL_NAME
+            - name: EMBEDDINGS_MODEL
+              valueFrom:
+                secretKeyRef:
+                  name: llm-secret
+                  key: EMBEDDINGS_MODEL
+                  optional: true
+            - name: OLLAMA_MODELS
+              value: /models
+            # Bind temporary serve to loopback — not reachable outside the pod during init
+            - name: OLLAMA_HOST
+              value: "127.0.0.1:11434"
+          volumeMounts:
+            - name: models
+              mountPath: /models
+          resources:
+            requests:
+              cpu: "250m"
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+
+      containers:
+        - name: ollama
+          image: ollama/ollama:0.30.0
+          ports:
+            - containerPort: 11434
+              name: http
+          env:
+            - name: OPENAI_MODEL_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: llm-secret
+                  key: OPENAI_MODEL_NAME
+            - name: OLLAMA_MODELS
+              value: /models
+            # Bind to all interfaces inside the pod so the ClusterIP Service can route to it
+            - name: OLLAMA_HOST
+              value: "0.0.0.0:11434"
+          volumeMounts:
+            - name: models
+              mountPath: /models
+          resources:
+            requests:
+              cpu: "1000m"
+              memory: 5Gi
+            limits:
+              cpu: "4"
+              memory: 8Gi
+          startupProbe:
+            httpGet:
+              path: /api/tags
+              port: 11434
+            periodSeconds: 5
+            failureThreshold: 24    # 2 minutes for ollama serve to bind and start
+          readinessProbe:
+            exec:
+              # exec is used instead of httpGet because Kubernetes httpGet probes
+              # only verify the HTTP status code. GET /api/tags returns 200 as long
+              # as ollama serve is up, regardless of whether the configured model is
+              # present. POST /api/show (the model-specific check) is unreachable via
+              # httpGet since probes do not support POST. ollama show exits non-zero
+              # if the model is absent or the server is down, making it a reliable
+              # model-aware readiness signal.
+              command:
+                - sh
+                - -c
+                - 'ollama show "${OPENAI_MODEL_NAME}"'
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            failureThreshold: 3     # 90 seconds — model already pulled by init container
+          livenessProbe:
+            httpGet:
+              path: /api/tags
+              port: 11434
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: ollama-models
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama
+  namespace: caipe
+  labels:
+    app: ollama
+spec:
+  selector:
+    app: ollama
+  ports:
+    - name: http
+      port: 11434
+      targetPort: 11434
+  type: ClusterIP
