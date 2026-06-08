@@ -147,7 +147,7 @@ LITELLM_ROUTE_EMBEDDINGS=false
 LITELLM_MASTER_KEY="${LITELLM_MASTER_KEY:-sk-caipe-litellm}"
 VLLM_MODEL="${VLLM_MODEL:-openai/gpt-oss-20b}"
 VLLM_GPU_COUNT="${VLLM_GPU_COUNT:-1}"
-OLLAMA_MODEL="${OLLAMA_MODEL:-llama2}"
+OLLAMA_MODEL="${OLLAMA_MODEL:-gemma3}"
 OLLAMA_PORT=11434
 # Base URL the RAG server uses for Ollama embeddings. The EmbeddingsFactory
 # default (http://localhost:11434) is the pod's own loopback and cannot reach
@@ -1028,7 +1028,7 @@ collect_credentials() {
       echo -e "    ${BOLD}2)${NC} AWS Bedrock       ${DIM}(Claude on Bedrock, cross-region inference)${NC}"
       echo -e "    ${BOLD}3)${NC} OpenAI            ${DIM}(gpt-5.2, gpt-4.1, etc.)${NC}"
       echo -e "    ${BOLD}4)${NC} LiteLLM Proxy     ${DIM}(gpt-oss-20B or any OpenAI-compatible endpoint)${NC}"
-      echo -e "    ${BOLD}5)${NC} Ollama            ${DIM}(local models: llama2, mistral, neural-chat, etc.)${NC}"
+      echo -e "    ${BOLD}5)${NC} Ollama            ${DIM}(in-cluster: gemma3, llama3.2, mistral, phi4, etc.)${NC}"
       echo ""
       prompt "Select provider ${CYAN}[1]${NC}${BOLD}: "
       tty_read -r provider_choice
@@ -1477,7 +1477,7 @@ _collect_vllm_credentials() {
 _collect_ollama_config() {
   if ! $NON_INTERACTIVE; then
     echo ""
-    echo -e "  ${DIM}Available Ollama models: llama2, mistral, neural-chat, dolphin-mixtral, vicuna${NC}"
+    echo -e "  ${DIM}Available Ollama models: gemma3, llama3.2, llama3.2:1b, mistral, phi4-mini, qwen2.5${NC}"
     prompt "Ollama model to use ${CYAN}[${OLLAMA_MODEL}]${NC}${BOLD}: "
     tty_read -r input
     OLLAMA_MODEL="${input:-$OLLAMA_MODEL}"
@@ -1491,8 +1491,15 @@ _collect_ollama_config() {
   OPENAI_MODEL_NAME="${OLLAMA_MODEL}"
 
   EMBEDDINGS_PROVIDER="ollama"
+  # Default to nomic-embed-text when no embeddings model is set — gemma3 and
+  # most chat models lack the /api/embed capability Ollama embeddings require.
+  # nomic-embed-text is a small (274 MB), purpose-built embedding model that
+  # the Ollama init container will pull alongside the chat model.
+  if [[ -z "${EMBEDDINGS_MODEL:-}" || "${EMBEDDINGS_MODEL}" == "text-embedding-3-large" ]]; then
+    EMBEDDINGS_MODEL="nomic-embed-text"
+  fi
 
-  log "Provider: openai (via in-cluster Ollama)  Model: ${OLLAMA_MODEL}"
+  log "Provider: openai (via in-cluster Ollama)  Model: ${OLLAMA_MODEL}  Embeddings: ${EMBEDDINGS_MODEL}"
 }
 
 _collect_openai_embeddings_key() {
@@ -7306,7 +7313,12 @@ cmd_cleanup() {
   # Ollama (deployed via kubectl, not Helm)
   if kubectl get deployment ollama -n caipe &>/dev/null; then
     if ask_yn "Delete Ollama resources?" "y"; then
-      kubectl delete -f "${SCRIPT_DIR}/deploy/kind/ollama.yaml" 2>/dev/null || true
+      local _ollama_yaml="${SCRIPT_DIR}/deploy/kind/ollama.yaml"
+      if [[ -f "$_ollama_yaml" ]]; then
+        kubectl delete -f "$_ollama_yaml" 2>/dev/null || true
+      else
+        kubectl delete deployment,svc,pvc -l app=ollama -n caipe 2>/dev/null || true
+      fi
       log "Ollama deleted"
     fi
   fi
@@ -7871,7 +7883,14 @@ BANNER
     # against a missing LLM endpoint. The init container pulls the model
     # (potentially several GB), so allow up to 10 minutes on first run.
     step "Deploying in-cluster Ollama"
-    kubectl apply -f "${SCRIPT_DIR}/deploy/kind/ollama.yaml" 2>&1 \
+    local _ollama_yaml="${SCRIPT_DIR}/deploy/kind/ollama.yaml"
+    if [[ ! -f "$_ollama_yaml" ]]; then
+      err "deploy/kind/ollama.yaml not found at ${_ollama_yaml}."
+      err "When running via 'curl | bash', clone the repo and run setup-caipe.sh directly:"
+      err "  git clone https://github.com/cnoe-io/ai-platform-engineering && cd ai-platform-engineering && bash setup-caipe.sh"
+      exit 1
+    fi
+    kubectl apply -f "$_ollama_yaml" 2>&1 \
       | grep -v "^$" | while IFS= read -r line; do log "$line"; done
     log "Waiting for Ollama to be ready (model pull may take several minutes on first run)..."
     kubectl rollout status deployment/ollama -n caipe --timeout=10m 2>&1 \
