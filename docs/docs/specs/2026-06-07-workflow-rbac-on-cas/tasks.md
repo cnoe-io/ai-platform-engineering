@@ -9,6 +9,19 @@
 
 Re-implement #1751 (workflow RBAC: visibility, run access, team sharing, execution authz, editor UX) on top of CAS — and resolve the #1751 review feedback.
 
+## Status — 2026-06-07
+
+Implemented on local branch `feat/workflow-rbac-on-cas` (to be split → #1770 CAS core + #1771 workflow).
+
+- **Phase 1 (PAP)** — `PolicyAdmin` + grant/revoke shipped in CAS core; grants exposed at `/api/admin/authz/grants` (admin-gated + meta-authz "caller manages the resource"), `cas_grant` audit. *Path differs from the planned `/api/authz/v1/grants`.*
+- **Phase 2 (read/use)** — data model from the #1751 merge; `workflow-runs` (read/delete/start) and `workflow-configs` **read-path** re-pointed onto CAS via `filterAccessible` + org-admin bypass. ⚠️ **PUT/DELETE configs stay on the owner/visibility model** — CAS write/delete grants aren't modeled yet.
+- **Phase 3 (per-step gate)** — `authorize(user, step.agent_id, use)` runs in the shared `executeSteps()` loop (covers start **and** resume); DENY fails the step. Tested.
+- **Phase 4 (DA)** — `workflow_execution_authz.py` deleted; DA agrees with CAS via a **mirrored org-admin bypass** in `openfga_authz.py` (⚠️ kept its own OpenFGA check rather than calling CAS over HTTP). Tested.
+- **Phase 6 (editor UX)** — landed via the #1751 merge.
+- **Phase 7** — `domains/workflow.ts` stub dropped; Access Manager/Diagnostics dead code removed; missing tests added (Phase 3/4 + bearer fallback).
+
+**Remaining:** Phase 5 (modal → grant API, cosmetic); split branch → PRs #1770/#1771 + DCO sign-off; reply to #1751 threads.
+
 ## Addresses #1751 review comments
 
 | Comment | Resolution here |
@@ -38,18 +51,18 @@ The BFF `executeSteps()` **orchestrates the workflow and invokes agents one step
 - [ ] unit + contract tests
 
 ### Phase 2 — Workflow data model + BFF read/use
-- [ ] `visibility` / `shared_with_teams` / `owner_id` on workflow config (model + seed)
-- [ ] `workflow-configs` route → CAS read/write/delete; runs `cancel`/`resume` → CAS
-- [ ] list filtering via `filterAccessible`
+- [x] `visibility` / `shared_with_teams` / `owner_id` on workflow config (via #1751 merge)
+- [x] `workflow-configs` **read-path** → CAS; runs read/delete/start → CAS *(PUT/DELETE configs stay on owner/visibility)*
+- [x] list filtering via `filterAccessible`
 
 ### Phase 3 — BFF per-step execution gate (addresses @subbaksh #3)
-- [ ] `authorize({user, step.agent_id, use})` in `executeSteps()` before `chat/stream/start`
-- [ ] same gate in `resumeAndContinue()` before `chat/stream/resume`
-- [ ] DENY → fail step with a clean reason; audit
+- [x] `authorize({user, step.agent_id, use})` in `executeSteps()` before `chat/stream/start`
+- [x] same gate covers resume (shared `executeSteps()` loop)
+- [x] DENY → fail step with a clean reason; audit
 
 ### Phase 4 — DA cleanup (addresses @subbaksh #3 + #2)
-- [ ] delete `workflow_execution_authz.py` + its test
-- [ ] migrate `openfga_authz.py` (direct chat) → CAS HTTP check
+- [x] delete `workflow_execution_authz.py` + its test
+- [x] `openfga_authz.py`: mirrored org-admin bypass so DA agrees with CAS *(kept DA's own OpenFGA check; no CAS HTTP call)*
 - [ ] `X-User-Context` reduced to email-only; link #1753
 
 ### Phase 5 — Share / modal via CAS grant API
@@ -61,9 +74,9 @@ The BFF `executeSteps()` **orchestrates the workflow and invokes agents one step
 - [ ] `WorkflowCanvas` / `WorkflowSidebar` / `WorkflowStepSidebar` / `WorkflowToolbar`
 
 ### Phase 7 — Cleanup + verify
-- [ ] drop `domains/workflow.ts` stub
-- [ ] fix unused import (bot comment)
-- [ ] parity + regression tests; full suite green; coverage
+- [x] drop `domains/workflow.ts` stub
+- [x] fix unused import (bot comment) + remove Access Manager/Diagnostics dead code
+- [x] Phase 3/4 + bearer-fallback tests added; targeted suites green *(full-suite coverage pass pending)*
 - [ ] reply to #1751 threads; mark #1751 superseded by this PR
 
 <!-- assisted-by claude code claude-opus-4-8 -->
