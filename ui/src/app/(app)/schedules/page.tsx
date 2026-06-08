@@ -482,8 +482,10 @@ export default function SchedulesPage() {
           throw new Error(body.error || failureMessage);
         }
         applyUpdatedSchedule(body.data);
+        return true;
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
+        return false;
       } finally {
         setMutatingId(null);
       }
@@ -493,7 +495,7 @@ export default function SchedulesPage() {
 
   const saveEdit = useCallback(async () => {
     if (!editingItem) return;
-    await patchSchedule(
+    const saved = await patchSchedule(
       editingItem,
       {
         title: editTitle,
@@ -503,6 +505,9 @@ export default function SchedulesPage() {
       },
       "Failed to update schedule"
     );
+    if (saved) {
+      setEditingItem(null);
+    }
   }, [editCron, editMessage, editTitle, editTz, editingItem, patchSchedule]);
 
   const rollbackToVersion = useCallback(
