@@ -408,33 +408,26 @@ describe('AppHeader — nav tabs', () => {
       expect(screen.getByText(/Chat/)).toBeInTheDocument()
     })
 
-    it('collapses secondary top navigation into More on constrained widths', () => {
+    it('collapses nav items into More dropdown and keeps right cluster intact on narrow widths', () => {
       setHeaderNavConstrained(true)
       mockStorageMode = 'mongodb'
       mockDynamicAgentsEnabled = true
       mockIsAdmin = true
+      mockReportProblemEnabled = true
 
       render(<AppHeader />)
 
+      // Nav items overflow into More
       expect(screen.getByRole('button', { name: /more navigation/i })).toHaveTextContent('More')
+      // All items still accessible (inside the always-open popover mock)
       expect(screen.getByText('Home')).toBeInTheDocument()
       expect(screen.getByText(/Chat/)).toBeInTheDocument()
       expect(screen.getByText('Skills')).toBeInTheDocument()
       expect(screen.getByTestId('link-/dynamic-agents')).toBeInTheDocument()
       expect(screen.getByTestId('link-/admin')).toBeInTheDocument()
-    })
-
-    it('collapses header status and account actions on constrained widths', () => {
-      setHeaderNavConstrained(true)
-      mockReportProblemEnabled = true
-
-      render(<AppHeader />)
-
-      // Status button is always a fixed w-8 circle when connected
+      // Right cluster: status stays icon-only circle, Report a Problem keeps its label
       expect(screen.getByRole('button', { name: /system status: connected/i })).toHaveClass('w-8')
-      // Report a Problem always shows its text label (no compact mode)
       expect(screen.getByText('Report a Problem')).toBeInTheDocument()
-      // Settings and user menu are always rendered (no compact prop)
       expect(screen.getByTestId('settings-panel')).toBeInTheDocument()
       expect(screen.getByTestId('user-menu')).toBeInTheDocument()
     })
@@ -453,16 +446,13 @@ describe('AppHeader — nav tabs', () => {
       expect(link.className).toContain('bg-primary')
     })
 
-    it('shows Knowledge Bases tab when RAG is enabled', () => {
+    it('shows Knowledge Bases tab only when RAG is enabled', () => {
       mockRagEnabled = true
-      render(<AppHeader />)
+      const { rerender } = render(<AppHeader />)
       expect(screen.getByText('Knowledge Bases')).toBeInTheDocument()
-      expect(screen.getByTestId('link-/knowledge-bases')).toBeInTheDocument()
-    })
 
-    it('does NOT show Knowledge Bases when RAG is disabled', () => {
       mockRagEnabled = false
-      render(<AppHeader />)
+      rerender(<AppHeader />)
       expect(screen.queryByText('Knowledge Bases')).not.toBeInTheDocument()
     })
 
@@ -584,42 +574,20 @@ describe('AppHeader — connection status badge', () => {
   })
 
   describe('green — Connected', () => {
-    it('shows status button when supervisor is online and RAG is disabled', () => {
-      mockCaipeStatus = 'connected'
-      mockRagEnabled = false
-      render(<AppHeader />)
-      // When connected, label is hidden (icon-only); button still accessible by aria-label
-      expect(screen.getByRole('button', { name: /system status: connected/i })).toBeInTheDocument()
-    })
-
-    it('shows status button when both supervisor and RAG are online', () => {
+    it('shows icon-only green button with correct popover content when all systems are up', () => {
       mockCaipeStatus = 'connected'
       mockRagEnabled = true
       mockRagStatus = 'connected'
       render(<AppHeader />)
-      expect(screen.getByRole('button', { name: /system status: connected/i })).toBeInTheDocument()
-    })
 
-    it('Connected badge has green styling', () => {
-      mockCaipeStatus = 'connected'
-      mockRagEnabled = false
-      render(<AppHeader />)
-      const badge = screen.getByRole('button', { name: /system status: connected/i })
-      expect(badge?.className).toContain('green')
-    })
-
-    it('popover header shows "All Systems Live" when connected', () => {
-      mockCaipeStatus = 'connected'
-      mockRagEnabled = true
-      mockRagStatus = 'connected'
-      render(<AppHeader />)
+      const btn = screen.getByRole('button', { name: /system status: connected/i })
+      // Icon-only: no visible "Connected" label text (AnimatePresence hides it)
+      expect(btn).toBeInTheDocument()
+      expect(btn.className).toContain('green')
+      expect(btn.className).toContain('w-8') // fixed-size circle, not pill
+      expect(screen.queryByText('Connected')).not.toBeInTheDocument()
+      // Popover content reflects healthy state
       expect(screen.getByText('All Systems Live')).toBeInTheDocument()
-    })
-
-    it('popover footer shows "All systems operational" when connected', () => {
-      mockCaipeStatus = 'connected'
-      mockRagEnabled = false
-      render(<AppHeader />)
       expect(screen.getByText('All systems operational')).toBeInTheDocument()
     })
   })
