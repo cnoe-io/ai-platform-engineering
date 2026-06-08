@@ -3022,6 +3022,16 @@ services:
       OPENFGA_RELATION: can_call
       OPENFGA_OBJECT: mcp_gateway:list
       OPENFGA_BYPASS_SUBS: ${OPENFGA_BYPASS_SUBS:-}
+      # JWT validation config so the bridge can DECODE the caller's bearer and
+      # detect service accounts (preferred_username starts "service-account-", T002)
+      # → namespace service_account:<sub> vs user:<sub>. Without these,
+      # _decode_verified_bearer_claims returns None, SA detection is always False,
+      # and SA tool calls are mis-graphed as user:<sub> → DENY_NO_CAPABILITY (#46).
+      # Values match the AgentGateway listener jwtAuth + every other service's OIDC
+      # config so the iss/aud claims validate identically.
+      JWT_JWKS_URL: ${BRIDGE_JWT_JWKS_URL:-http://keycloak:7080/realms/caipe/protocol/openid-connect/certs}
+      JWT_ISSUER: ${BRIDGE_JWT_ISSUER:-http://localhost:7080/realms/caipe}
+      JWT_AUDIENCES: ${BRIDGE_JWT_AUDIENCES:-caipe-platform,agentgateway}
       CAIPE_AGENT_CONTEXT_HMAC_SECRET: ${CAIPE_AGENT_CONTEXT_HMAC_SECRET:-}
       # Caller-keyed tool-authorization rollout flag (FR-012c). Default-off so
       # prod/compose without the var keeps legacy agent-only tool enforcement;

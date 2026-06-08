@@ -1813,9 +1813,44 @@ export async function deleteServiceAccountClient(clientUuid: string): Promise<vo
 /**
  * The realm's client-credentials token endpoint — the URL an external service
  * account POSTs to (with its client_id + client_secret) to obtain a JWT. Shown
- * once alongside the credential on create/rotate (FR-005). Reuses the same
- * `KEYCLOAK_URL`/`KEYCLOAK_REALM` config as the admin token path.
+ * once alongside the credential on create/rotate (FR-005).
+ *
+ * MUST be HOST/EXTERNALLY reachable (#55). `KEYCLOAK_URL` is the Docker-INTERNAL
+ * hostname (e.g. `http://keycloak:7080`) used for server-side admin calls — it
+ * does NOT resolve from a user's host shell or an external SA caller, so echoing
+ * it here breaks the token-mint step. Instead derive from the browser/external-
+ * facing issuer:
+ *   - `KEYCLOAK_PUBLIC_URL` (explicit external Keycloak base), else
+ *   - `OIDC_ISSUER` (already the browser-facing realm URL, e.g.
+ *     `http://localhost:7080/realms/caipe`) → append the token path, else
+ *   - fall back to the internal `KEYCLOAK_URL` path (single-URL deployments).
+ * This mirrors the internal-vs-browser-facing split auth-config already uses
+ * (KEYCLOAK_URL/OIDC_DISCOVERY_URL for server-side vs OIDC_ISSUER for browser).
  */
 export function getServiceAccountTokenUrl(): string {
+  const realm = getRealm();
+  const tokenPath = `/realms/${encodeURIComponent(realm)}/protocol/openid-connect/token`;
+
+  const publicBase = process.env.KEYCLOAK_PUBLIC_URL?.trim();
+  if (publicBase) {
+    return `${publicBase.replace(/\/$/, "")}${tokenPath}`;
+  }
+
+  const issuer = process.env.OIDC_ISSUER?.trim();
+  if (issuer) {
+    // OIDC_ISSUER is itself the realm URL (…/realms/<realm>). Preserve ITS realm
+    // rather than stripping + re-appending KEYCLOAK_REALM — if the two ever
+    // diverged, re-appending getRealm() would point the token URL at the wrong
+    // realm (reviewer-a nit). When the issuer already ends in /realms/<realm>,
+    // just append the protocol path to it directly; otherwise treat it as a
+    // bare base and append the full /realms/<realm> token path.
+    const trimmed = issuer.replace(/\/$/, "");
+    if (/\/realms\/[^/]+$/.test(trimmed)) {
+      return `${trimmed}/protocol/openid-connect/token`;
+    }
+    return `${trimmed}${tokenPath}`;
+  }
+
+  // Single-URL deployments: KEYCLOAK_URL is already host-reachable.
   return getRealmTokenEndpoint();
 }

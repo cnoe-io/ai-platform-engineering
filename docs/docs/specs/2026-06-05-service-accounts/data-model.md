@@ -83,23 +83,37 @@ Written/removed by the BFF routes. `<sub>` = `sa_sub`; `<team>` = `owning_team_i
 | Purpose | Tuple | Written when | Removed when |
 |---------|-------|--------------|--------------|
 | Ownership | `team:<team>#member` → `owner_team` → `service_account:<sub>` | create | revoke |
+| Coarse-gate baseline | `service_account:<sub>` → `caller` → `mcp_gateway:list` | create | revoke |
 | Agent grant | `service_account:<sub>` → `can_use` → `agent:<id>` | create / add-scope | remove-scope / revoke |
 | Tool grant | `service_account:<sub>` → `can_call` → `tool:<server>/<tool>` (or `…/*`) | create / add-scope | remove-scope / revoke |
+
+**Coarse-gate baseline (R-9 / #28):** the AgentGateway ext_authz bridge runs a coarse
+`<subject> can_call mcp_gateway:list` check on EVERY MCP request before the per-tool checks. Humans get
+this baseline at login bootstrap (`baseline-access.ts`); SAs never log in, so the create route writes
+`service_account:<sub> caller mcp_gateway:list` explicitly (and revoke deletes it). Without it an SA
+fails the coarse gate even with valid agent/tool grants. Requires the model change below
+(`mcp_gateway.caller` now also accepts `service_account`).
 
 Management authority derives from ownership: `service_account:<sub>#can_manage` = `owner_team`
 (= any `team:<team>#member`). BFF authorizes manage actions with
 `check(user:<editor>, can_manage, service_account:<sub>)`.
 
-### Model change (`deploy/openfga/model.fga`, mirrored into `authorization-model.json`)
+### Model changes (`deploy/openfga/model.fga`, mirrored into `authorization-model.json`)
 
 ```
 type service_account
   relations
     define owner_team: [team#member]
     define can_manage: owner_team
+
+type mcp_gateway
+  relations
+    define caller: [user, service_account]   # was [user] — added service_account (R-9/#29)
+    define can_call: caller
 ```
-(`service_account` is subject-only today; this is additive. `tool#caller` already permits `user` and
-`service_account` — no change needed there.)
+(`service_account` was subject-only; the `owner_team`/`can_manage` relations are additive. `tool#caller`
+already permits `user` and `service_account` — no change needed there. `mcp_gateway.caller` needed
+`service_account` added so the coarse-gate baseline tuple above is writable.)
 
 ---
 

@@ -15,23 +15,50 @@ import type { OpenFgaTupleKey } from "@/lib/rbac/openfga";
 /** OpenFGA-safe id segment (agent id, tool server, tool name). */
 export const ID_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
+/**
+ * One segment of a tool ref. Either a bare `*`, or an OpenFGA-safe id
+ * (alphanumerics + `. _ -`) with an OPTIONAL trailing `*` wildcard. The trailing
+ * star covers the underscore-wildcard form `<server>_*` (legacy team-resources)
+ * as well as plain ids (`jira_search`, `dynamic-agents-builtin`). A star is only
+ * valid as a whole segment or as a single trailing char — never embedded.
+ */
+const TOOL_SEGMENT = /^(?:\*|[A-Za-z0-9][A-Za-z0-9._-]*\*?)$/;
+
 export interface ScopeRef {
   type: "agent" | "tool";
-  /** agent id, or "<server>/<tool>" | "<server>/*" for tools. */
+  /** agent id, or a tool object id — see {@link isValidToolRef}. */
   ref: string;
 }
 
 /**
- * Validate a tool ref shape: `<server>/<tool>` or `<server>/*` (exactly one
- * slash, server + tool each OpenFGA-safe; tool may be the `*` wildcard).
+ * Validate a tool ref. A tool ref is just an OpenFGA-safe `tool:` object id —
+ * the create route's job is to reject GENUINELY malformed input, NOT to mandate
+ * a single `<server>/<tool>` convention (the tool namespace doesn't follow one).
+ * Real shapes that all exist in the model + must be accepted (#43, #44):
+ *   - `jira/search`            slash server/tool
+ *   - `jira/*`                 slash server wildcard (the form the bridge enforces)
+ *   - `jira_search`            underscore (MCP-server-prefixed tool id)
+ *   - `knowledge-base_*`       underscore wildcard (legacy team-resources form)
+ *   - `dynamic-agents-builtin` no separator
+ *   - `*`                      bare wildcard
+ * Rejected: empty, anything with whitespace / disallowed chars, or more than one
+ * slash. The real authorization bound is the per-scope `can_call` check, not this
+ * shape filter.
  */
 export function isValidToolRef(ref: string): boolean {
+  if (!ref) return false;
+  if (ref === "*") return true;
+  const slashCount = (ref.match(/\//g) ?? []).length;
+  if (slashCount > 1) return false;
+  if (slashCount === 0) {
+    // Single segment (underscore / no-separator / bare-name forms).
+    return TOOL_SEGMENT.test(ref);
+  }
+  // Exactly one slash: `<server>/<tool>` or `<server>/*`.
   const slash = ref.indexOf("/");
-  if (slash <= 0 || slash !== ref.lastIndexOf("/")) return false;
   const server = ref.slice(0, slash);
   const tool = ref.slice(slash + 1);
-  if (!ID_SEGMENT.test(server)) return false;
-  return tool === "*" || ID_SEGMENT.test(tool);
+  return TOOL_SEGMENT.test(server) && TOOL_SEGMENT.test(tool);
 }
 
 /**
