@@ -158,6 +158,7 @@ describe('getServerConfig', () => {
         'ticketEnabled', 'ticketProvider',
         'userInfoToolEnabled',
         'oidcRequiredGroup',
+        'oktaSyncEnabled',
       ];
       expect(Object.keys(cfg).sort()).toEqual(expectedKeys.sort());
     });
@@ -954,6 +955,7 @@ describe('getClientConfigScript (XSS safety)', () => {
       'ticketEnabled', 'ticketProvider',
       'userInfoToolEnabled',
       'oidcRequiredGroup',
+      'oktaSyncEnabled',
     ];
     expect(Object.keys(parsed).sort()).toEqual(expectedKeys.sort());
   });
