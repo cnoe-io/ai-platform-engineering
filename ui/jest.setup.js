@@ -29,11 +29,23 @@ global.IntersectionObserver = class IntersectionObserver {
   unobserve() {}
 }
 
-// Mock ResizeObserver
+// Mock ResizeObserver.
+// Tests can set global.__mockContainerWidth to control what offsetWidth
+// the observed element returns, so nav overflow logic in AppHeader sees a
+// realistic value. Defaults to 2000 (all items visible). Set to 0 to force
+// the More dropdown to appear.
+global.__mockContainerWidth = 2000
 global.ResizeObserver = class ResizeObserver {
-  constructor() {}
+  constructor(callback) { this.callback = callback }
   disconnect() {}
-  observe() {}
+  observe(target) {
+    const w = global.__mockContainerWidth
+    Object.defineProperty(target, 'offsetWidth', { configurable: true, get: () => w })
+    // Do NOT call the callback here — avoids triggering side effects in
+    // unrelated components (e.g. graph components that use DOMMatrixReadOnly).
+    // AppHeader calls recompute() directly after observe(), so stubbing
+    // offsetWidth is sufficient for the overflow calculation to work.
+  }
   unobserve() {}
 }
 

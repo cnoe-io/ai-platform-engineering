@@ -47,20 +47,11 @@ jest.mock('next/navigation', () => ({
   }),
 }))
 
-function setHeaderNavConstrained(matches: boolean) {
-  Object.defineProperty(window, 'matchMedia', {
-    writable: true,
-    value: jest.fn().mockImplementation((query: string) => ({
-      matches,
-      media: query,
-      onchange: null,
-      addEventListener: jest.fn(),
-      removeEventListener: jest.fn(),
-      addListener: jest.fn(),
-      removeListener: jest.fn(),
-      dispatchEvent: jest.fn(),
-    })),
-  })
+// Controls the simulated container width in the ResizeObserver mock (jest.setup.js).
+// Pass true to simulate a narrow container (triggers nav overflow / More button).
+// Pass false to restore the default wide container (all items visible).
+function setHeaderNavConstrained(constrained: boolean) {
+  ;(global as any).__mockContainerWidth = constrained ? 0 : 2000
 }
 
 // Mock admin role hook
@@ -285,14 +276,14 @@ jest.mock('@/components/ui/popover', () => {
 })
 
 jest.mock('@/components/user-menu', () => ({
-  UserMenu: ({ compact }: { compact?: boolean }) => (
-    <div data-testid="user-menu" data-compact={compact ? 'true' : 'false'} />
+  UserMenu: () => (
+    <div data-testid="user-menu" />
   ),
 }))
 
 jest.mock('@/components/settings-panel', () => ({
-  SettingsPanel: ({ compact }: { compact?: boolean }) => (
-    <div data-testid="settings-panel" data-compact={compact ? 'true' : 'false'} />
+  SettingsPanel: () => (
+    <div data-testid="settings-panel" />
   ),
 }))
 
@@ -439,11 +430,13 @@ describe('AppHeader — nav tabs', () => {
 
       render(<AppHeader />)
 
+      // Status button is always a fixed w-8 circle when connected
       expect(screen.getByRole('button', { name: /system status: connected/i })).toHaveClass('w-8')
-      expect(screen.getByRole('button', { name: /report a problem/i })).toHaveClass('w-8')
-      expect(screen.queryByText('Report a Problem')).not.toBeInTheDocument()
-      expect(screen.getByTestId('settings-panel')).toHaveAttribute('data-compact', 'true')
-      expect(screen.getByTestId('user-menu')).toHaveAttribute('data-compact', 'true')
+      // Report a Problem always shows its text label (no compact mode)
+      expect(screen.getByText('Report a Problem')).toBeInTheDocument()
+      // Settings and user menu are always rendered (no compact prop)
+      expect(screen.getByTestId('settings-panel')).toBeInTheDocument()
+      expect(screen.getByTestId('user-menu')).toBeInTheDocument()
     })
 
     it('shows Skills as active on /skills', () => {
@@ -591,26 +584,27 @@ describe('AppHeader — connection status badge', () => {
   })
 
   describe('green — Connected', () => {
-    it('shows "Connected" when supervisor is online and RAG is disabled', () => {
+    it('shows status button when supervisor is online and RAG is disabled', () => {
       mockCaipeStatus = 'connected'
       mockRagEnabled = false
       render(<AppHeader />)
-      expect(screen.getByText('Connected')).toBeInTheDocument()
+      // When connected, label is hidden (icon-only); button still accessible by aria-label
+      expect(screen.getByRole('button', { name: /system status: connected/i })).toBeInTheDocument()
     })
 
-    it('shows "Connected" when both supervisor and RAG are online', () => {
+    it('shows status button when both supervisor and RAG are online', () => {
       mockCaipeStatus = 'connected'
       mockRagEnabled = true
       mockRagStatus = 'connected'
       render(<AppHeader />)
-      expect(screen.getByText('Connected')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /system status: connected/i })).toBeInTheDocument()
     })
 
     it('Connected badge has green styling', () => {
       mockCaipeStatus = 'connected'
       mockRagEnabled = false
       render(<AppHeader />)
-      const badge = screen.getByText('Connected').closest('button')
+      const badge = screen.getByRole('button', { name: /system status: connected/i })
       expect(badge?.className).toContain('green')
     })
 
@@ -713,9 +707,9 @@ describe('AppHeader — connection status badge', () => {
       mockRagEnabled = false
       mockRagStatus = 'disconnected'
       render(<AppHeader />)
-      // RAG is not enabled, so its status is ignored → "Connected"
+      // RAG is not enabled, so its status is ignored → Connected (icon-only, no label text)
       expect(screen.queryByText('RAG Disconnected')).not.toBeInTheDocument()
-      expect(screen.getByText('Connected')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /system status: connected/i })).toBeInTheDocument()
     })
 
     it('popover header shows "RAG Offline" when supervisor up but RAG down', () => {
@@ -814,7 +808,7 @@ describe('AppHeader — connection status badge', () => {
       mockRagStatus = 'disconnected'
       render(<AppHeader />)
       expect(screen.getByText('RAG Disconnected')).toBeInTheDocument()
-      expect(screen.queryByText('Connected')).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /system status: connected/i })).not.toBeInTheDocument()
     })
   })
 })
@@ -1027,7 +1021,7 @@ describe('AppHeader — Chat tab notification dots', () => {
 
     render(<AppHeader />)
 
-    expect(screen.getByText('Connected')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /system status: connected/i })).toBeInTheDocument()
     expect(screen.queryByTestId(triggerSelector)).not.toBeInTheDocument()
   })
 
@@ -1046,7 +1040,7 @@ describe('AppHeader — Chat tab notification dots', () => {
 
     render(<AppHeader />)
 
-    expect(screen.getByText('Connected')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /system status: connected/i })).toBeInTheDocument()
     const trigger = screen.getByTestId(triggerSelector)
     expect(trigger.tagName).toBe('BUTTON')
     expect(trigger.textContent ?? '').toContain('Alerts:')
