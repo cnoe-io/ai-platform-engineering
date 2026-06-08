@@ -430,6 +430,58 @@ export class ProviderConnectionService {
     return toProviderConnectionMetadata(doc);
   }
 
+  /**
+   * Register a pasted static access token as a provider connection.
+   *
+   * This is the paste-token analogue of {@link completeConnection}: instead of
+   * exchanging an OAuth authorization code, the caller supplies a long-lived
+   * token (e.g. a GitLab project access token or a GitHub personal access token)
+   * that was obtained out-of-band. The resulting `ProviderConnectionDocument`
+   * has `status: "connected"`, no `refreshTokenRef` secret, and no `expiresAt` —
+   * matching the shape that {@link refreshConnection} already handles correctly
+   * for refresh-less connections (lines 496-499: reuse stored access token).
+   *
+   * The method is owner-agnostic: `input.owner.type` may be `"user"`,
+   * `"service_account"`, `"team"`, or `"organization"`.
+   */
+  async registerStaticToken(input: {
+    providerKey: string;
+    owner: CredentialOwnerRef;
+    accessToken: string;
+    requestedScopes?: string[];
+  }): Promise<ProviderConnectionMetadata> {
+    const connector = await this.findEnabledConnector(nonEmpty(input.providerKey, "providerKey"));
+    const requestedScopes =
+      input.requestedScopes !== undefined
+        ? boundScopes(connector.scopes, input.requestedScopes)
+        : undefined;
+
+    const id = this.idGenerator();
+    const accessTokenRef = `provider_connection:${id}:access_token`;
+    await this.payloadStore.putSecret({
+      secretRefId: accessTokenRef,
+      plaintext: nonEmpty(input.accessToken, "accessToken"),
+    });
+
+    const now = this.now();
+    const doc: ProviderConnectionDocument = {
+      id,
+      connectorId: connector.id,
+      provider: connector.provider,
+      owner: input.owner,
+      status: "connected",
+      accessTokenRef,
+      // No refresh token — static tokens are long-lived and not rotated via
+      // an OAuth refresh grant. refreshConnection already handles this case.
+      refreshTokenRef: "",
+      // No expiresAt — caller manages token lifecycle out-of-band.
+      updatedAt: now,
+      ...(requestedScopes ? { requestedScopes } : {}),
+    };
+    await this.providerConnectionsCollection.insertOne(doc);
+    return toProviderConnectionMetadata(doc);
+  }
+
   async listConnections(owner: CredentialOwnerRef): Promise<ProviderConnectionMetadata[]> {
     if (!this.providerConnectionsCollection.find) {
       return [];

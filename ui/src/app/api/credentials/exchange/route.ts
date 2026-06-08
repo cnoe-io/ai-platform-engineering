@@ -30,16 +30,27 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     throw new ApiError("provider_connection_id or provider is required", 400, "VALIDATION_ERROR");
   }
 
+  // Determine the owner type for subject-keyed lookup: Keycloak service-account
+  // tokens carry `preferred_username = "service-account-<clientId>"` and have
+  // identity.isServiceAccount === true (see jwt-validation.ts:247).
+  const ownerType = identity.isServiceAccount === true ? "service_account" : "user";
+
   const service = await getProviderConnectionService();
   const connection = providerConnectionId
     ? await service.getConnection(providerConnectionId)
-    : (await service.listConnections({ type: "user", id: identity.sub })).find(
+    : (await service.listConnections({ type: ownerType, id: identity.sub })).find(
         (candidate) => candidate.provider === provider && candidate.status === "connected",
       );
   if (!connection) {
     throw new ApiError("Provider connection was not found", 404, "CREDENTIAL_NOT_FOUND");
   }
-  if (connection.owner.type !== "user" || connection.owner.id !== identity.sub) {
+  // Owner guard: the connection must belong to the calling subject. An SA caller
+  // must own a service_account-typed connection; a user caller must own a
+  // user-typed connection. If the types/ids differ the caller is fetching
+  // another principal's connection — require explicit `use` permission instead.
+  const callerOwnsConnection =
+    connection.owner.type === ownerType && connection.owner.id === identity.sub;
+  if (!callerOwnsConnection) {
     await requireResourcePermission(
       { sub: identity.sub, user: { email: identity.email } },
       { type: "secret_ref", id: `provider_connection:${connection.id}`, action: "use" },
