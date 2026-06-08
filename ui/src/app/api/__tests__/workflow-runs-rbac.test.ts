@@ -10,6 +10,9 @@ const mockRequireWorkflowAccess = jest.fn();
 const mockWorkflowAccessAllowed = jest.fn();
 const mockFilterAccessibleWorkflowConfigs = jest.fn();
 const mockStartWorkflowRun = jest.fn();
+const mockGetAuth = jest.fn();
+const mockAuthUser = { email: "alice@example.com", role: "user", name: "Alice" };
+const mockAuthSession: Record<string, unknown> = { sub: "alice-sub", role: "user" };
 
 jest.mock("@/lib/mongodb", () => ({
   getCollection: (...args: unknown[]) => mockGetCollection(...args),
@@ -25,15 +28,13 @@ jest.mock("@/lib/api-middleware", () => {
       super(message);
     }
   }
-  const user = { email: "alice@example.com", role: "user", name: "Alice" };
-  const session = { sub: "alice-sub", role: "user" };
   return {
     ApiError,
-    getAuthFromBearerOrSession: async () => ({ user, session }),
+    getAuthFromBearerOrSession: (...args: unknown[]) => mockGetAuth(...args),
     getUserTeamIds: (...args: unknown[]) => mockGetUserTeamIds(...args),
     successResponse: (data: unknown, status = 200) => Response.json({ success: true, data }, { status }),
     withAuth: async (_request: NextRequest, handler: (...args: unknown[]) => Promise<Response>) =>
-      handler(_request, user, session),
+      handler(_request, mockAuthUser, mockAuthSession),
     withErrorHandler:
       <T,>(handler: (...args: unknown[]) => Promise<T>) =>
       async (...args: unknown[]) => {
@@ -86,6 +87,7 @@ describe("workflow runs OpenFGA config access", () => {
       resources.filter((resource: { _id?: string }) => resource._id === "wf-visible"),
     );
     mockStartWorkflowRun.mockResolvedValue("run-new");
+    mockGetAuth.mockResolvedValue({ user: mockAuthUser, session: mockAuthSession });
   });
 
   it("lists runs for OpenFGA-readable workflow configs without legacy team prefiltering", async () => {
@@ -142,6 +144,53 @@ describe("workflow runs OpenFGA config access", () => {
       null,
       expect.any(Object),
       expect.objectContaining({ user: { email: "alice@example.com", name: "Alice" } }),
+    );
+  });
+
+  it("forwards the incoming Bearer to the DA call when present", async () => {
+    const config = { _id: "wf-visible", name: "Workflow" };
+    mockGetCollection.mockResolvedValue({ findOne: jest.fn().mockResolvedValue(config) });
+    const { POST } = await import("../workflow-runs/route");
+
+    await POST(
+      request("/api/workflow-runs", {
+        method: "POST",
+        headers: { Authorization: "Bearer incoming-tok" },
+        body: JSON.stringify({ workflow_config_id: "wf-visible" }),
+      }),
+    );
+
+    expect(mockStartWorkflowRun).toHaveBeenCalledWith(
+      config,
+      null,
+      expect.objectContaining({ Authorization: "Bearer incoming-tok" }),
+      expect.any(Object),
+    );
+  });
+
+  it("falls back to the session accessToken when no Bearer is forwarded (cookie session)", async () => {
+    // The regression: cookie-session starts sent no Authorization header, so the
+    // DA call 401'd with missing_bearer. The route now forwards session.accessToken.
+    mockGetAuth.mockResolvedValueOnce({
+      user: mockAuthUser,
+      session: { ...mockAuthSession, accessToken: "sess-tok" },
+    });
+    const config = { _id: "wf-visible", name: "Workflow" };
+    mockGetCollection.mockResolvedValue({ findOne: jest.fn().mockResolvedValue(config) });
+    const { POST } = await import("../workflow-runs/route");
+
+    await POST(
+      request("/api/workflow-runs", {
+        method: "POST",
+        body: JSON.stringify({ workflow_config_id: "wf-visible" }),
+      }),
+    );
+
+    expect(mockStartWorkflowRun).toHaveBeenCalledWith(
+      config,
+      null,
+      expect.objectContaining({ Authorization: "Bearer sess-tok" }),
+      expect.any(Object),
     );
   });
 });

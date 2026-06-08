@@ -26,7 +26,9 @@ import { authorize } from "@/lib/authz";
  * so DA no longer needs workflow_execution_authz. Returns null for system /
  * config-driven runs with no user token (already authorized at run start).
  */
-function runOwnerSubject(authHeaders: Record<string, string>): string | null {
+// Exported for unit testing — extracts the run owner's `sub` from the forwarded
+// Bearer so executeSteps can authorize per-step agent use against CAS.
+export function runOwnerSubject(authHeaders: Record<string, string>): string | null {
   const auth = authHeaders["Authorization"] ?? authHeaders["authorization"];
   if (!auth?.startsWith("Bearer ")) return null;
   const parts = auth.slice(7).split(".");
