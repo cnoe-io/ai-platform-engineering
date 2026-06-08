@@ -65,10 +65,12 @@ function setHeaderNavConstrained(matches: boolean) {
 
 // Mock admin role hook
 let mockIsAdmin = false
+let mockCanViewAdmin = false
 let mockCanAccessDynamicAgents = false
 jest.mock('@/hooks/use-admin-role', () => ({
   useAdminRole: () => ({
     isAdmin: mockIsAdmin,
+    canViewAdmin: mockCanViewAdmin,
     canAccessDynamicAgents: mockCanAccessDynamicAgents,
   }),
 }))
@@ -186,6 +188,7 @@ jest.mock('@/lib/config', () => ({
     get dynamicAgentsEnabled() { return mockDynamicAgentsEnabled },
     get ragEnabled() { return mockRagEnabled },
     get reportProblemEnabled() { return mockReportProblemEnabled },
+    get dynamicAgentsEnabled() { return mockDynamicAgentsEnabled },
   },
   getConfig: jest.fn((key: string) => {
     const configs: Record<string, any> = {
@@ -195,6 +198,7 @@ jest.mock('@/lib/config', () => ({
       get dynamicAgentsEnabled() { return mockDynamicAgentsEnabled },
       get ragEnabled() { return mockRagEnabled },
       get reportProblemEnabled() { return mockReportProblemEnabled },
+      get dynamicAgentsEnabled() { return mockDynamicAgentsEnabled },
     }
     return configs[key]
   }),
@@ -338,10 +342,11 @@ describe('AppHeader — nav tabs', () => {
     mockStorageMode = 'mongodb'
     mockPathname = '/chat'
     mockIsAdmin = false
+    mockCanViewAdmin = false
     mockCanAccessDynamicAgents = false
     mockRagEnabled = false
-    mockDynamicAgentsEnabled = true
     mockReportProblemEnabled = false
+    mockDynamicAgentsEnabled = false
     mockCaipeStatus = 'connected'
     mockRagStatus = 'connected'
     setHeaderNavConstrained(false)
@@ -548,6 +553,39 @@ describe('AppHeader — nav tabs', () => {
     })
   })
 
+  describe('Schedules tab', () => {
+    it('shows Schedules for non-admin users when MongoDB and dynamic agents are enabled', () => {
+      mockIsAdmin = false
+      mockCanViewAdmin = false
+      mockCanAccessDynamicAgents = false
+      mockStorageMode = 'mongodb'
+      mockDynamicAgentsEnabled = true
+
+      render(<AppHeader />)
+
+      expect(screen.getByTestId('link-/schedules')).toBeInTheDocument()
+      expect(screen.getByText('Schedules')).toBeInTheDocument()
+    })
+
+    it('does NOT show Schedules when dynamic agents are disabled', () => {
+      mockStorageMode = 'mongodb'
+      mockDynamicAgentsEnabled = false
+
+      render(<AppHeader />)
+
+      expect(screen.queryByTestId('link-/schedules')).not.toBeInTheDocument()
+    })
+
+    it('does NOT show Schedules when MongoDB storage is disabled', () => {
+      mockStorageMode = 'localStorage'
+      mockDynamicAgentsEnabled = true
+
+      render(<AppHeader />)
+
+      expect(screen.queryByTestId('link-/schedules')).not.toBeInTheDocument()
+    })
+  })
+
   describe('environment badge', () => {
     it('does NOT show an environment badge when envBadge is empty', () => {
       render(<AppHeader />)
@@ -580,7 +618,10 @@ describe('AppHeader — connection status badge', () => {
     mockStorageMode = 'mongodb'
     mockPathname = '/chat'
     mockIsAdmin = false
+    mockCanViewAdmin = false
+    mockCanAccessDynamicAgents = false
     mockRagEnabled = false
+    mockDynamicAgentsEnabled = false
     mockCaipeStatus = 'connected'
     mockRagStatus = 'connected'
     mockStreamingConversations = new Map()

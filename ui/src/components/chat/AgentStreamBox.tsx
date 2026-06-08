@@ -8,6 +8,7 @@ import { StreamEvent } from "@/lib/streaming/types";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { AgentLogo, getAgentLogo } from "@/components/shared/AgentLogos";
+import { assistantMarkdownComponents } from "./MarkdownComponents";
 
 interface AgentStreamBoxProps {
   agentName: string;
@@ -277,7 +278,7 @@ export const AgentStreamBox = React.memo(function AgentStreamBox({
                         Markdown parsing on every token chunk is expensive.
                         Use plain <pre> while streaming, switch to ReactMarkdown when complete. */}
                     {agentStatus === "completed" || agentStatus === "idle" ? (
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      <ReactMarkdown remarkPlugins={[remarkGfm]} components={assistantMarkdownComponents}>
                         {streamContent}
                       </ReactMarkdown>
                     ) : (

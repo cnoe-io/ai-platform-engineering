@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import { Plus, ChevronDown, Bot, Loader2, Search } from "lucide-react";
+import { Plus, ChevronDown, Bot, Loader2, Search, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { getConfig } from "@/lib/config";
@@ -10,7 +10,7 @@ import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 
 interface NewChatButtonProps {
   collapsed: boolean;
-  onNewChat: (agentId?: string) => void;
+  onNewChat: (agentId?: string | null) => void;
 }
 
 export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
@@ -145,7 +145,7 @@ export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
     if (!dropdownOpen) setSearchQuery("");
   };
 
-  const handleSelectAgent = (agentId?: string) => {
+  const handleSelectAgent = (agentId?: string | null) => {
     setDropdownOpen(false);
     setSearchQuery("");
     onNewChat(agentId);
@@ -272,6 +272,7 @@ export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
                     Default AI assistant
                   </div>
                 </div>
+                {!defaultAgentId && <Check className="h-4 w-4 text-primary shrink-0" />}
               </button>
             )}
 
@@ -317,6 +318,7 @@ export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
                       </div>
                     )}
                   </div>
+                  {defaultAgentId === agent._id && <Check className="h-4 w-4 text-primary shrink-0" />}
                 </button>
               );
             })}

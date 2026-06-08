@@ -7,6 +7,7 @@ import { A2AEvent } from "@/types/a2a";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { AgentLogo } from "@/components/shared/AgentLogos";
+import { assistantMarkdownComponents } from "./MarkdownComponents";
 
 interface SubAgentCardProps {
   agentName: string;
@@ -162,7 +163,7 @@ export function SubAgentCard({
         <div className="p-4">
           {content ? (
             <div className="prose prose-sm dark:prose-invert max-w-none">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              <ReactMarkdown remarkPlugins={[remarkGfm]} components={assistantMarkdownComponents}>
                 {content}
               </ReactMarkdown>
             </div>

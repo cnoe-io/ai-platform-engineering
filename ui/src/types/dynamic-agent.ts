@@ -38,6 +38,28 @@ export type LegacyVisibilityType = VisibilityType | 'private';
 // MCP Server Types
 // =============================================================================
 
+/**
+ * Per-server auth configuration. Mirrors the Python `MCPServerAuth` model in
+ * `dynamic_agents/models.py`.
+ *
+ * - `user_oauth`: per-user OAuth bearer (e.g. Webex Meetings — token resolved
+ *   from `vendor_connections` keyed by the chatting user's email).
+ * - `bot_token`: shared bot/service token resolved at runtime from the
+ *   environment variable named in `secret_ref`. Lets a single MCP
+ *   deployment (e.g. `mcp_webex`) serve N bot identities — each persona
+ *   gets its own `mcp_servers` Mongo entry pointing at the same endpoint
+ *   but with a different `secret_ref`.
+ */
+export type MCPAuthType = 'user_oauth' | 'bot_token';
+
+export interface MCPServerAuth {
+  type: MCPAuthType;
+  /** Required when `type=user_oauth`. */
+  provider?: 'webex';
+  /** Env var name holding the bot token. Required when `type=bot_token`. */
+  secret_ref?: string;
+}
+
 export interface MCPServerConfig {
   _id: string;
   name: string;
@@ -47,6 +69,7 @@ export interface MCPServerConfig {
   command?: string;   // For stdio transport
   args?: string[];    // For stdio transport
   env?: Record<string, string>;  // For stdio transport
+  auth?: MCPServerAuth;  // Per-user OAuth (e.g. Webex Meetings)
   credential_sources?: MCPCredentialSource[];
   enabled: boolean;
   config_driven?: boolean;  // Whether loaded from config.yaml (not editable)
@@ -83,6 +106,7 @@ export interface MCPServerConfigCreate {
   command?: string;
   args?: string[];
   env?: Record<string, string>;
+  auth?: MCPServerAuth;
   credential_sources?: MCPCredentialSource[];
   enabled?: boolean;
   owner_team_slug?: string;
@@ -96,6 +120,7 @@ export interface MCPServerConfigUpdate {
   command?: string;
   args?: string[];
   env?: Record<string, string>;
+  auth?: MCPServerAuth;
   credential_sources?: MCPCredentialSource[];
   enabled?: boolean;
 }
@@ -146,7 +171,7 @@ export interface BuiltinToolDefinition {
  */
 export interface FetchUrlToolConfig {
   enabled: boolean;
-  /** 
+  /**
    * Comma-separated domain patterns.
    * - "*" allows all domains
    * - "*.cisco.com" allows any subdomain of cisco.com
@@ -178,6 +203,20 @@ export interface SleepToolConfig {
   max_seconds?: number;  // Maximum sleep duration in seconds (default: 300)
 }
 
+export interface MemoryContextProviderConfig {
+  server: string;
+  tool: string;
+  context_namespace: string;
+  context_type: string;
+  context_id_arg: string;
+  display_name_result_path?: string;
+}
+
+export interface MemoryToolConfig {
+  enabled: boolean;
+  context_providers?: MemoryContextProviderConfig[];
+}
+
 /**
  * Configuration for all built-in tools available to dynamic agents.
  * Each tool config is optional - if not present, tool uses defaults.
@@ -187,6 +226,11 @@ export interface BuiltinToolsConfig {
   current_datetime?: CurrentDatetimeToolConfig;
   user_info?: UserInfoToolConfig;
   sleep?: SleepToolConfig;
+  wait?: SleepToolConfig;
+  request_user_input?: { enabled: boolean };
+  self_identity?: { enabled: boolean };
+  agent_info?: { enabled: boolean };
+  memory?: MemoryToolConfig;
   workflows?: string[] | null;  // Workflow config IDs the agent can trigger/monitor
   // Allow dynamic tool configs for future extensibility
   // Using Record type to avoid index signature conflicts with specific tool types
@@ -489,6 +533,7 @@ export interface ChatRequest {
   message: string;
   conversation_id: string;
   agent_id: string;
+  memory_enabled?: boolean;
 }
 
 export interface ChatEvent {

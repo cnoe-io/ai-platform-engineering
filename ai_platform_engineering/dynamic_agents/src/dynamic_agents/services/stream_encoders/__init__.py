@@ -66,6 +66,18 @@ class StreamEncoder(ABC):
         """Non-fatal warning (e.g., MCP server unavailable)."""
 
     @abstractmethod
+    def on_memory_injected(self, memory_ids: list[str]) -> list[str]:
+        """Memory records were injected into the model context for this turn."""
+
+    @abstractmethod
+    def on_memory_context_used(self, memory_ids: list[str]) -> list[str]:
+        """Context memories were attached to a context-provider tool result."""
+
+    @abstractmethod
+    def on_keepalive(self) -> list[str]:
+        """Emit a no-op frame to keep long-running streams alive."""
+
+    @abstractmethod
     def on_input_required(
         self,
         interrupt_id: str,

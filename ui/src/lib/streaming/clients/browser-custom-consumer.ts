@@ -78,6 +78,7 @@ export class CustomStreamAdapter implements StreamAdapter {
       conversation_id: params.conversationId,
       agent_id: params.agentId,
       protocol: "custom",
+      memory_enabled: params.memoryEnabled ?? true,
       ...(params.clientContext && { client_context: params.clientContext }),
     });
 
@@ -91,6 +92,7 @@ export class CustomStreamAdapter implements StreamAdapter {
       agent_id: params.agentId,
       resume_data: params.resumeData,
       protocol: "custom",
+      memory_enabled: params.memoryEnabled ?? true,
       ...(params.clientContext && { client_context: params.clientContext }),
     });
 
@@ -210,6 +212,34 @@ export class CustomStreamAdapter implements StreamAdapter {
         case "warning": {
           const parsed = JSON.parse(data);
           callbacks.onWarning?.(parsed.message, parsed.namespace ?? []);
+          return false;
+        }
+
+        case "memory_injected": {
+          const parsed = JSON.parse(data);
+          callbacks.onMemoryInjected?.(
+            parsed.memory_ids ?? [],
+            parsed.namespace ?? [],
+          );
+          return false;
+        }
+
+        case "memory_context_used": {
+          const parsed = JSON.parse(data);
+          callbacks.onMemoryContextUsed?.(
+            parsed.memory_ids ?? [],
+            parsed.namespace ?? [],
+          );
+          return false;
+        }
+
+        case "memory_update": {
+          const parsed = JSON.parse(data);
+          callbacks.onMemoryUpdate?.(
+            parsed.memory_ids ?? [],
+            parsed.action,
+            parsed.namespace ?? [],
+          );
           return false;
         }
 

@@ -19,13 +19,85 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 
 from dynamic_agents.auth.token_context import current_user_token
 from dynamic_agents.config import get_settings
-from dynamic_agents.models import MCPServerConfig, TransportType
+from dynamic_agents.models import MCPAuthProvider, MCPAuthType, MCPServerConfig, TransportType
 from dynamic_agents.services.credential_exchange import CredentialExchangeClient
 from dynamic_agents.services.mcp_endpoint_normalizer import (
     normalize_mcp_endpoint_for_server,
 )
+from dynamic_agents.services.vendor_tokens import VendorTokenError, get_webex_access_token
 
 logger = logging.getLogger(__name__)
+
+_TEXT_FILE_MIME_TYPES = {
+    "application/json",
+    "application/xml",
+    "application/yaml",
+    "application/x-yaml",
+    "text/vtt",
+}
+_INLINE_TEXT_FILE_MAX_BYTES = 1_000_000
+
+def _resolve_user_oauth_headers(server: MCPServerConfig, user_email: str | None) -> dict[str, str]:
+    """Resolve ``Authorization`` headers for an MCP server with user_oauth auth.
+
+    Raises:
+        VendorTokenError: if the user has not connected the vendor or the
+            token cannot be refreshed. Caller is expected to surface this
+            as a per-server connection failure (handled in
+            ``get_tools_with_resilience``).
+    """
+    if server.auth is None or server.auth.type != MCPAuthType.USER_OAUTH:
+        return {}
+    if not user_email:
+        raise VendorTokenError(
+            f"MCP server '{server.id}' requires user OAuth but no user is bound to this session"
+        )
+    if server.auth.provider == MCPAuthProvider.WEBEX:
+        token = get_webex_access_token(user_email)
+        return {"Authorization": f"Bearer {token}"}
+    raise VendorTokenError(
+        f"MCP server '{server.id}' has unsupported user_oauth provider: {server.auth.provider}"
+    )
+
+
+def _resolve_bot_token_headers(server: MCPServerConfig) -> dict[str, str]:
+    """Resolve ``Authorization`` headers for an MCP server with bot_token auth.
+
+    Reads the bot token from the environment variable named in
+    ``server.auth.secret_ref``. The MCP server itself must be patched to
+    honor the inbound ``Authorization`` header (rather than reading the
+    token from its own env at boot) for this to do anything useful —
+    otherwise the upstream MCP will use whatever token it was started
+    with regardless.
+    """
+    if server.auth is None or server.auth.type != MCPAuthType.BOT_TOKEN:
+        return {}
+    secret_ref = server.auth.secret_ref
+    if not secret_ref:
+        raise VendorTokenError(
+            f"MCP server '{server.id}': auth.secret_ref is required for bot_token"
+        )
+    token = os.environ.get(secret_ref)
+    if not token:
+        raise VendorTokenError(
+            f"MCP server '{server.id}': env var '{secret_ref}' is not set"
+        )
+    return {"Authorization": f"Bearer {token}"}
+
+
+def _resolve_auth_headers(
+    server: MCPServerConfig, user_email: str | None
+) -> dict[str, str]:
+    """Dispatch to the right auth resolver based on ``server.auth.type``."""
+    if server.auth is None:
+        return {}
+    if server.auth.type == MCPAuthType.USER_OAUTH:
+        return _resolve_user_oauth_headers(server, user_email)
+    if server.auth.type == MCPAuthType.BOT_TOKEN:
+        return _resolve_bot_token_headers(server)
+    raise VendorTokenError(
+        f"MCP server '{server.id}': unsupported auth.type: {server.auth.type}"
+    )
 
 
 def _gateway_mcp_server_ids() -> set[str]:
@@ -158,7 +230,8 @@ def build_httpx_client_factory() -> Callable[..., httpx.AsyncClient]:
     ) -> httpx.AsyncClient:
         merged = dict(headers or {})
         token = current_user_token.get()
-        if token:
+        has_authorization = any(key.lower() == "authorization" for key in merged)
+        if token and not has_authorization:
             merged["Authorization"] = f"Bearer {token}"
         return httpx.AsyncClient(
             headers=merged,
@@ -173,6 +246,7 @@ def build_httpx_client_factory() -> Callable[..., httpx.AsyncClient]:
 def build_mcp_connection_config(
     server: MCPServerConfig,
     *,
+    user_email: str | None = None,
     agent_gateway_url: str | None = None,
     auth_bearer: str | None = None,
     agent_id: str | None = None,
@@ -181,6 +255,8 @@ def build_mcp_connection_config(
 
     Args:
         server: MCP server configuration
+        user_email: Authenticated user's email (required when the server
+            uses ``auth.type=user_oauth``).
         agent_gateway_url: When set, HTTP/SSE targets use ``{base}/mcp/{server.id}`` instead of direct endpoints.
         auth_bearer: Optional Bearer token for AG or upstream MCP.
 
@@ -200,6 +276,10 @@ def build_mcp_connection_config(
     token = current_user_token.get()
     if token and "Authorization" not in headers:
         headers["Authorization"] = f"Bearer {token}"
+
+    legacy_auth_headers = _resolve_auth_headers(server, user_email)
+    if legacy_auth_headers:
+        headers.update(legacy_auth_headers)
 
     def attach_headers(cfg: dict[str, Any]) -> dict[str, Any]:
         cfg = {**cfg, "httpx_client_factory": factory}
@@ -235,6 +315,13 @@ def build_mcp_connection_config(
                 "transport": "streamable_http",
             }
         )
+    if server.auth is not None and server.auth.type in (
+        MCPAuthType.USER_OAUTH,
+        MCPAuthType.BOT_TOKEN,
+    ):
+        raise VendorTokenError(
+            f"MCP server '{server.id}': auth.type={server.auth.type.value} is not supported on stdio transport"
+        )
     config: dict[str, Any] = {
         "command": server.command,
         "transport": "stdio",
@@ -250,22 +337,31 @@ def build_mcp_connections(
     servers: list[MCPServerConfig],
     server_ids: list[str],
     *,
+    user_email: str | None = None,
     agent_gateway_url: str | None = None,
     auth_bearer: str | None = None,
     agent_id: str | None = None,
-) -> dict[str, dict[str, Any]]:
+) -> tuple[dict[str, dict[str, Any]], dict[str, str]]:
     """Build MCP connections dict for MultiServerMCPClient.
 
     Args:
         servers: List of all available MCP server configs
         server_ids: List of server IDs to include
+        user_email: Authenticated user's email (required for any server
+            with ``auth.type=user_oauth``).
         agent_gateway_url: Optional Agent Gateway base URL for HTTP/SSE MCP routing.
         auth_bearer: Optional OBO/user JWT for Authorization header on MCP requests.
 
     Returns:
-        Dict mapping server_id to connection config
+        Tuple of:
+        - connections dict (server_id -> connection config)
+        - auth_errors dict (server_id -> error message) for servers that
+          could not be resolved because the user has not connected the
+          vendor or the token refresh failed. The caller is expected to
+          merge these into the overall failed_errors map.
     """
     connections: dict[str, dict[str, Any]] = {}
+    auth_errors: dict[str, str] = {}
 
     server_map = {s.id: s for s in servers}
     gateway_ids = _gateway_mcp_server_ids() if agent_gateway_url else set()
@@ -287,14 +383,19 @@ def build_mcp_connections(
                 or (gateway_all and _is_gateway_managed_server(server, agent_gateway_url))
             )
         )
-        connections[server_id] = build_mcp_connection_config(
-            server,
-            agent_gateway_url=agent_gateway_url if use_gateway else None,
-            auth_bearer=auth_bearer,
-            agent_id=agent_id,
-        )
+        try:
+            connections[server_id] = build_mcp_connection_config(
+                server,
+                user_email=user_email,
+                agent_gateway_url=agent_gateway_url if use_gateway else None,
+                auth_bearer=auth_bearer,
+                agent_id=agent_id,
+            )
+        except VendorTokenError as exc:
+            logger.warning(f"MCP server '{server_id}' auth resolution failed: {exc}")
+            auth_errors[server_id] = str(exc)
 
-    return connections
+    return connections, auth_errors
 
 
 def _use_impersonation_tokens() -> bool:
@@ -923,11 +1024,16 @@ async def _resolve_probe_credentials(
     )
 
 
-async def probe_server_tools(server: MCPServerConfig) -> list[dict[str, Any]]:
+async def probe_server_tools(
+    server: MCPServerConfig,
+    *,
+    user_email: str | None = None,
+) -> list[dict[str, Any]]:
     """Probe an MCP server for its available tools.
 
     Args:
         server: MCP server configuration
+        user_email: Authenticated user's email, required for user_oauth servers
 
     Returns:
         List of tool metadata dicts
@@ -935,7 +1041,7 @@ async def probe_server_tools(server: MCPServerConfig) -> list[dict[str, Any]]:
     Raises:
         Exception with user-friendly message if probing fails
     """
-    connection = build_mcp_connection_config(server)
+    connection = build_mcp_connection_config(server, user_email=user_email)
     # Resolve credential_sources so the probe behaves like the runtime tool-load
     # path. Without this, servers whose gateway route rewrites X-CAIPE-Provider-Token
     # into Authorization (e.g. knowledge-base/RAG) would receive an empty Bearer
@@ -1005,6 +1111,82 @@ def _format_tool_error(tool_name: str, exc: Exception) -> str:
     )
 
 
+def _maybe_inline_text_file_blocks(result: Any) -> Any:
+    """Turn MCP embedded text files into Webex-like visible tool text.
+
+    Some MCP servers return text attachments as ``EmbeddedResource`` blob
+    blocks. The LangChain MCP adapter converts those into multimodal ``file``
+    blocks, which the model cannot reliably chain into follow-up parser tools.
+    Webex transcript downloads already work because they return plain JSON with
+    a ``body`` string. For text attachments, mirror that shape as a hotfix.
+    """
+    if not isinstance(result, tuple) or len(result) != 2:
+        return result
+
+    content, artifact = result
+    if not isinstance(content, list):
+        return result
+
+    text_files: list[dict[str, Any]] = []
+    passthrough: list[Any] = []
+    changed = False
+    for block in content:
+        if not isinstance(block, dict) or block.get("type") != "file":
+            passthrough.append(block)
+            continue
+
+        mime_type = (block.get("mime_type") or "").lower()
+        is_text = mime_type.startswith("text/") or mime_type in _TEXT_FILE_MIME_TYPES
+        encoded = block.get("base64")
+        if not is_text or not isinstance(encoded, str):
+            passthrough.append(block)
+            continue
+
+        try:
+            raw = base64.b64decode(encoded, validate=True)
+        except Exception:  # noqa: BLE001
+            passthrough.append(block)
+            continue
+
+        if len(raw) > _INLINE_TEXT_FILE_MAX_BYTES:
+            text_files.append(
+                {
+                    "body": None,
+                    "bodyError": (
+                        f"Downloaded {mime_type or 'text'} file is {len(raw)} bytes; "
+                        "too large to inline"
+                    ),
+                    "bodyFormat": mime_type or "text",
+                    "mimeType": mime_type or None,
+                    "sizeBytes": len(raw),
+                    "name": block.get("name"),
+                }
+            )
+            changed = True
+            continue
+
+        text = raw.decode("utf-8-sig", errors="replace")
+        text_files.append(
+            {
+                "body": text,
+                "bodyFormat": "vtt" if mime_type == "text/vtt" else "text",
+                "mimeType": mime_type or None,
+                "sizeBytes": len(raw),
+                "name": block.get("name"),
+            }
+        )
+        changed = True
+
+    if not changed:
+        return result
+
+    if len(text_files) == 1 and not passthrough:
+        visible: Any = text_files[0]
+    else:
+        visible = {"items": text_files, "otherContent": passthrough}
+    return (json.dumps(visible, ensure_ascii=False), artifact)
+
+
 def wrap_tools_with_error_handling(
     tools: list[BaseTool],
     agent_name: str = "agent",
@@ -1045,7 +1227,8 @@ def wrap_tools_with_error_handling(
             **kwargs: Any,
         ) -> Any:
             try:
-                return await _orig(*args, **kwargs)
+                result = await _orig(*args, **kwargs)
+                return _maybe_inline_text_file_blocks(result)
             except Exception as exc:
                 msg = _format_tool_error(_name, exc)
                 logger.error(f"[{agent_name}] Tool '{_name}' failed", exc_info=exc)

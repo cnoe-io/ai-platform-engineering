@@ -73,6 +73,8 @@ describe('getServerConfig', () => {
         'APP_NAME', 'LOGO_URL', 'GRADIENT_FROM', 'GRADIENT_TO',
         'SUPPORT_EMAIL', 'FEEDBACK_ENABLED', 'NPS_ENABLED', 'AUDIT_LOGS_ENABLED',
         'ACTION_AUDIT_ENABLED',
+        'DEFAULT_NEW_CHAT_AGENT_ID', 'SCHEDULE_EDITOR_AGENT_ID',
+        'CAIPE_CREDENTIALS_ENABLED', 'ENABLE_USER_INFO_TOOL',
         'CAIPE_UNSAFE_RBAC_BYPASS',
         'DEFAULT_FONT_SIZE', 'DEFAULT_FONT_FAMILY',
         'DEFAULT_THEME', 'DEFAULT_GRADIENT_THEME',
@@ -111,6 +113,8 @@ describe('getServerConfig', () => {
       expect(cfg.allowDevAdminWhenSsoDisabled).toBe(false);
       expect(cfg.unsafeRbacBypassEnabled).toBe(false);
       expect(cfg.auditLogsEnabled).toBe(false);
+      expect(cfg.defaultNewChatAgentId).toBeNull();
+      expect(cfg.scheduleEditorAgentId).toBeNull();
       expect(cfg.actionAuditEnabled).toBe(true);
       expect(cfg.storageMode).toBe('localStorage');
     });
@@ -151,7 +155,8 @@ describe('getServerConfig', () => {
         'npsEnabled', 'auditLogsEnabled',
         'actionAuditEnabled',
         'defaultFontSize', 'defaultFontFamily', 'defaultTheme', 'defaultGradientTheme',
-        'dynamicAgentsEnabled', 'dynamicAgentsUrl',
+        'dynamicAgentsEnabled', 'dynamicAgentsUrl', 'defaultNewChatAgentId',
+        'scheduleEditorAgentId',
         'reportProblemEnabled',
         'jiraTicketEnabled', 'jiraTicketProject', 'jiraTicketLabel',
         'githubTicketEnabled', 'githubTicketRepo', 'githubTicketLabel',
@@ -205,6 +210,22 @@ describe('getServerConfig', () => {
     it('should read APP_NAME', () => {
       process.env.APP_NAME = 'Grid';
       expect(getServerConfig().appName).toBe('Grid');
+    });
+
+    it('should read DEFAULT_NEW_CHAT_AGENT_ID', () => {
+      process.env.DEFAULT_NEW_CHAT_AGENT_ID = 'agent-sunny-webex-meeting-test';
+      expect(getServerConfig().defaultNewChatAgentId).toBe('agent-sunny-webex-meeting-test');
+    });
+
+    it('should default SCHEDULE_EDITOR_AGENT_ID to DEFAULT_NEW_CHAT_AGENT_ID', () => {
+      process.env.DEFAULT_NEW_CHAT_AGENT_ID = 'agent-sunny-webex-meeting-test';
+      expect(getServerConfig().scheduleEditorAgentId).toBe('agent-sunny-webex-meeting-test');
+    });
+
+    it('should read SCHEDULE_EDITOR_AGENT_ID', () => {
+      process.env.DEFAULT_NEW_CHAT_AGENT_ID = 'agent-sunny-webex-meeting-test';
+      process.env.SCHEDULE_EDITOR_AGENT_ID = 'agent-scheduled-job-editor';
+      expect(getServerConfig().scheduleEditorAgentId).toBe('agent-scheduled-job-editor');
     });
 
     it('should read LOGO_URL', () => {
@@ -948,6 +969,7 @@ describe('getClientConfigScript (XSS safety)', () => {
       'actionAuditEnabled',
       'defaultFontSize', 'defaultFontFamily', 'defaultTheme', 'defaultGradientTheme',
       'dynamicAgentsEnabled', 'dynamicAgentsUrl',
+      'defaultNewChatAgentId', 'scheduleEditorAgentId',
       'reportProblemEnabled',
       'jiraTicketEnabled', 'jiraTicketProject', 'jiraTicketLabel',
       'githubTicketEnabled', 'githubTicketRepo', 'githubTicketLabel',
@@ -1249,6 +1271,8 @@ describe('edge cases', () => {
         'LOGO_STYLE', 'SPINNER_COLOR', 'TAGLINE', 'DESCRIPTION',
         'APP_NAME', 'LOGO_URL', 'GRADIENT_FROM', 'GRADIENT_TO',
         'SUPPORT_EMAIL', 'CAIPE_UNSAFE_RBAC_BYPASS',
+        'DEFAULT_NEW_CHAT_AGENT_ID', 'SCHEDULE_EDITOR_AGENT_ID',
+        'CAIPE_CREDENTIALS_ENABLED', 'ENABLE_USER_INFO_TOOL',
       );
       delete process.env.MONGODB_URI;
       delete process.env.MONGODB_DATABASE;
@@ -1342,6 +1366,8 @@ describe('end-to-end: layout injection → client read', () => {
       'LOGO_STYLE', 'SPINNER_COLOR', 'TAGLINE', 'DESCRIPTION',
       'APP_NAME', 'LOGO_URL', 'GRADIENT_FROM', 'GRADIENT_TO',
       'SUPPORT_EMAIL', 'CAIPE_UNSAFE_RBAC_BYPASS',
+      'DEFAULT_NEW_CHAT_AGENT_ID', 'SCHEDULE_EDITOR_AGENT_ID',
+      'CAIPE_CREDENTIALS_ENABLED', 'ENABLE_USER_INFO_TOOL',
     );
     delete process.env.MONGODB_URI;
     delete process.env.MONGODB_DATABASE;

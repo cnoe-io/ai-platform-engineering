@@ -20,6 +20,7 @@ from langchain_core.tools import tool
 from langgraph.store.base import GetOp, PutOp
 
 from dynamic_agents.models import BuiltinToolConfigField, BuiltinToolDefinition, InputField, UserContext
+from dynamic_agents.services.memory import UserMemoryService, memory_tool_response
 
 logger = logging.getLogger(__name__)
 
@@ -193,6 +194,13 @@ def get_builtin_tool_definitions() -> list[BuiltinToolDefinition]:
             name="Self Identity",
             description="Returns this agent's identity and configuration — the agent MUST use this to know who it is",
             enabled_by_default=True,
+            config_fields=[],
+        ),
+        BuiltinToolDefinition(
+            id="memory",
+            name="Memory",
+            description="Stores and recalls user, agent, and context-scoped preferences",
+            enabled_by_default=False,
             config_fields=[],
         ),
     ]
@@ -798,6 +806,240 @@ def create_self_identity_tool(
     return self_identity
 
 
+def create_memory_tools(
+    *,
+    memory_service: UserMemoryService,
+    user: UserContext,
+    agent_id: str,
+    session_id: str | None,
+    is_enabled,
+):
+    """Create memory built-in tools bound to trusted runtime identity."""
+
+    def _disabled_response() -> str:
+        return memory_tool_response(
+            {
+                "status": "disabled",
+                "message": "Memory is disabled for this chat. No memory was read or changed.",
+            }
+        )
+
+    def _current_context() -> dict | None:
+        if not session_id:
+            return None
+        contexts = memory_service.get_active_contexts(
+            owner_user_id=user.email,
+            agent_id=agent_id,
+            conversation_id=session_id,
+            limit=1,
+        )
+        return contexts[0] if contexts else None
+
+    @tool
+    def remember(
+        scope: Literal["global", "agent", "context"],
+        category: Literal["preference", "instruction", "fact", "formatting"],
+        value: str,
+        key: str = "",
+        context_namespace: str = "",
+        context_type: str = "",
+        context_id: str = "",
+        thought: str = "",
+    ) -> str:
+        """Remember a durable user preference, instruction, fact, or formatting note.
+
+        Args:
+            scope: "agent" for this custom agent, "context" for the current
+                domain object, or "global" only when the user explicitly asks
+                to save across all agents.
+            category: The type of memory being saved.
+            value: The compact memory text to save. Do not save transient task
+                details or uncertain guesses.
+            key: Optional stable snake_case key for deduplication.
+            context_namespace: Required for context memory unless a context
+                provider tool already established the active context.
+            context_type: Required for context memory unless active context exists.
+            context_id: Required for context memory unless active context exists.
+            thought: Brief reasoning for why this memory should be saved.
+        """
+        if not is_enabled():
+            return _disabled_response()
+
+        if scope == "context" and not (context_namespace and context_type and context_id):
+            ctx = _current_context()
+            if ctx:
+                context_namespace = str(ctx.get("context_namespace") or "")
+                context_type = str(ctx.get("context_type") or "")
+                context_id = str(ctx.get("context_id") or "")
+
+        try:
+            result = memory_service.remember(
+                owner_user_id=user.email,
+                current_agent_id=agent_id,
+                scope=scope,
+                category=category,
+                value=value,
+                key=key or None,
+                context_namespace=context_namespace or None,
+                context_type=context_type or None,
+                context_id=context_id or None,
+                source="agent",
+                created_by_agent_id=agent_id,
+            )
+            return memory_tool_response(result)
+        except Exception as exc:
+            return memory_tool_response({"status": "error", "error": str(exc)})
+
+    @tool
+    def recall_memory(
+        query: str = "",
+        scope: Literal["global", "agent", "context", ""] = "",
+        context_namespace: str = "",
+        context_type: str = "",
+        context_id: str = "",
+        thought: str = "",
+    ) -> str:
+        """Recall relevant memories for the current user.
+
+        Use this when the user refers to their usual preferences, when context
+        was discovered late, or when older memory may no longer be in context.
+        """
+        if not is_enabled():
+            return _disabled_response()
+
+        if scope == "context" and not (context_namespace and context_type and context_id):
+            ctx = _current_context()
+            if ctx:
+                context_namespace = str(ctx.get("context_namespace") or "")
+                context_type = str(ctx.get("context_type") or "")
+                context_id = str(ctx.get("context_id") or "")
+        if scope == "context" and not (context_namespace and context_type and context_id):
+            return memory_tool_response(
+                {
+                    "status": "error",
+                    "error": "No active context is available. Call the context provider tool first or pass context fields.",
+                }
+            )
+
+        if not scope:
+            memories = memory_service.get_layered_memories(
+                owner_user_id=user.email,
+                agent_id=agent_id,
+                conversation_id=session_id,
+                limit=8,
+            )
+            if query:
+                needle = query.lower()
+                memories = [
+                    memory for memory in memories
+                    if needle in str(memory.get("value") or "").lower()
+                    or needle in str(memory.get("key") or "").lower()
+                    or needle in str(memory.get("category") or "").lower()
+                ]
+        else:
+            memories = memory_service.recall(
+                owner_user_id=user.email,
+                current_agent_id=agent_id,
+                query_text=query or None,
+                scope=scope or None,
+                context_namespace=context_namespace or None,
+                context_type=context_type or None,
+                context_id=context_id or None,
+            )
+        return memory_tool_response({"status": "ok", "memories": memories})
+
+    @tool
+    def list_memories(
+        scope: Literal["global", "agent", "context", ""] = "",
+        context_namespace: str = "",
+        context_type: str = "",
+        context_id: str = "",
+        thought: str = "",
+    ) -> str:
+        """List stored memories for the current user and optional scope."""
+        if not is_enabled():
+            return _disabled_response()
+
+        if scope == "context" and not (context_namespace and context_type and context_id):
+            ctx = _current_context()
+            if ctx:
+                context_namespace = str(ctx.get("context_namespace") or "")
+                context_type = str(ctx.get("context_type") or "")
+                context_id = str(ctx.get("context_id") or "")
+        if scope == "context" and not (context_namespace and context_type and context_id):
+            return memory_tool_response(
+                {
+                    "status": "error",
+                    "error": "No active context is available. Call the context provider tool first or pass context fields.",
+                }
+            )
+
+        if not scope:
+            memories = memory_service.get_layered_memories(
+                owner_user_id=user.email,
+                agent_id=agent_id,
+                conversation_id=session_id,
+                limit=50,
+            )
+        else:
+            memories = memory_service.list_memories(
+                owner_user_id=user.email,
+                scope=scope or None,
+                agent_id=agent_id if scope == "agent" else None,
+                context_namespace=context_namespace or None,
+                context_type=context_type or None,
+                context_id=context_id or None,
+                include_disabled=False,
+                limit=50,
+            )
+        return memory_tool_response({"status": "ok", "memories": memories})
+
+    @tool
+    def update_memory(
+        memory_id: str,
+        value: str = "",
+        category: Literal["preference", "instruction", "fact", "formatting", ""] = "",
+        key: str = "",
+        enabled: bool | None = None,
+        thought: str = "",
+    ) -> str:
+        """Update one of the current user's existing memory records."""
+        if not is_enabled():
+            return _disabled_response()
+
+        try:
+            result = memory_service.update_memory(
+                owner_user_id=user.email,
+                memory_id=memory_id,
+                value=value or None,
+                category=category or None,
+                key=key or None,
+                enabled=enabled,
+                source="agent",
+                updated_by_agent_id=agent_id,
+            )
+            return memory_tool_response(result)
+        except Exception as exc:
+            return memory_tool_response({"status": "error", "error": str(exc)})
+
+    @tool
+    def forget_memory(
+        memory_id: str,
+        thought: str = "",
+    ) -> str:
+        """Delete one of the current user's existing memory records."""
+        if not is_enabled():
+            return _disabled_response()
+
+        try:
+            result = memory_service.forget_memory(owner_user_id=user.email, memory_id=memory_id)
+            return memory_tool_response(result)
+        except Exception as exc:
+            return memory_tool_response({"status": "error", "error": str(exc)})
+
+    return [remember, recall_memory, list_memories, update_memory, forget_memory]
+
+
 def create_format_file_tool(store, namespace_factory):
     """Create a format_file tool that reformats single-line files into multi-line.
 
@@ -1171,6 +1413,7 @@ __all__ = [
     "create_wait_tool",
     "create_request_user_input_tool",
     "create_self_identity_tool",
+    "create_memory_tools",
     "create_format_file_tool",
     "create_workflow_tools",
     "WorkflowApiClient",

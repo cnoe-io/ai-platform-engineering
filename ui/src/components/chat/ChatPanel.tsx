@@ -1721,7 +1721,9 @@ export function SupervisorChatPanel({ endpoint, conversationId, conversationTitl
             {/* User Input Form */}
             {pendingUserInput && pendingUserInput.metadata.input_fields && (
               <MetadataInputForm
+                key={`${activeConversationId || conversationId || "unknown"}:${pendingUserInput.messageId}`}
                 messageId={pendingUserInput.messageId}
+                conversationId={activeConversationId || conversationId}
                 title={pendingUserInput.metadata.input_title}
                 description={pendingUserInput.metadata.input_description}
                 inputFields={pendingUserInput.metadata.input_fields}
@@ -2437,7 +2439,7 @@ const ChatMessage = React.memo(function ChatMessage({
                         <h3 className="text-sm font-semibold text-primary-foreground mb-1 mt-2 first:mt-0">{children}</h3>
                       ),
                       p: ({ children }) => (
-                        <p className="text-sm leading-relaxed text-primary-foreground/90 mb-1.5 last:mb-0">{children}</p>
+                        <p className="text-sm leading-relaxed text-primary-foreground/90 mb-1.5 last:mb-0 whitespace-pre-wrap">{children}</p>
                       ),
                       ul: ({ children }) => (
                         <ul className="list-disc list-outside ml-6 mb-1.5 space-y-0.5 text-sm text-primary-foreground/90">{children}</ul>

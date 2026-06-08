@@ -158,6 +158,10 @@ export interface Config {
   dynamicAgentsUrl: string;
   /** Whether dynamic agents feature is enabled */
   dynamicAgentsEnabled: boolean;
+  /** Dynamic agent id used by the main "+ New Chat" button. Null keeps Platform Engineer as default. */
+  defaultNewChatAgentId: string | null;
+  /** Dynamic agent id used by Schedules -> Chat with agent. Falls back to defaultNewChatAgentId. */
+  scheduleEditorAgentId: string | null;
   /** Whether Jira ticket creation from feedback/report is enabled */
   jiraTicketEnabled: boolean;
   /** Jira project key for ticket creation (e.g., "OPENSD") */
@@ -256,6 +260,8 @@ const DEFAULT_CONFIG: Config = {
   defaultGradientTheme: DEFAULT_GRADIENT_THEME,
   dynamicAgentsUrl: 'http://localhost:8100',
   dynamicAgentsEnabled: false,
+  defaultNewChatAgentId: null,
+  scheduleEditorAgentId: null,
   agentProtocol: 'agui',
   reportProblemEnabled: true,
   jiraTicketEnabled: false,
@@ -373,6 +379,9 @@ export function getServerConfig(): Config {
   const auditLogsEnabled = env('AUDIT_LOGS_ENABLED') === 'true';
   const actionAuditEnabled = env('ACTION_AUDIT_ENABLED') !== 'false';
   const dynamicAgentsEnabled = env('DYNAMIC_AGENTS_ENABLED') === 'true';
+  const defaultNewChatAgentId = env('DEFAULT_NEW_CHAT_AGENT_ID')?.trim() || null;
+  const scheduleEditorAgentId =
+    env('SCHEDULE_EDITOR_AGENT_ID')?.trim() || defaultNewChatAgentId;
   const credentialsEnabled = env('CAIPE_CREDENTIALS_ENABLED') === 'true';
   const userInfoToolEnabled = env('ENABLE_USER_INFO_TOOL') === 'true';
 
@@ -439,6 +448,8 @@ export function getServerConfig(): Config {
     defaultGradientTheme: validated(env('DEFAULT_GRADIENT_THEME'), VALID_GRADIENT_THEMES, DEFAULT_GRADIENT_THEME),
     dynamicAgentsUrl,
     dynamicAgentsEnabled,
+    defaultNewChatAgentId,
+    scheduleEditorAgentId,
     agentProtocol,
     reportProblemEnabled,
     jiraTicketEnabled,

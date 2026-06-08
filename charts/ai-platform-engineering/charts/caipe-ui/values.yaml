@@ -271,6 +271,10 @@ config:
   DYNAMIC_AGENTS_ENABLED: "false"
   # Dynamic Agents service URL (only used when DYNAMIC_AGENTS_ENABLED is "true")
   DYNAMIC_AGENTS_URL: ""
+  # Dynamic agent id used by the main "+ New Chat" button. Empty keeps Platform Engineer.
+  DEFAULT_NEW_CHAT_AGENT_ID: ""
+  # Scheduler service URL used by the Schedules tab to pause/restart CronJobs.
+  SCHEDULER_URL: "http://caipe-scheduler:8080"
   # Connections & Secrets credential store. Disabled by default. Use local-cmk
   # only for non-production testing; production must use aws-kms.
   CAIPE_CREDENTIALS_ENABLED: "false"

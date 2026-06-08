@@ -22,9 +22,20 @@ import {
   Users,
   TrendingUp,
   RefreshCw,
-  Globe
+  Globe,
+  Pencil,
+  Loader2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useChatStore } from "@/store/chat-store";
@@ -36,6 +47,7 @@ import { NewChatButton } from "@/components/chat/NewChatButton";
 import { useToast } from "@/components/ui/toast";
 import { useSession } from "next-auth/react";
 import { getStorageMode, getStorageModeDisplay } from "@/lib/storage-config";
+import { resolveNewConversationAgentId, type NewConversationAgentSelection } from "@/lib/new-chat-agent";
 import type { Conversation } from "@/types/a2a";
 import { getAgentId, isDynamicAgentConversation, buildParticipants } from "@/types/a2a";
 
@@ -45,6 +57,30 @@ interface SidebarProps {
   collapsed: boolean;
   onCollapse: (collapsed: boolean) => void;
   onUseCaseSaved?: () => void;
+}
+
+function getScheduleBadge(conv: Conversation): { label: string; title: string } | null {
+  const scheduleId = conv.metadata?.schedule_id;
+  const scheduleTitle = conv.metadata?.schedule_title;
+  if (typeof scheduleTitle === "string" && scheduleTitle.trim()) {
+    const label = scheduleTitle.trim();
+    return {
+      label,
+      title: typeof scheduleId === "string" && scheduleId.trim()
+        ? `Scheduled run ${scheduleId.trim()}: ${label}`
+        : `Scheduled run: ${label}`,
+    };
+  }
+
+  if (typeof scheduleId === "string" && scheduleId.trim()) {
+    const label = scheduleId.trim();
+    return { label, title: `Scheduled run ${label}` };
+  }
+
+  const legacyMatch = conv.id.match(/sched_[a-z0-9]+/i);
+  if (!legacyMatch) return null;
+
+  return { label: legacyMatch[0], title: `Scheduled run ${legacyMatch[0]}` };
 }
 
 export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCaseSaved }: SidebarProps) {
@@ -61,6 +97,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
     isConversationStreaming,
     hasUnviewedMessages,
     isConversationInputRequired,
+    updateConversationTitle,
   } = useChatStore();
   const { data: session } = useSession();
   const [useCaseBuilderOpen, setUseCaseBuilderOpen] = useState(false);
@@ -70,6 +107,9 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
   const [isResizing, setIsResizing] = useState(false);
   const [isReloading, setIsReloading] = useState(false);
   const [recycleBinOpen, setRecycleBinOpen] = useState(false);
+  const [titleEditorConversation, setTitleEditorConversation] = useState<{ id: string; title: string } | null>(null);
+  const [titleDraft, setTitleDraft] = useState("");
+  const [isSavingTitle, setIsSavingTitle] = useState(false);
   const { toast } = useToast();
 
   // Agent name lookup for dynamic agent conversations
@@ -169,15 +209,55 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
     }
   };
 
-  const handleNewChat = async (agentId?: string) => {
+  const openTitleEditor = (conv: Conversation, event: React.MouseEvent) => {
+    event.stopPropagation();
+    setTitleEditorConversation({ id: conv.id, title: conv.title || "New Conversation" });
+    setTitleDraft(conv.title || "");
+  };
+
+  const closeTitleEditor = () => {
+    if (isSavingTitle) return;
+    setTitleEditorConversation(null);
+    setTitleDraft("");
+  };
+
+  const saveTitle = async () => {
+    if (!titleEditorConversation || isSavingTitle) return;
+    const nextTitle = titleDraft.trim();
+    if (!nextTitle) {
+      toast("Conversation title cannot be empty", "error", 3000);
+      return;
+    }
+    if (nextTitle === titleEditorConversation.title) {
+      closeTitleEditor();
+      return;
+    }
+
+    setIsSavingTitle(true);
     try {
+      await updateConversationTitle(titleEditorConversation.id, nextTitle);
+      toast("Conversation title updated", "success", 3000);
+      setTitleEditorConversation(null);
+      setTitleDraft("");
+    } catch (error) {
+      console.error("[Sidebar] Failed to update conversation title:", error);
+      toast("Failed to update conversation title", "error", 4000);
+    } finally {
+      setIsSavingTitle(false);
+    }
+  };
+
+  const handleNewChat = async (agentId?: NewConversationAgentSelection) => {
+    try {
+      const conversationAgentId = resolveNewConversationAgentId(agentId);
+
       if (storageMode === 'mongodb') {
         // MongoDB mode: Create conversation on server
         const { apiClient } = await import('@/lib/api-client');
         const result = await apiClient.createConversation({
           title: "New Conversation",
           client_type: 'webui',
-          agent_id: agentId,
+          agent_id: conversationAgentId,
         });
         const conversation = result.conversation;
 
@@ -191,6 +271,7 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
           streamEvents: [], // Stream events for Dynamic Agents
           a2aEvents: [], // A2A events for supervisor
           participants: conversation.participants || [],
+          metadata: conversation.metadata,
         };
 
         // Update store and wait for it to propagate
@@ -366,6 +447,8 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                   const isLive = isConversationStreaming(conv.id);
                   const isInputRequired = !isLive && isConversationInputRequired(conv.id);
                   const isUnviewed = !isLive && !isInputRequired && hasUnviewedMessages(conv.id);
+                  const scheduleBadge = getScheduleBadge(conv);
+                  const isOwner = !conv.owner_id || conv.owner_id === session?.user?.email;
 
                   return (
                   <div
@@ -452,6 +535,14 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                             <p className="text-sm font-medium truncate flex-1" title={conv.title}>
                               {truncateText(conv.title, sidebarWidth > 350 ? 40 : sidebarWidth > 320 ? 25 : 20)}
                             </p>
+                            {scheduleBadge && (
+                              <span
+                                className="shrink-0 max-w-[132px] truncate rounded border border-cyan-500/30 bg-cyan-500/10 px-1.5 py-0.5 text-[10px] font-medium normal-case tracking-normal text-cyan-700 dark:text-cyan-300"
+                                title={scheduleBadge.title}
+                              >
+                                {truncateText(scheduleBadge.label, sidebarWidth > 350 ? 24 : 18)}
+                              </span>
+                            )}
                             {isShared && (
                               <TooltipProvider>
                                 <Tooltip>
@@ -498,11 +589,30 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
                         </div>
 
                         <div className="flex items-center gap-0.5 shrink-0">
+                          {isOwner && (
+                            <TooltipProvider delayDuration={200}>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                                    onClick={(event) => openTitleEditor(conv, event)}
+                                  >
+                                    <Pencil className="h-3 w-3" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent side="top" sideOffset={4}>
+                                  <p className="text-xs">Edit title</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          )}
                           <div className="opacity-0 group-hover:opacity-100 transition-opacity">
                             <ShareButton
                               conversationId={conv.id}
                               conversationTitle={conv.title}
-                              isOwner={!conv.owner_id || conv.owner_id === session?.user?.email}
+                              isOwner={isOwner}
                             />
                           </div>
                           <TooltipProvider delayDuration={200}>
@@ -750,6 +860,53 @@ export function Sidebar({ activeTab, onTabChange, collapsed, onCollapse, onUseCa
         open={recycleBinOpen}
         onOpenChange={setRecycleBinOpen}
       />
+
+      <Dialog open={!!titleEditorConversation} onOpenChange={(open) => {
+        if (!open) closeTitleEditor();
+      }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit Chat Title</DialogTitle>
+            <DialogDescription>
+              Rename this conversation in your chat history.
+            </DialogDescription>
+          </DialogHeader>
+          <form
+            className="space-y-4"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void saveTitle();
+            }}
+          >
+            <Input
+              value={titleDraft}
+              onChange={(event) => setTitleDraft(event.target.value)}
+              maxLength={120}
+              autoFocus
+              placeholder="Conversation title"
+              disabled={isSavingTitle}
+            />
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={closeTitleEditor}
+                disabled={isSavingTitle}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={isSavingTitle || !titleDraft.trim()}
+                className="gap-1.5"
+              >
+                {isSavingTitle && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                Save
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
     </motion.div>
   );

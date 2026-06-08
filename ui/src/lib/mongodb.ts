@@ -202,6 +202,38 @@ async function createIndexes(db: Db) {
     // User settings collection
     safeCreateIndex(db, 'user_settings', { user_id: 1 }, { unique: true }),
 
+    // User memories collection
+    safeCreateIndex(db, 'user_memories', { owner_user_id: 1, updated_at: -1 }),
+    safeCreateIndex(db, 'user_memories', { owner_user_id: 1, scope: 1 }),
+    safeCreateIndex(
+      db,
+      'user_memories',
+      {
+        owner_user_id: 1,
+        scope: 1,
+        agent_id: 1,
+        context_namespace: 1,
+        context_type: 1,
+        context_id: 1,
+        normalized_key: 1,
+      },
+      { unique: true },
+    ),
+    safeCreateIndex(db, 'user_memory_contexts', { owner_user_id: 1, agent_id: 1, conversation_id: 1 }),
+    safeCreateIndex(
+      db,
+      'user_memory_contexts',
+      {
+        owner_user_id: 1,
+        agent_id: 1,
+        conversation_id: 1,
+        context_namespace: 1,
+        context_type: 1,
+        context_id: 1,
+      },
+      { unique: true },
+    ),
+
     // Conversation bookmarks collection
     safeCreateIndex(db, 'conversation_bookmarks', { user_id: 1 }),
     safeCreateIndex(db, 'conversation_bookmarks', { conversation_id: 1 }),

@@ -103,6 +103,8 @@ jest.mock('lucide-react', () => ({
   Users: (props: any) => <span data-testid="icon-users" {...props} />,
   TrendingUp: (props: any) => <span data-testid="icon-trending-up" {...props} />,
   RefreshCw: (props: any) => <span data-testid="icon-refresh" {...props} />,
+  Pencil: (props: any) => <span data-testid="icon-pencil" {...props} />,
+  Loader2: (props: any) => <span data-testid="icon-loader" {...props} />,
 }))
 
 jest.mock('@/components/ui/button', () => ({
@@ -373,6 +375,35 @@ describe('Sidebar — Live Status Indicator', () => {
       render(<Sidebar {...defaultProps} />)
 
       expect(screen.getByText('Jan 1, 2026')).toBeInTheDocument()
+    })
+
+    it('shows schedule title badge for scheduled conversations', () => {
+      mockConversations = [
+        makeConv('conv-1', 'Scheduled Chat', {
+          metadata: {
+            source: 'scheduler',
+            schedule_id: 'sched_ec7107dfab744ddd',
+            schedule_title: 'Important Team 2 Meeting Prep',
+          },
+        }),
+      ]
+
+      render(<Sidebar {...defaultProps} />)
+
+      expect(screen.getByText('Important Team 2 Meeting Prep')).toBeInTheDocument()
+      expect(screen.queryByText('sched_ec7107dfab744ddd')).not.toBeInTheDocument()
+    })
+
+    it('falls back to schedule id when scheduled conversations have no title', () => {
+      mockConversations = [
+        makeConv('conv-1', 'Scheduled Chat', {
+          metadata: { source: 'scheduler', schedule_id: 'sched_ec7107dfab744ddd' },
+        }),
+      ]
+
+      render(<Sidebar {...defaultProps} />)
+
+      expect(screen.getByText('sched_ec7107dfab744ddd')).toBeInTheDocument()
     })
 
     it('does not show "Live" or "New response" for normal conversations', () => {

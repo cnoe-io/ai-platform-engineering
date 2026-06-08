@@ -18,6 +18,58 @@ class TransportType(str, Enum):
     HTTP = "http"
 
 
+class MCPAuthType(str, Enum):
+    """How the MCP server is authenticated.
+
+    - ``user_oauth``: per-user OAuth bearer resolved at runtime from the
+      ``vendor_connections`` collection (populated by the UI's OAuth flow).
+    - ``bot_token``: shared bot/service token resolved at runtime from a
+      named environment variable / k8s Secret. Same MCP pod can serve N
+      bot identities (e.g., one ``mcp_webex`` pod, multiple Webex bot
+      tokens — Pam, Jarvis, etc.) by pointing different ``mcp_servers``
+      Mongo entries at the same endpoint with different ``secret_ref``.
+    """
+
+    USER_OAUTH = "user_oauth"
+    BOT_TOKEN = "bot_token"
+
+
+class MCPAuthProvider(str, Enum):
+    """OAuth provider used to mint the bearer for ``user_oauth`` auth."""
+
+    WEBEX = "webex"
+
+
+class MCPServerAuth(BaseModel):
+    """Per-server auth configuration.
+
+    Used for HTTP/SSE transports that need a server-injected bearer token.
+    The actual token lookup happens in ``services/mcp_client.py`` at
+    connection time and is sent as ``Authorization: Bearer <token>``.
+    """
+
+    type: MCPAuthType = Field(..., description="Auth resolution strategy")
+    provider: MCPAuthProvider | None = Field(
+        default=None,
+        description="OAuth provider (required when type=user_oauth)",
+    )
+    secret_ref: str | None = Field(
+        default=None,
+        description=(
+            "Env var / k8s Secret name holding the bot token "
+            "(required when type=bot_token)."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _validate_auth_fields(self) -> "MCPServerAuth":
+        if self.type == MCPAuthType.USER_OAUTH and self.provider is None:
+            raise ValueError("auth.provider is required when auth.type=user_oauth")
+        if self.type == MCPAuthType.BOT_TOKEN and not self.secret_ref:
+            raise ValueError("auth.secret_ref is required when auth.type=bot_token")
+        return self
+
+
 class VisibilityType(str, Enum):
     """Agent visibility types."""
 
@@ -69,6 +121,10 @@ class MCPServerConfigBase(BaseModel):
     command: str | None = Field(None, description="Command for stdio transport")
     args: list[str] | None = Field(None, description="Args for stdio transport")
     env: dict[str, str] | None = Field(None, description="Env vars for stdio transport")
+    auth: MCPServerAuth | None = Field(
+        None,
+        description="Auth strategy. When set to user_oauth, the runtime injects a per-user bearer token at connection time.",
+    )
     enabled: bool = Field(True, description="Whether the server is enabled")
     credential_sources: list["MCPCredentialSource"] | None = Field(
         None,
@@ -105,6 +161,21 @@ class MCPCredentialSource(BaseModel):
             "the caller's user JWT for per-user RBAC and a service token otherwise."
         ),
     )
+
+
+class MCPServerConfigUpdate(BaseModel):
+    """Model for updating an MCP server config."""
+
+    name: str | None = None
+    description: str | None = None
+    transport: TransportType | None = None
+    endpoint: str | None = None
+    command: str | None = None
+    args: list[str] | None = None
+    env: dict[str, str] | None = None
+    auth: MCPServerAuth | None = None
+    enabled: bool | None = None
+    credential_sources: list[MCPCredentialSource] | None = None
 
 
 class MCPServerConfig(MCPServerConfigBase):
@@ -342,6 +413,39 @@ class SelfIdentityToolConfig(BaseModel):
     enabled: bool = Field(True, description="Whether the tool is enabled")
 
 
+class MemoryContextProviderConfig(BaseModel):
+    """Tool call that establishes a context-scoped memory target.
+
+    Example: server=pod_meeting, tool=get_pod, context_id_arg=pod_id maps a
+    successful ``pod_meeting_get_pod(pod_id=...)`` call to
+    ``pod_meeting/pod/<pod_id>`` memory.
+    """
+
+    server: str = Field(..., description="MCP server id, such as pod_meeting")
+    tool: str = Field(..., description="Tool name without server prefix, such as get_pod")
+    context_namespace: str = Field(..., description="Memory namespace, such as pod_meeting")
+    context_type: str = Field(..., description="Context object type, such as pod")
+    context_id_arg: str = Field(..., description="Tool argument that contains the context id")
+    context_id_result_path: str | None = Field(
+        None,
+        description="Optional dotted path in the tool result used as a fallback context id",
+    )
+    display_name_result_path: str | None = Field(
+        None,
+        description="Optional dotted path in the tool result used as a friendly display name",
+    )
+
+
+class MemoryToolConfig(BaseModel):
+    """Configuration for the memory built-in tool group."""
+
+    enabled: bool = Field(False, description="Whether memory tools and injection are enabled")
+    context_providers: list[MemoryContextProviderConfig] = Field(
+        default_factory=list,
+        description="Configured tool calls that activate context-scoped memory",
+    )
+
+
 class BuiltinToolsConfig(BaseModel):
     """Configuration for built-in tools available to dynamic agents."""
 
@@ -376,6 +480,10 @@ class BuiltinToolsConfig(BaseModel):
         alias="agent_info",
         description="Configuration for the self_identity tool (returns this agent's identity)",
     )
+    memory: MemoryToolConfig | None = Field(
+        None,
+        description="Configuration for the memory built-in tool group",
+    )
     workflows: list[str] | None = Field(
         None,
         description="List of workflow config IDs this agent can interact with. "
@@ -400,7 +508,6 @@ class BuiltinToolsConfig(BaseModel):
                 data.pop("sleep")
                 logger.warning("Dropped deprecated 'builtin_tools.sleep' (explicit 'wait' already set)")
         return data
-
 
 # =============================================================================
 # HITL Input Fields (for request_user_input tool)
@@ -616,6 +723,7 @@ class ChatRequest(BaseModel):
     protocol: str = Field("custom", pattern=r"^(custom|agui)$", description="Wire protocol: 'custom' or 'agui'")
     trace_id: str | None = Field(None, description="Optional trace ID for Langfuse tracing")
     client_context: ClientContext | None = Field(None, description="Opaque client context for system prompt rendering")
+    memory_enabled: bool = Field(True, description="Whether memory retrieval/tools are enabled for this run")
     config_override: dict | None = Field(
         None,
         description=(
