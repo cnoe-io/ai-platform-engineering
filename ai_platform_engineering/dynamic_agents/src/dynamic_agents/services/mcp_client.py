@@ -387,11 +387,21 @@ async def resolve_mcp_credential_refs(
     config: dict[str, Any],
     *,
     credential_client: CredentialExchangeClient | Any,
+    caller_token: str | None = None,
 ) -> dict[str, Any]:
     """Resolve MCP credential sources into env vars or headers.
 
     Resolution is disabled unless ``USE_IMPERSONATION_TOKENS=true`` so existing
     MCP deployments keep their current credential behavior.
+
+    ``caller_token`` is the validated caller JWT captured by the AgentRuntime at
+    request entry (``self._auth_bearer``). The ``caller_token`` credential source
+    prefers it over the ``current_user_token`` ContextVar, because the ContextVar
+    is not reliably propagated into the (ephemeral) runtime-build async context
+    where credential resolution runs — leaving it empty there and falling back to
+    a service-account mint, which forwards the WRONG identity (service, not the
+    caller/SA) to the MCP. Passing the runtime's already-captured token fixes the
+    per-caller identity end-to-end (#64).
     """
 
     if not _use_impersonation_tokens() or not server.credential_sources:
@@ -434,9 +444,12 @@ async def resolve_mcp_credential_refs(
                     origin = "per_user_oauth"
             elif source.kind == "caller_token":
                 # Forward the caller's own Keycloak JWT so the backend can enforce
-                # per-user RBAC (e.g. RAG group-based access). Absent in non-user
-                # contexts (background reconcile) -> client-credentials fallback below.
-                user_jwt = current_user_token.get()
+                # per-user RBAC (e.g. RAG group-based access). Prefer the explicitly
+                # threaded caller_token (the runtime's request-entry self._auth_bearer)
+                # over the ContextVar, which is empty when credential resolution runs
+                # outside the request task (#64). Absent in non-user contexts
+                # (background reconcile) -> client-credentials fallback below.
+                user_jwt = caller_token or current_user_token.get()
                 if isinstance(user_jwt, str) and user_jwt:
                     credential = user_jwt
                     origin = "user_jwt"
@@ -504,8 +517,15 @@ async def resolve_mcp_connections_credential_refs(
     connections: dict[str, dict[str, Any]],
     *,
     credential_client: CredentialExchangeClient | Any | None,
+    caller_token: str | None = None,
 ) -> dict[str, dict[str, Any]]:
-    """Resolve credential refs across a connection map."""
+    """Resolve credential refs across a connection map.
+
+    ``caller_token`` (the runtime's request-entry ``self._auth_bearer``) is
+    forwarded to each server's resolution so the ``caller_token`` credential
+    source uses the real caller JWT even when the ``current_user_token``
+    ContextVar is empty at this call site (#64).
+    """
 
     if credential_client is None or not _use_impersonation_tokens():
         return connections
@@ -521,6 +541,7 @@ async def resolve_mcp_connections_credential_refs(
             server,
             config,
             credential_client=credential_client,
+            caller_token=caller_token,
         )
     return resolved
 
