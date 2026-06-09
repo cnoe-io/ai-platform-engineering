@@ -1,32 +1,32 @@
 "use client";
 
 import { HelpCircle } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect,useState } from "react";
 
-import { PromptEditorWorkbench, type PromptSuggestRequest } from "@/components/prompt/PromptEditorWorkbench";
-import { AgentPicker, type AgentPickerOption } from "@/components/ui/agent-picker";
+import { PromptEditorWorkbench,type PromptSuggestRequest } from "@/components/prompt/PromptEditorWorkbench";
+import { AgentPicker,type AgentPickerOption } from "@/components/ui/agent-picker";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog,DialogContent,DialogDescription,DialogFooter,DialogHeader,DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { TeamPicker, type TeamPickerOption } from "@/components/ui/team-picker";
+import { TeamPicker,type TeamPickerOption } from "@/components/ui/team-picker";
 import { useToast } from "@/components/ui/toast";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Tooltip,TooltipContent,TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import type { DynamicAgentOption, ItemAgentRoute, ItemSummary, TeamOption } from "../connector-admin-adapter";
+import type { DynamicAgentOption,ItemAgentRoute,ItemSummary,TeamOption } from "../connector-admin-adapter";
 import { SlackEmojiCombobox } from "./SlackEmojiCombobox";
 import { SlackUserTokenInput } from "./SlackUserTokenInput";
 import {
-  DEFAULT_OVERTHINK_SKIP_MARKERS,
-  draftToRoute,
-  emptyRouteDraft,
-  routeDraftErrorMap,
-  routeToDraft,
-  type ListenMode,
-  type RouteDraft,
-  type RouteEscalationDraft,
-  type RouteSideDraft,
+DEFAULT_OVERTHINK_SKIP_MARKERS,
+draftToRoute,
+emptyRouteDraft,
+routeDraftErrorMap,
+routeToDraft,
+type ListenMode,
+type RouteDraft,
+type RouteEscalationDraft,
+type RouteSideDraft,
 } from "./slack-route-draft";
 
 function HelpTooltip({ label, children }: { label: string; children: React.ReactNode }) {

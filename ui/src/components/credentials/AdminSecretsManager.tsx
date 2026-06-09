@@ -2,8 +2,8 @@
 
 import React from "react";
 
+import { SaveButton } from "@/components/admin/shared/SaveButton";
 import { Button } from "@/components/ui/button";
-import { SaveButton } from "@/components/admin/SaveButton";
 
 interface AdminSecretMetadata {
   id: string;

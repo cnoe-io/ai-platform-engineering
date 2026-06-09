@@ -1,32 +1,32 @@
 "use client";
 
-import { ChevronRight, FileUp, HelpCircle, RefreshCw, RotateCw, Settings2 } from "lucide-react";
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { ChevronRight,FileUp,HelpCircle,RefreshCw,RotateCw,Settings2 } from "lucide-react";
+import React,{ useCallback,useEffect,useMemo,useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card,CardContent,CardDescription,CardHeader,CardTitle } from "@/components/ui/card";
 import {
-  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+Dialog,DialogContent,DialogDescription,DialogFooter,DialogHeader,DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Tooltip,TooltipContent,TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { ConnectorOnboardingWizard } from "./ConnectorOnboardingWizard";
 import type {
-  ConnectorAdminAdapter,
-  DiagnosticRoute,
-  DiscoveredItem,
-  DynamicAgentOption,
-  ItemAgentRoute,
-  ItemDiagnostics,
-  ItemSummary,
-  RuntimeStatus,
-  RuntimeSyncSummary,
-  SyncPreviewAgent,
-  SyncPreviewChannel,
-  TeamOption,
+ConnectorAdminAdapter,
+DiagnosticRoute,
+DiscoveredItem,
+DynamicAgentOption,
+ItemAgentRoute,
+ItemDiagnostics,
+ItemSummary,
+RuntimeStatus,
+RuntimeSyncSummary,
+SyncPreviewAgent,
+SyncPreviewChannel,
+TeamOption,
 } from "./connector-admin-adapter";
 
 type PanelView = "channels" | "onboard" | "advanced";

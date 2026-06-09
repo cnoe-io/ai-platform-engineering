@@ -1,7 +1,7 @@
 import type {
-  ItemAgentRoute,
-  RouteEscalationConfig,
-  RouteSideConfig,
+ItemAgentRoute,
+RouteEscalationConfig,
+RouteSideConfig,
 } from "../connector-admin-adapter";
 
 export type ListenMode = "message" | "mention" | "all";

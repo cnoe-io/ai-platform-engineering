@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect,useMemo,useState } from "react";
 
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
-import { joinList, splitList } from "./slack-route-draft";
+import { joinList,splitList } from "./slack-route-draft";
 
 interface SlackUserSuggestion {
   id: string;

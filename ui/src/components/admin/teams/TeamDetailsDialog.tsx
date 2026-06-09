@@ -1,47 +1,47 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useRef } from "react";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { IngestCapabilityToggle } from "@/components/admin/shared/IngestCapabilityToggle";
+import { SaveButton } from "@/components/admin/shared/SaveButton";
+import { SearchCapabilityToggle } from "@/components/admin/shared/SearchCapabilityToggle";
+import { TeamKbAssignmentPanel } from "@/components/admin/teams/TeamKbAssignmentPanel";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+Dialog,
+DialogContent,
+DialogDescription,
+DialogFooter,
+DialogHeader,
+DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import {
-  Loader2,
-  UserPlus,
-  Trash2,
-  Crown,
-  Shield,
-  User,
-  Pencil,
-  Check,
-  X,
-  Hash,
-  Lock,
-  RefreshCw,
-  Plus,
-  Search,
-  MessageSquare,
-  ShieldCheck,
-  ShieldAlert,
-  ShieldQuestion,
-  Clock3,
-} from "lucide-react";
-import type { Team, TeamMember } from "@/types/teams";
+import { Textarea } from "@/components/ui/textarea";
 import type { TeamMembershipSource } from "@/types/identity-group-sync";
-import { TeamKbAssignmentPanel } from "@/components/admin/teams/TeamKbAssignmentPanel";
-import { IngestCapabilityToggle } from "@/components/admin/IngestCapabilityToggle";
-import { SearchCapabilityToggle } from "@/components/admin/SearchCapabilityToggle";
-import { SaveButton } from "@/components/admin/SaveButton";
+import type { Team,TeamMember } from "@/types/teams";
+import {
+Check,
+Clock3,
+Crown,
+Hash,
+Loader2,
+Lock,
+MessageSquare,
+Pencil,
+Plus,
+RefreshCw,
+Search,
+Shield,
+ShieldAlert,
+ShieldCheck,
+ShieldQuestion,
+Trash2,
+User,
+UserPlus,
+X,
+} from "lucide-react";
+import React,{ useCallback,useEffect,useRef,useState } from "react";
 
 // Server response shape — mirrors TeamMembershipSyncReport in
 // @/lib/rbac/team-openfga-sync-status.ts (kept local to avoid forcing

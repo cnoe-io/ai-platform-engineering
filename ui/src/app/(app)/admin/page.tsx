@@ -1,66 +1,64 @@
 "use client";
 
-import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { useSearchParams, useRouter, usePathname } from "next/navigation";
-import { useSession } from "next-auth/react";
-import { motion } from "framer-motion";
-import { User, Users, MessageSquare, TrendingUp, Activity, Database, Share2, ShieldCheck, UserPlus, Trash2, UsersIcon, Loader2, Bot, ThumbsUp, ThumbsDown, Clock, Zap, CheckCircle2, Layers, Eye, Star, Filter, ExternalLink, Plus, Calendar, X, FileText, Shield, HelpCircle, Globe, RefreshCw, Settings, Wrench, Hash, Search, type LucideIcon } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { AuthGuard } from "@/components/auth-guard";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { CAIPESpinner } from "@/components/ui/caipe-spinner";
-import { MultiSelect, TagInput } from "@/components/ui/multi-select";
-import { SimpleLineChart } from "@/components/admin/SimpleLineChart";
-import { MetricsTab } from "@/components/admin/MetricsTab";
-import { HealthTab } from "@/components/admin/HealthTab";
-import {
-  VisibilityBreakdown,
-  CategoryBreakdown,
-  RunStatsTable,
-  TopCreatorsCard,
-} from "@/components/admin/SkillMetricsCards";
-import { CreateTeamDialog } from "@/components/admin/teams/CreateTeamDialog";
-import { TeamDetailsDialog, type DialogMode as TeamDialogMode } from "@/components/admin/teams/TeamDetailsDialog";
-import { AuditLogsTab } from "@/components/admin/AuditLogsTab";
-import { UnifiedAuditTab } from "@/components/admin/UnifiedAuditTab";
-import { OpenFgaRebacTab } from "@/components/admin/OpenFgaRebacTab";
+CategoryBreakdown,
+RunStatsTable,
+TopCreatorsCard,
+VisibilityBreakdown,
+} from "@/components/admin/insights/SkillMetricsCards";
+import { CheckpointStatsSection } from "@/components/admin/platform/CheckpointStatsSection";
+import { CrawlConsoleDialog } from "@/components/admin/platform/CrawlConsoleDialog";
+import { CrawlConsoleHeaderPill } from "@/components/admin/platform/CrawlConsoleHeaderPill";
+import { HealthTab } from "@/components/admin/platform/HealthTab";
+import { MetricsTab } from "@/components/admin/platform/MetricsTab";
+import { SkillHubsSection } from "@/components/admin/platform/SkillHubsSection";
+import { SlackStatsSection } from "@/components/admin/platform/SlackStatsSection";
+import { SupervisorSkillsStatusSection } from "@/components/admin/platform/SupervisorSkillsStatusSection";
 import { RagTeamAccessPanel } from "@/components/admin/rebac/RagTeamAccessPanel";
 import { SlackChannelRebacPanel } from "@/components/admin/rebac/SlackChannelRebacPanel";
 import { WebexSpaceRebacPanel } from "@/components/admin/rebac/WebexSpaceRebacPanel";
+import { AuditLogsTab } from "@/components/admin/security/AuditLogsTab";
+import { KeycloakMigrationHealthPanel } from "@/components/admin/security/KeycloakMigrationHealthPanel";
+import { MigrationTab } from "@/components/admin/security/MigrationTab";
+import { OpenFgaRebacTab } from "@/components/admin/security/OpenFgaRebacTab";
+import { UnifiedAuditTab } from "@/components/admin/security/UnifiedAuditTab";
+import { PlatformSettingsTab } from "@/components/admin/settings/PlatformSettingsTab";
+import { ReleaseNotesSettingsTab } from "@/components/admin/settings/ReleaseNotesSettingsTab";
+import { ReviewConfigsTab } from "@/components/admin/settings/ReviewConfigsTab";
+import { DateRangeFilter,presetToRange,type DateRange,type DateRangePreset } from "@/components/admin/shared/DateRangeFilter";
+import { SimpleLineChart } from "@/components/admin/shared/SimpleLineChart";
+import { CreateTeamDialog } from "@/components/admin/teams/CreateTeamDialog";
 import { IdentitySyncPanel } from "@/components/admin/teams/IdentitySyncPanel";
-import { ReviewConfigsTab } from "@/components/admin/ReviewConfigsTab";
-import { CheckpointStatsSection } from "@/components/admin/CheckpointStatsSection";
-import { SlackStatsSection } from "@/components/admin/SlackStatsSection";
-import { DateRangeFilter, type DateRangePreset, type DateRange, presetToRange } from "@/components/admin/DateRangeFilter";
-import { SkillHubsSection } from "@/components/admin/SkillHubsSection";
-import { CrawlConsoleDialog } from "@/components/admin/CrawlConsoleDialog";
-import { CrawlConsoleHeaderPill } from "@/components/admin/CrawlConsoleHeaderPill";
-import { UserDetailPanel } from "@/components/admin/teams/UserDetailPanel";
-import { SupervisorSkillsStatusSection } from "@/components/admin/SupervisorSkillsStatusSection";
-import { UserManagementTab } from "@/components/admin/teams/UserManagementTab";
+import { TeamDetailsDialog,type DialogMode as TeamDialogMode } from "@/components/admin/teams/TeamDetailsDialog";
 import { UserDetailModal } from "@/components/admin/teams/UserDetailModal";
-import { PlatformSettingsTab } from "@/components/admin/PlatformSettingsTab";
-import { ReleaseNotesSettingsTab } from "@/components/admin/ReleaseNotesSettingsTab";
-import { MigrationTab } from "@/components/admin/MigrationTab";
-import { KeycloakMigrationHealthPanel } from "@/components/admin/KeycloakMigrationHealthPanel";
+import { UserDetailPanel } from "@/components/admin/teams/UserDetailPanel";
+import { UserManagementTab } from "@/components/admin/teams/UserManagementTab";
+import { AuthGuard } from "@/components/auth-guard";
 import { AdminCredentialManagementPanel } from "@/components/credentials/AdminCredentialManagementPanel";
+import { Button } from "@/components/ui/button";
+import { CAIPESpinner } from "@/components/ui/caipe-spinner";
+import { Card,CardContent,CardDescription,CardHeader,CardTitle } from "@/components/ui/card";
+import {
+Dialog,
+DialogContent,
+DialogDescription,
+DialogFooter,
+DialogHeader,
+DialogTitle,
+} from "@/components/ui/dialog";
+import { MultiSelect,TagInput } from "@/components/ui/multi-select";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tabs,TabsContent,TabsList,TabsTrigger } from "@/components/ui/tabs";
 import { useAdminRole } from "@/hooks/use-admin-role";
-import { useAdminTabGates, type AdminTabGateSimulationTarget } from "@/hooks/useAdminTabGates";
+import { useAdminTabGates,type AdminTabGateSimulationTarget } from "@/hooks/useAdminTabGates";
 import { getConfig } from "@/lib/config";
-import { apiClient } from "@/lib/api-client";
-import type { Team as TeamType } from "@/types/teams";
+import { cn } from "@/lib/utils";
 import type { SkillMetricsAdmin } from "@/types/agent-skill";
+import type { Team as TeamType } from "@/types/teams";
+import { Activity,Bot,Calendar,CheckCircle2,Clock,Database,ExternalLink,Eye,FileText,Filter,Globe,Hash,HelpCircle,Layers,Loader2,MessageSquare,Plus,RefreshCw,Search,Settings,Share2,Shield,ShieldCheck,Star,ThumbsDown,ThumbsUp,Trash2,TrendingUp,User,UserPlus,Users,UsersIcon,Wrench,X,Zap,type LucideIcon } from "lucide-react";
+import { useSession } from "next-auth/react";
+import { usePathname,useRouter,useSearchParams } from "next/navigation";
+import React,{ useCallback,useEffect,useMemo,useRef,useState } from "react";
 
 interface AdminStats {
   platform_summary?: {
