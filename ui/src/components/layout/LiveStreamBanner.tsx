@@ -1,8 +1,7 @@
 "use client";
 
-import React from "react";
-import { Radio } from "lucide-react";
 import { useChatStore } from "@/store/chat-store";
+import { Radio } from "lucide-react";
 
 /**
  * Thin banner that appears at the top of the app when one or more

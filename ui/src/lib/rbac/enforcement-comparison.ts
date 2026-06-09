@@ -1,12 +1,12 @@
-import { checkUniversalRebacRelationship } from "./openfga";
-import { legacyRoleAllows } from "./keycloak-transition";
-import type { RebacEnforcementStatusRecord } from "./enforcement-status";
 import type {
-  UniversalRebacRelationship,
-  UniversalRebacResourceAction,
-  UniversalRebacResourceRef,
-  UniversalRebacSubjectRef,
+UniversalRebacRelationship,
+UniversalRebacResourceAction,
+UniversalRebacResourceRef,
+UniversalRebacSubjectRef,
 } from "@/types/rbac-universal";
+import type { RebacEnforcementStatusRecord } from "./enforcement-status";
+import { legacyRoleAllows } from "./keycloak-transition";
+import { checkUniversalRebacRelationship } from "./openfga";
 
 export interface EnforcementComparisonInput {
   subject: UniversalRebacSubjectRef;

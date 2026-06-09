@@ -1,10 +1,10 @@
-import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth-config";
-import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
+import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
 import { getRealmUserById } from "@/lib/rbac/keycloak-admin";
 import { getRbacCollection } from "@/lib/rbac/mongo-collections";
 import type { TeamMembershipSource } from "@/types/identity-group-sync";
+import { getServerSession } from "next-auth";
+import { NextResponse } from "next/server";
 
 function decodeJwtPayload(token: string): Record<string, unknown> {
   try {

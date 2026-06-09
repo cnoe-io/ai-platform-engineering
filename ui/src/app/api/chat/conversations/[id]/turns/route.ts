@@ -13,21 +13,21 @@
  * The Slack bot stores thread mapping info. Future clients store their own shape.
  */
 
-import { NextRequest } from "next/server";
-import { getCollection } from "@/lib/mongodb";
 import {
-  withAuth,
-  withErrorHandler,
-  successResponse,
-  paginatedResponse,
-  ApiError,
-  requireConversationAccess,
-  validateUUID,
-  validateRequired,
-  getPaginationParams,
+ApiError,
+getPaginationParams,
+paginatedResponse,
+requireConversationAccess,
+successResponse,
+validateRequired,
+validateUUID,
+withAuth,
+withErrorHandler,
 } from "@/lib/api-middleware";
+import { getCollection } from "@/lib/mongodb";
 import { requireResourcePermission } from "@/lib/rbac/resource-authz";
-import type { Turn, UpsertTurnRequest, Conversation } from "@/types/mongodb";
+import type { Conversation,Turn,UpsertTurnRequest } from "@/types/mongodb";
+import { NextRequest } from "next/server";
 
 // ─── GET /api/chat/conversations/[id]/turns ──────────────────────────────────
 

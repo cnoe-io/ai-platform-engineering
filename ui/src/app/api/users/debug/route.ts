@@ -1,13 +1,13 @@
 // GET /api/users/debug - Debug endpoint to list all users in MongoDB
 
-import { NextRequest } from 'next/server';
-import { getCollection } from '@/lib/mongodb';
 import {
-  withAuth,
-  withErrorHandler,
-  successResponse,
+successResponse,
+withAuth,
+withErrorHandler,
 } from '@/lib/api-middleware';
+import { getCollection } from '@/lib/mongodb';
 import type { User } from '@/types/mongodb';
+import { NextRequest } from 'next/server';
 
 // GET /api/users/debug
 export const GET = withErrorHandler(async (request: NextRequest) => {

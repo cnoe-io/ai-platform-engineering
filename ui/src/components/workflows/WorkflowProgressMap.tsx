@@ -1,19 +1,19 @@
 "use client";
 
-import React from "react";
-import {
-  Loader2,
-  Square,
-} from "lucide-react";
-import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
-  TooltipProvider,
-  Tooltip,
-  TooltipTrigger,
-  TooltipContent,
+Tooltip,
+TooltipContent,
+TooltipProvider,
+TooltipTrigger,
 } from "@/components/ui/tooltip";
-import type { WfStepRun, WfStepStatus } from "@/store/workflow-exec-store";
+import { cn } from "@/lib/utils";
+import type { WfStepRun,WfStepStatus } from "@/store/workflow-exec-store";
+import {
+Loader2,
+Square,
+} from "lucide-react";
+import React from "react";
 
 // ---------------------------------------------------------------------------
 // Max visible steps before truncating

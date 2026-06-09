@@ -10,78 +10,77 @@
  * - Information-dense layout with metrics placeholders
  */
 
-import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react'
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
-import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
-import { formatDistanceToNow } from 'date-fns'
-import { 
-  Database, 
-  RefreshCw, 
-  ChevronDown, 
-  ChevronRight,
-  Trash2,
-  RotateCcw,
-  StopCircle,
-  Activity,
-  Server,
-  FileText,
-  AlertCircle,
-  CheckCircle2,
-  Clock,
-  Loader2,
-  Link as LinkIcon,
-  Settings,
-  X,
-  Plus,
-  Search,
-  HelpCircle,
-  ArrowRight,
-  Layers,
-  Info,
-  Eraser,
-  Users,
-  Pencil,
-  Check
-} from 'lucide-react'
-import { motion, AnimatePresence } from 'framer-motion'
-import type { IngestionJob, DataSourceInfo, IngestorInfo } from './Models'
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
-  getDataSources,
-  getIngestors,
-  getJobStatus,
-  getJobsByDataSource,
-  getJobsBatch,
-  ingestUrl,
-  deleteDataSource,
-  deleteIngestor,
-  reloadDataSource,
-  terminateJob,
-  getDatasourceDocuments,
-  getChunkContent,
-  cleanupDataSource,
-  renameDataSource,
-  WEBLOADER_INGESTOR_ID,
-  CONFLUENCE_INGESTOR_ID,
-  JIRA_INGESTOR_ID
-} from './api/index'
-import type { DatasourceDocumentsResponse, DocumentInfo, ChunkInfo } from './api/index'
-import { getIconForType, ingestTypeConfigs, isIngestTypeAvailable } from './typeConfig'
-import { useRagPermissions, Permission } from '@/hooks/useRagPermissions'
-import { useTeamKbOwnership } from '@/hooks/useTeamKbOwnership'
-import { KbTeamAccessPanel } from './KbTeamAccessPanel'
-import { ScrollArea } from "@/components/ui/scroll-area"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Badge } from "@/components/ui/badge"
-import { useToast } from "@/components/ui/toast"
+Dialog,
+DialogContent,
+DialogDescription,
+DialogHeader,
+DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { useToast } from "@/components/ui/toast";
+import { Permission,useRagPermissions } from '@/hooks/useRagPermissions';
+import { useTeamKbOwnership } from '@/hooks/useTeamKbOwnership';
+import { cn,DEFAULT_RELOAD_INTERVAL,formatFreshUntil,formatNextReload,formatRelativeTime,isRefreshOverdue } from "@/lib/utils";
+import { AnimatePresence,motion } from 'framer-motion';
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from "@/components/ui/dialog"
-import { cn, formatNextReload, isRefreshOverdue, formatFreshUntil, formatRelativeTime, DEFAULT_RELOAD_INTERVAL } from "@/lib/utils"
+Activity,
+AlertCircle,
+ArrowRight,
+Check,
+CheckCircle2,
+ChevronDown,
+ChevronRight,
+Clock,
+Database,
+Eraser,
+FileText,
+HelpCircle,
+Info,
+Layers,
+Link as LinkIcon,
+Loader2,
+Pencil,
+Plus,
+RefreshCw,
+RotateCcw,
+Search,
+Server,
+Settings,
+StopCircle,
+Trash2,
+Users,
+X
+} from 'lucide-react';
+import React,{ useCallback,useEffect,useMemo,useRef,useState } from 'react';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import { KbTeamAccessPanel } from './KbTeamAccessPanel';
+import type { DataSourceInfo,IngestionJob,IngestorInfo } from './Models';
+import type { ChunkInfo,DatasourceDocumentsResponse,DocumentInfo } from './api/index';
+import {
+cleanupDataSource,
+CONFLUENCE_INGESTOR_ID,
+deleteDataSource,
+deleteIngestor,
+getChunkContent,
+getDatasourceDocuments,
+getDataSources,
+getIngestors,
+getJobsBatch,
+getJobsByDataSource,
+getJobStatus,
+ingestUrl,
+JIRA_INGESTOR_ID,
+reloadDataSource,
+renameDataSource,
+terminateJob,
+WEBLOADER_INGESTOR_ID
+} from './api/index';
+import { getIconForType,ingestTypeConfigs,isIngestTypeAvailable } from './typeConfig';
 
 // Animation variants
 const fadeIn = {

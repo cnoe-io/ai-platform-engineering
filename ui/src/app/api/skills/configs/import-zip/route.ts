@@ -1,36 +1,36 @@
 import { NextRequest } from "next/server";
 
 import {
-  withAuth,
-  withErrorHandler,
-  successResponse,
-  ApiError,
+ApiError,
+successResponse,
+withAuth,
+withErrorHandler,
 } from "@/lib/api-middleware";
-import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
-import { scanSkillContent as runSkillScan } from "@/lib/skill-scan";
-import { recordScanEvent } from "@/lib/skill-scan-history";
-import { recordRevision } from "@/lib/skill-revisions";
 import {
-  generateSkillIdFromName,
-  type ImportConflictAction,
-  type ImportConflictDecision,
-} from "@/lib/skill-import-helpers";
-import {
-  parseSkillZip,
-  buildConflictDecisions,
-  type ZipParseFailureReason,
-  type ZipSkillCandidate,
-} from "@/lib/skill-zip-import";
-import {
-  canMutateBuiltinSkill,
-  BUILTIN_LOCKED_MESSAGE,
+BUILTIN_LOCKED_MESSAGE,
+canMutateBuiltinSkill,
 } from "@/lib/builtin-skill-policy";
+import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
 import {
-  filterResourcesByPermission,
-  requireSkillPermission,
+filterResourcesByPermission,
+requireSkillPermission,
 } from "@/lib/rbac/resource-authz";
 import { reconcileSkillTeamShares } from "@/lib/rbac/skill-team-grants";
-import type { AgentSkill, ScanStatus } from "@/types/agent-skill";
+import {
+generateSkillIdFromName,
+type ImportConflictAction,
+type ImportConflictDecision,
+} from "@/lib/skill-import-helpers";
+import { recordRevision } from "@/lib/skill-revisions";
+import { scanSkillContent as runSkillScan } from "@/lib/skill-scan";
+import { recordScanEvent } from "@/lib/skill-scan-history";
+import {
+buildConflictDecisions,
+parseSkillZip,
+type ZipParseFailureReason,
+type ZipSkillCandidate,
+} from "@/lib/skill-zip-import";
+import type { AgentSkill,ScanStatus } from "@/types/agent-skill";
 
 /**
  * POST /api/skills/configs/import-zip

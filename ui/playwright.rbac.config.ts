@@ -26,7 +26,7 @@
  *   npx playwright test --config=playwright.rbac.config.ts
  */
 
-import { defineConfig, devices } from "@playwright/test";
+import { defineConfig,devices } from "@playwright/test";
 
 export default defineConfig({
   testDir: "./e2e/rbac",

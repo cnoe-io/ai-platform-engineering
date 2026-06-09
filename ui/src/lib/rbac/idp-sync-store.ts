@@ -1,4 +1,4 @@
-import type { IdpSyncRun, IdpSyncSettings } from "./mongo-collections";
+import type { IdpSyncRun,IdpSyncSettings } from "./mongo-collections";
 import { getRbacCollection } from "./mongo-collections";
 
 function defaultSettings(providerId: string): IdpSyncSettings {

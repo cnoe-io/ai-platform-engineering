@@ -5,15 +5,16 @@
  * and returns them as CatalogSkill[] for the /api/skills route.
  */
 
-import { getCollection } from "@/lib/mongodb";
 import { validateCredentialsRef } from "@/lib/api-middleware";
-import { scanHubSkillsAsync, type HubSkillScanRef } from "@/lib/skill-scan";
-import type { ScanStatus, ScanOverride } from "@/types/agent-skill";
 import {
-  NOOP_EMITTER,
-  type CrawlEventEmitter,
-  type CrawlRequestPhase,
+NOOP_EMITTER,
+type CrawlEventEmitter,
+type CrawlRequestPhase,
 } from "@/lib/crawl-events";
+import { getCollection } from "@/lib/mongodb";
+import { scanHubSkillsAsync,type HubSkillScanRef } from "@/lib/skill-scan";
+import type { ScanOverride,ScanStatus } from "@/types/agent-skill";
+import { MAX_TREE_PAGES_HARD_LIMIT } from "./hub-crawl-constants";
 
 /**
  * Issue a fetch and report it to the crawl-event emitter.
@@ -256,7 +257,6 @@ export interface SkillHubDoc {
 // transitive `mongodb` dependency. Re-export here so server callers
 // keep their existing import path stable.
 export { MAX_TREE_PAGES_HARD_LIMIT } from "./hub-crawl-constants";
-import { MAX_TREE_PAGES_HARD_LIMIT } from "./hub-crawl-constants";
 
 /**
  * Normalize an `include_paths` array for use as path-prefix filters:

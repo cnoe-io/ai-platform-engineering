@@ -57,42 +57,42 @@ jest.mock('@/components/ui/scroll-area', () => ({
   ScrollArea: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
 
-jest.mock('@/components/admin/SimpleLineChart', () => ({
+jest.mock('@/components/admin/shared/SimpleLineChart', () => ({
   SimpleLineChart: () => <div data-testid="line-chart" />,
 }));
 
-jest.mock('@/components/admin/MetricsTab', () => ({
+jest.mock('@/components/admin/platform/MetricsTab', () => ({
   MetricsTab: () => <div data-testid="metrics-tab">MetricsTab</div>,
 }));
 
-jest.mock('@/components/admin/HealthTab', () => ({
+jest.mock('@/components/admin/platform/HealthTab', () => ({
   HealthTab: () => <div data-testid="health-tab">HealthTab</div>,
 }));
 
-jest.mock('@/components/admin/ReviewConfigsTab', () => ({
+jest.mock('@/components/admin/settings/ReviewConfigsTab', () => ({
   ReviewConfigsTab: () => <div data-testid="review-configs-tab">ReviewConfigsTab</div>,
 }));
 
-jest.mock('@/components/admin/PlatformSettingsTab', () => ({
+jest.mock('@/components/admin/settings/PlatformSettingsTab', () => ({
   PlatformSettingsTab: () => <div data-testid="platform-settings-tab">PlatformSettingsTab</div>,
 }));
 
-jest.mock('@/components/admin/ReleaseNotesSettingsTab', () => ({
+jest.mock('@/components/admin/settings/ReleaseNotesSettingsTab', () => ({
   ReleaseNotesSettingsTab: () => <div data-testid="release-notes-settings-tab">ReleaseNotesSettingsTab</div>,
 }));
 
-jest.mock('@/components/admin/SkillMetricsCards', () => ({
+jest.mock('@/components/admin/insights/SkillMetricsCards', () => ({
   VisibilityBreakdown: () => <div />,
   CategoryBreakdown: () => <div />,
   RunStatsTable: () => <div />,
   TopCreatorsCard: () => <div />,
 }));
 
-jest.mock('@/components/admin/CheckpointStatsSection', () => ({
+jest.mock('@/components/admin/platform/CheckpointStatsSection', () => ({
   CheckpointStatsSection: () => <div data-testid="checkpoint-stats">CheckpointStatsSection</div>,
 }));
 
-jest.mock('@/components/admin/OpenFgaRebacTab', () => ({
+jest.mock('@/components/admin/security/OpenFgaRebacTab', () => ({
   OpenFgaRebacTab: () => <div data-testid="openfga-rebac-tab">OpenFgaRebacTab</div>,
 }));
 
@@ -125,19 +125,19 @@ jest.mock('@/components/admin/rebac/RagTeamAccessPanel', () => ({
 }));
 
 
-jest.mock('@/components/admin/MigrationTab', () => ({
+jest.mock('@/components/admin/security/MigrationTab', () => ({
   MigrationTab: () => <div data-testid="migration-tab">MigrationTab</div>,
 }));
 
-jest.mock('@/components/admin/KeycloakMigrationHealthPanel', () => ({
+jest.mock('@/components/admin/security/KeycloakMigrationHealthPanel', () => ({
   KeycloakMigrationHealthPanel: () => <div data-testid="keycloak-health-tab">KeycloakHealthTab</div>,
 }));
 
-jest.mock('@/components/admin/AuditLogsTab', () => ({
+jest.mock('@/components/admin/security/AuditLogsTab', () => ({
   AuditLogsTab: () => <div data-testid="audit-logs-tab">AuditLogsTab</div>,
 }));
 
-jest.mock('@/components/admin/UnifiedAuditTab', () => ({
+jest.mock('@/components/admin/security/UnifiedAuditTab', () => ({
   UnifiedAuditTab: () => <div data-testid="unified-audit-tab">UnifiedAuditTab</div>,
 }));
 

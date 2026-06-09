@@ -1,15 +1,15 @@
 "use client";
 
-import { CheckCircle2, Clock, Loader2, Lock, Play, Settings, XCircle } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { CheckCircle2,Clock,Loader2,Lock,Play,Settings,XCircle } from "lucide-react";
+import { useCallback,useEffect,useState } from "react";
 
-import { SaveButton } from "@/components/admin/SaveButton";
+import { SaveButton } from "@/components/admin/shared/SaveButton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card,CardContent,CardDescription,CardHeader,CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
-import type { IdpSyncRun, IdpSyncSettings } from "@/lib/rbac/mongo-collections";
+import type { IdpSyncRun,IdpSyncSettings } from "@/lib/rbac/mongo-collections";
 
 interface IdpConnectorDescriptor {
   id: string;

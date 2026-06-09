@@ -19,7 +19,7 @@
  * assisted-by Cursor Composer-Sonnet-4.7
  */
 
-import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
+import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
 import type { SkillSourceKind } from "@/lib/skill-scan-history";
 
 /**

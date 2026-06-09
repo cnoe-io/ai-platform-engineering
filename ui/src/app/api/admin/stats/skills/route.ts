@@ -1,15 +1,15 @@
 // GET /api/admin/stats/skills - Platform-wide skill metrics (admin only)
 
-import { NextRequest, NextResponse } from 'next/server';
-import { getCollection, isMongoDBConfigured } from '@/lib/mongodb';
 import {
-  withErrorHandler,
-  successResponse,
-  getAuthFromBearerOrSession,
-  requireRbacPermission,
+getAuthFromBearerOrSession,
+requireRbacPermission,
+successResponse,
+withErrorHandler,
 } from '@/lib/api-middleware';
+import { getCollection,isMongoDBConfigured } from '@/lib/mongodb';
 import type { AgentSkill } from '@/types/agent-skill';
 import type { WorkflowRun } from '@/types/workflow-run';
+import { NextRequest,NextResponse } from 'next/server';
 
 export const GET = withErrorHandler(async (request: NextRequest) => {
   if (!isMongoDBConfigured) {

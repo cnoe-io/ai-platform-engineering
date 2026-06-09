@@ -1,23 +1,23 @@
-import { NextRequest } from "next/server";
-import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import {
-  withAuth,
-  withErrorHandler,
-  successResponse,
-  ApiError,
-} from "@/lib/api-middleware";
-import { scanSkillContent, isSkillScannerConfigured } from "@/lib/skill-scan";
-import { recordScanEvent } from "@/lib/skill-scan-history";
-import {
-  getAgentSkillVisibleToUser,
-  userCanModifyAgentSkill,
+getAgentSkillVisibleToUser,
+userCanModifyAgentSkill,
 } from "@/lib/agent-skill-visibility";
+import {
+ApiError,
+successResponse,
+withAuth,
+withErrorHandler,
+} from "@/lib/api-middleware";
+import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
 import { requireSkillPermission } from "@/lib/rbac/resource-authz";
 import {
-  readSkillSharedTeamSlugsFromOpenFga,
-  reconcileSkillTeamShares,
+readSkillSharedTeamSlugsFromOpenFga,
+reconcileSkillTeamShares,
 } from "@/lib/rbac/skill-team-grants";
+import { isSkillScannerConfigured,scanSkillContent } from "@/lib/skill-scan";
+import { recordScanEvent } from "@/lib/skill-scan-history";
 import type { AgentSkill } from "@/types/agent-skill";
+import { NextRequest } from "next/server";
 
 const STORAGE_TYPE = isMongoDBConfigured ? "mongodb" : "none";
 

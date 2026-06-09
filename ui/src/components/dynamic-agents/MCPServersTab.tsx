@@ -1,28 +1,28 @@
 "use client";
 
-import React from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import {
-  Server,
-  Plus,
-  Trash2,
-  Loader2,
-  ToggleLeft,
-  ToggleRight,
-  RefreshCw,
-  Zap,
-  Terminal,
-  Radio,
-  Globe,
-  AlertCircle,
-  CheckCircle2,
-  Download,
-} from "lucide-react";
-import type { MCPServerConfig, MCPToolInfo } from "@/types/dynamic-agent";
-import { MCPServerEditor } from "./MCPServerEditor";
+import { Button } from "@/components/ui/button";
+import { Card,CardContent,CardDescription,CardHeader,CardTitle } from "@/components/ui/card";
 import { toYaml } from "@/lib/yaml-serializer";
+import type { MCPServerConfig,MCPToolInfo } from "@/types/dynamic-agent";
+import {
+AlertCircle,
+CheckCircle2,
+Download,
+Globe,
+Loader2,
+Plus,
+Radio,
+RefreshCw,
+Server,
+Terminal,
+ToggleLeft,
+ToggleRight,
+Trash2,
+Zap,
+} from "lucide-react";
+import React from "react";
+import { MCPServerEditor } from "./MCPServerEditor";
 
 interface ProbeResult {
   server_id: string;

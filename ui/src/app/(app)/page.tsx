@@ -1,21 +1,20 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
-import { useSession } from "next-auth/react";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { AuthGuard } from "@/components/auth-guard";
-import { WelcomeBanner } from "@/components/home/WelcomeBanner";
 import { CapabilityCards } from "@/components/home/CapabilityCards";
+import { InsightsWidget } from "@/components/home/InsightsWidget";
 import { RecentChats } from "@/components/home/RecentChats";
 import { SharedConversations } from "@/components/home/SharedConversations";
-import { InsightsWidget } from "@/components/home/InsightsWidget";
+import { WelcomeBanner } from "@/components/home/WelcomeBanner";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { apiClient } from "@/lib/api-client";
 import { config } from "@/lib/config";
 import { getStorageMode } from "@/lib/storage-config";
 import { useChatStore } from "@/store/chat-store";
 import { getAgentId } from "@/types/a2a";
-import type { Conversation as MongoConversation } from "@/types/mongodb";
-import type { UserStats } from "@/types/mongodb";
+import type { Conversation as MongoConversation,UserStats } from "@/types/mongodb";
+import { useSession } from "next-auth/react";
+import { useCallback,useEffect,useState } from "react";
 
 type HomeConversation = {
   id: string;

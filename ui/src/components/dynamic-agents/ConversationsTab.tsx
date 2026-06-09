@@ -1,38 +1,38 @@
 "use client";
 
-import React from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card,CardContent,CardDescription,CardHeader,CardTitle } from "@/components/ui/card";
+import {
+Dialog,
+DialogContent,
+DialogHeader,
+DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  MessageSquare,
-  Trash2,
-  Loader2,
-  RefreshCw,
-  Search,
-  User,
-  Bot,
-  AlertCircle,
-  Archive,
-  ChevronLeft,
-  ChevronRight,
-  Clock,
-  FileText,
-  Globe,
-  Hash,
-  Copy,
-  ExternalLink,
-} from "lucide-react";
-import { AgentAvatar } from "./AgentAvatar";
 import type { AgentUIConfig } from "@/types/dynamic-agent";
+import {
+AlertCircle,
+Archive,
+Bot,
+ChevronLeft,
+ChevronRight,
+Clock,
+Copy,
+ExternalLink,
+FileText,
+Globe,
+Hash,
+Loader2,
+MessageSquare,
+RefreshCw,
+Search,
+Trash2,
+User,
+} from "lucide-react";
+import React from "react";
+import { AgentAvatar } from "./AgentAvatar";
 
 interface ConversationItem {
   id: string;

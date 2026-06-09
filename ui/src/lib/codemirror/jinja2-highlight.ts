@@ -10,12 +10,12 @@
  * mode (markdown, plain text, etc.) without interfering.
  */
 import {
-  Decoration,
-  DecorationSet,
-  EditorView,
-  MatchDecorator,
-  ViewPlugin,
-  ViewUpdate,
+Decoration,
+DecorationSet,
+EditorView,
+MatchDecorator,
+ViewPlugin,
+ViewUpdate,
 } from "@codemirror/view";
 
 // ── Decoration marks ────────────────────────────────────────────

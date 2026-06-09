@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
-import { ApiError, getAuthFromBearerOrSession, requireRbacPermission, withErrorHandler } from "@/lib/api-middleware";
+import { ApiError,getAuthFromBearerOrSession,requireRbacPermission,withErrorHandler } from "@/lib/api-middleware";
 import { createPolicyChangeSet } from "@/lib/rbac/policy-change-set-store";
 import type { UniversalRebacRelationship } from "@/types/rbac-universal";
+import { NextRequest,NextResponse } from "next/server";
 
 function relationshipArray(value: unknown, field: string): UniversalRebacRelationship[] {
   if (value === undefined) return [];

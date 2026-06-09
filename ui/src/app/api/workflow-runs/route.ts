@@ -8,27 +8,27 @@
  * DELETE /api/workflow-runs?id=X — Delete a run (legacy compat)
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import {
-  withAuth,
-  withErrorHandler,
-  successResponse,
-  ApiError,
-  getAuthFromBearerOrSession,
+ApiError,
+getAuthFromBearerOrSession,
+successResponse,
+withAuth,
+withErrorHandler,
 } from "@/lib/api-middleware";
+import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
 import {
-  startWorkflowRun,
-  detectStaleRun,
-  type WorkflowRunDocument,
-} from "@/lib/server/workflow-engine";
-import { readEventsByRun, deleteEventsByRun } from "@/lib/server/event-store";
-import {
-  filterResourcesByPermission,
-  requireResourcePermission,
-  type ResourceAuthzSession,
+filterResourcesByPermission,
+requireResourcePermission,
+type ResourceAuthzSession,
 } from "@/lib/rbac/resource-authz";
+import { deleteEventsByRun,readEventsByRun } from "@/lib/server/event-store";
+import {
+detectStaleRun,
+startWorkflowRun,
+type WorkflowRunDocument,
+} from "@/lib/server/workflow-engine";
 import type { WorkflowConfig } from "@/types/workflow-config";
+import { NextRequest,NextResponse } from "next/server";
 
 const STORAGE_TYPE = isMongoDBConfigured ? "mongodb" : "none";
 

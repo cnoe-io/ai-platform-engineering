@@ -16,9 +16,9 @@
  */
 
 import type {
-  CriterionVerdict,
-  GradeThresholds,
-  ReviewGrade,
+CriterionVerdict,
+GradeThresholds,
+ReviewGrade,
 } from "@/types/ai-review";
 
 export interface ScoreAndGrade {

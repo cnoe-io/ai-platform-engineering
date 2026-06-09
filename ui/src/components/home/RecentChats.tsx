@@ -1,8 +1,7 @@
 "use client";
 
-import React from "react";
+import { MessageSquare,Plus } from "lucide-react";
 import Link from "next/link";
-import { MessageSquare, Plus } from "lucide-react";
 import { ConversationCard } from "./ConversationCard";
 
 interface RecentChatsProps {

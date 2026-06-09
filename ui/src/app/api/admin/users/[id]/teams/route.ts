@@ -1,24 +1,24 @@
-import { type NextRequest, NextResponse } from "next/server";
-import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import {
-  withErrorHandler,
-  successResponse,
-  ApiError,
-  getAuthFromBearerOrSession,
-  requireRbacPermission,
+ApiError,
+getAuthFromBearerOrSession,
+requireRbacPermission,
+successResponse,
+withErrorHandler,
 } from "@/lib/api-middleware";
+import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
 import { getRealmUserById } from "@/lib/rbac/keycloak-admin";
 import {
-  upsertTeamMembershipSource,
-  markTeamMembershipSourceRemoved,
-  listActiveTeamMembershipSourcesForTeamUser,
+listActiveTeamMembershipSourcesForTeamUser,
+markTeamMembershipSourceRemoved,
+upsertTeamMembershipSource,
 } from "@/lib/rbac/team-membership-source-store";
-import {
-  resolveKeycloakUserSubject,
-  writeTeamMembershipTuples,
-} from "@/lib/rbac/team-membership-sync";
 import { findUserRoleInTeam } from "@/lib/rbac/team-membership-store";
+import {
+resolveKeycloakUserSubject,
+writeTeamMembershipTuples,
+} from "@/lib/rbac/team-membership-sync";
 import type { TeamMembershipSource } from "@/types/identity-group-sync";
+import { type NextRequest,NextResponse } from "next/server";
 
 function requireMongoDB(): NextResponse | null {
   if (!isMongoDBConfigured) {

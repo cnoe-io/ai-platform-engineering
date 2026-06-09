@@ -1,24 +1,24 @@
 // GET /api/admin/teams - List all teams
 // POST /api/admin/teams - Create a new team
 
-import { NextRequest, NextResponse } from 'next/server';
-import { getCollection, isMongoDBConfigured } from '@/lib/mongodb';
 import {
-  getAuthFromBearerOrSession,
-  withErrorHandler,
-  successResponse,
-  ApiError,
+ApiError,
+getAuthFromBearerOrSession,
+successResponse,
+withErrorHandler,
 } from '@/lib/api-middleware';
-import { requireAdminSurfaceManage, requireBaselineAdminSurfaceRead } from '@/lib/rbac/require-openfga';
+import { getCollection,isMongoDBConfigured } from '@/lib/mongodb';
 import { isValidTeamSlug } from '@/lib/rbac/keycloak-admin';
+import { requireAdminSurfaceManage,requireBaselineAdminSurfaceRead } from '@/lib/rbac/require-openfga';
 import { upsertTeamMembershipSource } from '@/lib/rbac/team-membership-source-store';
+import { loadTeamIdpSourceTypes,loadTeamMemberCounts } from '@/lib/rbac/team-membership-store';
 import {
-  mongoRoleToOpenFgaRelations,
-  resolveKeycloakUserSubject,
-  writeTeamMembershipTuples,
+mongoRoleToOpenFgaRelations,
+resolveKeycloakUserSubject,
+writeTeamMembershipTuples,
 } from '@/lib/rbac/team-membership-sync';
-import { loadTeamIdpSourceTypes, loadTeamMemberCounts } from '@/lib/rbac/team-membership-store';
 import type { TeamMembershipSource } from '@/types/identity-group-sync';
+import { NextRequest,NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
 

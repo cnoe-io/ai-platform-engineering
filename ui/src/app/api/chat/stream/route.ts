@@ -1,8 +1,8 @@
-import { NextRequest } from "next/server";
 import { getAuthFromBearerOrSession } from "@/lib/api-middleware";
 import { getCollection } from "@/lib/mongodb";
 import { requireConversationResourcePermission } from "@/lib/rbac/conversation-implicit-authz";
 import type { Conversation } from "@/types/mongodb";
+import { NextRequest } from "next/server";
 
 /**
  * Proxy route: POST /api/chat/stream

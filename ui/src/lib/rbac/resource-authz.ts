@@ -1,7 +1,7 @@
 import { ApiError } from "@/lib/api-error";
 import type { UniversalRebacResourceType } from "@/types/rbac-universal";
 
-import { checkOpenFgaTuple, type OpenFgaCheckResult, type OpenFgaTupleKey } from "./openfga";
+import { checkOpenFgaTuple,type OpenFgaCheckResult,type OpenFgaTupleKey } from "./openfga";
 import { openFgaResourceObject } from "./openfga-resource-ids";
 import { organizationObjectId } from "./organization";
 

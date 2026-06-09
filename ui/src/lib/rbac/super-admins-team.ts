@@ -18,16 +18,16 @@
 //
 // assisted-by Cursor claude-opus-4-7
 
-import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
-import {
-  resolveKeycloakUserSubject,
-  writeTeamMembershipTuples,
-  mongoRoleToOpenFgaRelations,
-} from "@/lib/rbac/team-membership-sync";
-import { upsertTeamMembershipSource } from "@/lib/rbac/team-membership-source-store";
-import { loadActiveTeamMembers } from "@/lib/rbac/team-membership-store";
+import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
 import { writeOpenFgaTuples } from "@/lib/rbac/openfga";
 import { organizationObjectId } from "@/lib/rbac/organization";
+import { upsertTeamMembershipSource } from "@/lib/rbac/team-membership-source-store";
+import { loadActiveTeamMembers } from "@/lib/rbac/team-membership-store";
+import {
+mongoRoleToOpenFgaRelations,
+resolveKeycloakUserSubject,
+writeTeamMembershipTuples,
+} from "@/lib/rbac/team-membership-sync";
 import type { TeamMembershipSource } from "@/types/identity-group-sync";
 
 export const SUPER_ADMINS_TEAM_SLUG = "super-admins";

@@ -1,14 +1,14 @@
 // GET /api/users/search - Search users by email (for sharing)
 
-import { NextRequest } from 'next/server';
-import { getCollection } from '@/lib/mongodb';
 import {
-  withAuth,
-  withErrorHandler,
-  successResponse,
-  ApiError,
+ApiError,
+successResponse,
+withAuth,
+withErrorHandler,
 } from '@/lib/api-middleware';
-import type { User, UserPublicInfo } from '@/types/mongodb';
+import { getCollection } from '@/lib/mongodb';
+import type { User,UserPublicInfo } from '@/types/mongodb';
+import { NextRequest } from 'next/server';
 
 // GET /api/users/search
 export const GET = withErrorHandler(async (request: NextRequest) => {

@@ -1,9 +1,9 @@
-import { create } from "zustand";
 import type {
-  WorkflowConfig,
-  CreateWorkflowConfigInput,
-  UpdateWorkflowConfigInput,
+CreateWorkflowConfigInput,
+UpdateWorkflowConfigInput,
+WorkflowConfig,
 } from "@/types/workflow-config";
+import { create } from "zustand";
 
 /**
  * Workflow Config Store

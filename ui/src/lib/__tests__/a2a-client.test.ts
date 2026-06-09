@@ -409,6 +409,7 @@ describe('getA2AClient', () => {
   });
 
   it('creates new client with endpoint', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { getA2AClient: getClient } = require('../a2a-client');
     const client = getClient('http://custom-endpoint.com');
     expect(client).toBeDefined();
@@ -416,6 +417,7 @@ describe('getA2AClient', () => {
   });
 
   it('returns singleton on subsequent calls', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { getA2AClient: getClient } = require('../a2a-client');
     const client1 = getClient('http://localhost:8001');
     const client2 = getClient();
@@ -423,6 +425,7 @@ describe('getA2AClient', () => {
   });
 
   it('creates new client if different endpoint', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { getA2AClient: getClient } = require('../a2a-client');
     const client1 = getClient('http://localhost:9001');
     const client2 = getClient('http://localhost:9002');

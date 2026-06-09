@@ -12,13 +12,13 @@
  */
 
 import type { StreamAdapter } from "../adapter";
-import type { StreamCallbacks, StreamParams, RawStreamEvent } from "../callbacks";
-import { parseSSEStream, type RawSSEEvent } from "../parse-sse";
+import type { RawStreamEvent,StreamCallbacks,StreamParams } from "../callbacks";
+import { parseSSEStream,type RawSSEEvent } from "../parse-sse";
 import {
-  createAGUIProtocolState,
-  resetProtocolState,
-  processAGUIEvent,
-  type AGUIProtocolState,
+createAGUIProtocolState,
+processAGUIEvent,
+resetProtocolState,
+type AGUIProtocolState,
 } from "../protocols/agui";
 
 /** Flat API route prefix for chat streaming. */

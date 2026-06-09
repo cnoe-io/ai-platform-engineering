@@ -1,5 +1,5 @@
-import { isRoleSupersededByRebac } from "./keycloak-transition";
 import type { RebacEnforcementStatusRecord } from "./enforcement-status";
+import { isRoleSupersededByRebac } from "./keycloak-transition";
 
 /**
  * Extract per-task / per-skill grants from Keycloak JWT realm_access.roles (098).

@@ -1,15 +1,15 @@
+import {
+type ConnectorDiagnostics,
+type ConnectorDiagnosticsAdapter,
+type ConnectorHealthSummary,
+type ConnectorRouteMetadata,
+type ConnectorRuntimeRouteDiagnostic,
+computeConnectorDiagnostics,
+computeConnectorHealthSummary,
+} from "@/lib/rbac/connector-diagnostics";
 import { readOpenFgaTuples } from "@/lib/rbac/openfga";
 import { slackChannelSubjectId } from "@/lib/rbac/slack-channel-grant-store";
 import { listSlackChannelAgentRoutes } from "@/lib/rbac/slack-channel-route-store";
-import {
-  type ConnectorDiagnostics,
-  type ConnectorDiagnosticsAdapter,
-  type ConnectorHealthSummary,
-  type ConnectorRouteMetadata,
-  type ConnectorRuntimeRouteDiagnostic,
-  computeConnectorDiagnostics,
-  computeConnectorHealthSummary,
-} from "@/lib/rbac/connector-diagnostics";
 
 export type SlackRuntimeRouteDiagnostic = ConnectorRuntimeRouteDiagnostic;
 

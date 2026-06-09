@@ -2,7 +2,7 @@
  * Shared helpers for the RBAC e2e suite.
  */
 
-import { Page, expect } from "@playwright/test";
+import { Page,expect } from "@playwright/test";
 import type { RbacEnv } from "./_env";
 
 /** Sign in by visiting the home page and walking the NextAuth -> Keycloak flow. */

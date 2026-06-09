@@ -1,4 +1,4 @@
-import { Client, type Group, type User } from "@okta/okta-sdk-nodejs";
+import { Client,type Group,type User } from "@okta/okta-sdk-nodejs";
 
 import type { ExternalGroup } from "@/types/identity-group-sync";
 

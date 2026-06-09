@@ -1,22 +1,22 @@
-import { type NextRequest } from "next/server";
-import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import {
-  withErrorHandler,
-  successResponse,
-  ApiError,
-  getAuthFromBearerOrSession,
-  requireRbacPermission,
+ApiError,
+getAuthFromBearerOrSession,
+requireRbacPermission,
+successResponse,
+withErrorHandler,
 } from "@/lib/api-middleware";
-import { requireUserProfileRead } from "@/lib/rbac/require-openfga";
+import { isMongoDBConfigured } from "@/lib/mongodb";
 import {
-  getRealmUserById,
-  listRealmRoleMappingsForUser,
-  getUserSessions,
-  getUserFederatedIdentities,
-  updateUser,
+getRealmUserById,
+getUserFederatedIdentities,
+getUserSessions,
+listRealmRoleMappingsForUser,
+updateUser,
 } from "@/lib/rbac/keycloak-admin";
 import { getRbacCollection } from "@/lib/rbac/mongo-collections";
+import { requireUserProfileRead } from "@/lib/rbac/require-openfga";
 import type { TeamMembershipSource } from "@/types/identity-group-sync";
+import { type NextRequest } from "next/server";
 
 function normalizeAttributes(raw: unknown): Record<string, string[]> {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
@@ -51,7 +51,7 @@ export const GET = withErrorHandler(
     ]);
 
     const email = String(kcUser.email ?? "").trim().toLowerCase();
-    let teams: Array<{ team_id: string; tenant_id: string }> = [];
+    const teams: Array<{ team_id: string; tenant_id: string }> = [];
 
     if (isMongoDBConfigured && email) {
       const sources = await getRbacCollection<TeamMembershipSource>("teamMembershipSources");

@@ -1,9 +1,8 @@
 "use client";
 
-import React from "react";
-import Link from "next/link";
-import { Bot, MessageSquare, Server, Zap, Database, Workflow, ArrowRight } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ArrowRight,Bot,Database,MessageSquare,Server,Workflow,Zap } from "lucide-react";
+import Link from "next/link";
 
 interface CapabilityCardsProps {
   ragEnabled: boolean;

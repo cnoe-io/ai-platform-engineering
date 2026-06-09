@@ -1,53 +1,53 @@
 "use client";
 
-import React from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+AiReviewButton,
+AiReviewPanel,
+buildLastReview,
+useAiReview,
+} from "@/components/ai-review";
+import { TeamOwnershipFields } from "@/components/rbac/TeamOwnershipFields";
+import { UnsavedChangesDialog } from "@/components/task-builder/UnsavedChangesDialog";
 import { Button } from "@/components/ui/button";
+import { Card,CardContent,CardDescription,CardHeader,CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { type TeamPickerOption } from "@/components/ui/team-picker";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowLeft, Loader2, Globe, Users, ChevronLeft, ChevronRight, Check, Sparkles, Eye, Pencil, GripHorizontal, ChevronDown } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import { getMarkdownComponents } from "@/lib/markdown-components";
-import { cn } from "@/lib/utils";
 import { useToast } from "@/components/ui/toast";
 import { useEditorDirtyTracking } from "@/hooks/use-editor-dirty-tracking";
+import { gradientThemes } from "@/lib/gradient-themes";
+import { getMarkdownComponents } from "@/lib/markdown-components";
+import { cn } from "@/lib/utils";
 import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
-import { UnsavedChangesDialog } from "@/components/task-builder/UnsavedChangesDialog";
-import { type TeamPickerOption } from "@/components/ui/team-picker";
-import { TeamOwnershipFields } from "@/components/rbac/TeamOwnershipFields";
-
-// Lazy-load CodeMirror to avoid SSR issues
-const CodeMirrorEditor = React.lazy(() => import("@uiw/react-codemirror"));
 import type {
-  DynamicAgentConfig,
-  DynamicAgentConfigCreate,
-  DynamicAgentConfigUpdate,
-  VisibilityType,
-  SubAgentRef,
-  BuiltinToolsConfig,
-  AgentUIConfig,
-  CustomThemeConfig,
-  FeaturesConfig,
-  InterruptOn,
+AgentUIConfig,
+BuiltinToolsConfig,
+CustomThemeConfig,
+DynamicAgentConfig,
+DynamicAgentConfigCreate,
+DynamicAgentConfigUpdate,
+FeaturesConfig,
+InterruptOn,
+SubAgentRef,
+VisibilityType,
 } from "@/types/dynamic-agent";
+import { AnimatePresence,motion } from "framer-motion";
+import { ArrowLeft,Check,ChevronDown,ChevronLeft,ChevronRight,Eye,Globe,GripHorizontal,Loader2,Pencil,Sparkles,Users } from "lucide-react";
+import React from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { AgentAvatar } from "./AgentAvatar";
 import { AllowedToolsPicker } from "./AllowedToolsPicker";
 import { BuiltinToolsPicker } from "./BuiltinToolsPicker";
 import { InterruptConfigPicker } from "./InterruptConfigPicker";
 import { MiddlewarePicker } from "./MiddlewarePicker";
-import { SubagentPicker } from "./SubagentPicker";
 import { SkillsSelector } from "./SkillsSelector";
+import { SubagentPicker } from "./SubagentPicker";
 import { WorkflowToolsPicker } from "./WorkflowToolsPicker";
-import { gradientThemes } from "@/lib/gradient-themes";
-import { AgentAvatar } from "./AgentAvatar";
-import {
-  useAiReview,
-  AiReviewButton,
-  AiReviewPanel,
-  buildLastReview,
-} from "@/components/ai-review";
+
+// Lazy-load CodeMirror to avoid SSR issues
+const CodeMirrorEditor = React.lazy(() => import("@uiw/react-codemirror"));
 
 interface DynamicAgentEditorProps {
   agent: DynamicAgentConfig | null; // null = creating new

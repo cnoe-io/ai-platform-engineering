@@ -1,28 +1,28 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth-config';
 import {
-  ApiError,
-  requireRbacPermission,
-  handleApiError,
+ApiError,
+handleApiError,
+requireRbacPermission,
 } from '@/lib/api-middleware';
-import type { RbacScope } from '@/lib/rbac/types';
+import { authOptions } from '@/lib/auth-config';
+import { getDevAnonymousSession,isDevAnonymousAuthEnabled } from '@/lib/auth/dev-auth-provider';
+import { checkOpenFgaTuple } from '@/lib/rbac/openfga';
 import {
-  filterResourcesByPermission,
-  requireResourcePermission,
-  type ResourceAuthzSession,
-  type ResourcePermissionAction,
+deleteAllMcpToolRelationshipTuples,
+reconcileDataSourceRelationships,
+reconcileKnowledgeBaseRelationships,
+reconcileMcpToolRelationships,
+} from '@/lib/rbac/openfga-owned-resources';
+import { organizationObjectId } from '@/lib/rbac/organization';
+import {
+filterResourcesByPermission,
+requireResourcePermission,
+type ResourceAuthzSession,
+type ResourcePermissionAction,
 } from '@/lib/rbac/resource-authz';
 import { resolveShareableOwnershipWrite } from '@/lib/rbac/shareable-resource';
-import {
-  reconcileDataSourceRelationships,
-  reconcileKnowledgeBaseRelationships,
-  reconcileMcpToolRelationships,
-  deleteAllMcpToolRelationshipTuples,
-} from '@/lib/rbac/openfga-owned-resources';
-import { checkOpenFgaTuple } from '@/lib/rbac/openfga';
-import { organizationObjectId } from '@/lib/rbac/organization';
-import { getDevAnonymousSession, isDevAnonymousAuthEnabled } from '@/lib/auth/dev-auth-provider';
+import type { RbacScope } from '@/lib/rbac/types';
+import { getServerSession } from 'next-auth';
+import { NextRequest,NextResponse } from 'next/server';
 
 /**
  * RAG API Proxy with JWT Bearer Token Authentication

@@ -1,19 +1,19 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { ObjectId } from 'mongodb';
-import { getCollection, isMongoDBConfigured } from '@/lib/mongodb';
 import {
-  getAuthFromBearerOrSession,
-  withErrorHandler,
-  successResponse,
-  requireRbacPermission,
-  ApiError,
+ApiError,
+getAuthFromBearerOrSession,
+requireRbacPermission,
+successResponse,
+withErrorHandler,
 } from '@/lib/api-middleware';
+import { getCollection,isMongoDBConfigured } from '@/lib/mongodb';
 import {
-  writeOpenFgaTuples,
-  readOpenFgaTuples,
-  type OpenFgaTupleKey,
+readOpenFgaTuples,
+writeOpenFgaTuples,
+type OpenFgaTupleKey,
 } from '@/lib/rbac/openfga';
 import { organizationObjectId } from '@/lib/rbac/organization';
+import { ObjectId } from 'mongodb';
+import { NextRequest,NextResponse } from 'next/server';
 
 /**
  * Explicit "search" capability grant for a team (spec

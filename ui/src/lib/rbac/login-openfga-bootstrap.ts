@@ -1,11 +1,11 @@
-import { writeOpenFgaTuples, type OpenFgaTupleKey } from "@/lib/rbac/openfga";
-import {
-  effectiveBaselineBootstrapTuples,
-  getBaselineFgaProfileBundle,
-  type TeamBaselineProfileOverride,
-} from "@/lib/rbac/baseline-access";
 import { getCollection } from "@/lib/mongodb";
+import {
+effectiveBaselineBootstrapTuples,
+getBaselineFgaProfileBundle,
+type TeamBaselineProfileOverride,
+} from "@/lib/rbac/baseline-access";
 import { getRbacCollection } from "@/lib/rbac/mongo-collections";
+import { writeOpenFgaTuples,type OpenFgaTupleKey } from "@/lib/rbac/openfga";
 import type { TeamMembershipSource } from "@/types/identity-group-sync";
 
 export type LoginOpenFgaBootstrapStatus = "skipped" | "completed" | "failed";

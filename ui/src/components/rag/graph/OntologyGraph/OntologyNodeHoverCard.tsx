@@ -1,6 +1,5 @@
 "use client";
 
-import React from 'react';
 import { MultiDirectedGraph } from 'graphology';
 
 interface OntologyNodeHoverCardProps {

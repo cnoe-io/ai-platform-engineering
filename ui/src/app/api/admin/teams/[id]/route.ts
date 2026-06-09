@@ -2,23 +2,23 @@
 // PATCH /api/admin/teams/[id] - Update team name/description
 // DELETE /api/admin/teams/[id] - Delete a team
 
-import { NextRequest, NextResponse } from 'next/server';
-import { ObjectId, type Document } from 'mongodb';
-import { getCollection, isMongoDBConfigured } from '@/lib/mongodb';
 import {
-  getAuthFromBearerOrSession,
-  withErrorHandler,
-  successResponse,
-  requireRbacPermission,
-  ApiError,
+ApiError,
+getAuthFromBearerOrSession,
+requireRbacPermission,
+successResponse,
+withErrorHandler,
 } from '@/lib/api-middleware';
+import { getCollection,isMongoDBConfigured } from '@/lib/mongodb';
 import { requireTeamMembershipManagementPermission } from '@/lib/rbac/team-admin-guards';
 import { listTeamMembershipSources } from '@/lib/rbac/team-membership-source-store';
 import {
-  computeTeamMembershipSyncReport,
-  readTeamOpenFgaTuples,
+computeTeamMembershipSyncReport,
+readTeamOpenFgaTuples,
 } from '@/lib/rbac/team-openfga-sync-status';
 import type { UpdateTeamRequest } from '@/types/teams';
+import { ObjectId,type Document } from 'mongodb';
+import { NextRequest,NextResponse } from 'next/server';
 
 interface TeamDocument extends Document {
   slug?: string;

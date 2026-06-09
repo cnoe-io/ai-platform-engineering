@@ -1,4 +1,3 @@
-import React from "react";
 import { AuthGuard } from "@/components/auth-guard";
 import { KbSharingPanel } from "@/components/rag/KbSharingPanel";
 

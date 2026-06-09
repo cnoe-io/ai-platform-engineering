@@ -1,5 +1,5 @@
 import { getServerSession } from "next-auth";
-import { notFound, redirect } from "next/navigation";
+import { notFound,redirect } from "next/navigation";
 
 import { CredentialsWorkspace } from "@/components/credentials/CredentialsWorkspace";
 import { authOptions } from "@/lib/auth-config";

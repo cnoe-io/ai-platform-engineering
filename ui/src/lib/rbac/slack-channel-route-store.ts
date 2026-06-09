@@ -1,9 +1,9 @@
 import type { Document } from "mongodb";
 
 import type {
-  SlackChannelAgentRoute,
-  SlackRouteEscalationConfig,
-  SlackRouteSideConfig,
+SlackChannelAgentRoute,
+SlackRouteEscalationConfig,
+SlackRouteSideConfig,
 } from "@/types/slack-rebac";
 
 import { getRbacCollection } from "./mongo-collections";

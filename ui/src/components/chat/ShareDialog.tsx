@@ -1,12 +1,12 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import { createPortal } from "react-dom";
-import { X, UserPlus, Copy, Check, Mail, Trash2, Users, Globe, ChevronDown } from "lucide-react";
 import { apiClient } from "@/lib/api-client";
 import { useChatStore } from "@/store/chat-store";
 import type { UserPublicInfo } from "@/types/mongodb";
 import type { Team } from "@/types/teams";
+import { Check,Copy,Globe,Mail,Trash2,Users,X } from "lucide-react";
+import { useEffect,useState } from "react";
+import { createPortal } from "react-dom";
 
 type SharePermission = 'view' | 'comment';
 
@@ -626,7 +626,7 @@ export function ShareDialog({
                           Share with {searchInput}
                         </button>
                         <p className="text-xs text-muted-foreground mt-2">
-                          They'll get access when they log in
+                          They&apos;ll get access when they log in
                         </p>
                       </>
                     )}

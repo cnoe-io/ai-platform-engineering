@@ -1,11 +1,11 @@
 "use client";
 
-import React, { useState, useRef, useEffect } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { Layers, ExternalLink, X, ChevronUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 import { getConfig } from "@/lib/config";
+import { cn } from "@/lib/utils";
+import { AnimatePresence,motion } from "framer-motion";
+import { ChevronUp,ExternalLink,Layers,X } from "lucide-react";
+import { useEffect,useRef,useState } from "react";
 
 interface TechItem {
   name: string;

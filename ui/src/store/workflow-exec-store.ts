@@ -1,5 +1,5 @@
-import { create } from "zustand";
 import type { StreamEvent } from "@/lib/streaming/types";
+import { create } from "zustand";
 
 /**
  * Workflow Execution Store (v2)

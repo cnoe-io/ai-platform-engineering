@@ -1,27 +1,27 @@
 "use client";
 
-import React from "react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Card,CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
+Tooltip,
+TooltipContent,
+TooltipProvider,
+TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Trash2, Loader2, AlertCircle, Bot, Globe, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { AgentAvatar } from "./AgentAvatar";
 import type {
-  SubAgentRef,
-  AvailableSubagent,
-  CustomThemeConfig,
-  VisibilityType,
-  LegacyVisibilityType,
+AvailableSubagent,
+CustomThemeConfig,
+LegacyVisibilityType,
+SubAgentRef,
+VisibilityType,
 } from "@/types/dynamic-agent";
+import { AlertCircle,Bot,Globe,Loader2,Trash2,Users } from "lucide-react";
+import React from "react";
+import { AgentAvatar } from "./AgentAvatar";
 
 // Loose shape for items returned by /api/dynamic-agents (the BFF list endpoint).
 // We accept LegacyVisibilityType so docs that still carry visibility:"private"

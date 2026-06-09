@@ -1,9 +1,9 @@
-import { create } from "zustand";
 import type {
-  TaskConfig,
-  CreateTaskConfigInput,
-  UpdateTaskConfigInput,
+CreateTaskConfigInput,
+TaskConfig,
+UpdateTaskConfigInput,
 } from "@/types/task-config";
+import { create } from "zustand";
 
 /**
  * Task Config Store

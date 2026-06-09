@@ -16,10 +16,9 @@
  * lands there automatically because both subscribe to the same hook.
  */
 
-import * as React from "react";
-import { Check, Loader2, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { Check,Loader2,ShieldCheck } from "lucide-react";
 import type { UseAiReviewResult } from "./use-ai-review";
 
 export interface AiReviewButtonProps {

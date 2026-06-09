@@ -1,15 +1,14 @@
-import { NextRequest, NextResponse } from 'next/server';
 import {
-  withErrorHandler,
-  getPaginationParams,
-  paginatedResponse,
-  ApiError,
-  getAuthFromBearerOrSession,
-  requireRbacPermission,
+getAuthFromBearerOrSession,
+getPaginationParams,
+paginatedResponse,
+requireRbacPermission,
+withErrorHandler
 } from '@/lib/api-middleware';
-import { getCollection, isMongoDBConfigured } from '@/lib/mongodb';
 import { getServerConfig } from '@/lib/config';
+import { getCollection,isMongoDBConfigured } from '@/lib/mongodb';
 import type { Conversation } from '@/types/mongodb';
+import { NextRequest,NextResponse } from 'next/server';
 
 export const GET = withErrorHandler(async (request: NextRequest) => {
   if (!isMongoDBConfigured) {

@@ -1,13 +1,13 @@
-import { NextRequest } from "next/server";
 import {
-  withErrorHandler,
-  successResponse,
-  ApiError,
-  getAuthFromBearerOrSession,
-  requireRbacPermission,
+ApiError,
+getAuthFromBearerOrSession,
+requireRbacPermission,
+successResponse,
+withErrorHandler,
 } from "@/lib/api-middleware";
-import { getRealmUserById, mergeUserAttributes } from "@/lib/rbac/keycloak-admin";
+import { getRealmUserById,mergeUserAttributes } from "@/lib/rbac/keycloak-admin";
 import { createWebexLinkNonce } from "@/lib/rbac/webex-link-nonce";
+import { NextRequest } from "next/server";
 
 function readWebexId(attrs: unknown): string | undefined {
   if (!attrs || typeof attrs !== "object" || Array.isArray(attrs)) return undefined;

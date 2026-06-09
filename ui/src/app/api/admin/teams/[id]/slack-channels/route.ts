@@ -19,19 +19,19 @@
  *   so the team-card StatChip can show a count without an extra round-trip.
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import { ObjectId } from "mongodb";
-import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import {
-  getAuthFromBearerOrSession,
-  withErrorHandler,
-  successResponse,
-  ApiError,
+ApiError,
+getAuthFromBearerOrSession,
+successResponse,
+withErrorHandler,
 } from "@/lib/api-middleware";
+import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
 import { writeOpenFgaTupleDiff } from "@/lib/rbac/openfga";
 import { requireResourcePermission } from "@/lib/rbac/resource-authz";
-import { slackChannelSubjectId, slackWorkspaceRef } from "@/lib/rbac/slack-channel-grant-store";
+import { slackChannelSubjectId,slackWorkspaceRef } from "@/lib/rbac/slack-channel-grant-store";
 import type { Team } from "@/types/teams";
+import { ObjectId } from "mongodb";
+import { NextRequest,NextResponse } from "next/server";
 
 interface ChannelTeamMappingDoc {
   _id?: ObjectId;

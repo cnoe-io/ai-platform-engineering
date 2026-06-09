@@ -2,7 +2,7 @@
 // This creates a singleton connection that is reused across API requests
 // Supports graceful degradation - if MongoDB is not configured, APIs will return appropriate errors
 
-import { MongoClient, Db, Collection, Document } from 'mongodb';
+import { Collection,Db,Document,MongoClient } from 'mongodb';
 
 // MongoDB is optional - check if it's configured
 const uri = process.env.MONGODB_URI;

@@ -16,26 +16,26 @@
  * OpenFGA tuple store is the resource PDP.
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import { ObjectId } from "mongodb";
-import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import {
-  getAuthFromBearerOrSession,
-  withErrorHandler,
-  successResponse,
-  requireRbacPermission,
-  ApiError,
+ApiError,
+getAuthFromBearerOrSession,
+requireRbacPermission,
+successResponse,
+withErrorHandler,
 } from "@/lib/api-middleware";
-import { requireTeamMembershipManagementPermission } from "@/lib/rbac/team-admin-guards";
+import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
 import {
-  findUserIdByEmail,
+findUserIdByEmail,
 } from "@/lib/rbac/keycloak-admin";
 import {
-  buildTeamResourceTupleDiff,
-  writeOpenFgaTupleDiff,
+buildTeamResourceTupleDiff,
+writeOpenFgaTupleDiff,
 } from "@/lib/rbac/openfga";
+import { requireTeamMembershipManagementPermission } from "@/lib/rbac/team-admin-guards";
 import { loadActiveTeamMembers } from "@/lib/rbac/team-membership-store";
 import type { Team } from "@/types/teams";
+import { ObjectId } from "mongodb";
+import { NextRequest,NextResponse } from "next/server";
 
 interface DynamicAgentLite {
   _id: string;

@@ -1,15 +1,15 @@
 import {
-  isOpenFgaReconciliationEnabled,
-  readOpenFgaTuples,
-  writeOpenFgaTupleDiff,
-  type OpenFgaReconcileResult,
-  type OpenFgaTupleKey,
-  type TeamResourceTupleDiff,
+isOpenFgaReconciliationEnabled,
+readOpenFgaTuples,
+writeOpenFgaTupleDiff,
+type OpenFgaReconcileResult,
+type OpenFgaTupleKey,
+type TeamResourceTupleDiff,
 } from "./openfga";
-
-export type { TeamResourceTupleDiff } from "./openfga";
 import { openFgaResourceId } from "./openfga-resource-ids";
 import { organizationObjectId } from "./organization";
+
+export type { TeamResourceTupleDiff } from "./openfga";
 
 const OPENFGA_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._~@|*+=,/-]{0,191}$/;
 

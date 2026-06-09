@@ -1,15 +1,15 @@
 import { NextRequest } from "next/server";
 
-import { getAuthFromBearerOrSession, successResponse, withErrorHandler } from "@/lib/api-middleware";
+import { getAuthFromBearerOrSession,successResponse,withErrorHandler } from "@/lib/api-middleware";
 import { getCollection } from "@/lib/mongodb";
 import { checkOpenFgaTuple } from "@/lib/rbac/openfga";
-import { listSlackChannelGrants, slackWorkspaceRef } from "@/lib/rbac/slack-channel-grant-store";
-import { subjectFromSession } from "@/lib/rbac/resource-authz";
 import { requireAdminSurfaceManage } from "@/lib/rbac/require-openfga";
+import { subjectFromSession } from "@/lib/rbac/resource-authz";
 import {
-  computeSlackChannelHealthSummary,
-  type SlackChannelHealthSummary,
+computeSlackChannelHealthSummary,
+type SlackChannelHealthSummary,
 } from "@/lib/rbac/slack-channel-diagnostics";
+import { listSlackChannelGrants,slackWorkspaceRef } from "@/lib/rbac/slack-channel-grant-store";
 import type { SlackChannelAgentRouteDocument } from "@/lib/rbac/slack-channel-route-store";
 
 interface ChannelTeamMappingDoc {

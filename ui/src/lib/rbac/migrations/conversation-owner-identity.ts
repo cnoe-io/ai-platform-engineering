@@ -1,4 +1,4 @@
-import type { MigrationApplyResult, MigrationPlanResult } from "./types";
+import type { MigrationApplyResult,MigrationPlanResult } from "./types";
 
 export const CONVERSATION_OWNER_IDENTITY_MIGRATION_ID = "conversation_owner_identity_v1";
 export const CONVERSATION_OWNER_IDENTITY_CONFIRMATION = "MIGRATE conversations TO v2";

@@ -1,5 +1,5 @@
-import React from "react";
 import { config } from "@/lib/config";
+import React from "react";
 import { WorkflowsLayoutClient } from "./layout-client";
 
 /**

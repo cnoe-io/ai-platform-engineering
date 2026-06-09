@@ -1,15 +1,15 @@
 import { NextRequest } from "next/server";
 
 import {
-  getAuthFromBearerOrSession,
-  requireRbacPermission,
-  successResponse,
-  withErrorHandler,
+getAuthFromBearerOrSession,
+requireRbacPermission,
+successResponse,
+withErrorHandler,
 } from "@/lib/api-middleware";
 import { getCollection } from "@/lib/mongodb";
-import { writeOpenFgaTupleDiff, buildUniversalRebacTupleDiff } from "@/lib/rbac/openfga";
-import { slackChannelTeamVisibilityRelationships } from "@/lib/rbac/slack-channel-rebac";
+import { buildUniversalRebacTupleDiff,writeOpenFgaTupleDiff } from "@/lib/rbac/openfga";
 import { slackWorkspaceRef } from "@/lib/rbac/slack-channel-grant-store";
+import { slackChannelTeamVisibilityRelationships } from "@/lib/rbac/slack-channel-rebac";
 import { callSlackBotAdmin } from "@/lib/slack-bot-admin";
 import type { Team } from "@/types/teams";
 

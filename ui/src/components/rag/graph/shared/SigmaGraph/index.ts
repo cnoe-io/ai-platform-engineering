@@ -1,3 +1,3 @@
-export { default as SigmaGraph } from './SigmaGraph';
-export type { SigmaGraphProps, GraphFilters } from './SigmaGraph';
 export * from './controllers';
+export { default as SigmaGraph } from './SigmaGraph';
+export type { GraphFilters,SigmaGraphProps } from './SigmaGraph';

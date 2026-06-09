@@ -1,20 +1,20 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import {
-  withErrorHandler,
-  ApiError,
-  validateCredentialsRef,
-  getAuthFromBearerOrSession,
+ApiError,
+getAuthFromBearerOrSession,
+validateCredentialsRef,
+withErrorHandler,
 } from "@/lib/api-middleware";
-import { requireAdminSurfaceManage, requireBaselineAdminSurfaceRead } from "@/lib/rbac/require-openfga";
-import {
-  normalizeHubLocation,
-  validateIncludePaths,
-  validateMaxTreePages,
-} from "./_lib/normalize";
-import { ObjectId } from "mongodb";
-import type { HubLastCrawlTruncation } from "@/lib/hub-crawl";
 import type { CrawlEvent } from "@/lib/crawl-events";
+import type { HubLastCrawlTruncation } from "@/lib/hub-crawl";
+import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
+import { requireAdminSurfaceManage,requireBaselineAdminSurfaceRead } from "@/lib/rbac/require-openfga";
+import { ObjectId } from "mongodb";
+import { NextRequest,NextResponse } from "next/server";
+import {
+normalizeHubLocation,
+validateIncludePaths,
+validateMaxTreePages,
+} from "./_lib/normalize";
 
 /**
  * Skill Hubs API — Admin endpoints for managing external skill hubs.

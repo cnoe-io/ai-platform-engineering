@@ -9,14 +9,14 @@
  * LLM proxy with no knowledge of agent fields.
  */
 
-import { NextRequest, NextResponse } from "next/server";
 import {
-  withErrorHandler,
-  successResponse,
-  ApiError,
+ApiError,
+successResponse,
+withErrorHandler,
 } from "@/lib/api-middleware";
-import { authenticateRequest, buildBackendHeaders } from "@/lib/da-proxy";
+import { authenticateRequest,buildBackendHeaders } from "@/lib/da-proxy";
 import { gradientThemes } from "@/lib/gradient-themes";
+import { NextRequest,NextResponse } from "next/server";
 
 const DYNAMIC_AGENTS_URL =
   process.env.DYNAMIC_AGENTS_URL || "http://localhost:8100";

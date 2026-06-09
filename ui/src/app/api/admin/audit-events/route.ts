@@ -1,13 +1,13 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
+import { ApiError,requireRbacPermission,withErrorHandler } from "@/lib/api-middleware";
 import { authOptions } from "@/lib/auth-config";
-import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
-import { requireRbacPermission, withErrorHandler, ApiError } from "@/lib/api-middleware";
+import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
 import type {
-  AuditEventType,
-  UnifiedAuditEvent,
-  UnifiedAuditOutcome,
+AuditEventType,
+UnifiedAuditEvent,
+UnifiedAuditOutcome,
 } from "@/lib/rbac/types";
+import { getServerSession } from "next-auth";
+import { NextRequest,NextResponse } from "next/server";
 
 const COLLECTION = "audit_events";
 

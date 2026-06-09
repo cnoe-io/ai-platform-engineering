@@ -9,17 +9,17 @@
  * Only returns enabled agents.
  */
 
-import { NextRequest } from "next/server";
-import { getCollection } from "@/lib/mongodb";
 import {
-  withErrorHandler,
-  successResponse,
-  getAuthFromBearerOrSession,
+getAuthFromBearerOrSession,
+successResponse,
+withErrorHandler,
 } from "@/lib/api-middleware";
-import { baselineBootstrapTuples, getBaselineFgaProfile } from "@/lib/rbac/baseline-access";
-import { filterResourcesByPermission } from "@/lib/rbac/resource-authz";
+import { getCollection } from "@/lib/mongodb";
+import { baselineBootstrapTuples,getBaselineFgaProfile } from "@/lib/rbac/baseline-access";
 import { writeOpenFgaTuples } from "@/lib/rbac/openfga";
+import { filterResourcesByPermission } from "@/lib/rbac/resource-authz";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
+import { NextRequest } from "next/server";
 
 const COLLECTION_NAME = "dynamic_agents";
 const OPENFGA_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._~@|*+=,/-]{0,191}$/;

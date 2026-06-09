@@ -1,23 +1,23 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import {
-  ChevronDown,
-  ChevronUp,
-  Loader2,
-  CheckCircle,
-  XCircle,
-  Clock,
-  ListTodo,
-  Wrench,
-  MessageSquareText,
-  PauseCircle,
-} from "lucide-react";
-import { cn } from "@/lib/utils";
-import type { SupervisorTimelineSegment, PlanStep, ToolCallInfo } from "@/types/a2a";
-import { AgentLogo, getAgentLogo } from "@/components/shared/AgentLogos";
+import { AgentLogo,getAgentLogo } from "@/components/shared/AgentLogos";
 import { MarkdownRenderer } from "@/components/shared/timeline";
+import { cn } from "@/lib/utils";
+import type { PlanStep,SupervisorTimelineSegment,ToolCallInfo } from "@/types/a2a";
+import { AnimatePresence,motion } from "framer-motion";
+import {
+CheckCircle,
+ChevronDown,
+ChevronUp,
+Clock,
+ListTodo,
+Loader2,
+MessageSquareText,
+PauseCircle,
+Wrench,
+XCircle,
+} from "lucide-react";
+import React,{ useMemo,useState } from "react";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 

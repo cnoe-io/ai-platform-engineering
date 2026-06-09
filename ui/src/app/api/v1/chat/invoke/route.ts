@@ -5,15 +5,15 @@
  * Response: JSON { success, content, agent_id, conversation_id, trace_id }
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import {
-  authenticateRequest,
-  getDynamicAgentsConfig,
-  proxyJSONRequest,
-} from "../_helpers";
-import { requireAgentUsePermission } from "@/lib/rbac/openfga-agent-authz";
 import { createAuthzTraceContext } from "@/lib/rbac/authz-tracing";
+import { requireAgentUsePermission } from "@/lib/rbac/openfga-agent-authz";
+import { NextRequest,NextResponse } from "next/server";
 import { requireConversationWriteAccess } from "../_conversation-authz";
+import {
+authenticateRequest,
+getDynamicAgentsConfig,
+proxyJSONRequest,
+} from "../_helpers";
 
 export const runtime = "nodejs";
 export const maxDuration = 300; // 5 minutes — invoke runs the full agent loop

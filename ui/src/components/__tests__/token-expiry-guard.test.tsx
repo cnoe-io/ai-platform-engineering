@@ -73,6 +73,7 @@ describe('TokenExpiryGuard', () => {
     Object.defineProperty(window, 'open', { value: mockWindowOpen, writable: true })
 
     // Reset getConfig mock to default (ssoEnabled = true)
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { getConfig } = require('@/lib/config')
     getConfig.mockImplementation((key: string) => {
       if (key === 'ssoEnabled') return true
@@ -93,6 +94,7 @@ describe('TokenExpiryGuard', () => {
   // ─────────────────────────────────────────────────────────────────────
 
   it('should render nothing when SSO is not enabled', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { getConfig } = require('@/lib/config')
     getConfig.mockReturnValue(false)
 

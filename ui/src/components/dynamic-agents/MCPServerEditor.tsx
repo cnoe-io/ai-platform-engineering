@@ -1,20 +1,20 @@
 "use client";
 
-import React from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Card,CardContent,CardDescription,CardHeader,CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Loader2, Plus, X } from "lucide-react";
 import type {
-  MCPServerConfig,
-  MCPServerConfigCreate,
-  MCPServerConfigUpdate,
-  MCPCredentialSource,
-  TransportType,
+MCPCredentialSource,
+MCPServerConfig,
+MCPServerConfigCreate,
+MCPServerConfigUpdate,
+TransportType,
 } from "@/types/dynamic-agent";
+import { ArrowLeft,Loader2,Plus,X } from "lucide-react";
+import React from "react";
 
 interface MCPServerEditorProps {
   server: MCPServerConfig | null; // null = creating new

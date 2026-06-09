@@ -24,11 +24,11 @@
 
 "use client";
 
-import * as React from "react";
-import { Check, ChevronDown, Search, X } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Badge } from "@/components/ui/badge";
+import { Popover,PopoverContent,PopoverTrigger } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
+import { Check,ChevronDown,Search,X } from "lucide-react";
+import * as React from "react";
 
 /**
  * One team entry. `slug` is the OpenFGA subject identifier (what we

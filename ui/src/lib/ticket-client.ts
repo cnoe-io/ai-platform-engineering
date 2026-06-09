@@ -1,7 +1,7 @@
 "use client";
 
-import { SSEClient, type SSEEvent } from "@/lib/sse-streaming-client";
 import { getConfig } from "@/lib/config";
+import { SSEClient,type SSEEvent } from "@/lib/sse-streaming-client";
 
 export interface FeedbackContext {
   reason: string;

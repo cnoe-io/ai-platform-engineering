@@ -1,7 +1,7 @@
 "use client";
 
 import { useSigma } from "@react-sigma/core";
-import { FC, PropsWithChildren, useEffect } from "react";
+import { FC,PropsWithChildren,useEffect } from "react";
 
 const CameraController: FC<PropsWithChildren> = ({ children }) => {
     const sigma = useSigma();

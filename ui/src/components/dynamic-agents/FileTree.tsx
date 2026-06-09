@@ -1,9 +1,9 @@
 "use client";
 
-import React, { useMemo, useCallback } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { FileText, Folder, Download, Loader2, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { AnimatePresence,motion } from "framer-motion";
+import { Download,FileText,Folder,Loader2,Trash2 } from "lucide-react";
+import React,{ useCallback,useMemo } from "react";
 
 interface FileTreeProps {
   /** List of file paths from the agent's in-memory filesystem */
