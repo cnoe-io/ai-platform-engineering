@@ -616,7 +616,7 @@ class AgentRuntime:
         memory_config = self.config.builtin_tools.memory if self.config.builtin_tools else None
         if not memory_config or not memory_config.enabled or not memory_config.context_providers:
             return tools
-        if not self._user or not self._session_id:
+        if not self._memory_service or not self._user or not self._session_id:
             return tools
 
         provider_by_tool = {
@@ -792,7 +792,7 @@ class AgentRuntime:
         memory_config = self.config.builtin_tools.memory if self.config.builtin_tools else None
         if not memory_config or not memory_config.enabled:
             return None
-        if not self._memory_enabled() or not self._user:
+        if not self._memory_enabled() or not self._memory_service or not self._user:
             return None
 
         memories = self._memory_service.get_layered_memories(
