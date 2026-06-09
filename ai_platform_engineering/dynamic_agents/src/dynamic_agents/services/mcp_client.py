@@ -23,6 +23,17 @@ _TEXT_FILE_MIME_TYPES = {
     "text/vtt",
 }
 _INLINE_TEXT_FILE_MAX_BYTES = 1_000_000
+_CAIPE_USER_EMAIL_HEADER = "X-CAIPE-User-Email"
+_IDENTITY_HEADER_SERVER_IDS = {"pod_meeting"}
+
+
+def _identity_headers(server: MCPServerConfig, user_email: str | None) -> dict[str, str]:
+    if not user_email:
+        return {}
+    endpoint = server.endpoint or ""
+    if server.id not in _IDENTITY_HEADER_SERVER_IDS and "mcp-pod-meeting" not in endpoint:
+        return {}
+    return {_CAIPE_USER_EMAIL_HEADER: user_email}
 
 
 def _resolve_user_oauth_headers(server: MCPServerConfig, user_email: str | None) -> dict[str, str]:
@@ -77,12 +88,13 @@ def _resolve_auth_headers(
     server: MCPServerConfig, user_email: str | None
 ) -> dict[str, str]:
     """Dispatch to the right auth resolver based on ``server.auth.type``."""
+    headers = _identity_headers(server, user_email)
     if server.auth is None:
-        return {}
+        return headers
     if server.auth.type == MCPAuthType.USER_OAUTH:
-        return _resolve_user_oauth_headers(server, user_email)
+        return {**headers, **_resolve_user_oauth_headers(server, user_email)}
     if server.auth.type == MCPAuthType.BOT_TOKEN:
-        return _resolve_bot_token_headers(server)
+        return {**headers, **_resolve_bot_token_headers(server)}
     raise VendorTokenError(
         f"MCP server '{server.id}': unsupported auth.type: {server.auth.type}"
     )

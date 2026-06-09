@@ -72,6 +72,7 @@ describe('getServerConfig', () => {
         'LOGO_STYLE', 'SPINNER_COLOR', 'TAGLINE', 'DESCRIPTION',
         'APP_NAME', 'LOGO_URL', 'GRADIENT_FROM', 'GRADIENT_TO',
         'SUPPORT_EMAIL', 'FEEDBACK_ENABLED', 'NPS_ENABLED', 'AUDIT_LOGS_ENABLED',
+        'POD_OWNER_MIGRATION_ENABLED',
         'DEFAULT_FONT_SIZE', 'DEFAULT_FONT_FAMILY',
         'DEFAULT_THEME', 'DEFAULT_GRADIENT_THEME',
       );
@@ -107,6 +108,7 @@ describe('getServerConfig', () => {
       expect(cfg.supportEmail).toBe('support@example.com');
       expect(cfg.allowDevAdminWhenSsoDisabled).toBe(false);
       expect(cfg.auditLogsEnabled).toBe(false);
+      expect(cfg.podOwnerMigrationEnabled).toBe(true);
       expect(cfg.defaultNewChatAgentId).toBeNull();
       expect(cfg.scheduleEditorAgentId).toBeNull();
       expect(cfg.storageMode).toBe('localStorage');
@@ -145,7 +147,7 @@ describe('getServerConfig', () => {
         'storageMode', 'enabledIntegrationIcons', 'faviconUrl',
         'docsUrl', 'sourceUrl', 'workflowRunnerEnabled', 'feedbackEnabled',
         'allowBuiltinSkillMutation',
-        'npsEnabled', 'auditLogsEnabled',
+        'npsEnabled', 'auditLogsEnabled', 'podOwnerMigrationEnabled',
         'defaultFontSize', 'defaultFontFamily', 'defaultTheme', 'defaultGradientTheme',
         'dynamicAgentsEnabled', 'dynamicAgentsUrl', 'defaultNewChatAgentId',
         'scheduleEditorAgentId',
@@ -494,6 +496,29 @@ describe('getServerConfig', () => {
 
       process.env.AUDIT_LOGS_ENABLED = 'TRUE';
       expect(getServerConfig().auditLogsEnabled).toBe(false);
+    });
+  });
+
+  // ---------- podOwnerMigrationEnabled ----------
+
+  describe('podOwnerMigrationEnabled', () => {
+    beforeEach(() => clearEnv('POD_OWNER_MIGRATION_ENABLED'));
+
+    it('should default to true (enabled)', () => {
+      expect(getServerConfig().podOwnerMigrationEnabled).toBe(true);
+    });
+
+    it.each(['false', '0', 'off', 'no'])('should be false when POD_OWNER_MIGRATION_ENABLED=%s', (value) => {
+      process.env.POD_OWNER_MIGRATION_ENABLED = value;
+      expect(getServerConfig().podOwnerMigrationEnabled).toBe(false);
+    });
+
+    it('should be true for other values', () => {
+      process.env.POD_OWNER_MIGRATION_ENABLED = 'true';
+      expect(getServerConfig().podOwnerMigrationEnabled).toBe(true);
+
+      process.env.POD_OWNER_MIGRATION_ENABLED = 'banana';
+      expect(getServerConfig().podOwnerMigrationEnabled).toBe(true);
     });
   });
 
@@ -936,9 +961,10 @@ describe('getClientConfigScript (XSS safety)', () => {
       'storageMode', 'enabledIntegrationIcons', 'faviconUrl',
       'docsUrl', 'sourceUrl', 'workflowRunnerEnabled', 'feedbackEnabled',
       'allowBuiltinSkillMutation',
-      'npsEnabled', 'auditLogsEnabled',
+      'npsEnabled', 'auditLogsEnabled', 'podOwnerMigrationEnabled',
       'defaultFontSize', 'defaultFontFamily', 'defaultTheme', 'defaultGradientTheme',
-      'dynamicAgentsEnabled', 'dynamicAgentsUrl',
+      'dynamicAgentsEnabled', 'dynamicAgentsUrl', 'defaultNewChatAgentId',
+      'scheduleEditorAgentId',
       'reportProblemEnabled',
       'jiraTicketEnabled', 'jiraTicketProject', 'jiraTicketLabel',
       'githubTicketEnabled', 'githubTicketRepo', 'githubTicketLabel',

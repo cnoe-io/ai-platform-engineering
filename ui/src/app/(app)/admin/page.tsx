@@ -35,6 +35,7 @@ import { CrawlConsoleHeaderPill } from "@/components/admin/CrawlConsoleHeaderPil
 import { UserDetailPanel } from "@/components/admin/UserDetailPanel";
 import { SupervisorSkillsStatusSection } from "@/components/admin/SupervisorSkillsStatusSection";
 import { SchedulerAdminTab } from "@/components/admin/SchedulerAdminTab";
+import { PodOwnerMigrationTab } from "@/components/admin/PodOwnerMigrationTab";
 import { useAdminRole } from "@/hooks/use-admin-role";
 import { getConfig } from "@/lib/config";
 import { apiClient } from "@/lib/api-client";
@@ -197,7 +198,7 @@ interface Team {
   }>;
 }
 
-const VALID_TABS = ['users', 'teams', 'stats', 'skills', 'feedback', 'nps', 'metrics', 'health', 'scheduler', 'policy', 'audit-logs'];
+const VALID_TABS = ['users', 'teams', 'stats', 'skills', 'feedback', 'nps', 'metrics', 'health', 'pod-owner-migration', 'scheduler', 'policy', 'audit-logs'];
 
 function AdminPage() {
   const { status } = useSession();
@@ -206,6 +207,7 @@ function AdminPage() {
   const pathname = usePathname();
   const { isAdmin } = useAdminRole();
   const auditLogsEnabled = getConfig('auditLogsEnabled');
+  const podOwnerMigrationEnabled = getConfig('podOwnerMigrationEnabled');
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [globalOverview, setGlobalOverview] = useState<AdminStats['overview'] | null>(null);
   const [skillStats, setSkillStats] = useState<SkillMetricsAdmin | null>(null);
@@ -221,14 +223,24 @@ function AdminPage() {
   const [selectedUserEmail, setSelectedUserEmail] = useState<string | null>(null);
   const [updatingRole, setUpdatingRole] = useState<string | null>(null);
   const initialTab = searchParams.get('tab');
+  const visibleTabs = React.useMemo(
+    () => VALID_TABS.filter((tab) => tab !== 'pod-owner-migration' || podOwnerMigrationEnabled),
+    [podOwnerMigrationEnabled],
+  );
   const [activeTab, setActiveTab] = useState(
-    initialTab && VALID_TABS.includes(initialTab) ? initialTab : 'users'
+    initialTab && visibleTabs.includes(initialTab) ? initialTab : 'users'
   );
   const [createTeamDialogOpen, setCreateTeamDialogOpen] = useState(false);
   const [teamDetailsOpen, setTeamDetailsOpen] = useState(false);
   const [selectedTeam, setSelectedTeam] = useState<TeamType | null>(null);
   const [teamDialogMode, setTeamDialogMode] = useState<"details" | "members">("details");
   const [deletingTeam, setDeletingTeam] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!visibleTabs.includes(activeTab)) {
+      setActiveTab('users');
+    }
+  }, [activeTab, visibleTabs]);
   // ── Shared filters (source, users, date range) across feedback + stats tabs ──
   const initSource = searchParams.get('source') as 'all' | 'web' | 'slack' | null;
   const initUsers = searchParams.get('users');
@@ -822,9 +834,10 @@ function AdminPage() {
                   + (getConfig('feedbackEnabled') ? 1 : 0)
                   + (getConfig('npsEnabled') ? 1 : 0)
                   + (auditLogsEnabled && isAdmin ? 1 : 0)
+                  + (podOwnerMigrationEnabled && isAdmin ? 1 : 0)
                   + (isAdmin ? 1 : 0)
                   + (isAdmin ? 1 : 0);
-                const cols: Record<number, string> = { 6: 'grid-cols-6', 7: 'grid-cols-7', 8: 'grid-cols-8', 9: 'grid-cols-9', 10: 'grid-cols-10', 11: 'grid-cols-11' };
+                const cols: Record<number, string> = { 6: 'grid-cols-6', 7: 'grid-cols-7', 8: 'grid-cols-8', 9: 'grid-cols-9', 10: 'grid-cols-10', 11: 'grid-cols-11', 12: 'grid-cols-12' };
                 return cols[n] ?? 'grid-cols-6';
               })()}`}>
                 <TabsTrigger value="users" className="gap-2">
@@ -863,6 +876,12 @@ function AdminPage() {
                   <Database className="h-4 w-4" />
                   Health
                 </TabsTrigger>
+                {podOwnerMigrationEnabled && isAdmin && (
+                  <TabsTrigger value="pod-owner-migration" className="gap-2">
+                    <Users className="h-4 w-4" />
+                    Pod Owners
+                  </TabsTrigger>
+                )}
                 {isAdmin && (
                   <TabsTrigger value="scheduler" className="gap-2">
                     <Calendar className="h-4 w-4" />
@@ -2511,6 +2530,13 @@ function AdminPage() {
               <TabsContent value="health" className="space-y-4">
                 <HealthTab />
               </TabsContent>
+
+              {/* Pod Owner Migration Tab (temporary, gated by POD_OWNER_MIGRATION_ENABLED + admin role) */}
+              {podOwnerMigrationEnabled && isAdmin && (
+                <TabsContent value="pod-owner-migration" className="space-y-4">
+                  <PodOwnerMigrationTab isAdmin={isAdmin} />
+                </TabsContent>
+              )}
 
               {/* Scheduler Tab (admin only) */}
               {isAdmin && (
