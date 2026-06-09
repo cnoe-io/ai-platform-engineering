@@ -33,11 +33,12 @@ from __future__ import annotations
 
 import logging
 import os
-import time
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
 import httpx
+
+from .bff_client import bff_headers, resolve_bff_base_url, service_account_token
 
 logger = logging.getLogger("caipe.slack_bot.keycloak_admin")
 
@@ -49,24 +50,21 @@ logger = logging.getLogger("caipe.slack_bot.keycloak_admin")
 # JIT is the path that creates a Keycloak shell user the first time a Slack
 # user DMs the bot, when no Keycloak user with their email exists yet.
 #
-# Design choice (spec 103, FR-004 / FR-005): JIT reuses the *same*
-# ``KEYCLOAK_SLACK_BOT_ADMIN_*`` credentials as the lookup paths above —
-# i.e. it goes through the existing ``KeycloakAdminConfig``. We deliberately
-# did NOT introduce a separate ``caipe-slack-bot-provisioner`` client. The
-# trade-off (one secret can both read and create users) is documented in
-# ``docs/docs/specs/103-slack-jit-user-creation/plan.md`` R-8 and accepted
-# in exchange for operational simplicity (one Secret to manage, one rotation
-# procedure, one audit identity).
+# Since issue #1781, JIT does NOT touch the Keycloak Admin API from the
+# slack-bot. Instead ``create_user_from_slack`` calls the first-party BFF
+# endpoint ``POST /api/admin/users/provision-shell`` (Next.js UI), which is
+# the single canonical create-or-resolve implementation shared with the
+# Okta / IdP directory sync. This removes the layering smell of a bot
+# reaching Keycloak Admin directly and collapses two language-duplicated
+# spec-103 implementations into one.
 #
-# Compensating mitigations:
-# 1. The ``create_user_from_slack`` helper below is the ONLY function that
-#    POSTs to ``/users``; callers never get a generic "POST any user" surface.
-# 2. Any follow-up ``PUT /users/{id}`` performed inside this helper targets
-#    the just-returned UUID only — never an arbitrary id passed in.
-# 3. The Slack JIT path needs only {view-users, query-users, manage-users}.
-#    The default ``caipe-platform`` service account also holds the narrow
-#    client/authz roles required by the Web UI BFF's Keycloak RBAC migration;
-#    this helper still exposes only user lookup/create operations.
+# Auth: the call carries the bot's own service-account bearer token plus
+# ``X-Client-Source: slack-bot`` (see :mod:`bff_client`), and the BFF graphs
+# it as ``service_account:<sub>`` gated on ``admin_surface:user_provisioning``
+# in OpenFGA. The ``KEYCLOAK_SLACK_BOT_ADMIN_*`` credentials are still used by
+# the *lookup / attribute* helpers in this module (``get_user_by_*``,
+# ``set_user_attribute``), which were not in scope for #1781 — only user
+# *creation* moved behind the BFF.
 
 
 class JitError(Exception):
@@ -356,11 +354,14 @@ async def fetch_user_realm_role_names(
         return [str(r.get("name", "")) for r in raw if r.get("name")]
 
 
-def _rfc3339_now() -> str:
-    """RFC3339 timestamp in UTC with second precision (e.g.
-    ``2026-04-22T18:05:11Z``). Used as the value of the ``created_at``
-    user attribute (FR-003)."""
-    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+# Source tag recorded as the ``created_by`` attribute on JIT users the bot
+# provisions, so the origin of a shell account is auditable in Keycloak.
+_SLACK_JIT_SOURCE = "slack-bot:jit"
+
+# The BFF endpoint timeout. Generous relative to the ~10s used for direct
+# Keycloak calls because the BFF itself does a lookup + create round-trip to
+# Keycloak on a miss.
+_PROVISION_TIMEOUT_SECONDS = 15.0
 
 
 async def create_user_from_slack(
@@ -368,104 +369,96 @@ async def create_user_from_slack(
     email: str,
     config: KeycloakAdminConfig | None = None,
 ) -> str:
-    """Create a federated-only Keycloak shell user for a Slack identity.
+    """Create-or-resolve a federated-only Keycloak shell user for a Slack identity.
 
-    Implements spec 103 FR-002 / FR-003 / FR-008:
+    Since issue #1781 this calls the first-party BFF endpoint
+    ``POST /api/admin/users/provision-shell`` rather than the Keycloak Admin
+    API directly. The BFF owns the canonical spec-103 shape (lowercased email
+    as username+email, no password, no required actions, ``emailVerified=true``,
+    409 → re-query) and the ``created_by`` / ``created_at`` audit attributes;
+    this function supplies the ``slack_user_id`` attribute and the
+    ``slack-bot:jit`` source tag.
 
-    * ``POST /admin/realms/{realm}/users`` with the body shape pinned in
-      FR-003 (no password, no required actions, ``emailVerified=true``,
-      ``slack_user_id``/``created_by``/``created_at`` attributes).
-    * Parses the new user UUID from the ``Location`` header.
-    * On HTTP 409 ("conflict — user already exists"), re-queries by
-      email and returns the existing user's UUID, treating the race as
-      benign (FR-008).
-    * On 401/403/5xx/network error, raises a typed :class:`JitError`
-      subclass; callers log per FR-011 and fall through to the
-      link-based onboarding flow.
-    * Helper-shape mitigation (spec M1): this function is the only
-      Keycloak Admin write surface in slack-bot. Any future need to
-      mutate user records should add a separate, narrowly-scoped helper
-      rather than exposing a generic "PUT any user" call.
+    Behaviour preserved for callers (idempotency, attributes, returns the
+    Keycloak ``sub``). Error mapping → typed :class:`JitError` subclass so
+    ``identity_linker`` keeps keying off ``error_kind`` (FR-011):
 
-    The caller is expected to pass an *unvalidated* Slack profile email;
-    this helper does NOT enforce the optional
-    ``SLACK_JIT_ALLOWED_EMAIL_DOMAINS`` allowlist — that lives in
-    ``identity_linker.auto_bootstrap_slack_user`` so the gating decision
-    sits next to the JIT-on/off feature flag.
+    * 401 → :class:`JitAuthError`   (BFF rejected the bot's bearer token)
+    * 403 → :class:`JitForbiddenError` (bot SA lacks the provisioning grant)
+    * 5xx / unexpected status → :class:`JitServerError`
+    * network / unconfigured BFF → :class:`JitNetworkError`
+
+    ``config`` is accepted for signature compatibility with the old direct-Admin
+    implementation but is unused — auth now flows through the bot's
+    service-account token (see :mod:`bff_client`).
+
+    The caller passes an *unvalidated* Slack profile email; this helper does
+    NOT enforce the optional ``SLACK_JIT_ALLOWED_EMAIL_DOMAINS`` allowlist —
+    that lives in ``identity_linker.auto_bootstrap_slack_user`` so the gating
+    decision sits next to the JIT-on/off feature flag.
     """
-    cfg = config or _default_config
-    token = await _get_admin_token(cfg)
+    del config  # signature-compat only; see docstring.
 
     email_lower = email.strip().lower()
-    body = {
-        "username": email_lower,
-        "email": email_lower,
-        "emailVerified": True,
-        "enabled": True,
-        "requiredActions": [],
-        "attributes": {
-            "slack_user_id": [slack_user_id],
-            "created_by": ["slack-bot:jit"],
-            "created_at": [_rfc3339_now()],
-        },
-    }
 
-    users_url = f"{cfg.server_url}/admin/realms/{cfg.realm}/users"
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json",
+    base_url = resolve_bff_base_url()
+    if not base_url:
+        # No BFF configured — there is nowhere to provision. Surface as a
+        # network-class failure so the caller falls back to link-onboarding.
+        raise JitNetworkError(
+            "No CAIPE BFF base URL configured (set CAIPE_UI_URL / CAIPE_API_URL); "
+            "cannot provision shell user"
+        )
+
+    url = f"{base_url}/api/admin/users/provision-shell"
+    payload = {
+        "email": email_lower,
+        "source": _SLACK_JIT_SOURCE,
+        "attributes": {"slack_user_id": [slack_user_id]},
     }
+    headers = bff_headers(bearer_token=service_account_token(), json_body=True)
 
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.post(users_url, json=body, headers=headers)
+        async with httpx.AsyncClient(timeout=_PROVISION_TIMEOUT_SECONDS) as client:
+            resp = await client.post(url, json=payload, headers=headers)
     except httpx.HTTPError as exc:
         raise JitNetworkError(str(exc)) from exc
 
     if resp.status_code == 401:
-        raise JitAuthError("Keycloak rejected admin token (401)")
+        raise JitAuthError("BFF rejected the bot service-account token (401)")
     if resp.status_code == 403:
         raise JitForbiddenError(
-            "Admin client lacks 'manage-users' role (403). "
-            "Check service-account-caipe-platform realm-management mappings."
-        )
-    if resp.status_code == 409:
-        # Race: another concurrent Slack request created this user
-        # between our lookup and POST. Re-query by email and return
-        # the surviving record (FR-008).
-        existing = await get_user_by_email(email_lower, config=cfg)
-        if existing and existing.get("id"):
-            kc_user_id = str(existing["id"])
-            logger.info(
-                "JIT 409 conflict resolved by re-query: slack=%s -> kc=%s",
-                slack_user_id,
-                kc_user_id,
-            )
-            return kc_user_id
-        # Conflict but re-query found nothing — treat as a server-side
-        # inconsistency rather than a happy-path resolution.
-        raise JitServerError(
-            "Keycloak returned 409 but follow-up email lookup found no user"
+            "BFF denied shell-user provisioning (403). The slack-bot service "
+            "account needs 'writer admin_surface:user_provisioning' in OpenFGA."
         )
     if 500 <= resp.status_code < 600:
-        raise JitServerError(f"Keycloak {resp.status_code} on POST /users")
+        raise JitServerError(
+            f"BFF {resp.status_code} on POST /api/admin/users/provision-shell"
+        )
     if resp.status_code not in (200, 201):
         raise JitServerError(
-            f"Unexpected Keycloak response {resp.status_code} on POST /users"
+            f"Unexpected BFF response {resp.status_code} on "
+            "POST /api/admin/users/provision-shell"
         )
 
-    # Happy path: parse the new user's UUID from the Location header.
-    location = resp.headers.get("Location") or resp.headers.get("location") or ""
-    new_id = location.rsplit("/", 1)[-1].strip()
-    if not new_id:
-        # Some Keycloak builds (and older proxy configurations) strip the
-        # Location header; fall back to a query-by-email so we still return
-        # a usable id.
-        existing = await get_user_by_email(email_lower, config=cfg)
-        if existing and existing.get("id"):
-            new_id = str(existing["id"])
-    if not new_id:
+    try:
+        body = resp.json()
+    except ValueError as exc:
+        raise JitServerError(f"BFF provision-shell returned non-JSON body: {exc}") from exc
+
+    # Envelope is {"success": true, "data": {"sub": "...", "created": bool}}.
+    data = body.get("data") if isinstance(body, dict) else None
+    sub = data.get("sub") if isinstance(data, dict) else None
+    if not sub:
         raise JitServerError(
-            "POST /users succeeded but no user id could be resolved"
+            "BFF provision-shell succeeded but returned no 'sub'"
         )
-    return new_id
+
+    created = bool(data.get("created")) if isinstance(data, dict) else False
+    logger.info(
+        "JIT provisioned via BFF: event=jit_%s slack=%s keycloak=%s",
+        "created" if created else "resolved",
+        slack_user_id,
+        sub,
+    )
+    return str(sub)
