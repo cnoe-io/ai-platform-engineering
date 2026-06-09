@@ -271,4 +271,103 @@ describe("requireAgentUsePermission", () => {
       }),
     );
   });
+
+  // Service-account namespacing (spec 2026-06-05-service-accounts, #35/P3).
+  // The SA's grants live under `service_account:<sub>`, so the check MUST graph
+  // the caller there — not `user:<sub>` — and MUST NOT use the human-only
+  // email-principal / team-union fallbacks.
+  describe("service-account callers", () => {
+    it("graphs an SA caller as service_account:<sub> and allows on its direct grant", async () => {
+      mockCheckOpenFgaTuple.mockResolvedValue({ allowed: true });
+
+      const response = await requireAgentUsePermission({
+        subject: "sa-sub",
+        agentId: "agent-1",
+        isServiceAccount: true,
+      });
+
+      expect(response).toBeNull();
+      expect(mockCheckOpenFgaTuple).toHaveBeenCalledWith({
+        user: "service_account:sa-sub",
+        relation: "can_use",
+        object: "agent:agent-1",
+      });
+      expect(mockLogOpenFgaRebacAuditEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          outcome: "allow",
+          resourceRef: "service_account:sa-sub can_use agent:agent-1",
+        }),
+      );
+    });
+
+    it("denies an SA without a direct grant — NO email or team-union fallback", async () => {
+      // Direct probe denies. Even with an email-shaped claim AND team memberships
+      // present, an SA must NOT fall back to either (human-only paths).
+      mockCheckOpenFgaTuple.mockResolvedValue({ allowed: false });
+      mockListOpenFgaObjects.mockResolvedValue({ objects: ["team:alpha", "team:bravo"] });
+
+      const response = await requireAgentUsePermission({
+        subject: "sa-sub",
+        email: "irrelevant@example.com",
+        agentId: "agent-1",
+        isServiceAccount: true,
+      });
+
+      expect(response?.status).toBe(403);
+      // Exactly ONE check (the service_account direct probe) — no user:<email>,
+      // no team:<slug>#member probes.
+      expect(mockCheckOpenFgaTuple).toHaveBeenCalledTimes(1);
+      expect(mockCheckOpenFgaTuple).toHaveBeenCalledWith({
+        user: "service_account:sa-sub",
+        relation: "can_use",
+        object: "agent:agent-1",
+      });
+      // Team-union listing is never consulted for an SA.
+      expect(mockListOpenFgaObjects).not.toHaveBeenCalled();
+      expect(mockLogOpenFgaRebacAuditEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          outcome: "deny",
+          reasonCode: "DENY_NO_CAPABILITY",
+          resourceRef: "service_account:sa-sub can_use agent:agent-1",
+        }),
+      );
+    });
+
+    it("keeps user:<sub> namespacing when isServiceAccount is false/omitted", async () => {
+      mockCheckOpenFgaTuple.mockResolvedValue({ allowed: true });
+
+      await requireAgentUsePermission({
+        subject: "alice-sub",
+        agentId: "agent-1",
+        isServiceAccount: false,
+      });
+
+      expect(mockCheckOpenFgaTuple).toHaveBeenCalledWith({
+        user: "user:alice-sub",
+        relation: "can_use",
+        object: "agent:agent-1",
+      });
+    });
+
+    it("audits the SA namespace (not user:) on a PDP error (FR-027/SC-009)", async () => {
+      // reviewer-a footgun: the DENY_PDP_UNAVAILABLE catch path previously
+      // hardcoded user:<sub> in resourceRef, mislabeling an SA on a PDP error.
+      mockCheckOpenFgaTuple.mockRejectedValue(new Error("OpenFGA is down"));
+
+      const response = await requireAgentUsePermission({
+        subject: "sa-sub",
+        agentId: "agent-1",
+        isServiceAccount: true,
+      });
+
+      expect(response?.status).toBe(503);
+      expect(mockLogOpenFgaRebacAuditEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          outcome: "deny",
+          reasonCode: "DENY_PDP_UNAVAILABLE",
+          resourceRef: "service_account:sa-sub can_use agent:agent-1",
+        }),
+      );
+    });
+  });
 });

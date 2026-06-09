@@ -741,6 +741,7 @@ describe('Admin Dashboard Page', () => {
         'Credentials',
         'Knowledge Bases',
         'Skills',
+        'Service Accounts',
       ]);
       expect(screen.getByTestId('platform-settings-tab')).toBeInTheDocument();
       expect(screen.getByRole('tab', { name: /release notes/i })).toBeInTheDocument();

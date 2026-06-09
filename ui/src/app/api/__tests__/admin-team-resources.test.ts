@@ -523,10 +523,12 @@ describe("GET /api/admin/teams/[id]/resources", () => {
       "agent-1",
       "agent-2",
     ]);
-    // Tools are surfaced as `<server>_*` prefixes.
+    // Tools are surfaced as `<server>/*` slash wildcards — the form the
+    // AgentGateway bridge enforces (#43). (resources.tools above still echoes
+    // the team's STORED value verbatim; only the available picker uses slash.)
     expect(body.data.available.tools.map((t: { id: string }) => t.id)).toEqual([
-      "jira_*",
-      "github_*",
+      "jira/*",
+      "github/*",
     ]);
   });
 
