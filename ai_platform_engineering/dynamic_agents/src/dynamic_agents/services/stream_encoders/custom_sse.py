@@ -56,6 +56,8 @@ def _memory_update_payload(content: Any, namespace: tuple[str, ...]) -> dict[str
         payload = json.loads(content)
     except json.JSONDecodeError:
         return None
+    if not isinstance(payload, dict):
+        return None
     if payload.get("memory_event") != "updated":
         return None
     memory_ids = payload.get("memory_ids")
