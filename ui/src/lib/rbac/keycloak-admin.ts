@@ -684,9 +684,9 @@ function parseUserIdFromLocation(location: string | null): string | null {
  * account (Keycloak matches by email). Idempotent: a 409 (already exists) falls
  * back to resolving the existing user by email.
  *
- * NOTE: the canonical JIT implementation will eventually live behind a shared
- * BFF endpoint that both this sync and the Slack bot call (tracked separately);
- * this is the in-process seed of that shared logic.
+ * Most callers should prefer {@link provisionShellUser}, which stamps the
+ * canonical `created_by` / `created_at` audit attributes; this lower-level
+ * helper is the create primitive it (and the bootstrap paths) build on.
  */
 export async function createFederatedShellUser(
   email: string,
@@ -731,6 +731,64 @@ export async function resolveOrProvisionUserSub(
   if (existing) return { sub: existing, created: false };
   const sub = await createFederatedShellUser(email, attributes);
   return { sub, created: true };
+}
+
+export interface ProvisionShellUserInput {
+  /** Email to resolve / provision. Lowercased before any Keycloak call. */
+  email: string;
+  /**
+   * Who is asking. Recorded verbatim as the `created_by` user attribute on a
+   * freshly-provisioned shell user so the origin of a JIT account is auditable
+   * (e.g. `slack-bot:jit`, `idp-sync:okta`). Ignored when the user already
+   * exists. Required so every provisioning surface is attributable.
+   */
+  source: string;
+  /**
+   * Extra user attributes to stamp on a newly-created shell user (e.g.
+   * `{ slack_user_id: ["U123"] }`). Merged with the canonical `created_by` /
+   * `created_at` attributes. Ignored when the user already exists.
+   */
+  attributes?: Record<string, string[]>;
+}
+
+export interface ProvisionShellUserResult {
+  sub: string;
+  created: boolean;
+}
+
+/**
+ * Canonical JIT "create-or-resolve a federated shell user" entry point
+ * (issue #1781). This is the single implementation every provisioning
+ * surface converges on:
+ *
+ * * the BFF endpoint `POST /api/admin/users/provision-shell` (called by the
+ *   Slack bot, and any future bot) is a thin wrapper over this function;
+ * * the in-process Okta / IdP directory sync calls it directly.
+ *
+ * It owns the spec-103 attribute contract: a newly-provisioned user is
+ * stamped with `created_by: [source]` and an RFC3339 `created_at`, plus any
+ * caller-supplied `attributes`. Resolution of an existing user never mutates
+ * attributes (idempotent). The federated-shell shape (no password, no required
+ * actions, `emailVerified: true`, 409 → re-query) is inherited from
+ * {@link createFederatedShellUser} via {@link resolveOrProvisionUserSub}.
+ */
+export async function provisionShellUser(
+  input: ProvisionShellUserInput
+): Promise<ProvisionShellUserResult> {
+  const email = input.email.trim().toLowerCase();
+  if (!email) {
+    throw new Error("provisionShellUser: email is required");
+  }
+  const source = input.source.trim();
+  if (!source) {
+    throw new Error("provisionShellUser: source is required");
+  }
+  const attributes: Record<string, string[]> = {
+    ...(input.attributes ?? {}),
+    created_by: [source],
+    created_at: [new Date().toISOString().replace(/\.\d{3}Z$/, "Z")],
+  };
+  return resolveOrProvisionUserSub(email, attributes);
 }
 
 function exactEmailUserId(email: string, users: Array<Record<string, unknown>>): string | null {
