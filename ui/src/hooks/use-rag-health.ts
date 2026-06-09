@@ -63,7 +63,15 @@ export function useRAGHealth(): UseRAGHealthResult {
       nextCheckTimeRef.current = Date.now() + POLL_INTERVAL_MS;
       hasInitialCheckCompleted.current = true;
     } catch (error) {
-      console.error("[RAG] Error checking health:", error);
+      const message = error instanceof Error ? error.message : String(error);
+      const isExpectedAuthFailure =
+        message.includes('Keycloak access token') ||
+        message.includes('Unauthorized') ||
+        message.includes('NOT_SIGNED_IN');
+
+      if (!isExpectedAuthFailure) {
+        console.error("[RAG] Error checking health:", error);
+      }
       setStatus("disconnected");
       setLastChecked(new Date());
       nextCheckTimeRef.current = Date.now() + POLL_INTERVAL_MS;
