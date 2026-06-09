@@ -1,5 +1,14 @@
 # Feature Specification: Slack just-in-time Keycloak user creation with web-UI auto-merge
 
+> **Note (superseded mechanism):** This spec describes JIT user creation via the
+> bot's direct `KEYCLOAK_SLACK_BOT_ADMIN_*` Keycloak Admin credentials. That
+> path has been removed — JIT (and all Slack-bot Keycloak user access) now flows
+> through the CAIPE UI BFF using the bot's `caipe-slack-bot` service-account
+> token, gated by OpenFGA grants. The JIT *behavior* (auto-create-or-resolve,
+> attribute contract, fallback to link-onboarding) is unchanged. See spec
+> [2026-06-09-slack-bot-remove-direct-keycloak-admin](../2026-06-09-slack-bot-remove-direct-keycloak-admin/plan.md)
+> (and #1781 for the create path).
+
 **Feature Branch**: `prebuild/feat/slack-jit-user-creation`
 **Created**: 2026-04-22
 **Status**: Draft

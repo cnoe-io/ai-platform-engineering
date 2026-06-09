@@ -60,14 +60,11 @@ KEYCLOAK_REALM=caipe
 KEYCLOAK_ADMIN_CLIENT_ID=admin-cli
 KEYCLOAK_ADMIN_CLIENT_SECRET=<generate-in-keycloak>
 
-# Keycloak Admin API — Slack bot (user lookup by slack_user_id).
-# MUST be a confidential client with view-users + query-users on
-# realm-management. Distinct from KEYCLOAK_ADMIN_* above to avoid the
-# namespace collision that would silently break slack-bot. The surface-
-# specific prefix leaves room for future bots (Webex, Teams, …).
-# (defaults to caipe-platform / caipe-platform-dev-secret in dev compose)
-# KEYCLOAK_SLACK_BOT_ADMIN_CLIENT_ID=caipe-platform
-# KEYCLOAK_SLACK_BOT_ADMIN_CLIENT_SECRET=<keycloak-managed-secret>
+# NOTE: KEYCLOAK_SLACK_BOT_ADMIN_CLIENT_ID/_SECRET were REMOVED in spec
+# 2026-06-09-slack-bot-remove-direct-keycloak-admin. The Slack bot no longer
+# calls Keycloak Admin directly — user lookups/writes/JIT-create go through the
+# CAIPE UI BFF using the bot's caipe-slack-bot service-account token. Nothing to
+# set here anymore.
 
 # MongoDB
 MONGODB_URI=mongodb://admin:changeme@localhost:27017
