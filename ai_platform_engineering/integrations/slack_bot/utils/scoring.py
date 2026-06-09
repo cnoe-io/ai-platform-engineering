@@ -16,6 +16,28 @@ from .session_manager import SessionManager
 from .config_models import Config
 
 
+def regenerate_requested(view_values: dict) -> bool:
+  """Return True if the user opted in to regenerating a response.
+
+  The feedback modal has an optional, off-by-default checkbox
+  ("Attempt to regenerate a response based on feedback?"). Feedback is always
+  recorded; the bot only regenerates when this box is ticked. Slack reports a
+  checkbox as a ``selected_options`` list under its block_id / action_id; a
+  non-empty list means it's ticked.
+
+  Args:
+      view_values: the modal's ``view["state"]["values"]`` mapping.
+  """
+  if not isinstance(view_values, dict):
+    return False
+  selected = (
+    view_values.get("regen_input", {})
+    .get("regen", {})
+    .get("selected_options")
+  )
+  return bool(selected)
+
+
 def _build_slack_permalink(
   channel_id: str,
   thread_ts: str,
