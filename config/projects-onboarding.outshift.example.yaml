@@ -1,0 +1,57 @@
+# Example for internal deployments — NOT loaded by default.
+# Copy values into your mounted projects-onboarding.yaml when needed.
+
+hero:
+  title: "Project Onboarding"
+  description: >
+    Onboard a project once — catalogue, wiki, communication, and agent
+    integrations connected from day one.
+
+steps:
+  - id: catalogue
+    title: Project Catalogue
+    subtitle: RBAC, attribution, and assets in Backstage
+    icon: sparkles
+    gradient: from-emerald-500 via-teal-500 to-cyan-500
+    provider: mock
+    checklist:
+      - RBAC in Backstage
+      - FinOps attribution
+      - Git repos and assets
+  - id: wiki
+    title: LLM Wiki
+    subtitle: Project context — goals, architecture, decisions
+    icon: book-open
+    gradient: from-amber-500 via-orange-500 to-rose-500
+    provider: mock
+    checklist:
+      - Project overview
+      - Goals and architecture
+      - Decisions and backlog
+  - id: webex
+    title: Collaboration Space
+    subtitle: Real-time communication for the team
+    icon: video
+    gradient: from-blue-500 via-sky-500 to-indigo-500
+    provider: mock
+    checklist:
+      - Space created
+      - Members invited
+  - id: pam
+    title: Meeting Assistant
+    subtitle: Meetings, notes, and follow-ups
+    icon: message-square
+    gradient: from-fuchsia-500 via-purple-500 to-violet-600
+    provider: mock
+    checklist:
+      - Meeting notes
+      - Action items
+  - id: agent_mesh
+    title: AI Teammates
+    subtitle: Agent mesh provisioning
+    icon: bot
+    gradient: from-slate-700 via-slate-800 to-slate-900
+    provider: mock
+    checklist:
+      - Orchestrator
+      - Review and deploy agents

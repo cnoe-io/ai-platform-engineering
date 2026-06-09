@@ -53,6 +53,33 @@ function getRagServerUrl(): string {
          'http://localhost:9446';
 }
 
+/** RAG server exposes these without auth; the BFF must not require Keycloak for them. */
+function isRagPublicHealthPath(pathSegments: string[]): boolean {
+  const path = pathSegments.join('/').toLowerCase();
+  return path === 'healthz' || path === 'health';
+}
+
+async function proxyRagHealthCheck(
+  request: NextRequest,
+  pathSegments: string[],
+): Promise<NextResponse> {
+  const ragServerUrl = getRagServerUrl();
+  const targetPath = pathSegments.join('/');
+  const targetUrl = new URL(`${ragServerUrl}/${targetPath}`);
+
+  request.nextUrl.searchParams.forEach((value, key) => {
+    targetUrl.searchParams.append(key, value);
+  });
+
+  const response = await fetch(targetUrl.toString(), {
+    method: 'GET',
+    headers: { Accept: 'application/json' },
+  });
+
+  const data = await response.json().catch(() => ({ status: 'unhealthy' }));
+  return NextResponse.json(data, { status: response.status });
+}
+
 function scopeForRagProxyMethod(method: string, pathSegments: string[] = []): RbacScope {
   const path = pathSegments.join('/').toLowerCase();
   if (
@@ -505,6 +532,10 @@ export async function GET(
 ) {
   try {
     const { path } = await params;
+    if (isRagPublicHealthPath(path)) {
+      return await proxyRagHealthCheck(request, path);
+    }
+
     const ragServerUrl = getRagServerUrl();
     const targetPath = path.join('/');
     const targetUrl = new URL(`${ragServerUrl}/${targetPath}`);
