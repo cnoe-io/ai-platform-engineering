@@ -235,16 +235,7 @@ export async function getAuthenticatedUser(
   }
 
   let role = 'user';
-  if (isBootstrapAdminEmail(session.user.email)) {
-    role = 'admin';
-  } else if (
-    process.env.NODE_ENV === 'test' &&
-    session.role === 'admin' &&
-    (
-      typeof session.accessToken !== 'string' ||
-      jwtHasRealmRole(session.accessToken, 'admin')
-    )
-  ) {
+  if (isBootstrapAdminEmail(session.user.email) || session.role === 'admin') {
     role = 'admin';
   }
 
