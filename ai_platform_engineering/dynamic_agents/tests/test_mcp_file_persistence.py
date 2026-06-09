@@ -50,6 +50,7 @@ async def test_persists_mcp_file_block_to_filesystem():
     saved_message = result.update["messages"][0]
     assert isinstance(saved_message, ToolMessage)
     assert path in saved_message.content
+    assert saved_message.artifact is None
 
 
 async def test_persists_inlined_text_download_body_for_download_tools():
@@ -69,6 +70,7 @@ async def test_persists_inlined_text_download_body_for_download_tools():
     assert sorted(result.update["files"]) == [path]
     assert _file_text(result, path) == "downloaded text"
     assert path in result.update["messages"][0].content
+    assert result.update["messages"][0].artifact is None
 
 
 async def test_does_not_treat_plain_json_as_file_for_non_download_tool():
@@ -80,6 +82,64 @@ async def test_does_not_treat_plain_json_as_file_for_non_download_tool():
     result = await _run_middleware(message, tool_name="confluence_search")
 
     assert result is message
+
+
+async def test_persists_webex_transcript_body_from_structured_artifact():
+    body = "WEBVTT\n\n1\n00:00:00.000 --> 00:00:01.000\nhello\n"
+    artifact = {
+        "structured_content": {
+            "items": [
+                {
+                    "id": "transcript-1",
+                    "body": body,
+                    "bodyFormat": "vtt",
+                    "sizeBytes": len(body.encode("utf-8")),
+                }
+            ]
+        }
+    }
+    message = ToolMessage(
+        content=[{"type": "text", "text": json.dumps(artifact["structured_content"])}],
+        artifact=artifact,
+        tool_call_id="call-1",
+    )
+
+    result = await _run_middleware(message, tool_name="webex_meetings_webex_list_transcripts")
+
+    assert isinstance(result, Command)
+    path = "/mcp_downloads/webex_meetings_webex_list_transcripts/call-1/download-1.vtt"
+    assert sorted(result.update["files"]) == [path]
+    assert _file_text(result, path) == body
+    saved_message = result.update["messages"][0]
+    assert path in saved_message.content
+    assert "WEBVTT" not in saved_message.content
+    assert saved_message.artifact is None
+
+
+async def test_persists_webex_transcript_body_from_visible_json():
+    body = "WEBVTT\n\n1\n00:00:00.000 --> 00:00:01.000\nhello\n"
+    message = ToolMessage(
+        content=json.dumps(
+            {
+                "items": [
+                    {
+                        "body": body,
+                        "bodyFormat": "vtt",
+                        "sizeBytes": len(body.encode("utf-8")),
+                    }
+                ]
+            }
+        ),
+        tool_call_id="call-1",
+    )
+
+    result = await _run_middleware(message, tool_name="webex_meetings_webex_list_transcripts")
+
+    assert isinstance(result, Command)
+    path = "/mcp_downloads/webex_meetings_webex_list_transcripts/call-1/download-1.vtt"
+    assert sorted(result.update["files"]) == [path]
+    assert _file_text(result, path) == body
+    assert path in result.update["messages"][0].content
 
 
 async def test_binary_file_block_is_saved_as_base64_json():
