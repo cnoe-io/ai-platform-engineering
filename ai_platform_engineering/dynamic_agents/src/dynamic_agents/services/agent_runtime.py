@@ -436,6 +436,7 @@ class AgentRuntime:
             self._session_id,
             agent_name=self.config.name,
             model_id=self.config.model.id,
+            filesystem_namespace=(self.config.id, self._session_id, "filesystem"),
         )
         # Prepend skills middleware so it runs before other middleware
         if skills_middleware:
@@ -914,6 +915,7 @@ class AgentRuntime:
                     self._session_id,
                     agent_name=subagent_config.name,
                     model_id=subagent_config.model.id,
+                    filesystem_namespace=(self.config.id, self._session_id, "filesystem"),
                 ),
             }
 

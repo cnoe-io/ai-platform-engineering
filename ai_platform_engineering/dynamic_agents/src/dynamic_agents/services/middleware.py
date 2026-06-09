@@ -313,6 +313,7 @@ def build_middleware(
     session_id: str | None = None,
     agent_name: str = "unknown",
     model_id: str = "unknown",
+    filesystem_namespace: tuple[str, ...] | None = None,
 ) -> list[AgentMiddleware]:
     """Build the middleware stack from an agent's features config.
 
@@ -386,7 +387,7 @@ def build_middleware(
 
     # Always persist MCP file/download results into the conversation filesystem
     # so follow-up read_file calls can inspect downloaded artifacts.
-    result.append(MCPFilePersistenceMiddleware())
+    result.append(MCPFilePersistenceMiddleware(namespace=filesystem_namespace))
 
     # Append MetricsAgentMiddleware at the end to capture total LLM/tool duration
     result.append(MetricsAgentMiddleware(agent_name=agent_name, model_id=model_id))

@@ -119,6 +119,8 @@ def _is_download_tool(tool_name: str) -> bool:
         normalized == "confluence_confluence_download_attachment"
         or normalized.endswith("_download_attachment")
         or normalized.endswith("_download_file")
+        or normalized.endswith("_list_transcripts")
+        or normalized.endswith("_download_transcript")
     )
 
 
@@ -157,7 +159,16 @@ def _iter_dict_payloads(payload: Any) -> Iterable[dict[str, Any]]:
     data = _as_dict(payload)
     if data is not None:
         yield data
-        for key in ("content", "contents", "items", "otherContent", "resource", "resources"):
+        for key in (
+            "content",
+            "contents",
+            "items",
+            "otherContent",
+            "resource",
+            "resources",
+            "structured_content",
+            "structuredContent",
+        ):
             value = data.get(key)
             if isinstance(value, (list, tuple)):
                 for item in value:
@@ -175,7 +186,9 @@ def _json_payloads_from_string(content: str) -> Iterable[dict[str, Any]]:
         parsed = json.loads(content)
     except json.JSONDecodeError:
         return []
-    return list(_iter_dict_payloads(parsed))
+    if isinstance(parsed, (dict, list, tuple)):
+        return [parsed]
+    return []
 
 
 def _candidate_name(data: dict[str, Any], index: int, mime_type: str | None) -> str:
@@ -196,6 +209,13 @@ def _extract_mime_type(data: dict[str, Any]) -> str | None:
         value = data.get(key)
         if isinstance(value, str) and value:
             return value.lower()
+    body_format = data.get("bodyFormat")
+    if isinstance(body_format, str):
+        normalized = body_format.lower()
+        if normalized == "vtt":
+            return "text/vtt"
+        if normalized == "txt":
+            return "text/plain"
     return None
 
 
@@ -418,7 +438,7 @@ def _replace_tool_message_content(message: ToolMessage, files: list[_PersistedFi
         tool_call_id=message.tool_call_id,
         name=message.name,
         id=message.id,
-        artifact=message.artifact,
+        artifact=None,
         status=message.status,
         additional_kwargs=dict(message.additional_kwargs),
         response_metadata=dict(message.response_metadata),
@@ -428,9 +448,37 @@ def _replace_tool_message_content(message: ToolMessage, files: list[_PersistedFi
 class MCPFilePersistenceMiddleware(AgentMiddleware):
     """Save MCP file/download results into the StateBackend ``files`` channel."""
 
+    def __init__(self, *, namespace: tuple[str, ...] | None = None) -> None:
+        self._namespace = namespace
+
     @property
     def name(self) -> str:
         return "MCPFilePersistenceMiddleware"
+
+    def _file_updates(self, files: list[_PersistedFile]) -> dict[str, Any]:
+        return {file.path: _create_file_data(file.content) for file in files}
+
+    def _persist_to_store(self, request: ToolCallRequest, files: list[_PersistedFile]) -> bool:
+        if self._namespace is None:
+            return False
+        runtime = getattr(request, "runtime", None)
+        store = getattr(runtime, "store", None)
+        if store is None:
+            return False
+        for file in files:
+            store.put(self._namespace, file.path, _create_file_data(file.content))
+        return True
+
+    async def _apersist_to_store(self, request: ToolCallRequest, files: list[_PersistedFile]) -> bool:
+        if self._namespace is None:
+            return False
+        runtime = getattr(request, "runtime", None)
+        store = getattr(runtime, "store", None)
+        if store is None:
+            return False
+        for file in files:
+            await store.aput(self._namespace, file.path, _create_file_data(file.content))
+        return True
 
     def _persist_result(
         self,
@@ -447,9 +495,11 @@ class MCPFilePersistenceMiddleware(AgentMiddleware):
             if not files:
                 return result
             logger.info("Persisted %d MCP file result(s) for tool %s", len(files), tool_name)
+            if self._persist_to_store(request, files):
+                return Command(update={"messages": [_replace_tool_message_content(result, files)]})
             return Command(
                 update={
-                    "files": {file.path: _create_file_data(file.content) for file in files},
+                    "files": self._file_updates(files),
                     "messages": [_replace_tool_message_content(result, files)],
                 }
             )
@@ -475,7 +525,62 @@ class MCPFilePersistenceMiddleware(AgentMiddleware):
                 processed_messages.append(message)
                 continue
             changed = True
-            files_update.update({file.path: _create_file_data(file.content) for file in files})
+            if not self._persist_to_store(request, files):
+                files_update.update(self._file_updates(files))
+            processed_messages.append(_replace_tool_message_content(message, files))
+
+        if not changed:
+            return result
+        logger.info("Persisted MCP file result(s) from Command for tool %s", tool_name)
+        return Command(update={**update, "files": files_update, "messages": processed_messages})
+
+    async def _apersist_result(
+        self,
+        request: ToolCallRequest,
+        result: ToolMessage | Command[Any],
+    ) -> ToolMessage | Command[Any]:
+        tool_name = _tool_name(request)
+
+        if isinstance(result, ToolMessage):
+            if getattr(result, "status", None) == "error":
+                return result
+            tool_call_id = _tool_call_id(request, result)
+            files = _extract_files(result, tool_name=tool_name, tool_call_id=tool_call_id)
+            if not files:
+                return result
+            logger.info("Persisted %d MCP file result(s) for tool %s", len(files), tool_name)
+            if await self._apersist_to_store(request, files):
+                return Command(update={"messages": [_replace_tool_message_content(result, files)]})
+            return Command(
+                update={
+                    "files": self._file_updates(files),
+                    "messages": [_replace_tool_message_content(result, files)],
+                }
+            )
+
+        update = result.update
+        if not isinstance(update, dict):
+            return result
+
+        messages = update.get("messages", [])
+        if not isinstance(messages, list):
+            return result
+
+        files_update = dict(update.get("files", {})) if isinstance(update.get("files"), dict) else {}
+        processed_messages: list[Any] = []
+        changed = False
+        for message in messages:
+            if not isinstance(message, ToolMessage) or getattr(message, "status", None) == "error":
+                processed_messages.append(message)
+                continue
+            tool_call_id = _tool_call_id(request, message)
+            files = _extract_files(message, tool_name=tool_name, tool_call_id=tool_call_id)
+            if not files:
+                processed_messages.append(message)
+                continue
+            changed = True
+            if not await self._apersist_to_store(request, files):
+                files_update.update(self._file_updates(files))
             processed_messages.append(_replace_tool_message_content(message, files))
 
         if not changed:
@@ -495,4 +600,4 @@ class MCPFilePersistenceMiddleware(AgentMiddleware):
         request: ToolCallRequest,
         handler: Callable[[ToolCallRequest], Awaitable[ToolMessage | Command[Any]]],
     ) -> ToolMessage | Command[Any]:
-        return self._persist_result(request, await handler(request))
+        return await self._apersist_result(request, await handler(request))
