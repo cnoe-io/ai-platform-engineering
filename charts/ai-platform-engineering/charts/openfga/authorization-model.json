@@ -3357,6 +3357,10 @@
                 "relation": "member"
               },
               {
+                "type": "organization",
+                "relation": "member"
+              },
+              {
                 "type": "slack_channel"
               },
               {
@@ -3382,6 +3386,10 @@
               },
               {
                 "type": "external_group",
+                "relation": "member"
+              },
+              {
+                "type": "organization",
                 "relation": "member"
               },
               {
