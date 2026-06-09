@@ -9,7 +9,7 @@
 // their teams, scoped only to agents/tools they themselves hold, and reveals
 // the credential EXACTLY ONCE (FR-005 — never re-fetchable).
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Bot,
   KeyRound,
@@ -33,8 +33,10 @@ import {
 } from "@/components/ui/dialog";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { TeamPicker, type TeamPickerOption } from "@/components/ui/team-picker";
+import { ProviderSelect, type ProviderOption } from "@/components/ui/provider-select";
 import { CopyButton } from "@/components/ui/copy-button";
 import { cn } from "@/lib/utils";
+import { getProviderDisplayName } from "@/lib/credentials/provider-display-names";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types (mirror the BFF contract; never include secret material on list/detail)
@@ -90,6 +92,18 @@ interface MyTeam {
   slug: string; // the canonical `team:<slug>` OpenFGA subject — use this as owning_team_id (#48).
   name: string;
 }
+
+// ─── SA credential types (mirrors GET /api/admin/service-accounts/[id]/credentials) ───
+
+interface ServiceAccountCredential {
+  id: string;
+  provider: string;
+  status: string;
+  connectedAt?: string;
+  requestedScopes?: string[];
+  connectorId?: string;
+}
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Component
@@ -614,6 +628,93 @@ function ManageServiceAccountDialog({
   const [addAgents, setAddAgents] = useState<string[]>([]);
   const [addTools, setAddTools] = useState<string[]>([]);
 
+  // ── Tokens section state ───────────────────────────────────────────────────
+  const [credentials, setCredentials] = useState<ServiceAccountCredential[]>([]);
+  const [credLoading, setCredLoading] = useState(false);
+  const [credBusy, setCredBusy] = useState(false);
+  const [credError, setCredError] = useState<string | null>(null);
+  const [pendingRemoveCred, setPendingRemoveCred] = useState<string | null>(null);
+  // The selectable providers are the platform's *enabled, token-capable* MCP
+  // servers (#3) — fetched from /api/admin/service-accounts/token-providers,
+  // which derives the list from enabled mcp_servers that declare a
+  // provider_connection credential source. Enable only the GitLab MCP and only
+  // GitLab shows up. (Deliberately NOT the OAuth-connector list — PATs need no
+  // OAuth app, so a missing GitLab OAuth app must not hide GitLab here.)
+  const [providerOptions, setProviderOptions] = useState<ProviderOption[]>([]);
+  const [addCredProvider, setAddCredProvider] = useState<string>("");
+  const [addCredToken, setAddCredToken] = useState("");
+  // Whether the SA Tokens surface is enabled at all. The token-providers route
+  // returns 404 when CAIPE_SERVICE_ACCOUNT_TOKENS_ENABLED is off; in that case
+  // we hide the entire Tokens section. Starts `null` (unknown) and the section
+  // renders only once we've confirmed `true` — so a flag-off deployment never
+  // flashes the section before the fetch resolves.
+  const [tokensEnabled, setTokensEnabled] = useState<boolean | null>(null);
+
+  const refreshCredentials = useCallback(async () => {
+    if (!saId) return;
+    setCredLoading(true);
+    // M-2: clear any stale error banner on a successful (re)load — mirrors how
+    // addCredential/removeCredential already call setCredError(null) before their
+    // fetch, so a successful refresh wipes the error too.
+    setCredError(null);
+    try {
+      // Load the SA's existing tokens and the token-capable provider list in
+      // parallel. The provider list drives the Add-token dropdown (#3).
+      const [credRes, providerRes] = await Promise.all([
+        fetch(
+          `/api/admin/service-accounts/${encodeURIComponent(saId)}/credentials`,
+        ).then((r) => r.json()).catch(() => ({ success: false })),
+        fetch("/api/admin/service-accounts/token-providers")
+          .then(async (r) => ({ status: r.status, body: await r.json().catch(() => ({ success: false })) }))
+          .catch(() => ({ status: 0, body: { success: false } })),
+      ]);
+      // A 404 from token-providers means the SA Tokens feature is disabled —
+      // hide the whole section. Any other failure leaves the section visible.
+      if (providerRes.status === 404) {
+        setTokensEnabled(false);
+        return;
+      }
+      setTokensEnabled(true);
+      if (credRes.success) setCredentials(credRes.data as ServiceAccountCredential[]);
+      else setCredError(credRes.error || "Failed to load tokens");
+      if (providerRes.body.success && Array.isArray(providerRes.body.data)) {
+        const opts: ProviderOption[] = (
+          providerRes.body.data as Array<{ provider: string; name: string }>
+        ).map((c) => ({ provider: c.provider, name: c.name }));
+        setProviderOptions(opts);
+        // The picker's default/valid selection is maintained by the
+        // availableProviders effect below (which also excludes already-used
+        // providers), so we don't set addCredProvider here.
+      }
+    } finally {
+      setCredLoading(false);
+    }
+  }, [saId]);
+
+  // Only offer providers that don't already have a token on this SA — a single
+  // SA holds at most one token per provider (the backend also rejects a second
+  // with 409), so a provider already in the list is removed from the dropdown,
+  // mirroring how the scope section hides already-granted scopes.
+  const usedProviders = useMemo(
+    () => new Set(credentials.map((c) => c.provider)),
+    [credentials],
+  );
+  const availableProviders = useMemo(
+    () => providerOptions.filter((p) => !usedProviders.has(p.provider)),
+    [providerOptions, usedProviders],
+  );
+  // Keep the picker selection valid: if the chosen provider just got a token (or
+  // isn't selectable), fall back to the first still-available provider.
+  useEffect(() => {
+    if (availableProviders.length === 0) {
+      if (addCredProvider !== "") setAddCredProvider("");
+      return;
+    }
+    if (!availableProviders.some((p) => p.provider === addCredProvider)) {
+      setAddCredProvider(availableProviders[0].provider);
+    }
+  }, [availableProviders, addCredProvider]);
+
   const refresh = useCallback(async () => {
     if (!saId) return;
     setLoading(true);
@@ -638,8 +739,11 @@ function ManageServiceAccountDialog({
   }, [saId]);
 
   useEffect(() => {
-    if (saId) void refresh();
-  }, [saId, refresh]);
+    if (saId) {
+      void refresh();
+      void refreshCredentials();
+    }
+  }, [saId, refresh, refreshCredentials]);
 
   // Held refs available to ADD (exclude ones the SA already has), per type.
   const existingRefs = new Set((detail?.scopes ?? []).map((s) => `${s.type}:${s.ref}`));
@@ -763,6 +867,78 @@ function ManageServiceAccountDialog({
     }
   }, [saId, onClose, onMutated]);
 
+  // ── Credentials section callbacks ──────────────────────────────────────────
+
+  const addCredential = useCallback(async () => {
+    if (!saId || !addCredToken.trim()) return;
+    setCredBusy(true);
+    setCredError(null);
+    // M-1: snapshot the token BEFORE any await so the request body is stable
+    // regardless of when React flushes state. The token is cleared from state
+    // ONLY on success (after refreshCredentials) — clearing on entry would wipe
+    // the pasted value if the request fails and force a re-paste. Matches the
+    // pattern in SecretsManager.tsx (handleCreate).
+    const tokenSnapshot = addCredToken;
+    try {
+      let res: Response;
+      try {
+        res = await fetch(
+          `/api/admin/service-accounts/${encodeURIComponent(saId)}/credentials`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ provider: addCredProvider, token: tokenSnapshot }),
+          },
+        );
+      } catch (networkErr) {
+        // Network-level failure (no response) — surface as a credError instead
+        // of an unhandled rejection.
+        setCredError(
+          networkErr instanceof Error ? networkErr.message : "Network error — please retry",
+        );
+        return;
+      }
+      const body = (await res.json()) as { success: boolean; error?: string };
+      if (!res.ok || !body.success) {
+        setCredError(body.error || "Failed to add credential");
+        return;
+      }
+      // Success — safe to clear the token from state now.
+      setAddCredToken("");
+      await refreshCredentials();
+    } finally {
+      setCredBusy(false);
+    }
+  }, [saId, addCredProvider, addCredToken, refreshCredentials]);
+
+  const removeCredential = useCallback(
+    async (connectionId: string) => {
+      if (!saId) return;
+      setCredBusy(true);
+      setCredError(null);
+      try {
+        const res = await fetch(
+          `/api/admin/service-accounts/${encodeURIComponent(saId)}/credentials`,
+          {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ connection_id: connectionId }),
+          },
+        );
+        const body = await res.json();
+        if (!res.ok || !body.success) {
+          setCredError(body.error || "Failed to remove credential");
+          return;
+        }
+        setPendingRemoveCred(null);
+        await refreshCredentials();
+      } finally {
+        setCredBusy(false);
+      }
+    },
+    [saId, refreshCredentials],
+  );
+
   return (
     <Dialog open={Boolean(saId)} onOpenChange={(o) => { if (!o) onClose(); }}>
       <DialogContent className="max-w-lg">
@@ -796,7 +972,9 @@ function ManageServiceAccountDialog({
             </div>
           </div>
         ) : (
-          <div className="space-y-4">
+          // Dialog scroll: cap height and let content scroll vertically so the
+          // dialog doesn't overflow the viewport when credentials + scopes stack up.
+          <div className="max-h-[65vh] overflow-y-auto space-y-4 pr-1">
             {/* Current scopes */}
             <div className="space-y-2">
               <span className="text-sm font-medium">Current scopes</span>
@@ -925,6 +1103,196 @@ function ManageServiceAccountDialog({
               <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
                 {error}
               </div>
+            )}
+
+            {/* ── Tokens ───────────────────────────────────────────────────── */}
+            {/* Rendered only once confirmed enabled (=== true). null = unknown
+                (still loading) and false = disabled both hide the section, so a
+                flag-off deployment never flashes it
+                (CAIPE_SERVICE_ACCOUNT_TOKENS_ENABLED=false → token-providers 404). */}
+            {tokensEnabled === true && (
+            <div className="space-y-2 border-t pt-3">
+              <div className="flex items-center gap-1.5">
+                <KeyRound className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm font-medium">Tokens</span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Add a personal/project access token so this service account uses its
+                own token when an agent calls that provider&apos;s tools. If no token
+                is set for a provider, the platform falls back to the shared org token
+                (if one is configured) — the same behaviour as for user accounts.
+              </p>
+
+              {/* Current tokens list */}
+              {credLoading ? (
+                <div className="flex items-center gap-2 py-1 text-xs text-muted-foreground">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading tokens…
+                </div>
+              ) : credentials.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No tokens added — this service account uses the shared org token
+                  (if configured) for every provider.
+                </p>
+              ) : (
+                <ul className="space-y-1">
+                  {credentials.map((cred) => {
+                    const providerLabel = getProviderDisplayName(cred.provider);
+                    const isPendingRemove = pendingRemoveCred === cred.id;
+                    return (
+                      <li
+                        key={cred.id}
+                        className="flex items-center justify-between gap-2 rounded-md border border-input px-2.5 py-1.5"
+                      >
+                        <span className="inline-flex items-center gap-1.5 text-sm">
+                          <KeyRound className="h-3.5 w-3.5 text-muted-foreground" />
+                          <span className="font-medium">{providerLabel}</span>
+                          <span
+                            className={cn(
+                              "rounded-full px-1.5 py-0.5 text-xs font-medium",
+                              cred.status === "connected"
+                                ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                                : "bg-muted text-muted-foreground",
+                            )}
+                          >
+                            {cred.status}
+                          </span>
+                          {cred.connectedAt && (
+                            <span className="text-xs text-muted-foreground">
+                              {new Date(cred.connectedAt).toLocaleDateString()}
+                            </span>
+                          )}
+                        </span>
+                        {isPendingRemove ? (
+                          <span className="inline-flex items-center gap-1.5">
+                            <span className="text-xs text-muted-foreground">Remove?</span>
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              className="h-7 gap-1.5"
+                              disabled={credBusy}
+                              onClick={() => removeCredential(cred.id)}
+                            >
+                              {credBusy && <Loader2 className="h-3 w-3 animate-spin" />}
+                              Confirm
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7"
+                              disabled={credBusy}
+                              onClick={() => setPendingRemoveCred(null)}
+                            >
+                              Cancel
+                            </Button>
+                          </span>
+                        ) : (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-7 w-7 text-destructive hover:text-destructive"
+                            aria-label={`Remove ${providerLabel} credential`}
+                            disabled={credBusy}
+                            onClick={() => setPendingRemoveCred(cred.id)}
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+
+              {/* Add token form */}
+              <div className="space-y-2 rounded-md border border-dashed border-input p-3">
+                <span className="text-sm font-medium">Add a token</span>
+                <p className="text-xs text-muted-foreground">
+                  The token is stored encrypted and is <span className="font-semibold">never shown again</span> after
+                  submission.
+                </p>
+                {credLoading ? (
+                  // Don't render the "no integrations" message until the provider
+                  // list has actually loaded — otherwise the empty initial state
+                  // flashes a false "ask an admin to enable an MCP" claim.
+                  <div className="flex items-center gap-2 py-1 text-xs text-muted-foreground">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading providers…
+                  </div>
+                ) : providerOptions.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    No token-capable integrations are enabled on this platform. Ask
+                    an admin to enable an MCP server that supports token passthrough
+                    (e.g. GitLab) before adding a token.
+                  </p>
+                ) : availableProviders.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    A token has been added for every available provider. Remove one
+                    above to replace it.
+                  </p>
+                ) : (
+                  <div className="flex gap-2">
+                    <ProviderSelect
+                      options={availableProviders}
+                      value={addCredProvider}
+                      onChange={setAddCredProvider}
+                      disabled={credBusy}
+                      ariaLabel="Token provider"
+                    />
+                    {/* This is a pasted external token — we want NO browser
+                        autocomplete/autofill of any kind (no saved-password
+                        injection, no "save password" prompt, no generation).
+                        autoComplete="off" is the primary signal; the extra
+                        attrs defeat heuristic autofill in browsers that ignore
+                        "off" on password-type inputs:
+                          - data-1p-ignore / data-lpignore: 1Password / LastPass
+                          - data-form-type="other": Dashlane
+                          - name="" so there's no field name to match a saved entry. */}
+                    <input
+                      type="password"
+                      name=""
+                      aria-label="Access token"
+                      value={addCredToken}
+                      onChange={(e) => setAddCredToken(e.target.value)}
+                      onKeyDown={(e) => {
+                        // Enter submits, matching the Add button's enabled guard.
+                        if (
+                          e.key === "Enter" &&
+                          !credBusy &&
+                          addCredToken.trim() &&
+                          addCredProvider
+                        ) {
+                          e.preventDefault();
+                          void addCredential();
+                        }
+                      }}
+                      placeholder="Paste access token…"
+                      autoComplete="off"
+                      data-1p-ignore
+                      data-lpignore="true"
+                      data-form-type="other"
+                      className="h-9 flex-1 rounded-md border border-input bg-background px-3 text-sm"
+                    />
+                    <Button
+                      onClick={addCredential}
+                      disabled={credBusy || !addCredToken.trim() || !addCredProvider}
+                      className="gap-1.5"
+                    >
+                      {credBusy ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Plus className="h-4 w-4" />
+                      )}
+                      Add
+                    </Button>
+                  </div>
+                )}
+              </div>
+
+              {credError && (
+                <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                  {credError}
+                </div>
+              )}
+            </div>
             )}
 
             {/* Credential lifecycle (rotate / revoke). Both are destructive and

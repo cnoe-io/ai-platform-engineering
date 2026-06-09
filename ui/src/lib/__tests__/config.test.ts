@@ -141,7 +141,7 @@ describe('getServerConfig', () => {
       const expectedKeys: (keyof Config)[] = [
         'agentProtocol',
         'caipeUrl', 'ragUrl', 'isDev', 'isProd', 'ssoEnabled',
-        'ragEnabled', 'mongodbEnabled', 'credentialsEnabled',
+        'ragEnabled', 'mongodbEnabled', 'credentialsEnabled', 'userConnectionsEnabled',
         'tagline', 'description', 'appName', 'logoUrl', 'envBadge',
         'gradientFrom', 'gradientTo', 'logoStyle', 'spinnerColor',
         'showPoweredBy', 'supportEmail', 'allowDevAdminWhenSsoDisabled', 'unsafeRbacBypassEnabled',
@@ -938,7 +938,7 @@ describe('getClientConfigScript (XSS safety)', () => {
     const expectedKeys: (keyof Config)[] = [
       'agentProtocol',
       'caipeUrl', 'ragUrl', 'isDev', 'isProd', 'ssoEnabled',
-      'ragEnabled', 'mongodbEnabled', 'credentialsEnabled',
+      'ragEnabled', 'mongodbEnabled', 'credentialsEnabled', 'userConnectionsEnabled',
       'tagline', 'description', 'appName', 'logoUrl', 'envBadge',
       'gradientFrom', 'gradientTo', 'logoStyle', 'spinnerColor',
       'showPoweredBy', 'supportEmail', 'allowDevAdminWhenSsoDisabled', 'unsafeRbacBypassEnabled',

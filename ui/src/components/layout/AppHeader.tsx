@@ -403,7 +403,7 @@ export function AppHeader() {
       Icon: Bot,
       activeClassName: "bg-purple-500 text-white shadow-sm",
     },
-    storageMode === "mongodb" && config.credentialsEnabled && {
+    storageMode === "mongodb" && config.userConnectionsEnabled && {
       key: "credentials",
       href: "/credentials",
       label: "Connections",

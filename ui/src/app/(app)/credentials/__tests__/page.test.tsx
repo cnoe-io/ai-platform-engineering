@@ -23,6 +23,7 @@ jest.mock("@/lib/auth-config", () => ({
 
 jest.mock("@/lib/feature-flags/credentials", () => ({
   getCredentialFeatureConfig: jest.fn(() => ({ enabled: true })),
+  isUserConnectionsEnabled: jest.fn(() => true),
 }));
 
 jest.mock("@/components/credentials/CredentialsWorkspace", () => ({
