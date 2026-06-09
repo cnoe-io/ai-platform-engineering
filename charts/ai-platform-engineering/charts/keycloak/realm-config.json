@@ -731,7 +731,8 @@
           "view-clients",
           "manage-clients",
           "view-authorization",
-          "manage-authorization"
+          "manage-authorization",
+          "view-identity-providers"
         ]
       }
     }
