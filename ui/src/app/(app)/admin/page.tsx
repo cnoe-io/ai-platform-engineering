@@ -56,6 +56,7 @@ import { ReleaseNotesSettingsTab } from "@/components/admin/ReleaseNotesSettings
 import { MigrationTab } from "@/components/admin/MigrationTab";
 import { KeycloakMigrationHealthPanel } from "@/components/admin/KeycloakMigrationHealthPanel";
 import { AdminCredentialManagementPanel } from "@/components/credentials/AdminCredentialManagementPanel";
+import { PodOwnerMigrationTab } from "@/components/admin/PodOwnerMigrationTab";
 import { useAdminRole } from "@/hooks/use-admin-role";
 import { useAdminTabGates, type AdminTabGateSimulationTarget } from "@/hooks/useAdminTabGates";
 import { getConfig } from "@/lib/config";
@@ -251,7 +252,7 @@ interface SimulationTeamOption {
   description?: string;
 }
 
-const VALID_TABS = ['users', 'teams', 'stats', 'skills', 'feedback', 'nps', 'metrics', 'health', 'scheduler', 'credentials', 'audit-logs', 'action-audit', 'identity-groups', 'openfga', 'keycloak', 'migrations', 'ai-review', 'settings', 'release-notes', 'slack', 'webex', 'rag-access'] as const;
+const VALID_TABS = ['users', 'teams', 'stats', 'skills', 'feedback', 'nps', 'metrics', 'health', 'scheduler', 'pod-owner-migration', 'credentials', 'audit-logs', 'action-audit', 'identity-groups', 'openfga', 'keycloak', 'migrations', 'ai-review', 'settings', 'release-notes', 'slack', 'webex', 'rag-access'] as const;
 const VALID_OPENFGA_SUBTABS = ['builder', 'explorer', 'graph', 'tuples', 'access', 'baseline', 'diagnostics'] as const;
 const MOVED_ADMIN_TAB_MAP = {
   insights: 'stats',
@@ -330,6 +331,7 @@ const CATEGORIES: Category[] = [
       { value: 'metrics', label: 'Metrics', icon: Activity, gateKey: 'metrics' },
       { value: 'health', label: 'Health', icon: Database, gateKey: 'health' },
       { value: 'scheduler', label: 'Scheduler', icon: Calendar, gateKey: 'scheduler' },
+      { value: 'pod-owner-migration', label: 'Pod Owners', icon: Users, gateKey: 'pod_owner_migration' },
     ],
   },
   {
@@ -462,6 +464,7 @@ function AdminPage() {
   const auditLogsEnabled = getConfig('auditLogsEnabled');
   const feedbackEnabled = getConfig('feedbackEnabled');
   const npsEnabled = getConfig('npsEnabled');
+  const podOwnerMigrationEnabled = getConfig('podOwnerMigrationEnabled');
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [globalOverview, setGlobalOverview] = useState<AdminStats['overview'] | null>(null);
   const [skillStats, setSkillStats] = useState<SkillMetricsAdmin | null>(null);
@@ -505,8 +508,9 @@ function AdminPage() {
       settings: !isSimulationActive,
       ai_review: isAdmin && !isSimulationActive,
       scheduler: isAdmin && !isSimulationActive,
+      pod_owner_migration: Boolean(isAdmin && podOwnerMigrationEnabled && !isSimulationActive),
     }),
-    [auditLogsEnabled, feedbackEnabled, gates, isAdmin, isSimulationActive, npsEnabled]
+    [auditLogsEnabled, feedbackEnabled, gates, isAdmin, isSimulationActive, npsEnabled, podOwnerMigrationEnabled]
   );
 
   const visibleCategories = useMemo(
@@ -3091,6 +3095,12 @@ function AdminPage() {
               <TabsContent value="health" className="space-y-4">
                 <HealthTab />
               </TabsContent>
+
+              {tabGateValues.pod_owner_migration && (
+                <TabsContent value="pod-owner-migration" className="space-y-4">
+                  <PodOwnerMigrationTab isAdmin={isAdmin} />
+                </TabsContent>
+              )}
 
               {tabGateValues.scheduler && (
                 <TabsContent value="scheduler" className="space-y-4">

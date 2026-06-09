@@ -15,7 +15,10 @@ Deterministic helpers for Pam Beesly (the Pod Meeting Assistant). This MCP inten
 - `find_prior_meeting_page(pod_id, before_iso?)` — local cache (Mongo `pod_meeting_pages`); fallback is Confluence search
 - `do_final_task_check(...)` — validates Pam's planned final response against required setup/prep side effects, including canonical Confluence URLs and Webex-space membership/link checks
 
-**Auth:** none. Reads `MONGODB_URI`, `MONGODB_DATABASE` (default `caipe`), and `WEBEX_TOKEN` (only needed by `harvest_webex_topics`).
+**Auth:** no per-user OAuth. Pod registry tools require dynamic-agents to send
+`X-CAIPE-User-Email`; they only return pods owned by, managed by, or shared with
+that caller. Reads `MONGODB_URI`, `MONGODB_DATABASE` (default `caipe`), and
+`WEBEX_TOKEN` (only needed by `harvest_webex_topics`).
 
 **Run:**
 ```

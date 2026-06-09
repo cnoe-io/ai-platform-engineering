@@ -146,6 +146,11 @@ export interface Config {
    * Enabled by default. Set ACTION_AUDIT_ENABLED=false to disable.
    */
   actionAuditEnabled: boolean;
+  /**
+   * Temporary admin migration tab for assigning owner_user_id to legacy pod meetings.
+   * Enabled by default. Set POD_OWNER_MIGRATION_ENABLED=false to disable.
+   */
+  podOwnerMigrationEnabled: boolean;
   /** Default font size for new users: "small" | "medium" | "large" | "x-large" */
   defaultFontSize: string;
   /** Default font family for new users: "inter" | "source-sans" | "ibm-plex" | "system" */
@@ -254,6 +259,7 @@ const DEFAULT_CONFIG: Config = {
   npsEnabled: false,
   auditLogsEnabled: false,
   actionAuditEnabled: true,
+  podOwnerMigrationEnabled: true,
   defaultFontSize: DEFAULT_FONT_SIZE,
   defaultFontFamily: DEFAULT_FONT_FAMILY,
   defaultTheme: DEFAULT_THEME,
@@ -378,6 +384,10 @@ export function getServerConfig(): Config {
   const npsEnabled = env('NPS_ENABLED') === 'true';
   const auditLogsEnabled = env('AUDIT_LOGS_ENABLED') === 'true';
   const actionAuditEnabled = env('ACTION_AUDIT_ENABLED') !== 'false';
+  const podOwnerMigrationRaw = env('POD_OWNER_MIGRATION_ENABLED') ?? 'true';
+  const podOwnerMigrationEnabled = !['false', '0', 'off', 'no'].includes(
+    podOwnerMigrationRaw.trim().toLowerCase(),
+  );
   const dynamicAgentsEnabled = env('DYNAMIC_AGENTS_ENABLED') === 'true';
   const defaultNewChatAgentId = env('DEFAULT_NEW_CHAT_AGENT_ID')?.trim() || null;
   const scheduleEditorAgentId =
@@ -442,6 +452,7 @@ export function getServerConfig(): Config {
     npsEnabled,
     auditLogsEnabled,
     actionAuditEnabled,
+    podOwnerMigrationEnabled,
     defaultFontSize: validated(env('DEFAULT_FONT_SIZE'), VALID_FONT_SIZES, DEFAULT_FONT_SIZE),
     defaultFontFamily: validated(env('DEFAULT_FONT_FAMILY'), VALID_FONT_FAMILIES, DEFAULT_FONT_FAMILY),
     defaultTheme: validated(env('DEFAULT_THEME'), VALID_THEMES, DEFAULT_THEME),

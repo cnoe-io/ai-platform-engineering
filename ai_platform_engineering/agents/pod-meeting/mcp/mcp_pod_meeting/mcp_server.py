@@ -10,8 +10,9 @@ This MCP intentionally does NOT call out to other MCPs. It's pure utility:
 - Pod registry CRUD on the `pods` Mongo collection
 - Webex topic harvesting via direct REST (with shared bot token)
 
-Auth: no per-user OAuth. Reads ``MONGODB_URI`` / ``MONGODB_DATABASE`` /
-``WEBEX_TOKEN`` from env. Pam invokes these tools server-to-server.
+Auth: no per-user OAuth. Pod registry tools require the internal
+``X-CAIPE-User-Email`` caller identity header from dynamic-agents. Reads
+``MONGODB_URI`` / ``MONGODB_DATABASE`` / ``WEBEX_TOKEN`` from env.
 """
 
 import base64
@@ -25,6 +26,7 @@ from typing import Annotated, Any
 from urllib.parse import parse_qs, quote_plus, urlparse, urlunparse
 
 import httpx
+from fastmcp.server.dependencies import get_http_headers
 from mcp.shared.exceptions import McpError
 from mcp.types import INTERNAL_ERROR, INVALID_PARAMS, ErrorData
 from pydantic import BaseModel, Field
@@ -33,6 +35,32 @@ from pymongo import MongoClient
 logger = logging.getLogger(__name__)
 
 WEBEX_API_BASE = "https://webexapis.com/v1"
+_USER_EMAIL_HEADER = "x-caipe-user-email"
+_USER_EMAIL_HEADER_ALIASES = (
+    _USER_EMAIL_HEADER,
+    "x-user-email",
+    "x-auth-request-email",
+)
+_OWNER_EMAIL_FIELDS = (
+    "owner_user_id",
+    "owner_email",
+    "created_by_user_id",
+    "created_by_email",
+    "created_by",
+)
+_VISIBLE_EMAIL_FIELDS = (
+    *_OWNER_EMAIL_FIELDS,
+    "pgm_email",
+    "visible_user_emails",
+    "shared_user_emails",
+    "authorized_user_emails",
+    "member_emails",
+)
+_VISIBLE_NESTED_EMAIL_FIELDS = (
+    "roster.email",
+    "members.email",
+    "users.email",
+)
 
 # ─────────────────────────────── env helpers ────────────────────────────────
 def _mongo_db():
@@ -63,6 +91,96 @@ def _webex_bot_token() -> str:
             )
         )
     return tok
+
+
+def _normalize_email(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip().lower()
+    return normalized or None
+
+
+def _requester_email_from_headers() -> str | None:
+    try:
+        headers = get_http_headers(include=set(_USER_EMAIL_HEADER_ALIASES))
+    except Exception:  # noqa: BLE001 - absent outside an HTTP MCP request context
+        return None
+    for key in _USER_EMAIL_HEADER_ALIASES:
+        value = headers.get(key) or headers.get(key.title())
+        normalized = _normalize_email(value)
+        if normalized:
+            return normalized
+    return None
+
+
+def _require_requester_email() -> str:
+    email = _requester_email_from_headers()
+    if email:
+        return email
+    raise McpError(
+        ErrorData(
+            code=INVALID_PARAMS,
+            message=(
+                "Pod registry access requires the caller identity header "
+                "X-CAIPE-User-Email from dynamic-agents."
+            ),
+        )
+    )
+
+
+def _email_matches(value: Any, email: str) -> bool:
+    normalized = _normalize_email(value)
+    if normalized is not None:
+        return normalized == email
+    if isinstance(value, dict):
+        return any(
+            _email_matches(value.get(key), email)
+            for key in ("email", "owner_user_id", "owner_email", "created_by", "created_by_email")
+        )
+    if isinstance(value, (list, tuple, set)):
+        return any(_email_matches(item, email) for item in value)
+    return False
+
+
+def _pod_visible_to_email(pod: dict[str, Any] | None, email: str) -> bool:
+    if not pod:
+        return False
+    for field in _VISIBLE_EMAIL_FIELDS:
+        if _email_matches(pod.get(field), email):
+            return True
+    for field in ("roster", "members", "users"):
+        if _email_matches(pod.get(field), email):
+            return True
+    return False
+
+
+def _pod_owned_by_email(pod: dict[str, Any] | None, email: str) -> bool:
+    if not pod:
+        return False
+    for field in _OWNER_EMAIL_FIELDS:
+        if _email_matches(pod.get(field), email):
+            return True
+    return _email_matches(pod.get("pgm_email"), email)
+
+
+def _email_field_filter(field: str, email: str) -> dict[str, Any]:
+    return {field: {"$regex": f"^{re.escape(email)}$", "$options": "i"}}
+
+
+def _pod_visibility_filter(email: str, pod_id: str | None = None) -> dict[str, Any]:
+    visibility = {
+        "$or": [
+            *[_email_field_filter(field, email) for field in _VISIBLE_EMAIL_FIELDS],
+            *[_email_field_filter(field, email) for field in _VISIBLE_NESTED_EMAIL_FIELDS],
+        ]
+    }
+    if pod_id is None:
+        return visibility
+    return {"$and": [{"_id": pod_id}, visibility]}
+
+
+def _find_visible_pod(db: Any, pod_id: str, email: str) -> dict[str, Any] | None:
+    return db["pods"].find_one(_pod_visibility_filter(email, pod_id))
 
 
 def _handle_errors(func):
@@ -567,7 +685,8 @@ def register_tools(server) -> None:
     async def resolve_owners(args: ResolveOwners) -> dict[str, Any]:
         """Map first-name / mention hints to roster entries."""
         db = _mongo_db()
-        pod = db["pods"].find_one({"_id": args.pod_id})
+        requester_email = _require_requester_email()
+        pod = _find_visible_pod(db, args.pod_id, requester_email)
         if not pod:
             return {
                 "resolved": [
@@ -748,7 +867,8 @@ def register_tools(server) -> None:
     @_handle_errors
     async def get_pod(args: GetPod) -> dict[str, Any]:
         db = _mongo_db()
-        pod = db["pods"].find_one({"_id": args.pod_id})
+        requester_email = _require_requester_email()
+        pod = _find_visible_pod(db, args.pod_id, requester_email)
         if not pod:
             return {"found": False, "pod_id": args.pod_id}
         pod["found"] = True
@@ -758,17 +878,35 @@ def register_tools(server) -> None:
     @_handle_errors
     async def list_pods() -> dict[str, Any]:
         db = _mongo_db()
-        pods = list(db["pods"].find({}))
+        requester_email = _require_requester_email()
+        pods = list(db["pods"].find(_pod_visibility_filter(requester_email)))
         return {"pods": pods, "count": len(pods)}
 
     @server.tool(name="upsert_pod")
     @_handle_errors
     async def upsert_pod(args: UpsertPod) -> dict[str, Any]:
         db = _mongo_db()
+        requester_email = _require_requester_email()
         now = datetime.now(timezone.utc).isoformat()
+        existing = db["pods"].find_one({"_id": args.pod_id})
+        if existing and not _pod_visible_to_email(existing, requester_email):
+            raise McpError(
+                ErrorData(
+                    code=INVALID_PARAMS,
+                    message="Pod registry record is not visible to the current user.",
+                )
+            )
+        if existing and not _pod_owned_by_email(existing, requester_email):
+            raise McpError(
+                ErrorData(
+                    code=INVALID_PARAMS,
+                    message="Only the pod owner or PGM can update this pod registry record.",
+                )
+            )
         update_fields: dict[str, Any] = {
             "name": args.name,
             "updated_at": now,
+            "updated_by_user_id": requester_email,
         }
         for k, v in {
             "webex_room_id": args.webex_room_id,
@@ -786,7 +924,12 @@ def register_tools(server) -> None:
             {"_id": args.pod_id},
             {
                 "$set": update_fields,
-                "$setOnInsert": {"_id": args.pod_id, "created_at": now},
+                "$setOnInsert": {
+                    "_id": args.pod_id,
+                    "created_at": now,
+                    "owner_user_id": requester_email,
+                    "created_by_user_id": requester_email,
+                },
             },
             upsert=True,
         )
@@ -808,6 +951,10 @@ def register_tools(server) -> None:
         instead use mcp-atlassian.get_pages with the title pattern.
         """
         db = _mongo_db()
+        requester_email = _require_requester_email()
+        pod = _find_visible_pod(db, args.pod_id, requester_email)
+        if not pod:
+            return {"found": False, "pod_id": args.pod_id}
         before = args.before_iso or datetime.now(timezone.utc).isoformat()
         cursor = (
             db["pod_meeting_pages"]
@@ -817,11 +964,10 @@ def register_tools(server) -> None:
         )
         rows = list(cursor)
         if not rows:
-            pod = db["pods"].find_one({"_id": args.pod_id})
             return {
                 "found": False,
                 "fallback_title_pattern": _notes_title(
-                    (pod or {}).get("name", args.pod_id), "{date}"
+                    pod.get("name", args.pod_id), "{date}"
                 ),
             }
         return {"found": True, "page": rows[0]}
@@ -888,7 +1034,8 @@ def register_tools(server) -> None:
         if args.pod_id:
             try:
                 db = _mongo_db()
-                pod = db["pods"].find_one({"_id": args.pod_id})
+                requester_email = _require_requester_email()
+                pod = _find_visible_pod(db, args.pod_id, requester_email)
                 if pod:
                     canonical["pod"] = {
                         "pod_id": args.pod_id,

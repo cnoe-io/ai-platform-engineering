@@ -8,8 +8,22 @@ from langgraph.types import Command
 from dynamic_agents.services.mcp_file_persistence import MCPFilePersistenceMiddleware
 
 
-def _request(tool_name: str = "confluence_confluence_download_attachment"):
-    return SimpleNamespace(tool_call={"name": tool_name, "id": "call/abc.123"})
+class _FakeStore:
+    def __init__(self):
+        self.values = {}
+
+    def put(self, namespace, key, value):
+        self.values[(tuple(namespace), key)] = value
+
+    async def aput(self, namespace, key, value):
+        self.put(namespace, key, value)
+
+
+def _request(tool_name: str = "confluence_confluence_download_attachment", store=None):
+    return SimpleNamespace(
+        tool_call={"name": tool_name, "id": "call/abc.123"},
+        runtime=SimpleNamespace(store=store),
+    )
 
 
 async def _run_middleware(message: ToolMessage, tool_name: str = "confluence_confluence_download_attachment"):
@@ -19,6 +33,18 @@ async def _run_middleware(message: ToolMessage, tool_name: str = "confluence_con
         return message
 
     return await middleware.awrap_tool_call(_request(tool_name), handler)
+
+
+async def _run_store_middleware(message: ToolMessage, tool_name: str = "confluence_confluence_download_attachment"):
+    store = _FakeStore()
+    namespace = ("agent-1", "session-1", "filesystem")
+    middleware = MCPFilePersistenceMiddleware(namespace=namespace)
+
+    async def handler(_request):
+        return message
+
+    result = await middleware.awrap_tool_call(_request(tool_name, store), handler)
+    return result, store, namespace
 
 
 def _file_text(command: Command, path: str) -> str:
@@ -140,6 +166,37 @@ async def test_persists_webex_transcript_body_from_visible_json():
     assert sorted(result.update["files"]) == [path]
     assert _file_text(result, path) == body
     assert path in result.update["messages"][0].content
+
+
+async def test_store_backend_persists_webex_transcript_to_runtime_store():
+    body = "WEBVTT\n\n1\n00:00:00.000 --> 00:00:01.000\nhello\n"
+    message = ToolMessage(
+        content=json.dumps(
+            {
+                "items": [
+                    {
+                        "body": body,
+                        "bodyFormat": "vtt",
+                        "sizeBytes": len(body.encode("utf-8")),
+                    }
+                ]
+            }
+        ),
+        tool_call_id="call-1",
+    )
+
+    result, store, namespace = await _run_store_middleware(
+        message,
+        tool_name="webex_meetings_webex_list_transcripts",
+    )
+
+    assert isinstance(result, Command)
+    assert "files" not in result.update
+    path = "/mcp_downloads/webex_meetings_webex_list_transcripts/call-1/download-1.vtt"
+    assert result.update["messages"][0].artifact is None
+    assert path in result.update["messages"][0].content
+    saved = store.values[(namespace, path)]
+    assert "\n".join(saved["content"]) == body
 
 
 async def test_binary_file_block_is_saved_as_base64_json():

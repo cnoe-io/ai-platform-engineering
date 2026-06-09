@@ -76,6 +76,7 @@ describe('getServerConfig', () => {
         'DEFAULT_NEW_CHAT_AGENT_ID', 'SCHEDULE_EDITOR_AGENT_ID',
         'CAIPE_CREDENTIALS_ENABLED', 'ENABLE_USER_INFO_TOOL',
         'CAIPE_UNSAFE_RBAC_BYPASS',
+        'POD_OWNER_MIGRATION_ENABLED',
         'DEFAULT_FONT_SIZE', 'DEFAULT_FONT_FAMILY',
         'DEFAULT_THEME', 'DEFAULT_GRADIENT_THEME',
       );
@@ -113,6 +114,7 @@ describe('getServerConfig', () => {
       expect(cfg.allowDevAdminWhenSsoDisabled).toBe(false);
       expect(cfg.unsafeRbacBypassEnabled).toBe(false);
       expect(cfg.auditLogsEnabled).toBe(false);
+      expect(cfg.podOwnerMigrationEnabled).toBe(true);
       expect(cfg.defaultNewChatAgentId).toBeNull();
       expect(cfg.scheduleEditorAgentId).toBeNull();
       expect(cfg.actionAuditEnabled).toBe(true);
@@ -153,7 +155,7 @@ describe('getServerConfig', () => {
         'docsUrl', 'sourceUrl', 'workflowRunnerEnabled', 'workflowsEnabled', 'taskBuilderEnabled', 'feedbackEnabled',
         'allowBuiltinSkillMutation',
         'npsEnabled', 'auditLogsEnabled',
-        'actionAuditEnabled',
+        'actionAuditEnabled', 'podOwnerMigrationEnabled',
         'defaultFontSize', 'defaultFontFamily', 'defaultTheme', 'defaultGradientTheme',
         'dynamicAgentsEnabled', 'dynamicAgentsUrl', 'defaultNewChatAgentId',
         'scheduleEditorAgentId',
@@ -518,6 +520,29 @@ describe('getServerConfig', () => {
 
       process.env.AUDIT_LOGS_ENABLED = 'TRUE';
       expect(getServerConfig().auditLogsEnabled).toBe(false);
+    });
+  });
+
+  // ---------- podOwnerMigrationEnabled ----------
+
+  describe('podOwnerMigrationEnabled', () => {
+    beforeEach(() => clearEnv('POD_OWNER_MIGRATION_ENABLED'));
+
+    it('should default to true (enabled)', () => {
+      expect(getServerConfig().podOwnerMigrationEnabled).toBe(true);
+    });
+
+    it.each(['false', '0', 'off', 'no'])('should be false when POD_OWNER_MIGRATION_ENABLED=%s', (value) => {
+      process.env.POD_OWNER_MIGRATION_ENABLED = value;
+      expect(getServerConfig().podOwnerMigrationEnabled).toBe(false);
+    });
+
+    it('should be true for other values', () => {
+      process.env.POD_OWNER_MIGRATION_ENABLED = 'true';
+      expect(getServerConfig().podOwnerMigrationEnabled).toBe(true);
+
+      process.env.POD_OWNER_MIGRATION_ENABLED = 'banana';
+      expect(getServerConfig().podOwnerMigrationEnabled).toBe(true);
     });
   });
 
@@ -966,7 +991,7 @@ describe('getClientConfigScript (XSS safety)', () => {
       'docsUrl', 'sourceUrl', 'workflowRunnerEnabled', 'workflowsEnabled', 'taskBuilderEnabled', 'feedbackEnabled',
       'allowBuiltinSkillMutation',
       'npsEnabled', 'auditLogsEnabled',
-      'actionAuditEnabled',
+      'actionAuditEnabled', 'podOwnerMigrationEnabled',
       'defaultFontSize', 'defaultFontFamily', 'defaultTheme', 'defaultGradientTheme',
       'dynamicAgentsEnabled', 'dynamicAgentsUrl',
       'defaultNewChatAgentId', 'scheduleEditorAgentId',
