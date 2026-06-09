@@ -23,7 +23,6 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -201,10 +200,31 @@ export function ServiceAccountsTab() {
           </Button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {items.map((sa) => (
-            <ServiceAccountCard key={sa.id} sa={sa} onManage={() => setManageId(sa.id)} />
-          ))}
+        <div className="rounded-lg border border-border overflow-hidden bg-card">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b bg-muted/40 text-left text-xs font-medium text-muted-foreground">
+                  <th className="px-4 py-3">Name</th>
+                  <th className="px-4 py-3">Team</th>
+                  <th className="px-4 py-3 w-24">Agents</th>
+                  <th className="px-4 py-3 w-24">Tools</th>
+                  <th className="px-4 py-3 w-24">Status</th>
+                  <th className="px-4 py-3 w-28 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((sa, idx) => (
+                  <ServiceAccountRow
+                    key={sa.id}
+                    sa={sa}
+                    zebra={idx % 2 === 1}
+                    onManage={() => setManageId(sa.id)}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
@@ -235,62 +255,53 @@ export function ServiceAccountsTab() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// List card
+// List row (matches the admin table pattern, e.g. UserManagementTab)
 // ─────────────────────────────────────────────────────────────────────────────
 
-function ServiceAccountCard({
+function ServiceAccountRow({
   sa,
+  zebra,
   onManage,
 }: {
   sa: ServiceAccountListItem;
+  zebra: boolean;
   onManage: () => void;
 }) {
   return (
-    <Card>
-      <CardHeader className="pb-3">
-        <div className="flex items-start justify-between gap-2">
-          <CardTitle className="text-base">{sa.name}</CardTitle>
-          <StatusBadge status={sa.status} />
-        </div>
+    <tr className={cn("border-b border-border/60", zebra && "bg-muted/20")}>
+      <td className="px-4 py-2.5 align-top">
+        <div className="font-medium">{sa.name}</div>
         {sa.description && (
-          <p className="text-sm text-muted-foreground">{sa.description}</p>
+          <div className="text-xs text-muted-foreground">{sa.description}</div>
         )}
-      </CardHeader>
-      <CardContent className="space-y-2 text-sm">
-        <Row label="Team" value={sa.owning_team_id} />
-        <div className="flex items-center gap-3 pt-1">
-          <span className="inline-flex items-center gap-1 text-muted-foreground">
-            <Bot className="h-3.5 w-3.5" /> {sa.scope_counts.agents} agent
-            {sa.scope_counts.agents === 1 ? "" : "s"}
-          </span>
-          <span className="inline-flex items-center gap-1 text-muted-foreground">
-            <Wrench className="h-3.5 w-3.5" /> {sa.scope_counts.tools} tool
-            {sa.scope_counts.tools === 1 ? "" : "s"}
-          </span>
-        </div>
-        <div className="pt-2">
-          <Button
-            size="sm"
-            variant="outline"
-            className="w-full gap-1.5"
-            onClick={onManage}
-            disabled={sa.status === "revoked"}
-          >
-            <Settings className="h-3.5 w-3.5" />
-            {sa.status === "revoked" ? "Revoked" : "Manage"}
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-function Row({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <div className="flex items-center justify-between gap-2">
-      <span className="text-muted-foreground">{label}</span>
-      <span className={cn("truncate text-right", mono && "font-mono text-xs")}>{value}</span>
-    </div>
+      </td>
+      <td className="px-4 py-2.5 align-top text-muted-foreground">{sa.owning_team_id}</td>
+      <td className="px-4 py-2.5 align-top">
+        <span className="inline-flex items-center gap-1 text-muted-foreground">
+          <Bot className="h-3.5 w-3.5" /> {sa.scope_counts.agents}
+        </span>
+      </td>
+      <td className="px-4 py-2.5 align-top">
+        <span className="inline-flex items-center gap-1 text-muted-foreground">
+          <Wrench className="h-3.5 w-3.5" /> {sa.scope_counts.tools}
+        </span>
+      </td>
+      <td className="px-4 py-2.5 align-top">
+        <StatusBadge status={sa.status} />
+      </td>
+      <td className="px-4 py-2.5 align-top text-right">
+        <Button
+          size="sm"
+          variant="outline"
+          className="gap-1.5"
+          onClick={onManage}
+          disabled={sa.status === "revoked"}
+        >
+          <Settings className="h-3.5 w-3.5" />
+          {sa.status === "revoked" ? "Revoked" : "Manage"}
+        </Button>
+      </td>
+    </tr>
   );
 }
 
