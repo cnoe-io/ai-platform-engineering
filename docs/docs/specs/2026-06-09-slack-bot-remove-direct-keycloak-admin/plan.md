@@ -339,7 +339,7 @@ grep -rln "KEYCLOAK_SLACK_BOT_ADMIN" --include="*.py" --include="*.ts" \
 - `docs/docs/specs/098-enterprise-rbac-slack-ui/{operator-guide,quickstart}.md`
   and `docs/docs/specs/103-slack-jit-user-creation/*` — these are historical
   spec docs. Add a short forward-reference note ("superseded by
-  <this spec / PR>; the bot no longer uses KEYCLOAK_SLACK_BOT_ADMIN_*") rather
+  `<this spec / PR>`; the bot no longer uses `KEYCLOAK_SLACK_BOT_ADMIN_*`") rather
   than rewriting history.
 - `docs/releases/2026-05-26-release-0-5-0.md` and
   `scripts/migrations/0.5.0/RUN.md` — historical; leave unless a maintainer wants
