@@ -171,4 +171,13 @@ describe("DELETE .../[id] (revoke)", () => {
     const res = await REVOKE(req("DELETE"), ctx());
     expect(res.status).toBe(401);
   });
+
+  it("403 for a protected SA — cannot revoke, nothing deleted", async () => {
+    mockGetBySub.mockResolvedValue({ ...DOC, is_platform_unlinked: true });
+    const res = await REVOKE(req("DELETE"), ctx());
+    expect(res.status).toBe(403);
+    expect(mockDeleteServiceAccountClient).not.toHaveBeenCalled();
+    expect(mockDeleteExactOpenFgaTuples).not.toHaveBeenCalled();
+    expect(mockUpdateStatus).not.toHaveBeenCalled();
+  });
 });
