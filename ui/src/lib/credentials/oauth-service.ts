@@ -450,10 +450,20 @@ export class ProviderConnectionService {
     accessToken: string;
     requestedScopes?: string[];
   }): Promise<ProviderConnectionMetadata> {
-    const connector = await this.findEnabledConnector(nonEmpty(input.providerKey, "providerKey"));
+    // A pasted token (PAT / project access token) does NOT require a registered
+    // OAuth connector — there is no authorization-code flow, no client app, and
+    // no client secret. Earlier this called findEnabledConnector, which 404'd
+    // ("OAuth connector was not found") for providers like GitLab where we have
+    // no OAuth app but DO support PATs. The connector was only used for two
+    // non-essential things: its id (stored, never used to resolve anything) and
+    // its scope list (to bound requestedScopes). We don't need either here:
+    //   - connectorId is synthesised as `static:<provider>` purely for display.
+    //   - the PAT carries its own scopes intrinsically, so we store the caller's
+    //     requestedScopes verbatim (informational) rather than bounding them.
+    const provider = nonEmpty(input.providerKey, "providerKey");
     const requestedScopes =
-      input.requestedScopes !== undefined
-        ? boundScopes(connector.scopes, input.requestedScopes)
+      input.requestedScopes && input.requestedScopes.length > 0
+        ? input.requestedScopes
         : undefined;
 
     const id = this.idGenerator();
@@ -466,8 +476,8 @@ export class ProviderConnectionService {
     const now = this.now();
     const doc: ProviderConnectionDocument = {
       id,
-      connectorId: connector.id,
-      provider: connector.provider,
+      connectorId: `static:${provider}`,
+      provider,
       owner: input.owner,
       status: "connected",
       accessTokenRef,

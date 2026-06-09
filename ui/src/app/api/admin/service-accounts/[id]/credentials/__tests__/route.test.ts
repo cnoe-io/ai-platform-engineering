@@ -67,10 +67,11 @@ jest.mock("@/lib/mongodb", () => ({
   }),
 }));
 
-// Feature-flag mock — enabled by default, toggled in specific tests
+// Feature-flag mock — enabled by default, toggled in specific tests. The route
+// gates on the SA Tokens surface flag (isServiceAccountTokensEnabled).
 const mockIsEnabled = jest.fn().mockReturnValue(true);
 jest.mock("@/lib/feature-flags/credentials", () => ({
-  getCredentialFeatureConfig: () => ({ enabled: mockIsEnabled() }),
+  isServiceAccountTokensEnabled: () => mockIsEnabled(),
 }));
 
 import { GET, POST, DELETE } from "../route";

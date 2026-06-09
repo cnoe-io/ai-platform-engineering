@@ -9,11 +9,10 @@
 // their teams, scoped only to agents/tools they themselves hold, and reveals
 // the credential EXACTLY ONCE (FR-005 — never re-fetchable).
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Bot,
   KeyRound,
-  Link2,
   Loader2,
   Plus,
   RefreshCw,
@@ -34,12 +33,10 @@ import {
 } from "@/components/ui/dialog";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { TeamPicker, type TeamPickerOption } from "@/components/ui/team-picker";
+import { ProviderSelect, type ProviderOption } from "@/components/ui/provider-select";
 import { CopyButton } from "@/components/ui/copy-button";
 import { cn } from "@/lib/utils";
-import {
-  PROVIDER_DISPLAY_LIST,
-  getProviderDisplayName,
-} from "@/lib/credentials/provider-display-names";
+import { getProviderDisplayName } from "@/lib/credentials/provider-display-names";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types (mirror the BFF contract; never include secret material on list/detail)
@@ -107,11 +104,6 @@ interface ServiceAccountCredential {
   connectorId?: string;
 }
 
-// Use the shared provider-display-names module (ui/src/lib/credentials/provider-display-names.ts)
-// as the single source of truth for the 5 built-in providers and their display names.
-// That module is plain-data with no browser or next/server imports, so it is safe
-// for "use client" components.
-const BUILT_IN_PROVIDERS = PROVIDER_DISPLAY_LIST;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Component
@@ -637,14 +629,26 @@ function ManageServiceAccountDialog({
   const [addAgents, setAddAgents] = useState<string[]>([]);
   const [addTools, setAddTools] = useState<string[]>([]);
 
-  // ── Credentials section state ──────────────────────────────────────────────
+  // ── Tokens section state ───────────────────────────────────────────────────
   const [credentials, setCredentials] = useState<ServiceAccountCredential[]>([]);
   const [credLoading, setCredLoading] = useState(false);
   const [credBusy, setCredBusy] = useState(false);
   const [credError, setCredError] = useState<string | null>(null);
   const [pendingRemoveCred, setPendingRemoveCred] = useState<string | null>(null);
-  const [addCredProvider, setAddCredProvider] = useState<string>(BUILT_IN_PROVIDERS[0].provider);
+  // The selectable providers are the platform's *enabled, token-capable* MCP
+  // servers (#3) — fetched from /api/admin/service-accounts/token-providers,
+  // which derives the list from enabled mcp_servers that declare a
+  // provider_connection credential source. Enable only the GitLab MCP and only
+  // GitLab shows up. (Deliberately NOT the OAuth-connector list — PATs need no
+  // OAuth app, so a missing GitLab OAuth app must not hide GitLab here.)
+  const [providerOptions, setProviderOptions] = useState<ProviderOption[]>([]);
+  const [addCredProvider, setAddCredProvider] = useState<string>("");
   const [addCredToken, setAddCredToken] = useState("");
+  // Whether the SA Tokens surface is enabled at all. The token-providers route
+  // returns 404 when CAIPE_SERVICE_ACCOUNT_TOKENS_ENABLED is off; in that case
+  // we hide the entire Tokens section rather than show an empty one. Defaults
+  // to true (optimistic) so the section renders while loading.
+  const [tokensEnabled, setTokensEnabled] = useState(true);
 
   const refreshCredentials = useCallback(async () => {
     if (!saId) return;
@@ -654,15 +658,62 @@ function ManageServiceAccountDialog({
     // fetch, so a successful refresh wipes the error too.
     setCredError(null);
     try {
-      const res = await fetch(
-        `/api/admin/service-accounts/${encodeURIComponent(saId)}/credentials`,
-      ).then((r) => r.json()).catch(() => ({ success: false }));
-      if (res.success) setCredentials(res.data as ServiceAccountCredential[]);
-      else setCredError(res.error || "Failed to load credentials");
+      // Load the SA's existing tokens and the token-capable provider list in
+      // parallel. The provider list drives the Add-token dropdown (#3).
+      const [credRes, providerRes] = await Promise.all([
+        fetch(
+          `/api/admin/service-accounts/${encodeURIComponent(saId)}/credentials`,
+        ).then((r) => r.json()).catch(() => ({ success: false })),
+        fetch("/api/admin/service-accounts/token-providers")
+          .then(async (r) => ({ status: r.status, body: await r.json().catch(() => ({ success: false })) }))
+          .catch(() => ({ status: 0, body: { success: false } })),
+      ]);
+      // A 404 from token-providers means the SA Tokens feature is disabled —
+      // hide the whole section. Any other failure leaves the section visible.
+      if (providerRes.status === 404) {
+        setTokensEnabled(false);
+        return;
+      }
+      setTokensEnabled(true);
+      if (credRes.success) setCredentials(credRes.data as ServiceAccountCredential[]);
+      else setCredError(credRes.error || "Failed to load tokens");
+      if (providerRes.body.success && Array.isArray(providerRes.body.data)) {
+        const opts: ProviderOption[] = (
+          providerRes.body.data as Array<{ provider: string; name: string }>
+        ).map((c) => ({ provider: c.provider, name: c.name }));
+        setProviderOptions(opts);
+        // The picker's default/valid selection is maintained by the
+        // availableProviders effect below (which also excludes already-used
+        // providers), so we don't set addCredProvider here.
+      }
     } finally {
       setCredLoading(false);
     }
   }, [saId]);
+
+  // Only offer providers that don't already have a token on this SA — a single
+  // SA holds at most one token per provider (the backend also rejects a second
+  // with 409), so a provider already in the list is removed from the dropdown,
+  // mirroring how the scope section hides already-granted scopes.
+  const usedProviders = useMemo(
+    () => new Set(credentials.map((c) => c.provider)),
+    [credentials],
+  );
+  const availableProviders = useMemo(
+    () => providerOptions.filter((p) => !usedProviders.has(p.provider)),
+    [providerOptions, usedProviders],
+  );
+  // Keep the picker selection valid: if the chosen provider just got a token (or
+  // isn't selectable), fall back to the first still-available provider.
+  useEffect(() => {
+    if (availableProviders.length === 0) {
+      if (addCredProvider !== "") setAddCredProvider("");
+      return;
+    }
+    if (!availableProviders.some((p) => p.provider === addCredProvider)) {
+      setAddCredProvider(availableProviders[0].provider);
+    }
+  }, [availableProviders, addCredProvider]);
 
   const refresh = useCallback(async () => {
     if (!saId) return;
@@ -1054,26 +1105,31 @@ function ManageServiceAccountDialog({
               </div>
             )}
 
-            {/* ── Provider credentials ─────────────────────────────────────── */}
+            {/* ── Tokens ───────────────────────────────────────────────────── */}
+            {/* Hidden entirely when the SA Tokens surface is disabled
+                (CAIPE_SERVICE_ACCOUNT_TOKENS_ENABLED=false → token-providers 404). */}
+            {tokensEnabled && (
             <div className="space-y-2 border-t pt-3">
               <div className="flex items-center gap-1.5">
-                <Link2 className="h-4 w-4 text-muted-foreground" />
-                <span className="text-sm font-medium">Provider credentials</span>
+                <KeyRound className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm font-medium">Tokens</span>
               </div>
               <p className="text-xs text-muted-foreground">
-                Paste a provider access token to let this service account use its own
-                credential for that provider. If no credential is set, the shared org
-                token is used as a fallback — the same behaviour as for user accounts.
+                Add a personal/project access token so this service account uses its
+                own token when an agent calls that provider&apos;s tools. If no token
+                is set for a provider, the platform falls back to the shared org token
+                (if one is configured) — the same behaviour as for user accounts.
               </p>
 
-              {/* Current credentials list */}
+              {/* Current tokens list */}
               {credLoading ? (
                 <div className="flex items-center gap-2 py-1 text-xs text-muted-foreground">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading credentials…
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading tokens…
                 </div>
               ) : credentials.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
-                  No provider credentials — org fallback will be used for all providers.
+                  No tokens added — this service account uses the shared org token
+                  (if configured) for every provider.
                 </p>
               ) : (
                 <ul className="space-y-1">
@@ -1145,51 +1201,68 @@ function ManageServiceAccountDialog({
                 </ul>
               )}
 
-              {/* Add credential form */}
+              {/* Add token form */}
               <div className="space-y-2 rounded-md border border-dashed border-input p-3">
-                <span className="text-sm font-medium">Add a credential</span>
+                <span className="text-sm font-medium">Add a token</span>
                 <p className="text-xs text-muted-foreground">
                   The token is stored encrypted and is <span className="font-semibold">never shown again</span> after
                   submission.
                 </p>
-                <div className="flex gap-2">
-                  <select
-                    aria-label="Provider"
-                    value={addCredProvider}
-                    onChange={(e) => setAddCredProvider(e.target.value)}
-                    className="h-9 rounded-md border border-input bg-background px-2 text-sm"
-                  >
-                    {BUILT_IN_PROVIDERS.map((p) => (
-                      <option key={p.provider} value={p.provider}>
-                        {p.name}
-                      </option>
-                    ))}
-                  </select>
-                  {/* autoComplete="new-password" is intentional: suppresses
-                      password-manager autofill for this pasted external token
-                      field — we do not want saved login credentials injected. */}
-                  <input
-                    type="password"
-                    aria-label="Access token"
-                    value={addCredToken}
-                    onChange={(e) => setAddCredToken(e.target.value)}
-                    placeholder="Paste access token…"
-                    autoComplete="new-password"
-                    className="h-9 flex-1 rounded-md border border-input bg-background px-3 text-sm"
-                  />
-                  <Button
-                    onClick={addCredential}
-                    disabled={credBusy || !addCredToken.trim()}
-                    className="gap-1.5"
-                  >
-                    {credBusy ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Plus className="h-4 w-4" />
-                    )}
-                    Add
-                  </Button>
-                </div>
+                {providerOptions.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    No token-capable integrations are enabled on this platform. Ask
+                    an admin to enable an MCP server that supports token passthrough
+                    (e.g. GitLab) before adding a token.
+                  </p>
+                ) : availableProviders.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    A token has been added for every available provider. Remove one
+                    above to replace it.
+                  </p>
+                ) : (
+                  <div className="flex gap-2">
+                    <ProviderSelect
+                      options={availableProviders}
+                      value={addCredProvider}
+                      onChange={setAddCredProvider}
+                      disabled={credBusy}
+                    />
+                    {/* This is a pasted external token — we want NO browser
+                        autocomplete/autofill of any kind (no saved-password
+                        injection, no "save password" prompt, no generation).
+                        autoComplete="off" is the primary signal; the extra
+                        attrs defeat heuristic autofill in browsers that ignore
+                        "off" on password-type inputs:
+                          - data-1p-ignore / data-lpignore: 1Password / LastPass
+                          - data-form-type="other": Dashlane
+                          - name="" so there's no field name to match a saved entry. */}
+                    <input
+                      type="password"
+                      name=""
+                      aria-label="Access token"
+                      value={addCredToken}
+                      onChange={(e) => setAddCredToken(e.target.value)}
+                      placeholder="Paste access token…"
+                      autoComplete="off"
+                      data-1p-ignore
+                      data-lpignore="true"
+                      data-form-type="other"
+                      className="h-9 flex-1 rounded-md border border-input bg-background px-3 text-sm"
+                    />
+                    <Button
+                      onClick={addCredential}
+                      disabled={credBusy || !addCredToken.trim() || !addCredProvider}
+                      className="gap-1.5"
+                    >
+                      {credBusy ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Plus className="h-4 w-4" />
+                      )}
+                      Add
+                    </Button>
+                  </div>
+                )}
               </div>
 
               {credError && (
@@ -1198,6 +1271,7 @@ function ManageServiceAccountDialog({
                 </div>
               )}
             </div>
+            )}
 
             {/* Credential lifecycle (rotate / revoke). Both are destructive and
                 spec'd "with confirm" (T032) / "delete-confirm" (T028), so each

@@ -912,7 +912,9 @@ describe("ProviderConnectionService", () => {
       const doc = connections.docs[0];
       expect(doc).toMatchObject({
         id: "static-conn-1",
-        connectorId: "connector-1",
+        // Synthetic connectorId — a PAT has no OAuth connector. Derived from the
+        // provider key, never used to resolve anything downstream.
+        connectorId: "static:gitlab",
         provider: "gitlab",
         owner: { type: "service_account", id: "sa-sub-abc" },
         status: "connected",
@@ -941,41 +943,50 @@ describe("ProviderConnectionService", () => {
       expect(result.status).toBe("connected");
     });
 
-    it("bounds requestedScopes to the connector's allowed set", async () => {
+    it("stores requestedScopes verbatim (a PAT carries its own scopes; no bounding)", async () => {
       const connectors = new MemoryCollection<OAuthConnectorDocument>();
       const connections = new MemoryCollection<ProviderConnectionDocument>();
-      connectors.docs.push(makeConnector());
       const service = makeService(connectors, connections);
 
       const result = await service.registerStaticToken({
         providerKey: "gitlab",
         owner: { type: "service_account", id: "sa-sub-abc" },
         accessToken: "glpat-mysecrettoken",
-        requestedScopes: ["api"],
+        requestedScopes: ["api", "read_repository"],
       });
 
-      expect(result.requestedScopes).toEqual(["api"]);
+      // Not bounded to any connector scope list — stored as provided.
+      expect(result.requestedScopes).toEqual(["api", "read_repository"]);
     });
 
-    it("rejects a scope outside the connector's allowed set", async () => {
-      const connectors = new MemoryCollection<OAuthConnectorDocument>();
-      connectors.docs.push(makeConnector());
-      const service = makeService(connectors, new MemoryCollection<ProviderConnectionDocument>());
+    it("does NOT require an OAuth connector to exist (PATs need no OAuth app)", async () => {
+      // Empty connector collection — the previous implementation 404'd here
+      // ("OAuth connector was not found"); a PAT must succeed regardless.
+      const connections = new MemoryCollection<ProviderConnectionDocument>();
+      const service = makeService(
+        new MemoryCollection<OAuthConnectorDocument>(),
+        connections,
+      );
 
-      await expect(
-        service.registerStaticToken({
-          providerKey: "gitlab",
-          owner: { type: "service_account", id: "sa-sub-abc" },
-          accessToken: "glpat-mysecrettoken",
-          requestedScopes: ["admin"],
-        }),
-      ).rejects.toMatchObject({ statusCode: 400 });
+      const result = await service.registerStaticToken({
+        providerKey: "gitlab",
+        owner: { type: "service_account", id: "sa-sub-abc" },
+        accessToken: "glpat-mysecrettoken",
+      });
+
+      expect(result).toMatchObject({
+        provider: "gitlab",
+        status: "connected",
+        connectorId: "static:gitlab",
+      });
+      expect(connections.docs).toHaveLength(1);
     });
 
     it("rejects an empty or blank accessToken", async () => {
-      const connectors = new MemoryCollection<OAuthConnectorDocument>();
-      connectors.docs.push(makeConnector());
-      const service = makeService(connectors, new MemoryCollection<ProviderConnectionDocument>());
+      const service = makeService(
+        new MemoryCollection<OAuthConnectorDocument>(),
+        new MemoryCollection<ProviderConnectionDocument>(),
+      );
 
       await expect(
         service.registerStaticToken({
@@ -986,7 +997,7 @@ describe("ProviderConnectionService", () => {
       ).rejects.toMatchObject({ statusCode: 400 });
     });
 
-    it("rejects when no enabled connector matches the providerKey", async () => {
+    it("rejects an empty or blank providerKey", async () => {
       const service = makeService(
         new MemoryCollection<OAuthConnectorDocument>(),
         new MemoryCollection<ProviderConnectionDocument>(),
@@ -994,11 +1005,11 @@ describe("ProviderConnectionService", () => {
 
       await expect(
         service.registerStaticToken({
-          providerKey: "nonexistent",
+          providerKey: "  ",
           owner: { type: "service_account", id: "sa-sub-abc" },
           accessToken: "some-token",
         }),
-      ).rejects.toMatchObject({ statusCode: 404 });
+      ).rejects.toMatchObject({ statusCode: 400 });
     });
 
     it("does not call tokenClient (no OAuth exchange for static tokens)", async () => {
