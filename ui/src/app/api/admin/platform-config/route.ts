@@ -3,17 +3,17 @@
 
 // assisted-by claude code claude-sonnet-4-6
 
-import { NextRequest, NextResponse } from 'next/server';
+import { ApiError,requireRbacPermission,withAuth,withErrorHandler } from '@/lib/api-middleware';
 import { getCollection } from '@/lib/mongodb';
-import { ApiError, withAuth, withErrorHandler, requireRbacPermission } from '@/lib/api-middleware';
-import { requireResourcePermission } from '@/lib/rbac/resource-authz';
-import { writeOpenFgaTuples, type OpenFgaTupleKey } from '@/lib/rbac/openfga';
 import {
-  DEFAULT_DISCOVERY_CACHE_TTL_MINUTES,
-  MAX_DISCOVERY_CACHE_TTL_MINUTES,
-  MIN_DISCOVERY_CACHE_TTL_MINUTES,
-  normalizeDiscoveryCacheTtlMinutes,
+DEFAULT_DISCOVERY_CACHE_TTL_MINUTES,
+MAX_DISCOVERY_CACHE_TTL_MINUTES,
+MIN_DISCOVERY_CACHE_TTL_MINUTES,
+normalizeDiscoveryCacheTtlMinutes,
 } from '@/lib/rbac/discovery-cache-config';
+import { writeOpenFgaTuples,type OpenFgaTupleKey } from '@/lib/rbac/openfga';
+import { requireResourcePermission } from '@/lib/rbac/resource-authz';
+import { NextRequest,NextResponse } from 'next/server';
 
 const CONFIG_ID = 'platform_settings';
 const OPENFGA_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._~@|*+=,/-]{0,191}$/;

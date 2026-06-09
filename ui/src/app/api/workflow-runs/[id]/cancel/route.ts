@@ -2,11 +2,11 @@
  * POST /api/workflow-runs/[id]/cancel — Cancel a running workflow
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
-import { getAuthFromBearerOrSession, ApiError, withErrorHandler } from "@/lib/api-middleware";
-import { cancelWorkflowRun, type WorkflowRunDocument } from "@/lib/server/workflow-engine";
+import { ApiError,getAuthFromBearerOrSession,withErrorHandler } from "@/lib/api-middleware";
+import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
 import { requireResourcePermission } from "@/lib/rbac/resource-authz";
+import { cancelWorkflowRun,type WorkflowRunDocument } from "@/lib/server/workflow-engine";
+import { NextRequest,NextResponse } from "next/server";
 
 export const POST = withErrorHandler(async (
   request: NextRequest,

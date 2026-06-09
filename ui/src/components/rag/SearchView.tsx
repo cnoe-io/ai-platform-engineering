@@ -12,15 +12,15 @@
  * - Search disabled when no MCP tools available
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
-import { Search, X, Database, ArrowRight, Wrench, ChevronDown, ChevronUp, FileText, Hash, ExternalLink, AlertCircle } from 'lucide-react';
-import { getMCPToolSchemas, invokeMCPTool, getHealthStatus, getDataSources } from './api';
-import type { MCPToolSchema } from './api';
 import { getMCPTools } from '@/lib/rag-api';
-import { motion, AnimatePresence } from 'framer-motion';
+import { formatFreshUntil } from '@/lib/utils';
+import { AnimatePresence,motion } from 'framer-motion';
+import { AlertCircle,ArrowRight,ChevronDown,ChevronUp,Database,ExternalLink,FileText,Hash,Search,Wrench,X } from 'lucide-react';
+import { useEffect,useMemo,useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { formatFreshUntil } from '@/lib/utils';
+import type { MCPToolSchema } from './api';
+import { getDataSources,getHealthStatus,getMCPToolSchemas,invokeMCPTool } from './api';
 
 // Fast animation transition
 const fastTransition = { duration: 0.1 };

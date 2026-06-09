@@ -42,6 +42,7 @@ function withRequiredGroup<T>(requiredGroup: string | undefined, cb: (mod: typeo
   try {
     let result!: T
     jest.isolateModules(() => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
       result = cb(require('../auth-config'))
     })
     return result
@@ -204,6 +205,7 @@ describe('auth-config', () => {
       delete process.env.OIDC_ENABLE_REFRESH_TOKEN
 
       jest.isolateModules(() => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { ENABLE_REFRESH_TOKEN } = require('../auth-config')
         expect(ENABLE_REFRESH_TOKEN).toBe(true)
       })
@@ -213,6 +215,7 @@ describe('auth-config', () => {
       process.env.OIDC_ENABLE_REFRESH_TOKEN = 'false'
 
       jest.isolateModules(() => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { ENABLE_REFRESH_TOKEN } = require('../auth-config')
         expect(ENABLE_REFRESH_TOKEN).toBe(false)
       })
@@ -235,6 +238,7 @@ describe('auth-config', () => {
       process.env.OIDC_ENABLE_REFRESH_TOKEN = 'true'
 
       jest.isolateModules(() => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { authOptions, ENABLE_REFRESH_TOKEN } = require('../auth-config')
         expect(ENABLE_REFRESH_TOKEN).toBe(true)
 
@@ -249,6 +253,7 @@ describe('auth-config', () => {
       process.env.OIDC_ENABLE_REFRESH_TOKEN = 'false'
 
       jest.isolateModules(() => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { authOptions, ENABLE_REFRESH_TOKEN } = require('../auth-config')
         expect(ENABLE_REFRESH_TOKEN).toBe(false)
 
@@ -263,6 +268,7 @@ describe('auth-config', () => {
       delete process.env.OIDC_ENABLE_REFRESH_TOKEN
 
       jest.isolateModules(() => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { ENABLE_REFRESH_TOKEN } = require('../auth-config')
         expect(ENABLE_REFRESH_TOKEN).toBe(true)
       })
@@ -270,6 +276,7 @@ describe('auth-config', () => {
 
     it('should always include required OIDC scopes', () => {
       jest.isolateModules(() => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { authOptions } = require('../auth-config')
         const provider = authOptions.providers[0]
         const scope = provider.authorization.params.scope
@@ -309,6 +316,7 @@ describe('auth-config', () => {
       process.env.OIDC_IDP_HINT = 'duo-sso'
 
       jest.isolateModules(() => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { authOptions } = require('../auth-config')
         const provider = authOptions.providers[0]
         const params = provider.authorization.params
@@ -323,6 +331,7 @@ describe('auth-config', () => {
       process.env.OIDC_IDP_HINT = 'okta-prod'
 
       jest.isolateModules(() => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { authOptions } = require('../auth-config')
         const provider = authOptions.providers[0]
         expect(provider.authorization.params.kc_idp_hint).toBe('okta-prod')
@@ -333,6 +342,7 @@ describe('auth-config', () => {
       delete process.env.OIDC_IDP_HINT
 
       jest.isolateModules(() => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { authOptions } = require('../auth-config')
         const provider = authOptions.providers[0]
         expect('kc_idp_hint' in provider.authorization.params).toBe(false)
@@ -345,6 +355,7 @@ describe('auth-config', () => {
       process.env.OIDC_IDP_HINT = ''
 
       jest.isolateModules(() => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { authOptions } = require('../auth-config')
         const provider = authOptions.providers[0]
         expect('kc_idp_hint' in provider.authorization.params).toBe(false)
@@ -379,7 +390,7 @@ describe('auth-config', () => {
     it('should store all tokens on initial sign-in', async () => {
       const now = Math.floor(Date.now() / 1000)
 
-      const result = await (authOptions.callbacks!.jwt! as Function)({
+      const result = await (authOptions.callbacks!.jwt! as (...args: unknown[]) => Promise<unknown>)({
         token: {},
         account: {
           access_token: 'at',
@@ -406,7 +417,7 @@ describe('auth-config', () => {
     it('should set isAuthorized=false when user lacks required group', async () => {
       const now = Math.floor(Date.now() / 1000)
       const result = await withRequiredGroup('caipe-users', async ({ authOptions }) => (
-        authOptions.callbacks!.jwt! as Function
+        authOptions.callbacks!.jwt! as (...args: unknown[]) => Promise<unknown>
       )({
         token: {},
         account: {
@@ -427,7 +438,7 @@ describe('auth-config', () => {
     it('should set isAuthorized=true on initial sign-in when required group gate is disabled', async () => {
       const now = Math.floor(Date.now() / 1000)
       const result = await withRequiredGroup('', async ({ authOptions }) => (
-        authOptions.callbacks!.jwt! as Function
+        authOptions.callbacks!.jwt! as (...args: unknown[]) => Promise<unknown>
       )({
         token: {},
         account: {
@@ -449,7 +460,7 @@ describe('auth-config', () => {
     it('reconciles login claim groups by default without storing them in the session token', async () => {
       delete process.env.IDENTITY_SYNC_LOGIN_CLAIMS_ENABLED
       delete process.env.IDENTITY_SYNC_OIDC_CLAIM_PROVIDER_ID
-      const result = await (authOptions.callbacks!.jwt! as Function)({
+      const result = await (authOptions.callbacks!.jwt! as (...args: unknown[]) => Promise<unknown>)({
         token: {},
         account: {
           access_token: 'at',
@@ -482,7 +493,7 @@ describe('auth-config', () => {
     it('skips login claim reconciliation when explicitly disabled', async () => {
       process.env.IDENTITY_SYNC_LOGIN_CLAIMS_ENABLED = 'false'
       try {
-        await (authOptions.callbacks!.jwt! as Function)({
+        await (authOptions.callbacks!.jwt! as (...args: unknown[]) => Promise<unknown>)({
           token: {},
           account: {
             access_token: 'at',
@@ -507,7 +518,7 @@ describe('auth-config', () => {
     it('forwards allowTeamCreation=true when IDENTITY_SYNC_LOGIN_AUTO_CREATE_TEAMS is set', async () => {
       process.env.IDENTITY_SYNC_LOGIN_AUTO_CREATE_TEAMS = 'true'
       try {
-        await (authOptions.callbacks!.jwt! as Function)({
+        await (authOptions.callbacks!.jwt! as (...args: unknown[]) => Promise<unknown>)({
           token: {},
           account: {
             access_token: 'at',
@@ -535,7 +546,7 @@ describe('auth-config', () => {
     it('treats any non-"true" IDENTITY_SYNC_LOGIN_AUTO_CREATE_TEAMS value as false (strict opt-in)', async () => {
       process.env.IDENTITY_SYNC_LOGIN_AUTO_CREATE_TEAMS = '1'
       try {
-        await (authOptions.callbacks!.jwt! as Function)({
+        await (authOptions.callbacks!.jwt! as (...args: unknown[]) => Promise<unknown>)({
           token: {},
           account: {
             access_token: 'at',
@@ -563,7 +574,7 @@ describe('auth-config', () => {
     it('should NOT refresh token when expiry is more than 5 minutes away', async () => {
       const now = Math.floor(Date.now() / 1000)
 
-      const result = await (authOptions.callbacks!.jwt! as Function)({
+      const result = await (authOptions.callbacks!.jwt! as (...args: unknown[]) => Promise<unknown>)({
         token: {
           accessToken: 'old-at',
           refreshToken: 'rt',
@@ -579,7 +590,7 @@ describe('auth-config', () => {
     it('should attempt token refresh when within 5 minutes of expiry', async () => {
       const now = Math.floor(Date.now() / 1000)
 
-      const result = await (authOptions.callbacks!.jwt! as Function)({
+      const result = await (authOptions.callbacks!.jwt! as (...args: unknown[]) => Promise<unknown>)({
         token: {
           accessToken: 'old-at',
           idToken: 'old-idt',
@@ -597,7 +608,7 @@ describe('auth-config', () => {
     it('refreshes stale access tokens when a refresh token is still available', async () => {
       const now = Math.floor(Date.now() / 1000)
 
-      const result = await (authOptions.callbacks!.jwt! as Function)({
+      const result = await (authOptions.callbacks!.jwt! as (...args: unknown[]) => Promise<unknown>)({
         token: {
           accessToken: 'at',
           refreshToken: 'rt',
@@ -614,7 +625,7 @@ describe('auth-config', () => {
     it('should skip refresh attempt when token already has an error', async () => {
       const now = Math.floor(Date.now() / 1000)
 
-      const result = await (authOptions.callbacks!.jwt! as Function)({
+      const result = await (authOptions.callbacks!.jwt! as (...args: unknown[]) => Promise<unknown>)({
         token: {
           accessToken: 'at',
           refreshToken: 'rt',
@@ -635,7 +646,7 @@ describe('auth-config', () => {
 
       const now = Math.floor(Date.now() / 1000)
 
-      const result = await (authOptions.callbacks!.jwt! as Function)({
+      const result = await (authOptions.callbacks!.jwt! as (...args: unknown[]) => Promise<unknown>)({
         token: {
           accessToken: 'at',
           refreshToken: 'rt',
@@ -656,7 +667,7 @@ describe('auth-config', () => {
 
       // Access token already expired (-10s): if refresh token also gives invalid_grant
       // this is a real failure (not a concurrent race), so the user must re-authenticate.
-      const result = await (authOptions.callbacks!.jwt! as Function)({
+      const result = await (authOptions.callbacks!.jwt! as (...args: unknown[]) => Promise<unknown>)({
         token: {
           accessToken: 'at',
           refreshToken: 'rt',
@@ -676,7 +687,7 @@ describe('auth-config', () => {
       const now = Math.floor(Date.now() / 1000)
 
       // Should still attempt the refresh using Keycloak fallback path
-      await (authOptions.callbacks!.jwt! as Function)({
+      await (authOptions.callbacks!.jwt! as (...args: unknown[]) => Promise<unknown>)({
         token: {
           accessToken: 'at',
           refreshToken: 'rt',
@@ -698,7 +709,7 @@ describe('auth-config', () => {
 
       const now = Math.floor(Date.now() / 1000)
 
-      const result = await (authOptions.callbacks!.jwt! as Function)({
+      const result = await (authOptions.callbacks!.jwt! as (...args: unknown[]) => Promise<unknown>)({
         token: {
           accessToken: 'at',
           refreshToken: 'original-rt',
@@ -746,7 +757,7 @@ describe('auth-config', () => {
         groups: ['caipe-users'],
       })
 
-      const result = await (authOptions.callbacks!.jwt! as Function)({
+      const result = await (authOptions.callbacks!.jwt! as (...args: unknown[]) => Promise<unknown>)({
         token: {
           accessToken: 'at',
           idToken: 'old-idt',
@@ -775,7 +786,7 @@ describe('auth-config', () => {
 
       mockDecodeJwt.mockReturnValue({ groups: ['caipe-users'] })
 
-      await (authOptions.callbacks!.jwt! as Function)({
+      await (authOptions.callbacks!.jwt! as (...args: unknown[]) => Promise<unknown>)({
         token: {
           accessToken: 'at',
           idToken: 'old-idt',
@@ -803,7 +814,7 @@ describe('auth-config', () => {
 
       // Access token already expired: this is a real refresh failure (not a race),
       // so the token gets error:'RefreshTokenExpired' and group re-eval is skipped.
-      const result = await (authOptions.callbacks!.jwt! as Function)({
+      const result = await (authOptions.callbacks!.jwt! as (...args: unknown[]) => Promise<unknown>)({
         token: {
           accessToken: 'at',
           idToken: 'old-idt',
@@ -829,7 +840,7 @@ describe('auth-config', () => {
 
       const consoleSpy = jest.spyOn(console, 'warn').mockImplementation()
 
-      const result = await (authOptions.callbacks!.jwt! as Function)({
+      const result = await (authOptions.callbacks!.jwt! as (...args: unknown[]) => Promise<unknown>)({
         token: {
           accessToken: 'at',
           idToken: 'old-idt',
@@ -860,7 +871,7 @@ describe('auth-config', () => {
 
   describe('session callback', () => {
     it('should pass accessToken and idToken to session when no error', async () => {
-      const result = await (authOptions.callbacks!.session! as Function)({
+      const result = await (authOptions.callbacks!.session! as (...args: unknown[]) => Promise<unknown>)({
         session: { user: { name: 'Test', email: 'test@example.com' } },
         token: {
           accessToken: 'at',
@@ -880,7 +891,7 @@ describe('auth-config', () => {
     })
 
     it('should clear accessToken from session when RefreshTokenExpired', async () => {
-      const result = await (authOptions.callbacks!.session! as Function)({
+      const result = await (authOptions.callbacks!.session! as (...args: unknown[]) => Promise<unknown>)({
         session: { user: { name: 'Test', email: 'test@example.com' } },
         token: {
           accessToken: 'at',
@@ -896,7 +907,7 @@ describe('auth-config', () => {
     })
 
     it('should mark SSO sessions invalid when the server-side access token cache is missing', async () => {
-      const result = await (authOptions.callbacks!.session! as Function)({
+      const result = await (authOptions.callbacks!.session! as (...args: unknown[]) => Promise<unknown>)({
         session: { user: { name: 'Test', email: 'test@example.com' } },
         token: {
           sub: 'user-sub',
@@ -911,7 +922,7 @@ describe('auth-config', () => {
     })
 
     it('should propagate isAuthorized=false into the browser session', async () => {
-      const result = await (authOptions.callbacks!.session! as Function)({
+      const result = await (authOptions.callbacks!.session! as (...args: unknown[]) => Promise<unknown>)({
         session: { user: { name: 'Blocked', email: 'blocked@example.com' } },
         token: {
           accessToken: 'at',
@@ -926,7 +937,7 @@ describe('auth-config', () => {
     })
 
     it('should NOT include tokens in session when token has error', async () => {
-      const result = await (authOptions.callbacks!.session! as Function)({
+      const result = await (authOptions.callbacks!.session! as (...args: unknown[]) => Promise<unknown>)({
         session: { user: {} },
         token: {
           accessToken: 'at',
@@ -940,7 +951,7 @@ describe('auth-config', () => {
     })
 
     it('should set role to user as default', async () => {
-      const result = await (authOptions.callbacks!.session! as Function)({
+      const result = await (authOptions.callbacks!.session! as (...args: unknown[]) => Promise<unknown>)({
         session: { user: {} },
         token: {
           // no role set
@@ -974,6 +985,7 @@ describe('auth-config', () => {
       process.env.OIDC_GROUP_CLAIM = 'members,roles'
       try {
         jest.isolateModules(() => {
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
           const { extractGroups } = require('../auth-config')
           expect(extractGroups({
             groups: ['ignored-group'],
@@ -990,6 +1002,7 @@ describe('auth-config', () => {
 
   describe('OIDC claim group cache', () => {
     it('offloads large OAuth tokens while preserving cached claim groups when slim JWT tokens are encoded', async () => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { encode } = require('next-auth/jwt')
       encode.mockClear()
       cacheOidcClaimGroups('sub-123', ['caipe-users'])
@@ -1089,6 +1102,7 @@ describe('auth-config', () => {
     it('does not use AD/OIDC groups as a Dynamic Agents authorization gate', () => {
       jest.isolateModules(() => {
         process.env.OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP = 'custom-agents-users'
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { canAccessDynamicAgents: fn } = require('../auth-config')
         expect(fn([])).toBe(true)
         expect(fn(['eng', 'caipe-users'])).toBe(true)
@@ -1099,6 +1113,7 @@ describe('auth-config', () => {
     it('does not fall back to admin-only access when the dynamic agents group is unset', () => {
       jest.isolateModules(() => {
         delete process.env.OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { canAccessDynamicAgents: fn } = require('../auth-config')
         expect(fn([])).toBe(true)
         expect(fn(['eng', 'backend'])).toBe(true)
@@ -1109,6 +1124,7 @@ describe('auth-config', () => {
       jest.isolateModules(() => {
         process.env.OIDC_REQUIRED_DYNAMIC_AGENTS_GROUP = 'custom-agents-users'
         process.env.OIDC_REQUIRED_ADMIN_GROUP = 'sre-admin'
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { canAccessDynamicAgents: fn } = require('../auth-config')
         expect(fn(['sre-admin'])).toBe(true)
       })
@@ -1169,8 +1185,8 @@ describe('auth-config', () => {
       }
 
       // Fire two concurrent calls
-      const call1 = (authOptions.callbacks!.jwt! as Function)({ token: { ...baseToken } })
-      const call2 = (authOptions.callbacks!.jwt! as Function)({ token: { ...baseToken } })
+      const call1 = (authOptions.callbacks!.jwt! as (...args: unknown[]) => Promise<unknown>)({ token: { ...baseToken } })
+      const call2 = (authOptions.callbacks!.jwt! as (...args: unknown[]) => Promise<unknown>)({ token: { ...baseToken } })
 
       // Resolve the held exchange with a successful response
       resolveExchange({
@@ -1220,7 +1236,7 @@ describe('auth-config', () => {
         } as any
       })
 
-      const result = await (authOptions.callbacks!.jwt! as Function)({
+      const result = await (authOptions.callbacks!.jwt! as (...args: unknown[]) => Promise<unknown>)({
         token: {
           accessToken: 'still-valid-at',
           refreshToken: 'consumed-rt',
@@ -1241,7 +1257,7 @@ describe('auth-config', () => {
       fetchSpy = jest.spyOn(global, 'fetch').mockImplementation(makeRefreshFetchMock())
 
       // Token has refreshSuppressedUntil set (from a prior graceful invalid_grant)
-      const result = await (authOptions.callbacks!.jwt! as Function)({
+      const result = await (authOptions.callbacks!.jwt! as (...args: unknown[]) => Promise<unknown>)({
         token: {
           accessToken: 'still-valid-at',
           refreshToken: 'consumed-rt',
@@ -1275,7 +1291,7 @@ describe('auth-config', () => {
         } as any
       })
 
-      const result = await (authOptions.callbacks!.jwt! as Function)({
+      const result = await (authOptions.callbacks!.jwt! as (...args: unknown[]) => Promise<unknown>)({
         token: {
           accessToken: 'expired-at',
           refreshToken: 'consumed-rt',

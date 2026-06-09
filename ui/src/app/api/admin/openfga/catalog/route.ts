@@ -1,10 +1,10 @@
-import { NextRequest } from "next/server";
-import { successResponse, withErrorHandler } from "@/lib/api-middleware";
+import { successResponse,withErrorHandler } from "@/lib/api-middleware";
 import { getCollection } from "@/lib/mongodb";
-import { isOpenFgaConfigured, isOpenFgaReconciliationEnabled } from "@/lib/rbac/openfga";
+import { isOpenFgaConfigured,isOpenFgaReconciliationEnabled } from "@/lib/rbac/openfga";
 import { listRebacCatalog } from "@/lib/rbac/resource-catalog";
 import { loadTeamMembersForSlugs } from "@/lib/rbac/team-membership-store";
 import type { Team } from "@/types/teams";
+import { NextRequest } from "next/server";
 import { withOpenFgaViewAuth } from "../_lib";
 
 interface CatalogAgent {

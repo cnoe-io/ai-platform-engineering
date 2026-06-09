@@ -8,12 +8,12 @@
  * Proxies to Dynamic Agents service: /api/v1/files/content
  */
 
-import { NextRequest, NextResponse } from "next/server";
 import {
-  authenticateRequest,
-  getDynamicAgentsConfig,
-  proxyRequest,
+authenticateRequest,
+getDynamicAgentsConfig,
+proxyRequest,
 } from "@/lib/da-proxy";
+import { NextRequest,NextResponse } from "next/server";
 
 export async function GET(request: NextRequest): Promise<Response> {
   const { searchParams } = new URL(request.url);

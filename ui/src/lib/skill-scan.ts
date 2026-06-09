@@ -1,6 +1,6 @@
 import JSZip from "jszip";
 
-import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
+import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
 import { recordScanEvent } from "@/lib/skill-scan-history";
 import type { ScanStatus } from "@/types/agent-skill";
 

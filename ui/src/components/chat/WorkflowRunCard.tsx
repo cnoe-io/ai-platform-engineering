@@ -1,9 +1,9 @@
 "use client";
 
-import React, { useEffect, useState, useCallback } from "react";
-import { Workflow, ExternalLink, CheckCircle2, XCircle, Loader2, Clock, PauseCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { CheckCircle2,Clock,ExternalLink,Loader2,PauseCircle,Workflow,XCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { useCallback,useEffect,useState } from "react";
 
 interface WorkflowRunInfo {
   runId: string;
@@ -74,12 +74,14 @@ function RunCard({ runId }: { runId: string }) {
   const [stopped, setStopped] = useState(false);
 
   useEffect(() => {
-    fetchStatus();
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetchStatus is async; setState only called after awaited fetch completes
+    void fetchStatus();
   }, [fetchStatus]);
 
   useEffect(() => {
     if (stopped || hidden) return;
     if (status && status.status !== "running" && status.status !== "waiting_for_input") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: conditional state update when status transitions to a terminal state
       setStopped(true);
       return;
     }

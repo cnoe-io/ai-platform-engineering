@@ -26,6 +26,7 @@ describe('A2ASDKClient', () => {
   let mockTransport: any
 
   beforeEach(() => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { JsonRpcTransport } = require('@a2a-js/sdk/client')
     mockTransport = new JsonRpcTransport({})
 
@@ -330,6 +331,7 @@ describe('A2ASDKClient', () => {
       })
 
       // Set the mocked fetch
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { createAuthenticatingFetchWithRetry } = require('@a2a-js/sdk/client')
       createAuthenticatingFetchWithRetry.mockImplementation(() => mockFetch)
 

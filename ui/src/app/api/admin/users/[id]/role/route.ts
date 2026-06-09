@@ -1,13 +1,13 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { getCollection, isMongoDBConfigured } from '@/lib/mongodb';
 import {
-  withErrorHandler,
-  successResponse,
-  requireRbacPermission,
-  ApiError,
-  getAuthFromBearerOrSession,
+ApiError,
+getAuthFromBearerOrSession,
+requireRbacPermission,
+successResponse,
+withErrorHandler,
 } from '@/lib/api-middleware';
+import { getCollection,isMongoDBConfigured } from '@/lib/mongodb';
 import type { User } from '@/types/mongodb';
+import { NextRequest,NextResponse } from 'next/server';
 
 interface UpdateRoleRequest {
   role: 'admin' | 'user';

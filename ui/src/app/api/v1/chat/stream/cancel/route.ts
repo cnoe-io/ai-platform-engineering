@@ -5,14 +5,14 @@
  * Response: JSON { success, cancelled, agent_id, conversation_id }
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import {
-  authenticateRequest,
-  getDynamicAgentsConfig,
-  proxyJSONRequest,
-} from "../../_helpers";
 import { requireAgentUsePermission } from "@/lib/rbac/openfga-agent-authz";
+import { NextRequest,NextResponse } from "next/server";
 import { requireConversationWriteAccess } from "../../_conversation-authz";
+import {
+authenticateRequest,
+getDynamicAgentsConfig,
+proxyJSONRequest,
+} from "../../_helpers";
 
 export async function POST(request: NextRequest): Promise<Response> {
   // Authenticate caller (session cookie or Bearer token)

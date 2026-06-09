@@ -10,15 +10,15 @@
  * couple this UI to the form-state plumbing).
  */
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import { BookOpen, ChevronDown, Loader2, Search } from "lucide-react";
+import { BookOpen,ChevronDown,Loader2,Search } from "lucide-react";
+import { useEffect,useMemo,useRef,useState } from "react";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { fetchSkillTemplates, type SkillTemplate } from "@/skills";
+import { fetchSkillTemplates,type SkillTemplate } from "@/skills";
 
 export interface SkillTemplatesMenuProps {
   onSelect: (template: SkillTemplate) => void;
@@ -48,6 +48,7 @@ export function SkillTemplatesMenu({
   useEffect(() => {
     if (!open || loadedRef.current || loading) return;
     loadedRef.current = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: triggers async fetch and updates loading/templates state
     setLoading(true);
     fetchSkillTemplates()
       .then(setTemplates)

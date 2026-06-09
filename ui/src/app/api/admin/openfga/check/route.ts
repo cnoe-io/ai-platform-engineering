@@ -1,8 +1,8 @@
-import { NextRequest } from "next/server";
-import { ApiError, successResponse, withErrorHandler } from "@/lib/api-middleware";
+import { ApiError,successResponse,withErrorHandler } from "@/lib/api-middleware";
 import { logOpenFgaRebacAuditEvent } from "@/lib/rbac/audit";
 import { checkOpenFgaTuple } from "@/lib/rbac/openfga";
-import { validateTupleKey, withOpenFgaViewAuth } from "../_lib";
+import { NextRequest } from "next/server";
+import { validateTupleKey,withOpenFgaViewAuth } from "../_lib";
 
 export const POST = withErrorHandler(async (request: NextRequest) =>
   withOpenFgaViewAuth(request, async ({ user, session }) => {

@@ -1,10 +1,10 @@
 import { NextRequest } from "next/server";
 
 import {
-  getAuthFromBearerOrSession,
-  requireRbacPermission,
-  successResponse,
-  withErrorHandler,
+getAuthFromBearerOrSession,
+requireRbacPermission,
+successResponse,
+withErrorHandler,
 } from "@/lib/api-middleware";
 import { callWebexBotAdmin } from "@/lib/webex-bot-admin";
 

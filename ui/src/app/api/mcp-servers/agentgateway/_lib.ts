@@ -1,14 +1,14 @@
+import { ApiError } from "@/lib/api-middleware";
 import { getCollection } from "@/lib/mongodb";
 import {
-  agentGatewayAdminConfigUrl,
-  buildAgentGatewayMcpDiscovery,
-  toAgentGatewayMcpServerDocument,
-  type AgentGatewayMcpDiscovery,
+agentGatewayAdminConfigUrl,
+buildAgentGatewayMcpDiscovery,
+toAgentGatewayMcpServerDocument,
+type AgentGatewayMcpDiscovery,
 } from "@/lib/rbac/agentgateway-mcp-discovery";
-import type { MCPServerConfig } from "@/types/dynamic-agent";
-import { ApiError } from "@/lib/api-middleware";
 import { reconcileConfigDrivenMcpServerRelationships } from "@/lib/rbac/openfga-owned-resources";
 import { caipeOrgKey } from "@/lib/rbac/organization";
+import type { MCPServerConfig } from "@/types/dynamic-agent";
 
 const COLLECTION_NAME = "mcp_servers";
 

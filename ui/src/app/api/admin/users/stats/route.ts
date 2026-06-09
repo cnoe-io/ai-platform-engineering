@@ -12,15 +12,15 @@
 // both can call them in parallel and join client-side, or we can add a
 // dedicated aggregator endpoint later if many UIs need the joined view.
 
-import { NextRequest, NextResponse } from 'next/server';
-import { getCollection, isMongoDBConfigured } from '@/lib/mongodb';
 import {
-  withErrorHandler,
-  successResponse,
-  getAuthFromBearerOrSession,
+getAuthFromBearerOrSession,
+successResponse,
+withErrorHandler,
 } from '@/lib/api-middleware';
+import { getCollection,isMongoDBConfigured } from '@/lib/mongodb';
 import { requireBaselineAdminSurfaceRead } from '@/lib/rbac/require-openfga';
 import type { User } from '@/types/mongodb';
+import { NextRequest,NextResponse } from 'next/server';
 
 export const GET = withErrorHandler(async (request: NextRequest) => {
   if (!isMongoDBConfigured) {

@@ -7,7 +7,7 @@
  * All requests go through /api/rag/* which proxies to the RAG server.
  */
 
-import { DataSourceInfo, IngestorInfo, IngestionJob, QueryResult } from '../Models';
+import { DataSourceInfo,IngestionJob,IngestorInfo } from '../Models';
 
 // API configuration - uses Next.js API proxy
 const API_BASE = '/api/rag';

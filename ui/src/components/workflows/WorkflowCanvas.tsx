@@ -1,40 +1,40 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import type { AgentAvatarAgent } from "@/components/dynamic-agents/AgentAvatar";
+import { useToast } from "@/components/ui/toast";
+import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
+import { useWorkflowConfigStore } from "@/store/workflow-config-store";
+import { useWorkflowExecStore } from "@/store/workflow-exec-store";
+import type {
+CreateWorkflowConfigInput,
+UpdateWorkflowConfigInput,
+WorkflowConfig,
+WorkflowStep,
+} from "@/types/workflow-config";
+import { createBlankStep } from "@/types/workflow-config";
 import {
-  ReactFlow,
-  ReactFlowProvider,
-  Panel,
-  Background,
-  BackgroundVariant,
-  useReactFlow,
-  type Node,
-  type Edge,
-  type NodeMouseHandler,
+Background,
+BackgroundVariant,
+Panel,
+ReactFlow,
+ReactFlowProvider,
+useReactFlow,
+type Edge,
+type Node,
+type NodeMouseHandler,
 } from "@xyflow/react";
-import YAML from "yaml";
 import "@xyflow/react/dist/style.css";
+import { useRouter } from "next/navigation";
+import { useCallback,useEffect,useMemo,useRef,useState } from "react";
+import YAML from "yaml";
 import {
-  WorkflowStepNode,
-  AddButtonNode,
-  type WorkflowStepNodeData,
-  type AddButtonNodeData,
+AddButtonNode,
+WorkflowStepNode,
+type AddButtonNodeData,
+type WorkflowStepNodeData,
 } from "./WorkflowStepNode";
 import { WorkflowStepSidebar } from "./WorkflowStepSidebar";
 import { WorkflowToolbar } from "./WorkflowToolbar";
-import type {
-  WorkflowConfig,
-  WorkflowStep,
-  CreateWorkflowConfigInput,
-  UpdateWorkflowConfigInput,
-} from "@/types/workflow-config";
-import { createBlankStep } from "@/types/workflow-config";
-import { useWorkflowConfigStore } from "@/store/workflow-config-store";
-import { useWorkflowExecStore } from "@/store/workflow-exec-store";
-import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
-import { useToast } from "@/components/ui/toast";
-import type { AgentAvatarAgent } from "@/components/dynamic-agents/AgentAvatar";
 
 // ---------------------------------------------------------------------------
 // Node types — defined outside component to avoid re-renders

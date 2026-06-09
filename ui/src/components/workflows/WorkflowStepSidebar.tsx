@@ -1,27 +1,27 @@
 "use client";
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
-import dynamic from "next/dynamic";
-import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import {
-  AlertCircle,
-  ChevronDown,
-  ChevronUp,
-  Code,
-  Lock,
-  Loader2,
-  MousePointerClick,
-  Plus,
-  Trash2,
-} from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
-import { AgentPicker, type AgentPickerOption } from "@/components/ui/agent-picker";
-import { StepToolOverridePicker } from "./StepToolOverridePicker";
 import type { AgentAvatarAgent } from "@/components/dynamic-agents/AgentAvatar";
+import { AgentPicker,type AgentPickerOption } from "@/components/ui/agent-picker";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 import type { WorkflowStep } from "@/types/workflow-config";
+import {
+AlertCircle,
+ChevronDown,
+ChevronUp,
+Code,
+Loader2,
+Lock,
+MousePointerClick,
+Plus,
+Trash2,
+} from "lucide-react";
+import dynamic from "next/dynamic";
+import { useCallback,useEffect,useRef,useState } from "react";
+import { StepToolOverridePicker } from "./StepToolOverridePicker";
 
 // Lazy-load CodeMirror to avoid SSR issues
 const CodeMirrorEditor = dynamic(() => import("@uiw/react-codemirror"), {

@@ -1,14 +1,14 @@
 import type { UniversalRebacRelationship } from "@/types/rbac-universal";
 
+import { getCurrentTraceparent,withAuthzSpan } from "./authz-tracing";
+import { isUnsafeRbacBypassEnabled,warnUnsafeRbacBypassEnabled } from "./bypass";
 import {
-  buildOpenFgaTupleDiff,
-  openFgaCheckRelation,
-  openFgaObject,
-  openFgaSubject,
-  type UniversalRebacTupleDiffInput,
+buildOpenFgaTupleDiff,
+openFgaCheckRelation,
+openFgaObject,
+openFgaSubject,
+type UniversalRebacTupleDiffInput,
 } from "./tuple-builders";
-import { getCurrentTraceparent, withAuthzSpan } from "./authz-tracing";
-import { isUnsafeRbacBypassEnabled, warnUnsafeRbacBypassEnabled } from "./bypass";
 
 export interface OpenFgaTupleKey {
   user: string;

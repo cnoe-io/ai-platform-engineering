@@ -1,9 +1,9 @@
 import type {
-  ExternalGroup,
-  IdentityGroupSyncDryRunResult,
-  IdentityGroupSyncRule,
-  IdentityGroupSyncSafetyWarning,
-  TeamMembershipSource,
+ExternalGroup,
+IdentityGroupSyncDryRunResult,
+IdentityGroupSyncRule,
+IdentityGroupSyncSafetyWarning,
+TeamMembershipSource,
 } from "@/types/identity-group-sync";
 
 import { evaluateIdentityGroupRules } from "./identity-group-rule-matcher";

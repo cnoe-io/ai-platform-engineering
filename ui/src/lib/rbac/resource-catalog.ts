@@ -3,8 +3,8 @@ import { listResourceTypeDefinitions } from "@/lib/rbac/resource-model";
 import { slackWorkspaceRef } from "@/lib/rbac/slack-channel-grant-store";
 import { webexWorkspaceRef } from "@/lib/rbac/webex-space-grant-store";
 import type {
-  UniversalRebacResourceType,
-  UniversalRebacResourceTypeDefinition,
+UniversalRebacResourceType,
+UniversalRebacResourceTypeDefinition,
 } from "@/types/rbac-universal";
 
 export type RebacResourceStatus = "active" | "disabled" | "archived" | "deleted" | "unknown";

@@ -1,17 +1,17 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { ObjectId } from 'mongodb';
-import { getCollection, isMongoDBConfigured } from '@/lib/mongodb';
 import {
-  getAuthFromBearerOrSession,
-  withErrorHandler,
-  successResponse,
-  requireRbacPermission,
-  ApiError,
+ApiError,
+getAuthFromBearerOrSession,
+requireRbacPermission,
+successResponse,
+withErrorHandler,
 } from '@/lib/api-middleware';
-import type { TeamKbOwnership, KbPermission } from '@/lib/rbac/types';
-import { writeOpenFgaTuples, type OpenFgaTupleKey, type TeamResourceTupleDiff } from '@/lib/rbac/openfga';
+import { getCollection,isMongoDBConfigured } from '@/lib/mongodb';
+import { writeOpenFgaTuples,type OpenFgaTupleKey,type TeamResourceTupleDiff } from '@/lib/rbac/openfga';
 import { reconcileDataSourceRelationships } from '@/lib/rbac/openfga-owned-resources';
 import { findUserRoleInTeam } from '@/lib/rbac/team-membership-store';
+import type { KbPermission,TeamKbOwnership } from '@/lib/rbac/types';
+import { ObjectId } from 'mongodb';
+import { NextRequest,NextResponse } from 'next/server';
 
 function requireMongoDB() {
   if (!isMongoDBConfigured) {

@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useCallback } from "react";
-import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ChevronDown } from "lucide-react";
+import React,{ useCallback,useEffect,useRef,useState } from "react";
 
 interface CollapsibleSectionProps {
   /** Title/label shown in the header */
@@ -64,6 +64,7 @@ export function CollapsibleSection({
       if (isControlled) {
         onExpandedChange?.(false);
       } else {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: state update is conditional (only when streaming transitions from true→false)
         setInternalExpanded(false);
       }
     }

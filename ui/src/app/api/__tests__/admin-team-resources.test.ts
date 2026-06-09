@@ -64,6 +64,7 @@ jest.mock("@/lib/rbac/openfga", () => ({
 }));
 
 function setDefaultPermissionMock(allow: boolean) {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { checkPermission } = require("@/lib/rbac/keycloak-authz") as {
     checkPermission: jest.Mock;
   };

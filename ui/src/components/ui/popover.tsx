@@ -1,8 +1,8 @@
 "use client";
 
+import { cn } from "@/lib/utils";
 import * as React from "react";
 import { createPortal } from "react-dom";
-import { cn } from "@/lib/utils";
 
 interface PopoverProps {
   children: React.ReactNode;
@@ -93,6 +93,7 @@ export function PopoverTrigger({ children, asChild }: PopoverTriggerProps) {
       setRef(node);
       if (typeof existingRef === "function") existingRef(node);
       else if (existingRef && typeof existingRef === "object")
+        // eslint-disable-next-line react-hooks/immutability
         (existingRef as React.MutableRefObject<HTMLElement | null>).current = node;
     };
     return React.cloneElement(childWithRef, {

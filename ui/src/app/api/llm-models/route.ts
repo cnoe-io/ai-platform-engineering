@@ -6,22 +6,22 @@
  * edited or deleted.
  */
 
-import { NextRequest } from "next/server";
-import { getCollection } from "@/lib/mongodb";
 import {
-  withErrorHandler,
-  successResponse,
-  ApiError,
-  getPaginationParams,
-  paginatedResponse,
-  getAuthFromBearerOrSession,
+ApiError,
+getAuthFromBearerOrSession,
+getPaginationParams,
+paginatedResponse,
+successResponse,
+withErrorHandler,
 } from "@/lib/api-middleware";
-import {
-  filterResourcesByPermission,
-  requireResourcePermission,
-} from "@/lib/rbac/resource-authz";
+import { getCollection } from "@/lib/mongodb";
 import { reconcileLlmModelRelationships } from "@/lib/rbac/openfga-owned-resources";
+import {
+filterResourcesByPermission,
+requireResourcePermission,
+} from "@/lib/rbac/resource-authz";
 import type { LLMModelConfig } from "@/types/dynamic-agent";
+import { NextRequest } from "next/server";
 
 const COLLECTION_NAME = "llm_models";
 

@@ -1,15 +1,15 @@
-import { NextRequest, NextResponse } from 'next/server';
 import {
-  withErrorHandler,
-  getPaginationParams,
-  ApiError,
-  successResponse,
-  getAuthFromBearerOrSession,
-  requireRbacPermission,
+ApiError,
+getAuthFromBearerOrSession,
+getPaginationParams,
+requireRbacPermission,
+successResponse,
+withErrorHandler,
 } from '@/lib/api-middleware';
-import { getCollection, isMongoDBConfigured } from '@/lib/mongodb';
 import { getServerConfig } from '@/lib/config';
-import type { Message, Conversation } from '@/types/mongodb';
+import { getCollection,isMongoDBConfigured } from '@/lib/mongodb';
+import type { Conversation,Message } from '@/types/mongodb';
+import { NextRequest,NextResponse } from 'next/server';
 
 export const GET = withErrorHandler(
   async (request: NextRequest, { params }: { params: Promise<{ id: string }> }) => {

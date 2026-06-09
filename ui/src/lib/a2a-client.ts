@@ -1,4 +1,4 @@
-import { A2AMessage, A2AEvent, A2ARequest } from "@/types/a2a";
+import { A2AEvent,A2AMessage,A2ARequest } from "@/types/a2a";
 import { generateId } from "./utils";
 
 export interface A2AClientConfig {

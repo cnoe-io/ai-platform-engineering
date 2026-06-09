@@ -1,9 +1,9 @@
 // GET /api/auth/role - Get coarse UI role from OpenFGA + bootstrap fallback
-import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions, isBootstrapAdmin } from '@/lib/auth-config';
+import { authOptions,isBootstrapAdmin } from '@/lib/auth-config';
 import { checkOpenFgaTuple } from '@/lib/rbac/openfga';
 import { organizationObjectId } from '@/lib/rbac/organization';
+import { getServerSession } from 'next-auth';
+import { NextRequest,NextResponse } from 'next/server';
 
 export async function GET(request: NextRequest) {
   const session = await getServerSession(authOptions);

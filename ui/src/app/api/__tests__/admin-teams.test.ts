@@ -71,6 +71,7 @@ jest.mock('@/lib/rbac/keycloak-admin', () => ({
 
 /** After resetModules(), re-require the mock so we configure the fresh jest.fn(). */
 function setDefaultCheckPermissionMock() {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { checkPermission } = require('@/lib/rbac/keycloak-authz') as {
     checkPermission: jest.Mock;
   };

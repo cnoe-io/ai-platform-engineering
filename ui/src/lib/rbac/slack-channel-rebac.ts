@@ -1,17 +1,17 @@
 import type {
-  SlackChannelAccessCheckResult,
-  SlackChannelGrantResourceType,
-} from "@/types/slack-rebac";
-import type {
-  UniversalRebacRelationship,
-  UniversalRebacResourceAction,
-  UniversalRebacResourceRef,
+UniversalRebacRelationship,
+UniversalRebacResourceAction,
+UniversalRebacResourceRef,
 } from "@/types/rbac-universal";
+import type {
+SlackChannelAccessCheckResult,
+SlackChannelGrantResourceType,
+} from "@/types/slack-rebac";
 
 import { checkUniversalRebacRelationship } from "./openfga";
 import {
-  SLACK_CHANNEL_GRANT_RESOURCE_TYPES,
-  slackChannelSubjectId,
+SLACK_CHANNEL_GRANT_RESOURCE_TYPES,
+slackChannelSubjectId,
 } from "./slack-channel-grant-store";
 
 export function slackChannelGrantRelationship(

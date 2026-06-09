@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useCallback } from "react";
 import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
+import { useCallback,useEffect,useRef,useState } from "react";
 
 /**
  * Canonical-JSON equality. Sorts top-level keys so that key order does not
@@ -73,23 +73,32 @@ export function useEditorDirtyTracking<T extends object>(
 ): UseEditorDirtyTrackingResult {
   const { enabled, currentValues, snapshotKey, equals = defaultEquals } = args;
 
-  // Snapshot lives in a ref so re-renders don't reset it. The companion ref
-  // tracks the snapshotKey we used so we can detect when to re-snapshot.
-  const snapshotRef = useRef<T>(currentValues);
-  const snapshotKeyRef = useRef<string>(snapshotKey);
+  // Track snapshot as state keyed by snapshotKey. When snapshotKey changes,
+  // we re-snapshot synchronously via the useState initializer on re-key.
+  // Using `key` prop on the consuming component to reset this hook on
+  // snapshotKey changes is not always feasible, so we track the active
+  // snapshotKey alongside the snapshot value and update in an effect.
+  const [snapshotState, setSnapshotState] = useState<{
+    key: string;
+    values: T;
+  }>(() => ({ key: snapshotKey, values: currentValues }));
+
+  // When snapshotKey changes, re-snapshot in an effect. This lags by one
+  // render (dirty will briefly be true on the first render after a key change)
+  // but avoids reading refs during render.
+  useEffect(() => {
+    if (snapshotState.key !== snapshotKey) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: re-snapshot when snapshotKey changes
+      setSnapshotState({ key: snapshotKey, values: currentValues });
+    }
+    // currentValues intentionally omitted: we only re-snapshot on key change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [snapshotKey]);
+
+  const snapshot = snapshotState.key === snapshotKey ? snapshotState.values : currentValues;
+  const dirty = enabled ? !equals(snapshot, currentValues) : false;
+
   const lastWrittenDirtyRef = useRef<boolean>(false);
-
-  // Re-snapshot when the caller-controlled key changes. This runs during
-  // render so the same render observes the new snapshot — without this,
-  // the key change would lag by one render and briefly report dirty=true.
-  if (snapshotKeyRef.current !== snapshotKey) {
-    snapshotRef.current = currentValues;
-    snapshotKeyRef.current = snapshotKey;
-  }
-
-  const dirty = enabled
-    ? !equals(snapshotRef.current, currentValues)
-    : false;
 
   // Mirror dirty into the global store, but only when it actually changed.
   // The store's setUnsaved already short-circuits no-op writes via Zustand,
@@ -110,10 +119,10 @@ export function useEditorDirtyTracking<T extends object>(
   }, []);
 
   const resetSnapshot = useCallback(() => {
-    snapshotRef.current = currentValues;
+    setSnapshotState({ key: snapshotKey, values: currentValues });
     lastWrittenDirtyRef.current = false;
     useUnsavedChangesStore.getState().setUnsaved(false);
-  }, [currentValues]);
+  }, [snapshotKey, currentValues]);
 
   return { dirty, resetSnapshot };
 }

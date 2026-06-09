@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 
-import { getAuthFromBearerOrSession, requireRbacPermission } from "@/lib/api-middleware";
+import { getAuthFromBearerOrSession,requireRbacPermission } from "@/lib/api-middleware";
 import { isBootstrapAdmin } from "@/lib/auth-config";
 
 export async function requireMigrationAdmin(request: NextRequest) {

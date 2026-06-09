@@ -13,30 +13,29 @@
  * Ported from DA services/seed_config.py — DA no longer seeds configs.
  */
 
-import fs from "fs";
-import yaml from "js-yaml";
-import { getCollection } from "@/lib/mongodb";
-import { isMongoDBConfigured } from "@/lib/mongodb";
-import { writeOpenFgaTuples } from "@/lib/rbac/openfga";
-import { caipeOrgKey } from "@/lib/rbac/organization";
+import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
 import { BUILTIN_MCP_CREDENTIAL_SOURCES } from "@/lib/rbac/agentgateway-mcp-discovery";
-import {
-  reconcileConfigDrivenLlmModelRelationships,
-  reconcileConfigDrivenMcpServerRelationships,
-} from "@/lib/rbac/openfga-owned-resources";
+import { writeOpenFgaTuples } from "@/lib/rbac/openfga";
 import { reconcileAgentRelationships } from "@/lib/rbac/openfga-agent-tools";
+import {
+reconcileConfigDrivenLlmModelRelationships,
+reconcileConfigDrivenMcpServerRelationships,
+} from "@/lib/rbac/openfga-owned-resources";
+import { caipeOrgKey } from "@/lib/rbac/organization";
 import type {
-  DynamicAgentConfig,
-  MCPServerConfig,
-  SubAgentRef,
-  TransportType,
-  VisibilityType,
+DynamicAgentConfig,
+MCPServerConfig,
+SubAgentRef,
+TransportType,
+VisibilityType,
 } from "@/types/dynamic-agent";
 import type {
-  WorkflowConfig,
-  WorkflowConfigVisibility,
-  StepEntry,
+StepEntry,
+WorkflowConfig,
+WorkflowConfigVisibility,
 } from "@/types/workflow-config";
+import fs from "fs";
+import yaml from "js-yaml";
 
 // Pattern to match ${VAR_NAME} or ${VAR_NAME:-default}
 const ENV_VAR_PATTERN = /\$\{([^}:]+)(?::-([^}]*))?\}/g;

@@ -1,7 +1,7 @@
 import type { OpenFgaTupleKey } from "@/lib/rbac/openfga";
 import {
-  buildShareableResourceTupleDiff,
-  type TeamResourceTupleDiff,
+buildShareableResourceTupleDiff,
+type TeamResourceTupleDiff,
 } from "@/lib/rbac/openfga-owned-resources";
 import { organizationObjectId } from "@/lib/rbac/organization";
 

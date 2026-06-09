@@ -1,13 +1,13 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
-import { FolderOpen } from "lucide-react";
-import { TooltipProvider } from "@/components/ui/tooltip";
 import { FileTree } from "@/components/dynamic-agents/FileTree";
-import { WorkflowStepTimeline } from "./WorkflowStepTimeline";
-import type { AgentInfo } from "./WorkflowStepTimeline";
-import type { WfRun } from "@/store/workflow-exec-store";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import type { StreamEvent } from "@/lib/streaming/types";
+import type { WfRun } from "@/store/workflow-exec-store";
+import { FolderOpen } from "lucide-react";
+import { useEffect,useMemo,useState } from "react";
+import type { AgentInfo } from "./WorkflowStepTimeline";
+import { WorkflowStepTimeline } from "./WorkflowStepTimeline";
 
 // ---------------------------------------------------------------------------
 // Main timeline

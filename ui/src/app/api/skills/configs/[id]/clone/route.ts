@@ -1,17 +1,17 @@
 import { NextRequest } from "next/server";
 
-import {
-  withAuth,
-  withErrorHandler,
-  successResponse,
-  ApiError,
-} from "@/lib/api-middleware";
-import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import { getAgentSkillVisibleToUser } from "@/lib/agent-skill-visibility";
+import {
+ApiError,
+successResponse,
+withAuth,
+withErrorHandler,
+} from "@/lib/api-middleware";
+import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
+import { requireSkillPermission } from "@/lib/rbac/resource-authz";
+import { recordRevision } from "@/lib/skill-revisions";
 import { scanSkillContent as runSkillScan } from "@/lib/skill-scan";
 import { recordScanEvent } from "@/lib/skill-scan-history";
-import { recordRevision } from "@/lib/skill-revisions";
-import { requireSkillPermission } from "@/lib/rbac/resource-authz";
 import type { AgentSkill } from "@/types/agent-skill";
 
 /**

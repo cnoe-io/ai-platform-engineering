@@ -1,26 +1,26 @@
-import { NextRequest } from "next/server";
-import { ObjectId } from "mongodb";
-import { ApiError, successResponse, withErrorHandler } from "@/lib/api-middleware";
+import { ApiError,successResponse,withErrorHandler } from "@/lib/api-middleware";
 import { getCollection } from "@/lib/mongodb";
 import { logOpenFgaRebacAuditEvent } from "@/lib/rbac/audit";
 import {
-  baselineBootstrapTuples,
-  baselineGrantCatalog,
-  baselineTupleKey,
-  bundleToLegacyProfile,
-  effectiveBaselineBootstrapTuples,
-  getBaselineFgaProfileBundle,
-  normalizeBaselineFgaProfile,
-  normalizeBaselineFgaProfileBundle,
-  saveBaselineFgaProfile,
-  saveBaselineFgaProfileBundle,
-  type BaselineFgaProfile,
-  type BaselineFgaProfileBundle,
-  type TeamBaselineProfileOverride,
+baselineBootstrapTuples,
+baselineGrantCatalog,
+baselineTupleKey,
+bundleToLegacyProfile,
+effectiveBaselineBootstrapTuples,
+getBaselineFgaProfileBundle,
+normalizeBaselineFgaProfile,
+normalizeBaselineFgaProfileBundle,
+saveBaselineFgaProfile,
+saveBaselineFgaProfileBundle,
+type BaselineFgaProfile,
+type BaselineFgaProfileBundle,
+type TeamBaselineProfileOverride,
 } from "@/lib/rbac/baseline-access";
-import { writeOpenFgaTuples, type OpenFgaTupleKey } from "@/lib/rbac/openfga";
-import { loadTeamMembersForSlugs, type CanonicalTeamMember } from "@/lib/rbac/team-membership-store";
-import { withOpenFgaAdminAuth, withOpenFgaViewAuth } from "../_lib";
+import { writeOpenFgaTuples,type OpenFgaTupleKey } from "@/lib/rbac/openfga";
+import { loadTeamMembersForSlugs,type CanonicalTeamMember } from "@/lib/rbac/team-membership-store";
+import { ObjectId } from "mongodb";
+import { NextRequest } from "next/server";
+import { withOpenFgaAdminAuth,withOpenFgaViewAuth } from "../_lib";
 
 type ApplyMode = "none" | "user" | "all";
 

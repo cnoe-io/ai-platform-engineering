@@ -1,38 +1,38 @@
 "use client";
 
-import React, { useState, useEffect, useRef, createContext, useContext, useCallback } from "react";
-import {
-  ChevronDown,
-  Loader2,
-  Wrench,
-  AlertTriangle,
-  XCircle,
-  CheckCircle,
-} from "lucide-react";
-import { cn } from "@/lib/utils";
-import {
-  MarkdownRenderer,
-  CollapsibleSection,
-  TaskList,
-} from "@/components/shared/timeline";
-import type { TaskItem } from "@/components/shared/timeline";
-import type {
-  TimelineData,
-  TimelineSegment,
-  ToolSegment,
-  ToolGroupSegment,
-  SubagentSegment,
-  ContentSegment,
-  WarningSegment,
-  ErrorSegment,
-  DoneSegment,
-  StatusSegment,
-  ToolInfo,
-} from "@/types/dynamic-agent-timeline";
-import { extractToolThought, groupConsecutiveTools } from "@/types/dynamic-agent-timeline";
-import { FileTree } from "@/components/dynamic-agents/FileTree";
-import { isFileToolName, isTodoToolName, isWorkflowToolName } from "@/lib/streaming/types";
 import { AgentAvatar } from "@/components/dynamic-agents/AgentAvatar";
+import { FileTree } from "@/components/dynamic-agents/FileTree";
+import type { TaskItem } from "@/components/shared/timeline";
+import {
+CollapsibleSection,
+MarkdownRenderer,
+TaskList,
+} from "@/components/shared/timeline";
+import { isFileToolName,isTodoToolName,isWorkflowToolName } from "@/lib/streaming/types";
+import { cn } from "@/lib/utils";
+import type {
+ContentSegment,
+DoneSegment,
+ErrorSegment,
+StatusSegment,
+SubagentSegment,
+TimelineData,
+TimelineSegment,
+ToolGroupSegment,
+ToolInfo,
+ToolSegment,
+WarningSegment,
+} from "@/types/dynamic-agent-timeline";
+import { extractToolThought,groupConsecutiveTools } from "@/types/dynamic-agent-timeline";
+import {
+AlertTriangle,
+CheckCircle,
+ChevronDown,
+Loader2,
+Wrench,
+XCircle,
+} from "lucide-react";
+import { createContext,useContext,useEffect,useRef,useState } from "react";
 import { WorkflowRunCard } from "./WorkflowRunCard";
 
 // ═══════════════════════════════════════════════════════════════
@@ -207,7 +207,8 @@ export function AgentTimeline({
   const prevFinalAnswerRef = useRef(finalAnswer);
   // Track whether this turn transitioned from streaming → final.
   // When true, skip the reveal animation since content was already visible.
-  const wasStreamingRef = useRef(false);
+  // State (not ref) so the JSX can read it without a react-hooks/refs violation.
+  const [wasStreaming, setWasStreaming] = useState(false);
   
   // For ref to timeline container (kept for potential future use)
   const timelineRef = useRef<HTMLDivElement>(null);
@@ -217,18 +218,21 @@ export function AgentTimeline({
   useEffect(() => {
     // Don't collapse while waiting for HITL input
     if (pendingHitl) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: expand machinery when HITL input is pending
       setMachineryExpanded(true);
       prevPendingHitlRef.current = pendingHitl;
       return;
     }
     // Collapse when HITL input is resolved (pendingHitl went true → false)
     if (prevPendingHitlRef.current) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setMachineryExpanded(false);
     }
     // Collapse when streaming ends
     if (prevStreamingRef.current && !isStreaming) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: collapse when streaming ends and mark streaming-complete for animation
       setMachineryExpanded(false);
-      wasStreamingRef.current = true;
+      setWasStreaming(true);
     }
     // Also collapse when final answer first appears AND streaming has stopped
     if (!prevFinalAnswerRef.current && finalAnswer && !isStreaming) {
@@ -386,7 +390,7 @@ export function AgentTimeline({
         {showFinalAnswerOutside && (
           <div className={cn(
             "bg-muted/30 border border-border/30 rounded-lg px-4 py-3",
-            !wasStreamingRef.current && "animate-reveal-ltr"
+            !wasStreaming && "animate-reveal-ltr"
           )}>
             <MarkdownRenderer
               content={finalAnswer}

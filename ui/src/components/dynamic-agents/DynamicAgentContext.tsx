@@ -1,27 +1,27 @@
 "use client";
 
-import React, { useState, useCallback, useEffect } from "react";
+import { AgentAvatar } from "@/components/dynamic-agents/AgentAvatar";
+import { FileTree } from "@/components/dynamic-agents/FileTree";
+import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { cn } from "@/lib/utils";
+import { useChatStore } from "@/store/chat-store";
+import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 import { motion } from "framer-motion";
 import {
-  Loader2,
-  ChevronLeft,
-  Bot,
-  Info,
-  Trash2,
-  RefreshCw,
-  Download,
-  Server,
-  FolderOpen,
+Bot,
+ChevronLeft,
+Download,
+FolderOpen,
+Info,
+Loader2,
+RefreshCw,
+Server,
+Trash2,
 } from "lucide-react";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Button } from "@/components/ui/button";
-import { FileTree } from "@/components/dynamic-agents/FileTree";
-import { AgentAvatar } from "@/components/dynamic-agents/AgentAvatar";
-import { useChatStore } from "@/store/chat-store";
-import { cn } from "@/lib/utils";
-import type { DynamicAgentConfig } from "@/types/dynamic-agent";
-import { useShallow } from "zustand/react/shallow";
 import { useSession } from "next-auth/react";
+import { useCallback,useEffect,useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 
 interface DynamicAgentContextProps {
   /** Conversation ID from route params - used for API calls */

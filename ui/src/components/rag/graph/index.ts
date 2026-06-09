@@ -1,3 +1,3 @@
-export * from './shared';
-export * from './OntologyGraph';
 export * from './DataGraph';
+export * from './OntologyGraph';
+export * from './shared';

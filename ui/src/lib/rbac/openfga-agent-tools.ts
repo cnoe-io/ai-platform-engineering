@@ -3,12 +3,12 @@
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 
 import {
-  isOpenFgaReconciliationEnabled,
-  readOpenFgaTuples,
-  writeOpenFgaTupleDiff,
-  type OpenFgaTupleKey,
-  type TeamResourceTupleDiff,
-  type OpenFgaReconcileResult,
+isOpenFgaReconciliationEnabled,
+readOpenFgaTuples,
+writeOpenFgaTupleDiff,
+type OpenFgaReconcileResult,
+type OpenFgaTupleKey,
+type TeamResourceTupleDiff,
 } from "./openfga";
 import { buildTeamGrantTuples } from "./openfga-owned-resources";
 

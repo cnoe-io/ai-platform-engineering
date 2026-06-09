@@ -29,15 +29,15 @@
  * to team admins.
  */
 
-import { NextRequest } from "next/server";
-import { ApiError, successResponse, withErrorHandler } from "@/lib/api-middleware";
+import { ApiError,successResponse,withErrorHandler } from "@/lib/api-middleware";
 import { logOpenFgaRebacAuditEvent } from "@/lib/rbac/audit";
 import {
-  readOpenFgaTuples,
-  writeOpenFgaTupleDiff,
-  type OpenFgaTupleKey,
+readOpenFgaTuples,
+writeOpenFgaTupleDiff,
+type OpenFgaTupleKey,
 } from "@/lib/rbac/openfga";
-import { withOpenFgaAdminAuth, withOpenFgaViewAuth } from "../../openfga/_lib";
+import { NextRequest } from "next/server";
+import { withOpenFgaAdminAuth,withOpenFgaViewAuth } from "../../openfga/_lib";
 
 // Same id charset the other RAG/OpenFGA routes accept.
 const DATASOURCE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._~@|*+=,/-]{0,191}$/;

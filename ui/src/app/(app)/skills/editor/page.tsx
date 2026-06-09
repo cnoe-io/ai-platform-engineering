@@ -6,8 +6,8 @@
  * external links, and admin links don't 404 during the transition.
  */
 
-import React, { useEffect } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter,useSearchParams } from "next/navigation";
+import { useEffect } from "react";
 
 import { AuthGuard } from "@/components/auth-guard";
 import { CAIPESpinner } from "@/components/ui/caipe-spinner";

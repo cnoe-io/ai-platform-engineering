@@ -1,7 +1,7 @@
 import type {
-  ExternalGroup,
-  IdentityGroupSyncRule,
-  TeamRelationshipRole,
+ExternalGroup,
+IdentityGroupSyncRule,
+TeamRelationshipRole,
 } from "@/types/identity-group-sync";
 
 import { normalizeTeamSlug } from "./team-slugs";

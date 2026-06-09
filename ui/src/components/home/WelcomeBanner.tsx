@@ -1,7 +1,6 @@
 "use client";
 
-import React from "react";
-import { Sparkles, Settings } from "lucide-react";
+import { Settings,Sparkles } from "lucide-react";
 
 interface WelcomeBannerProps {
   userName?: string | null;

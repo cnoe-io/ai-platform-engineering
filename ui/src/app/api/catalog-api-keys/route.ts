@@ -1,15 +1,15 @@
-import { NextRequest, NextResponse } from "next/server";
 import {
-  withAuth,
-  withErrorHandler,
-  ApiError,
+ApiError,
+withAuth,
+withErrorHandler,
 } from "@/lib/api-middleware";
 import {
-  createCatalogApiKey,
-  listCatalogApiKeys,
-  resolveCatalogApiKeyOwnerId,
+createCatalogApiKey,
+listCatalogApiKeys,
+resolveCatalogApiKeyOwnerId,
 } from "@/lib/catalog-api-keys";
 import { isMongoDBConfigured } from "@/lib/mongodb";
+import { NextRequest,NextResponse } from "next/server";
 
 /**
  * GET /api/catalog-api-keys — list metadata for caller’s catalog API keys.

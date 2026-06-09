@@ -1,9 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
+import { handleApiError,requireRbacPermission } from "@/lib/api-middleware";
 import { authOptions } from "@/lib/auth-config";
-import { requireRbacPermission, handleApiError } from "@/lib/api-middleware";
+import { requireResourcePermission,type ResourcePermissionAction } from "@/lib/rbac/resource-authz";
 import type { RbacScope } from "@/lib/rbac/types";
-import { requireResourcePermission, type ResourcePermissionAction } from "@/lib/rbac/resource-authz";
+import { getServerSession } from "next-auth";
+import { NextRequest,NextResponse } from "next/server";
 
 /**
  * KB admin/ingest/query proxy with 098 RBAC enforcement (FR-015).

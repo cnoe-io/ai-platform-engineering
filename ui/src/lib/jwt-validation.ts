@@ -12,12 +12,12 @@
  * fallback identity is returned.
  */
 
-import { createRemoteJWKSet, jwtVerify, SignJWT, type JWTPayload, errors as joseErrors } from 'jose';
+import { createRemoteJWKSet,errors as joseErrors,jwtVerify,SignJWT,type JWTPayload } from 'jose';
 
 import {
-  KNOWN_NEXTAUTH_PLACEHOLDERS,
-  getSafeNextAuthSecret,
-  isStrictSecretMode,
+getSafeNextAuthSecret,
+isStrictSecretMode,
+KNOWN_NEXTAUTH_PLACEHOLDERS,
 } from './nextauth-secret-guard';
 
 export interface JWTIdentity {

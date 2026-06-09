@@ -6,17 +6,17 @@
  * Auth is forwarded via X-User-Context header (same as chat routes).
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import { getCollection } from "@/lib/mongodb";
 import {
-  withErrorHandler,
-  successResponse,
-  ApiError,
-  getAuthFromBearerOrSession,
+ApiError,
+getAuthFromBearerOrSession,
+successResponse,
+withErrorHandler,
 } from "@/lib/api-middleware";
-import { authenticateRequest, buildBackendHeaders } from "@/lib/da-proxy";
+import { authenticateRequest,buildBackendHeaders } from "@/lib/da-proxy";
+import { getCollection } from "@/lib/mongodb";
 import { requireResourcePermission } from "@/lib/rbac/resource-authz";
 import type { MCPServerConfig } from "@/types/dynamic-agent";
+import { NextRequest,NextResponse } from "next/server";
 
 const COLLECTION_NAME = "mcp_servers";
 

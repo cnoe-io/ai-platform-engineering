@@ -1,22 +1,22 @@
-import { NextResponse } from "next/server";
-import type { NextRequest } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions, isBootstrapAdmin } from "@/lib/auth-config";
 import { ApiError } from "@/lib/api-middleware";
+import { authOptions,isBootstrapAdmin } from "@/lib/auth-config";
 import { getConfig } from "@/lib/config";
 import { getCollection } from "@/lib/mongodb";
 import { parseAdminSimulation } from "@/lib/rbac/admin-simulator";
-import { checkOpenFgaTuple, writeOpenFgaTuples } from "@/lib/rbac/openfga";
-import { organizationObjectId } from "@/lib/rbac/organization";
 import {
-  adminSurfaceObject,
-  baselineBootstrapTuples,
-  getBaselineFgaProfile,
-  BASELINE_ADMIN_SURFACES,
+adminSurfaceObject,
+BASELINE_ADMIN_SURFACES,
+baselineBootstrapTuples,
+getBaselineFgaProfile,
 } from "@/lib/rbac/baseline-access";
+import { checkOpenFgaTuple,writeOpenFgaTuples } from "@/lib/rbac/openfga";
+import { organizationObjectId } from "@/lib/rbac/organization";
 import { slackChannelSubjectId } from "@/lib/rbac/slack-channel-grant-store";
+import type { AdminTabGatesMap,AdminTabKey } from "@/lib/rbac/types";
 import { webexSpaceSubjectId } from "@/lib/rbac/webex-space-grant-store";
-import type { AdminTabKey, AdminTabGatesMap } from "@/lib/rbac/types";
+import { getServerSession } from "next-auth";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 
 const ALL_TABS: AdminTabKey[] = [
   "users",

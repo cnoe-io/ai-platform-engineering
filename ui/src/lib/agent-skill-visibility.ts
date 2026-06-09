@@ -1,5 +1,5 @@
-import { getCollection } from "@/lib/mongodb";
 import { canMutateBuiltinSkill } from "@/lib/builtin-skill-policy";
+import { getCollection } from "@/lib/mongodb";
 import { readSkillSharedTeamSlugsFromOpenFga } from "@/lib/rbac/skill-team-grants";
 import type { AgentSkill } from "@/types/agent-skill";
 

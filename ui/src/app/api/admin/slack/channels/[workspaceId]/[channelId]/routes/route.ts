@@ -1,24 +1,24 @@
 import { NextRequest } from "next/server";
 
-import { ApiError, successResponse, withErrorHandler } from "@/lib/api-middleware";
-import { readOpenFgaTuples, writeOpenFgaTuples } from "@/lib/rbac/openfga";
+import { ApiError,successResponse,withErrorHandler } from "@/lib/api-middleware";
+import { readOpenFgaTuples,writeOpenFgaTuples } from "@/lib/rbac/openfga";
 import { slackChannelSubjectId } from "@/lib/rbac/slack-channel-grant-store";
-import {
-  deleteSlackChannelAgentRoute,
-  listSlackChannelAgentRoutes,
-  replaceSlackChannelAgentRoutes,
-  type SlackChannelAgentRouteInput,
-} from "@/lib/rbac/slack-channel-route-store";
 import { slackChannelGrantRelationship } from "@/lib/rbac/slack-channel-rebac";
+import {
+deleteSlackChannelAgentRoute,
+listSlackChannelAgentRoutes,
+replaceSlackChannelAgentRoutes,
+type SlackChannelAgentRouteInput,
+} from "@/lib/rbac/slack-channel-route-store";
 import { buildUniversalRebacTupleDiff } from "@/lib/rbac/tuple-builders";
 import type { UniversalRebacRelationship } from "@/types/rbac-universal";
 import type {
-  SlackChannelAgentRoute,
-  SlackRouteEscalationConfig,
-  SlackRouteSideConfig,
+SlackChannelAgentRoute,
+SlackRouteEscalationConfig,
+SlackRouteSideConfig,
 } from "@/types/slack-rebac";
 
-import { withSlackChannelRebacManageAuth, withSlackChannelRebacViewAuth } from "../../../_lib";
+import { withSlackChannelRebacManageAuth,withSlackChannelRebacViewAuth } from "../../../_lib";
 
 interface RouteContext {
   params: Promise<{ workspaceId: string; channelId: string }>;

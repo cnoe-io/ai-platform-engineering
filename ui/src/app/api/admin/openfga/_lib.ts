@@ -1,12 +1,12 @@
-import { NextRequest } from "next/server";
 import {
-  ApiError,
-  getAuthFromBearerOrSession,
-  requireRbacPermission,
+ApiError,
+getAuthFromBearerOrSession,
+requireRbacPermission,
 } from "@/lib/api-middleware";
 import type { OpenFgaTupleKey } from "@/lib/rbac/openfga";
-import { OPENFGA_ACTION_RELATIONS } from "@/lib/rbac/tuple-builders";
 import { isUniversalRebacResourceType } from "@/lib/rbac/relationship-validator";
+import { OPENFGA_ACTION_RELATIONS } from "@/lib/rbac/tuple-builders";
+import { NextRequest } from "next/server";
 
 export const ALLOWED_RELATIONS = new Set(["member", "admin", ...OPENFGA_ACTION_RELATIONS]);
 

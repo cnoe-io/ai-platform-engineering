@@ -11,12 +11,12 @@
  */
 
 import { getCollection } from "@/lib/mongodb";
-import { consumeAgentStream, type ConsumeResult } from "@/lib/streaming/clients/server-agui-consumer";
 import { readEvents } from "@/lib/server/event-store";
+import { consumeAgentStream,type ConsumeResult } from "@/lib/streaming/clients/server-agui-consumer";
 import { isToolStartData } from "@/lib/streaming/types";
-import { renderPrompt, buildTemplateContext, type StepContext } from "./workflow-templating";
-import type { WorkflowConfig, WorkflowStep } from "@/types/workflow-config";
+import type { WorkflowConfig,WorkflowStep } from "@/types/workflow-config";
 import { flattenStepEntries } from "@/types/workflow-config";
+import { buildTemplateContext,renderPrompt,type StepContext } from "./workflow-templating";
 
 // ═══════════════════════════════════════════════════════════════
 // Configuration

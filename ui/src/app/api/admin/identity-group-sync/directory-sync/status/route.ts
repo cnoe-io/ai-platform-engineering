@@ -1,14 +1,14 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest,NextResponse } from "next/server";
 
-import { successResponse, withErrorHandler } from "@/lib/api-middleware";
+import { successResponse,withErrorHandler } from "@/lib/api-middleware";
 import { isMongoDBConfigured } from "@/lib/mongodb";
 import {
-  checkConnectorHealthForProvider,
-  isConnectorConfigured,
-  listIdpConnectors,
-  type IdpConnectorHealth,
+checkConnectorHealthForProvider,
+isConnectorConfigured,
+listIdpConnectors,
+type IdpConnectorHealth,
 } from "@/lib/rbac/idp-connectors";
-import { getIdpSyncSettings, listIdpSyncRuns, reapStaleIdpSyncRuns } from "@/lib/rbac/idp-sync-store";
+import { getIdpSyncSettings,listIdpSyncRuns,reapStaleIdpSyncRuns } from "@/lib/rbac/idp-sync-store";
 
 import { withIdentityGroupSyncViewAuth } from "../../_lib";
 import { resolveProviderParam } from "../_provider";

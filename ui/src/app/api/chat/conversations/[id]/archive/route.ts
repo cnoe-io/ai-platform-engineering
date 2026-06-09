@@ -1,16 +1,16 @@
 // POST /api/chat/conversations/[id]/archive - Toggle archive status
 
-import { NextRequest } from 'next/server';
-import { getCollection } from '@/lib/mongodb';
 import {
-  withAuth,
-  withErrorHandler,
-  successResponse,
-  ApiError,
-  validateUUID,
+ApiError,
+successResponse,
+validateUUID,
+withAuth,
+withErrorHandler,
 } from '@/lib/api-middleware';
+import { getCollection } from '@/lib/mongodb';
 import { requireConversationResourcePermission } from '@/lib/rbac/conversation-implicit-authz';
 import type { Conversation } from '@/types/mongodb';
+import { NextRequest } from 'next/server';
 
 // POST /api/chat/conversations/[id]/archive
 export const POST = withErrorHandler(async (

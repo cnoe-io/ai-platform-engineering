@@ -22,8 +22,8 @@
  * assisted-by Cursor claude-opus-4.8
  */
 
-import type { RebacEnforcementStatus } from "./resource-catalog";
 import type { UniversalRebacResourceType } from "@/types/rbac-universal";
+import type { RebacEnforcementStatus } from "./resource-catalog";
 
 export interface FgaEnforcementManifestEntry {
   status: RebacEnforcementStatus;

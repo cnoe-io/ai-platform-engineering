@@ -5,27 +5,27 @@
  * The gateway owns all config writes — DA is a pure runtime reader.
  */
 
-import { NextRequest } from "next/server";
-import { getCollection } from "@/lib/mongodb";
 import {
-  withErrorHandler,
-  successResponse,
-  ApiError,
-  getPaginationParams,
-  paginatedResponse,
-  getAuthFromBearerOrSession,
+ApiError,
+getAuthFromBearerOrSession,
+getPaginationParams,
+paginatedResponse,
+successResponse,
+withErrorHandler,
 } from "@/lib/api-middleware";
-import {
-  filterResourcesByPermission,
-  requireResourcePermission,
-} from "@/lib/rbac/resource-authz";
-import {
-  deleteAllMcpServerRelationshipTuples,
-  reconcileMcpServerRelationships,
-} from "@/lib/rbac/openfga-owned-resources";
+import { getCollection } from "@/lib/mongodb";
 import { agentGatewayMcpEndpointUrl } from "@/lib/rbac/agentgateway-mcp-discovery";
 import { normalizeMcpEndpointForServer } from "@/lib/rbac/mcp-endpoint-normalizer";
-import type { MCPServerConfig, TransportType } from "@/types/dynamic-agent";
+import {
+deleteAllMcpServerRelationshipTuples,
+reconcileMcpServerRelationships,
+} from "@/lib/rbac/openfga-owned-resources";
+import {
+filterResourcesByPermission,
+requireResourcePermission,
+} from "@/lib/rbac/resource-authz";
+import type { MCPServerConfig,TransportType } from "@/types/dynamic-agent";
+import { NextRequest } from "next/server";
 
 const COLLECTION_NAME = "mcp_servers";
 

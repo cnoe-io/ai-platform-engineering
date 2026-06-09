@@ -1,9 +1,9 @@
 "use client";
 
-import * as React from "react";
-import { GripVertical } from "lucide-react";
-import { Group, Panel, Separator } from "react-resizable-panels";
 import { cn } from "@/lib/utils";
+import { GripVertical } from "lucide-react";
+import * as React from "react";
+import { Group,Panel,Separator } from "react-resizable-panels";
 
 // Map direction prop to orientation for the new API
 interface ResizablePanelGroupProps extends Omit<React.ComponentProps<typeof Group>, "orientation"> {
@@ -53,4 +53,4 @@ const ResizableHandle = ({
   </Separator>
 );
 
-export { ResizablePanelGroup, ResizablePanel, ResizableHandle };
+export { ResizableHandle,ResizablePanel,ResizablePanelGroup };

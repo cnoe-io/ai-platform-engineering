@@ -1,10 +1,10 @@
 "use client";
 
-import { AlertTriangle, Check, X, User } from "lucide-react";
-import { useRagPermissions, Permission } from "@/hooks/useRagPermissions";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
+import { Tooltip,TooltipContent,TooltipProvider,TooltipTrigger } from "@/components/ui/tooltip";
+import { Permission,useRagPermissions } from "@/hooks/useRagPermissions";
 import type { PermissionType } from "@/lib/rag-api";
+import { cn } from "@/lib/utils";
+import { AlertTriangle,Check,User,X } from "lucide-react";
 
 interface RagAuthIndicatorProps {
   compact?: boolean;

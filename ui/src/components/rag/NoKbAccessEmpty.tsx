@@ -1,7 +1,6 @@
 "use client";
 
-import React from "react";
-import { Lock, ShieldQuestion } from "lucide-react";
+import { Lock,ShieldQuestion } from "lucide-react";
 
 interface NoKbAccessEmptyProps {
   /** Short label naming the surface, e.g. "search", "data sources", "graph", "MCP tools". */

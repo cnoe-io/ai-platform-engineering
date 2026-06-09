@@ -1,14 +1,14 @@
 // GET /api/users/me - Get current user profile
 // PUT /api/users/me - Update current user profile
 
-import { NextRequest } from 'next/server';
-import { getCollection } from '@/lib/mongodb';
 import {
-  withAuth,
-  withErrorHandler,
-  successResponse,
+successResponse,
+withAuth,
+withErrorHandler,
 } from '@/lib/api-middleware';
-import type { User, UpdateUserRequest } from '@/types/mongodb';
+import { getCollection } from '@/lib/mongodb';
+import type { UpdateUserRequest,User } from '@/types/mongodb';
+import { NextRequest } from 'next/server';
 
 // GET /api/users/me
 export const GET = withErrorHandler(async (request: NextRequest) => {

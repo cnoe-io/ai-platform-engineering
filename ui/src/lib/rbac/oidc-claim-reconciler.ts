@@ -1,9 +1,9 @@
 import { isMongoDBConfigured } from "@/lib/mongodb";
-import type { ExternalGroup, TeamMembershipSource } from "@/types/identity-group-sync";
+import type { ExternalGroup,TeamMembershipSource } from "@/types/identity-group-sync";
 
+import { planIdentityGroupSync,sourceTypeForProvider } from "./identity-group-sync-planner";
 import { applyIdentityGroupSyncPlan } from "./identity-group-sync-reconciler";
 import { listIdentityGroupSyncRules } from "./identity-group-sync-rule-store";
-import { planIdentityGroupSync, sourceTypeForProvider } from "./identity-group-sync-planner";
 import { listActiveTeamMembershipSourcesForUser } from "./team-membership-source-store";
 
 const DEFAULT_OIDC_CLAIM_PROVIDER_ID = "oidc-claims";
