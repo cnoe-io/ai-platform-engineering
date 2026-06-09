@@ -125,6 +125,58 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       for (const item of items) {
         item.checkpoint_count = countMap.get(item.id) || 0;
       }
+
+      // Batch-fetch message counts for WebUI conversations
+      const webuiIds = items
+        .filter((item) => item.client_type === "webui")
+        .map((item) => item.id);
+      if (webuiIds.length > 0) {
+        try {
+          const messagesCol = await getCollection("messages");
+          const msgCounts: any[] = await messagesCol
+            .aggregate([
+              { $match: { conversation_id: { $in: webuiIds } } },
+              { $group: { _id: "$conversation_id", count: { $sum: 1 } } },
+            ])
+            .toArray();
+          const msgCountMap = new Map(msgCounts.map((c) => [c._id, c.count]));
+          for (const item of items) {
+            if (item.client_type === "webui") {
+              item.message_count = msgCountMap.get(item.id) || 0;
+            }
+          }
+        } catch {
+          // messages collection may not exist
+        }
+      }
+
+      // Batch-fetch GridFS file counts per (agent_id, conversation_id, "filesystem") namespace
+      try {
+        const gridfsFiles = await getCollection("agent_files.files");
+        const namespacePairs = items
+          .filter((item) => item.agent_id)
+          .map((item) => [item.agent_id, item.id, "filesystem"]);
+
+        if (namespacePairs.length > 0) {
+          const fileCounts: any[] = await gridfsFiles
+            .aggregate([
+              { $match: { "metadata.namespace": { $in: namespacePairs } } },
+              { $group: { _id: "$metadata.namespace", count: { $sum: 1 } } },
+            ])
+            .toArray();
+          const fileCountMap = new Map(
+            fileCounts.map((c) => [c._id?.[1], c.count])  // key by conversation_id (index 1)
+          );
+          for (const item of items) {
+            item.file_count = fileCountMap.get(item.id) || 0;
+          }
+        }
+      } catch {
+        // GridFS collection may not exist yet
+        for (const item of items) {
+          item.file_count = 0;
+        }
+      }
     }
 
     return paginatedResponse(items, total, page, pageSize);

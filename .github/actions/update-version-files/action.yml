@@ -271,6 +271,19 @@ runs:
           fi
           echo "  ✅ pyproject.toml → $PYPROJECT_VERSION"
 
+          # Update docs site version strings
+          BARE_VERSION=$(echo "$VERSION" | grep -oE '^[0-9]+\.[0-9]+\.[0-9]+')
+          if [[ -f "docs/docusaurus.config.ts" ]]; then
+            sed -i "s/label: '[^']*([Ll]atest)'/label: '$BARE_VERSION (Latest)'/" docs/docusaurus.config.ts
+            echo "  ✅ docs/docusaurus.config.ts version label → $BARE_VERSION (Latest)"
+          fi
+          if [[ -f "docs/src/pages/index.tsx" ]]; then
+            # Update any v0.X.Y version in the hero badge / install snippet
+            sed -i "s/v[0-9]\+\.[0-9]\+\.[0-9]\+/v$BARE_VERSION/g" docs/src/pages/index.tsx
+            sed -i "s/--version [0-9]\+\.[0-9]\+\.[0-9]\+/--version $BARE_VERSION/g" docs/src/pages/index.tsx
+            echo "  ✅ docs/src/pages/index.tsx version refs → $BARE_VERSION"
+          fi
+
           # Regenerate uv.lock
           echo "  🔒 Regenerating uv.lock..."
           uv lock

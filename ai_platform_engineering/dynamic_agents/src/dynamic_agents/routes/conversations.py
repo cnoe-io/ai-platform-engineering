@@ -1,20 +1,25 @@
 """Conversations endpoint for Dynamic Agents.
 
-Provides access to conversation history stored in the LangGraph checkpointer.
-Metadata (ownership, sharing) is stored in the `conversations` collection,
-while messages are stored in the `checkpoints_conversation` collection.
+Provides access to conversation state stored in the LangGraph checkpointer:
+interrupt state, files, and clear operations.
+
+Messages are served by the Next.js layer directly from MongoDB.
 """
 
 import logging
+import re
 from datetime import datetime, timezone
-from typing import Literal
+from pathlib import PurePosixPath
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel
+from pymongo.database import Database
 
 from dynamic_agents.auth.access import can_access_conversation
 from dynamic_agents.auth.auth import UserContext, get_user_context
+from dynamic_agents.config import get_settings
 from dynamic_agents.models import ApiResponse
+from dynamic_agents.services.gridfs_store import MongoDBGridFSStore
 from dynamic_agents.services.mongo import MongoDBService, get_mongo_service
 from dynamic_agents.services.runtime_cache import get_runtime_cache
 
@@ -22,32 +27,88 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
 
+_UPLOAD_PREFIX = "/uploads"
+_MAX_UPLOAD_FILES = 10
+_SAFE_FILENAME_RE = re.compile(r"[^A-Za-z0-9._-]+")
+_ALLOWED_UPLOAD_EXTENSIONS = {
+    ".csv",
+    ".htm",
+    ".html",
+    ".json",
+    ".jsonl",
+    ".log",
+    ".markdown",
+    ".md",
+    ".rst",
+    ".text",
+    ".tsv",
+    ".txt",
+    ".vtt",
+    ".xml",
+    ".yaml",
+    ".yml",
+}
 
-class ConversationMessage(BaseModel):
-    """Message from conversation history."""
 
-    id: str
-    role: Literal["user", "assistant"]
-    content: str
-    timestamp: datetime | None = None
+def _get_gridfs_store(db: Database) -> MongoDBGridFSStore:
+    """Get a GridFS store instance for the given database."""
+    settings = get_settings()
+    return MongoDBGridFSStore(db=db, bucket_name=settings.gridfs_bucket_name)
+
+
+def _create_file_data(content: str, *, uploaded_by: str, original_name: str, size_bytes: int) -> dict:
+    now = datetime.now(timezone.utc).isoformat()
+    return {
+        "content": content.split("\n"),
+        "created_at": now,
+        "modified_at": now,
+        "uploaded_by": uploaded_by,
+        "original_name": original_name,
+        "size_bytes": size_bytes,
+        "source": "chat_upload",
+    }
+
+
+def _safe_upload_filename(filename: str | None) -> str:
+    raw_name = PurePosixPath(filename or "").name
+    cleaned = _SAFE_FILENAME_RE.sub("_", raw_name).strip("._-")
+    return (cleaned or "upload.txt")[:160]
+
+
+def _validate_upload_extension(filename: str) -> None:
+    suffix = PurePosixPath(filename).suffix.lower()
+    if suffix not in _ALLOWED_UPLOAD_EXTENSIONS:
+        allowed = ", ".join(sorted(_ALLOWED_UPLOAD_EXTENSIONS))
+        raise HTTPException(status_code=415, detail=f"Unsupported file type. Allowed extensions: {allowed}")
+
+
+def _dedupe_upload_path(store: MongoDBGridFSStore, namespace: tuple[str, str, str], filename: str) -> str:
+    path = f"{_UPLOAD_PREFIX}/{filename}"
+    if store.get(namespace, path) is None:
+        return path
+
+    posix_name = PurePosixPath(filename)
+    suffix = posix_name.suffix
+    stem = posix_name.stem or "upload"
+    for index in range(2, 1000):
+        candidate = f"{_UPLOAD_PREFIX}/{stem}-{index}{suffix}"
+        if store.get(namespace, candidate) is None:
+            return candidate
+    raise HTTPException(status_code=409, detail=f"Too many files named like {filename}")
 
 
 class InterruptData(BaseModel):
-    """Data for a pending HITL interrupt."""
+    """Data for a pending HITL interrupt (discriminated by type)."""
 
+    type: str = "form_input"  # "form_input" or "tool_approval"
     interrupt_id: str
-    prompt: str
-    fields: list[dict]
-
-
-class ConversationMessagesResponse(BaseModel):
-    """Response containing conversation messages from checkpointer."""
-
-    conversation_id: str
-    agent_id: str
-    messages: list[ConversationMessage]
-    has_pending_interrupt: bool = False
-    interrupt_data: InterruptData | None = None
+    # form_input fields
+    prompt: str = ""
+    fields: list[dict] = []
+    # tool_approval fields
+    tool_name: str | None = None
+    tool_args: dict | None = None
+    allowed_decisions: list[str] | None = None
 
 
 class ConversationFilesListResponse(BaseModel):
@@ -66,161 +127,20 @@ class FileContentResponse(BaseModel):
     content: str
 
 
-@router.get("/{conversation_id}/messages", response_model=ConversationMessagesResponse)
-async def get_conversation_messages(
-    conversation_id: str,
-    agent_id: str = Query(..., description="Dynamic agent ID"),
-    user: UserContext = Depends(get_user_context),
-    mongo: MongoDBService = Depends(get_mongo_service),
-) -> ConversationMessagesResponse:
-    """Get messages for a conversation from the LangGraph checkpointer.
+class UploadedFileInfo(BaseModel):
+    """Metadata for a file uploaded into the conversation filesystem."""
 
-    This endpoint retrieves the full message history for a conversation,
-    including any pending HITL interrupt state.
+    path: str
+    original_name: str
+    size_bytes: int
 
-    Access control is handled by `can_access_conversation()` in auth/access.py.
 
-    Messages are extracted from the LangGraph checkpoint state.
-    Only HumanMessage and AIMessage are returned (tool messages filtered out).
-    """
-    # 1. Verify agent exists and user can access it
-    agent = mongo.get_agent(agent_id)
-    if not agent:
-        raise HTTPException(status_code=404, detail="Agent not found")
+class FileUploadResponse(BaseModel):
+    """Response containing uploaded conversation files."""
 
-    # 2. Check conversation ownership via conversations collection
-    # The conversations collection is in the same database
-    if mongo._client is None:
-        raise HTTPException(status_code=503, detail="Database not connected")
-    db = mongo._db
-    if db is None:
-        raise HTTPException(status_code=503, detail="Database not connected")
-
-    conversations_coll = db["conversations"]
-    conversation = conversations_coll.find_one({"_id": conversation_id})
-
-    if not conversation:
-        # Conversation doesn't exist in metadata collection
-        # This could be a new conversation that hasn't been persisted yet
-        # Return empty messages
-        logger.info(f"Conversation {conversation_id} not found in metadata collection, returning empty messages")
-        return ConversationMessagesResponse(
-            conversation_id=conversation_id,
-            agent_id=agent_id,
-            messages=[],
-            has_pending_interrupt=False,
-        )
-
-    # 3. Check access
-    if not can_access_conversation(conversation, user):
-        raise HTTPException(status_code=403, detail="Access denied")
-
-    # 4. Get MCP servers for the agent and its subagents (needed to create runtime)
-    mcp_servers = mongo.get_agent_mcp_servers(agent)
-
-    # 5. Get or create runtime to access checkpointer
-    cache = get_runtime_cache()
-    cache.set_mongo_service(mongo)
-
-    runtime = await cache.get_or_create(
-        agent,
-        mcp_servers,
-        conversation_id,
-        user=user,
-    )
-
-    # 6. Get state from checkpointer
-    if not runtime._graph:
-        logger.warning(f"Runtime graph not initialized for conversation {conversation_id}")
-        return ConversationMessagesResponse(
-            conversation_id=conversation_id,
-            agent_id=agent_id,
-            messages=[],
-            has_pending_interrupt=False,
-        )
-
-    config = {"configurable": {"thread_id": conversation_id}}
-
-    try:
-        state = await runtime._graph.aget_state(config)
-    except Exception as e:
-        logger.error(f"Failed to get state for conversation {conversation_id}: {e}")
-        return ConversationMessagesResponse(
-            conversation_id=conversation_id,
-            agent_id=agent_id,
-            messages=[],
-            has_pending_interrupt=False,
-        )
-
-    if not state or not state.values:
-        logger.info(f"No checkpoint state found for conversation {conversation_id}")
-        return ConversationMessagesResponse(
-            conversation_id=conversation_id,
-            agent_id=agent_id,
-            messages=[],
-            has_pending_interrupt=False,
-        )
-
-    # 7. Extract messages from state
-    raw_messages = state.values.get("messages", [])
-    messages: list[ConversationMessage] = []
-
-    for msg in raw_messages:
-        msg_type = type(msg).__name__
-
-        # Filter to HumanMessage and AIMessage only
-        if "HumanMessage" in msg_type:
-            role = "user"
-        elif "AIMessage" in msg_type:
-            role = "assistant"
-        else:
-            # Skip ToolMessage, SystemMessage, etc.
-            continue
-
-        # Extract content
-        content = getattr(msg, "content", "")
-        if isinstance(content, list):
-            # Handle multimodal content (extract text parts)
-            content = "".join(block.get("text", "") if isinstance(block, dict) else str(block) for block in content)
-
-        # Extract timestamp from additional_kwargs if available
-        timestamp = None
-        additional_kwargs = getattr(msg, "additional_kwargs", {})
-        if "timestamp" in additional_kwargs:
-            try:
-                ts = datetime.fromisoformat(additional_kwargs["timestamp"])
-                timestamp = ts if ts.tzinfo is not None else ts.replace(tzinfo=timezone.utc)
-            except (ValueError, TypeError):
-                pass
-
-        # Use message ID or generate one
-        msg_id = getattr(msg, "id", None) or f"msg-{len(messages)}"
-
-        messages.append(
-            ConversationMessage(
-                id=msg_id,
-                role=role,
-                content=content,
-                timestamp=timestamp,
-            )
-        )
-
-    # 8. Check for pending interrupt
-    interrupt_data = await runtime.has_pending_interrupt(conversation_id)
-    has_pending_interrupt = interrupt_data is not None
-
-    logger.debug(
-        f"Retrieved {len(messages)} messages for conversation {conversation_id}, "
-        f"has_pending_interrupt={has_pending_interrupt}"
-    )
-
-    return ConversationMessagesResponse(
-        conversation_id=conversation_id,
-        agent_id=agent_id,
-        messages=messages,
-        has_pending_interrupt=has_pending_interrupt,
-        interrupt_data=InterruptData(**interrupt_data) if interrupt_data else None,
-    )
+    conversation_id: str
+    agent_id: str
+    files: list[UploadedFileInfo]
 
 
 class InterruptStateResponse(BaseModel):
@@ -319,9 +239,9 @@ async def get_conversation_files_list(
     user: UserContext = Depends(get_user_context),
     mongo: MongoDBService = Depends(get_mongo_service),
 ) -> ConversationFilesListResponse:
-    """Get list of file paths for a conversation from the LangGraph checkpointer.
+    """Get list of file paths for a conversation from GridFS store.
 
-    Returns the list of files in the agent's in-memory filesystem.
+    Returns the list of files stored by the agent during this conversation.
     Access control is handled by `can_access_conversation()` in auth/access.py.
     """
     # 1. Verify agent exists
@@ -350,49 +270,11 @@ async def get_conversation_files_list(
     if not can_access_conversation(conversation, user):
         raise HTTPException(status_code=403, detail="Access denied")
 
-    # 4. Get or create runtime to access checkpointer
-    mcp_servers = mongo.get_agent_mcp_servers(agent)
-
-    cache = get_runtime_cache()
-    cache.set_mongo_service(mongo)
-
-    runtime = await cache.get_or_create(
-        agent,
-        mcp_servers,
-        conversation_id,
-        user=user,
-    )
-
-    # 5. Get state from checkpointer
-    if not runtime._graph:
-        return ConversationFilesListResponse(
-            conversation_id=conversation_id,
-            agent_id=agent_id,
-            files=[],
-        )
-
-    config = {"configurable": {"thread_id": conversation_id}}
-
-    try:
-        state = await runtime._graph.aget_state(config)
-    except Exception as e:
-        logger.error(f"Failed to get state for conversation {conversation_id}: {e}")
-        return ConversationFilesListResponse(
-            conversation_id=conversation_id,
-            agent_id=agent_id,
-            files=[],
-        )
-
-    if not state or not state.values:
-        return ConversationFilesListResponse(
-            conversation_id=conversation_id,
-            agent_id=agent_id,
-            files=[],
-        )
-
-    # 6. Extract file paths from state
-    files_dict = state.values.get("files", {})
-    file_paths = sorted(files_dict.keys()) if isinstance(files_dict, dict) else []
+    # 4. Query GridFS store directly (no runtime needed)
+    store = _get_gridfs_store(db)
+    namespace = (agent_id, conversation_id, "filesystem")
+    items = store.search(namespace, limit=1000)
+    file_paths = sorted(item.key for item in items)
 
     logger.debug(f"Retrieved {len(file_paths)} files for conversation {conversation_id}")
 
@@ -400,6 +282,97 @@ async def get_conversation_files_list(
         conversation_id=conversation_id,
         agent_id=agent_id,
         files=file_paths,
+    )
+
+
+@router.post("/{conversation_id}/files/upload", response_model=FileUploadResponse)
+async def upload_conversation_files(
+    conversation_id: str,
+    agent_id: str = Query(..., description="Dynamic agent ID"),
+    files: list[UploadFile] = File(..., description="Text files to upload into the conversation filesystem"),
+    user: UserContext = Depends(get_user_context),
+    mongo: MongoDBService = Depends(get_mongo_service),
+) -> FileUploadResponse:
+    """Upload text files into the GridFS-backed conversation filesystem.
+
+    Files are stored under ``/uploads`` in the same namespace used by
+    deepagents' StoreBackend: ``(agent_id, conversation_id, "filesystem")``.
+    That makes uploaded files visible to the main agent and subagents through
+    normal filesystem tools like read_file and grep.
+    """
+    if not files:
+        raise HTTPException(status_code=400, detail="At least one file is required")
+    if len(files) > _MAX_UPLOAD_FILES:
+        raise HTTPException(status_code=413, detail=f"Too many files. Maximum is {_MAX_UPLOAD_FILES}")
+
+    agent = mongo.get_agent(agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    if mongo._client is None:
+        raise HTTPException(status_code=503, detail="Database not connected")
+    db = mongo._db
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database not connected")
+
+    conversation = db["conversations"].find_one({"_id": conversation_id})
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    if not can_access_conversation(conversation, user):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    settings = get_settings()
+    store = _get_gridfs_store(db)
+    namespace = (agent_id, conversation_id, "filesystem")
+    uploaded: list[UploadedFileInfo] = []
+
+    for upload in files:
+        original_name = upload.filename or "upload.txt"
+        safe_name = _safe_upload_filename(original_name)
+        _validate_upload_extension(safe_name)
+
+        raw_content = await upload.read()
+        size_bytes = len(raw_content)
+        if size_bytes > settings.upload_file_max_bytes:
+            raise HTTPException(
+                status_code=413,
+                detail=f"{original_name} exceeds max upload size of {settings.upload_file_max_bytes} bytes",
+            )
+
+        try:
+            content = raw_content.decode("utf-8-sig")
+        except UnicodeDecodeError as exc:
+            raise HTTPException(status_code=415, detail=f"{original_name} is not valid UTF-8 text") from exc
+
+        if "\x00" in content:
+            raise HTTPException(status_code=415, detail=f"{original_name} appears to be binary")
+
+        path = _dedupe_upload_path(store, namespace, safe_name)
+        store.put(
+            namespace,
+            path,
+            _create_file_data(
+                content,
+                uploaded_by=user.email,
+                original_name=original_name,
+                size_bytes=size_bytes,
+            ),
+        )
+        uploaded.append(UploadedFileInfo(path=path, original_name=original_name, size_bytes=size_bytes))
+
+    logger.info(
+        "Uploaded %d file(s) to conversation %s for agent %s by %s",
+        len(uploaded),
+        conversation_id,
+        agent_id,
+        user.email,
+    )
+
+    return FileUploadResponse(
+        conversation_id=conversation_id,
+        agent_id=agent_id,
+        files=uploaded,
     )
 
 
@@ -411,9 +384,9 @@ async def get_conversation_file_content(
     user: UserContext = Depends(get_user_context),
     mongo: MongoDBService = Depends(get_mongo_service),
 ) -> FileContentResponse:
-    """Get content of a single file from the LangGraph checkpointer.
+    """Get content of a single file from GridFS store.
 
-    Returns the content of a specific file from the agent's in-memory filesystem.
+    Returns the content of a specific file stored by the agent.
     Access control is handled by `can_access_conversation()` in auth/access.py.
     """
     # 1. Verify agent exists
@@ -438,50 +411,18 @@ async def get_conversation_file_content(
     if not can_access_conversation(conversation, user):
         raise HTTPException(status_code=403, detail="Access denied")
 
-    # 4. Get or create runtime to access checkpointer
-    mcp_servers = mongo.get_agent_mcp_servers(agent)
+    # 4. Query GridFS store directly
+    store = _get_gridfs_store(db)
+    namespace = (agent_id, conversation_id, "filesystem")
+    item = store.get(namespace, path)
 
-    cache = get_runtime_cache()
-    cache.set_mongo_service(mongo)
-
-    runtime = await cache.get_or_create(
-        agent,
-        mcp_servers,
-        conversation_id,
-        user=user,
-    )
-
-    # 5. Get state from checkpointer
-    if not runtime._graph:
+    if item is None:
         raise HTTPException(status_code=404, detail="File not found")
 
-    config = {"configurable": {"thread_id": conversation_id}}
-
-    try:
-        state = await runtime._graph.aget_state(config)
-    except Exception as e:
-        logger.error(f"Failed to get state for conversation {conversation_id}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to retrieve file")
-
-    if not state or not state.values:
-        raise HTTPException(status_code=404, detail="File not found")
-
-    # 6. Get file content from state
-    # files is dict[str, FileData] where FileData is a TypedDict with content: list[str]
-    files_dict = state.values.get("files", {})
-    if not isinstance(files_dict, dict) or path not in files_dict:
-        raise HTTPException(status_code=404, detail="File not found")
-
-    file_data = files_dict[path]
-
-    # FileData is a TypedDict: {"content": list[str], "created_at": str, "modified_at": str}
-    # content is list of lines - join them with newlines
-    if isinstance(file_data, dict) and "content" in file_data:
-        lines = file_data["content"]
-        content = "\n".join(lines) if isinstance(lines, list) else str(lines)
-    else:
-        # Fallback: assume it's already a string
-        content = str(file_data)
+    # 5. Extract content from value
+    value = item.value
+    raw_content = value.get("content", "")
+    content = "\n".join(raw_content) if isinstance(raw_content, list) else str(raw_content)
 
     logger.debug(f"Retrieved file {path} for conversation {conversation_id}")
 
@@ -500,11 +441,9 @@ async def delete_conversation_file(
     user: UserContext = Depends(get_user_context),
     mongo: MongoDBService = Depends(get_mongo_service),
 ) -> ApiResponse:
-    """Delete a file from the agent's in-memory filesystem.
+    """Delete a file from GridFS store.
 
-    Uses LangGraph's aupdate_state with a None value to trigger deletion
-    via the files reducer. The file is removed from the checkpoint state.
-
+    Removes the file from the GridFS-backed store for this conversation.
     Access control is handled by `can_access_conversation()` in auth/access.py.
     """
     # 1. Verify agent exists
@@ -529,48 +468,16 @@ async def delete_conversation_file(
     if not can_access_conversation(conversation, user):
         raise HTTPException(status_code=403, detail="Access denied")
 
-    # 4. Get or create runtime to access checkpointer
-    mcp_servers = mongo.get_agent_mcp_servers(agent)
+    # 4. Delete from GridFS store
+    store = _get_gridfs_store(db)
+    namespace = (agent_id, conversation_id, "filesystem")
 
-    cache = get_runtime_cache()
-    cache.set_mongo_service(mongo)
-
-    runtime = await cache.get_or_create(
-        agent,
-        mcp_servers,
-        conversation_id,
-        user=user,
-    )
-
-    # 5. Get state and verify file exists
-    if not runtime._graph:
+    # Verify file exists first
+    item = store.get(namespace, path)
+    if item is None:
         raise HTTPException(status_code=404, detail="File not found")
 
-    config = {"configurable": {"thread_id": conversation_id}}
-
-    try:
-        state = await runtime._graph.aget_state(config)
-    except Exception as e:
-        logger.error(f"Failed to get state for conversation {conversation_id}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to access conversation state")
-
-    if not state or not state.values:
-        raise HTTPException(status_code=404, detail="File not found")
-
-    files_dict = state.values.get("files", {})
-    if not isinstance(files_dict, dict) or path not in files_dict:
-        raise HTTPException(status_code=404, detail="File not found")
-
-    # 6. Delete file using aupdate_state with None value
-    # The files reducer treats None as a deletion marker
-    try:
-        await runtime._graph.aupdate_state(
-            config,
-            {"files": {path: None}},
-        )
-    except Exception as e:
-        logger.error(f"Failed to delete file {path} from conversation {conversation_id}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to delete file")
+    store.delete(namespace, path)
 
     logger.info(f"Deleted file {path} from conversation {conversation_id}")
 
@@ -681,8 +588,9 @@ async def clear_conversation_checkpoints(
         raise HTTPException(status_code=503, detail="Database not connected")
 
     conversations_coll = db["conversations"]
-    checkpoints_coll = db["checkpoints_conversation"]
-    writes_coll = db["checkpoint_writes_conversation"]
+    settings = get_settings()
+    checkpoints_coll = db[settings.checkpoint_collection]
+    writes_coll = db[settings.checkpoint_writes_collection]
 
     # Verify conversation exists
     conversation = conversations_coll.find_one({"_id": conversation_id})
@@ -693,11 +601,18 @@ async def clear_conversation_checkpoints(
     checkpoints_result = checkpoints_coll.delete_many({"thread_id": conversation_id})
     writes_result = writes_coll.delete_many({"thread_id": conversation_id})
 
+    # Delete GridFS files for this conversation
+    agent_id = conversation.get("agent_id", "")
+    store = _get_gridfs_store(db)
+    files_deleted = 0
+    if agent_id:
+        files_deleted = store.delete_by_namespace((agent_id, conversation_id, "filesystem"))
+
     # Log the action for audit
     logger.info(
         f"Admin {user.email} cleared conversation {conversation_id}: "
         f"deleted {checkpoints_result.deleted_count} checkpoints, "
-        f"{writes_result.deleted_count} writes"
+        f"{writes_result.deleted_count} writes, {files_deleted} files"
     )
 
     return ApiResponse(
@@ -706,5 +621,6 @@ async def clear_conversation_checkpoints(
             "conversation_id": conversation_id,
             "checkpoints_deleted": checkpoints_result.deleted_count,
             "writes_deleted": writes_result.deleted_count,
+            "files_deleted": files_deleted,
         },
     )

@@ -88,6 +88,14 @@ async def lifespan(app: FastAPI):
     cache.set_mongo_service(mongo)
     cache.start()
 
+    # Ensure GridFS TTL index for automatic file expiry
+    if mongo._db is not None:
+        from dynamic_agents.services.gridfs_store import MongoDBGridFSStore
+
+        store = MongoDBGridFSStore(db=mongo._db, bucket_name=settings.gridfs_bucket_name)
+        store.ensure_ttl_index()
+        logger.info("GridFS TTL index ensured (per-document expireAt)")
+
     yield
 
     # Cleanup on shutdown

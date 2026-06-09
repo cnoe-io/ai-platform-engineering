@@ -11,5 +11,6 @@ from .config_models import Config
 config = Config.from_env()
 if config.channels:
   logger.info(f"Loaded configuration for {len(config.channels)} channel(s)")
+  logger.info(f"Parsed config: {config.model_dump_json(indent=2)}")
 else:
   logger.warning("No channels configured — bot will ignore all channel messages until config is provided")

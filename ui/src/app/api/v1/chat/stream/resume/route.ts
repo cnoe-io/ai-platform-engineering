@@ -1,7 +1,7 @@
 /**
  * POST /api/v1/chat/stream/resume — transparent proxy to Dynamic Agents.
  *
- * Body: { conversation_id, agent_id, form_data, protocol?, trace_id? }
+ * Body: { conversation_id, agent_id, resume_data, protocol?, trace_id? }
  * Response: SSE stream (text/event-stream)
  */
 
@@ -35,9 +35,9 @@ export async function POST(request: NextRequest): Promise<Response> {
     );
   }
 
-  if (!body.conversation_id || !body.agent_id || body.form_data === undefined) {
+  if (!body.conversation_id || !body.agent_id || body.resume_data === undefined) {
     return NextResponse.json(
-      { success: false, error: "Missing required fields: conversation_id, agent_id, form_data" },
+      { success: false, error: "Missing required fields: conversation_id, agent_id, resume_data" },
       { status: 400 },
     );
   }

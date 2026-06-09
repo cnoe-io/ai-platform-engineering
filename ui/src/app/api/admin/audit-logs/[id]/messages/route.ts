@@ -43,6 +43,25 @@ export const GET = withErrorHandler(
         throw new ApiError('Conversation not found', 404, 'NOT_FOUND');
       }
 
+      // Get agent_id from conversation participants
+      const agentParticipant = conversation.participants?.find(
+        (p: { type: string; id: string }) => p.type === 'agent'
+      );
+      const agentId = agentParticipant?.id || null;
+
+      // Count GridFS files for this conversation namespace
+      let fileCount = 0;
+      if (agentId) {
+        try {
+          const gridfsFiles = await getCollection('agent_files.files');
+          fileCount = await gridfsFiles.countDocuments({
+            'metadata.namespace': [agentId, conversationId, 'filesystem'],
+          });
+        } catch {
+          // GridFS collection may not exist yet — not an error
+        }
+      }
+
       const { page, pageSize, skip } = getPaginationParams(req);
       const messages = await getCollection<Message>('messages');
 
@@ -66,7 +85,9 @@ export const GET = withErrorHandler(
           sharing: conversation.sharing,
           is_archived: conversation.is_archived,
           deleted_at: conversation.deleted_at,
+          agent_id: agentId,
         },
+        file_count: fileCount,
         messages: {
           items,
           total,

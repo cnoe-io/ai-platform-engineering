@@ -14,6 +14,10 @@ import re
 from datetime import UTC, datetime
 from typing import Any
 
+from pymongo import MongoClient
+
+from dynamic_agents.services.scan_gate import get_scan_gate
+
 logger = logging.getLogger(__name__)
 
 
@@ -271,10 +275,8 @@ def load_skills(
     Returns:
         List of normalised skill dicts compatible with ``build_skills_files()``.
     """
-    from pymongo import MongoClient as _MongoClient
-
     database = os.getenv("MONGODB_DATABASE", mongodb_database)
-    client = _MongoClient(mongodb_uri, tz_aware=True)
+    client = MongoClient(mongodb_uri, tz_aware=True)
     logger.info(
         "Loading skills: requested_ids=%s db=%s",
         skill_ids,
@@ -440,3 +442,32 @@ def build_skills_files(
         sources,
     )
     return files, sources
+
+
+def detect_missing_skills(
+    requested_skill_ids: list[str],
+    loaded_skills: list[dict[str, Any]],
+) -> tuple[list[str], str | None]:
+    """Detect skills that were requested but not loaded.
+
+    Distinguishes between skills not found in DB vs blocked by the scan
+    gate (SKILL_SCANNER_GATE=strict).
+
+    Returns:
+        Tuple of (missing_ids, error_message). error_message is None if
+        no skills are missing.
+    """
+    loaded_ids = {s["id"] for s in loaded_skills}
+    missing = [sid for sid in requested_skill_ids if sid not in loaded_ids]
+    if not missing:
+        return [], None
+
+    if get_scan_gate() == "strict":
+        error = (
+            f"Skills unavailable (not found in DB or blocked by scan gate "
+            f"under SKILL_SCANNER_GATE=strict): {', '.join(missing)}"
+        )
+    else:
+        error = f"Skills not found: {', '.join(missing)}"
+
+    return missing, error

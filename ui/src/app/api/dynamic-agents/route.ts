@@ -85,6 +85,7 @@ const AGENT_MUTABLE_FIELDS = [
   "skills",
   "ui",
   "features",
+  "interrupt_on",
   "enabled",
 ] as const;
 
@@ -322,6 +323,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       skills: (body.skills as string[]) ?? [],
       ui: body.ui ?? undefined,
       features: body.features ?? undefined,
+      interrupt_on: body.interrupt_on ?? undefined,
       enabled: (body.enabled as boolean) ?? true,
       // Server-controlled fields — never from request body
       owner_id: user.email,

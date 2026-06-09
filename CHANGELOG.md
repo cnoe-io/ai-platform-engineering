@@ -1,3 +1,37 @@
+## 0.4.9 (2026-05-07)
+
+### Feat
+
+- **docs**: redesign site — landing page, community page, teal/cyan theme (#1359)
+
+## 0.4.8-dev.3 (2026-05-07)
+
+### Feat
+
+- **dynamic-agents**: HITL tool approval, GridFS backend, custom themes & bug fixes (#1351)
+
+## 0.4.8-dev.2 (2026-05-07)
+
+### Feat
+
+- **ui**: add search filter and scroll to agent selection dropdown (#1361)
+
+### Fix
+
+- **docs**: escape MDX angle bracket in spec plan + add PR docs build check (#1360)
+
+## 0.4.8-dev.1 (2026-05-07)
+
+### Feat
+
+- **skills**: release-docs skill — release notes + migration guide generator (#1356)
+
+### Fix
+
+- **ingestor**: prevent UnboundLocalError in finally block when client.initialize() fails (#1357)
+
+## 0.4.8 (2026-05-06)
+
 ## 0.4.7-dev.9 (2026-05-06)
 
 ### Feat

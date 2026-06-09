@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useSession } from "next-auth/react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Square, User, Bot, Sparkles, Copy, Check, Loader2, ChevronDown, ChevronUp, ArrowDown, ArrowLeft, RotateCcw, Activity, ShieldCheck, AlertCircle, Brain, Trash2, Save, Plus, BookOpen } from "lucide-react";
+import { Send, Square, User, Bot, Sparkles, Copy, Check, Loader2, ChevronDown, ChevronUp, ArrowDown, ArrowLeft, RotateCcw, Activity, ShieldCheck, AlertCircle, Brain, Trash2, Save, Plus, BookOpen, Paperclip, FileText, X } from "lucide-react";
 import TextareaAutosize from "react-textarea-autosize";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -22,9 +22,10 @@ import { getConfig } from "@/lib/config";
 import { FeedbackButton, Feedback } from "./FeedbackButton";
 import { DEFAULT_AGENTS } from "./CustomCallButtons";
 import { MetadataInputForm, type UserInputMetadata, type InputField } from "./MetadataInputForm";
+import { ToolApprovalCard } from "./ToolApprovalCard";
 import { SlashCommandMenu, getFilteredCommands, type SlashCommand } from "./SlashCommandMenu";
 import { useSlashCommands } from "./useSlashCommands";
-import { getGradientStyle } from "@/lib/gradient-themes";
+import { getGradientStyle, getAccentColor } from "@/lib/gradient-themes";
 import { AgentTimeline, type SubagentLookupInfo } from "./DynamicAgentTimeline";
 import { useAgentTimeline } from "@/hooks/useDynamicAgentTimeline";
 import type { TaskItem } from "@/components/shared/timeline";
@@ -34,6 +35,53 @@ import type { UserMemory, UserMemoryCategory, UserMemoryScope } from "@/types/mo
 
 type ReadOnlyReason = 'admin_audit' | 'shared_readonly' | 'agent_deleted' | 'agent_disabled';
 
+const CHAT_UPLOAD_MAX_BYTES = 5 * 1024 * 1024;
+const CHAT_UPLOAD_ALLOWED_EXTENSIONS = new Set([
+  ".csv",
+  ".htm",
+  ".html",
+  ".json",
+  ".jsonl",
+  ".log",
+  ".markdown",
+  ".md",
+  ".rst",
+  ".text",
+  ".tsv",
+  ".txt",
+  ".vtt",
+  ".xml",
+  ".yaml",
+  ".yml",
+]);
+const CHAT_UPLOAD_ACCEPT = Array.from(CHAT_UPLOAD_ALLOWED_EXTENSIONS).join(",");
+
+interface UploadedConversationFile {
+  path: string;
+  originalName: string;
+  sizeBytes: number;
+}
+
+function getFileExtension(filename: string): string {
+  const dotIndex = filename.lastIndexOf(".");
+  return dotIndex >= 0 ? filename.slice(dotIndex).toLowerCase() : "";
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function getUploadErrorMessage(payload: unknown, fallback: string): string {
+  if (payload && typeof payload === "object") {
+    const record = payload as Record<string, unknown>;
+    const detail = record.detail ?? record.error;
+    if (typeof detail === "string") return detail;
+  }
+  return fallback;
+}
+
 interface ChatPanelProps {
   endpoint: string;
   conversationId?: string; // MongoDB conversation UUID
@@ -42,12 +90,13 @@ interface ChatPanelProps {
   readOnlyReason?: ReadOnlyReason;
   agentId: string; // Mandatory for Dynamic Agents
   agentGradient?: string | null; // Gradient theme for agent avatar
+  agentCustomTheme?: import("@/types/dynamic-agent").CustomThemeConfig | null; // Custom theme config
   agentName?: string; // Agent name for display
   agentSkills?: string[]; // Configured skill IDs for this agent
   isLoadingMessages?: boolean; // Whether messages are still loading (show skeleton)
 }
 
-export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnly, readOnlyReason, agentId, agentGradient, agentName, agentSkills, isLoadingMessages }: ChatPanelProps) {
+export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnly, readOnlyReason, agentId, agentGradient, agentCustomTheme, agentName, agentSkills, isLoadingMessages }: ChatPanelProps) {
   const { data: session } = useSession();
   const autoScrollEnabled = useFeatureFlagStore((s) => s.flags.autoScroll ?? true);
   const showTimestamps = useFeatureFlagStore((s) => s.flags.showTimestamps ?? false);
@@ -70,6 +119,8 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
   const [memoryDialogOpen, setMemoryDialogOpen] = useState(false);
   const [memoryFocusIds, setMemoryFocusIds] = useState<string[]>([]);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const skipNextUploadClearRef = useRef(false);
   const scrollViewportRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -83,9 +134,22 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     agentId?: string;
   } | null>(null);
 
+  // Tool approval state (HITL for gated tools)
+  const [pendingToolApproval, setPendingToolApproval] = useState<{
+    messageId: string;
+    interruptId: string;
+    toolName: string;
+    toolArgs: Record<string, unknown>;
+    allowedDecisions: string[];
+    agentId: string;
+  } | null>(null);
+
   // Track message IDs where the user explicitly dismissed the input form,
   // so we don't re-show it after the restore effect runs.
   const dismissedInputForMessageRef = useRef<Set<string>>(new Set());
+
+  // Whether we're still checking for a pending HITL interrupt (after page refresh)
+  const [checkingInterrupt, setCheckingInterrupt] = useState(false);
 
   // Auto-scroll state
   const [isUserScrolledUp, setIsUserScrolledUp] = useState(false);
@@ -119,7 +183,6 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     // Let's remove it for now to avoid errors, as Dynamic Agents rely on SSE resume, not task polling.
     evictOldMessageContent,
     loadMessagesFromServer,
-    saveMessagesToServer,
     updateConversationTitle,
   } = useChatStore();
 
@@ -144,6 +207,10 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
   const [isDeletingFile, setIsDeletingFile] = useState(false);
   const [deletingFilePath, setDeletingFilePath] = useState<string | undefined>();
   const [filesFetchKey, setFilesFetchKey] = useState(0);
+  const [pendingUploadedFiles, setPendingUploadedFiles] = useState<UploadedConversationFile[]>([]);
+  const [isUploadingFiles, setIsUploadingFiles] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [removingUploadPath, setRemovingUploadPath] = useState<string | null>(null);
   const filesFetchedForRef = useRef<{ conversationId: string; agentId: string; fetchKey: number } | null>(null);
 
   // ─── Subagent Info Cache (for timeline avatar gradients) ──────────
@@ -166,6 +233,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
             const info: SubagentLookupInfo = {
               name: agent.name,
               gradientTheme: agent.ui?.gradient_theme,
+              customThemeConfig: agent.ui?.custom_theme_config,
             };
             cache.set(agent._id, info);
             // Also index by lowercase name for name-based lookup
@@ -289,7 +357,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
   }, [activeConversationId, scrollToBottom]);
 
   // RECOVERY LOGIC REMOVED (A2A specific)
-  const recoveringMessageId = null; 
+  const recoveringMessageId = null;
 
   // ═══════════════════════════════════════════════════════════════
   // CHECK HITL INTERRUPT STATE from checkpointer (messages loaded by ChatContainer)
@@ -297,14 +365,20 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
   useEffect(() => {
     // Skip if no conversationId (new conversation) or agentId
     if (!conversationId || !agentId) return;
-    
+
+    // Wait for messages to be loaded (race condition on page refresh:
+    // this effect can fire before ChatContainer finishes loading messages
+    // from MongoDB, causing lastMsg to be undefined and recovery to fail)
+    if (isLoadingMessages) return;
+
     // Skip if already checked this conversation
     if (interruptCheckedRef.current.has(conversationId)) return;
-    
+
     // Mark as checked BEFORE async to prevent duplicate checks in Strict Mode
     interruptCheckedRef.current.add(conversationId);
 
     const checkInterruptState = async () => {
+      setCheckingInterrupt(true);
       try {
         // Check for pending HITL interrupt state (lightweight call to checkpointer)
         // Messages are already loaded by ChatContainer - we only check interrupt state here
@@ -315,49 +389,63 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
         if (interruptResponse.ok) {
           const interruptData = await interruptResponse.json();
           
-          // Handle pending interrupt - restore the HITL form if present
+          // Handle pending interrupt - restore the HITL form or tool approval card
           if (interruptData.has_pending_interrupt && interruptData.interrupt_data) {
-            const { prompt, fields } = interruptData.interrupt_data;
+            const idata = interruptData.interrupt_data;
             
             // Get the last message from the store (already loaded by ChatContainer)
             const currentConv = useChatStore.getState().conversations.find(c => c.id === conversationId);
             const lastMsg = currentConv?.messages?.[currentConv.messages.length - 1];
             
             if (lastMsg && lastMsg.role === "assistant") {
-              const inputFields: InputField[] = fields.map((f: { field_name: string; field_label?: string; field_description?: string; field_type?: string; field_values?: string[]; required?: boolean; default_value?: string; placeholder?: string }) => ({
-                field_name: f.field_name,
-                field_label: f.field_label,
-                field_description: f.field_description,
-                field_type: f.field_type,
-                field_values: f.field_values,
-                required: f.required,
-                default_value: f.default_value,
-                placeholder: f.placeholder,
-              }));
+              if (idata.type === "tool_approval") {
+                setPendingToolApproval({
+                  messageId: lastMsg.id,
+                  interruptId: idata.interrupt_id,
+                  toolName: idata.tool_name,
+                  toolArgs: idata.tool_args || {},
+                  allowedDecisions: idata.allowed_decisions || ["approve", "edit", "reject"],
+                  agentId,
+                });
+              } else {
+                const { prompt, fields } = idata;
+                const inputFields: InputField[] = (fields || []).map((f: { field_name: string; field_label?: string; field_description?: string; field_type?: string; field_values?: string[]; required?: boolean; default_value?: string; placeholder?: string }) => ({
+                  field_name: f.field_name,
+                  field_label: f.field_label,
+                  field_description: f.field_description,
+                  field_type: f.field_type,
+                  field_values: f.field_values,
+                  required: f.required,
+                  default_value: f.default_value,
+                  placeholder: f.placeholder,
+                }));
 
-              setPendingUserInput({
-                messageId: lastMsg.id,
-                metadata: {
-                  user_input: true,
-                  input_title: `Input Required`,
-                  input_description: prompt,
-                  input_fields: inputFields,
-                },
-                contextId: conversationId,
-                isSSE: true,
-                agentId: agentId,
-              });
+                setPendingUserInput({
+                  messageId: lastMsg.id,
+                  metadata: {
+                    user_input: true,
+                    input_title: `Input Required`,
+                    input_description: prompt || "",
+                    input_fields: inputFields,
+                  },
+                  contextId: conversationId,
+                  isSSE: true,
+                  agentId: agentId,
+                });
+              }
             }
           }
         }
       } catch (interruptError) {
         // Non-fatal: HITL state check failed
         console.warn("[ChatPanel] Failed to check interrupt state:", interruptError);
+      } finally {
+        setCheckingInterrupt(false);
       }
     };
 
     checkInterruptState();
-  }, [conversationId, agentId]);
+  }, [conversationId, agentId, isLoadingMessages]);
 
   // ═══════════════════════════════════════════════════════════════
   // FILES & TASKS FETCH (for timeline display in latest message)
@@ -469,6 +557,113 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     [conversationId, agentId, isDeletingFile]
   );
 
+  useEffect(() => {
+    if (skipNextUploadClearRef.current) {
+      skipNextUploadClearRef.current = false;
+      return;
+    }
+    setPendingUploadedFiles([]);
+    setUploadError(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  }, [activeConversationId, agentId]);
+
+  const handleUploadFileSelection = useCallback(
+    async (event: React.ChangeEvent<HTMLInputElement>) => {
+      if (readOnly || isUploadingFiles) return;
+
+      const selectedFiles = Array.from(event.target.files || []);
+      event.target.value = "";
+      if (selectedFiles.length === 0) return;
+
+      setUploadError(null);
+
+      const invalidFile = selectedFiles.find((file) => {
+        const extension = getFileExtension(file.name);
+        return !CHAT_UPLOAD_ALLOWED_EXTENSIONS.has(extension) || file.size > CHAT_UPLOAD_MAX_BYTES;
+      });
+      if (invalidFile) {
+        const extension = getFileExtension(invalidFile.name);
+        setUploadError(
+          !CHAT_UPLOAD_ALLOWED_EXTENSIONS.has(extension)
+            ? `${invalidFile.name} is not an allowed text file type`
+            : `${invalidFile.name} exceeds ${formatFileSize(CHAT_UPLOAD_MAX_BYTES)}`,
+        );
+        return;
+      }
+
+      setIsUploadingFiles(true);
+      try {
+        let convId = activeConversationId;
+        if (!convId) {
+          skipNextUploadClearRef.current = true;
+          convId = await createConversation(agentId);
+        }
+
+        const formData = new FormData();
+        for (const file of selectedFiles) {
+          formData.append("files", file);
+        }
+
+        const response = await fetch(
+          `/api/dynamic-agents/conversations/${convId}/files/upload?agent_id=${encodeURIComponent(agentId)}`,
+          {
+            method: "POST",
+            body: formData,
+          },
+        );
+        const payload = await response.json().catch(() => null);
+        if (!response.ok) {
+          throw new Error(getUploadErrorMessage(payload, "Upload failed"));
+        }
+
+        const uploaded = ((payload as { files?: Array<{ path: string; original_name: string; size_bytes: number }> } | null)?.files || [])
+          .map((file) => ({
+            path: file.path,
+            originalName: file.original_name,
+            sizeBytes: file.size_bytes,
+          }));
+        setPendingUploadedFiles((existing) => [...existing, ...uploaded]);
+        setFilesFetchKey((key) => key + 1);
+      } catch (error) {
+        setUploadError(error instanceof Error ? error.message : "Upload failed");
+      } finally {
+        setIsUploadingFiles(false);
+      }
+    },
+    [activeConversationId, agentId, createConversation, isUploadingFiles, readOnly],
+  );
+
+  const handleRemovePendingUpload = useCallback(
+    async (file: UploadedConversationFile) => {
+      const convId = activeConversationId || conversationId;
+      if (!convId || !agentId || removingUploadPath) return;
+
+      setRemovingUploadPath(file.path);
+      setUploadError(null);
+      try {
+        const response = await fetch(
+          `/api/dynamic-agents/conversations/${convId}/files/content?agent_id=${encodeURIComponent(agentId)}&path=${encodeURIComponent(file.path)}`,
+          {
+            method: "DELETE",
+          },
+        );
+        if (!response.ok) {
+          const payload = await response.json().catch(() => null);
+          throw new Error(getUploadErrorMessage(payload, "Failed to remove uploaded file"));
+        }
+        setPendingUploadedFiles((existing) => existing.filter((item) => item.path !== file.path));
+        setFilesFetchKey((key) => key + 1);
+      } catch (error) {
+        setUploadError(error instanceof Error ? error.message : "Failed to remove uploaded file");
+      } finally {
+        setRemovingUploadPath(null);
+      }
+    },
+    [activeConversationId, agentId, conversationId, removingUploadPath],
+  );
+
   // ═══════════════════════════════════════════════════════════════
   // RESTORE PENDING USER INPUT FORM after page refresh / navigation.
   // ═══════════════════════════════════════════════════════════════
@@ -516,6 +711,9 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
        if (hasUserReplyAfter) {
          return;
        }
+
+       // Tool approval events don't have fields — skip form restore for those
+       if (!fields) return;
 
        const inputFields: InputField[] = fields.map(f => ({
             field_name: f.field_name,
@@ -631,7 +829,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       }
     },
 
-    onToolEnd(toolCallId, toolName, error, namespace, args) {
+    onToolEnd(toolCallId, toolName, error, namespace, args, result) {
       const resolvedName = toolName ?? toolCallIdToName.get(toolCallId);
       // Parse accumulated args string (from AG-UI TOOL_CALL_ARGS deltas) into object
       let parsedArgs: Record<string, unknown> | undefined;
@@ -648,6 +846,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       const streamEvent = createStreamEvent("tool_end", {
         tool_call_id: toolCallId,
         error,
+        result,
         args: parsedArgs,
         namespace: namespace ?? [],
       });
@@ -704,6 +903,34 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
         loopState.accumulatedText = prompt;
         updateMessage(convId, assistantMsgId, { content: loopState.accumulatedText });
       }
+    },
+
+    onToolApprovalRequired(interruptId, toolName, toolArgs, allowedDecisions, agent) {
+      loopState.hitlFormRequested = true;
+
+      const streamEvent = createStreamEvent("input_required", {
+        type: "tool_approval",
+        interrupt_id: interruptId,
+        tool_name: toolName,
+        tool_args: toolArgs,
+        allowed_decisions: allowedDecisions,
+        agent,
+        namespace: [],
+      });
+      addStreamEvent(streamEvent, convId);
+
+      setPendingToolApproval({
+        messageId: assistantMsgId,
+        interruptId,
+        toolName,
+        toolArgs,
+        allowedDecisions,
+        agentId,
+      });
+
+      updateMessage(convId, assistantMsgId, {
+        content: `Requesting approval to run \`${toolName}\`...`,
+      });
     },
 
     onWarning(message, namespace) {
@@ -768,9 +995,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     const turnStreamEvents = currentConv?.streamEvents || [];
 
     if (wasAlreadyCancelled) {
-      saveMessagesToServer(conversationId).catch((err) => {
-        console.error('[DynamicAgent] Failed to save cancelled messages:', err);
-      });
+      // Store's setConversationStreaming(null) hook already saved — nothing to do.
       return;
     }
 
@@ -790,10 +1015,8 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       streamEvents: turnStreamEvents.length > 0 ? turnStreamEvents : undefined,
     });
     setConversationStreaming(conversationId, null);
-    saveMessagesToServer(conversationId).catch((err) => {
-      console.error('[DynamicAgent] Failed to save messages:', err);
-    });
-  }, [updateMessage, setConversationStreaming, saveMessagesToServer]);
+    // Store's setConversationStreaming(null) hook auto-saves after 500ms.
+  }, [updateMessage, setConversationStreaming]);
 
   // Core submit function that accepts a message directly
   const submitMessage = useCallback(async (messageToSend: string) => {
@@ -872,13 +1095,10 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
           turnStatus: "interrupted" as TurnStatus,
         });
       }
-      // Set interrupted status on error
+      // Set interrupted status on error — store auto-saves on streaming=null
       setConversationStreaming(convId, null);
-      saveMessagesToServer(convId).catch((err) => {
-        console.error('[DynamicAgent] Failed to save error messages:', err);
-      });
     }
-  }, [isThisConversationStreaming, activeConversationId, accessToken, agentId, agentProtocol, createConversation, clearStreamEvents, addMessage, updateMessage, setConversationStreaming, saveMessagesToServer, buildStreamCallbacks, finalizeStreamLoop, session?.user, memoryEnabled]);
+  }, [isThisConversationStreaming, activeConversationId, accessToken, agentId, agentProtocol, createConversation, clearStreamEvents, addMessage, updateMessage, setConversationStreaming, buildStreamCallbacks, finalizeStreamLoop, session?.user, memoryEnabled]);
 
   // Handle queued messages after streaming completes
   useEffect(() => {
@@ -1003,11 +1223,11 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
 
   // Wrapper for form submission that uses input state
   const handleSubmit = useCallback(async (forceSend = false) => {
-    if (!input.trim()) return;
+    if (!input.trim() && pendingUploadedFiles.length === 0) return;
 
     // Check for slash commands via the registry
     const trimmed = input.trim();
-    if (trimmed.startsWith("/")) {
+    if (trimmed.startsWith("/") && pendingUploadedFiles.length === 0) {
       const cmdName = trimmed.slice(1).toLowerCase();
       const cmd = slashCommands.find(
         (c) => c.action === "execute" && c.id === cmdName,
@@ -1019,14 +1239,19 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       }
     }
 
+    const attachmentNote = pendingUploadedFiles.length > 0
+      ? `\n\nUploaded files available in the shared filesystem:\n${pendingUploadedFiles.map((file) => `- ${file.path}`).join("\n")}`
+      : "";
+    const message = `${input.trim() || "Please review the uploaded file(s)."}${attachmentNote}`;
+
     // If streaming and not force sending, queue the message (up to 3)
     if (isThisConversationStreaming && !forceSend) {
-      const message = input.trim();
-
       // Add to queue if under limit
       if (queuedMessages.length < 3) {
         setQueuedMessages(prev => [...prev, message]);
         setInput("");
+        setPendingUploadedFiles([]);
+        setUploadError(null);
       } else {
         // Queue is full
         console.log("Queue is full (3/3). Send or cancel messages to queue more.");
@@ -1043,8 +1268,6 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       await new Promise(resolve => setTimeout(resolve, 100));
     }
 
-    const message = input.trim();
-
     // Dismiss any pending input form when user types text directly
     if (pendingUserInput) {
       dismissedInputForMessageRef.current.add(pendingUserInput.messageId);
@@ -1052,9 +1275,11 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     }
 
     setInput("");
+    setPendingUploadedFiles([]);
+    setUploadError(null);
 
     await submitMessage(message);
-  }, [input, submitMessage, isThisConversationStreaming, queuedMessages, pendingUserInput, slashCommands, executeSlashCommand]);
+  }, [input, submitMessage, isThisConversationStreaming, queuedMessages, pendingUserInput, slashCommands, executeSlashCommand, pendingUploadedFiles]);
 
   // Auto-submit pending message from use case selection
   useEffect(() => {
@@ -1114,8 +1339,8 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       ...(conv?.sharing && { chat_sharing: conv.sharing }),
     };
 
-    // Send form data as JSON string
-    const formDataJson = JSON.stringify(formData);
+    // Send form data as discriminated resume payload
+    const formDataJson = JSON.stringify({ type: "form_input", values: formData });
 
     setConversationStreaming(activeConversationId, {
       conversationId: activeConversationId,
@@ -1136,7 +1361,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       const callbacks = buildStreamCallbacks(activeConversationId, assistantMsgId, loopState, toolCallIdToName);
 
       await adapter.resumeStream(
-        { conversationId: activeConversationId, agentId: resumeAgentId, formData: formDataJson, clientContext, memoryEnabled },
+        { conversationId: activeConversationId, agentId: resumeAgentId, resumeData: formDataJson, clientContext, memoryEnabled },
         callbacks,
       );
 
@@ -1150,13 +1375,78 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
         turnStatus: "interrupted" as TurnStatus,
       });
       setConversationStreaming(activeConversationId, null);
-      saveMessagesToServer(activeConversationId).catch((err) => {
-        console.error('[DynamicAgent] Failed to save HITL resume error messages:', err);
-      });
     }
   }, [pendingUserInput, activeConversationId, accessToken, agentProtocol, addMessage, updateMessage,
-      setConversationStreaming, saveMessagesToServer,
+      setConversationStreaming,
       clearStreamEvents, buildStreamCallbacks, finalizeStreamLoop, memoryEnabled]);
+
+  // Handle tool approval decisions (approve/reject/edit)
+  const handleToolApprovalDecision = useCallback(async (
+    decision: "approve" | "reject" | "edit",
+    editedArgs?: Record<string, unknown>,
+  ) => {
+    if (!pendingToolApproval || !activeConversationId) return;
+
+    const turnId = `turn-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    const decisionLabel = decision === "approve" ? "Approved" : decision === "reject" ? "Rejected" : "Edited & approved";
+    addMessage(activeConversationId, {
+      role: "user",
+      content: `${decisionLabel} \`${pendingToolApproval.toolName}\``,
+    }, turnId);
+    const assistantMsgId = addMessage(activeConversationId, { role: "assistant", content: "" }, turnId);
+
+    const resumeAgentId = pendingToolApproval.agentId;
+    setPendingToolApproval(null);
+
+    clearStreamEvents(activeConversationId);
+
+    const adapter = createStreamAdapter({
+      protocol: agentProtocol as "custom" | "agui",
+      accessToken,
+    });
+
+    const clientContext: Record<string, unknown> = { source: "webui" };
+
+    let resumePayload: Record<string, unknown>;
+    if (decision === "edit" && editedArgs) {
+      resumePayload = { type: "tool_approval", decision: "edit", edited_args: editedArgs };
+    } else {
+      resumePayload = { type: "tool_approval", decision };
+    }
+    const resumeData = JSON.stringify(resumePayload);
+
+    setConversationStreaming(activeConversationId, {
+      conversationId: activeConversationId,
+      messageId: assistantMsgId,
+      client: { abort: () => adapter.abort() } as any,
+      streamAdapter: adapter,
+    });
+
+    const loopState: StreamLoopState = {
+      accumulatedText: "",
+      rawStreamContent: "",
+      hitlFormRequested: false,
+      hasError: false,
+    };
+    const toolCallIdToName = new Map<string, string>();
+
+    try {
+      const callbacks = buildStreamCallbacks(activeConversationId, assistantMsgId, loopState, toolCallIdToName);
+      await adapter.resumeStream(
+        { conversationId: activeConversationId, agentId: resumeAgentId, resumeData, clientContext, memoryEnabled },
+        callbacks,
+      );
+      finalizeStreamLoop(activeConversationId, assistantMsgId, loopState);
+    } catch (error) {
+      console.error("[DynamicAgent] Tool approval resume error:", error);
+      updateMessage(activeConversationId, assistantMsgId, {
+        error: (error as Error).message || "Failed to resume",
+        turnStatus: "interrupted" as TurnStatus,
+      });
+      setConversationStreaming(activeConversationId, null);
+    }
+  }, [pendingToolApproval, activeConversationId, accessToken, agentProtocol, addMessage, updateMessage,
+      setConversationStreaming, clearStreamEvents, buildStreamCallbacks, finalizeStreamLoop, memoryEnabled]);
 
   // Handle slash command detection in input
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -1297,7 +1587,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
                 ) : (
                   <>
                     {(() => {
-                      const gradientStyle = agentGradient ? getGradientStyle(agentGradient) : null;
+                      const gradientStyle = agentGradient ? getGradientStyle(agentGradient, agentCustomTheme) : null;
                       return (
                         <div 
                           className={cn(
@@ -1306,7 +1596,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
                           )}
                           style={gradientStyle || undefined}
                         >
-                          <Sparkles className="h-8 w-8 text-white" />
+                          <Sparkles className="h-8 w-8" style={{ color: getAccentColor(agentGradient, agentCustomTheme) || "white" }} />
                         </div>
                       );
                     })()}
@@ -1316,7 +1606,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
                     </p>
                     <div className="flex items-center justify-center gap-3">
                       {(() => {
-                        const gradientStyle = agentGradient ? getGradientStyle(agentGradient) : null;
+                        const gradientStyle = agentGradient ? getGradientStyle(agentGradient, agentCustomTheme) : null;
                         return (
                           <div 
                             className={cn(
@@ -1325,7 +1615,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
                             )}
                             style={gradientStyle || undefined}
                           >
-                            <Bot className="h-4 w-4 text-white" />
+                            <Bot className="h-4 w-4" style={{ color: getAccentColor(agentGradient, agentCustomTheme) || "white" }} />
                           </div>
                         );
                       })()}
@@ -1475,6 +1765,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
                           userDisplayName={userDisplayName}
                           showTimestamp={showTimestamps}
                           agentGradient={agentGradient}
+                          agentCustomTheme={agentCustomTheme}
                           agentName={agentName}
                           turnEvents={turnEvents}
                           memoryInjectedIds={memoryInjectedIds}
@@ -1488,9 +1779,10 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
                           onFileDelete={handleTimelineFileDelete}
                           isDownloadingFile={isDownloadingFile}
                           downloadingFilePath={downloadingFilePath}
-                          isDeletingFile={isDeletingFile}
+                           isDeletingFile={isDeletingFile}
                           deletingFilePath={deletingFilePath}
                           getSubagentInfo={getSubagentInfo}
+                          pendingHitl={!!(pendingUserInput || pendingToolApproval)}
                         />
                       );
                     })}
@@ -1519,12 +1811,12 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
                         accessToken,
                       });
                       // Fire-and-forget: resume with rejection message
-                      const dismissalMessage = "User dismissed the input form without providing values.";
+                      const dismissalPayload = JSON.stringify({ type: "form_input", dismissed: true });
                       dismissAdapter.resumeStream(
                         {
                           conversationId: activeConversationId,
                           agentId: pendingUserInput.agentId,
-                          formData: dismissalMessage,
+                          resumeData: dismissalPayload,
                           memoryEnabled,
                         },
                         {}, // No callbacks — we don't render the response
@@ -1537,6 +1829,27 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
                 }}
                 disabled={isThisConversationStreaming}
               />
+            )}
+
+            {/* Tool Approval Card */}
+            {pendingToolApproval && (
+              <ToolApprovalCard
+                toolName={pendingToolApproval.toolName}
+                toolArgs={pendingToolApproval.toolArgs}
+                allowedDecisions={pendingToolApproval.allowedDecisions}
+                onApprove={() => handleToolApprovalDecision("approve")}
+                onReject={() => handleToolApprovalDecision("reject")}
+                onEdit={(editedArgs) => handleToolApprovalDecision("edit", editedArgs)}
+                disabled={isThisConversationStreaming}
+              />
+            )}
+
+            {/* Loading indicator while checking for pending HITL interrupt */}
+            {checkingInterrupt && !pendingUserInput && !pendingToolApproval && (
+              <div className="flex items-center gap-2 px-4 py-3 text-xs text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                <span>Checking conversation state...</span>
+              </div>
             )}
 
             {/* Invisible marker for scroll-to-bottom */}
@@ -1650,6 +1963,43 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
             </div>
           )}
 
+          {(pendingUploadedFiles.length > 0 || uploadError) && (
+            <div className="space-y-2">
+              {pendingUploadedFiles.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {pendingUploadedFiles.map((file) => (
+                    <div
+                      key={file.path}
+                      className="inline-flex max-w-full items-center gap-2 rounded-md border border-border bg-muted/50 px-2.5 py-1.5 text-xs"
+                    >
+                      <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      <span className="truncate">{file.path}</span>
+                      <span className="shrink-0 text-muted-foreground">{formatFileSize(file.sizeBytes)}</span>
+                      <button
+                        type="button"
+                        onClick={() => handleRemovePendingUpload(file)}
+                        disabled={removingUploadPath === file.path}
+                        className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-background hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+                        title="Remove uploaded file"
+                      >
+                        {removingUploadPath === file.path ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <X className="h-3 w-3" />
+                        )}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {uploadError && (
+                <div className="text-xs text-destructive">
+                  {uploadError}
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="relative">
             {/* Slash command autocomplete menu */}
             <SlashCommandMenu
@@ -1661,6 +2011,14 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
             />
 
             <div className="relative flex items-center gap-3 bg-card rounded-xl border border-border p-3 transition-all duration-200">
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept={CHAT_UPLOAD_ACCEPT}
+                className="hidden"
+                onChange={handleUploadFileSelection}
+              />
               <TextareaAutosize
                 ref={inputRef}
                 value={input}
@@ -1678,6 +2036,28 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
                 maxRows={10}
               />
             <div className="flex items-center gap-1 shrink-0">
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-9 w-9 text-muted-foreground hover:text-foreground"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={isUploadingFiles}
+                    >
+                      {isUploadingFiles ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Paperclip className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Upload text file</TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -1744,7 +2124,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
               <Button
                 size="icon"
                 onClick={() => handleSubmit(false)}
-                disabled={!input.trim()}
+                disabled={(!input.trim() && pendingUploadedFiles.length === 0) || isUploadingFiles}
                 variant="default"
                 className="shrink-0"
                 title="Send message"
@@ -1892,6 +2272,7 @@ interface ChatMessageProps {
   userDisplayName?: string;
   showTimestamp?: boolean;
   agentGradient?: string | null;
+  agentCustomTheme?: import("@/types/dynamic-agent").CustomThemeConfig | null;
   agentName?: string;
   turnEvents?: StreamEvent[];
   memoryInjectedIds?: string[];
@@ -1908,6 +2289,7 @@ interface ChatMessageProps {
   isDeletingFile?: boolean;
   deletingFilePath?: string;
   getSubagentInfo?: (agentId: string) => SubagentLookupInfo | undefined;
+  pendingHitl?: boolean;
 }
 
 interface MemoryDialogProps {
@@ -2243,6 +2625,7 @@ const ChatMessage = React.memo(function ChatMessage({
   userDisplayName = "You",
   showTimestamp = false,
   agentGradient,
+  agentCustomTheme,
   agentName,
   turnEvents = [],
   memoryInjectedIds = [],
@@ -2259,6 +2642,7 @@ const ChatMessage = React.memo(function ChatMessage({
   isDeletingFile,
   deletingFilePath,
   getSubagentInfo,
+  pendingHitl = false,
 }: ChatMessageProps) {
   const isUser = message.role === "user";
   const [isHovered, setIsHovered] = useState(false);
@@ -2286,7 +2670,8 @@ const ChatMessage = React.memo(function ChatMessage({
       onMouseLeave={() => setIsHovered(false)}
     >
       {(() => {
-        const gradientStyle = !isUser && agentGradient ? getGradientStyle(agentGradient) : null;
+        const gradientStyle = !isUser && agentGradient ? getGradientStyle(agentGradient, agentCustomTheme) : null;
+        const iconColor = getAccentColor(agentGradient, agentCustomTheme) || "white";
         return (
           <div
             className={cn(
@@ -2309,9 +2694,9 @@ const ChatMessage = React.memo(function ChatMessage({
                 <User className="h-4 w-4 text-white" />
               )
             ) : isStreaming ? (
-              <Loader2 className="h-4 w-4 text-white animate-spin" />
+              <Loader2 className="h-4 w-4 animate-spin" style={{ color: iconColor }} />
             ) : (
-              <Bot className="h-4 w-4 text-white" />
+              <Bot className="h-4 w-4" style={{ color: iconColor }} />
             )}
           </div>
         );
@@ -2518,6 +2903,7 @@ const ChatMessage = React.memo(function ChatMessage({
                 isDeletingFile={isDeletingFile}
                 deletingFilePath={deletingFilePath}
                 getSubagentInfo={getSubagentInfo}
+                pendingHitl={pendingHitl}
               />
             ) : displayContent ? (
               // Legacy fallback: completed message with no persisted events

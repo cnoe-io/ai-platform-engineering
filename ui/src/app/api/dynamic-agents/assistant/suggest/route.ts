@@ -148,10 +148,15 @@ function buildPrompts(body: SuggestFieldRequest): {
         system_prompt:
           "You are a UI design assistant. You pick visual themes that best match " +
           "an agent's purpose and personality. Output ONLY the theme ID — nothing else, " +
-          "no explanation, no quotes.",
+          "no explanation, no quotes. " +
+          "You may also create a custom theme if none of the presets fit well. " +
+          "For custom themes output exactly: custom:<gradient_from>,<gradient_to>,<icon_color> " +
+          "using hex colors. Example: custom:#6366f1,#1e1b4b,#e0e7ff",
         user_message:
           `Pick the most fitting visual theme for an agent named "${context.name}"${descPart}.\n\n` +
-          `Available themes:\n${themeList}\n\nOutput ONLY the theme ID.`,
+          `Available preset themes:\n${themeList}\n\n` +
+          `Or create a custom theme: custom:<from_hex>,<to_hex>,<icon_hex>\n\n` +
+          `Output ONLY the theme ID or custom spec.`,
       };
     }
 

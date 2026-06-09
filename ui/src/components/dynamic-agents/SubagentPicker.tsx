@@ -12,9 +12,9 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Plus, Trash2, Loader2, AlertCircle, Bot, Info, Globe, Users, Lock } from "lucide-react";
+import { Trash2, Loader2, AlertCircle, Bot, Globe, Users, Lock } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { getGradientStyle } from "@/lib/gradient-themes";
+import { getGradientStyle, getAccentColor } from "@/lib/gradient-themes";
 import type { SubAgentRef, AvailableSubagent, VisibilityType } from "@/types/dynamic-agent";
 
 interface SubagentPickerProps {
@@ -94,6 +94,7 @@ export function SubagentPicker({ agentId, value, onChange, disabled, parentVisib
             description: agent.description,
             visibility: agent.visibility || "private",
             gradient_theme: agent.ui?.gradient_theme,
+            custom_theme_config: agent.ui?.custom_theme_config,
           }))
         );
       }
@@ -154,12 +155,13 @@ export function SubagentPicker({ agentId, value, onChange, disabled, parentVisib
   };
 
   // Get agent info by ID for display
-  const getAgentInfo = (agentId: string): { name: string; visibility: VisibilityType; gradient_theme?: string } => {
+  const getAgentInfo = (agentId: string): { name: string; visibility: VisibilityType; gradient_theme?: string; custom_theme_config?: any } => {
     const agent = availableAgents.find((a) => a.id === agentId);
     return {
       name: agent?.name || agentId,
       visibility: agent?.visibility || "private",
       gradient_theme: agent?.gradient_theme,
+      custom_theme_config: agent?.custom_theme_config,
     };
   };
 
@@ -197,14 +199,10 @@ export function SubagentPicker({ agentId, value, onChange, disabled, parentVisib
 
   return (
     <div className="space-y-4">
-      {/* Visibility rules hint */}
-      <div className="text-sm text-muted-foreground bg-muted/50 rounded-lg p-3 flex items-start gap-2">
-        <Info className="h-4 w-4 mt-0.5 flex-shrink-0" />
-        <span>
-          Private agents can use any subagent. Team agents can use team or global subagents.
-          Global agents can only use global subagents.
-        </span>
-      </div>
+      {/* Visibility note */}
+      <p className="text-xs text-muted-foreground">
+        <span className="font-medium">Note:</span>{" "}Agents that don&apos;t have the same sharing permissions as this agent cannot be added, and are disabled.
+      </p>
 
       {/* Currently configured subagents */}
       {value.length > 0 && (
@@ -227,9 +225,9 @@ export function SubagentPicker({ agentId, value, onChange, disabled, parentVisib
                     <div className="flex-shrink-0 mt-1">
                       <div
                         className="h-7 w-7 rounded-md flex items-center justify-center"
-                        style={getGradientStyle(agentInfo.gradient_theme)}
+                        style={getGradientStyle(agentInfo.gradient_theme, agentInfo.custom_theme_config)}
                       >
-                        <Bot className="h-4 w-4 text-white" />
+                        <Bot className="h-4 w-4" style={{ color: getAccentColor(agentInfo.gradient_theme, agentInfo.custom_theme_config) || "white" }} />
                       </div>
                     </div>
                     <div className="flex-grow space-y-3">
@@ -349,9 +347,9 @@ export function SubagentPicker({ agentId, value, onChange, disabled, parentVisib
                       >
                         <div
                           className="h-6 w-6 rounded-md flex items-center justify-center flex-shrink-0"
-                          style={getGradientStyle(agent.gradient_theme)}
+                          style={getGradientStyle(agent.gradient_theme, agent.custom_theme_config)}
                         >
-                          <Bot className="h-3.5 w-3.5 text-white" />
+                          <Bot className="h-3.5 w-3.5" style={{ color: getAccentColor(agent.gradient_theme, agent.custom_theme_config) || "white" }} />
                         </div>
                         <div className="flex-grow min-w-0">
                           <div className="flex items-center gap-2 min-w-0">

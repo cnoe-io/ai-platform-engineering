@@ -1,1 +1,1 @@
-"""Middleware package."""
+"""Auth package."""

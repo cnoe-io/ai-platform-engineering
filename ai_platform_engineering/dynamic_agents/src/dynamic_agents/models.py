@@ -183,6 +183,39 @@ class ModelConfig(BaseModel):
 
 
 # =============================================================================
+# Agent Backend Configuration
+# =============================================================================
+
+# Backend type constants
+BACKEND_STATE = "state"
+BACKEND_STORE = "store"
+BACKEND_SANDBOX = "sandbox"
+
+
+class AgentBackendConfig(BaseModel):
+    """Backend-specific configuration options."""
+
+    fs_ttl_seconds: int | None = Field(
+        None,
+        ge=0,
+        description="Filesystem TTL in seconds. 0 = infinite. None = use server default.",
+    )
+
+
+class AgentBackend(BaseModel):
+    """Agent backend configuration — controls filesystem storage strategy."""
+
+    type: Literal["state", "store", "sandbox"] | None = Field(
+        None,
+        description="Backend type. None = use server default_runtime_backend.",
+    )
+    config: AgentBackendConfig | None = Field(
+        None,
+        description="Backend-specific config (TTL, etc.)",
+    )
+
+
+# =============================================================================
 # SubAgent Reference
 # =============================================================================
 
@@ -463,6 +496,19 @@ class FeaturesConfig(BaseModel):
 # =============================================================================
 
 
+class InterruptConfig(BaseModel):
+    """Per-tool interrupt configuration for HITL workflows.
+
+    Controls what decisions a human reviewer can make when a tool call
+    is intercepted.  See deepagents docs: human-in-the-loop.
+    """
+
+    allowed_decisions: list[str] = Field(
+        default=["approve", "edit", "reject"],
+        description="Decisions the reviewer is allowed to make",
+    )
+
+
 class DynamicAgentConfigBase(BaseModel):
     """Base fields for dynamic agent configuration."""
 
@@ -497,6 +543,18 @@ class DynamicAgentConfigBase(BaseModel):
         description="Feature flags and middleware configuration. None = apply defaults.",
     )
     enabled: bool = Field(True, description="Whether the agent is active")
+    interrupt_on: dict[str, dict[str, bool | InterruptConfig]] = Field(
+        default_factory=lambda: {"builtin": {"request_user_input": True}},
+        description=(
+            "Tools that require human approval before execution. "
+            "Map of server_id -> {tool_name: config}. "
+            "Use 'builtin' as server_id for built-in tools (no namespace prefix)."
+        ),
+    )
+    backend: AgentBackend | None = Field(
+        None,
+        description="Backend configuration (storage type, TTL). None = use server defaults.",
+    )
 
     @model_validator(mode="before")
     @classmethod
@@ -513,30 +571,6 @@ class DynamicAgentConfigBase(BaseModel):
                 "provider": data.pop("model_provider", "unknown"),
             }
         return data
-
-
-class DynamicAgentConfigCreate(DynamicAgentConfigBase):
-    """Model for creating a dynamic agent config."""
-
-    pass
-
-
-class DynamicAgentConfigUpdate(BaseModel):
-    """Model for updating a dynamic agent config."""
-
-    name: str | None = None
-    description: str | None = None
-    system_prompt: str | None = None
-    allowed_tools: dict[str, list[str]] | None = None
-    model: ModelConfig | None = None
-    visibility: VisibilityType | None = None
-    shared_with_teams: list[str] | None = None
-    subagents: list[SubAgentRef] | None = None
-    skills: list[str] | None = None
-    builtin_tools: BuiltinToolsConfig | None = None
-    ui: AgentUIConfig | None = None
-    features: FeaturesConfig | None = None
-    enabled: bool | None = None
 
 
 class DynamicAgentConfig(DynamicAgentConfigBase):
@@ -608,13 +642,3 @@ class ApiResponse(BaseModel):
     success: bool = True
     data: dict | list | None = None
     error: str | None = None
-
-
-class PaginatedResponse(BaseModel):
-    """Paginated list response."""
-
-    items: list
-    total: int
-    page: int
-    limit: int
-    total_pages: int

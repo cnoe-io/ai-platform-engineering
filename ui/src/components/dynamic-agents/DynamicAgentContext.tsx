@@ -16,8 +16,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { useChatStore } from "@/store/chat-store";
 import { cn } from "@/lib/utils";
-import { getGradientStyle } from "@/lib/gradient-themes";
-import type { SubAgentRef } from "@/types/dynamic-agent";
+import { getGradientStyle, getAccentColor } from "@/lib/gradient-themes";
+import type { SubAgentRef, CustomThemeConfig } from "@/types/dynamic-agent";
 import { useShallow } from "zustand/react/shallow";
 import { useSession } from "next-auth/react";
 
@@ -31,6 +31,8 @@ interface DynamicAgentContextProps {
   agentVisibility?: string;
   /** Agent gradient theme (e.g., "ocean", "sunset") */
   agentGradient?: string | null;
+  /** Custom theme config (when agentGradient === "custom") */
+  agentCustomTheme?: CustomThemeConfig | null;
   /** Map of server_id -> tool names (empty array = all tools from server) */
   allowedTools?: Record<string, string[]>;
   /** Configured subagents for delegation */
@@ -57,6 +59,7 @@ export function DynamicAgentContext({
   agentModel,
   agentVisibility,
   agentGradient,
+  agentCustomTheme,
   allowedTools,
   subagents,
   agentSkills,
@@ -281,6 +284,7 @@ export function DynamicAgentContext({
               agentModel={agentModel}
               agentVisibility={agentVisibility}
               agentGradient={agentGradient}
+              agentCustomTheme={agentCustomTheme}
               allowedTools={allowedTools}
               subagents={subagents}
               agentSkills={agentSkills}
@@ -306,7 +310,7 @@ export function DynamicAgentContext({
         >
           {/* Small agent avatar */}
           {(() => {
-            const gradientStyle = agentGradient ? getGradientStyle(agentGradient) : null;
+            const gradientStyle = agentGradient ? getGradientStyle(agentGradient, agentCustomTheme) : null;
             return (
               <div 
                 className={cn(
@@ -315,7 +319,7 @@ export function DynamicAgentContext({
                 )}
                 style={gradientStyle || undefined}
               >
-                <Bot className="h-4 w-4 text-white" />
+                <Bot className="h-4 w-4" style={{ color: getAccentColor(agentGradient, agentCustomTheme) || "white" }} />
               </div>
             );
           })()}
@@ -336,6 +340,7 @@ interface AgentInfoContentProps {
   agentModel?: string;
   agentVisibility?: string;
   agentGradient?: string | null;
+  agentCustomTheme?: CustomThemeConfig | null;
   allowedTools?: Record<string, string[]>;
   subagents?: SubAgentRef[];
   agentSkills?: string[];
@@ -365,6 +370,7 @@ function AgentInfoContent({
   agentModel,
   agentVisibility,
   agentGradient,
+  agentCustomTheme,
   allowedTools,
   subagents,
   agentSkills,
@@ -398,7 +404,7 @@ function AgentInfoContent({
       {/* Agent header */}
       <div className="flex items-center gap-3">
         {(() => {
-          const gradientStyle = agentGradient ? getGradientStyle(agentGradient) : null;
+          const gradientStyle = agentGradient ? getGradientStyle(agentGradient, agentCustomTheme) : null;
           return (
             <div 
               className={cn(
@@ -407,7 +413,7 @@ function AgentInfoContent({
               )}
               style={gradientStyle || undefined}
             >
-              <Bot className="h-5 w-5 text-white" />
+              <Bot className="h-5 w-5" style={{ color: getAccentColor(agentGradient, agentCustomTheme) || "white" }} />
             </div>
           );
         })()}
