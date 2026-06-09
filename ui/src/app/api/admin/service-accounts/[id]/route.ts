@@ -10,6 +10,7 @@ import type { OpenFgaTupleKey } from "@/lib/rbac/openfga";
 import { deleteServiceAccountClient } from "@/lib/rbac/keycloak-admin";
 import { logOpenFgaRebacAuditEvent } from "@/lib/rbac/audit";
 import { getBySub, updateStatus } from "@/lib/service-accounts";
+import { isProtectedServiceAccount } from "@/types/mongodb";
 
 /**
  * GET /api/admin/service-accounts/[id]
@@ -115,6 +116,7 @@ export async function GET(_request: Request, context: RouteContext) {
         created_by: doc.created_by,
         created_at: doc.created_at,
         status: doc.status,
+        protected: isProtectedServiceAccount(doc),
         scopes,
       },
     });
@@ -179,6 +181,14 @@ export async function DELETE(_request: Request, context: RouteContext) {
       return NextResponse.json(
         { success: false, error: "Service account not found" },
         { status: 404 },
+      );
+    }
+    // Protected service accounts (e.g. the platform unlinked SA) cannot be
+    // revoked. The UI greys out the control; this is the defense-in-depth check.
+    if (isProtectedServiceAccount(doc)) {
+      return NextResponse.json(
+        { success: false, error: "This service account is protected and cannot be revoked." },
+        { status: 403 },
       );
     }
     // Already revoked → idempotent success.

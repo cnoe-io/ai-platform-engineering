@@ -27,6 +27,7 @@ import {
   type ScopeRef,
 } from "@/lib/service-account-scopes";
 import type { ServiceAccount, ServiceAccountScope } from "@/types/mongodb";
+import { isProtectedServiceAccount } from "@/types/mongodb";
 
 // ── Request-validation constants (constitution VII: validate at the boundary) ──
 const NAME_MIN = 1;
@@ -112,6 +113,7 @@ interface ServiceAccountListItem {
   created_by: string;
   created_at: Date;
   status: ServiceAccount["status"];
+  protected: boolean;
   scope_counts: { agents: number; tools: number };
 }
 
@@ -146,8 +148,12 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const includeRevoked =
-    new URL(request.url).searchParams.get("include_revoked") === "true";
+  const searchParams = new URL(request.url).searchParams;
+  const includeRevoked = searchParams.get("include_revoked") === "true";
+  // Optional: narrow to a single owning team (e.g. the team that owns a Slack
+  // channel). Still bounded by the caller's memberships below, so this only
+  // ever filters within what the caller may already see.
+  const teamFilter = searchParams.get("team")?.trim() || null;
 
   try {
     // Visibility boundary: the caller's own team memberships (FR-021).
@@ -156,7 +162,13 @@ export async function GET(request: NextRequest) {
       relation: "member",
       type: "team",
     });
-    const owningTeamIds = teamObjects.objects.map(teamIdFromObject);
+    let owningTeamIds = teamObjects.objects.map(teamIdFromObject);
+
+    if (teamFilter) {
+      // Intersect the requested team with the caller's memberships. If the
+      // caller isn't in that team, the result is empty (no cross-team leak).
+      owningTeamIds = owningTeamIds.filter((id) => id === teamFilter);
+    }
 
     if (owningTeamIds.length === 0) {
       return NextResponse.json({ success: true, data: { items: [] } });
@@ -172,6 +184,7 @@ export async function GET(request: NextRequest) {
       created_by: doc.created_by,
       created_at: doc.created_at,
       status: doc.status,
+      protected: isProtectedServiceAccount(doc),
       scope_counts: scopeCounts(doc.scopes_snapshot),
     }));
 

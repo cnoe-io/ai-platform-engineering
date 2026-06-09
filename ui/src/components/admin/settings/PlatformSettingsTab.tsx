@@ -14,8 +14,9 @@ DialogFooter,
 DialogHeader,
 DialogTitle,
 } from "@/components/ui/dialog";
+import { UnlinkedServiceAccountModal } from "@/components/admin/UnlinkedServiceAccountModal";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
-import { AlertTriangle,Info,Loader2 } from "lucide-react";
+import { AlertTriangle,Info,Loader2,Shield } from "lucide-react";
 import { useEffect,useState } from "react";
 
 interface PlatformSettingsTabProps {
@@ -34,6 +35,7 @@ export function PlatformSettingsTab({ isAdmin }: PlatformSettingsTabProps) {
   const [saveResult, setSaveResult] = useState<'success' | 'error' | null>(null);
   const [configSource, setConfigSource] = useState<string>('fallback');
   const [confirmAction, setConfirmAction] = useState<PendingAction | null>(null);
+  const [anonymousModalOpen, setAnonymousModalOpen] = useState(false);
 
   useEffect(() => {
     // Sequence: hit /api/dynamic-agents/available FIRST so its side-effect
@@ -238,6 +240,44 @@ export function PlatformSettingsTab({ isAdmin }: PlatformSettingsTabProps) {
           )}
         </CardContent>
       </Card>
+
+      {/* Unlinked Access — platform-admin only */}
+      {isAdmin && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Shield className="h-5 w-5 text-muted-foreground" />
+              Unlinked Access
+            </CardTitle>
+            <CardDescription>
+              Manage scopes for the platform unlinked service account — the identity used
+              for callers with no linked user (unlinked Slack users, Slack bots). These
+              scopes set the base access every unlinked caller receives.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button
+              type="button"
+              variant="outline"
+              className="gap-2"
+              onClick={() => setAnonymousModalOpen(true)}
+              data-testid="unlinked-access-button"
+            >
+              <Shield className="h-4 w-4" />
+              Manage Unlinked Access
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* [TS-S3] Guard the modal under isAdmin so non-admins never mount it. */}
+      {isAdmin && (
+        <UnlinkedServiceAccountModal
+          open={anonymousModalOpen}
+          onOpenChange={setAnonymousModalOpen}
+          isAdmin={isAdmin}
+        />
+      )}
 
       <Dialog
         open={confirmAction !== null}

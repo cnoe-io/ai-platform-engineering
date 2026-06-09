@@ -1,0 +1,320 @@
+/**
+ * @jest-environment node
+ *
+ * Tests for the SA auto-grant behaviour in POST /api/chat/conversations:
+ *  - SA caller → writeOpenFgaTuples called with writer tuple; created_by_service_account set
+ *  - Normal user caller → NO tuple write; created_by_service_account NOT set
+ *  - Idempotency hit with SA caller → writer tuple ensured (write-if-missing)
+ *  - Idempotency hit with normal caller → NO tuple write
+ *  - writeOpenFgaTuples failure → best-effort (conversation still returned 201)
+ */
+
+import { NextRequest } from "next/server";
+
+// ── Mocks ─────────────────────────────────────────────────────────────────────
+
+const mockGetAuthFromBearerOrSession = jest.fn();
+const mockRequireRbacPermission = jest.fn();
+const mockGetCollection = jest.fn();
+const mockRequireAgentUsePermission = jest.fn();
+const mockFilterConversationsByImplicitOrExplicitPermission = jest.fn();
+const mockWriteOpenFgaTuples = jest.fn();
+
+jest.mock("@/lib/api-middleware", () => {
+  class ApiError extends Error {
+    constructor(
+      message: string,
+      public statusCode = 500,
+    ) {
+      super(message);
+    }
+  }
+
+  return {
+    ApiError,
+    getAuthFromBearerOrSession: (...args: unknown[]) => mockGetAuthFromBearerOrSession(...args),
+    getPaginationParams: () => ({ page: 1, pageSize: 20, skip: 0 }),
+    paginatedResponse: (items: unknown[], total: number, page: number, pageSize: number) =>
+      Response.json({ success: true, data: { items, pagination: { total, page, pageSize } } }),
+    requireRbacPermission: (...args: unknown[]) => mockRequireRbacPermission(...args),
+    successResponse: (data: unknown, status = 200) => Response.json({ success: true, data }, { status }),
+    validateRequired: (body: Record<string, unknown>, fields: string[]) => {
+      for (const field of fields) {
+        if (!body[field]) throw new ApiError(`Missing required field: ${field}`, 400);
+      }
+    },
+    withErrorHandler:
+      <T,>(handler: (request: NextRequest) => Promise<T>) =>
+      async (request: NextRequest) => {
+        try {
+          return await handler(request);
+        } catch (error) {
+          return Response.json(
+            { success: false, error: error instanceof Error ? error.message : "error" },
+            { status: (error as { statusCode?: number }).statusCode ?? 500 },
+          );
+        }
+      },
+  };
+});
+
+jest.mock("@/lib/mongodb", () => ({
+  getCollection: (...args: unknown[]) => mockGetCollection(...args),
+  isMongoDBConfigured: true,
+}));
+
+jest.mock("@/lib/rbac/conversation-implicit-authz", () => ({
+  filterConversationsByImplicitOrExplicitPermission: (...args: unknown[]) =>
+    mockFilterConversationsByImplicitOrExplicitPermission(...args),
+}));
+
+jest.mock("@/lib/rbac/openfga-agent-authz", () => ({
+  requireAgentUsePermission: (...args: unknown[]) => mockRequireAgentUsePermission(...args),
+}));
+
+jest.mock("@/lib/rbac/openfga", () => ({
+  writeOpenFgaTuples: (...args: unknown[]) => mockWriteOpenFgaTuples(...args),
+}));
+
+// ── Helpers ────────────────────────────────────────────────────────────────────
+
+function postRequest(body: Record<string, unknown>): NextRequest {
+  return new NextRequest(new URL("/api/chat/conversations", "http://localhost:3000"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+function makeCollection(existingDoc: Record<string, unknown> | null = null) {
+  return {
+    findOne: jest.fn().mockResolvedValue(existingDoc),
+    insertOne: jest.fn().mockResolvedValue({ insertedId: "conv-new" }),
+  };
+}
+
+const SA_SUB = "sa-uuid-abc";
+const HUMAN_EMAIL = "human@example.com";
+const CONV_BODY = { title: "Test Conversation", client_type: "slack" };
+
+describe("POST /api/chat/conversations — SA auto-grant", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockRequireRbacPermission.mockResolvedValue(undefined);
+    mockRequireAgentUsePermission.mockResolvedValue(null);
+    mockWriteOpenFgaTuples.mockResolvedValue({ enabled: true, writes: 1, deletes: 0 });
+    mockFilterConversationsByImplicitOrExplicitPermission.mockImplementation(
+      async (_session, _email, items) => items,
+    );
+  });
+
+  // ── SA caller: create path ───────────────────────────────────────────────────
+
+  describe("SA caller (isServiceAccount=true)", () => {
+    beforeEach(() => {
+      mockGetAuthFromBearerOrSession.mockResolvedValue({
+        user: { email: HUMAN_EMAIL, name: "Human" },
+        session: { sub: SA_SUB, role: "user", isServiceAccount: true },
+      });
+    });
+
+    it("writes a writer tuple and stamps created_by_service_account on a fresh create", async () => {
+      const col = makeCollection(null);
+      mockGetCollection.mockResolvedValue(col);
+      const { POST } = await import("../chat/conversations/route");
+
+      const response = await POST(postRequest({ ...CONV_BODY, owner_id: HUMAN_EMAIL }));
+      const body = await response.json();
+
+      expect(response.status).toBe(201);
+      expect(body.data.created).toBe(true);
+
+      // owner_id stays the human's email (auditability)
+      expect(col.insertOne).toHaveBeenCalledWith(
+        expect.objectContaining({ owner_id: HUMAN_EMAIL }),
+      );
+      // created_by_service_account must be stamped
+      expect(col.insertOne).toHaveBeenCalledWith(
+        expect.objectContaining({ created_by_service_account: SA_SUB }),
+      );
+
+      // writer tuple must be written
+      expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith(
+        expect.objectContaining({
+          writes: expect.arrayContaining([
+            expect.objectContaining({
+              user: `service_account:${SA_SUB}`,
+              relation: "writer",
+              object: expect.stringMatching(/^conversation:/),
+            }),
+          ]),
+          deletes: [],
+        }),
+      );
+    });
+
+    it("owner_id stays the human's email (auditability) regardless of who is the SA caller", async () => {
+      const col = makeCollection(null);
+      mockGetCollection.mockResolvedValue(col);
+      const { POST } = await import("../chat/conversations/route");
+
+      await POST(postRequest({ ...CONV_BODY, owner_id: HUMAN_EMAIL }));
+
+      // owner_id MUST be the human's email — the SA does not take ownership
+      expect(col.insertOne).toHaveBeenCalledWith(
+        expect.objectContaining({ owner_id: HUMAN_EMAIL }),
+      );
+      // created_by_service_account should be the SA sub for audit trail
+      expect(col.insertOne).toHaveBeenCalledWith(
+        expect.objectContaining({ created_by_service_account: SA_SUB }),
+      );
+    });
+
+    it("returns 201 even when writeOpenFgaTuples throws (best-effort)", async () => {
+      mockWriteOpenFgaTuples.mockRejectedValue(new Error("OpenFGA unavailable"));
+      const col = makeCollection(null);
+      mockGetCollection.mockResolvedValue(col);
+      const { POST } = await import("../chat/conversations/route");
+
+      const response = await POST(postRequest({ ...CONV_BODY, owner_id: HUMAN_EMAIL }));
+
+      expect(response.status).toBe(201);
+      expect(col.insertOne).toHaveBeenCalled();
+    });
+  });
+
+  // ── Normal user: create path ─────────────────────────────────────────────────
+
+  describe("normal user caller (isServiceAccount falsy)", () => {
+    beforeEach(() => {
+      mockGetAuthFromBearerOrSession.mockResolvedValue({
+        user: { email: "alice@example.com", name: "Alice" },
+        session: { sub: "alice-sub", role: "user" },
+      });
+    });
+
+    it("does NOT write any writer tuple and does NOT stamp created_by_service_account", async () => {
+      const col = makeCollection(null);
+      mockGetCollection.mockResolvedValue(col);
+      const { POST } = await import("../chat/conversations/route");
+
+      const response = await POST(postRequest(CONV_BODY));
+
+      expect(response.status).toBe(201);
+      // No tuple write for normal users
+      expect(mockWriteOpenFgaTuples).not.toHaveBeenCalled();
+      // No SA provenance field
+      expect(col.insertOne).toHaveBeenCalledWith(
+        expect.not.objectContaining({ created_by_service_account: expect.anything() }),
+      );
+    });
+
+    it("stamps owner_subject when the owner is the caller", async () => {
+      const col = makeCollection(null);
+      mockGetCollection.mockResolvedValue(col);
+      const { POST } = await import("../chat/conversations/route");
+
+      await POST(postRequest(CONV_BODY));
+
+      expect(col.insertOne).toHaveBeenCalledWith(
+        expect.objectContaining({
+          owner_id: "alice@example.com",
+          owner_subject: "alice-sub",
+          owner_identity_version: 2,
+        }),
+      );
+    });
+  });
+
+  // ── Idempotency hit: SA caller ───────────────────────────────────────────────
+
+  describe("idempotency hit (existing conversation) with SA caller", () => {
+    const existingConv = {
+      _id: "existing-conv-id",
+      title: "Old Conversation",
+      client_type: "slack",
+      owner_id: HUMAN_EMAIL,
+      metadata: {},
+    };
+
+    beforeEach(() => {
+      mockGetAuthFromBearerOrSession.mockResolvedValue({
+        user: { email: HUMAN_EMAIL, name: "Human" },
+        session: { sub: SA_SUB, role: "user", isServiceAccount: true },
+      });
+    });
+
+    it("ensures the writer tuple (write-if-missing) on idempotency hit", async () => {
+      const col = makeCollection(existingConv);
+      mockGetCollection.mockResolvedValue(col);
+      const { POST } = await import("../chat/conversations/route");
+
+      const response = await POST(
+        postRequest({ ...CONV_BODY, idempotency_key: "slack-thread-ts-123" }),
+      );
+      const body = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(body.data.created).toBe(false);
+
+      // The writer tuple must be written (heals pre-fix conversations)
+      expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith(
+        expect.objectContaining({
+          writes: expect.arrayContaining([
+            expect.objectContaining({
+              user: `service_account:${SA_SUB}`,
+              relation: "writer",
+              object: `conversation:${existingConv._id}`,
+            }),
+          ]),
+          deletes: [],
+        }),
+      );
+    });
+
+    it("returns the existing conversation even when idempotency-hit grant write fails", async () => {
+      mockWriteOpenFgaTuples.mockRejectedValue(new Error("OpenFGA down"));
+      const col = makeCollection(existingConv);
+      mockGetCollection.mockResolvedValue(col);
+      const { POST } = await import("../chat/conversations/route");
+
+      const response = await POST(
+        postRequest({ ...CONV_BODY, idempotency_key: "slack-thread-ts-123" }),
+      );
+
+      expect(response.status).toBe(200);
+    });
+  });
+
+  // ── Idempotency hit: normal user ─────────────────────────────────────────────
+
+  describe("idempotency hit with normal user caller", () => {
+    const existingConv = {
+      _id: "existing-conv-id-2",
+      title: "Existing Conversation",
+      client_type: "webui",
+      owner_id: "alice@example.com",
+      metadata: {},
+    };
+
+    beforeEach(() => {
+      mockGetAuthFromBearerOrSession.mockResolvedValue({
+        user: { email: "alice@example.com", name: "Alice" },
+        session: { sub: "alice-sub", role: "user" },
+      });
+    });
+
+    it("does NOT write any grant on idempotency hit for normal users", async () => {
+      const col = makeCollection(existingConv);
+      mockGetCollection.mockResolvedValue(col);
+      const { POST } = await import("../chat/conversations/route");
+
+      const response = await POST(
+        postRequest({ ...CONV_BODY, idempotency_key: "some-key" }),
+      );
+
+      expect(response.status).toBe(200);
+      expect(mockWriteOpenFgaTuples).not.toHaveBeenCalled();
+    });
+  });
+});

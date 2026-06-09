@@ -257,3 +257,34 @@ def test_sync_from_config_upserts_routes_writes_openfga_and_invalidates_cache() 
         }
     ]
     assert resolver.invalidated == [("CAIPE", "C123")]
+    # The static YAML config predates execution_identity, so an import must
+    # persist the default "User" identity rather than leaving it unset.
+    assert routes.update_calls[0][1]["$set"]["execution_identity"] == {"mode": "obo_user"}
+
+
+def test_sync_from_config_defaults_execution_identity_to_user() -> None:
+    """Legacy configs (no execution_identity) import as obo_user, in both the
+    dry-run preview and the persisted route doc."""
+    routes = _RoutesCollection()
+    config = Config(
+        channels={
+            "C700": ChannelConfig(
+                name="#legacy",
+                agents=[AgentBinding(agent_id="legacy-agent")],
+            ),
+        }
+    )
+    service = SlackBotAdminService(
+        config=config,
+        resolver=_Resolver(),
+        collection_factory=lambda _name: routes,
+        openfga_writer=lambda _t: None,
+    )
+
+    # Preview surfaces the default.
+    preview = service.sync_from_config(workspace_id="CAIPE", dry_run=True)
+    assert preview["channels"][0]["agents"][0]["execution_identity"] == {"mode": "obo_user"}
+
+    # Persisted doc carries it explicitly.
+    service.sync_from_config(workspace_id="CAIPE", dry_run=False)
+    assert routes.update_calls[0][1]["$set"]["execution_identity"] == {"mode": "obo_user"}

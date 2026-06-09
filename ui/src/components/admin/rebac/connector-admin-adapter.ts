@@ -1,6 +1,11 @@
 "use client";
 
 import type { ReactNode } from "react";
+import type { SlackRouteExecutionIdentity } from "@/types/slack-rebac";
+
+// Re-export so callers that only import from connector-admin-adapter can
+// reference the type without an additional import from slack-rebac.
+export type { SlackRouteExecutionIdentity };
 
 // Normalised summary for a single configured item (channel / space).
 // The shared component uses these field names; each provider adapter
@@ -49,6 +54,8 @@ export interface ItemAgentRoute {
   users?: RouteSideConfig;
   bots?: RouteSideConfig;
   escalation?: RouteEscalationConfig;
+  /** Per-route execution identity. Omitted/undefined === { mode: "obo_user" }. */
+  execution_identity?: SlackRouteExecutionIdentity;
 }
 
 export interface DynamicAgentOption {

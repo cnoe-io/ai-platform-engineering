@@ -7,6 +7,7 @@ A Slack bot that communicates with dynamic agents via AG-UI protocol.
 Supports @mention queries, Q&A mode, AI alert processing, HITL forms, and feedback.
 """
 
+import asyncio
 import os
 import re
 import sys
@@ -51,6 +52,8 @@ from utils.slack_runtime_policy import (  # noqa: E402
     should_post_route_miss_notice,
     should_process_slack_payload,
 )
+from utils.dispatch_identity import apply_execution_identity  # noqa: E402
+from utils.unlinked_fallback import apply_unlinked_fallback  # noqa: E402
 from utils.slack_admin_api import start_slack_admin_api_server  # noqa: E402
 
 app = App(token=os.environ.get("SLACK_INTEGRATION_BOT_TOKEN", os.environ.get("SLACK_BOT_TOKEN", "")))
@@ -67,7 +70,6 @@ def _msg_link(channel_id: str, ts: str) -> str:
 RBAC_ENABLED = os.environ.get("SLACK_RBAC_ENABLED", "false").lower() == "true"
 
 if RBAC_ENABLED:
-    import asyncio
     from utils.identity_linker import (
         resolve_slack_user,
         generate_linking_url,
@@ -81,14 +83,21 @@ if RBAC_ENABLED:
         is_dm_channel,
     )
     from utils.slack_channel_auto_assign import get_slack_channel_auto_assigner
-    from utils.obo_exchange import impersonate_user, OboExchangeError
+    from utils.obo_exchange import impersonate_user, impersonate_service_account, OboExchangeError
     from utils.slack_rebac import get_slack_channel_rebac_evaluator
     from utils.user_messages import TEAM_SESSION_UNAVAILABLE_MESSAGE
+    from utils.service_account_resolver import get_unlinked_service_account_sub
+    from utils.keycloak_admin import user_is_federated, realm_has_enabled_idp_broker
 
     async def _rbac_enrich_context(body, slack_user_id, context, *, require_mapping: bool = True):
         """Resolve identity and enrich Bolt context.
 
         Returns 'unlinked', ('deny', message), or 'ok'.
+        - 'unlinked': no Keycloak user could be resolved (JIT off/failed/no email),
+          OR user resolved but has no live IdP link AND the realm has an enabled
+          broker → route as the unlinked SA.
+        - ('deny', message): channel has no team mapping (hard reject).
+        - 'ok': fully linked user; OBO token minted and stored in context.
         Stores team/workspace context for downstream OpenFGA channel checks.
         Channel→agent routing is now relationship-based: the selected Slack
         agent is authorized later against the channel's ReBAC grants.
@@ -184,6 +193,19 @@ if RBAC_ENABLED:
                     channel_id, team_resolution.team_name, team_resolution.team_slug, keycloak_user_id,
                 )
 
+        # Unlinked-fallback gate (anonymous-and-obo-routing):
+        # A JIT-from-Slack user (empty federatedIdentities) should run as the
+        # unlinked SA when the realm has an enabled IdP broker — broker
+        # presence means "real users authenticate through SSO; JIT shells are
+        # unverified placeholders until they link".  When there is NO broker,
+        # JIT-via-Slack IS the legitimate user base and they run as themselves.
+        if await realm_has_enabled_idp_broker() and not await user_is_federated(keycloak_user_id):
+            logger.info(
+                "User %s not IdP-linked (broker active) — routing as unlinked",
+                keycloak_user_id,
+            )
+            return "unlinked"
+
         try:
             obo = await impersonate_user(keycloak_user_id)
             context["obo_token"] = obo.access_token
@@ -201,6 +223,33 @@ if RBAC_ENABLED:
             return ("deny", TEAM_SESSION_UNAVAILABLE_MESSAGE)
 
         return "ok"
+
+    async def _mint_unlinked_obo_token() -> str | None:
+        """Mint an OBO token for the platform unlinked SA.
+
+        Returns the access token string, or ``None`` if:
+        - The unlinked SA hasn't been bootstrapped yet (resolver returns None).
+        - The token exchange fails.
+
+        Callers must handle ``None`` by degrading gracefully (nudge + stop).
+        """
+        unlinked_sub = await asyncio.to_thread(get_unlinked_service_account_sub)
+        if unlinked_sub is None:
+            logger.warning(
+                "_mint_unlinked_obo_token: unlinked SA not found in MongoDB "
+                "(is_platform_unlinked=True, status=active) — cannot fall back"
+            )
+            return None
+        try:
+            obo = await impersonate_service_account(unlinked_sub)
+            return obo.access_token
+        except OboExchangeError as exc:
+            logger.warning(
+                "_mint_unlinked_obo_token: impersonation failed for unlinked SA sub=%s: %s",
+                unlinked_sub,
+                exc,
+            )
+            return None
 
     logger.info("Enterprise RBAC enforcement enabled for Slack bot")
 else:
@@ -240,6 +289,63 @@ def _slack_agent_channel_grant_check(context, channel_id: str | None, agent_id: 
         decision.reason,
     )
     return f"Agent *{agent_id}* is not assigned to this channel. Ask an admin to add it in the {APP_NAME} Admin panel."
+
+
+def _post_ephemeral_for_event(client, event, channel_id, user_id, text) -> None:
+    """Post an ephemeral reply placed where the user is looking.
+
+    If the triggering message is a thread reply, place the ephemeral in that
+    thread; if it's a top-level message, post it at the channel root. Passing a
+    top-level message's own `ts` as `thread_ts` would bury the ephemeral in a
+    not-yet-open thread the user has to "know" to click into.
+
+    A message is a genuine thread reply only when `thread_ts` is present AND
+    differs from `ts` — a thread's ROOT message also carries `thread_ts` (equal
+    to its own `ts`) once it has replies, so presence alone is not reliable.
+    """
+    thread_ts = event.get("thread_ts") if isinstance(event, dict) else None
+    ts = event.get("ts") if isinstance(event, dict) else None
+    is_thread_reply = bool(thread_ts) and thread_ts != ts
+    kwargs = {"channel": channel_id, "user": user_id, "text": text}
+    if is_thread_reply:
+        kwargs["thread_ts"] = thread_ts
+    client.chat_postEphemeral(**kwargs)
+
+
+def _agent_access_denied_text(agent_id: str, context, agent_match=None) -> str:
+    """Build the 'no access to agent' message.
+
+    Distinguishes the acting identity: when the route runs as a service account
+    the denial is about that SA, not the human ("You"). Includes the owning
+    team name (when known) so the user knows who to ask for a grant.
+    """
+    # QUAL-2: getattr(obj, attr, default) never raises AttributeError, so
+    # the previous except AttributeError blocks were dead code — removed.
+    exec_id = getattr(agent_match, "execution_identity", None)
+    sa_name: str | None = None
+    if exec_id is not None and getattr(exec_id, "mode", None) == "service_account":
+        raw_name = getattr(exec_id, "service_account_name", None)
+        sa_name = raw_name if raw_name else None  # keep None; handled below (UX-4)
+
+    if sa_name is not None:
+        # Named SA: bold the name.
+        subject = f"The service account *{sa_name}*"
+        verb = "doesn't"
+    elif exec_id is not None and getattr(exec_id, "mode", None) == "service_account":
+        # SA route but no name stored — UX-4: don't produce "*the configured service account*".
+        subject = "The configured service account"
+        verb = "doesn't"
+    else:
+        subject = "You"
+        verb = "don't"
+
+    team_name = context.get("team_name") if context is not None else None
+
+    who = f"an admin on the *{team_name}* team" if team_name else "an admin"
+    return (
+        f"{subject} {verb} have access to agent *{agent_id}*. "
+        f"Ask {who} to grant access in the {APP_NAME} Admin panel."
+    )
 
 
 def _obo_token_from_context(context):
@@ -964,6 +1070,7 @@ def rbac_global_middleware(body, context, next, logger):
     is_mention = event.get("type") == "app_mention"
     is_command = bool(body.get("command"))
 
+    loop = None
     try:
         loop = asyncio.new_event_loop()
         rbac_status = loop.run_until_complete(
@@ -992,7 +1099,8 @@ def rbac_global_middleware(body, context, next, logger):
                 logger.warning("Could not send RBAC error message to %s", slack_user_id)
         return _HANDLED_200
     finally:
-        loop.close()
+        if loop is not None:
+            loop.close()
 
     channel = (
         body.get("event", {}).get("channel")
@@ -1004,47 +1112,56 @@ def rbac_global_middleware(body, context, next, logger):
         import time as _time
         now = _time.time()
         last_sent = _linking_prompt_sent.get(slack_user_id, 0)
-        if now - last_sent < _LINKING_PROMPT_COOLDOWN:
-            logger.debug("Suppressing linking prompt for %s (cooldown)", slack_user_id)
-            return _HANDLED_200
-        if channel:
-            try:
-                # Spec 103 FR-007: replace the previous dead-end message
-                # with an actionable HMAC-signed linking URL whenever the
-                # auto-link path returns "unlinked" — regardless of whether
-                # JIT was disabled, the email domain was not allow-listed,
-                # JIT failed (e.g. Keycloak 5xx), or the operator has
-                # SLACK_FORCE_LINK enabled. The user always gets a path
-                # forward; the previous text told them to "contact your
-                # admin" which is not a path the user can self-serve.
-                try:
-                    linking_url = asyncio.run(generate_linking_url(slack_user_id))
-                except Exception:
-                    linking_url = None
 
-                if linking_url:
-                    text = (
-                        "Your Slack account is not linked to an enterprise identity. "
-                        f"<{linking_url}|Click here to link your account> "
-                        "before using this feature."
-                    )
-                else:
-                    # Last-resort: no HMAC secret configured, so we cannot
-                    # mint a link. Keep the old dead-end message but make
-                    # it accurate (it really is a config issue at this point).
-                    text = (
-                        "Your Slack account could not be linked because the bot is "
-                        "not configured to mint linking URLs. Please contact your admin."
-                    )
-                context["client"].chat_postEphemeral(
-                    channel=channel,
-                    user=slack_user_id,
-                    text=text,
-                )
-                _linking_prompt_sent[slack_user_id] = now
+        # Decision 5 (anonymous-and-obo-routing): instead of dropping the
+        # request, fall back to the platform unlinked SA so the user still
+        # gets a baseline response. Logic extracted to apply_unlinked_fallback
+        # (unlinked_fallback.py) so it can be unit-tested without importing slack_bolt
+        # (TEST-5/6).
+
+        async def _mint_wrapper() -> str | None:
+            return await _mint_unlinked_obo_token()
+
+        async def _linking_url_wrapper(uid: str) -> str | None:
+            try:
+                return await generate_linking_url(uid)
             except Exception:
-                logger.warning("Could not send linking prompt to %s", slack_user_id)
-        return _HANDLED_200
+                return None
+
+        fallback_loop = None
+        try:
+            fallback_loop = asyncio.new_event_loop()
+            should_proceed = fallback_loop.run_until_complete(
+                apply_unlinked_fallback(
+                    rbac_status=rbac_status,
+                    slack_user_id=slack_user_id,
+                    channel=channel,
+                    context=context,
+                    mint_fn=_mint_wrapper,
+                    linking_url_fn=_linking_url_wrapper,
+                    last_sent=last_sent,
+                    linking_prompt_cooldown=_LINKING_PROMPT_COOLDOWN,
+                    is_dm_channel_fn=is_dm_channel,
+                )
+            )
+        except Exception as exc:
+            logger.warning(
+                "rbac_global_middleware: apply_unlinked_fallback raised for user=%s: %s",
+                slack_user_id,
+                exc,
+            )
+            should_proceed = False
+        finally:
+            if fallback_loop is not None:
+                fallback_loop.close()
+
+        if context.get("unlinked_fallback"):
+            _linking_prompt_sent[slack_user_id] = now
+        elif not should_proceed and now - last_sent >= _LINKING_PROMPT_COOLDOWN:
+            _linking_prompt_sent[slack_user_id] = now
+
+        if not should_proceed:
+            return _HANDLED_200
 
     if isinstance(rbac_status, tuple) and rbac_status[0] == "deny":
         msg = rbac_status[1]
@@ -1078,7 +1195,10 @@ def handle_mention(event, say, client, context=None):
   try:
     # Wall-clock start for `_track_interaction(response_time_ms=...)` below.
     t0 = time.monotonic()
-    _bind_obo_for_handler(context)
+    # SEC-3: do NOT bind OBO here — _bind_obo_for_handler is called below
+    # AFTER apply_execution_identity so the correct token (user or SA) is
+    # bound once. Mirroring _route_to_agent which also binds only once, after
+    # the identity decision.
     if event.get("edited") or event.get("subtype") == "message_changed":
       logger.debug("Skipping edited @mention message")
       return
@@ -1128,8 +1248,38 @@ def handle_mention(event, say, client, context=None):
     # already established — the grant on the initial agent is sufficient.
     denial = _slack_agent_channel_grant_check(context, channel_id, agent_id)
     if denial:
-      say(text=denial, thread_ts=thread_ts)
+      _post_ephemeral_for_event(client, event, channel_id, user_id, denial)
       return
+
+    # Apply the route's execution identity BEFORE create_conversation — the
+    # conversation's `can_use agent` check runs against whatever token is bound
+    # here. For service_account routes this mints the SA token and overwrites
+    # context["obo_token"]; obo_user routes keep the user/anon token already set
+    # by the middleware. Mirrors the same block in _route_to_agent (FR: routing
+    # identity must apply to @mentions, not just ambient messages).
+    if RBAC_ENABLED and context is not None and agent_match is not None:
+      try:
+        exec_id = agent_match.execution_identity
+        should_proceed = apply_execution_identity(
+          run_as_mode=exec_id.mode,
+          sa_sub=exec_id.service_account_sub,
+          agent_id=agent_id,
+          context=context,
+          event=event,
+          client=client,
+          say=say,
+          is_bot=False,
+          impersonate_fn=impersonate_service_account,
+        )
+        if not should_proceed:
+          return
+      except AttributeError:
+        pass
+    # SEC-3: bind OBO ONCE here (after the identity decision), unconditionally.
+    # When RBAC is disabled or no agent_match, context["obo_token"] is absent
+    # and _bind_obo_for_handler is a no-op; when RBAC enabled the SA token (if
+    # any) was just written into context["obo_token"] above.
+    _bind_obo_for_handler(context)
 
     try:
       conv_result = sse_client.create_conversation(
@@ -1145,9 +1295,9 @@ def handle_mention(event, say, client, context=None):
         },
       )
     except AgentAccessDeniedError as e:
-      say(
-        text=f"You don't have access to agent *{e.agent_id}*. Ask an admin to grant you access in the {APP_NAME} Admin panel.",
-        thread_ts=thread_ts,
+      _post_ephemeral_for_event(
+        client, event, channel_id, user_id,
+        _agent_access_denied_text(e.agent_id, context, agent_match),
       )
       return
 
@@ -1308,6 +1458,41 @@ def _route_to_agent(event, say, client, channel_config, agent_match, is_bot, bot
   """
   try:
     t0 = time.monotonic()
+
+    # Decision 3 (anonymous-and-obo-routing): honor per-route execution identity
+    # BEFORE binding the OBO token onto the SSE ContextVar.
+    #
+    # Decision table:
+    #   route mode        | user linked? | token used
+    #   ------------------|--------------|----------------------------------
+    #   obo_user          | yes          | user OBO (set by _rbac_enrich_context — unchanged)
+    #   obo_user          | no           | anon SA (set by unlinked fallback in middleware)
+    #   service_account   | yes or no    | named SA (minted here, overrides context["obo_token"])
+    #
+    # For service_account routes: mint the SA token synchronously (new event
+    # loop, matching the pattern used by _rbac_enrich_context in the middleware)
+    # and overwrite context["obo_token"] so _bind_obo_for_handler carries it.
+    if RBAC_ENABLED and context is not None:
+        try:
+            exec_id = agent_match.execution_identity
+            should_proceed = apply_execution_identity(
+                run_as_mode=exec_id.mode,
+                sa_sub=exec_id.service_account_sub,
+                agent_id=agent_match.agent_id,
+                context=context,
+                event=event,
+                client=client,
+                say=say,
+                is_bot=is_bot,
+                impersonate_fn=impersonate_service_account,
+            )
+            if not should_proceed:
+                return
+        except AttributeError:
+            # agent_match has no execution_identity (shouldn't happen with the default
+            # factory, but defensive guard).
+            pass
+
     _bind_obo_for_handler(context)
     channel_id = event.get("channel")
     thread_ts = event.get("ts")
@@ -1633,9 +1818,10 @@ def handle_dm_message(event, say, client, context=None):
         },
       )
     except AgentAccessDeniedError as e:
-      say(
-        text=f"You don't have access to agent *{e.agent_id}*. Ask an admin to grant you access in the {APP_NAME} Admin panel.",
-        thread_ts=thread_ts,
+      # DMs always act as the user (no per-route service-account identity).
+      _post_ephemeral_for_event(
+        client, event, channel_id, user_id,
+        _agent_access_denied_text(e.agent_id, context, None),
       )
       return
     conversation_id = conv_result["conversation_id"]
