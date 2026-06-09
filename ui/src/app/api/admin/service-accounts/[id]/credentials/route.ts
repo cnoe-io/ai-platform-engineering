@@ -8,7 +8,7 @@ import { getProviderConnectionService } from "@/lib/credentials/oauth-service-fa
 import { BUILT_IN_OAUTH_CONNECTORS } from "@/lib/credentials/built-in-oauth-connectors";
 import { getCollection } from "@/lib/mongodb";
 import { CREDENTIAL_COLLECTIONS } from "@/lib/credentials/collections";
-import { getCredentialFeatureConfig } from "@/lib/feature-flags/credentials";
+import { isServiceAccountTokensEnabled } from "@/lib/feature-flags/credentials";
 import { ApiError } from "@/lib/api-error";
 import type { ProviderConnectionDocument } from "@/lib/credentials/oauth-service";
 
@@ -41,11 +41,11 @@ interface RouteContext {
   params: Promise<{ id: string }>;
 }
 
-/** Return 404 when credential features are disabled (mirrors connections/route.ts). */
+/** Return 404 when the service-account Tokens surface is disabled. */
 function assertFeatureEnabled(): NextResponse | null {
-  if (!getCredentialFeatureConfig().enabled) {
+  if (!isServiceAccountTokensEnabled()) {
     return NextResponse.json(
-      { success: false, error: "Credential features are disabled", code: "CREDENTIALS_DISABLED" },
+      { success: false, error: "Service account tokens are disabled", code: "CREDENTIALS_DISABLED" },
       { status: 404 },
     );
   }

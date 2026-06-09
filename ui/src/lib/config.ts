@@ -46,8 +46,10 @@ export interface Config {
   ragEnabled: boolean;
   /** Whether MongoDB persistence is enabled */
   mongodbEnabled: boolean;
-  /** Whether Connections & Secrets credential management is enabled */
+  /** Whether the credential subsystem (master switch) is enabled */
   credentialsEnabled: boolean;
+  /** Whether the user-facing Connections & Secrets surface (nav + /credentials page) is enabled */
+  userConnectionsEnabled: boolean;
   /** Main tagline displayed throughout the UI */
   tagline: string;
   /** Description text displayed throughout the UI */
@@ -232,6 +234,7 @@ const DEFAULT_CONFIG: Config = {
   ragEnabled: true,
   mongodbEnabled: false,
   credentialsEnabled: false,
+  userConnectionsEnabled: false,
   tagline: DEFAULT_TAGLINE,
   description: DEFAULT_DESCRIPTION,
   appName: DEFAULT_APP_NAME,
@@ -383,6 +386,15 @@ export function getServerConfig(): Config {
   const actionAuditEnabled = env('ACTION_AUDIT_ENABLED') !== 'false';
   const dynamicAgentsEnabled = env('DYNAMIC_AGENTS_ENABLED') === 'true';
   const credentialsEnabled = env('CAIPE_CREDENTIALS_ENABLED') === 'true';
+  // The user-facing Connections surface is gated independently of the SA token
+  // surface. It defaults to the master flag (backward-compatible) and can be
+  // explicitly turned off with CAIPE_USER_CONNECTIONS_ENABLED=false. Mirrors
+  // subFeatureEnabled() in feature-flags/credentials.ts (kept inline here so
+  // config.ts stays free of server-only imports for the client bundle).
+  const userConnectionsRaw = env('CAIPE_USER_CONNECTIONS_ENABLED');
+  const userConnectionsEnabled =
+    credentialsEnabled &&
+    (userConnectionsRaw === undefined ? true : userConnectionsRaw === 'true');
   const userInfoToolEnabled = env('ENABLE_USER_INFO_TOOL') === 'true';
 
   // Enabled when an org URL is set AND we have credentials in EITHER mode:
@@ -426,6 +438,7 @@ export function getServerConfig(): Config {
     ragEnabled,
     mongodbEnabled,
     credentialsEnabled,
+    userConnectionsEnabled,
     tagline: env('TAGLINE') || DEFAULT_TAGLINE,
     description: env('DESCRIPTION') || DEFAULT_DESCRIPTION,
     appName: env('APP_NAME') || DEFAULT_APP_NAME,
