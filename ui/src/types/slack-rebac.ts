@@ -27,6 +27,16 @@ export interface SlackChannelResourceGrant {
 
 export type SlackRouteListenMode = "message" | "mention" | "all";
 
+// C1 — Per-route execution identity
+// Semantics: omitted/undefined === { mode: "obo_user" }
+export type SlackRouteExecutionMode = "obo_user" | "service_account";
+
+export interface SlackRouteExecutionIdentity {
+  mode: SlackRouteExecutionMode;          // default "obo_user"
+  service_account_sub?: string;           // REQUIRED when mode === "service_account"
+  service_account_name?: string;          // optional display cache (friendly name)
+}
+
 export interface SlackRouteOverthinkConfig {
   enabled?: boolean;
   skip_markers?: string[];
@@ -63,6 +73,8 @@ export interface SlackChannelAgentRoute {
   users?: SlackRouteSideConfig;
   bots?: SlackRouteSideConfig;
   escalation?: SlackRouteEscalationConfig;
+  /** Per-route execution identity. Omitted/undefined === { mode: "obo_user" }. */
+  execution_identity?: SlackRouteExecutionIdentity;
   source_type: "manual" | "yaml_import" | "bootstrap";
   status: "active" | "disabled" | "revoked";
   created_by?: string;

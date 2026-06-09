@@ -120,6 +120,31 @@ describe("GET /api/admin/service-accounts (list)", () => {
     const res = await listGET(listRequest());
     expect(res.status).toBe(401);
   });
+
+  it("?team= narrows to that owning team when the caller is a member", async () => {
+    mockListOpenFgaObjects.mockResolvedValue({
+      objects: ["team:team-sre", "team:team-platform"],
+    });
+    mockListByOwningTeams.mockResolvedValue([SA_DOC]);
+
+    const res = await listGET(
+      listRequest("http://localhost:3000/api/admin/service-accounts?team=team-sre"),
+    );
+    expect(res.status).toBe(200);
+    expect(mockListByOwningTeams).toHaveBeenCalledWith(["team-sre"], { includeRevoked: false });
+  });
+
+  it("?team= returns empty (no Mongo query) when the caller is NOT in that team", async () => {
+    mockListOpenFgaObjects.mockResolvedValue({ objects: ["team:team-sre"] });
+
+    const res = await listGET(
+      listRequest("http://localhost:3000/api/admin/service-accounts?team=team-other"),
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.items).toEqual([]);
+    expect(mockListByOwningTeams).not.toHaveBeenCalled();
+  });
 });
 
 describe("GET /api/admin/service-accounts/[id] (detail)", () => {

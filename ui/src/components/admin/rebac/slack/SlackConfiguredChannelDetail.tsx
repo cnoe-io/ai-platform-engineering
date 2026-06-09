@@ -14,9 +14,10 @@ import { TeamPicker,type TeamPickerOption } from "@/components/ui/team-picker";
 import { useToast } from "@/components/ui/toast";
 import { Tooltip,TooltipContent,TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import type { DynamicAgentOption,ItemAgentRoute,ItemSummary,TeamOption } from "../connector-admin-adapter";
+import type { DynamicAgentOption,ItemAgentRoute,ItemSummary,TeamOption,SlackRouteExecutionIdentity } from "../connector-admin-adapter";
 import { SlackEmojiCombobox } from "./SlackEmojiCombobox";
 import { SlackUserTokenInput } from "./SlackUserTokenInput";
+import { ServiceAccountSelect } from "./ServiceAccountSelect";
 import {
 DEFAULT_OVERTHINK_SKIP_MARKERS,
 draftToRoute,
@@ -28,6 +29,7 @@ type RouteDraft,
 type RouteEscalationDraft,
 type RouteSideDraft,
 } from "./slack-route-draft";
+import type { SlackRouteExecutionMode } from "@/types/slack-rebac";
 
 function HelpTooltip({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -244,6 +246,87 @@ function EscalationEditor({ enabled, onToggleEnabled, escalation, onChange, disa
   );
 }
 
+/**
+ * "Run as" selector shown inside the per-route editor dialog.
+ * Shows a User radio (default) and a Service Account radio. When Service Account
+ * is chosen, shows a picker of active SAs owned by the channel's owning team.
+ * In both modes the effective permissions are the intersection of the chosen
+ * identity's permissions and the agent's permissions.
+ */
+function ExecutionIdentitySelector({
+  mode,
+  serviceAccountSub,
+  onModeChange,
+  onServiceAccountChange,
+  teamSlug,
+  disabled,
+  error,
+}: {
+  mode: SlackRouteExecutionMode;
+  serviceAccountSub: string;
+  onModeChange: (mode: SlackRouteExecutionMode) => void;
+  onServiceAccountChange: (sub: string, name: string) => void;
+  teamSlug?: string;
+  disabled: boolean;
+  error?: string;
+}) {
+  return (
+    <div className="space-y-3">
+      <div className="text-sm font-medium">Run as</div>
+      <div className="space-y-3">
+        <div className="flex flex-col gap-3">
+          <label className="flex items-start gap-2 text-sm">
+            <input
+              type="radio"
+              name="execution-mode"
+              value="obo_user"
+              checked={mode === "obo_user"}
+              disabled={disabled}
+              onChange={() => onModeChange("obo_user")}
+              className="mt-0.5"
+            />
+            <span className="flex flex-col">
+              <span>User</span>
+              <span className="text-xs text-muted-foreground">
+                Permissions are the intersection of the user&apos;s permissions and the agent&apos;s permissions.
+              </span>
+            </span>
+          </label>
+          <label className="flex items-start gap-2 text-sm">
+            <input
+              type="radio"
+              name="execution-mode"
+              value="service_account"
+              checked={mode === "service_account"}
+              disabled={disabled}
+              onChange={() => onModeChange("service_account")}
+              className="mt-0.5"
+            />
+            <span className="flex flex-col">
+              <span>Service Account</span>
+              <span className="text-xs text-muted-foreground">
+                Permissions are the intersection of the service account&apos;s permissions and the agent&apos;s permissions.
+              </span>
+            </span>
+          </label>
+        </div>
+
+        {mode === "service_account" && (
+          <div className="pl-5">
+            <ServiceAccountSelect
+              value={serviceAccountSub}
+              onChange={onServiceAccountChange}
+              teamSlug={teamSlug}
+              disabled={disabled}
+              error={error}
+            />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function SlackRouteEditorDialog({
   open,
   onOpenChange,
@@ -333,6 +416,14 @@ function SlackRouteEditorDialog({
         </DialogHeader>
         <div className="space-y-5">
           <section className="space-y-3">
+            <div className="max-w-48 space-y-2">
+              <Label htmlFor="connector-route-priority" className="block">Priority</Label>
+              <Input id="connector-route-priority" type="number" value={routeDraft.priority} className={cn(visibleErrors.priority && "border-destructive focus-visible:ring-destructive")} onChange={(event) => setRouteDraft((prev) => ({ ...prev, priority: Number(event.target.value) }))} disabled={formDisabled} />
+              {visibleErrors.priority && <p className="text-xs text-destructive">{visibleErrors.priority}</p>}
+            </div>
+          </section>
+          <div className="border-t" />
+          <section className="space-y-3">
             <div className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="connector-route-agent-id" className="block">Dynamic Agent</Label>
@@ -348,11 +439,30 @@ function SlackRouteEditorDialog({
                 />
                 {visibleErrors.agentId && <p className="text-xs text-destructive">{visibleErrors.agentId}</p>}
               </div>
-              <div className="max-w-48 space-y-2">
-                <Label htmlFor="connector-route-priority" className="block">Priority</Label>
-                <Input id="connector-route-priority" type="number" value={routeDraft.priority} className={cn(visibleErrors.priority && "border-destructive focus-visible:ring-destructive")} onChange={(event) => setRouteDraft((prev) => ({ ...prev, priority: Number(event.target.value) }))} disabled={formDisabled} />
-                {visibleErrors.priority && <p className="text-xs text-destructive">{visibleErrors.priority}</p>}
-              </div>
+              <ExecutionIdentitySelector
+                mode={routeDraft.executionMode}
+                serviceAccountSub={routeDraft.executionServiceAccountSub}
+                onModeChange={(mode) =>
+                  setRouteDraft((prev) => ({
+                    ...prev,
+                    executionMode: mode,
+                    // Clear SA fields when switching back to user mode
+                    ...(mode === "obo_user"
+                      ? { executionServiceAccountSub: "", executionServiceAccountName: "" }
+                      : {}),
+                  }))
+                }
+                onServiceAccountChange={(sub, name) =>
+                  setRouteDraft((prev) => ({
+                    ...prev,
+                    executionServiceAccountSub: sub,
+                    executionServiceAccountName: name,
+                  }))
+                }
+                teamSlug={selected?.team_slug}
+                disabled={formDisabled}
+                error={visibleErrors.executionServiceAccountSub}
+              />
             </div>
           </section>
           <div className="border-t" />
@@ -391,6 +501,11 @@ function routeSummaryBadges(route: ItemAgentRoute): string[] {
   if (route.users?.overthink?.enabled || route.bots?.overthink?.enabled) badges.push("overthink");
   const esc = route.escalation;
   if (esc && (esc.victorops?.enabled || esc.emoji?.enabled || (esc.users?.length ?? 0) > 0 || (esc.delete_admins?.length ?? 0) > 0)) badges.push("escalation");
+  // Show execution identity badge when it's explicitly a service account
+  const eid: SlackRouteExecutionIdentity | undefined = route.execution_identity;
+  if (eid?.mode === "service_account") {
+    badges.push(eid.service_account_name ? `sa:${eid.service_account_name}` : "sa");
+  }
   return badges;
 }
 

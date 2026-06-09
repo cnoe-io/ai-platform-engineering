@@ -48,6 +48,7 @@ interface ServiceAccountListItem {
   created_by: string;
   created_at: string;
   status: "active" | "revoked";
+  protected?: boolean;
   scope_counts: { agents: number; tools: number };
 }
 
@@ -80,6 +81,7 @@ interface ServiceAccountDetail {
   created_by: string;
   created_at: string;
   status: "active" | "revoked";
+  protected?: boolean;
   scopes: ScopeRef[];
 }
 
@@ -270,7 +272,17 @@ function ServiceAccountRow({
   return (
     <tr className={cn("border-b border-border/60", zebra && "bg-muted/20")}>
       <td className="px-4 py-2.5 align-top">
-        <div className="font-medium">{sa.name}</div>
+        <div className="flex items-center gap-1.5 font-medium">
+          {sa.protected && (
+            <ShieldCheck
+              className="h-4 w-4 shrink-0 text-muted-foreground"
+              aria-label="Protected service account"
+            >
+              <title>Protected: this service account can&apos;t be revoked or moved to another team.</title>
+            </ShieldCheck>
+          )}
+          {sa.name}
+        </div>
         {sa.description && (
           <div className="text-xs text-muted-foreground">{sa.description}</div>
         )}
@@ -962,8 +974,25 @@ function ManageServiceAccountDialog({
 
               {/* Delete (terminal). Labeled "Delete service account" for clarity
                   (#53 — Erik found "Revoke" unclear); the underlying route +
-                  audit event (service_account.revoke) are unchanged. */}
-              {confirmRevoke ? (
+                  audit event (service_account.revoke) are unchanged.
+                  Protected SAs (e.g. the platform unlinked SA) can't be
+                  deleted — the control is greyed out (backend also enforces). */}
+              {detail.protected ? (
+                <div className="flex items-center gap-1.5">
+                  <Button
+                    variant="ghost"
+                    className="gap-1.5 text-muted-foreground"
+                    disabled
+                    title="This service account is protected and can't be deleted."
+                  >
+                    <ShieldCheck className="h-4 w-4" />
+                    Delete service account
+                  </Button>
+                  <span className="text-xs text-muted-foreground">
+                    Protected — can&apos;t be deleted or moved to another team.
+                  </span>
+                </div>
+              ) : confirmRevoke ? (
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-sm text-muted-foreground">
                     Delete service account{detail.name ? ` ${detail.name}` : ""}? This is permanent.

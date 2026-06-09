@@ -30,6 +30,12 @@ export interface CreateServiceAccountInput {
   owning_team_id: string;
   created_by: string;
   scopes_snapshot?: ServiceAccountScope[];
+  /**
+   * [unlinked-sa] Set true ONLY for the platform unlinked SA (C2 contract).
+   * Defaults undefined for all normal SAs — existing callers are unaffected.
+   * Allows atomic insert of the flag rather than a separate updateOne.
+   */
+  is_platform_unlinked?: boolean;
 }
 
 /**
@@ -85,6 +91,8 @@ export async function createServiceAccountDoc(
     status: "active",
     revoked_at: null,
     scopes_snapshot: input.scopes_snapshot ?? [],
+    // [unlinked-sa] Spread is_platform_unlinked when provided; undefined for normal SAs.
+    ...(input.is_platform_unlinked ? { is_platform_unlinked: true } : {}),
   };
   const result = await collection.insertOne(doc);
   return { ...doc, _id: result.insertedId };
