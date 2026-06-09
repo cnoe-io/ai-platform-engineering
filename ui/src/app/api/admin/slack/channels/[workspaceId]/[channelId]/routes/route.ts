@@ -93,8 +93,15 @@ async function listOpenFgaChannelAgentIds(workspaceId: string, channelId: string
   const seen = new Set<string>();
   let continuationToken: string | undefined;
   do {
+    // OpenFGA's /read requires an OBJECT TYPE in the tuple_key filter — a
+    // user-only (or user+relation) filter 400s with "object type field is
+    // required". We only want agents this channel can use, so scope the read to
+    // the `agent:` object type with the channel as `user`. OpenFGA accepts an
+    // object type prefix with an empty id (`agent:`) plus a user, returning all
+    // agent tuples for that subject. (The earlier `{ user, relation: "user" }`
+    // and `{ user }` forms were both rejected by this OpenFGA version.)
     const result = await readOpenFgaTuples({
-      tuple: { user: subject, relation: "user" },
+      tuple: { object: "agent:", user: subject },
       pageSize: 100,
       ...(continuationToken ? { continuationToken } : {}),
     });
