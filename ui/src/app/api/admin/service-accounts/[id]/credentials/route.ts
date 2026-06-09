@@ -370,16 +370,22 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
       deleteOne(query: Record<string, unknown>): Promise<unknown>;
     }).deleteOne({ id: connectionId });
 
-    // Best-effort: purge the encrypted payload for the access token secret.
-    // The key is deterministic: provider_connection:<connectionId>:access_token
-    // (matches oauth-service.ts registerStaticToken line 460).
+    // Best-effort: purge the encrypted payloads for this connection's secrets.
+    // Keys are deterministic: provider_connection:<connectionId>:{access,refresh}_token
+    // (matches oauth-service.ts). Static tokens have no refresh secret (the
+    // refresh delete is a harmless no-op), but purge both so an OAuth-shaped
+    // connection doesn't leave its refresh token orphaned in the payload store.
     try {
       const payloadsCollection = await getCollection(
         CREDENTIAL_COLLECTIONS.encryptedPayloads,
       );
-      await (payloadsCollection as unknown as {
+      const deletePayload = (payloadsCollection as unknown as {
         deleteOne(query: Record<string, unknown>): Promise<unknown>;
-      }).deleteOne({ secretRefId: `provider_connection:${connectionId}:access_token` });
+      }).deleteOne.bind(payloadsCollection);
+      await Promise.all([
+        deletePayload({ secretRefId: `provider_connection:${connectionId}:access_token` }),
+        deletePayload({ secretRefId: `provider_connection:${connectionId}:refresh_token` }),
+      ]);
     } catch {
       // Non-fatal — the token is inaccessible once the connection doc is gone.
     }

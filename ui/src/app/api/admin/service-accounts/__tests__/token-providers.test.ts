@@ -28,6 +28,11 @@ jest.mock("@/lib/feature-flags/credentials", () => ({
     mockIsServiceAccountTokensEnabled(...args),
 }));
 
+const mockListOpenFgaObjects = jest.fn();
+jest.mock("@/lib/rbac/openfga", () => ({
+  listOpenFgaObjects: (...args: unknown[]) => mockListOpenFgaObjects(...args),
+}));
+
 import { GET } from "../token-providers/route";
 
 const SESSION = { sub: "caller-sub", user: { email: "caller@example.com" } };
@@ -42,6 +47,8 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockGetServerSession.mockResolvedValue(SESSION);
   mockIsServiceAccountTokensEnabled.mockReturnValue(true);
+  // Caller is a member of at least one team by default (membership gate).
+  mockListOpenFgaObjects.mockResolvedValue({ objects: ["team:platform-eng"] });
 });
 
 describe("GET /api/admin/service-accounts/token-providers", () => {
@@ -139,7 +146,28 @@ describe("GET /api/admin/service-accounts/token-providers", () => {
     expect(body.data).toEqual([{ provider: "gitlab", name: "GitLab" }]);
   });
 
-  it("returns 404 when the service-account tokens feature is disabled", async () => {
+  it("excludes providers not in the built-in set (POST would reject them)", async () => {
+    mockServers([
+      {
+        _id: "gitlab",
+        enabled: true,
+        credential_sources: [{ kind: "provider_connection", provider: "gitlab", target: "header", name: "X" }],
+      },
+      {
+        _id: "custom",
+        enabled: true,
+        // a provider invented in an MCP config that isn't a built-in connector
+        credential_sources: [{ kind: "provider_connection", provider: "made-up-provider", target: "header", name: "X" }],
+      },
+    ]);
+
+    const res = await GET();
+    const body = await res.json();
+
+    expect(body.data).toEqual([{ provider: "gitlab", name: "GitLab" }]);
+  });
+
+  it("returns 404 (with code) when the service-account tokens feature is disabled", async () => {
     mockIsServiceAccountTokensEnabled.mockReturnValue(false);
 
     const res = await GET();
@@ -147,6 +175,7 @@ describe("GET /api/admin/service-accounts/token-providers", () => {
 
     expect(res.status).toBe(404);
     expect(body.success).toBe(false);
+    expect(body.code).toBe("CREDENTIALS_DISABLED");
     expect(mockGetCollection).not.toHaveBeenCalled();
   });
 
@@ -158,5 +187,17 @@ describe("GET /api/admin/service-accounts/token-providers", () => {
 
     expect(res.status).toBe(401);
     expect(body.success).toBe(false);
+  });
+
+  it("returns 403 when the caller is a member of no team", async () => {
+    mockListOpenFgaObjects.mockResolvedValue({ objects: [] });
+
+    const res = await GET();
+    const body = await res.json();
+
+    expect(res.status).toBe(403);
+    expect(body.success).toBe(false);
+    // Must not reach the mcp_servers query for an un-teamed caller.
+    expect(mockGetCollection).not.toHaveBeenCalled();
   });
 });

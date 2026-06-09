@@ -551,13 +551,21 @@ export class ProviderConnectionService {
       return { accessToken: storedAccessToken, expiresIn };
     };
 
-    // A pasted static token (PAT / project access token) has NO OAuth connector
-    // — registerStaticToken stores connectorId as `static:<provider>`. It also
-    // has no refresh token and can't be refreshed via an authorization-code
-    // grant. Reuse the stored token directly; looking up an OAuth connector here
-    // would 404 ("OAuth connector was not found") and break the exchange for
-    // every static token (the symptom that blocked GitLab PAT passthrough for
-    // both users and service accounts).
+    // `connector` is intentionally null in two distinct cases, BOTH of which
+    // reuse the stored access token rather than attempting an OAuth refresh:
+    //
+    //   1. Static token: a pasted PAT / project access token has NO OAuth
+    //      connector — registerStaticToken stores connectorId as
+    //      `static:<provider>` and writes no refresh token. We skip the
+    //      connector lookup entirely. Looking one up would 404 ("OAuth
+    //      connector was not found") and break the exchange for every static
+    //      token (the symptom that blocked GitLab PAT passthrough for both
+    //      users and service accounts).
+    //   2. Deleted connector: an OAuth connection whose connector row was
+    //      removed after the connection was created. Rather than 404 the
+    //      exchange (the prior behavior), we gracefully degrade to the last
+    //      known-good stored access token; the caller can re-connect/rotate if
+    //      it has gone stale.
     const connector = connection.connectorId.startsWith("static:")
       ? null
       : await this.connectorsCollection.findOne({ id: connection.connectorId });

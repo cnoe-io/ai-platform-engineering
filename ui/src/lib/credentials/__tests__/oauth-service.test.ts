@@ -436,6 +436,74 @@ describe("ProviderConnectionService", () => {
     expect(payloadStore.putSecret).not.toHaveBeenCalled();
   });
 
+  it("refreshConnection returns the stored token for a static: connection WITHOUT querying the connector store", async () => {
+    const providerConnections = new MemoryCollection<ProviderConnectionDocument>();
+    providerConnections.docs.push({
+      id: "conn-static",
+      connectorId: "static:gitlab", // static token — no OAuth connector exists
+      provider: "gitlab",
+      owner: { type: "service_account", id: "sa-sub-abc" },
+      status: "connected",
+      refreshTokenRef: "",
+      accessTokenRef: "provider_connection:conn-static:access_token",
+    });
+    const connectors = new MemoryCollection<OAuthConnectorDocument>(); // empty
+    const findOneSpy = jest.spyOn(connectors, "findOne");
+    const payloadStore = {
+      getSecret: jest.fn(async (ref: string) => {
+        if (!ref) throw new Error("Credential payload was not found");
+        return `${ref}:value`;
+      }),
+      putSecret: mockPutSecret(),
+    };
+    const tokenClient = mockTokenClient({ access_token: "should-not-be-used" });
+    const service = new ProviderConnectionService({
+      providerConnectionsCollection: providerConnections,
+      connectorsCollection: connectors,
+      payloadStore,
+      tokenClient,
+    });
+
+    const token = await service.refreshConnection("conn-static");
+
+    expect(token.accessToken).toBe("provider_connection:conn-static:access_token:value");
+    // The static: short-circuit must NOT hit the connector store (which would
+    // 404 and break every static-token exchange).
+    expect(findOneSpy).not.toHaveBeenCalled();
+    expect(tokenClient).not.toHaveBeenCalled();
+  });
+
+  it("refreshConnection reuses the stored token when a non-static OAuth connector was deleted", async () => {
+    const providerConnections = new MemoryCollection<ProviderConnectionDocument>();
+    providerConnections.docs.push({
+      id: "conn-orphan",
+      connectorId: "connector-deleted", // non-static, but no matching connector row
+      provider: "github",
+      owner: { type: "user", id: "alice-sub" },
+      status: "connected",
+      refreshTokenRef: "provider_connection:conn-orphan:refresh_token",
+      accessTokenRef: "provider_connection:conn-orphan:access_token",
+    });
+    const connectors = new MemoryCollection<OAuthConnectorDocument>(); // connector deleted
+    const payloadStore = {
+      getSecret: jest.fn(async (ref: string) => `${ref}:value`),
+      putSecret: mockPutSecret(),
+    };
+    const tokenClient = mockTokenClient({ access_token: "should-not-be-used" });
+    const service = new ProviderConnectionService({
+      providerConnectionsCollection: providerConnections,
+      connectorsCollection: connectors,
+      payloadStore,
+      tokenClient,
+    });
+
+    const token = await service.refreshConnection("conn-orphan");
+
+    // Graceful degradation: reuse the stored token instead of 404'ing.
+    expect(token.accessToken).toBe("provider_connection:conn-orphan:access_token:value");
+    expect(tokenClient).not.toHaveBeenCalled();
+  });
+
   it("reuses the stored access token when the provider rejects the refresh grant", async () => {
     const providerConnections = new MemoryCollection<ProviderConnectionDocument>();
     providerConnections.docs.push({

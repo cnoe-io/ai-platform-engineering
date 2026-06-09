@@ -42,6 +42,7 @@ export function ProviderSelect({
   className,
 }: ProviderSelectProps) {
   const [open, setOpen] = React.useState(false);
+  const listboxId = React.useId();
   const selected = options.find((o) => o.provider === value);
 
   return (
@@ -51,6 +52,7 @@ export function ProviderSelect({
           type="button"
           aria-label={ariaLabel}
           aria-haspopup="listbox"
+          aria-controls={listboxId}
           aria-expanded={open}
           disabled={disabled}
           className={cn(
@@ -67,16 +69,18 @@ export function ProviderSelect({
         </button>
       </PopoverTrigger>
       <PopoverContent className="min-w-[12rem] p-1" align="start">
-        <ul role="listbox" className="max-h-64 overflow-y-auto">
+        <ul id={listboxId} role="listbox" className="max-h-64 overflow-y-auto">
           {options.length === 0 ? (
-            <li className="px-2 py-1.5 text-sm text-muted-foreground">
+            <li role="none" className="px-2 py-1.5 text-sm text-muted-foreground">
               No providers available
             </li>
           ) : (
             options.map((option) => {
               const isSelected = option.provider === value;
               return (
-                <li key={option.provider}>
+                // role="none" strips the implicit listitem role so the inner
+                // button's role="option" is owned directly by the listbox.
+                <li key={option.provider} role="none">
                   <button
                     type="button"
                     role="option"

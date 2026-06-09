@@ -645,9 +645,10 @@ function ManageServiceAccountDialog({
   const [addCredToken, setAddCredToken] = useState("");
   // Whether the SA Tokens surface is enabled at all. The token-providers route
   // returns 404 when CAIPE_SERVICE_ACCOUNT_TOKENS_ENABLED is off; in that case
-  // we hide the entire Tokens section rather than show an empty one. Defaults
-  // to true (optimistic) so the section renders while loading.
-  const [tokensEnabled, setTokensEnabled] = useState(true);
+  // we hide the entire Tokens section. Starts `null` (unknown) and the section
+  // renders only once we've confirmed `true` — so a flag-off deployment never
+  // flashes the section before the fetch resolves.
+  const [tokensEnabled, setTokensEnabled] = useState<boolean | null>(null);
 
   const refreshCredentials = useCallback(async () => {
     if (!saId) return;
@@ -1105,9 +1106,11 @@ function ManageServiceAccountDialog({
             )}
 
             {/* ── Tokens ───────────────────────────────────────────────────── */}
-            {/* Hidden entirely when the SA Tokens surface is disabled
+            {/* Rendered only once confirmed enabled (=== true). null = unknown
+                (still loading) and false = disabled both hide the section, so a
+                flag-off deployment never flashes it
                 (CAIPE_SERVICE_ACCOUNT_TOKENS_ENABLED=false → token-providers 404). */}
-            {tokensEnabled && (
+            {tokensEnabled === true && (
             <div className="space-y-2 border-t pt-3">
               <div className="flex items-center gap-1.5">
                 <KeyRound className="h-4 w-4 text-muted-foreground" />
@@ -1207,7 +1210,14 @@ function ManageServiceAccountDialog({
                   The token is stored encrypted and is <span className="font-semibold">never shown again</span> after
                   submission.
                 </p>
-                {providerOptions.length === 0 ? (
+                {credLoading ? (
+                  // Don't render the "no integrations" message until the provider
+                  // list has actually loaded — otherwise the empty initial state
+                  // flashes a false "ask an admin to enable an MCP" claim.
+                  <div className="flex items-center gap-2 py-1 text-xs text-muted-foreground">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading providers…
+                  </div>
+                ) : providerOptions.length === 0 ? (
                   <p className="text-xs text-muted-foreground">
                     No token-capable integrations are enabled on this platform. Ask
                     an admin to enable an MCP server that supports token passthrough
@@ -1225,6 +1235,7 @@ function ManageServiceAccountDialog({
                       value={addCredProvider}
                       onChange={setAddCredProvider}
                       disabled={credBusy}
+                      ariaLabel="Token provider"
                     />
                     {/* This is a pasted external token — we want NO browser
                         autocomplete/autofill of any kind (no saved-password
@@ -1241,6 +1252,18 @@ function ManageServiceAccountDialog({
                       aria-label="Access token"
                       value={addCredToken}
                       onChange={(e) => setAddCredToken(e.target.value)}
+                      onKeyDown={(e) => {
+                        // Enter submits, matching the Add button's enabled guard.
+                        if (
+                          e.key === "Enter" &&
+                          !credBusy &&
+                          addCredToken.trim() &&
+                          addCredProvider
+                        ) {
+                          e.preventDefault();
+                          void addCredential();
+                        }
+                      }}
                       placeholder="Paste access token…"
                       autoComplete="off"
                       data-1p-ignore
