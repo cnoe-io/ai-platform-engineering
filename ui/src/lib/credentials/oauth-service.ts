@@ -515,10 +515,6 @@ export class ProviderConnectionService {
     if (!connection) {
       throw new ApiError("Provider connection was not found", 404, "CREDENTIAL_NOT_FOUND");
     }
-    const connector = await this.connectorsCollection.findOne({ id: connection.connectorId });
-    if (!connector) {
-      throw new ApiError("OAuth connector was not found", 404, "CREDENTIAL_NOT_FOUND");
-    }
 
     // The stored access token is the source of truth. Long-lived tokens such as
     // GitHub OAuth-App tokens never expire and are not issued with a refresh
@@ -554,6 +550,20 @@ export class ProviderConnectionService {
         : undefined;
       return { accessToken: storedAccessToken, expiresIn };
     };
+
+    // A pasted static token (PAT / project access token) has NO OAuth connector
+    // — registerStaticToken stores connectorId as `static:<provider>`. It also
+    // has no refresh token and can't be refreshed via an authorization-code
+    // grant. Reuse the stored token directly; looking up an OAuth connector here
+    // would 404 ("OAuth connector was not found") and break the exchange for
+    // every static token (the symptom that blocked GitLab PAT passthrough for
+    // both users and service accounts).
+    const connector = connection.connectorId.startsWith("static:")
+      ? null
+      : await this.connectorsCollection.findOne({ id: connection.connectorId });
+    if (!connector) {
+      return reuseStoredToken();
+    }
 
     // No usable refresh token (e.g. GitHub never issued one): reuse the stored
     // access token instead of attempting a doomed refresh grant.

@@ -38,15 +38,37 @@ async function readAllTuples(filter: Partial<OpenFgaTupleKey>): Promise<OpenFgaT
 // team:<slug>#member is a `user` of the channel). Two server-side filtered
 // reads (by user, by object) scope the scan to this channel's tuples instead
 // of paging the whole store; we union and dedup the two directions.
+// Object types a slack_channel can be granted access to (i.e. types where the
+// channel appears as the tuple `user`). Derived from the authorization model's
+// directly_related_user_types that reference slack_channel. OpenFGA's /read
+// requires an object TYPE in the filter, so to find "tuples where this channel
+// is the user" we must scope each read to a specific object type — a user-only
+// filter 400s ("object type field is required"). Keep this in sync with the
+// model if a new resource type starts granting slack_channel subjects.
+const CHANNEL_USABLE_OBJECT_TYPES = [
+  "agent",
+  "mcp_server",
+  "tool",
+  "knowledge_base",
+  "document",
+  "skill",
+] as const;
+
 async function listChannelTuples(workspaceId: string, channelId: string): Promise<OpenFgaTupleKey[]> {
   const channelRef = `slack_channel:${slackChannelSubjectId(workspaceId, channelId)}`;
-  const [asUser, asObject] = await Promise.all([
-    readAllTuples({ user: channelRef }),
+  const reads = await Promise.all([
+    // Channel-as-object: team→channel visibility tuples (channel is the object).
+    // A bare object filter is valid because channelRef carries its type.
     readAllTuples({ object: channelRef }),
+    // Channel-as-user: channel→resource grants, one read per usable object type
+    // (OpenFGA needs the object type; `<type>:` + user returns all such tuples).
+    ...CHANNEL_USABLE_OBJECT_TYPES.map((type) =>
+      readAllTuples({ object: `${type}:`, user: channelRef }),
+    ),
   ]);
   const seen = new Set<string>();
   const matches: OpenFgaTupleKey[] = [];
-  for (const key of [...asUser, ...asObject]) {
+  for (const key of reads.flat()) {
     const dedup = `${key.user}\n${key.relation}\n${key.object}`;
     if (seen.has(dedup)) continue;
     seen.add(dedup);
