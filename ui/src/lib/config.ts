@@ -391,7 +391,9 @@ export function getServerConfig(): Config {
   // explicitly turned off with CAIPE_USER_CONNECTIONS_ENABLED=false. Mirrors
   // subFeatureEnabled() in feature-flags/credentials.ts (kept inline here so
   // config.ts stays free of server-only imports for the client bundle).
-  const userConnectionsRaw = env('CAIPE_USER_CONNECTIONS_ENABLED');
+  // Match subFeatureEnabled's parsing exactly — trim + lowercase, so a value
+  // like " true" doesn't diverge between the two sources of truth.
+  const userConnectionsRaw = env('CAIPE_USER_CONNECTIONS_ENABLED')?.trim().toLowerCase();
   const userConnectionsEnabled =
     credentialsEnabled &&
     (userConnectionsRaw === undefined ? true : userConnectionsRaw === 'true');

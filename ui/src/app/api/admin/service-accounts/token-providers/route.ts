@@ -4,7 +4,16 @@ import { authOptions } from "@/lib/auth-config";
 import { getCollection } from "@/lib/mongodb";
 import { isServiceAccountTokensEnabled } from "@/lib/feature-flags/credentials";
 import { getProviderDisplayName } from "@/lib/credentials/provider-display-names";
+import { BUILT_IN_OAUTH_CONNECTORS } from "@/lib/credentials/built-in-oauth-connectors";
+import { listOpenFgaObjects } from "@/lib/rbac/openfga";
 import type { MCPServerConfig } from "@/types/dynamic-agent";
+
+// Providers a token can actually be added for — the POST /[id]/credentials route
+// validates `provider` against this same set, so don't surface a provider in the
+// picker that the add call would reject.
+const BUILT_IN_PROVIDER_KEYS = new Set<string>(
+  BUILT_IN_OAUTH_CONNECTORS.map((c) => c.provider),
+);
 
 /**
  * GET /api/admin/service-accounts/token-providers
@@ -31,7 +40,7 @@ interface TokenProvider {
 export async function GET() {
   if (!isServiceAccountTokensEnabled()) {
     return NextResponse.json(
-      { success: false, error: "Service account tokens are disabled" },
+      { success: false, error: "Service account tokens are disabled", code: "CREDENTIALS_DISABLED" },
       { status: 404 },
     );
   }
@@ -48,6 +57,23 @@ export async function GET() {
     );
   }
 
+  // Gate on team membership, matching the rest of the SA admin surface (a
+  // service account is always owned by a team, and only owning-team members
+  // manage it). A caller who belongs to no team can't manage any SA, so they
+  // have no reason to enumerate token-capable providers either. 403 rather than
+  // expose the platform's enabled-integration topology to any logged-in user.
+  const callerTeams = await listOpenFgaObjects({
+    user: `user:${session.sub}`,
+    relation: "member",
+    type: "team",
+  });
+  if (callerTeams.objects.length === 0) {
+    return NextResponse.json(
+      { success: false, error: "Forbidden" },
+      { status: 403 },
+    );
+  }
+
   try {
     const collection = await getCollection<MCPServerConfig>("mcp_servers");
     const servers = await collection.find({ enabled: true }).toArray();
@@ -55,10 +81,16 @@ export async function GET() {
     // Collect distinct provider keys from enabled servers' provider_connection
     // credential sources. A server may declare more than one source; only the
     // provider_connection kind (with a non-empty provider) is token-capable.
+    // Filter to BUILT_IN_PROVIDER_KEYS so we never surface a provider the
+    // add-token POST would reject (it validates against the same set).
     const providers = new Set<string>();
     for (const server of servers) {
       for (const source of server.credential_sources ?? []) {
-        if (source.kind === "provider_connection" && source.provider) {
+        if (
+          source.kind === "provider_connection" &&
+          source.provider &&
+          BUILT_IN_PROVIDER_KEYS.has(source.provider)
+        ) {
           providers.add(source.provider);
         }
       }
