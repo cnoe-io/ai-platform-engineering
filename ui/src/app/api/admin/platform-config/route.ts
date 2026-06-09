@@ -24,6 +24,25 @@ interface PlatformConfigDoc {
   slack_victorops_escalation_agent_id?: unknown;
   release_notes?: unknown;
   discovery_cache_ttl_minutes?: unknown;
+  top_nav?: unknown;
+}
+
+// Top-nav order/hidden config consumed by the AppHeader so admins can reorder
+// and enable/disable the top navigation tabs. Stored as
+// { order: string[], hidden: string[] }. Keys are kept loose (not validated
+// against the built-in catalog) so pinned agentic-app tabs (`app-<id>`) and
+// future tabs round-trip without a server change.
+function normalizeTopNavConfig(input: unknown): { order: string[]; hidden: string[] } {
+  const rec = isRecord(input) ? input : {};
+  const toStrings = (v: unknown): string[] =>
+    Array.isArray(v)
+      ? Array.from(
+          new Set(
+            v.filter((x): x is string => typeof x === 'string' && x.trim().length > 0),
+          ),
+        )
+      : [];
+  return { order: toStrings(rec.order), hidden: toStrings(rec.hidden) };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -130,6 +149,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         slack_victorops_escalation_agent_source: victoropsAgentId ? 'db' : (victoropsEnvFallback ? 'env' : 'fallback'),
         release_notes: normalizeReleaseNotesConfig(doc?.release_notes),
         discovery_cache_ttl_minutes: discoveryTtlMinutes,
+        top_nav: normalizeTopNavConfig(doc?.top_nav),
       },
     });
   });
@@ -167,6 +187,11 @@ export const PATCH = withErrorHandler(async (request: NextRequest) => {
 
     if (body.release_notes) {
       update.release_notes = normalizeReleaseNotesConfig(body.release_notes);
+    }
+
+    // Top-nav order/hidden config (Admin → Settings → Navigation).
+    if (Object.prototype.hasOwnProperty.call(body, 'top_nav')) {
+      update.top_nav = normalizeTopNavConfig(body.top_nav);
     }
 
     // Slack/Webex discovery cache TTL. Accept an integer minute count.
@@ -255,6 +280,9 @@ export const PATCH = withErrorHandler(async (request: NextRequest) => {
         ...(update.release_notes ? { release_notes: update.release_notes } : {}),
         ...(Object.prototype.hasOwnProperty.call(update, 'discovery_cache_ttl_minutes')
           ? { discovery_cache_ttl_minutes: update.discovery_cache_ttl_minutes }
+          : {}),
+        ...(Object.prototype.hasOwnProperty.call(update, 'top_nav')
+          ? { top_nav: update.top_nav }
           : {}),
       },
     });

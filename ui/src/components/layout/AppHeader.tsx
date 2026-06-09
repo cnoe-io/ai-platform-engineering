@@ -46,6 +46,11 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { useToast } from "@/components/ui/toast";
+import {
+  applyTopNavConfig,
+  normalizeTopNavConfig,
+  type TopNavConfig,
+} from "@/lib/nav/top-nav-items";
 
 /** Format seconds into a human-readable interval (e.g., "3h", "30m", "45s") */
 function formatInterval(seconds: number): string {
@@ -154,7 +159,7 @@ function GuardedLink({
 // the "More" popover. Tuned so 8 primary nav pills + standard right-side
 // cluster (status pill + settings + user menu) still fit on a typical
 // laptop without overlap.
-const HEADER_NAV_COLLAPSE_QUERY = "(max-width: 1180px)";
+const HEADER_NAV_COLLAPSE_BASE_PX = 1180;
 // Wider breakpoint used when an admin-only banner is showing on the right
 // (`migrationStatus.is_blocking` / `needs_version_bootstrap` /
 // `override_active`, or the Keycloak invariant alert chip). Each banner
@@ -167,12 +172,16 @@ const HEADER_NAV_COLLAPSE_QUERY = "(max-width: 1180px)";
 // chip showing, the inline nav was clipping Admin off-screen; 1500 is
 // the smallest breakpoint that gives reliable headroom for the wider
 // right cluster on every layout we've reproduced.
-const HEADER_NAV_COLLAPSE_QUERY_WITH_BANNER = "(max-width: 1500px)";
+const HEADER_NAV_COLLAPSE_BASE_PX_WITH_BANNER = 1500;
 
-function useHeaderNavCollapsed(earlyCollapse: boolean = false): boolean {
-  const query = earlyCollapse
-    ? HEADER_NAV_COLLAPSE_QUERY_WITH_BANNER
-    : HEADER_NAV_COLLAPSE_QUERY;
+function useHeaderNavCollapsed(earlyCollapse: boolean = false, extraPx = 0): boolean {
+  // Dynamic breakpoint: each pinned app/extra tab widens the inline nav, so
+  // raise the collapse threshold accordingly — otherwise the nav clips the
+  // last tab instead of moving items into the "More" popover.
+  const base = earlyCollapse
+    ? HEADER_NAV_COLLAPSE_BASE_PX_WITH_BANNER
+    : HEADER_NAV_COLLAPSE_BASE_PX;
+  const query = `(max-width: ${base + extraPx}px)`;
 
   const [collapsed, setCollapsed] = React.useState(() => {
     if (typeof window === "undefined" || !window.matchMedia) return false;
@@ -190,6 +199,19 @@ function useHeaderNavCollapsed(earlyCollapse: boolean = false): boolean {
 
   return collapsed;
 }
+
+type NavItem = {
+  key: string;
+  href: string;
+  label: string;
+  Icon: React.ComponentType<{ className?: string }>;
+  activeClassName: string;
+  disabled?: boolean;
+  /** Render this glyph instead of `Icon` (used by Chat's 💬). */
+  emoji?: string;
+  /** Render the live conversation count badge (Chat only). */
+  badge?: "chat";
+};
 
 export function AppHeader() {
   const pathname = usePathname();
@@ -425,7 +447,6 @@ export function AppHeader() {
   // into overflow. Keep the existing breakpoint behavior by treating
   // the unified pill the same as the old per-source banners.
   const hasMigrationBanner = adminAlerts.length > 0;
-  const headerNavCollapsed = useHeaderNavCollapsed(hasMigrationBanner);
   // Pinned agentic apps: any installed app whose manifest sets
   // surfaces.showInTopNav renders as a top-nav tab (sorted by navOrder by the
   // API). Lets admins promote apps like Outshift Context Graph into the nav.
@@ -470,6 +491,67 @@ export function AppHeader() {
       cancelled = true;
     };
   }, []);
+  // Admin-customized top-nav order + enabled/disabled set (Admin → Settings →
+  // Navigation), stored in platform_config.top_nav and readable by any
+  // authenticated user. Applied to the unified nav list below.
+  const [topNavConfig, setTopNavConfig] = React.useState<TopNavConfig | null>(
+    null,
+  );
+  React.useEffect(() => {
+    let cancelled = false;
+    fetch("/api/admin/platform-config")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body) => {
+        if (cancelled || !body?.data?.top_nav) return;
+        setTopNavConfig(normalizeTopNavConfig(body.data.top_nav));
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  // Collapse into "More" sooner when pinned-app tabs widen the inline nav
+  // (~150px each) so it overflows gracefully instead of clipping the last tab.
+  const headerNavCollapsed = useHeaderNavCollapsed(
+    hasMigrationBanner,
+    pinnedAppNavItems.length * 150,
+  );
+  // Primary tabs always available regardless of MongoDB/feature flags. These
+  // join the secondary tabs + pinned apps into a single ordered list so the
+  // admin Navigation editor can reorder/hide any of them.
+  const primaryNavItems = [
+    {
+      key: "home",
+      href: "/",
+      label: "Home",
+      Icon: Home,
+      activeClassName: "gradient-primary text-white shadow-sm",
+    },
+    {
+      key: "chat",
+      href: "/chat",
+      label: "Chat",
+      Icon: Home, // unused; chat renders an emoji glyph
+      emoji: "💬",
+      badge: "chat" as const,
+      activeClassName: "bg-primary text-primary-foreground shadow-sm",
+    },
+    {
+      key: "projects",
+      href: "/projects",
+      label: "Projects",
+      Icon: FolderKanban,
+      activeClassName: "bg-indigo-600 text-white shadow-sm",
+    },
+    {
+      key: "skills",
+      href: "/skills",
+      label: "Skills",
+      Icon: Zap,
+      activeClassName: "gradient-primary text-white shadow-sm",
+    },
+  ];
+
   const secondaryNavItems = [
     config.taskBuilderEnabled && {
       key: "task-builder",
@@ -525,17 +607,26 @@ export function AppHeader() {
           ? "bg-red-500 text-white shadow-sm"
           : "bg-primary text-primary-foreground shadow-sm",
     },
-  ].filter(Boolean) as Array<{
-    key: string;
-    href: string;
-    label: string;
-    Icon: React.ComponentType<{ className?: string }>;
-    activeClassName: string;
-    disabled?: boolean;
-  }>;
+  ].filter(Boolean) as Array<NavItem>;
+
+  // Unified, admin-ordered nav list: primary tabs + secondary tabs + pinned
+  // apps, then the admin's order/hidden config applied on top.
+  const navItems: NavItem[] = applyTopNavConfig(
+    [...primaryNavItems, ...secondaryNavItems],
+    topNavConfig,
+  );
+  // When collapsed, keep the first few tabs inline and push the rest into the
+  // "More" popover. When not collapsed, everything renders inline.
+  const INLINE_WHEN_COLLAPSED = 4;
+  const inlineNavItems = headerNavCollapsed
+    ? navItems.slice(0, INLINE_WHEN_COLLAPSED)
+    : navItems;
+  const moreNavItems = headerNavCollapsed
+    ? navItems.slice(INLINE_WHEN_COLLAPSED)
+    : [];
 
   const renderSecondaryNavItem = (
-    item: (typeof secondaryNavItems)[number],
+    item: NavItem,
     variant: "inline" | "menu",
   ) => {
     const Icon = item.Icon;
@@ -552,6 +643,9 @@ export function AppHeader() {
         ? "text-muted-foreground/50 opacity-50 cursor-not-allowed"
         : "text-muted-foreground/50 opacity-50 cursor-not-allowed";
     const className = cn(
+      // Chat's live badge is absolutely positioned, so its inline pill needs
+      // `relative` for the badge to anchor correctly.
+      item.badge === "chat" && variant === "inline" && "relative",
       baseClassName,
       item.disabled
         ? disabledClassName
@@ -562,8 +656,41 @@ export function AppHeader() {
 
     const content = (
       <>
-        <Icon className="h-3.5 w-3.5 shrink-0" />
+        {item.emoji ? (
+          <span aria-hidden className="shrink-0">
+            {item.emoji}
+          </span>
+        ) : (
+          <Icon className="h-3.5 w-3.5 shrink-0" />
+        )}
         {item.label}
+        {item.badge === "chat" && variant === "inline" && (
+          <>
+            {streamingConversations.size > 0 && (
+              <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                <span className="relative inline-flex items-center justify-center rounded-full h-4 w-4 bg-emerald-500 text-[9px] font-bold text-white">
+                  {streamingConversations.size}
+                </span>
+              </span>
+            )}
+            {streamingConversations.size === 0 && inputRequiredConversations.size > 0 && (
+              <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
+                <span className="relative inline-flex items-center justify-center rounded-full h-4 w-4 bg-amber-500 text-[9px] font-bold text-white">
+                  {inputRequiredConversations.size}
+                </span>
+              </span>
+            )}
+            {streamingConversations.size === 0 && inputRequiredConversations.size === 0 && unviewedConversations.size > 0 && (
+              <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center">
+                <span className="relative inline-flex items-center justify-center rounded-full h-4 w-4 bg-blue-500 text-[9px] font-bold text-white">
+                  {unviewedConversations.size}
+                </span>
+              </span>
+            )}
+          </>
+        )}
       </>
     );
 
@@ -604,84 +731,11 @@ export function AppHeader() {
           )}
         </GuardedLink>
 
-        {/* Navigation Pills */}
+        {/* Navigation Pills — unified, admin-ordered list (Admin → Settings →
+            Navigation). Collapses overflow into a "More" popover. */}
         <div className="flex items-center flex-nowrap min-w-0 bg-muted/50 rounded-full p-1">
-          <GuardedLink
-            href="/"
-            prefetch={true}
-            className={cn(
-              "flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all",
-              activeTab === "home"
-                ? "gradient-primary text-white shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            <Home className="h-3.5 w-3.5 shrink-0" />
-            Home
-          </GuardedLink>
-          <GuardedLink
-            href="/chat"
-            prefetch={true}
-            className={cn(
-              "relative flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all",
-              activeTab === "chat"
-                ? "bg-primary text-primary-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            💬 Chat
-            {streamingConversations.size > 0 && (
-              <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                <span className="relative inline-flex items-center justify-center rounded-full h-4 w-4 bg-emerald-500 text-[9px] font-bold text-white">
-                  {streamingConversations.size}
-                </span>
-              </span>
-            )}
-            {streamingConversations.size === 0 && inputRequiredConversations.size > 0 && (
-              <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
-                <span className="relative inline-flex items-center justify-center rounded-full h-4 w-4 bg-amber-500 text-[9px] font-bold text-white">
-                  {inputRequiredConversations.size}
-                </span>
-              </span>
-            )}
-            {streamingConversations.size === 0 && inputRequiredConversations.size === 0 && unviewedConversations.size > 0 && (
-              <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center">
-                <span className="relative inline-flex items-center justify-center rounded-full h-4 w-4 bg-blue-500 text-[9px] font-bold text-white">
-                  {unviewedConversations.size}
-                </span>
-              </span>
-            )}
-          </GuardedLink>
-          <GuardedLink
-            href="/projects"
-            prefetch={true}
-            className={cn(
-              "flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all",
-              activeTab === "projects"
-                ? "bg-indigo-600 text-white shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            <FolderKanban className="h-3.5 w-3.5 shrink-0" />
-            Projects
-          </GuardedLink>
-          <GuardedLink
-            href="/skills"
-            prefetch={true}
-            className={cn(
-              "flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all",
-              activeTab === "skills"
-                ? "gradient-primary text-white shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            <Zap className="h-3.5 w-3.5 shrink-0" />
-            Skills
-          </GuardedLink>
-          {!headerNavCollapsed && secondaryNavItems.map((item) => renderSecondaryNavItem(item, "inline"))}
-          {headerNavCollapsed && secondaryNavItems.length > 0 && (
+          {inlineNavItems.map((item) => renderSecondaryNavItem(item, "inline"))}
+          {moreNavItems.length > 0 && (
             <Popover>
               <PopoverTrigger asChild>
                 <button
@@ -689,7 +743,7 @@ export function AppHeader() {
                   aria-label="More navigation"
                   className={cn(
                     "flex h-8 items-center justify-center gap-1.5 rounded-full px-3 text-[13px] font-medium whitespace-nowrap transition-all",
-                    secondaryNavItems.some((item) => activeTab === item.key)
+                    moreNavItems.some((item) => activeTab === item.key)
                       ? "bg-primary text-primary-foreground shadow-sm"
                       : "text-muted-foreground hover:text-foreground",
                   )}
@@ -700,7 +754,7 @@ export function AppHeader() {
               </PopoverTrigger>
               <PopoverContent side="bottom" align="start" className="w-56 p-2">
                 <div className="space-y-1">
-                  {secondaryNavItems.map((item) => renderSecondaryNavItem(item, "menu"))}
+                  {moreNavItems.map((item) => renderSecondaryNavItem(item, "menu"))}
                 </div>
               </PopoverContent>
             </Popover>

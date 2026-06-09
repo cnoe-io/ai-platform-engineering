@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { motion } from "framer-motion";
-import { Users, MessageSquare, TrendingUp, Activity, Database, Share2, ShieldCheck, ShieldOff, UserPlus, Trash2, UsersIcon, Loader2, Bot, ThumbsUp, ThumbsDown, Clock, Zap, CheckCircle2, AlertCircle, Layers, Eye, Star, Filter, ExternalLink, Plus, Calendar, X, FileText, Shield, HelpCircle, Globe, RefreshCw, Settings, Wrench, Hash, Search, type LucideIcon } from "lucide-react";
+import { Users, MessageSquare, TrendingUp, Activity, Database, Share2, ShieldCheck, ShieldOff, UserPlus, Trash2, UsersIcon, Loader2, Bot, ThumbsUp, ThumbsDown, Clock, Zap, CheckCircle2, AlertCircle, Layers, Eye, Star, Filter, ExternalLink, Plus, Calendar, X, FileText, Shield, HelpCircle, Globe, RefreshCw, Settings, Wrench, Hash, Search, LayoutGrid, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AuthGuard } from "@/components/auth-guard";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -52,6 +52,7 @@ import { UserManagementTab } from "@/components/admin/UserManagementTab";
 import { UserDetailModal } from "@/components/admin/UserDetailModal";
 import { PlatformSettingsTab } from "@/components/admin/PlatformSettingsTab";
 import { ReleaseNotesSettingsTab } from "@/components/admin/ReleaseNotesSettingsTab";
+import { TopNavSettingsTab } from "@/components/admin/TopNavSettingsTab";
 import { MigrationTab } from "@/components/admin/MigrationTab";
 import { KeycloakMigrationHealthPanel } from "@/components/admin/KeycloakMigrationHealthPanel";
 import { AdminCredentialManagementPanel } from "@/components/credentials/AdminCredentialManagementPanel";
@@ -250,7 +251,7 @@ interface SimulationTeamOption {
   description?: string;
 }
 
-const VALID_TABS = ['users', 'teams', 'stats', 'skills', 'feedback', 'nps', 'metrics', 'health', 'credentials', 'audit-logs', 'action-audit', 'identity-groups', 'openfga', 'keycloak', 'migrations', 'ai-review', 'settings', 'release-notes', 'slack', 'webex', 'rag-access'] as const;
+const VALID_TABS = ['users', 'teams', 'stats', 'skills', 'feedback', 'nps', 'metrics', 'health', 'credentials', 'audit-logs', 'action-audit', 'identity-groups', 'openfga', 'keycloak', 'migrations', 'ai-review', 'settings', 'release-notes', 'navigation', 'slack', 'webex', 'rag-access'] as const;
 const VALID_OPENFGA_SUBTABS = ['builder', 'explorer', 'graph', 'tuples', 'access', 'baseline', 'diagnostics'] as const;
 const MOVED_ADMIN_TAB_MAP = {
   insights: 'stats',
@@ -286,6 +287,7 @@ const CATEGORIES: Category[] = [
     tabs: [
       { value: 'settings', label: 'Default Agent', icon: Settings, gateKey: 'settings' },
       { value: 'release-notes', label: 'Release notes', icon: FileText, gateKey: 'settings' },
+      { value: 'navigation', label: 'Navigation', icon: LayoutGrid, gateKey: 'settings' },
       { value: 'ai-review', label: 'AI Review', icon: ShieldCheck, gateKey: 'ai_review' },
       { value: 'credentials', label: 'Credentials', icon: Shield, gateKey: 'credentials' },
       { value: 'rag-access', label: 'Knowledge Bases', icon: Database, gateKey: 'openfga' },
@@ -1438,6 +1440,12 @@ function AdminPage() {
               {tabGateValues.settings && (
                 <TabsContent value="release-notes" className="space-y-4">
                   <ReleaseNotesSettingsTab isAdmin={isAdmin} />
+                </TabsContent>
+              )}
+
+              {tabGateValues.settings && (
+                <TabsContent value="navigation" className="space-y-4">
+                  <TopNavSettingsTab isAdmin={isAdmin} />
                 </TabsContent>
               )}
 
