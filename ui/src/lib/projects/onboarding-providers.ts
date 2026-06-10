@@ -184,6 +184,9 @@ async function provisionViaHttp(
   const created = (await res.json().catch(() => ({}))) as { id?: string };
   const integrations: Record<string, string> = {
     [`${step.id}_id`]: String(created.id ?? ""),
+    // Display label for the app tile comes from the step's configured title, so
+    // the deployment controls the name (no product label hardcoded in code).
+    [`${step.id}_label`]: step.title,
   };
   if (step.appUrl) {
     integrations[`${step.id}_url`] = interpolateEnv(step.appUrl);

@@ -58,20 +58,21 @@ export function ProjectDetailView({ slug }: { slug: string }) {
       url: value,
     }));
 
-  // Navigable app tiles from the *_url integrations. Labels are humanized from
-  // the integration key (e.g. `agent_mesh` → "Agent Mesh"); any product- or
-  // deployment-specific display names come from onboarding config, never
-  // hardcoded here.
+  // Navigable app tiles from the *_url integrations. Display name comes from a
+  // `<slug>_label` integration (set by onboarding from the step's configured
+  // title) when present; otherwise the key is humanized (e.g. `agent_mesh` →
+  // "Agent Mesh"). No product- or deployment-specific names are hardcoded here.
   const humanize = (slug: string): string =>
     slug.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-  const appTiles = Object.entries(project.integrations ?? {})
+  const integrationsMap = project.integrations ?? {};
+  const appTiles = Object.entries(integrationsMap)
     .filter(([key, value]) => key.endsWith("_url") && Boolean(value))
     .map(([key, value]) => {
       const slug = key.replace(/_url$/, "");
       const url = String(value);
       return {
         key,
-        label: humanize(slug),
+        label: integrationsMap[`${slug}_label`] || humanize(slug),
         url,
         external: /^https?:\/\//.test(url),
       };
