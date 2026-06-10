@@ -212,17 +212,18 @@ export function ProjectOnboardingWizard({
   }, []);
 
   // As the user types a GitHub owner/org (last comma-separated token), re-query
-  // that owner's repos so the dropdown reflects what they typed.
+  // that owner's repos so the dropdown reflects what they typed. We send the
+  // full `owner/name-fragment` so the server can search the org by repo name
+  // (token-scoped, includes private) rather than just listing the first page.
   const searchGithubRepos = useCallback((text: string) => {
     if (ghSearchTimer.current) clearTimeout(ghSearchTimer.current);
-    const token = (text.split(/[\n,]/).pop() ?? "").trim();
-    const owner = token
-      .replace(/^https?:\/\/github\.com\//i, "")
-      .split("/")[0]
-      .trim();
+    const token = (text.split(/[\n,]/).pop() ?? "")
+      .trim()
+      .replace(/^https?:\/\/github\.com\//i, "");
+    const owner = token.split("/")[0].trim();
     if (!owner) return;
     ghSearchTimer.current = setTimeout(() => {
-      fetch(`/api/projects/source-options?provider=github&q=${encodeURIComponent(owner)}`)
+      fetch(`/api/projects/source-options?provider=github&q=${encodeURIComponent(token)}`)
         .then((r) => (r.ok ? r.json() : null))
         .then((b) => {
           const d = b?.data ?? b;
@@ -768,7 +769,7 @@ export function ProjectOnboardingWizard({
                           {ghSources.connectedTo ? (
                             <>Connected as <span className="text-emerald-500">{ghSources.connectedTo}</span> · </>
                           ) : null}
-                          type an org to search it; select multiple.
+                          type <code>org/name</code> to search that org (your private repos included); select multiple.
                         </span>
                       ) : (
                         <AuthorizePrompt provider="GitHub" onRecheck={loadSources} />

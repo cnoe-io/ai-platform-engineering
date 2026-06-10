@@ -21,24 +21,14 @@ interface SourceOption {
   label: string;
 }
 
-async function githubRepos(token: string, q: string): Promise<SourceOption[]> {
-  // When the user has typed an owner/org (e.g. "my-org" or
-  // "https://github.com/my-org/…"), list that org/user's repos; otherwise list
-  // the caller's own repos across owner/collaborator/org-member affiliations.
-  const owner = q
-    .replace(/^https?:\/\/github\.com\//i, "")
-    .split("/")[0]
-    .trim();
-  const url = owner
-    ? `https://api.github.com/users/${encodeURIComponent(owner)}/repos?per_page=100&sort=updated&type=all`
-    : "https://api.github.com/user/repos?per_page=100&sort=updated&affiliation=owner,collaborator,organization_member";
-  const res = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: "application/vnd.github+json",
-      "X-GitHub-Api-Version": "2022-11-28",
-    },
-  });
+const GH_HEADERS = (token: string) => ({
+  Authorization: `Bearer ${token}`,
+  Accept: "application/vnd.github+json",
+  "X-GitHub-Api-Version": "2022-11-28",
+});
+
+async function githubFetchRepos(token: string, url: string): Promise<SourceOption[]> {
+  const res = await fetch(url, { headers: GH_HEADERS(token) });
   if (!res.ok) return [];
   const repos = (await res.json().catch(() => [])) as Array<{
     full_name?: string;
@@ -47,6 +37,65 @@ async function githubRepos(token: string, q: string): Promise<SourceOption[]> {
   return repos
     .filter((r) => r.full_name && r.html_url)
     .map((r) => ({ value: r.html_url as string, label: r.full_name as string }));
+}
+
+async function githubSearchRepos(token: string, cql: string): Promise<SourceOption[]> {
+  // GitHub Search API searches repos the *authenticated user* can access —
+  // public AND private (with the repo scope) — across the whole org, not just a
+  // recency-capped first page. This is what makes name search actually find
+  // private/older repos with the user's token.
+  const res = await fetch(
+    `https://api.github.com/search/repositories?per_page=50&q=${encodeURIComponent(cql)}`,
+    { headers: GH_HEADERS(token) },
+  );
+  if (!res.ok) return [];
+  const body = (await res.json().catch(() => ({}))) as {
+    items?: Array<{ full_name?: string; html_url?: string }>;
+  };
+  return (body.items ?? [])
+    .filter((r) => r.full_name && r.html_url)
+    .map((r) => ({ value: r.html_url as string, label: r.full_name as string }));
+}
+
+// Repo lookup is ORG-SCOPED (not a global GitHub search) and always uses the
+// caller's token, so private repos they can access are included:
+//   - "" (nothing typed)        → the caller's own repos (/user/repos)
+//   - "cisco-eti"               → browse that org's repos (first page by recency)
+//   - "cisco-eti/act"           → SEARCH the org for repos named *act* (token-
+//                                 scoped Search API → full coverage incl. private)
+async function githubRepos(token: string, q: string): Promise<SourceOption[]> {
+  const path = q.replace(/^https?:\/\/github\.com\//i, "").trim();
+  const [owner, ...rest] = path.split("/");
+  const namePart = rest.join("/").trim();
+
+  if (!owner) {
+    return githubFetchRepos(
+      token,
+      "https://api.github.com/user/repos?per_page=100&sort=updated&affiliation=owner,collaborator,organization_member",
+    );
+  }
+
+  // A name fragment was typed (e.g. "cisco-eti/act") → search the org by name
+  // with the user's token (covers private + repos beyond the first page).
+  if (namePart) {
+    const hits = await githubSearchRepos(token, `org:${owner} ${namePart} in:name fork:true`);
+    if (hits.length > 0) return hits;
+    return githubSearchRepos(token, `user:${owner} ${namePart} in:name fork:true`);
+  }
+
+  // Just the org typed → browse its repos. Prefer /orgs/{org}/repos (includes
+  // private when the token is a member); fall back to /users/{owner}/repos for
+  // personal accounts (the orgs endpoint 404s on a user).
+  const enc = encodeURIComponent(owner);
+  const orgRepos = await githubFetchRepos(
+    token,
+    `https://api.github.com/orgs/${enc}/repos?per_page=100&sort=updated&type=all`,
+  );
+  if (orgRepos.length > 0) return orgRepos;
+  return githubFetchRepos(
+    token,
+    `https://api.github.com/users/${enc}/repos?per_page=100&sort=updated&type=all`,
+  );
 }
 
 function spaceOption(siteUrl: string, key: string, name?: string): SourceOption {
