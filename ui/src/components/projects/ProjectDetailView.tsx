@@ -138,12 +138,15 @@ export function ProjectDetailView({ slug }: { slug: string }) {
     .map(([key, value]) => {
       const slug = key.replace(/_url$/, "");
       const url = String(value);
+      const label = integrationsMap[`${slug}_label`] || humanize(slug);
       return {
         key,
-        label: integrationsMap[`${slug}_label`] || humanize(slug),
+        label,
         url,
         external: /^https?:\/\//.test(url),
-        Icon: iconForSlug(slug),
+        // Match the keyword against slug + display label (label comes from
+        // deployment config), so e.g. an "LLM Wiki" tile gets the book icon.
+        Icon: iconForSlug(`${slug} ${label}`),
         gradient: gradientFor(slug),
       };
     });
