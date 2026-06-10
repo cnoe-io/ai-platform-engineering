@@ -7,6 +7,7 @@ import {
   BookOpen,
   Bot,
   CheckCircle2,
+  ChevronDown,
   FolderKanban,
   Loader2,
   MessageSquare,
@@ -638,15 +639,21 @@ export function ProjectOnboardingWizard({
                         onClick={() => {
                           const next = !bsOpen;
                           setBsOpen(next);
-                          if (next) lookupBackstage(bsQuery);
+                          if (next) lookupBackstage("");
                         }}
                         className="inline-flex items-center gap-2 rounded-xl border border-border/60 bg-muted/30 px-4 py-2.5 text-sm font-medium transition hover:border-primary/40 hover:bg-accent/40"
                       >
-                        <Search className="h-4 w-4 text-muted-foreground" />
-                        Look up from Backstage
+                        <FolderKanban className="h-4 w-4 text-muted-foreground" />
+                        Pick from Backstage
+                        <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", bsOpen && "rotate-180")} />
                       </button>
                       {bsOpen ? (
                         <div className="mt-3 rounded-xl border border-border/60 bg-card/40 p-3">
+                          <p className="px-1 pb-2 text-xs text-muted-foreground">
+                            Select a Backstage system to pre-fill this project — name, description,
+                            initiatives, and repos (all still editable).
+                          </p>
+                          {/* Optional filter over the listed systems. */}
                           <div className="relative">
                             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                             <input
@@ -656,43 +663,42 @@ export function ProjectOnboardingWizard({
                                 setBsQuery(e.target.value);
                                 lookupBackstage(e.target.value);
                               }}
-                              placeholder="Search systems by name, tag, or description…"
+                              placeholder="Filter systems…"
                               className="w-full rounded-lg border border-border/60 bg-muted/30 py-2 pl-9 pr-3 text-sm outline-none ring-primary/30 focus:border-primary focus:ring-2"
                             />
                           </div>
-                          <div className="mt-2 max-h-56 overflow-y-auto">
-                            {bsLoading ? (
-                              <p className="px-2 py-3 text-xs text-muted-foreground">Searching…</p>
+                          <ul className="mt-2 max-h-56 divide-y divide-border/60 overflow-y-auto rounded-lg border border-border/60">
+                            {bsLoading && bsResults.length === 0 ? (
+                              <li className="flex items-center gap-2 px-3 py-3 text-xs text-muted-foreground">
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                                Loading Backstage systems…
+                              </li>
                             ) : bsResults.length === 0 ? (
-                              <p className="px-2 py-3 text-xs text-muted-foreground">No matching systems.</p>
+                              <li className="px-3 py-3 text-xs text-muted-foreground">
+                                No Backstage systems found. Check BACKSTAGE_URL and BACKSTAGE_API_TOKEN.
+                              </li>
                             ) : (
                               bsResults.map((r) => (
-                                <button
-                                  key={r.slug}
-                                  type="button"
-                                  onClick={() => applyBackstageResult(r)}
-                                  className="block w-full rounded-lg px-3 py-2 text-left transition hover:bg-accent/50"
-                                >
-                                  <span className="block text-sm font-medium text-foreground">{r.title}</span>
-                                  {r.description ? (
-                                    <span className="block truncate text-xs text-muted-foreground">{r.description}</span>
-                                  ) : null}
-                                  {r.tags.length ? (
-                                    <span className="mt-1 flex flex-wrap gap-1">
-                                      {r.tags.slice(0, 4).map((t) => (
-                                        <span key={t} className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                                          {t}
-                                        </span>
-                                      ))}
+                                <li key={r.slug}>
+                                  <button
+                                    type="button"
+                                    onClick={() => applyBackstageResult(r)}
+                                    className="block w-full px-3 py-2.5 text-left transition hover:bg-accent/50"
+                                  >
+                                    <span className="flex items-center gap-2">
+                                      <span className="text-sm font-medium text-foreground">{r.title}</span>
+                                      <span className="text-xs text-muted-foreground">{r.slug}</span>
                                     </span>
-                                  ) : null}
-                                </button>
+                                    {r.description ? (
+                                      <span className="mt-0.5 line-clamp-2 block text-xs text-muted-foreground">
+                                        {r.description}
+                                      </span>
+                                    ) : null}
+                                  </button>
+                                </li>
                               ))
                             )}
-                          </div>
-                          <p className="mt-1 px-1 text-[11px] text-muted-foreground">
-                            Pre-fills name, description, initiatives, and repos — all still editable.
-                          </p>
+                          </ul>
                         </div>
                       ) : null}
                     </div>
