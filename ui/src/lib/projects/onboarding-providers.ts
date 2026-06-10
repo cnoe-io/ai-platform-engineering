@@ -141,7 +141,6 @@ function renderBodyTemplate(value: unknown, ctx: Record<string, unknown>): unkno
  * Generic HTTP onboarding provider.
  *
  * POSTs the project to an external system at the step-configured `endpoint`,
- * forwarding the CAIPE-authenticated actor identity via `x-caipe-user` /
  * `x-caipe-roles`. The request body is the step's configured `body` template
  * rendered against the project (default `{ name, slug }`), so a deployment can
  * pass full project metadata — description, repos, labels, integrations —
