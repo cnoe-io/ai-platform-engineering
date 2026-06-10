@@ -11,8 +11,8 @@ import {
   Loader2,
   MessageSquare,
   Rocket,
+  Search,
   Sparkles,
-  Users,
   Video,
   type LucideIcon,
 } from "lucide-react";
@@ -56,13 +56,6 @@ const DEFAULT_GRADIENT = "from-violet-600 via-indigo-600 to-blue-600";
 function resolveIcon(name?: string): LucideIcon {
   if (!name) return Sparkles;
   return ICONS[name] ?? Sparkles;
-}
-
-function parseMemberInput(raw: string): string[] {
-  return raw
-    .split(/[\n,]+/)
-    .map((entry) => entry.trim().replace(/^@/, ""))
-    .filter(Boolean);
 }
 
 function buildWizardSteps(configSteps: OnboardingStepConfig[]): WizardStepMeta[] {
@@ -111,7 +104,6 @@ export function ProjectOnboardingWizard({
   const [projectName, setProjectName] = useState("");
   const [description, setDescription] = useState("");
   const [teamId, setTeamId] = useState("");
-  const [membersRaw, setMembersRaw] = useState("");
   const [initiativesRaw, setInitiativesRaw] = useState("");
   const [swimlanesRaw, setSwimlanesRaw] = useState("");
   // User-shared data sources (forwarded to connected external apps on onboarding).
@@ -126,6 +118,20 @@ export function ProjectOnboardingWizard({
   const [ghSources, setGhSources] = useState<SourceState>({ connected: false, options: [] });
   const [cfSources, setCfSources] = useState<SourceState>({ connected: false, options: [] });
   const ghSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // "Look up from Backstage" — pre-fill the create form from an existing System.
+  type BackstageResult = {
+    slug: string;
+    title: string;
+    description: string;
+    tags: string[];
+    repos: string[];
+  };
+  const [bsConfigured, setBsConfigured] = useState(false);
+  const [bsOpen, setBsOpen] = useState(false);
+  const [bsQuery, setBsQuery] = useState("");
+  const [bsResults, setBsResults] = useState<BackstageResult[]>([]);
+  const [bsLoading, setBsLoading] = useState(false);
+  const bsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Existing label values (for dropdown suggestions on BHAG / Swim Lane).
   const [labelFacets, setLabelFacets] = useState<{ initiatives: string[]; swimlanes: string[] }>({
     initiatives: [],
@@ -176,6 +182,41 @@ export function ProjectOnboardingWizard({
     });
   }, []);
 
+  // Backstage lookup: debounced search of existing Systems.
+  const lookupBackstage = useCallback((q: string) => {
+    if (bsTimer.current) clearTimeout(bsTimer.current);
+    setBsLoading(true);
+    bsTimer.current = setTimeout(() => {
+      fetch(`/api/projects/backstage/lookup?q=${encodeURIComponent(q)}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((b) => {
+          const d = b?.data ?? b;
+          setBsConfigured(Boolean(d?.configured));
+          setBsResults(Array.isArray(d?.results) ? d.results : []);
+        })
+        .catch(() => setBsResults([]))
+        .finally(() => setBsLoading(false));
+    }, 300);
+  }, []);
+
+  // Apply a chosen Backstage System to the create form (non-destructive: only
+  // fills blanks / appends so the user can still hand-edit afterwards).
+  const applyBackstageResult = useCallback((r: BackstageResult) => {
+    setProjectName((cur) => cur.trim() || r.title);
+    setDescription((cur) => cur.trim() || r.description);
+    if (r.tags.length) {
+      setInitiativesRaw((cur) =>
+        cur.trim() ? cur : r.tags.join(", "),
+      );
+    }
+    if (r.repos.length) {
+      setGithubReposRaw((cur) =>
+        cur.trim() ? cur : r.repos.join(", "),
+      );
+    }
+    setBsOpen(false);
+  }, []);
+
   // As the user types a GitHub owner/org (last comma-separated token), re-query
   // that owner's repos so the dropdown reflects what they typed.
   const searchGithubRepos = useCallback((text: string) => {
@@ -206,6 +247,11 @@ export function ProjectOnboardingWizard({
   useEffect(() => {
     if (!open) return;
     loadSources();
+    // Probe whether Backstage lookup is available (shows the button if so).
+    fetch("/api/projects/backstage/lookup")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((b) => setBsConfigured(Boolean((b?.data ?? b)?.configured)))
+      .catch(() => undefined);
     // Re-check after the user authorizes a provider in another tab and returns.
     const onFocus = () => loadSources();
     const onVisible = () => {
@@ -273,7 +319,6 @@ export function ProjectOnboardingWizard({
     setProjectName("");
     setDescription("");
     setTeamId("");
-    setMembersRaw("");
     setInitiativesRaw("");
     setSwimlanesRaw("");
     setProject(null);
@@ -393,7 +438,6 @@ export function ProjectOnboardingWizard({
           name: projectName.trim(),
           description: description.trim() || undefined,
           team_id: teamId,
-          member_ids: parseMemberInput(membersRaw),
           initiatives: initiativesRaw.split(",").map((s) => s.trim()).filter(Boolean),
           swimlanes: swimlanesRaw.split(",").map((s) => s.trim()).filter(Boolean),
           github_repos: githubReposRaw.split(/[\n,]/).map((s) => s.trim()).filter(Boolean),
@@ -587,6 +631,72 @@ export function ProjectOnboardingWizard({
             >
               {phase.id === "create" ? (
                 <div className="grid gap-6 md:grid-cols-2">
+                  {bsConfigured ? (
+                    <div className="md:col-span-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const next = !bsOpen;
+                          setBsOpen(next);
+                          if (next) lookupBackstage(bsQuery);
+                        }}
+                        className="inline-flex items-center gap-2 rounded-xl border border-border/60 bg-muted/30 px-4 py-2.5 text-sm font-medium transition hover:border-primary/40 hover:bg-accent/40"
+                      >
+                        <Search className="h-4 w-4 text-muted-foreground" />
+                        Look up from Backstage
+                      </button>
+                      {bsOpen ? (
+                        <div className="mt-3 rounded-xl border border-border/60 bg-card/40 p-3">
+                          <div className="relative">
+                            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                            <input
+                              value={bsQuery}
+                              autoFocus
+                              onChange={(e) => {
+                                setBsQuery(e.target.value);
+                                lookupBackstage(e.target.value);
+                              }}
+                              placeholder="Search systems by name, tag, or description…"
+                              className="w-full rounded-lg border border-border/60 bg-muted/30 py-2 pl-9 pr-3 text-sm outline-none ring-primary/30 focus:border-primary focus:ring-2"
+                            />
+                          </div>
+                          <div className="mt-2 max-h-56 overflow-y-auto">
+                            {bsLoading ? (
+                              <p className="px-2 py-3 text-xs text-muted-foreground">Searching…</p>
+                            ) : bsResults.length === 0 ? (
+                              <p className="px-2 py-3 text-xs text-muted-foreground">No matching systems.</p>
+                            ) : (
+                              bsResults.map((r) => (
+                                <button
+                                  key={r.slug}
+                                  type="button"
+                                  onClick={() => applyBackstageResult(r)}
+                                  className="block w-full rounded-lg px-3 py-2 text-left transition hover:bg-accent/50"
+                                >
+                                  <span className="block text-sm font-medium text-foreground">{r.title}</span>
+                                  {r.description ? (
+                                    <span className="block truncate text-xs text-muted-foreground">{r.description}</span>
+                                  ) : null}
+                                  {r.tags.length ? (
+                                    <span className="mt-1 flex flex-wrap gap-1">
+                                      {r.tags.slice(0, 4).map((t) => (
+                                        <span key={t} className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                                          {t}
+                                        </span>
+                                      ))}
+                                    </span>
+                                  ) : null}
+                                </button>
+                              ))
+                            )}
+                          </div>
+                          <p className="mt-1 px-1 text-[11px] text-muted-foreground">
+                            Pre-fills name, description, initiatives, and repos — all still editable.
+                          </p>
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
                   <div className="space-y-4">
                     <label className="block space-y-1.5">
                       <span className="text-sm font-medium">Project name</span>
@@ -619,19 +729,6 @@ export function ProjectOnboardingWizard({
                     </div>
                   </div>
                   <div className="space-y-4">
-                    <label className="block space-y-1.5">
-                      <span className="text-sm font-medium flex items-center gap-2">
-                        <Users className="h-4 w-4 text-muted-foreground" />
-                        Team members
-                      </span>
-                      <textarea
-                        value={membersRaw}
-                        onChange={(e) => setMembersRaw(e.target.value)}
-                        rows={5}
-                        placeholder="@alice, @bob"
-                        className="w-full rounded-xl border border-border/60 bg-muted/30 px-4 py-3 text-sm outline-none ring-primary/30 focus:border-primary focus:ring-2"
-                      />
-                    </label>
                     <label className="block space-y-1.5">
                       <span className="text-sm font-medium">BHAG / Initiatives</span>
                       <ComboBox

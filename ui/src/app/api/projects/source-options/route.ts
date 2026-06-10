@@ -56,15 +56,19 @@ function spaceOption(siteUrl: string, key: string, name?: string): SourceOption 
   };
 }
 
-/** List spaces for one Confluence site. Primary: CQL search type=space (works
- * under search:confluence — broadest coverage). Fallback: GET /wiki/rest/api/space
- * (needs read:confluence-space.summary). De-duped by space key. */
+/** List spaces for one Confluence site, trying three methods (de-duped by key)
+ * so we work under whatever scopes the connection was actually granted:
+ *   1. CQL search type=space          — needs search:confluence
+ *   2. GET /wiki/rest/api/space        — needs read:confluence-space.summary
+ *   3. derive from content + expand=space — works under read:confluence-content.all
+ * Method 3 is the safety net: most existing connections only have content.all,
+ * so without it the picker would silently return nothing. */
 async function spacesForSite(token: string, siteId: string, siteUrl: string): Promise<SourceOption[]> {
   const headers = { Authorization: `Bearer ${token}`, Accept: "application/json" };
   const base = `https://api.atlassian.com/ex/confluence/${siteId}/wiki`;
   const byKey = new Map<string, SourceOption>();
 
-  // Primary: CQL search for spaces.
+  // Method 1: CQL search for spaces.
   const searchRes = await fetch(
     `${base}/rest/api/search?cql=${encodeURIComponent("type=space")}&limit=100`,
     { headers },
@@ -79,7 +83,7 @@ async function spacesForSite(token: string, siteId: string, siteUrl: string): Pr
     }
   }
 
-  // Fallback / supplement: the spaces REST endpoint.
+  // Method 2: the spaces REST endpoint.
   const spacesRes = await fetch(`${base}/rest/api/space?limit=100`, { headers });
   if (spacesRes.ok) {
     const body = (await spacesRes.json().catch(() => ({}))) as {
@@ -87,6 +91,24 @@ async function spacesForSite(token: string, siteId: string, siteUrl: string): Pr
     };
     for (const s of body.results ?? []) {
       if (s.key && !byKey.has(s.key)) byKey.set(s.key, spaceOption(siteUrl, s.key, s.name));
+    }
+  }
+
+  // Method 3 (safety net): derive distinct spaces from accessible content. Only
+  // needs read:confluence-content.all, which existing connections already hold.
+  if (byKey.size === 0) {
+    const contentRes = await fetch(
+      `${base}/rest/api/content?limit=200&expand=space`,
+      { headers },
+    );
+    if (contentRes.ok) {
+      const body = (await contentRes.json().catch(() => ({}))) as {
+        results?: Array<{ space?: { key?: string; name?: string } }>;
+      };
+      for (const r of body.results ?? []) {
+        const key = r.space?.key;
+        if (key && !byKey.has(key)) byKey.set(key, spaceOption(siteUrl, key, r.space?.name));
+      }
     }
   }
 
