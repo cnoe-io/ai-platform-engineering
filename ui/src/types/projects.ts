@@ -70,6 +70,17 @@ export interface ProjectLabels {
   swimlanes?: string[]; // Swim Lane
 }
 
+/**
+ * User-supplied data sources for a project (collected at onboarding and
+ * editable later). Forwarded to external apps (e.g. LLM Wiki) so they can
+ * ingest the repo/space/components.
+ */
+export interface ProjectSources {
+  repos?: string[]; // GitHub repo URLs / owner/name
+  confluence_url?: string; // Confluence space URL
+  component_urls?: string[]; // arbitrary software/service URLs
+}
+
 export interface ProjectDocument {
   _id?: string;
   slug: string;
@@ -89,6 +100,7 @@ export interface ProjectDocument {
   components: BackstageComponentCatalog[];
   onboarding: Record<string, OnboardingStepState>;
   integrations: Record<string, string>;
+  sources?: ProjectSources;
   source?: ProjectSource;
   backstage_entity_ref?: string;
   created_at: Date;
@@ -105,6 +117,10 @@ export interface CreateProjectRequest {
   swimlanes?: string[];
   tags?: string[];
   manager?: string;
+  // Data sources the user shares at onboarding (forwarded to LLM Wiki, etc.).
+  github_repos?: string[];
+  confluence_url?: string;
+  component_urls?: string[];
 }
 
 export interface OnboardProjectRequest {

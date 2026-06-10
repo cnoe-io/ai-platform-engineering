@@ -59,7 +59,11 @@ function buildProjectContext(project: ProjectDocument): Record<string, unknown> 
   const components = (project.components ?? []) as Array<{
     metadata?: { annotations?: Record<string, string> };
   }>;
+  const sources = project.sources ?? {};
   const repos = new Set<string>();
+  for (const repo of sources.repos ?? []) {
+    if (typeof repo === "string" && repo.trim()) repos.add(repo.trim());
+  }
   for (const value of Object.values(integrations)) {
     if (typeof value === "string" && /(github|gitlab)\.com|\.git(\b|$)/.test(value)) {
       repos.add(value.replace(/^url:/, ""));
@@ -89,6 +93,8 @@ function buildProjectContext(project: ProjectDocument): Record<string, unknown> 
     integrations,
     components,
     repos: Array.from(repos),
+    confluence_url: sources.confluence_url ?? "",
+    component_urls: sources.component_urls ?? [],
   };
 }
 

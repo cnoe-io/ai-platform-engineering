@@ -114,6 +114,10 @@ export function ProjectOnboardingWizard({
   const [membersRaw, setMembersRaw] = useState("");
   const [initiativesRaw, setInitiativesRaw] = useState("");
   const [swimlanesRaw, setSwimlanesRaw] = useState("");
+  // User-shared data sources (forwarded to LLM Wiki on onboarding).
+  const [githubReposRaw, setGithubReposRaw] = useState("");
+  const [confluenceUrl, setConfluenceUrl] = useState("");
+  const [componentUrlsRaw, setComponentUrlsRaw] = useState("");
   const [teams, setTeams] = useState<TeamPickerOption[]>([]);
   const [project, setProject] = useState<ProjectDocument | null>(null);
   const [provisioning, setProvisioning] = useState(false);
@@ -293,6 +297,9 @@ export function ProjectOnboardingWizard({
           member_ids: parseMemberInput(membersRaw),
           initiatives: initiativesRaw.split(",").map((s) => s.trim()).filter(Boolean),
           swimlanes: swimlanesRaw.split(",").map((s) => s.trim()).filter(Boolean),
+          github_repos: githubReposRaw.split(/[\n,]/).map((s) => s.trim()).filter(Boolean),
+          confluence_url: confluenceUrl.trim() || undefined,
+          component_urls: componentUrlsRaw.split(/[\n,]/).map((s) => s.trim()).filter(Boolean),
         }),
       });
       const body = await res.json();
@@ -542,6 +549,36 @@ export function ProjectOnboardingWizard({
                         value={swimlanesRaw}
                         onChange={(e) => setSwimlanesRaw(e.target.value)}
                         placeholder="Now, Next, Later"
+                        className="w-full rounded-xl border border-border/60 bg-muted/30 px-4 py-2.5 text-sm outline-none ring-primary/30 focus:border-primary focus:ring-2"
+                      />
+                    </label>
+                    <label className="block space-y-1.5">
+                      <span className="text-sm font-medium">GitHub repos</span>
+                      <textarea
+                        value={githubReposRaw}
+                        onChange={(e) => setGithubReposRaw(e.target.value)}
+                        rows={2}
+                        placeholder="https://github.com/org/repo, https://github.com/org/another"
+                        className="w-full rounded-xl border border-border/60 bg-muted/30 px-4 py-2.5 text-sm outline-none ring-primary/30 focus:border-primary focus:ring-2"
+                      />
+                      <span className="text-xs text-muted-foreground">Comma- or newline-separated. Shared with LLM Wiki to ingest.</span>
+                    </label>
+                    <label className="block space-y-1.5">
+                      <span className="text-sm font-medium">Confluence space URL</span>
+                      <input
+                        value={confluenceUrl}
+                        onChange={(e) => setConfluenceUrl(e.target.value)}
+                        placeholder="https://your.atlassian.net/wiki/spaces/PROJ"
+                        className="w-full rounded-xl border border-border/60 bg-muted/30 px-4 py-2.5 text-sm outline-none ring-primary/30 focus:border-primary focus:ring-2"
+                      />
+                    </label>
+                    <label className="block space-y-1.5">
+                      <span className="text-sm font-medium">Component / software URLs</span>
+                      <textarea
+                        value={componentUrlsRaw}
+                        onChange={(e) => setComponentUrlsRaw(e.target.value)}
+                        rows={2}
+                        placeholder="https://service-a.example.com, https://docs.example.com/component-b"
                         className="w-full rounded-xl border border-border/60 bg-muted/30 px-4 py-2.5 text-sm outline-none ring-primary/30 focus:border-primary focus:ring-2"
                       />
                     </label>
