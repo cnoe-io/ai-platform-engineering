@@ -49,13 +49,97 @@ function interpolateEnv(value: string): string {
 }
 
 /**
+ * Normalized, product-agnostic view of a project that onboarding `http` steps
+ * reference from their configured `body` template via `${project.<field>}`.
+ * Derives a best-effort `repos` list from Backstage component annotations and
+ * git-like integration URLs so the receiving system can seed sources.
+ */
+function buildProjectContext(project: ProjectDocument): Record<string, unknown> {
+  const integrations = project.integrations ?? {};
+  const components = (project.components ?? []) as Array<{
+    metadata?: { annotations?: Record<string, string> };
+  }>;
+  const repos = new Set<string>();
+  for (const value of Object.values(integrations)) {
+    if (typeof value === "string" && /(github|gitlab)\.com|\.git(\b|$)/.test(value)) {
+      repos.add(value.replace(/^url:/, ""));
+    }
+  }
+  for (const component of components) {
+    const annotations = component?.metadata?.annotations ?? {};
+    for (const [key, value] of Object.entries(annotations)) {
+      if (
+        typeof value === "string" &&
+        /source-location|(github|gitlab)\.com/i.test(`${key} ${value}`)
+      ) {
+        repos.add(value.replace(/^url:/, ""));
+      }
+    }
+  }
+  return {
+    name: project.name,
+    slug: project.slug,
+    title: project.title,
+    description: project.description,
+    domain: project.domain,
+    owner: project.owner_id,
+    members: project.member_ids ?? [],
+    tags: project.tags ?? [],
+    labels: project.labels ?? {},
+    integrations,
+    components,
+    repos: Array.from(repos),
+  };
+}
+
+function resolveProjectPath(ctx: Record<string, unknown>, path: string): unknown {
+  return path
+    .split(".")
+    .reduce<unknown>(
+      (acc, key) =>
+        acc && typeof acc === "object"
+          ? (acc as Record<string, unknown>)[key]
+          : undefined,
+      ctx,
+    );
+}
+
+/**
+ * Render a configured `body` template against the project context. A value that
+ * is exactly `${project.<path>}` resolves to the real typed value (array/object
+ * preserved); strings with embedded `${project.<path>}` interpolate to text.
+ */
+function renderBodyTemplate(value: unknown, ctx: Record<string, unknown>): unknown {
+  if (typeof value === "string") {
+    const exact = value.match(/^\$\{project\.([a-zA-Z0-9_.]+)\}$/);
+    if (exact) return resolveProjectPath(ctx, exact[1]) ?? null;
+    return value.replace(/\$\{project\.([a-zA-Z0-9_.]+)\}/g, (_m, path) => {
+      const resolved = resolveProjectPath(ctx, path);
+      if (resolved == null) return "";
+      return typeof resolved === "string" ? resolved : JSON.stringify(resolved);
+    });
+  }
+  if (Array.isArray(value)) return value.map((item) => renderBodyTemplate(item, ctx));
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([k, v]) => [
+        k,
+        renderBodyTemplate(v, ctx),
+      ]),
+    );
+  }
+  return value;
+}
+
+/**
  * Generic HTTP onboarding provider.
  *
  * POSTs the project to an external system at the step-configured `endpoint`,
  * forwarding the CAIPE-authenticated actor identity via `x-caipe-user` /
- * `x-caipe-roles` so the remote resource is owned by the real user. The target
- * system, endpoint, and resulting deep-link (`appUrl`) all come from
- * deployment config — nothing about any specific external product lives here.
+ * `x-caipe-roles`. The request body is the step's configured `body` template
+ * rendered against the project (default `{ name, slug }`), so a deployment can
+ * pass full project metadata — description, repos, labels, integrations —
+ * without any product specifics living in this repo.
  */
 async function provisionViaHttp(
   step: ProjectOnboardingStepConfig,
@@ -76,6 +160,12 @@ async function provisionViaHttp(
   }
 
   const actor = (actorSubject || project.owner_id || "").trim();
+  // Render the configured body template against the project (default name+slug).
+  const ctx = buildProjectContext(project);
+  const payload =
+    step.body && typeof step.body === "object"
+      ? renderBodyTemplate(step.body, ctx)
+      : { name: ctx.name, slug: ctx.slug };
   const res = await fetch(endpoint, {
     method: "POST",
     headers: {
@@ -83,7 +173,7 @@ async function provisionViaHttp(
       "x-caipe-user": actor,
       "x-caipe-roles": "user",
     },
-    body: JSON.stringify({ name: project.name, slug: project.slug }),
+    body: JSON.stringify(payload),
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");

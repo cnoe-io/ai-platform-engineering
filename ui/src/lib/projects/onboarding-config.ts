@@ -25,6 +25,14 @@ export interface ProjectOnboardingStepConfig {
   endpoint?: string;
   /** http provider: deep-link recorded as `<id>_url`; supports `${ENV_VAR}`. */
   appUrl?: string;
+  /**
+   * http provider: request body template. Values may reference project fields
+   * via `${project.<field>}` (e.g. `name`, `description`, `repos`,
+   * `integrations`, `labels`). A value that is exactly `${project.<field>}`
+   * passes the typed value through (arrays/objects preserved). Omit to send the
+   * default `{ name, slug }`.
+   */
+  body?: Record<string, unknown>;
   checklist?: string[];
 }
 
@@ -101,6 +109,10 @@ function normalizeConfig(raw: unknown): ProjectOnboardingConfig {
               : "none",
         endpoint: typeof s.endpoint === "string" ? s.endpoint : undefined,
         appUrl: typeof s.appUrl === "string" ? s.appUrl : undefined,
+        body:
+          s.body && typeof s.body === "object" && !Array.isArray(s.body)
+            ? (s.body as Record<string, unknown>)
+            : undefined,
         checklist: Array.isArray(s.checklist)
           ? s.checklist.filter((item): item is string => typeof item === "string")
           : undefined,

@@ -39,5 +39,16 @@ steps:
     provider: http
     endpoint: "${ONBOARDING_APP_ENDPOINT}"   # e.g. https://host/api/projects
     appUrl: "${ONBOARDING_APP_URL}"           # e.g. /apps/<app-id>
+    # Optional request body template. Values may reference project fields via
+    # ${project.<field>}; a value that is exactly ${project.<field>} passes the
+    # typed value through (arrays/objects preserved). Map keys to whatever the
+    # receiving API expects — kept in YOUR overlay, not hardcoded here. Omit
+    # `body` to send the default { name, slug }.
+    body:
+      name: "${project.name}"
+      description: "${project.description}"
+      repos: "${project.repos}"            # derived array of git URLs/refs
+      labels: "${project.labels}"
+      integrations: "${project.integrations}"
     checklist:
       - Project created in external system
