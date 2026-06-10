@@ -37,7 +37,7 @@ export function ProjectDetailView({ slug }: { slug: string }) {
     if (!project) return;
     if (
       !window.confirm(
-        `Delete project "${project.title}"? This removes it from CAIPE (connected apps like LLM Wiki are not deleted).`,
+        `Delete project "${project.title}"? This removes it from CAIPE (connected external apps are not deleted).`,
       )
     ) {
       return;
@@ -102,19 +102,22 @@ export function ProjectDetailView({ slug }: { slug: string }) {
 
   // Navigable app tiles from the *_url integrations. Display name comes from a
   // `<slug>_label` integration (set by onboarding from the step's configured
-  // title) when present; otherwise the key is humanized (e.g. `agent_mesh` →
-  // "Agent Mesh"). No product- or deployment-specific names are hardcoded here.
+  // title) when present; otherwise the key is humanized. No product- or
+  // deployment-specific names are hardcoded here.
   const humanize = (slug: string): string =>
     slug.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-  // Presentational icon + gradient per integration key (not product names —
-  // purely visual, with a colorful hashed fallback so every app stands out).
-  const APP_ICONS: Record<string, LucideIcon> = {
-    context_graph: BookOpen,
-    agentic_sdlc: Workflow,
-    finops: DollarSign,
-    agent_mesh: Bot,
-    catalogue: Database,
-    webex: Video,
+  // Presentational icon by generic keyword in the integration key (purely
+  // visual; no product names). Falls back to a generic app icon + a colorful
+  // hashed gradient so every tile is distinct.
+  const iconForSlug = (slug: string): LucideIcon => {
+    const s = slug.toLowerCase();
+    if (/wiki|doc|book|knowledge/.test(s)) return BookOpen;
+    if (/sdlc|workflow|pipeline|ci|cd/.test(s)) return Workflow;
+    if (/cost|finops|budget|spend|billing/.test(s)) return DollarSign;
+    if (/mesh|agent|bot/.test(s)) return Bot;
+    if (/catalog|registry|inventory/.test(s)) return Database;
+    if (/meet|webex|video|call|chat/.test(s)) return Video;
+    return LayoutGrid;
   };
   const APP_GRADIENTS = [
     "from-amber-500 via-orange-500 to-rose-500",
@@ -140,7 +143,7 @@ export function ProjectDetailView({ slug }: { slug: string }) {
         label: integrationsMap[`${slug}_label`] || humanize(slug),
         url,
         external: /^https?:\/\//.test(url),
-        Icon: APP_ICONS[slug] ?? LayoutGrid,
+        Icon: iconForSlug(slug),
         gradient: gradientFor(slug),
       };
     });

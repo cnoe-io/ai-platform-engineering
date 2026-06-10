@@ -212,7 +212,7 @@ async function provisionViaHttp(
 
 /**
  * Link provider: no backend call — just records an app-tile deep link for a
- * first-party/in-process app (e.g. Agentic SDLC at `/apps/agentic-sdlc`). The
+ * first-party/in-process app route (e.g. `/apps/<feature>`). The
  * label comes from the step title; the URL from `appUrl` (`${ENV_VAR}` allowed).
  */
 function provisionLink(

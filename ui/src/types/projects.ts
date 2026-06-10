@@ -72,7 +72,7 @@ export interface ProjectLabels {
 
 /**
  * User-supplied data sources for a project (collected at onboarding and
- * editable later). Forwarded to external apps (e.g. LLM Wiki) so they can
+ * editable later). Forwarded to connected external apps so they can
  * ingest the repo/space/components.
  */
 export interface ProjectSources {
@@ -117,7 +117,7 @@ export interface CreateProjectRequest {
   swimlanes?: string[];
   tags?: string[];
   manager?: string;
-  // Data sources the user shares at onboarding (forwarded to LLM Wiki, etc.).
+  // Data sources the user shares at onboarding (forwarded to connected external apps).
   github_repos?: string[];
   confluence_url?: string;
   component_urls?: string[];

@@ -39,7 +39,7 @@ export const GET = withErrorHandler(
 );
 
 // DELETE a project. Allowed for the project owner or a projects-org admin.
-// Removes the CAIPE record only — external resources (e.g. an LLM Wiki space)
+// Removes the CAIPE record only — external resources (e.g. a connected wiki space)
 // are not deleted here.
 export const DELETE = withErrorHandler(
   async (request: NextRequest, context: { params: Promise<{ slug: string }> }) => {

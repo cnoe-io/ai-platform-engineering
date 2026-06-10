@@ -114,7 +114,7 @@ export function ProjectOnboardingWizard({
   const [membersRaw, setMembersRaw] = useState("");
   const [initiativesRaw, setInitiativesRaw] = useState("");
   const [swimlanesRaw, setSwimlanesRaw] = useState("");
-  // User-shared data sources (forwarded to LLM Wiki on onboarding).
+  // User-shared data sources (forwarded to connected external apps on onboarding).
   const [githubReposRaw, setGithubReposRaw] = useState("");
   const [confluenceUrl, setConfluenceUrl] = useState("");
   // Live source options from the user's provider connections (Connections tab).
