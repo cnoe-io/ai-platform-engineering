@@ -3,7 +3,7 @@
 // assisted-by Cursor Composer
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ArrowRight,
   FolderKanban,
@@ -40,12 +40,9 @@ export function ProjectsHub() {
   });
   const [syncOpen, setSyncOpen] = useState(false);
   const [canOpenSync, setCanOpenSync] = useState(false);
-  const [syncBlockedReason, setSyncBlockedReason] = useState<string | null>(null);
-
-  const backstageProjectCount = useMemo(
-    () => projects.filter((p) => p.source === "backstage").length,
-    [projects],
-  );
+  // Blocked-reason is tracked for gating but not rendered (the Sync button is
+  // simply hidden when the user can't sync).
+  const [, setSyncBlockedReason] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -127,6 +124,17 @@ export function ProjectsHub() {
               <Sparkles className="h-4 w-4" />
               Executive Dashboard
             </Link>
+            {canOpenSync ? (
+              <button
+                type="button"
+                onClick={() => setSyncOpen(true)}
+                title="Super admins can import kind: System entities from the Backstage developer portal, assign a team, and resolve conflicts before apply."
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-border px-5 py-2.5 text-sm font-medium text-muted-foreground transition hover:bg-accent hover:text-foreground"
+              >
+                <RefreshCw className="h-4 w-4" />
+                Sync from Backstage
+              </button>
+            ) : null}
           </div>
         </div>
       </section>
@@ -210,49 +218,6 @@ export function ProjectsHub() {
               </div>
             </Link>
           ))}
-        </div>
-      </section>
-
-      {/* Backstage import — secondary action, kept below the projects list. */}
-      <section className="space-y-3 border-t border-border/50 pt-6">
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-emerald-500/20 bg-gradient-to-br from-emerald-950/20 via-background to-teal-950/10 p-5">
-          <div className="flex items-start gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-600 to-teal-600 text-white shadow">
-              <Sparkles className="h-5 w-5" />
-            </div>
-            <div>
-              <h3 className="text-sm font-semibold">Sync projects from Backstage</h3>
-              <p className="max-w-xl text-xs text-muted-foreground">
-                Super admins can import <code className="text-[11px]">kind: System</code>{" "}
-                entities from the Backstage developer portal, assign a team, and resolve
-                conflicts before apply.
-                {backstageProjectCount > 0
-                  ? ` ${backstageProjectCount} imported.`
-                  : ""}
-              </p>
-            </div>
-          </div>
-          <div className="flex flex-col items-stretch gap-2 md:items-end">
-            <button
-              type="button"
-              onClick={() => setSyncOpen(true)}
-              disabled={!canOpenSync}
-              className={cn(
-                "inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-medium shadow transition",
-                canOpenSync
-                  ? "bg-emerald-600 text-white hover:bg-emerald-700"
-                  : "cursor-not-allowed border border-border bg-muted text-muted-foreground",
-              )}
-            >
-              <RefreshCw className="h-4 w-4" />
-              Sync from Backstage
-            </button>
-            {!canOpenSync && syncBlockedReason ? (
-              <p className="max-w-xs text-right text-xs text-muted-foreground">
-                {syncBlockedReason}
-              </p>
-            ) : null}
-          </div>
         </div>
       </section>
 
