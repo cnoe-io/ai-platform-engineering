@@ -21,17 +21,24 @@ interface SourceOption {
   label: string;
 }
 
-async function githubRepos(token: string): Promise<SourceOption[]> {
-  const res = await fetch(
-    "https://api.github.com/user/repos?per_page=100&sort=updated&affiliation=owner,collaborator,organization_member",
-    {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-      },
+async function githubRepos(token: string, q: string): Promise<SourceOption[]> {
+  // When the user has typed an owner/org (e.g. "my-org" or
+  // "https://github.com/my-org/…"), list that org/user's repos; otherwise list
+  // the caller's own repos across owner/collaborator/org-member affiliations.
+  const owner = q
+    .replace(/^https?:\/\/github\.com\//i, "")
+    .split("/")[0]
+    .trim();
+  const url = owner
+    ? `https://api.github.com/users/${encodeURIComponent(owner)}/repos?per_page=100&sort=updated&type=all`
+    : "https://api.github.com/user/repos?per_page=100&sort=updated&affiliation=owner,collaborator,organization_member";
+  const res = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/vnd.github+json",
+      "X-GitHub-Api-Version": "2022-11-28",
     },
-  );
+  });
   if (!res.ok) return [];
   const repos = (await res.json().catch(() => [])) as Array<{
     full_name?: string;
@@ -78,7 +85,9 @@ async function atlassianSpaces(token: string): Promise<SourceOption[]> {
 export const GET = withErrorHandler(async (request: NextRequest) => {
   const { session } = await getAuthFromBearerOrSession(request);
   const sub = (session as { sub?: string } | undefined)?.sub;
-  const provider = new URL(request.url).searchParams.get("provider")?.trim() ?? "";
+  const sp = new URL(request.url).searchParams;
+  const provider = sp.get("provider")?.trim() ?? "";
+  const q = sp.get("q")?.trim() ?? "";
 
   if (!sub || (provider !== "github" && provider !== "atlassian")) {
     return successResponse({ connected: false, options: [] });
@@ -100,7 +109,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
 
   try {
     const options =
-      provider === "github" ? await githubRepos(token) : await atlassianSpaces(token);
+      provider === "github" ? await githubRepos(token, q) : await atlassianSpaces(token);
     return successResponse({ connected: true, options });
   } catch {
     return successResponse({ connected: true, options: [], error: "provider list failed" });

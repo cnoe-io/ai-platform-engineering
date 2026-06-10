@@ -117,11 +117,16 @@ export function ProjectOnboardingWizard({
   // User-shared data sources (forwarded to LLM Wiki on onboarding).
   const [githubReposRaw, setGithubReposRaw] = useState("");
   const [confluenceUrl, setConfluenceUrl] = useState("");
-  const [componentUrlsRaw, setComponentUrlsRaw] = useState("");
   // Live source options from the user's provider connections (Connections tab).
   type SourceState = { connected: boolean; options: { value: string; label: string }[] };
   const [ghSources, setGhSources] = useState<SourceState>({ connected: false, options: [] });
   const [cfSources, setCfSources] = useState<SourceState>({ connected: false, options: [] });
+  const ghSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Existing label values (for dropdown suggestions on BHAG / Swim Lane).
+  const [labelFacets, setLabelFacets] = useState<{ initiatives: string[]; swimlanes: string[] }>({
+    initiatives: [],
+    swimlanes: [],
+  });
   const [teams, setTeams] = useState<TeamPickerOption[]>([]);
   const [project, setProject] = useState<ProjectDocument | null>(null);
   const [provisioning, setProvisioning] = useState(false);
@@ -166,6 +171,29 @@ export function ProjectOnboardingWizard({
     });
   }, []);
 
+  // As the user types a GitHub owner/org (last comma-separated token), re-query
+  // that owner's repos so the dropdown reflects what they typed.
+  const searchGithubRepos = useCallback((text: string) => {
+    if (ghSearchTimer.current) clearTimeout(ghSearchTimer.current);
+    const token = (text.split(/[\n,]/).pop() ?? "").trim();
+    const owner = token
+      .replace(/^https?:\/\/github\.com\//i, "")
+      .split("/")[0]
+      .trim();
+    if (!owner) return;
+    ghSearchTimer.current = setTimeout(() => {
+      fetch(`/api/projects/source-options?provider=github&q=${encodeURIComponent(owner)}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((b) => {
+          const d = b?.data ?? b;
+          if (d && d.connected) {
+            setGhSources({ connected: true, options: Array.isArray(d.options) ? d.options : [] });
+          }
+        })
+        .catch(() => undefined);
+    }, 400);
+  }, []);
+
   useEffect(() => {
     if (!open) return;
     loadSources();
@@ -190,6 +218,26 @@ export function ProjectOnboardingWizard({
         setConfigSteps((body.data?.config?.steps ?? []) as OnboardingStepConfig[]);
       })
       .catch(() => setConfigSteps([]));
+
+    // Existing label values → datalist suggestions for BHAG / Swim Lane.
+    fetch("/api/projects/facets")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body) => {
+        const f = body?.data?.facets ?? body?.data ?? body;
+        const vals = (arr: unknown): string[] =>
+          Array.isArray(arr)
+            ? arr
+                .map((x) => (typeof x === "string" ? x : (x?.value ?? x?.label)))
+                .filter((v): v is string => typeof v === "string" && v.length > 0)
+            : [];
+        if (f) {
+          setLabelFacets({
+            initiatives: vals(f.initiatives),
+            swimlanes: vals(f.swimlanes),
+          });
+        }
+      })
+      .catch(() => undefined);
 
     fetch("/api/dynamic-agents/teams")
       .then((res) => res.json())
@@ -341,7 +389,6 @@ export function ProjectOnboardingWizard({
           swimlanes: swimlanesRaw.split(",").map((s) => s.trim()).filter(Boolean),
           github_repos: githubReposRaw.split(/[\n,]/).map((s) => s.trim()).filter(Boolean),
           confluence_url: confluenceUrl.trim() || undefined,
-          component_urls: componentUrlsRaw.split(/[\n,]/).map((s) => s.trim()).filter(Boolean),
         }),
       });
       const body = await res.json();
@@ -579,27 +626,44 @@ export function ProjectOnboardingWizard({
                     <label className="block space-y-1.5">
                       <span className="text-sm font-medium">BHAG / Initiatives</span>
                       <input
+                        list="initiative-options"
                         value={initiativesRaw}
                         onChange={(e) => setInitiativesRaw(e.target.value)}
                         placeholder="Agentic-2026, Platform Modernization"
                         className="w-full rounded-xl border border-border/60 bg-muted/30 px-4 py-2.5 text-sm outline-none ring-primary/30 focus:border-primary focus:ring-2"
                       />
+                      <datalist id="initiative-options">
+                        {labelFacets.initiatives.map((v) => (
+                          <option key={v} value={v} />
+                        ))}
+                      </datalist>
+                      <span className="text-xs text-muted-foreground">Pick existing or type a new one (comma-separated).</span>
                     </label>
                     <label className="block space-y-1.5">
                       <span className="text-sm font-medium">Swim Lanes</span>
                       <input
+                        list="swimlane-options"
                         value={swimlanesRaw}
                         onChange={(e) => setSwimlanesRaw(e.target.value)}
                         placeholder="Now, Next, Later"
                         className="w-full rounded-xl border border-border/60 bg-muted/30 px-4 py-2.5 text-sm outline-none ring-primary/30 focus:border-primary focus:ring-2"
                       />
+                      <datalist id="swimlane-options">
+                        {labelFacets.swimlanes.map((v) => (
+                          <option key={v} value={v} />
+                        ))}
+                      </datalist>
+                      <span className="text-xs text-muted-foreground">Pick existing or type a new one (comma-separated).</span>
                     </label>
                     <label className="block space-y-1.5">
                       <span className="text-sm font-medium">GitHub repos</span>
                       <input
                         list="gh-repo-options"
                         value={githubReposRaw}
-                        onChange={(e) => setGithubReposRaw(e.target.value)}
+                        onChange={(e) => {
+                          setGithubReposRaw(e.target.value);
+                          searchGithubRepos(e.target.value);
+                        }}
                         placeholder="https://github.com/org/repo, https://github.com/org/another"
                         className="w-full rounded-xl border border-border/60 bg-muted/30 px-4 py-2.5 text-sm outline-none ring-primary/30 focus:border-primary focus:ring-2"
                       />
@@ -633,16 +697,6 @@ export function ProjectOnboardingWizard({
                       {!cfSources.connected ? (
                         <AuthorizePrompt provider="Confluence" onRecheck={loadSources} />
                       ) : null}
-                    </label>
-                    <label className="block space-y-1.5">
-                      <span className="text-sm font-medium">Component / software URLs</span>
-                      <textarea
-                        value={componentUrlsRaw}
-                        onChange={(e) => setComponentUrlsRaw(e.target.value)}
-                        rows={2}
-                        placeholder="https://service-a.example.com, https://docs.example.com/component-b"
-                        className="w-full rounded-xl border border-border/60 bg-muted/30 px-4 py-2.5 text-sm outline-none ring-primary/30 focus:border-primary focus:ring-2"
-                      />
                     </label>
                     <div className="rounded-xl border border-dashed border-primary/30 bg-primary/5 p-4 text-xs text-muted-foreground">
                       Projects belong to teams and can sync to Backstage as{" "}
