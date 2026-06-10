@@ -164,6 +164,8 @@ INJECT_CORPORATE_CA=false
 CA_SSL_FIX_PROMPTED=false
 SUPERVISOR_RAG_RESTARTED=false
 RAG_INGESTOR_SECRET_READY=false
+RAG_INGESTOR_OIDC_ISSUER=""
+RAG_INGESTOR_OIDC_CLIENT_ID=""
 LANGFUSE_PUBLIC_KEY=""
 LANGFUSE_SECRET_KEY=""
 PF_PIDS=()
@@ -4085,9 +4087,9 @@ post_deploy_patches() {
       -o jsonpath='{.data.OIDC_ISSUER}' 2>/dev/null | base64 -d || true)
     _rag_oidc_client_id=$(kubectl get secret caipe-ui-secret -n caipe \
       -o jsonpath='{.data.OIDC_CLIENT_ID}' 2>/dev/null | base64 -d || true)
-    _rag_ingestor_issuer=$(kubectl get secret caipe-ui-secret -n caipe \
+    _rag_ingestor_issuer=$(kubectl get secret rag-ingestor-secret -n caipe \
       -o jsonpath='{.data.INGESTOR_OIDC_ISSUER}' 2>/dev/null | base64 -d || true)
-    _rag_ingestor_client_id=$(kubectl get secret caipe-ui-secret -n caipe \
+    _rag_ingestor_client_id=$(kubectl get secret rag-ingestor-secret -n caipe \
       -o jsonpath='{.data.INGESTOR_OIDC_CLIENT_ID}' 2>/dev/null | base64 -d || true)
     if [[ -n "$_rag_oidc_issuer" && -n "$_rag_oidc_client_id" ]]; then
       local _rag_env_args=(
@@ -4515,6 +4517,8 @@ JSON
     --dry-run=client -o yaml | kubectl apply -f - &>/dev/null
   log "RAG ingestor client: credentials stored in rag-ingestor-secret (issuer=${issuer})"
   RAG_INGESTOR_SECRET_READY=true
+  RAG_INGESTOR_OIDC_ISSUER="${issuer}"
+  RAG_INGESTOR_OIDC_CLIENT_ID="${client_id}"
 }
 
 # Add an oidc-audience-mapper to the caipe-ui Keycloak client so that the
@@ -6244,13 +6248,24 @@ DAEOF
       --set 'supervisor-agent.env.RAG_SERVER_URL=http://rag-server:9446'
       --set 'rag-stack.rag-server.env.SKIP_INIT_TESTS=true'
     )
+    # Wire UI OIDC provider into rag-server so user tokens are validated.
+    if [[ -n "${CAIPE_DOMAIN:-}" ]]; then
+      helm_args+=(
+        --set "rag-stack.rag-server.env.OIDC_ISSUER=https://${CAIPE_DOMAIN}/realms/caipe"
+        --set 'rag-stack.rag-server.env.OIDC_CLIENT_ID=caipe-ui'
+        --set 'rag-stack.rag-server.env.OIDC_GROUP_CLAIM=members,groups'
+      )
+    fi
     # Wire Keycloak client credentials into both rag-server (token validation)
     # and web-ingestor (token acquisition) when the secret was provisioned.
     if [[ "${RAG_INGESTOR_SECRET_READY:-false}" == "true" ]]; then
       helm_args+=(
         --set 'rag-stack.rag-server.webIngestor.enabled=true'
         --set 'rag-stack.rag-server.webIngestor.envFrom[0].secretRef.name=rag-ingestor-secret'
-        --set 'rag-stack.rag-server.envFrom[0].secretRef.name=rag-ingestor-secret'
+        # Pass non-secret OIDC config directly as env so the rag-server auth manager
+        # can validate ingestor tokens even before the envFrom template fix ships.
+        --set "rag-stack.rag-server.env.INGESTOR_OIDC_ISSUER=${RAG_INGESTOR_OIDC_ISSUER}"
+        --set "rag-stack.rag-server.env.INGESTOR_OIDC_CLIENT_ID=${RAG_INGESTOR_OIDC_CLIENT_ID}"
       )
       log "RAG web-ingestor: Keycloak OIDC credentials wired via rag-ingestor-secret"
     else
