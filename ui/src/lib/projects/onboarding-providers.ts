@@ -343,6 +343,64 @@ export function stepLabel(stepId: string): string {
 }
 
 /**
+ * Sync edits to external resources when a CAIPE project is updated. For each
+ * step configured with an `updateEndpoint`, PATCHes the rendered `body`
+ * template against the updated project. Best-effort — never throws; skips
+ * steps whose `${id}` can't be resolved.
+ */
+export async function runOnboardingUpdates(
+  project: ProjectDocument,
+  actorSubject?: string,
+): Promise<Array<{ id: string; ok: boolean }>> {
+  const config = loadProjectOnboardingConfig();
+  const integrations = (project.integrations ?? {}) as Record<string, string>;
+  const actor = (actorSubject || project.owner_id || "").trim();
+  const results: Array<{ id: string; ok: boolean }> = [];
+  for (const step of config.steps) {
+    const raw = (step.updateEndpoint ?? "").trim();
+    if (!raw) continue;
+    const recordedId = integrations[`${step.id}_id`] ?? "";
+    if (raw.includes("${id}") && !recordedId) {
+      results.push({ id: step.id, ok: false });
+      continue;
+    }
+    const url = interpolateEnv(raw).replace(/\$\{id\}/g, recordedId);
+    if (!/^https?:\/\//.test(url)) {
+      results.push({ id: step.id, ok: false });
+      continue;
+    }
+    const ctx = buildProjectContext(project);
+    const rendered =
+      step.body && typeof step.body === "object"
+        ? renderBodyTemplate(step.body, ctx)
+        : { name: ctx.name, slug: ctx.slug };
+    const payload: Record<string, unknown> =
+      rendered && typeof rendered === "object" && !Array.isArray(rendered)
+        ? { ...(rendered as Record<string, unknown>) }
+        : { value: rendered };
+    if (step.forwardCredentials?.length && actorSubject) {
+      const credentials = await collectForwardedCredentials(actorSubject, step.forwardCredentials);
+      if (Object.keys(credentials).length > 0) payload.credentials = credentials;
+    }
+    try {
+      const res = await fetch(url, {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json",
+          "x-caipe-user": actor,
+          "x-caipe-roles": "user",
+        },
+        body: JSON.stringify(payload),
+      });
+      results.push({ id: step.id, ok: res.ok });
+    } catch {
+      results.push({ id: step.id, ok: false });
+    }
+  }
+  return results;
+}
+
+/**
  * Cascade external deletions when a CAIPE project is removed. For each step
  * configured with a `deleteEndpoint`, DELETEs the interpolated URL (`${ENV_VAR}`
  * from env; `${id}` = the id recorded as `<step.id>_id` at create time),

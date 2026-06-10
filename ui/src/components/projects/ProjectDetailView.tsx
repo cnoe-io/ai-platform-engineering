@@ -16,6 +16,7 @@ import {
   FolderKanban,
   LayoutGrid,
   Loader2,
+  Pencil,
   Trash2,
   Video,
   Workflow,
@@ -33,6 +34,12 @@ export function ProjectDetailView({ slug }: { slug: string }) {
   const [copied, setCopied] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [editTitle, setEditTitle] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [editRepos, setEditRepos] = useState("");
+  const [editConfluence, setEditConfluence] = useState("");
 
   async function confirmDelete() {
     if (!project) return;
@@ -50,6 +57,45 @@ export function ProjectDetailView({ slug }: { slug: string }) {
       setError(err instanceof Error ? err.message : String(err));
       setDeleting(false);
       setDeleteOpen(false);
+    }
+  }
+
+  function openEdit() {
+    if (!project) return;
+    setEditTitle(project.title);
+    setEditDescription(project.description ?? "");
+    setEditRepos((project.sources?.repos ?? []).join("\n"));
+    setEditConfluence(project.sources?.confluence_url ?? "");
+    setEditOpen(true);
+  }
+
+  async function saveEdit() {
+    if (!project) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/projects/${encodeURIComponent(slug)}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          title: editTitle,
+          description: editDescription,
+          sources: {
+            repos: editRepos.split(/[\n,]/).map((r) => r.trim()).filter(Boolean),
+            confluence_url: editConfluence,
+          },
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? `Save failed (${res.status})`);
+      }
+      const data = await res.json();
+      setProject(data.data.project as ProjectDocument);
+      setEditOpen(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -182,6 +228,15 @@ export function ProjectDetailView({ slug }: { slug: string }) {
           </span>
           <button
             type="button"
+            onClick={openEdit}
+            title="Edit project"
+            className="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1 text-xs font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+            Edit
+          </button>
+          <button
+            type="button"
             onClick={() => setDeleteOpen(true)}
             title="Delete project"
             className="inline-flex items-center gap-1.5 rounded-full border border-red-300/40 px-3 py-1 text-xs font-medium text-red-500 transition hover:bg-red-500/10"
@@ -294,6 +349,76 @@ export function ProjectDetailView({ slug }: { slug: string }) {
             ))}
           </div>
         </section>
+      ) : null}
+
+      {editOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-xl">
+            <h2 className="text-base font-semibold">Edit project</h2>
+            <div className="mt-4 space-y-4">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-muted-foreground">Title</label>
+                <input
+                  type="text"
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-muted-foreground">Description</label>
+                <textarea
+                  value={editDescription}
+                  onChange={(e) => setEditDescription(e.target.value)}
+                  rows={2}
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                  GitHub repos <span className="font-normal opacity-60">(one per line or comma-separated)</span>
+                </label>
+                <textarea
+                  value={editRepos}
+                  onChange={(e) => setEditRepos(e.target.value)}
+                  rows={4}
+                  placeholder="org/repo&#10;https://github.com/org/repo2"
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 font-mono text-xs focus:outline-none focus:ring-2 focus:ring-primary/40"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-muted-foreground">Confluence URL</label>
+                <input
+                  type="url"
+                  value={editConfluence}
+                  onChange={(e) => setEditConfluence(e.target.value)}
+                  placeholder="https://company.atlassian.net/wiki/spaces/SPACE"
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+                />
+              </div>
+            </div>
+            {error ? <p className="mt-3 text-sm text-red-500">{error}</p> : null}
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => { setEditOpen(false); setError(null); }}
+                disabled={saving}
+                className="rounded-lg border border-border px-4 py-2 text-sm font-medium hover:bg-muted disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void saveEdit()}
+                disabled={saving}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:opacity-60"
+              >
+                {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                {saving ? "Saving…" : "Save"}
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
 
       {deleteOpen ? (

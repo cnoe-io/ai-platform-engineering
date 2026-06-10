@@ -44,6 +44,13 @@ export interface ProjectOnboardingStepConfig {
    */
   deleteEndpoint?: string;
   /**
+   * http provider: PATCH endpoint called when the CAIPE project is edited.
+   * Receives the same rendered `body` template as the create POST (re-rendered
+   * against the updated project), so the external resource stays in sync.
+   * Supports `${ENV_VAR}` and `${id}`. Omit to skip syncing edits externally.
+   */
+  updateEndpoint?: string;
+  /**
    * http provider: request body template. Values may reference project fields
    * via `${project.<field>}` (e.g. `name`, `description`, `repos`,
    * `integrations`, `labels`). A value that is exactly `${project.<field>}`
@@ -137,6 +144,7 @@ function normalizeConfig(raw: unknown): ProjectOnboardingConfig {
           ? s.forwardCredentials.filter((x): x is string => typeof x === "string")
           : undefined,
         deleteEndpoint: typeof s.deleteEndpoint === "string" ? s.deleteEndpoint : undefined,
+        updateEndpoint: typeof s.updateEndpoint === "string" ? s.updateEndpoint : undefined,
         checklist: Array.isArray(s.checklist)
           ? s.checklist.filter((item): item is string => typeof item === "string")
           : undefined,
