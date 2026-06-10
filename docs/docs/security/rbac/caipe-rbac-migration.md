@@ -165,11 +165,11 @@ Repeat the same pattern for:
 Production redirect URI examples:
 
 ```text
-https://grid.rbac.outshift.io/api/credentials/oauth/github/callback
-https://grid.rbac.outshift.io/api/credentials/oauth/atlassian/callback
-https://grid.rbac.outshift.io/api/credentials/oauth/webex/callback
-https://grid.rbac.outshift.io/api/credentials/oauth/pagerduty/callback
-https://grid.rbac.outshift.io/api/credentials/oauth/gitlab/callback
+https://grid.rbac.example.com/api/credentials/oauth/github/callback
+https://grid.rbac.example.com/api/credentials/oauth/atlassian/callback
+https://grid.rbac.example.com/api/credentials/oauth/webex/callback
+https://grid.rbac.example.com/api/credentials/oauth/pagerduty/callback
+https://grid.rbac.example.com/api/credentials/oauth/gitlab/callback
 ```
 
 ### 4. Share Agent Context HMAC Secret
@@ -220,7 +220,7 @@ rag-stack:
 
 ### 6. Move AgentGateway Ingress to Native Chart Values
 
-`caipe/rbac` currently creates `gateway.grid.rbac.outshift.io` through `extraDeploy` as a temporary workaround. The chart now exposes `agentgateway.ingress`.
+`caipe/rbac` currently creates `gateway.grid.rbac.example.com` through `extraDeploy` as a temporary workaround. The chart now exposes `agentgateway.ingress`.
 
 When the target chart version includes the ingress template, replace the custom `extraDeploy` Ingress with:
 
@@ -235,19 +235,19 @@ agentgateway:
       nginx.ingress.kubernetes.io/ssl-redirect: "true"
       nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
       nginx.ingress.kubernetes.io/enable-cors: "true"
-      nginx.ingress.kubernetes.io/cors-allow-origin: "https://grid.rbac.outshift.io"
+      nginx.ingress.kubernetes.io/cors-allow-origin: "https://grid.rbac.example.com"
       nginx.ingress.kubernetes.io/cors-allow-methods: "GET, POST, PUT, DELETE, OPTIONS"
       nginx.ingress.kubernetes.io/cors-allow-headers: "DNT,Keep-Alive,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization"
       nginx.ingress.kubernetes.io/cors-allow-credentials: "true"
     hosts:
-      - host: gateway.grid.rbac.outshift.io
+      - host: gateway.grid.rbac.example.com
         paths:
           - path: /
             pathType: Prefix
     tls:
       - secretName: gateway-grid-rbac-tls
         hosts:
-          - gateway.grid.rbac.outshift.io
+          - gateway.grid.rbac.example.com
 ```
 
 Remove only the old AgentGateway Ingress from `extraDeploy`; keep unrelated resources such as the OpenFGA datastore ExternalSecret and PostgreSQL resources.
@@ -316,7 +316,7 @@ kubectl -n caipe-rbac get deploy a-caipe-rbac-argoapp-dynamic-agents -o yaml \
 
 Finally, exercise the user-facing flows:
 
-- Log in through `https://grid.rbac.outshift.io`.
+- Log in through `https://grid.rbac.example.com`.
 - Open Admin -> ReBAC and confirm OpenFGA checks work.
 - Open Admin -> Connections and confirm OAuth connector rows exist.
 - Create or invoke a Dynamic Agent that uses a protected MCP server.

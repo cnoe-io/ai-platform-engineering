@@ -24,18 +24,18 @@ describe("getRequestOrigin", () => {
 
   describe("priority 1: NEXTAUTH_URL env var", () => {
     it("uses NEXTAUTH_URL when set, ignoring request and headers", () => {
-      process.env.NEXTAUTH_URL = "https://grid.outshift.io";
+      process.env.NEXTAUTH_URL = "https://grid.example.com";
       const req = makeRequest("http://0.0.0.0:3000/api/skills/install.sh", {
         "x-forwarded-proto": "https",
         "x-forwarded-host": "wrong-host.example.com",
       });
-      expect(getRequestOrigin(req)).toBe("https://grid.outshift.io");
+      expect(getRequestOrigin(req)).toBe("https://grid.example.com");
     });
 
     it("strips trailing path/slashes (origin only)", () => {
-      process.env.NEXTAUTH_URL = "https://grid.outshift.io/some/path";
+      process.env.NEXTAUTH_URL = "https://grid.example.com/some/path";
       const req = makeRequest("http://0.0.0.0:3000");
-      expect(getRequestOrigin(req)).toBe("https://grid.outshift.io");
+      expect(getRequestOrigin(req)).toBe("https://grid.example.com");
     });
 
     it("falls through when NEXTAUTH_URL is not http/https", () => {
@@ -68,9 +68,9 @@ describe("getRequestOrigin", () => {
     it("uses x-forwarded-proto + x-forwarded-host together", () => {
       const req = makeRequest("http://0.0.0.0:3000/api/skills/install.sh", {
         "x-forwarded-proto": "https",
-        "x-forwarded-host": "grid.outshift.io",
+        "x-forwarded-host": "grid.example.com",
       });
-      expect(getRequestOrigin(req)).toBe("https://grid.outshift.io");
+      expect(getRequestOrigin(req)).toBe("https://grid.example.com");
     });
 
     it("only honors the first value in a comma-separated chain", () => {

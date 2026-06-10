@@ -58,14 +58,12 @@ export function ProjectDetailView({ slug }: { slug: string }) {
       url: value,
     }));
 
-  // Navigable app tiles from the *_url integrations (Context Graph, Agent Mesh…).
-  const APP_LABELS: Record<string, string> = {
-    context_graph: "LLM Wiki",
-    agent_mesh: "Agent Mesh",
-    webex: "Collaboration Space",
-    pam: "Meeting Assistant",
-    catalogue: "Software Catalogue",
-  };
+  // Navigable app tiles from the *_url integrations. Labels are humanized from
+  // the integration key (e.g. `agent_mesh` → "Agent Mesh"); any product- or
+  // deployment-specific display names come from onboarding config, never
+  // hardcoded here.
+  const humanize = (slug: string): string =>
+    slug.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
   const appTiles = Object.entries(project.integrations ?? {})
     .filter(([key, value]) => key.endsWith("_url") && Boolean(value))
     .map(([key, value]) => {
@@ -73,7 +71,7 @@ export function ProjectDetailView({ slug }: { slug: string }) {
       const url = String(value);
       return {
         key,
-        label: APP_LABELS[slug] ?? slug.replace(/_/g, " "),
+        label: humanize(slug),
         url,
         external: /^https?:\/\//.test(url),
       };

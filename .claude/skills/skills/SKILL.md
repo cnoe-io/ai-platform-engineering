@@ -19,7 +19,7 @@ You **MUST** consider the user input before proceeding (if not empty).
 
 ## Outline
 
-Browse the [Outshift Grid](https://grid.outshift.io) skill catalog and optionally adopt a skill into this project.
+Browse the [Outshift Grid](https://grid.example.com) skill catalog and optionally adopt a skill into this project.
 
 1. **Resolve API key** by running `{SCRIPT}` which checks (in priority order):
    - `~/.config/grid/config.json`: `{"api_key": "<key>"}` (recommended)
@@ -48,7 +48,7 @@ Browse the [Outshift Grid](https://grid.outshift.io) skill catalog and optionall
    e. Add to `docs/plans/SKILLS.md` inventory table:
 
       ```markdown
-      | <skill-name> | [Outshift Grid](https://grid.outshift.io) | <version> | <today> | <description> |
+      | <skill-name> | [Outshift Grid](https://grid.example.com) | <version> | <today> | <description> |
       ```
 
    f. Confirm: "Skill `<name>` installed to `.specify/templates/commands/`, `.claude/skills/`, and `.agents/skills/`."

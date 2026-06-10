@@ -11,7 +11,7 @@ import httpx
 import ssl
 
 # Load environment variables
-API_URL = os.getenv("PETSTORE_API_URL", "https://petstore.outshift.io/")
+API_URL = os.getenv("PETSTORE_API_URL", "https://petstore.example.com/")
 API_TOKEN = os.getenv("PETSTORE_API_KEY") or os.getenv("PETSTORE_API_TOKEN")
 
 if not API_TOKEN:

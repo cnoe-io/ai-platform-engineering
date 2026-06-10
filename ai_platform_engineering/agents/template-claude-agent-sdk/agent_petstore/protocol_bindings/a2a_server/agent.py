@@ -40,7 +40,7 @@ class PetStoreAgent:
             if self.mcp_mode == "stdio":
                 self.mcp_api_url = "https://petstore.swagger.io/v2"
             else:
-                self.mcp_api_url = "https://petstore.outshift.io/mcp"
+                self.mcp_api_url = "https://petstore.example.com/mcp"
 
         self.client = None
 

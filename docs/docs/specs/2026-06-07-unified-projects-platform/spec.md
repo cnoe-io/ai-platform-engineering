@@ -3,13 +3,13 @@
 **Feature Branch**: `2026-06-07-unified-projects-platform`
 **Created**: 2026-06-07
 **Status**: Draft
-**Input**: User description: "Unified Projects platform — executive dashboard, label-based discovery (Domains / BHAGs / Initiatives / Swim Lanes), app tiles deep-linking to T3 / Context Graph / Agent Mesh / FinOps, and budget-aware onboarding; unify the two overlapping project models into one source of truth."
+**Input**: User description: "Unified Projects platform — executive dashboard, label-based discovery (Domains / BHAGs / Initiatives / Swim Lanes), app tiles deep-linking to external apps (configured per deployment), and budget-aware onboarding; unify the two overlapping project models into one source of truth."
 
 ## Overview
 
 Today the platform has **two overlapping representations of a "project"**: a rich project record (onboarding state, catalog sync, integration links) and a separate hierarchy of catalog entities (domain → sub-domain → system → component). Labels, dashboards, app tiles, and budgets all need a **single source of truth**. This feature unifies them, then layers on label-based discovery, an executive dashboard, per-project app tiles, and budget-aware onboarding.
 
-Standing up the Outshift Context Graph service locally and wiring it to the edge deployment is **explicitly out of scope** here (separate infrastructure spec); this feature only needs a deep-link target for the Context Graph tile.
+Standing up any specific external app and wiring it to the deployment is **explicitly out of scope** here; this feature only needs a deep-link target for each app tile.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -47,7 +47,7 @@ An executive opens a dashboard that rolls the project portfolio up by label dime
 
 ### User Story 3 - App tiles on the project view (Priority: P2)
 
-From a project's detail page, a member sees tiles for the apps relevant to that project — **T3**, **Outshift Context Graph**, **Agent Mesh**, **FinOps** — and clicking a tile opens that app in the correct context for the project.
+From a project's detail page, a member sees tiles for the apps relevant to that project — external apps (configured per deployment) — and clicking a tile opens that app in the correct context for the project.
 
 **Why this priority**: Turns the project page into a launchpad, but depends on a project existing and being discoverable (US1) first.
 
@@ -125,7 +125,7 @@ An administrator runs a one-time reconciliation so existing project records and 
 - **FR-012**: Users MUST be able to drill down from any dashboard segment to the filtered project list for that segment.
 
 #### App tiles
-- **FR-013**: System MUST render, on a project's detail view, a tile per enabled app from a configurable registry (initially T3, Outshift Context Graph, Agent Mesh, FinOps).
+- **FR-013**: System MUST render, on a project's detail view, a tile per enabled app from a configurable registry (initially external apps (configured per deployment)).
 - **FR-014**: System MUST build each tile's link from a per-app template parameterized by the project's identifying context (e.g. slug and/or labels).
 - **FR-015**: System MUST hide tiles for apps that are disabled or whose link cannot be resolved for the project.
 
@@ -133,7 +133,7 @@ An administrator runs a one-time reconciliation so existing project records and 
 - **FR-016**: System MUST capture, during onboarding, a budget allocation and alert thresholds for the project.
 - **FR-017**: System MUST persist onboarding state and budget data in a dedicated store separate from the canonical project record.
 - **FR-018**: System MUST provide a dedicated budget view showing allocation, consumption, remaining, and threshold status per project.
-- **FR-019**: System MUST source budget consumption through a **pluggable consumption interface** with two providers: a **manual provider** (consumption entered/managed in-app), active this phase, and a **FinOps-feed provider** (stub/contract only this phase) that a future infrastructure effort can implement. The budget view and dashboard MUST be agnostic to which provider supplies the numbers. (Standing up the FinOps service itself remains out of scope.)
+- **FR-019**: System MUST source budget consumption through a **pluggable consumption interface** with two providers: a **manual provider** (consumption entered/managed in-app), active this phase, and a **external-feed provider** (stub/contract only this phase) that a future infrastructure effort can implement. The budget view and dashboard MUST be agnostic to which provider supplies the numbers. (Standing up the external cost service itself remains out of scope.)
 - **FR-020**: System MUST retain partially entered onboarding/budget input so a failed or abandoned onboarding can resume.
 
 #### Access & consistency
@@ -156,7 +156,7 @@ An administrator runs a one-time reconciliation so existing project records and 
 - **SC-001**: A user can find all projects matching a multi-label filter (e.g. one Domain + one Initiative) in under 5 seconds, with 100% precision against the labelled data set.
 - **SC-002**: The executive dashboard's per-dimension counts and budget-health flags reconcile to the underlying records with zero discrepancies.
 - **SC-003**: After reconciliation, 100% of legacy project and catalog records are represented as canonical projects with no data loss and no duplicates.
-- **SC-004**: From a project page, a user reaches the correct in-context app (T3 / Context Graph / Agent Mesh / FinOps) in one click, for every enabled, resolvable tile.
+- **SC-004**: From a project page, a user reaches the correct in-context app (external apps (configured per deployment)) in one click, for every enabled, resolvable tile.
 - **SC-005**: An owner can complete budget-aware onboarding (allocation + thresholds) for a new project in under 3 minutes.
 - **SC-006**: Every budget shows an unambiguous health state (on-track / at-risk / over / unbudgeted / unknown) with no project mis-flagged as "over" when it is merely unbudgeted or stale.
 
@@ -167,11 +167,11 @@ An administrator runs a one-time reconciliation so existing project records and 
 - Existing platform conventions are reused: project APIs under the projects namespace, the standard data store and response envelope, and the existing authentication/authorization model (reads authenticated, writes org-admin).
 - The dedicated onboarding/budget store is a new collection; budgets are 1:1 with a canonical project.
 - App-tile destinations are URLs/deep-links only; this spec does not run or deploy any of those apps.
-- **Resolved decisions** (from clarification): `domain` is both structural and a denormalized label (FR-008); BHAG/Initiative and Swim Lane labels are free-form with normalized grouping (FR-009); budget consumption uses a pluggable interface with a manual provider now and a FinOps-feed provider stub for later (FR-019).
+- **Resolved decisions** (from clarification): `domain` is both structural and a denormalized label (FR-008); BHAG/Initiative and Swim Lane labels are free-form with normalized grouping (FR-009); budget consumption uses a pluggable interface with a manual provider now and a external-feed provider stub for later (FR-019).
 
 ## Out of Scope
 
-- Standing up Outshift Context Graph locally and wiring it to the edge deployment (`platform-apps-deployment` / caipe edge) — separate infrastructure spec. Here, the Context Graph tile needs only a deep-link target.
-- Building or operating T3, Agent Mesh, or FinOps services; this feature only links to them.
+- Standing up any specific external app and wiring it to the deployment is a separate effort. Here, each app tile needs only a deep-link target supplied by deployment config.
+- Building or operating the external apps themselves; this feature only links to them.
 - Real-time cost metering infrastructure (unless FR-019 is clarified toward an external feed, in which case only the *consumption interface* is in scope, not the metering system).
 - Writing back to any external Backstage/Git source of truth.

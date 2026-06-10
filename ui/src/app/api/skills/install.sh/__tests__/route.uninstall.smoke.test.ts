@@ -115,7 +115,7 @@ describe("GET /api/skills/install.sh — mode=uninstall bash syntax smoke", () =
       mkdirSync(join(home, ".claude", "hooks"), { recursive: true });
       mkdirSync(join(home, ".config", "caipe"), { recursive: true });
       writeFileSync(hookPath, "#!/usr/bin/env bash\n");
-      writeFileSync(configPath, '{"base_url":"https://grid.outshift.io"}\n');
+      writeFileSync(configPath, '{"base_url":"https://grid.example.com"}\n');
       writeFileSync(
         settingsPath,
         JSON.stringify(

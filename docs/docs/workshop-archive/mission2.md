@@ -89,7 +89,7 @@ You can run the petstore agent in two different MCP (Model Control Protocol) mod
 
 ### 3.1: Using Remote MCP Streamable HTTP Mode
 
-HTTP mode enables network-based communication with remote MCP servers, useful for production deployments or when the MCP server is running separately. In this mode, the agent connects to a separately hosted internal MCP server running at https://petstore.outshift.io/mcp, which then handles the Petstore API operations.
+HTTP mode enables network-based communication with remote MCP servers, useful for production deployments or when the MCP server is running separately. In this mode, the agent connects to a separately hosted internal MCP server running at https://petstore.example.com/mcp, which then handles the Petstore API operations.
 
 **3.1.1: Set the Petstore API key**
 
@@ -107,7 +107,7 @@ IMAGE_TAG=latest MCP_MODE=http docker compose -f workshop/docker-compose.mission
 **What happens:**
 
 - ⏬ Downloads petstore agent image with the latest tag from the registry
-- 🌐 Connects to remote MCP server via HTTP/streaming mode at https://petstore.outshift.io/mcp
+- 🌐 Connects to remote MCP server via HTTP/streaming mode at https://petstore.example.com/mcp
 - 🌐 Exposes agent on `http://localhost:8000`
 - 📋 Shows logs directly in terminal
 - 🚀 **Advantage**: Supports remote MCP servers, useful for production deployments, better separation of concerns

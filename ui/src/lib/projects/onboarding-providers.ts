@@ -1,26 +1,22 @@
-// assisted-by Cursor Composer
+// assisted-by claude code claude-opus-4-8
 
 import type { OnboardingStepState, ProjectDocument } from "@/types/projects";
 import {
   getConfiguredStepOrder,
   loadProjectOnboardingConfig,
+  type ProjectOnboardingStepConfig,
 } from "@/lib/projects/onboarding-config";
 
-export interface MockProvisionResult {
+export interface ProvisionResult {
   mock_ref: string;
   integrations: Record<string, string>;
   status_message: string;
 }
 
-const STEP_DELAY_MS = 1200;
+/** @deprecated kept for backwards compatibility; use {@link ProvisionResult}. */
+export type MockProvisionResult = ProvisionResult;
 
-const MOCK_STATUS: Record<string, string> = {
-  catalogue: "Registered project in Backstage catalogue with RBAC and attribution",
-  wiki: "LLM Wiki space created and linked to project context",
-  webex: "Collaboration space provisioned and team invited",
-  pam: "Meeting assistant connected for notes and follow-ups",
-  agent_mesh: "AI teammate mesh provisioned and ready",
-};
+const STEP_DELAY_MS = 1200;
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -30,58 +26,82 @@ async function provisionMockStep(
   stepId: string,
   project: ProjectDocument,
   stepTitle?: string,
-): Promise<MockProvisionResult> {
+): Promise<ProvisionResult> {
   await delay(STEP_DELAY_MS);
   const label = stepTitle ?? stepId;
   return {
     mock_ref: `${stepId}-${project.slug}-${Date.now()}`,
     integrations: {
       [`${stepId}_ref`]: `${stepId}-${project.slug}`,
-      [`${stepId}_url`]: `https://example.outshift.io/${project.slug}/${stepId}`,
+      [`${stepId}_url`]: `https://example.com/${project.slug}/${stepId}`,
     },
-    status_message:
-      MOCK_STATUS[stepId] ?? `${label} provisioned successfully (mock)`,
+    status_message: `${label} provisioned successfully (mock)`,
   };
 }
 
 /**
- * Create the project in Outshift Context Graph (tiny-teams-with-tokens) on
- * onboarding. Posts as the project owner via the `x-caipe-user` identity hint
- * so the new project is owned by them and appears in their /apps/ttt list.
+ * Interpolate `${ENV_VAR}` references in a config string from the process
+ * environment. Lets deployment config keep hostnames/endpoints out of the
+ * repo, e.g. `endpoint: "${MY_BACKEND_URL}/api/projects"`.
  */
-async function provisionContextGraph(
+function interpolateEnv(value: string): string {
+  return value.replace(/\$\{([A-Z0-9_]+)\}/g, (_m, name) => process.env[name] ?? "");
+}
+
+/**
+ * Generic HTTP onboarding provider.
+ *
+ * POSTs the project to an external system at the step-configured `endpoint`,
+ * forwarding the CAIPE-authenticated actor identity via `x-caipe-user` /
+ * `x-caipe-roles` so the remote resource is owned by the real user. The target
+ * system, endpoint, and resulting deep-link (`appUrl`) all come from
+ * deployment config — nothing about any specific external product lives here.
+ */
+async function provisionViaHttp(
+  step: ProjectOnboardingStepConfig,
   project: ProjectDocument,
   actorSubject?: string,
-): Promise<MockProvisionResult> {
-  const base =
-    process.env.CONTEXT_GRAPH_BACKEND_URL ||
-    "http://outshift-context-graph-backend:8765";
-  // Use the same identity key the proxy forwards as x-caipe-user (the actor's
-  // session subject); fall back to owner email only if unavailable.
-  const owner = (actorSubject || project.owner_id || "").trim();
-  const res = await fetch(`${base}/api/projects`, {
+): Promise<ProvisionResult> {
+  const rawEndpoint = (step.endpoint ?? "").trim();
+  if (!rawEndpoint) {
+    throw new Error(
+      `Onboarding step "${step.id}" uses provider "http" but has no endpoint configured`,
+    );
+  }
+  const endpoint = interpolateEnv(rawEndpoint);
+  if (!/^https?:\/\//.test(endpoint)) {
+    throw new Error(
+      `Onboarding step "${step.id}" endpoint did not resolve to an http(s) URL`,
+    );
+  }
+
+  const actor = (actorSubject || project.owner_id || "").trim();
+  const res = await fetch(endpoint, {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-caipe-user": owner,
+      "x-caipe-user": actor,
       "x-caipe-roles": "user",
     },
-    body: JSON.stringify({ name: project.name }),
+    body: JSON.stringify({ name: project.name, slug: project.slug }),
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(
-      `Context Graph create failed: ${res.status} ${text.slice(0, 200)}`,
+      `${step.title} provisioning failed: ${res.status} ${text.slice(0, 200)}`,
     );
   }
   const created = (await res.json().catch(() => ({}))) as { id?: string };
+  const integrations: Record<string, string> = {
+    [`${step.id}_id`]: String(created.id ?? ""),
+  };
+  if (step.appUrl) {
+    integrations[`${step.id}_url`] = interpolateEnv(step.appUrl);
+  }
   return {
-    mock_ref: `context-graph-${created.id ?? project.slug}`,
-    integrations: {
-      context_graph_id: String(created.id ?? ""),
-      context_graph_url: "/apps/ttt",
-    },
-    status_message: "Project created in Outshift Context Graph",
+    mock_ref: `${step.id}-${created.id ?? project.slug}`,
+    integrations,
+    status_message: `${step.title} provisioned`,
   };
 }
 
@@ -93,7 +113,7 @@ export async function runOnboardingStep(
   stepId: string,
   project: ProjectDocument,
   actorSubject?: string,
-): Promise<MockProvisionResult> {
+): Promise<ProvisionResult> {
   const config = loadProjectOnboardingConfig();
   const step = config.steps.find((entry) => entry.id === stepId);
   if (!step) {
@@ -104,8 +124,8 @@ export async function runOnboardingStep(
     return provisionMockStep(stepId, project, step.title);
   }
 
-  if (step.provider === "context-graph") {
-    return provisionContextGraph(project, actorSubject);
+  if (step.provider === "http") {
+    return provisionViaHttp(step, project, actorSubject);
   }
 
   return {

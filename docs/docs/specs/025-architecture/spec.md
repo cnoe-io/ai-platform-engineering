@@ -41,8 +41,8 @@ flowchart LR
   %% MCP / External Services
   subgraph MCP[MCP Servers / External HTTP]
     MSL[mcp-slack]
-    WXS[weather.outshift.io - MCP over HTTPS:443]
-    PSS[petstore.outshift.io - MCP over HTTPS:443]
+    WXS[weather.example.com - MCP over HTTPS:443]
+    PSS[petstore.example.com - MCP over HTTPS:443]
   end
 
   %% RAG Services

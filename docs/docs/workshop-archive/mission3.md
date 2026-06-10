@@ -62,9 +62,9 @@ For this mission, we will use the HTTP mode. You can also try out the STDIO mode
 
 HTTP mode will connect petstore and weather agents to connect with their respective remote MCP servers that are hosted by Outshift at:
 
-* `https://petstore.outshift.io/mcp`: mcp server containing data for the available pet companions from Earth
+* `https://petstore.example.com/mcp`: mcp server containing data for the available pet companions from Earth
 
-* `https://weather.outshift.io/mcp`: mcp server that can retrieve real weather data for Earth using the Open-Meteo API as well as mock weather data for Mars
+* `https://weather.example.com/mcp`: mcp server that can retrieve real weather data for Earth using the Open-Meteo API as well as mock weather data for Mars
 
 ```bash
 IMAGE_TAG=latest MCP_MODE=http docker compose -f workshop/docker-compose.mission3.yaml --profile=p2p up
