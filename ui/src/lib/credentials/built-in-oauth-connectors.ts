@@ -30,6 +30,11 @@ export const BUILT_IN_OAUTH_CONNECTORS: BuiltInOAuthConnectorDescriptor[] = [
       "write:jira-work",
       "read:confluence-content.all",
       "write:confluence-content",
+      // Required to list Confluence spaces (GET /wiki/rest/api/space) for the
+      // onboarding space picker; without it that call 403s and returns nothing.
+      "read:confluence-space.summary",
+      "read:confluence-content.summary",
+      "search:confluence",
     ],
   },
   {
