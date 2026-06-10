@@ -49,6 +49,49 @@ async function githubRepos(token: string, q: string): Promise<SourceOption[]> {
     .map((r) => ({ value: r.html_url as string, label: r.full_name as string }));
 }
 
+function spaceOption(siteUrl: string, key: string, name?: string): SourceOption {
+  return {
+    value: `${siteUrl.replace(/\/$/, "")}/wiki/spaces/${key}`,
+    label: `${name || key} (${key})`,
+  };
+}
+
+/** List spaces for one Confluence site. Primary: GET /wiki/rest/api/space
+ * (needs read:confluence-space.summary). Fallback: CQL search type=space
+ * (needs search:confluence) so it still works if the space scope is missing. */
+async function spacesForSite(token: string, siteId: string, siteUrl: string): Promise<SourceOption[]> {
+  const headers = { Authorization: `Bearer ${token}`, Accept: "application/json" };
+  const base = `https://api.atlassian.com/ex/confluence/${siteId}/wiki`;
+
+  const spacesRes = await fetch(`${base}/rest/api/space?limit=100`, { headers });
+  if (spacesRes.ok) {
+    const body = (await spacesRes.json().catch(() => ({}))) as {
+      results?: Array<{ key?: string; name?: string }>;
+    };
+    const out = (body.results ?? [])
+      .filter((s) => s.key)
+      .map((s) => spaceOption(siteUrl, s.key as string, s.name));
+    if (out.length) return out;
+  }
+
+  // Fallback: CQL search for spaces (works under search:confluence).
+  const searchRes = await fetch(
+    `${base}/rest/api/search?cql=${encodeURIComponent("type=space")}&limit=100`,
+    { headers },
+  );
+  if (!searchRes.ok) return [];
+  const sbody = (await searchRes.json().catch(() => ({}))) as {
+    results?: Array<{ title?: string; space?: { key?: string; name?: string } }>;
+  };
+  const out: SourceOption[] = [];
+  for (const r of sbody.results ?? []) {
+    const key = r.space?.key;
+    if (!key) continue;
+    out.push(spaceOption(siteUrl, key, r.space?.name || r.title));
+  }
+  return out;
+}
+
 async function atlassianSpaces(token: string): Promise<SourceOption[]> {
   const resourcesRes = await fetch(
     "https://api.atlassian.com/oauth/token/accessible-resources",
@@ -63,21 +106,7 @@ async function atlassianSpaces(token: string): Promise<SourceOption[]> {
   // Bound to the first few sites to keep the call fast.
   for (const site of resources.slice(0, 3)) {
     if (!site.id || !site.url) continue;
-    const spacesRes = await fetch(
-      `https://api.atlassian.com/ex/confluence/${site.id}/wiki/rest/api/space?limit=100`,
-      { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } },
-    );
-    if (!spacesRes.ok) continue;
-    const body = (await spacesRes.json().catch(() => ({}))) as {
-      results?: Array<{ key?: string; name?: string }>;
-    };
-    for (const space of body.results ?? []) {
-      if (!space.key) continue;
-      out.push({
-        value: `${site.url.replace(/\/$/, "")}/wiki/spaces/${space.key}`,
-        label: `${space.name ?? space.key} (${space.key})`,
-      });
-    }
+    out.push(...(await spacesForSite(token, site.id, site.url)));
   }
   return out;
 }
