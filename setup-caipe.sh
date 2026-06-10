@@ -2087,8 +2087,8 @@ choose_features() {
       log "RAG skipped (pass --rag to enable)"
     fi
     $ENABLE_TRACING && log "Tracing enabled (--tracing)" || log "Tracing skipped (pass --tracing to enable)"
-    $ENABLE_AGENTGATEWAY && log "AgentGateway enabled (default; pass --no-agentgateway to skip)" || log "AgentGateway disabled (--no-agentgateway)"
-    $ENABLE_RBAC_RUNTIME && log "RBAC runtime enabled (default; pass --no-rbac-runtime to skip)" || log "RBAC runtime disabled (--no-rbac-runtime)"
+    log "AgentGateway enabled (required)"
+    log "RBAC runtime enabled (required — Keycloak + OpenFGA)"
     $ENABLE_PERSISTENCE && log "Redis persistence enabled (default; pass --no-persistence to skip)" || log "Persistence disabled (--no-persistence)"
     $ENABLE_DYNAMIC_AGENTS && log "Dynamic agents enabled (default; pass --no-dynamic-agents to skip)" || log "Dynamic agents disabled (--no-dynamic-agents)"
     $ENABLE_METALLB && log "MetalLB enabled (default; pass --no-metallb to skip)" || log "MetalLB disabled (--no-metallb)"
@@ -2671,43 +2671,12 @@ choose_features() {
     fi
   fi
 
-  echo ""
-  echo -e "  ${DIM}AgentGateway federates all MCP servers behind a single endpoint,${NC}"
-  echo -e "  ${DIM}allowing MCP clients (Cursor, VS Code, Claude Code) to connect once.${NC}"
-  if $ENABLE_AGENTGATEWAY; then
-    log "AgentGateway enabled by default (federates MCP servers)"
-    if ! ask_yn "Keep AgentGateway?" "y"; then
-      ENABLE_AGENTGATEWAY=false
-      log "AgentGateway disabled"
-    fi
-  else
-    if ask_yn "Enable AgentGateway for MCP server access?" "y"; then
-      ENABLE_AGENTGATEWAY=true
-      log "AgentGateway enabled"
-    else
-      log "AgentGateway skipped"
-    fi
-  fi
-
-  echo ""
-  echo -e "  ${DIM}RBAC runtime installs the in-chart Keycloak, OpenFGA, OpenFGA ext_authz bridge,${NC}"
-  echo -e "  ${DIM}and standalone AgentGateway proxy added for the 0.5.0 RBAC release.${NC}"
-  if $ENABLE_RBAC_RUNTIME; then
-    log "RBAC runtime enabled by default (Keycloak + OpenFGA + ext_authz)"
-    ENABLE_AGENTGATEWAY=true
-    if ! ask_yn "Keep RBAC runtime?" "y"; then
-      ENABLE_RBAC_RUNTIME=false
-      log "RBAC runtime disabled"
-    fi
-  else
-    if ask_yn "Enable RBAC runtime services?" "y"; then
-      ENABLE_RBAC_RUNTIME=true
-      ENABLE_AGENTGATEWAY=true
-      log "RBAC runtime enabled"
-    else
-      log "RBAC runtime skipped"
-    fi
-  fi
+  # AgentGateway, Keycloak, and OpenFGA are required components in 0.5.10+.
+  # They are always enabled; the flags remain so env-var overrides still work.
+  ENABLE_AGENTGATEWAY=true
+  ENABLE_RBAC_RUNTIME=true
+  log "AgentGateway enabled (required — federates MCP servers)"
+  log "RBAC runtime enabled (required — Keycloak + OpenFGA + ext_authz)"
 
   echo ""
   echo -e "  ${DIM}Redis persistence stores conversation checkpoints and cross-thread memory${NC}"
