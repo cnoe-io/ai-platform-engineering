@@ -28,6 +28,22 @@ export interface ProjectOnboardingStepConfig {
   /** http provider: deep-link recorded as `<id>_url`; supports `${ENV_VAR}`. */
   appUrl?: string;
   /**
+   * http provider: provider connection keys (e.g. `github`, `atlassian`) whose
+   * access token, for the signed-in actor, should be forwarded to the target
+   * system in the POST body under `credentials.<provider>`. Lets the external
+   * app act with the user's own creds (from the Connections tab) instead of a
+   * shared service token. Tokens are sent only when the user has that
+   * connection; nothing provider-specific is hardcoded here.
+   */
+  forwardCredentials?: string[];
+  /**
+   * http provider: DELETE endpoint for cascading project deletion. When the
+   * CAIPE project is deleted, this URL is called so the external resource is
+   * removed too. Supports `${ENV_VAR}` and `${id}` (the id this step recorded as
+   * `<id>_id` at create time). Omit to leave external resources in place.
+   */
+  deleteEndpoint?: string;
+  /**
    * http provider: request body template. Values may reference project fields
    * via `${project.<field>}` (e.g. `name`, `description`, `repos`,
    * `integrations`, `labels`). A value that is exactly `${project.<field>}`
@@ -117,6 +133,10 @@ function normalizeConfig(raw: unknown): ProjectOnboardingConfig {
           s.body && typeof s.body === "object" && !Array.isArray(s.body)
             ? (s.body as Record<string, unknown>)
             : undefined,
+        forwardCredentials: Array.isArray(s.forwardCredentials)
+          ? s.forwardCredentials.filter((x): x is string => typeof x === "string")
+          : undefined,
+        deleteEndpoint: typeof s.deleteEndpoint === "string" ? s.deleteEndpoint : undefined,
         checklist: Array.isArray(s.checklist)
           ? s.checklist.filter((item): item is string => typeof item === "string")
           : undefined,

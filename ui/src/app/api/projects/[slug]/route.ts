@@ -9,6 +9,7 @@ import {
   withErrorHandler,
 } from "@/lib/api-middleware";
 import { projectCatalogBundleYaml } from "@/lib/projects/backstage-catalog";
+import { runOnboardingDeletes } from "@/lib/projects/onboarding-providers";
 import { canManageProjectsOrganization } from "@/lib/projects/project-admin";
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import type { ProjectDocument } from "@/types/projects";
@@ -39,8 +40,8 @@ export const GET = withErrorHandler(
 );
 
 // DELETE a project. Allowed for the project owner or a projects-org admin.
-// Removes the CAIPE record only — external resources (e.g. a connected wiki space)
-// are not deleted here.
+// Cascades to external resources for onboarding steps configured with a
+// `deleteEndpoint` (best-effort) before removing the CAIPE record.
 export const DELETE = withErrorHandler(
   async (request: NextRequest, context: { params: Promise<{ slug: string }> }) => {
     if (!isMongoDBConfigured) {
@@ -66,7 +67,12 @@ export const DELETE = withErrorHandler(
       );
     }
 
+    // Cascade external deletions first (best-effort; never blocks the local
+    // delete). Uses the OIDC sub so the external system authorizes the actor.
+    const sub = (session as { sub?: string } | undefined)?.sub;
+    const externalDeletes = await runOnboardingDeletes(project, sub);
+
     await projects.deleteOne({ _id: project._id });
-    return successResponse({ deleted: true, slug });
+    return successResponse({ deleted: true, slug, external: externalDeletes });
   },
 );

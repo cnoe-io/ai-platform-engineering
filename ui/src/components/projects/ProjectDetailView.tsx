@@ -37,7 +37,7 @@ export function ProjectDetailView({ slug }: { slug: string }) {
     if (!project) return;
     if (
       !window.confirm(
-        `Delete project "${project.title}"? This removes it from CAIPE (connected external apps are not deleted).`,
+        `Delete project "${project.title}"? This removes it from CAIPE and, where configured, the connected external apps (e.g. its wiki space).`,
       )
     ) {
       return;
