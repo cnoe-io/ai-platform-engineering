@@ -43,7 +43,9 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   let project: ProjectDocument | null = null;
 
   if (ObjectId.isValid(body.project_id)) {
-    project = await projects.findOne({ _id: new ObjectId(body.project_id) });
+    project = await projects.findOne({
+      _id: new ObjectId(body.project_id) as unknown as string,
+    });
   }
   if (!project) {
     project = await projects.findOne({ slug: body.project_id });
