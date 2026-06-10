@@ -200,21 +200,14 @@ export function ProjectOnboardingWizard({
     }, 300);
   }, []);
 
-  // Apply a chosen Backstage System to the create form (non-destructive: only
-  // fills blanks / appends so the user can still hand-edit afterwards).
+  // Apply a chosen Backstage System to the create form. Picking a system always
+  // overwrites the prefilled fields so the user can switch selections and the
+  // form reflects the latest pick (fields stay hand-editable afterwards).
   const applyBackstageResult = useCallback((r: BackstageResult) => {
-    setProjectName((cur) => cur.trim() || r.title);
-    setDescription((cur) => cur.trim() || r.description);
-    if (r.tags.length) {
-      setInitiativesRaw((cur) =>
-        cur.trim() ? cur : r.tags.join(", "),
-      );
-    }
-    if (r.repos.length) {
-      setGithubReposRaw((cur) =>
-        cur.trim() ? cur : r.repos.join(", "),
-      );
-    }
+    setProjectName(r.title);
+    setDescription(r.description);
+    setInitiativesRaw(r.tags.join(", "));
+    setGithubReposRaw(r.repos.join(", "));
     setBsOpen(false);
   }, []);
 
