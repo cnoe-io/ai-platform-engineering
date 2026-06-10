@@ -118,6 +118,10 @@ export function ProjectOnboardingWizard({
   const [githubReposRaw, setGithubReposRaw] = useState("");
   const [confluenceUrl, setConfluenceUrl] = useState("");
   const [componentUrlsRaw, setComponentUrlsRaw] = useState("");
+  // Live source options from the user's provider connections (Connections tab).
+  type SourceState = { connected: boolean; options: { value: string; label: string }[] };
+  const [ghSources, setGhSources] = useState<SourceState>({ connected: false, options: [] });
+  const [cfSources, setCfSources] = useState<SourceState>({ connected: false, options: [] });
   const [teams, setTeams] = useState<TeamPickerOption[]>([]);
   const [project, setProject] = useState<ProjectDocument | null>(null);
   const [provisioning, setProvisioning] = useState(false);
@@ -139,6 +143,29 @@ export function ProjectOnboardingWizard({
   const currentStepFailed =
     project?.onboarding?.[phase.id]?.status === "failed" ||
     currentStepRun?.phase === "failed";
+
+  useEffect(() => {
+    if (!open) return;
+    // Live source dropdowns from the user's connections (Connections tab).
+    (
+      [
+        ["github", setGhSources],
+        ["atlassian", setCfSources],
+      ] as const
+    ).forEach(([provider, setter]) => {
+      fetch(`/api/projects/source-options?provider=${provider}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((b) => {
+          const data = b?.data ?? b;
+          if (!data) return;
+          setter({
+            connected: Boolean(data.connected),
+            options: Array.isArray(data.options) ? data.options : [],
+          });
+        })
+        .catch(() => undefined);
+    });
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -554,23 +581,41 @@ export function ProjectOnboardingWizard({
                     </label>
                     <label className="block space-y-1.5">
                       <span className="text-sm font-medium">GitHub repos</span>
-                      <textarea
+                      <input
+                        list="gh-repo-options"
                         value={githubReposRaw}
                         onChange={(e) => setGithubReposRaw(e.target.value)}
-                        rows={2}
                         placeholder="https://github.com/org/repo, https://github.com/org/another"
                         className="w-full rounded-xl border border-border/60 bg-muted/30 px-4 py-2.5 text-sm outline-none ring-primary/30 focus:border-primary focus:ring-2"
                       />
-                      <span className="text-xs text-muted-foreground">Comma- or newline-separated. Shared with LLM Wiki to ingest.</span>
+                      <datalist id="gh-repo-options">
+                        {ghSources.options.map((o) => (
+                          <option key={o.value} value={o.value}>{o.label}</option>
+                        ))}
+                      </datalist>
+                      {ghSources.connected ? (
+                        <span className="text-xs text-muted-foreground">
+                          Pick from your connected repos (type to filter) — comma-separated for multiple.
+                        </span>
+                      ) : (
+                        <AuthorizePrompt provider="GitHub" />
+                      )}
                     </label>
                     <label className="block space-y-1.5">
                       <span className="text-sm font-medium">Confluence space URL</span>
                       <input
+                        list="cf-space-options"
                         value={confluenceUrl}
                         onChange={(e) => setConfluenceUrl(e.target.value)}
                         placeholder="https://your.atlassian.net/wiki/spaces/PROJ"
                         className="w-full rounded-xl border border-border/60 bg-muted/30 px-4 py-2.5 text-sm outline-none ring-primary/30 focus:border-primary focus:ring-2"
                       />
+                      <datalist id="cf-space-options">
+                        {cfSources.options.map((o) => (
+                          <option key={o.value} value={o.value}>{o.label}</option>
+                        ))}
+                      </datalist>
+                      {!cfSources.connected ? <AuthorizePrompt provider="Confluence" /> : null}
                     </label>
                     <label className="block space-y-1.5">
                       <span className="text-sm font-medium">Component / software URLs</span>
@@ -757,5 +802,27 @@ function ProvisioningCard({
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * Inline prompt shown when the user hasn't connected a provider — links to the
+ * Connections tab to authorize, so the source dropdown can populate. The field
+ * still accepts free-text in the meantime.
+ */
+function AuthorizePrompt({ provider }: { provider: string }) {
+  return (
+    <span className="flex items-center gap-1.5 text-xs text-amber-500">
+      <span>Not connected.</span>
+      <a
+        href="/credentials"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="font-medium underline underline-offset-2 hover:text-amber-400"
+      >
+        Authorize {provider}
+      </a>
+      <span className="text-muted-foreground">to pick from your account, or paste a URL.</span>
+    </span>
   );
 }
