@@ -19,6 +19,31 @@ charts/                    # Helm charts
 
 Each component has its own environment variables - see `env.example` in `ui/` and READMEs in `ai_platform_engineering/knowledge_bases/rag/`.
 
+## Open-Source Boundary — No Proprietary Integrations in Code
+
+This is a **public open-source repo**. Never hardcode proprietary,
+internal-only, or deployment-specific integrations here — including any
+vendor/company-internal product names, service hostnames, endpoints, image
+references, or display labels. That applies to code, configs, comments, tests,
+docs, **and PR titles/descriptions**.
+
+Instead, keep such integrations **pluggable via configuration**:
+
+- **Onboarding/provisioning**: use the generic `http` provider in
+  `ui/src/lib/projects/onboarding-providers.ts`. The target system, endpoint,
+  and deep-link come from the onboarding YAML
+  (`PROJECTS_ONBOARDING_CONFIG_PATH`) and may reference `${ENV_VAR}` — so the
+  actual host/product stays in a **private deployment overlay**, never in this
+  repo. The default `config/projects-onboarding.yaml` ships with **no** steps;
+  see `config/projects-onboarding.example.yaml` for the generic pattern.
+- **App tiles / nav labels**: derive display names generically (humanize the
+  key) or from config — do not hardcode product names in components.
+- **New integrations**: add a generic, config-driven seam in this repo; put the
+  concrete wiring (names, URLs, secrets) in the private deployment overlay.
+
+If you're unsure whether something is internal/proprietary, treat it as
+internal and make it config-driven.
+
 ## Documentation
 
 - **Architecture & concepts** - Keep updated in `docs/`

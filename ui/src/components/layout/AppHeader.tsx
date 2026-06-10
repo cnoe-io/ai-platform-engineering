@@ -449,7 +449,7 @@ export function AppHeader() {
   const hasMigrationBanner = adminAlerts.length > 0;
   // Pinned agentic apps: any installed app whose manifest sets
   // surfaces.showInTopNav renders as a top-nav tab (sorted by navOrder by the
-  // API). Lets admins promote apps like Outshift Context Graph into the nav.
+  // API). Lets admins promote installed agentic apps into the nav.
   const [pinnedAppNavItems, setPinnedAppNavItems] = React.useState<
     Array<{
       key: string;
