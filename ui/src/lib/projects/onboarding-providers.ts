@@ -210,6 +210,28 @@ async function provisionViaHttp(
   };
 }
 
+/**
+ * Link provider: no backend call — just records an app-tile deep link for a
+ * first-party/in-process app (e.g. Agentic SDLC at `/apps/agentic-sdlc`). The
+ * label comes from the step title; the URL from `appUrl` (`${ENV_VAR}` allowed).
+ */
+function provisionLink(
+  step: ProjectOnboardingStepConfig,
+  project: ProjectDocument,
+): ProvisionResult {
+  const integrations: Record<string, string> = {
+    [`${step.id}_label`]: step.title,
+  };
+  if (step.appUrl) {
+    integrations[`${step.id}_url`] = interpolateEnv(step.appUrl);
+  }
+  return {
+    mock_ref: `link-${step.id}-${project.slug}`,
+    integrations,
+    status_message: `${step.title} linked`,
+  };
+}
+
 export function getOnboardingStepOrder(): string[] {
   return getConfiguredStepOrder();
 }
@@ -231,6 +253,10 @@ export async function runOnboardingStep(
 
   if (step.provider === "http") {
     return provisionViaHttp(step, project, actorSubject);
+  }
+
+  if (step.provider === "link") {
+    return provisionLink(step, project);
   }
 
   return {

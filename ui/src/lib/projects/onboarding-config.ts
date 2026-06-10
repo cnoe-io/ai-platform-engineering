@@ -15,12 +15,14 @@ export interface ProjectOnboardingStepConfig {
    * Provider that fulfills this step:
    *  - `mock`: simulated (local/dev demos)
    *  - `http`: POST the project to an external system at `endpoint`
+   *  - `link`: no backend call — just record an app-tile deep link (`appUrl`)
+   *    for a first-party/in-process app (e.g. an in-app feature route)
    *  - `none`/unset: no-op (skipped)
    * The external system is named/located entirely via `endpoint`/`appUrl`
    * (which may reference `${ENV_VAR}`), so no product-specific provider is
    * hardcoded in this repo.
    */
-  provider?: "mock" | "none" | "http";
+  provider?: "mock" | "none" | "http" | "link";
   /** http provider: target URL; supports `${ENV_VAR}` interpolation. */
   endpoint?: string;
   /** http provider: deep-link recorded as `<id>_url`; supports `${ENV_VAR}`. */
@@ -106,7 +108,9 @@ function normalizeConfig(raw: unknown): ProjectOnboardingConfig {
             ? "mock"
             : s.provider === "http"
               ? "http"
-              : "none",
+              : s.provider === "link"
+                ? "link"
+                : "none",
         endpoint: typeof s.endpoint === "string" ? s.endpoint : undefined,
         appUrl: typeof s.appUrl === "string" ? s.appUrl : undefined,
         body:

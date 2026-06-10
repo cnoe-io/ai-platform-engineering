@@ -4,7 +4,21 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ArrowLeft, Copy, ExternalLink, FolderKanban } from "lucide-react";
+import {
+  ArrowLeft,
+  Bot,
+  BookOpen,
+  ChevronDown,
+  Copy,
+  Database,
+  DollarSign,
+  ExternalLink,
+  FolderKanban,
+  LayoutGrid,
+  Video,
+  Workflow,
+  type LucideIcon,
+} from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import type { ProjectDocument } from "@/types/projects";
@@ -52,7 +66,7 @@ export function ProjectDetailView({ slug }: { slug: string }) {
   }
 
   const integrations = Object.entries(project.integrations ?? {})
-    .filter(([, value]) => Boolean(value))
+    .filter(([key, value]) => Boolean(value) && !key.endsWith("_label"))
     .map(([key, value]) => ({
       label: key.replace(/_/g, " "),
       url: value,
@@ -64,6 +78,29 @@ export function ProjectDetailView({ slug }: { slug: string }) {
   // "Agent Mesh"). No product- or deployment-specific names are hardcoded here.
   const humanize = (slug: string): string =>
     slug.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  // Presentational icon + gradient per integration key (not product names —
+  // purely visual, with a colorful hashed fallback so every app stands out).
+  const APP_ICONS: Record<string, LucideIcon> = {
+    context_graph: BookOpen,
+    agentic_sdlc: Workflow,
+    finops: DollarSign,
+    agent_mesh: Bot,
+    catalogue: Database,
+    webex: Video,
+  };
+  const APP_GRADIENTS = [
+    "from-amber-500 via-orange-500 to-rose-500",
+    "from-sky-500 via-blue-500 to-indigo-600",
+    "from-emerald-500 via-teal-500 to-cyan-600",
+    "from-fuchsia-500 via-purple-500 to-violet-600",
+    "from-cyan-500 via-sky-500 to-blue-600",
+    "from-orange-500 via-red-500 to-rose-600",
+  ];
+  const gradientFor = (slug: string): string => {
+    let h = 0;
+    for (const ch of slug) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+    return APP_GRADIENTS[h % APP_GRADIENTS.length];
+  };
   const integrationsMap = project.integrations ?? {};
   const appTiles = Object.entries(integrationsMap)
     .filter(([key, value]) => key.endsWith("_url") && Boolean(value))
@@ -75,6 +112,8 @@ export function ProjectDetailView({ slug }: { slug: string }) {
         label: integrationsMap[`${slug}_label`] || humanize(slug),
         url,
         external: /^https?:\/\//.test(url),
+        Icon: APP_ICONS[slug] ?? LayoutGrid,
+        gradient: gradientFor(slug),
       };
     });
 
@@ -116,18 +155,26 @@ export function ProjectDetailView({ slug }: { slug: string }) {
       {appTiles.length > 0 ? (
         <section className="space-y-3">
           <h2 className="text-lg font-semibold">Apps</h2>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {appTiles.map((tile) => {
+              const Icon = tile.Icon;
               const inner = (
                 <>
-                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-600 to-indigo-600 text-white">
-                    <FolderKanban className="h-5 w-5" />
+                  <span
+                    className={cn(
+                      "flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br text-white shadow-sm",
+                      tile.gradient,
+                    )}
+                  >
+                    <Icon className="h-6 w-6" />
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-medium text-foreground group-hover:text-primary">
+                    <span className="block truncate text-sm font-semibold text-foreground group-hover:text-primary">
                       {tile.label}
                     </span>
-                    <span className="block truncate text-xs text-muted-foreground">{tile.url}</span>
+                    <span className="block text-xs text-muted-foreground">
+                      {tile.external ? "Open ↗" : "Open"}
+                    </span>
                   </span>
                   {tile.external && (
                     <ExternalLink className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -135,7 +182,7 @@ export function ProjectDetailView({ slug }: { slug: string }) {
                 </>
               );
               const cls =
-                "group flex items-center gap-3 rounded-xl border border-border/60 bg-card/40 px-4 py-3 text-foreground no-underline transition hover:border-primary/40 hover:bg-accent/40";
+                "group flex items-center gap-3 rounded-2xl border border-border/60 bg-card/40 p-4 text-foreground no-underline transition hover:-translate-y-0.5 hover:border-primary/40 hover:bg-accent/40 hover:shadow-md";
               return tile.external ? (
                 <a key={tile.key} href={tile.url} target="_blank" rel="noopener noreferrer" className={cls}>
                   {inner}
@@ -150,51 +197,48 @@ export function ProjectDetailView({ slug }: { slug: string }) {
         </section>
       ) : null}
 
-      {integrations.length > 0 ? (
-        <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {integrations.map(({ label, url }) => (
-            <div
-              key={label}
-              className="rounded-xl border border-border/50 bg-card/40 px-4 py-3 text-sm"
-            >
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                {label}
-              </p>
-              <p className="mt-1 break-all font-medium">{url}</p>
+      {/* Advanced details — hidden by default; power users only (integration
+          refs + the Backstage catalog-info.yaml export). */}
+      <details className="group rounded-2xl border border-border/50 bg-card/30">
+        <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm font-medium text-muted-foreground hover:text-foreground">
+          <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" />
+          Advanced details
+        </summary>
+        <div className="space-y-5 border-t border-border/50 p-4">
+          {integrations.length > 0 ? (
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {integrations.map(({ label, url }) => (
+                <div
+                  key={label}
+                  className="rounded-xl border border-border/50 bg-card/40 px-4 py-3 text-sm"
+                >
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    {label}
+                  </p>
+                  <p className="mt-1 break-all font-medium">{url}</p>
+                </div>
+              ))}
             </div>
-          ))}
-        </section>
-      ) : null}
+          ) : null}
 
-      <section className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Backstage catalog-info.yaml</h2>
-          <button
-            type="button"
-            onClick={() => void copyYaml()}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-muted"
-          >
-            <Copy className="h-3.5 w-3.5" />
-            {copied ? "Copied" : "Copy YAML"}
-          </button>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-semibold">Backstage catalog-info.yaml</h2>
+              <button
+                type="button"
+                onClick={() => void copyYaml()}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-muted"
+              >
+                <Copy className="h-3.5 w-3.5" />
+                {copied ? "Copied" : "Copy YAML"}
+              </button>
+            </div>
+            <pre className="overflow-x-auto rounded-2xl border border-border/60 bg-slate-950 p-6 text-xs leading-relaxed text-emerald-100/90">
+              {catalogYaml}
+            </pre>
+          </div>
         </div>
-        <pre className="overflow-x-auto rounded-2xl border border-border/60 bg-slate-950 p-6 text-xs leading-relaxed text-emerald-100/90">
-          {catalogYaml}
-        </pre>
-        <p className="text-xs text-muted-foreground">
-          Matches{" "}
-          <a
-            href="https://github.com/cisco-eti/outshift-platform-backstage-data"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-primary hover:underline"
-          >
-            outshift-platform-backstage-data
-            <ExternalLink className="h-3 w-3" />
-          </a>{" "}
-          folder layout under <code>domains/…/projects/</code>.
-        </p>
-      </section>
+      </details>
 
       {project.member_ids.length > 0 ? (
         <section>
