@@ -31,17 +31,11 @@ export function ProjectDetailView({ slug }: { slug: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
-  async function deleteProject() {
+  async function confirmDelete() {
     if (!project) return;
-    if (
-      !window.confirm(
-        `Delete project "${project.title}"? This removes it from CAIPE and, where configured, the connected external apps (e.g. its wiki space).`,
-      )
-    ) {
-      return;
-    }
     setDeleting(true);
     try {
       const res = await fetch(`/api/projects/${encodeURIComponent(slug)}`, {
@@ -55,6 +49,7 @@ export function ProjectDetailView({ slug }: { slug: string }) {
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setDeleting(false);
+      setDeleteOpen(false);
     }
   }
 
@@ -187,16 +182,11 @@ export function ProjectDetailView({ slug }: { slug: string }) {
           </span>
           <button
             type="button"
-            onClick={() => void deleteProject()}
-            disabled={deleting}
+            onClick={() => setDeleteOpen(true)}
             title="Delete project"
-            className="inline-flex items-center gap-1.5 rounded-full border border-red-300/40 px-3 py-1 text-xs font-medium text-red-500 transition hover:bg-red-500/10 disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-full border border-red-300/40 px-3 py-1 text-xs font-medium text-red-500 transition hover:bg-red-500/10"
           >
-            {deleting ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Trash2 className="h-3.5 w-3.5" />
-            )}
+            <Trash2 className="h-3.5 w-3.5" />
             Delete
           </button>
         </div>
@@ -304,6 +294,43 @@ export function ProjectDetailView({ slug }: { slug: string }) {
             ))}
           </div>
         </section>
+      ) : null}
+
+      {deleteOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="w-full max-w-sm rounded-2xl border border-border bg-card p-6 shadow-xl">
+            <h2 className="text-base font-semibold">Delete &ldquo;{project.title}&rdquo;?</h2>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Removes this project from CAIPE and, where configured, its connected external resources (e.g. its wiki space). This cannot be undone.
+            </p>
+            {error ? (
+              <p className="mt-3 text-sm text-red-500">{error}</p>
+            ) : null}
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setDeleteOpen(false)}
+                disabled={deleting}
+                className="rounded-lg border border-border px-4 py-2 text-sm font-medium hover:bg-muted disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void confirmDelete()}
+                disabled={deleting}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-700 disabled:opacity-60"
+              >
+                {deleting ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Trash2 className="h-3.5 w-3.5" />
+                )}
+                {deleting ? "Deleting…" : "Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
     </div>
   );
