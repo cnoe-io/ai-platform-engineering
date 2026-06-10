@@ -15,6 +15,8 @@ import {
   ExternalLink,
   FolderKanban,
   LayoutGrid,
+  Loader2,
+  Trash2,
   Video,
   Workflow,
   type LucideIcon,
@@ -29,6 +31,32 @@ export function ProjectDetailView({ slug }: { slug: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  async function deleteProject() {
+    if (!project) return;
+    if (
+      !window.confirm(
+        `Delete project "${project.title}"? This removes it from CAIPE (connected apps like LLM Wiki are not deleted).`,
+      )
+    ) {
+      return;
+    }
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/projects/${encodeURIComponent(slug)}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? `Delete failed (${res.status})`);
+      }
+      window.location.href = "/projects";
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setDeleting(false);
+    }
+  }
 
   useEffect(() => {
     fetch(`/api/projects/${encodeURIComponent(slug)}`)
@@ -140,16 +168,32 @@ export function ProjectDetailView({ slug }: { slug: string }) {
             <p className="mt-2 max-w-2xl text-muted-foreground">{project.description}</p>
           </div>
         </div>
-        <span
-          className={cn(
-            "rounded-full border px-3 py-1 text-xs font-semibold uppercase",
-            project.status === "active"
-              ? "border-emerald-300 bg-emerald-50 text-emerald-700"
-              : "border-amber-300 bg-amber-50 text-amber-700",
-          )}
-        >
-          {project.status}
-        </span>
+        <div className="flex items-center gap-2">
+          <span
+            className={cn(
+              "rounded-full border px-3 py-1 text-xs font-semibold uppercase",
+              project.status === "active"
+                ? "border-emerald-300 bg-emerald-50 text-emerald-700"
+                : "border-amber-300 bg-amber-50 text-amber-700",
+            )}
+          >
+            {project.status}
+          </span>
+          <button
+            type="button"
+            onClick={() => void deleteProject()}
+            disabled={deleting}
+            title="Delete project"
+            className="inline-flex items-center gap-1.5 rounded-full border border-red-300/40 px-3 py-1 text-xs font-medium text-red-500 transition hover:bg-red-500/10 disabled:opacity-50"
+          >
+            {deleting ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Trash2 className="h-3.5 w-3.5" />
+            )}
+            Delete
+          </button>
+        </div>
       </header>
 
       {appTiles.length > 0 ? (

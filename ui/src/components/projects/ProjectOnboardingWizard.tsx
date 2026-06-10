@@ -83,7 +83,7 @@ function buildWizardSteps(configSteps: OnboardingStepConfig[]): WizardStepMeta[]
   }));
   const complete: WizardStepMeta = {
     id: "complete",
-    title: "All Set",
+    title: "Review & Create",
     subtitle: "Your project is ready",
     icon: Rocket,
     gradient: "from-emerald-600 via-green-600 to-teal-600",
@@ -558,8 +558,8 @@ export function ProjectOnboardingWizard({
                       <Icon className="h-4 w-4" />
                     )}
                   </div>
-                  <span className="text-[10px] font-medium text-center leading-tight text-white/80">
-                    {step.id === "create" ? "Create" : step.title.split(" ")[0]}
+                  <span className="w-20 text-[10px] font-medium text-center leading-tight text-white/80">
+                    {step.title}
                   </span>
                 </div>
               );
@@ -625,56 +625,42 @@ export function ProjectOnboardingWizard({
                     </label>
                     <label className="block space-y-1.5">
                       <span className="text-sm font-medium">BHAG / Initiatives</span>
-                      <input
-                        list="initiative-options"
+                      <ComboBox
+                        ariaLabel="BHAG / Initiatives"
                         value={initiativesRaw}
-                        onChange={(e) => setInitiativesRaw(e.target.value)}
+                        onChange={setInitiativesRaw}
+                        options={labelFacets.initiatives.map((v) => ({ value: v, label: v }))}
                         placeholder="Agentic-2026, Platform Modernization"
-                        className="w-full rounded-xl border border-border/60 bg-muted/30 px-4 py-2.5 text-sm outline-none ring-primary/30 focus:border-primary focus:ring-2"
+                        multi
                       />
-                      <datalist id="initiative-options">
-                        {labelFacets.initiatives.map((v) => (
-                          <option key={v} value={v} />
-                        ))}
-                      </datalist>
                       <span className="text-xs text-muted-foreground">Pick existing or type a new one (comma-separated).</span>
                     </label>
                     <label className="block space-y-1.5">
                       <span className="text-sm font-medium">Swim Lanes</span>
-                      <input
-                        list="swimlane-options"
+                      <ComboBox
+                        ariaLabel="Swim Lanes"
                         value={swimlanesRaw}
-                        onChange={(e) => setSwimlanesRaw(e.target.value)}
+                        onChange={setSwimlanesRaw}
+                        options={labelFacets.swimlanes.map((v) => ({ value: v, label: v }))}
                         placeholder="Now, Next, Later"
-                        className="w-full rounded-xl border border-border/60 bg-muted/30 px-4 py-2.5 text-sm outline-none ring-primary/30 focus:border-primary focus:ring-2"
+                        multi
                       />
-                      <datalist id="swimlane-options">
-                        {labelFacets.swimlanes.map((v) => (
-                          <option key={v} value={v} />
-                        ))}
-                      </datalist>
                       <span className="text-xs text-muted-foreground">Pick existing or type a new one (comma-separated).</span>
                     </label>
                     <label className="block space-y-1.5">
                       <span className="text-sm font-medium">GitHub repos</span>
-                      <input
-                        list="gh-repo-options"
+                      <ComboBox
+                        ariaLabel="GitHub repos"
                         value={githubReposRaw}
-                        onChange={(e) => {
-                          setGithubReposRaw(e.target.value);
-                          searchGithubRepos(e.target.value);
-                        }}
+                        onChange={setGithubReposRaw}
+                        onType={searchGithubRepos}
+                        options={ghSources.options}
                         placeholder="https://github.com/org/repo, https://github.com/org/another"
-                        className="w-full rounded-xl border border-border/60 bg-muted/30 px-4 py-2.5 text-sm outline-none ring-primary/30 focus:border-primary focus:ring-2"
+                        multi
                       />
-                      <datalist id="gh-repo-options">
-                        {ghSources.options.map((o) => (
-                          <option key={o.value} value={o.value}>{o.label}</option>
-                        ))}
-                      </datalist>
                       {ghSources.connected ? (
                         <span className="text-xs text-muted-foreground">
-                          Pick from your connected repos (type to filter) — comma-separated for multiple.
+                          Pick from your repos — type an org to search it; select multiple.
                         </span>
                       ) : (
                         <AuthorizePrompt provider="GitHub" onRecheck={loadSources} />
@@ -682,18 +668,13 @@ export function ProjectOnboardingWizard({
                     </label>
                     <label className="block space-y-1.5">
                       <span className="text-sm font-medium">Confluence space URL</span>
-                      <input
-                        list="cf-space-options"
+                      <ComboBox
+                        ariaLabel="Confluence space URL"
                         value={confluenceUrl}
-                        onChange={(e) => setConfluenceUrl(e.target.value)}
+                        onChange={setConfluenceUrl}
+                        options={cfSources.options}
                         placeholder="https://your.atlassian.net/wiki/spaces/PROJ"
-                        className="w-full rounded-xl border border-border/60 bg-muted/30 px-4 py-2.5 text-sm outline-none ring-primary/30 focus:border-primary focus:ring-2"
                       />
-                      <datalist id="cf-space-options">
-                        {cfSources.options.map((o) => (
-                          <option key={o.value} value={o.value}>{o.label}</option>
-                        ))}
-                      </datalist>
                       {!cfSources.connected ? (
                         <AuthorizePrompt provider="Confluence" onRecheck={loadSources} />
                       ) : null}
@@ -710,7 +691,6 @@ export function ProjectOnboardingWizard({
               {isProvisionPhase ? (
                 <ProvisioningCard
                   title={phase.title}
-                  checklist={phase.checklist ?? ["Provision resources", "Verify access"]}
                   runState={currentStepRun}
                   done={currentStepDone}
                   failed={currentStepFailed}
@@ -797,81 +777,42 @@ export function ProjectOnboardingWizard({
 
 function ProvisioningCard({
   title,
-  checklist,
   runState,
   done,
   failed,
   integrationUrl,
 }: {
   title: string;
-  checklist: string[];
   runState?: StepRunState;
   done: boolean;
   failed: boolean;
   integrationUrl?: string;
 }) {
-  const running = runState?.phase === "calling";
-
   return (
-    <div className="grid gap-6 md:grid-cols-2">
-      <ul className="space-y-3">
-        {checklist.map((item, index) => {
-          const itemDone = done;
-          const itemRunning = running && index === 0;
-          return (
-            <li
-              key={item}
-              className="flex items-center gap-3 rounded-xl border border-border/40 bg-card/50 px-4 py-3 text-sm"
-            >
-              {itemDone ? (
-                <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-500" />
-              ) : itemRunning ? (
-                <Loader2 className="h-5 w-5 shrink-0 animate-spin text-primary" />
-              ) : (
-                <span className="h-5 w-5 shrink-0 rounded-full border-2 border-muted-foreground/30" />
-              )}
-              {item}
-            </li>
-          );
-        })}
-      </ul>
-      <div className="flex flex-col justify-center gap-3 rounded-2xl border border-border/50 bg-gradient-to-br from-muted/40 to-muted/10 p-6">
-        {running ? (
-          <>
-            <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="h-5 w-5 animate-spin text-primary" />
-              Calling {title} API…
-            </div>
-            <p className="text-center text-xs text-muted-foreground animate-pulse">
-              Waiting for mock provider response
-            </p>
-          </>
-        ) : failed ? (
-          <div className="space-y-2 text-sm">
-            <p className="font-semibold text-red-600">Provisioning failed</p>
-            <p className="text-muted-foreground">{runState?.error ?? "Unknown error"}</p>
-          </div>
-        ) : done ? (
-          <div className="space-y-2 text-sm">
-            <p className="font-semibold text-emerald-600">Provisioned</p>
-            <p className="text-muted-foreground">
-              {runState?.statusMessage ?? "Step completed successfully"}
-            </p>
-            {runState?.mockRef ? (
-              <p className="break-all text-xs text-muted-foreground">
-                Ref: {runState.mockRef}
-              </p>
-            ) : null}
-            {integrationUrl ? (
-              <p className="break-all text-xs text-primary">{integrationUrl}</p>
-            ) : null}
-          </div>
-        ) : (
-          <p className="text-center text-sm text-muted-foreground">
-            Starting {title} provisioning…
+    <div className="flex min-h-[180px] flex-col items-center justify-center gap-3 rounded-2xl border border-border/50 bg-gradient-to-br from-muted/40 to-muted/10 p-8 text-center">
+      {failed ? (
+        <>
+          <p className="font-semibold text-red-600">Provisioning failed</p>
+          <p className="text-sm text-muted-foreground">{runState?.error ?? "Unknown error"}</p>
+        </>
+      ) : done ? (
+        <>
+          <CheckCircle2 className="h-8 w-8 text-emerald-500" />
+          <p className="font-semibold text-emerald-600">{title} provisioned</p>
+          <p className="text-sm text-muted-foreground">
+            {runState?.statusMessage ?? "Completed successfully"}
           </p>
-        )}
-      </div>
+          {integrationUrl ? (
+            <p className="break-all text-xs text-primary">{integrationUrl}</p>
+          ) : null}
+        </>
+      ) : (
+        <>
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <p className="text-sm font-medium">Provisioning {title}…</p>
+          <p className="text-xs text-muted-foreground">This can take a few seconds.</p>
+        </>
+      )}
     </div>
   );
 }
@@ -910,5 +851,97 @@ function AuthorizePrompt({
         </button>
       ) : null}
     </span>
+  );
+}
+
+/** Replace the active token (last comma/newline segment) for multi-value fields. */
+function applyComboSelection(current: string, selected: string, multi: boolean): string {
+  if (!multi) return selected;
+  const lastDelim = Math.max(current.lastIndexOf(","), current.lastIndexOf("\n"));
+  const head = lastDelim >= 0 ? current.slice(0, lastDelim + 1) : "";
+  return `${head ? head.trimEnd() + " " : ""}${selected}, `;
+}
+
+/**
+ * Styled, scrollable combobox: a text input with a filtered dropdown of
+ * suggestions that stays inside the dialog (unlike the native <datalist>).
+ * Free-text is always allowed; `multi` appends comma-separated selections.
+ */
+function ComboBox({
+  value,
+  onChange,
+  options,
+  placeholder,
+  multi = false,
+  onType,
+  ariaLabel,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  options: { value: string; label: string }[];
+  placeholder?: string;
+  multi?: boolean;
+  onType?: (v: string) => void;
+  ariaLabel?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+
+  const lastToken = (multi ? (value.split(/[\n,]/).pop() ?? "") : value).trim().toLowerCase();
+  const filtered = options
+    .filter(
+      (o) =>
+        !lastToken ||
+        o.label.toLowerCase().includes(lastToken) ||
+        o.value.toLowerCase().includes(lastToken),
+    )
+    .slice(0, 50);
+
+  return (
+    <div ref={ref} className="relative">
+      <input
+        aria-label={ariaLabel}
+        value={value}
+        placeholder={placeholder}
+        onChange={(e) => {
+          onChange(e.target.value);
+          onType?.(e.target.value);
+          setOpen(true);
+        }}
+        onFocus={() => setOpen(true)}
+        className="w-full rounded-xl border border-border/60 bg-muted/30 px-4 py-2.5 text-sm outline-none ring-primary/30 focus:border-primary focus:ring-2"
+      />
+      {open && filtered.length > 0 ? (
+        <div className="absolute left-0 right-0 z-50 mt-1 max-h-56 overflow-auto rounded-xl border border-border/60 bg-card shadow-xl">
+          {filtered.map((o) => (
+            <button
+              type="button"
+              key={o.value}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                onChange(applyComboSelection(value, o.value, multi));
+                onType?.("");
+                setOpen(false);
+              }}
+              className="block w-full px-3 py-2 text-left transition hover:bg-accent/60"
+            >
+              <span className="block truncate text-sm">{o.label}</span>
+              {o.label !== o.value ? (
+                <span className="block truncate text-xs text-muted-foreground">{o.value}</span>
+              ) : null}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }
