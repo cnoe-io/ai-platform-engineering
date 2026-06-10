@@ -11,12 +11,12 @@ Steps:
 
 ## 1. Log in to Langfuse
 
-**🚀 Click to open Langfuse:** https://langfuse.dev.outshift.io/
+**🚀 Click to open Langfuse:** https://langfuse.dev.example.com/
 
-   - Login to https://langfuse.dev.outshift.io/
+   - Login to https://langfuse.dev.example.com/
        - **Email:**
        ```
-       workshop@outshift.io
+       workshop@example.com
        ```
        - **Password:**
        > Ask in [Webex Space](https://eurl.io/#bOa9oXKAn)
@@ -81,7 +81,7 @@ cat .env | grep -Ei 'azure|github|langfuse' | sed -E 's/(=.{5}).+/\1****/'
 declare -A ENV_VARS=(
   ["ENABLE_TRACKING"]="true"
   ["LANGFUSE_TRACING_ENABLED"]="True"
-  ["LANGFUSE_HOST"]="https://langfuse.dev.outshift.io"
+  ["LANGFUSE_HOST"]="https://langfuse.dev.example.com"
 )
 
 # Update or append each key
@@ -129,7 +129,7 @@ cat .env | grep -Ei 'azure|github|langfuse' | sed -E 's/(=.{5}).+/\1****/'
 **Run:**
 
 ```bash
-IMAGE_TAG=latest ENABLE_TRACING=true LANGFUSE_SECRET_KEY=$LANGFUSE_SECRET_KEY LANGFUSE_PUBLIC_KEY=$LANGFUSE_PUBLIC_KEY LANGFUSE_HOST=https://langfuse.dev.outshift.io LANGFUSE_TRACING_ENABLED=True docker compose -f workshop/docker-compose.mission7.yaml up -d
+IMAGE_TAG=latest ENABLE_TRACING=true LANGFUSE_SECRET_KEY=$LANGFUSE_SECRET_KEY LANGFUSE_PUBLIC_KEY=$LANGFUSE_PUBLIC_KEY LANGFUSE_HOST=https://langfuse.dev.example.com LANGFUSE_TRACING_ENABLED=True docker compose -f workshop/docker-compose.mission7.yaml up -d
 ```
 
 ```bash
@@ -168,7 +168,7 @@ How is the weather in San Jose? and tabule github activity in cnoe-io org and co
 
 ## 6. View the trace in Langfuse
 
-**🚀 Open Langfuse Observability Dashboard:** https://langfuse.dev.outshift.io/
+**🚀 Open Langfuse Observability Dashboard:** https://langfuse.dev.example.com/
 
    - Return to the Langfuse dashboard.
    - Open Traces and find the new trace for your query.

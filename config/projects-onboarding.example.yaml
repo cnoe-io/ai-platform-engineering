@@ -1,0 +1,43 @@
+# Example onboarding configuration (NOT loaded by default).
+#
+# Copy/merge into the file at PROJECTS_ONBOARDING_CONFIG_PATH (or the mounted
+# config/projects-onboarding.yaml) to add organization-specific provisioning
+# steps WITHOUT forking the UI. Keep all product names, hostnames, and
+# endpoints in YOUR deployment overlay — never hardcode them in this repo.
+#
+# Providers:
+#   mock  — simulated step (local/dev demos)
+#   http  — POST { name, slug } to `endpoint`, forwarding the signed-in
+#           actor as `x-caipe-user` / `x-caipe-roles`. `endpoint` and
+#           `appUrl` may reference `${ENV_VAR}` so the target system stays
+#           out of source control.
+#   none  — no-op (skipped)
+
+hero:
+  title: "Projects for your teams"
+  description: >
+    Create projects aligned with your Backstage catalog. Optional onboarding
+    steps are driven entirely by this configuration file.
+
+steps:
+  - id: catalogue
+    title: Project Catalogue
+    subtitle: RBAC, attribution, and assets in Backstage
+    icon: sparkles
+    provider: mock
+    checklist:
+      - RBAC in Backstage
+      - Attribution
+
+  # Generic external provisioning via the `http` provider. The endpoint and
+  # deep-link come from environment variables supplied by the deployment — no
+  # specific external product is referenced here.
+  - id: external_app
+    title: External App
+    subtitle: Provision the project in an external system
+    icon: book-open
+    provider: http
+    endpoint: "${ONBOARDING_APP_ENDPOINT}"   # e.g. https://host/api/projects
+    appUrl: "${ONBOARDING_APP_URL}"           # e.g. /apps/<app-id>
+    checklist:
+      - Project created in external system

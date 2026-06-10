@@ -13,7 +13,7 @@ Add free-form, multi-value label dimensions to the existing `projects` MongoDB d
 **Primary Dependencies**: Next.js, MongoDB driver (`@/lib/mongodb`), existing `@/lib/api-middleware` (auth/envelope), `js-yaml`
 **Storage**: MongoDB — existing `projects` collection (extend), `catalog` collection (domain source of truth)
 **Testing**: Jest (unit + route tests, mongo mocked — existing pattern)
-**Target Platform**: Web (caipe-ui-prod), deployed on the `caipe-edge-testing.outshift.io` docker-compose stack
+**Target Platform**: Web (caipe-ui-prod), deployed on the `caipe-edge-testing.example.com` docker-compose stack
 **Project Type**: web application (Next.js full-stack)
 **Performance Goals**: dashboard rollups reconcile exactly to records (SC-002); multi-label filter < 5s (SC-001) — trivial at expected scale
 **Constraints**: reuse existing auth (reads authenticated, writes org-admin), `{success,data}` envelope, Backstage-compatible export preserved

@@ -11,7 +11,20 @@ export interface ProjectOnboardingStepConfig {
   subtitle: string;
   icon?: string;
   gradient?: string;
-  provider?: "mock" | "none" | "context-graph";
+  /**
+   * Provider that fulfills this step:
+   *  - `mock`: simulated (local/dev demos)
+   *  - `http`: POST the project to an external system at `endpoint`
+   *  - `none`/unset: no-op (skipped)
+   * The external system is named/located entirely via `endpoint`/`appUrl`
+   * (which may reference `${ENV_VAR}`), so no product-specific provider is
+   * hardcoded in this repo.
+   */
+  provider?: "mock" | "none" | "http";
+  /** http provider: target URL; supports `${ENV_VAR}` interpolation. */
+  endpoint?: string;
+  /** http provider: deep-link recorded as `<id>_url`; supports `${ENV_VAR}`. */
+  appUrl?: string;
   checklist?: string[];
 }
 
@@ -83,9 +96,11 @@ function normalizeConfig(raw: unknown): ProjectOnboardingConfig {
         provider:
           s.provider === "mock"
             ? "mock"
-            : s.provider === "context-graph"
-              ? "context-graph"
+            : s.provider === "http"
+              ? "http"
               : "none",
+        endpoint: typeof s.endpoint === "string" ? s.endpoint : undefined,
+        appUrl: typeof s.appUrl === "string" ? s.appUrl : undefined,
         checklist: Array.isArray(s.checklist)
           ? s.checklist.filter((item): item is string => typeof item === "string")
           : undefined,

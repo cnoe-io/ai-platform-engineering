@@ -41,7 +41,7 @@ class WeatherAgent(BaseLangGraphAgent):
 
         # Defaults for HTTP transport mode
         if not self.mcp_api_url and self.mcp_mode != "stdio":
-            self.mcp_api_url = "https://weather.outshift.io/mcp"
+            self.mcp_api_url = "https://weather.example.com/mcp"
 
         # Call parent constructor
         super().__init__()

@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=https://agentgateway.dev/schema/config
 #
-# Host-specific Agent Gateway configuration for https://caipe-rbac.outshift.io.
+# Host-specific Agent Gateway configuration for https://caipe-rbac.example.com.
 # The JWKS endpoint stays Docker-internal, but the expected JWT issuer must
 # match the browser-facing Keycloak issuer embedded in tokens.
 
@@ -11,7 +11,7 @@ binds:
     policies:
       jwtAuth:
         mode: strict
-        issuer: https://caipe-rbac.outshift.io/realms/caipe
+        issuer: https://caipe-rbac.example.com/realms/caipe
         audiences: [caipe-platform, agentgateway]
         jwks:
           url: http://keycloak:7080/realms/caipe/protocol/openid-connect/certs
