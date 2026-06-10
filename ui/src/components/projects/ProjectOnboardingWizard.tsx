@@ -144,9 +144,8 @@ export function ProjectOnboardingWizard({
     project?.onboarding?.[phase.id]?.status === "failed" ||
     currentStepRun?.phase === "failed";
 
-  useEffect(() => {
-    if (!open) return;
-    // Live source dropdowns from the user's connections (Connections tab).
+  // Live source dropdowns from the user's connections (Connections tab).
+  const loadSources = useCallback(() => {
     (
       [
         ["github", setGhSources],
@@ -165,7 +164,23 @@ export function ProjectOnboardingWizard({
         })
         .catch(() => undefined);
     });
-  }, [open]);
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    loadSources();
+    // Re-check after the user authorizes a provider in another tab and returns.
+    const onFocus = () => loadSources();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") loadSources();
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [open, loadSources]);
 
   useEffect(() => {
     if (!open) return;
@@ -598,7 +613,7 @@ export function ProjectOnboardingWizard({
                           Pick from your connected repos (type to filter) — comma-separated for multiple.
                         </span>
                       ) : (
-                        <AuthorizePrompt provider="GitHub" />
+                        <AuthorizePrompt provider="GitHub" onRecheck={loadSources} />
                       )}
                     </label>
                     <label className="block space-y-1.5">
@@ -615,7 +630,9 @@ export function ProjectOnboardingWizard({
                           <option key={o.value} value={o.value}>{o.label}</option>
                         ))}
                       </datalist>
-                      {!cfSources.connected ? <AuthorizePrompt provider="Confluence" /> : null}
+                      {!cfSources.connected ? (
+                        <AuthorizePrompt provider="Confluence" onRecheck={loadSources} />
+                      ) : null}
                     </label>
                     <label className="block space-y-1.5">
                       <span className="text-sm font-medium">Component / software URLs</span>
@@ -810,9 +827,15 @@ function ProvisioningCard({
  * Connections tab to authorize, so the source dropdown can populate. The field
  * still accepts free-text in the meantime.
  */
-function AuthorizePrompt({ provider }: { provider: string }) {
+function AuthorizePrompt({
+  provider,
+  onRecheck,
+}: {
+  provider: string;
+  onRecheck?: () => void;
+}) {
   return (
-    <span className="flex items-center gap-1.5 text-xs text-amber-500">
+    <span className="flex flex-wrap items-center gap-1.5 text-xs text-amber-500">
       <span>Not connected.</span>
       <a
         href="/credentials"
@@ -823,6 +846,15 @@ function AuthorizePrompt({ provider }: { provider: string }) {
         Authorize {provider}
       </a>
       <span className="text-muted-foreground">to pick from your account, or paste a URL.</span>
+      {onRecheck ? (
+        <button
+          type="button"
+          onClick={onRecheck}
+          className="font-medium text-primary underline underline-offset-2 hover:text-primary/80"
+        >
+          Recheck
+        </button>
+      ) : null}
     </span>
   );
 }
