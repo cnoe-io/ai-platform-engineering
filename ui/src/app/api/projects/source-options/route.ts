@@ -111,6 +111,29 @@ async function atlassianSpaces(token: string): Promise<SourceOption[]> {
   return out;
 }
 
+/** Human label of the account/site the token is connected to (for the UI). */
+async function connectedTo(provider: string, token: string): Promise<string> {
+  try {
+    if (provider === "github") {
+      const r = await fetch("https://api.github.com/user", {
+        headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" },
+      });
+      if (!r.ok) return "";
+      const u = (await r.json().catch(() => ({}))) as { login?: string };
+      return u.login ? `github.com/${u.login}` : "";
+    }
+    // atlassian: first accessible Confluence site URL (e.g. cisco-eti.atlassian.net)
+    const r = await fetch("https://api.atlassian.com/oauth/token/accessible-resources", {
+      headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+    });
+    if (!r.ok) return "";
+    const sites = (await r.json().catch(() => [])) as Array<{ url?: string }>;
+    return (sites[0]?.url ?? "").replace(/^https?:\/\//, "");
+  } catch {
+    return "";
+  }
+}
+
 export const GET = withErrorHandler(async (request: NextRequest) => {
   const { session } = await getAuthFromBearerOrSession(request);
   const sub = (session as { sub?: string } | undefined)?.sub;
@@ -137,9 +160,11 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   }
 
   try {
-    const options =
-      provider === "github" ? await githubRepos(token, q) : await atlassianSpaces(token);
-    return successResponse({ connected: true, options });
+    const [options, account] = await Promise.all([
+      provider === "github" ? githubRepos(token, q) : atlassianSpaces(token),
+      connectedTo(provider, token),
+    ]);
+    return successResponse({ connected: true, options, connectedTo: account });
   } catch {
     return successResponse({ connected: true, options: [], error: "provider list failed" });
   }

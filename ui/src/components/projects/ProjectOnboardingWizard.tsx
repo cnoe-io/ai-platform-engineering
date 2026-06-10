@@ -118,7 +118,11 @@ export function ProjectOnboardingWizard({
   const [githubReposRaw, setGithubReposRaw] = useState("");
   const [confluenceUrl, setConfluenceUrl] = useState("");
   // Live source options from the user's provider connections (Connections tab).
-  type SourceState = { connected: boolean; options: { value: string; label: string }[] };
+  type SourceState = {
+    connected: boolean;
+    options: { value: string; label: string }[];
+    connectedTo?: string;
+  };
   const [ghSources, setGhSources] = useState<SourceState>({ connected: false, options: [] });
   const [cfSources, setCfSources] = useState<SourceState>({ connected: false, options: [] });
   const ghSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -165,6 +169,7 @@ export function ProjectOnboardingWizard({
           setter({
             connected: Boolean(data.connected),
             options: Array.isArray(data.options) ? data.options : [],
+            connectedTo: typeof data.connectedTo === "string" ? data.connectedTo : undefined,
           });
         })
         .catch(() => undefined);
@@ -187,7 +192,11 @@ export function ProjectOnboardingWizard({
         .then((b) => {
           const d = b?.data ?? b;
           if (d && d.connected) {
-            setGhSources({ connected: true, options: Array.isArray(d.options) ? d.options : [] });
+            setGhSources({
+              connected: true,
+              options: Array.isArray(d.options) ? d.options : [],
+              connectedTo: typeof d.connectedTo === "string" ? d.connectedTo : undefined,
+            });
           }
         })
         .catch(() => undefined);
@@ -660,7 +669,10 @@ export function ProjectOnboardingWizard({
                       />
                       {ghSources.connected ? (
                         <span className="text-xs text-muted-foreground">
-                          Pick from your repos — type an org to search it; select multiple.
+                          {ghSources.connectedTo ? (
+                            <>Connected as <span className="text-emerald-500">{ghSources.connectedTo}</span> · </>
+                          ) : null}
+                          type an org to search it; select multiple.
                         </span>
                       ) : (
                         <AuthorizePrompt provider="GitHub" onRecheck={loadSources} />
@@ -675,9 +687,17 @@ export function ProjectOnboardingWizard({
                         options={cfSources.options}
                         placeholder="https://your.atlassian.net/wiki/spaces/PROJ"
                       />
-                      {!cfSources.connected ? (
+                      {cfSources.connected ? (
+                        <span className="text-xs text-muted-foreground">
+                          {cfSources.connectedTo ? (
+                            <>Connected to <span className="text-emerald-500">{cfSources.connectedTo}</span> · pick a space or paste a URL.</>
+                          ) : (
+                            <>Pick a space or paste a URL.</>
+                          )}
+                        </span>
+                      ) : (
                         <AuthorizePrompt provider="Confluence" onRecheck={loadSources} />
-                      ) : null}
+                      )}
                     </label>
                     <div className="rounded-xl border border-dashed border-primary/30 bg-primary/5 p-4 text-xs text-muted-foreground">
                       Projects belong to teams and can sync to Backstage as{" "}
