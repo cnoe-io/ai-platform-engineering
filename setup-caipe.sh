@@ -1490,7 +1490,8 @@ _collect_ollama_config() {
   # Ollama runs in-cluster; use the FQDN so DNS resolution works regardless of
   # the pod's search domain. The OpenAI SDK appends /chat/completions to the
   # base URL, so the /v1 prefix is required or requests will 404.
-  OPENAI_ENDPOINT="http://ollama.${CAIPE_NAMESPACE:-caipe}.svc.cluster.local:${OLLAMA_PORT}/v1"
+  local _ollama_fqdn="http://ollama.${CAIPE_NAMESPACE:-caipe}.svc.cluster.local:${OLLAMA_PORT}"
+  OPENAI_ENDPOINT="${_ollama_fqdn}/v1"
   OPENAI_API_KEY="ollama"
   OPENAI_MODEL_NAME="${OLLAMA_MODEL}"
 
@@ -1501,6 +1502,19 @@ _collect_ollama_config() {
   # the Ollama init container will pull alongside the chat model.
   if [[ -z "${EMBEDDINGS_MODEL:-}" || "${EMBEDDINGS_MODEL}" == "text-embedding-3-large" ]]; then
     EMBEDDINGS_MODEL="nomic-embed-text"
+  fi
+
+  # Offer LiteLLM as a proxy in front of Ollama. This is recommended for local
+  # setups: it adds a stable OpenAI-compatible endpoint, enables multi-model
+  # routing, and matches the production vLLM architecture.
+  if ! $NON_INTERACTIVE && ! $LLM_VIA_LITELLM; then
+    echo ""
+    echo -e "  ${DIM}LiteLLM proxy provides a stable OpenAI-compatible endpoint in front of${NC}"
+    echo -e "  ${DIM}Ollama, enables multi-model routing, and is recommended for local setups.${NC}"
+    if ask_yn "Deploy LiteLLM proxy in front of Ollama? (recommended)" "y"; then
+      LLM_VIA_LITELLM=true
+      log "LiteLLM proxy enabled (will front Ollama at ${_ollama_fqdn})"
+    fi
   fi
 
   log "Provider: openai (via in-cluster Ollama)  Model: ${OLLAMA_MODEL}  Embeddings: ${EMBEDDINGS_MODEL}"
@@ -5302,41 +5316,56 @@ deploy_vllm() {
 # combos so a bare --litellm never breaks an otherwise-valid install.
 _finalize_litellm_mode() {
   $LLM_VIA_LITELLM || return 0
-  if $ENABLE_VLLM || $ENABLE_OLLAMA; then
-    warn "--litellm ignored: vLLM/Ollama mode already routes through LiteLLM"
+  if $ENABLE_VLLM; then
+    warn "--litellm ignored: vLLM mode already routes through LiteLLM"
     LLM_VIA_LITELLM=false
     return 0
   fi
   case "$LLM_PROVIDER" in
     anthropic-claude|openai|aws-bedrock|azure-openai) ;;
     *)
-      warn "--litellm does not support LLM provider '${LLM_PROVIDER}' yet — continuing without the proxy"
-      LLM_VIA_LITELLM=false
-      return 0
+      # Ollama sets LLM_PROVIDER=openai, so it passes the check above.
+      # Any other unknown provider is unsupported.
+      if ! $ENABLE_OLLAMA; then
+        warn "--litellm does not support LLM provider '${LLM_PROVIDER}' yet — continuing without the proxy"
+        LLM_VIA_LITELLM=false
+        return 0
+      fi
       ;;
   esac
 
-  LITELLM_CHAT_SOURCE="$LLM_PROVIDER"
-  LITELLM_EMBED_SOURCE="$EMBEDDINGS_PROVIDER"
-  LITELLM_EMBED_MODEL_REAL="$EMBEDDINGS_MODEL"
-  LITELLM_ENDPOINT="http://litellm-proxy.caipe.svc.cluster.local:4000/v1"
+  local _lep="http://litellm-proxy.caipe.svc.cluster.local:4000/v1"
+  LITELLM_ENDPOINT="$_lep"
   LITELLM_API_KEY="$LITELLM_MASTER_KEY"
+  LITELLM_EMBED_MODEL_REAL="$EMBEDDINGS_MODEL"
+  LITELLM_EMBED_SOURCE="$EMBEDDINGS_PROVIDER"
 
-  # Only OpenAI-compatible embeddings can be fronted by the proxy; other
-  # embeddings providers (bedrock/cohere/huggingface/voyage) keep their native
-  # path so RAG still works.
-  case "$EMBEDDINGS_PROVIDER" in
-    openai|azure-openai)
-      LITELLM_ROUTE_EMBEDDINGS=true
-      EMBEDDINGS_PROVIDER="litellm"
-      EMBEDDINGS_MODEL="caipe-embeddings"
-      ;;
-    *)
-      LITELLM_ROUTE_EMBEDDINGS=false
-      ;;
-  esac
+  if $ENABLE_OLLAMA; then
+    LITELLM_CHAT_SOURCE="ollama"
+    # Route Ollama embeddings through LiteLLM too so everything goes via
+    # the single proxy endpoint.
+    LITELLM_ROUTE_EMBEDDINGS=true
+    LITELLM_EMBED_SOURCE="ollama"
+    EMBEDDINGS_PROVIDER="litellm"
+    # Keep the real embed model name (e.g. nomic-embed-text) — LiteLLM
+    # registers it under that same alias in the model_list.
+  else
+    LITELLM_CHAT_SOURCE="$LLM_PROVIDER"
+    # Only OpenAI-compatible embeddings can be fronted by the proxy; other
+    # providers (bedrock/cohere/huggingface/voyage) keep their native path.
+    case "$EMBEDDINGS_PROVIDER" in
+      openai|azure-openai)
+        LITELLM_ROUTE_EMBEDDINGS=true
+        EMBEDDINGS_PROVIDER="litellm"
+        EMBEDDINGS_MODEL="caipe-embeddings"
+        ;;
+      *)
+        LITELLM_ROUTE_EMBEDDINGS=false
+        ;;
+    esac
+  fi
 
-  log "Unified LiteLLM mode ON — chat=${LITELLM_CHAT_SOURCE}, embeddings source=${LITELLM_EMBED_SOURCE} (routed via proxy: ${LITELLM_ROUTE_EMBEDDINGS})"
+  log "LiteLLM proxy mode ON — chat=${LITELLM_CHAT_SOURCE}, embed_source=${LITELLM_EMBED_SOURCE} (routed: ${LITELLM_ROUTE_EMBEDDINGS})"
 }
 
 # Build the proxy model_list for unified mode from the captured real provider and
@@ -5366,6 +5395,15 @@ _litellm_unified_assets() {
   local azure_embed_deploy="${AZURE_OPENAI_EMBEDDING_DEPLOYMENT:-${AZURE_OPENAI_DEPLOYMENT:-${LITELLM_EMBED_MODEL_REAL:-text-embedding-3-large}}}"
 
   case "$LITELLM_CHAT_SOURCE" in
+    ollama)
+      local _ollama_base="http://ollama.${CAIPE_NAMESPACE:-caipe}.svc.cluster.local:${OLLAMA_PORT}"
+      ml+='      - model_name: "caipe-chat"
+        litellm_params:
+          model: "ollama/'"${OLLAMA_MODEL}"'"
+          api_base: "'"${_ollama_base}"'"
+'
+      # No upstream secret needed — Ollama has no auth
+      ;;
     anthropic-claude)
       ml+='      - model_name: "caipe-chat"
         litellm_params:
@@ -5413,6 +5451,14 @@ _litellm_unified_assets() {
 
   if $LITELLM_ROUTE_EMBEDDINGS; then
     case "$LITELLM_EMBED_SOURCE" in
+      ollama)
+        local _ollama_base="http://ollama.${CAIPE_NAMESPACE:-caipe}.svc.cluster.local:${OLLAMA_PORT}"
+        ml+='      - model_name: "'"${LITELLM_EMBED_MODEL_REAL}"'"
+        litellm_params:
+          model: "ollama/'"${LITELLM_EMBED_MODEL_REAL}"'"
+          api_base: "'"${_ollama_base}"'"
+'
+        ;;
       openai)
         ml+='      - model_name: "caipe-embeddings"
         litellm_params:
