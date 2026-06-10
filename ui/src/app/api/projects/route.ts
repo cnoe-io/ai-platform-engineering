@@ -152,8 +152,8 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   const memberIds = body.member_ids?.map((m) => m.trim()).filter(Boolean) ?? [];
 
   // User-shared data sources (repos / Confluence / component URLs). Stored on
-  // the project and surfaced to onboarding so external apps (LLM Wiki) ingest
-  // them. Also mirrored into integrations so the project detail tiles render.
+  // the project and surfaced to onboarding so connected external apps can
+  // ingest them. Also mirrored into integrations so the detail tiles render.
   const cleanUrls = (arr?: string[]): string[] =>
     (arr ?? []).map((u) => u.trim()).filter(Boolean);
   const sources = {
