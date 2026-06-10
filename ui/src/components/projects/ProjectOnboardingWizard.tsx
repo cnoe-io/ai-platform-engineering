@@ -505,7 +505,7 @@ export function ProjectOnboardingWizard({
       >
         <div
           className={cn(
-            "relative overflow-hidden px-8 py-10 text-white",
+            "relative overflow-hidden px-8 pt-10 pb-14 text-white",
             "bg-gradient-to-br",
             phase.gradient,
           )}
@@ -527,7 +527,7 @@ export function ProjectOnboardingWizard({
             </button>
           </div>
 
-          <div className="relative mt-8 flex gap-2 overflow-x-auto pb-1">
+          <div className="relative mt-6 flex gap-2 overflow-x-auto pb-2">
             {wizardSteps.map((step, index) => {
               const Icon = step.icon;
               const done = index < phaseIndex;
