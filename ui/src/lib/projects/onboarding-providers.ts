@@ -189,7 +189,13 @@ async function provisionViaHttp(
     [`${step.id}_label`]: step.title,
   };
   if (step.appUrl) {
-    integrations[`${step.id}_url`] = interpolateEnv(step.appUrl);
+    // `${ENV_VAR}` from env, plus `${id}` = the id returned by the create call,
+    // so an appUrl can deep-link to the new resource (e.g. an embed shell with
+    // `?to=/projects/${id}`).
+    integrations[`${step.id}_url`] = interpolateEnv(step.appUrl).replace(
+      /\$\{id\}/g,
+      String(created.id ?? ""),
+    );
   }
   return {
     mock_ref: `${step.id}-${created.id ?? project.slug}`,
