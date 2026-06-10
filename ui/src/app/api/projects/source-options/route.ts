@@ -56,40 +56,41 @@ function spaceOption(siteUrl: string, key: string, name?: string): SourceOption 
   };
 }
 
-/** List spaces for one Confluence site. Primary: GET /wiki/rest/api/space
- * (needs read:confluence-space.summary). Fallback: CQL search type=space
- * (needs search:confluence) so it still works if the space scope is missing. */
+/** List spaces for one Confluence site. Primary: CQL search type=space (works
+ * under search:confluence — broadest coverage). Fallback: GET /wiki/rest/api/space
+ * (needs read:confluence-space.summary). De-duped by space key. */
 async function spacesForSite(token: string, siteId: string, siteUrl: string): Promise<SourceOption[]> {
   const headers = { Authorization: `Bearer ${token}`, Accept: "application/json" };
   const base = `https://api.atlassian.com/ex/confluence/${siteId}/wiki`;
+  const byKey = new Map<string, SourceOption>();
 
+  // Primary: CQL search for spaces.
+  const searchRes = await fetch(
+    `${base}/rest/api/search?cql=${encodeURIComponent("type=space")}&limit=100`,
+    { headers },
+  );
+  if (searchRes.ok) {
+    const sbody = (await searchRes.json().catch(() => ({}))) as {
+      results?: Array<{ title?: string; space?: { key?: string; name?: string } }>;
+    };
+    for (const r of sbody.results ?? []) {
+      const key = r.space?.key;
+      if (key) byKey.set(key, spaceOption(siteUrl, key, r.space?.name || r.title));
+    }
+  }
+
+  // Fallback / supplement: the spaces REST endpoint.
   const spacesRes = await fetch(`${base}/rest/api/space?limit=100`, { headers });
   if (spacesRes.ok) {
     const body = (await spacesRes.json().catch(() => ({}))) as {
       results?: Array<{ key?: string; name?: string }>;
     };
-    const out = (body.results ?? [])
-      .filter((s) => s.key)
-      .map((s) => spaceOption(siteUrl, s.key as string, s.name));
-    if (out.length) return out;
+    for (const s of body.results ?? []) {
+      if (s.key && !byKey.has(s.key)) byKey.set(s.key, spaceOption(siteUrl, s.key, s.name));
+    }
   }
 
-  // Fallback: CQL search for spaces (works under search:confluence).
-  const searchRes = await fetch(
-    `${base}/rest/api/search?cql=${encodeURIComponent("type=space")}&limit=100`,
-    { headers },
-  );
-  if (!searchRes.ok) return [];
-  const sbody = (await searchRes.json().catch(() => ({}))) as {
-    results?: Array<{ title?: string; space?: { key?: string; name?: string } }>;
-  };
-  const out: SourceOption[] = [];
-  for (const r of sbody.results ?? []) {
-    const key = r.space?.key;
-    if (!key) continue;
-    out.push(spaceOption(siteUrl, key, r.space?.name || r.title));
-  }
-  return out;
+  return [...byKey.values()];
 }
 
 async function atlassianSpaces(token: string): Promise<SourceOption[]> {
