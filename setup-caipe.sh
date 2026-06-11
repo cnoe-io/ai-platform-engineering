@@ -1061,12 +1061,8 @@ choose_deployment_mode() {
 
   # Already known — confirm and skip
   if [[ -n "${CAIPE_DEPLOYMENT_MODE:-}" ]]; then
-    log "Detected existing deployment mode: ${CAIPE_DEPLOYMENT_MODE}"
-    if ! ask_yn "Keep existing deployment mode (${CAIPE_DEPLOYMENT_MODE})?" "y"; then
-      CAIPE_DEPLOYMENT_MODE=""  # fall through to prompt
-    else
-      return 0
-    fi
+    log "Keeping existing deployment mode: ${CAIPE_DEPLOYMENT_MODE}"
+    return 0
   fi
 
   echo ""
