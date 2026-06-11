@@ -15,16 +15,49 @@ export interface ProjectOnboardingStepConfig {
    * Provider that fulfills this step:
    *  - `mock`: simulated (local/dev demos)
    *  - `http`: POST the project to an external system at `endpoint`
+   *  - `link`: no backend call — just record an app-tile deep link (`appUrl`)
+   *    for a first-party/in-process app (e.g. an in-app feature route)
    *  - `none`/unset: no-op (skipped)
    * The external system is named/located entirely via `endpoint`/`appUrl`
    * (which may reference `${ENV_VAR}`), so no product-specific provider is
    * hardcoded in this repo.
    */
-  provider?: "mock" | "none" | "http";
+  provider?: "mock" | "none" | "http" | "link";
   /** http provider: target URL; supports `${ENV_VAR}` interpolation. */
   endpoint?: string;
   /** http provider: deep-link recorded as `<id>_url`; supports `${ENV_VAR}`. */
   appUrl?: string;
+  /**
+   * http provider: provider connection keys (e.g. `github`, `atlassian`) whose
+   * access token, for the signed-in actor, should be forwarded to the target
+   * system in the POST body under `credentials.<provider>`. Lets the external
+   * app act with the user's own creds (from the Connections tab) instead of a
+   * shared service token. Tokens are sent only when the user has that
+   * connection; nothing provider-specific is hardcoded here.
+   */
+  forwardCredentials?: string[];
+  /**
+   * http provider: DELETE endpoint for cascading project deletion. When the
+   * CAIPE project is deleted, this URL is called so the external resource is
+   * removed too. Supports `${ENV_VAR}` and `${id}` (the id this step recorded as
+   * `<id>_id` at create time). Omit to leave external resources in place.
+   */
+  deleteEndpoint?: string;
+  /**
+   * http provider: PATCH endpoint called when the CAIPE project is edited.
+   * Receives the same rendered `body` template as the create POST (re-rendered
+   * against the updated project), so the external resource stays in sync.
+   * Supports `${ENV_VAR}` and `${id}`. Omit to skip syncing edits externally.
+   */
+  updateEndpoint?: string;
+  /**
+   * http provider: request body template. Values may reference project fields
+   * via `${project.<field>}` (e.g. `name`, `description`, `repos`,
+   * `integrations`, `labels`). A value that is exactly `${project.<field>}`
+   * passes the typed value through (arrays/objects preserved). Omit to send the
+   * default `{ name, slug }`.
+   */
+  body?: Record<string, unknown>;
   checklist?: string[];
 }
 
@@ -98,9 +131,20 @@ function normalizeConfig(raw: unknown): ProjectOnboardingConfig {
             ? "mock"
             : s.provider === "http"
               ? "http"
-              : "none",
+              : s.provider === "link"
+                ? "link"
+                : "none",
         endpoint: typeof s.endpoint === "string" ? s.endpoint : undefined,
         appUrl: typeof s.appUrl === "string" ? s.appUrl : undefined,
+        body:
+          s.body && typeof s.body === "object" && !Array.isArray(s.body)
+            ? (s.body as Record<string, unknown>)
+            : undefined,
+        forwardCredentials: Array.isArray(s.forwardCredentials)
+          ? s.forwardCredentials.filter((x): x is string => typeof x === "string")
+          : undefined,
+        deleteEndpoint: typeof s.deleteEndpoint === "string" ? s.deleteEndpoint : undefined,
+        updateEndpoint: typeof s.updateEndpoint === "string" ? s.updateEndpoint : undefined,
         checklist: Array.isArray(s.checklist)
           ? s.checklist.filter((item): item is string => typeof item === "string")
           : undefined,

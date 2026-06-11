@@ -3,6 +3,7 @@
 // assisted-by Codex Codex-sonnet-4-6
 
 import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { ExternalLink } from "lucide-react";
 
 import { AgenticAppAssistantOverlay } from "@/components/agentic-apps/AgenticAppAssistantOverlay";
@@ -48,6 +49,18 @@ interface AgenticAppEmbedProps {
  * unstyled error inside the iframe.
  */
 export function AgenticAppEmbed({ appId, onUnauthorized }: AgenticAppEmbedProps) {
+  const searchParams = useSearchParams();
+  // Optional deep-link into the embedded app: `?to=/projects/<id>` is appended
+  // to the proxy mount path so a tile can open a specific page (e.g. a project)
+  // rather than the app root. Sanitized: must be a relative path, no scheme or
+  // parent-dir traversal.
+  const deepLink = (() => {
+    const raw = searchParams.get("to") ?? "";
+    if (!raw.startsWith("/") || raw.startsWith("//") || raw.includes("://") || raw.includes("..")) {
+      return "";
+    }
+    return raw;
+  })();
   const [state, setState] = useState<State>({ status: "loading" });
   const [assistantContext, setAssistantContext] = useState<AgenticAppAssistantContextRecord | null>(null);
   const [assistantOpen, setAssistantOpen] = useState(false);
@@ -69,7 +82,7 @@ export function AgenticAppEmbed({ appId, onUnauthorized }: AgenticAppEmbedProps)
         // computed for hub display (which would be /apps/embed/<id> and cause
         // the iframe to load this very page recursively). The proxy lives at
         // /apps/<appId> always.
-        const mountPath = `/apps/${appId}`;
+        const mountPath = `/apps/${appId}${deepLink}`;
         if (!found.canLaunch) {
           setState({
             status: "denied",
@@ -117,7 +130,7 @@ export function AgenticAppEmbed({ appId, onUnauthorized }: AgenticAppEmbedProps)
     return () => {
       cancelled = true;
     };
-  }, [appId, onUnauthorized]);
+  }, [appId, onUnauthorized, deepLink]);
 
   useEffect(() => {
     if (!assistantEnabled) {

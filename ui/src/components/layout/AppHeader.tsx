@@ -355,7 +355,6 @@ export function AppHeader() {
     return "home";
   };
 
-  const activeTab = getActiveTab();
   // Admin-only alerts shown in the right cluster. Sources collapse into
   // a SINGLE pill ("Alerts: <total>") to keep the header uncluttered —
   // see the rendering block further down. Severity is `red` when the
@@ -491,6 +490,15 @@ export function AppHeader() {
       cancelled = true;
     };
   }, []);
+  // Active tab. A pinned agentic-app tab (href like /apps/embed/ttt or
+  // /apps/agentic-sdlc) must win over the generic "Apps" tab when its route is
+  // open — otherwise getActiveTab()'s broad `/apps` match highlights "Apps"
+  // while the user is on the pinned app. Match the longest pinned href prefix
+  // first, then fall back to the keyword map.
+  const activePinnedApp = pinnedAppNavItems
+    .filter((it) => pathname === it.href || pathname?.startsWith(`${it.href}/`))
+    .sort((a, b) => b.href.length - a.href.length)[0];
+  const activeTab = activePinnedApp ? activePinnedApp.key : getActiveTab();
   // Admin-customized top-nav order + enabled/disabled set (Admin → Settings →
   // Navigation), stored in platform_config.top_nav and readable by any
   // authenticated user. Applied to the unified nav list below.
@@ -711,7 +719,7 @@ export function AppHeader() {
 
   return (
     <>
-    <header className="h-14 overflow-hidden border-b border-border/50 bg-card/50 backdrop-blur-xl flex items-center justify-between gap-2 px-3 sm:px-4 shrink-0 z-50">
+    <header className="relative h-14 border-b border-border/50 bg-card/50 backdrop-blur-xl flex items-center justify-between gap-2 px-3 sm:px-4 shrink-0 z-50">
       <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-4 overflow-hidden">
         {/* Logo - clickable to home */}
         <GuardedLink

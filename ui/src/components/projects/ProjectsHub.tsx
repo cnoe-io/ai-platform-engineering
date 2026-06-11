@@ -3,11 +3,9 @@
 // assisted-by Cursor Composer
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ArrowRight,
-  Boxes,
-  ExternalLink,
   FolderKanban,
   RefreshCw,
   Rocket,
@@ -42,12 +40,9 @@ export function ProjectsHub() {
   });
   const [syncOpen, setSyncOpen] = useState(false);
   const [canOpenSync, setCanOpenSync] = useState(false);
-  const [syncBlockedReason, setSyncBlockedReason] = useState<string | null>(null);
-
-  const backstageProjectCount = useMemo(
-    () => projects.filter((p) => p.source === "backstage").length,
-    [projects],
-  );
+  // Blocked-reason is tracked for gating but not rendered (the Sync button is
+  // simply hidden when the user can't sync).
+  const [, setSyncBlockedReason] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -129,74 +124,16 @@ export function ProjectsHub() {
               <Sparkles className="h-4 w-4" />
               Executive Dashboard
             </Link>
-            <Link
-              href="/projects/catalog"
-              className="inline-flex items-center justify-center gap-2 rounded-xl border border-border px-5 py-2.5 text-sm font-medium text-muted-foreground transition hover:bg-accent hover:text-foreground"
-            >
-              <Boxes className="h-4 w-4" />
-              Software Catalog
-            </Link>
-          </div>
-        </div>
-      </section>
-
-      <section className="space-y-4">
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <h2 className="text-xl font-semibold">Backstage catalog</h2>
-            <p className="text-sm text-muted-foreground">
-              Import and reconcile <code className="text-xs">kind: System</code> entities
-              from your Backstage developer portal — separate from team identity sync.
-            </p>
-          </div>
-          {backstageProjectCount > 0 ? (
-            <span className="shrink-0 text-sm text-muted-foreground">
-              {backstageProjectCount} imported from Backstage
-            </span>
-          ) : null}
-        </div>
-
-        <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-center rounded-2xl border border-emerald-500/20 bg-gradient-to-br from-emerald-950/20 via-background to-teal-950/10 p-6">
-          <div className="flex items-start gap-4">
-            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-600 to-teal-600 text-white shadow-md">
-              <Sparkles className="h-7 w-7" />
-            </div>
-            <div className="space-y-2">
-              <h3 className="font-semibold">Sync projects from Backstage</h3>
-              <p className="max-w-xl text-sm text-muted-foreground">
-                Super admins can browse Backstage Systems, pick which projects to
-                import, assign a team, and resolve field conflicts before apply.
-              </p>
-              <a
-                href="https://backstage.io/docs/features/software-catalog/descriptor-format#kind-system"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600 hover:underline"
+            {canOpenSync ? (
+              <button
+                type="button"
+                onClick={() => setSyncOpen(true)}
+                title="Super admins can import kind: System entities from the Backstage developer portal, assign a team, and resolve conflicts before apply."
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-border px-5 py-2.5 text-sm font-medium text-muted-foreground transition hover:bg-accent hover:text-foreground"
               >
-                Backstage System entity format
-                <ExternalLink className="h-3 w-3" />
-              </a>
-            </div>
-          </div>
-          <div className="flex flex-col items-stretch gap-2 md:items-end">
-            <button
-              type="button"
-              onClick={() => setSyncOpen(true)}
-              disabled={!canOpenSync}
-              className={cn(
-                "inline-flex items-center justify-center gap-2 rounded-xl px-5 py-2.5 text-sm font-medium shadow transition",
-                canOpenSync
-                  ? "bg-emerald-600 text-white hover:bg-emerald-700"
-                  : "cursor-not-allowed border border-border bg-muted text-muted-foreground",
-              )}
-            >
-              <RefreshCw className="h-4 w-4" />
-              Sync from Backstage
-            </button>
-            {!canOpenSync && syncBlockedReason ? (
-              <p className="max-w-xs text-right text-xs text-muted-foreground">
-                {syncBlockedReason}
-              </p>
+                <RefreshCw className="h-4 w-4" />
+                Sync from Backstage
+              </button>
             ) : null}
           </div>
         </div>

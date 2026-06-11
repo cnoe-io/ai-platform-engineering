@@ -1178,6 +1178,53 @@ create_mapper_if_missing() {
   fi
 }
 
+# Ensure an oidc-user-attribute-idp-mapper exists AND uses syncMode=FORCE, so the
+# mapped value (e.g. firstName/lastName) is (re)applied on EVERY broker login —
+# not just first account creation. With the default INHERIT→IMPORT, accounts
+# linked before the claim was available keep empty/stale values forever; FORCE
+# backfills them on next login. (Keycloak's attribute importer is a no-op when
+# the claim is absent, so multiple FORCE mappers writing the same attribute from
+# different claim names — e.g. given_name vs firstname — don't clear each other.)
+# Mirrors the groups-importer create+PUT pattern above.
+# Usage: ensure_attribute_mapper_force <name> <claim> <user.attribute>
+ensure_attribute_mapper_force() {
+  local name="$1" claim="$2" user_attr="$3"
+  local body
+  body="$(cat <<ENDJSON
+{
+  "name": "${name}",
+  "identityProviderAlias": "${ALIAS}",
+  "identityProviderMapper": "oidc-user-attribute-idp-mapper",
+  "config": { "syncMode": "FORCE", "claim": "${claim}", "user.attribute": "${user_attr}" }
+}
+ENDJSON
+)"
+  create_mapper_if_missing "${name}" "${body}"
+  # If it already existed (possibly with INHERIT), force syncMode=FORCE in place.
+  local mid
+  mid=$(curl -sf -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/identity-provider/instances/${ALIAS}/mappers" 2>/dev/null \
+    | python3 -c "import sys,json
+data=json.load(sys.stdin)
+print(next((m.get('id','') for m in data if m.get('name') == '${name}'), ''))" 2>/dev/null || true)
+  if [ -n "${mid}" ]; then
+    curl -sf -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
+      "${KC_URL}/admin/realms/${REALM}/identity-provider/instances/${ALIAS}/mappers/${mid}" \
+      -d "$(cat <<ENDJSON
+{
+  "id": "${mid}",
+  "name": "${name}",
+  "identityProviderAlias": "${ALIAS}",
+  "identityProviderMapper": "oidc-user-attribute-idp-mapper",
+  "config": { "syncMode": "FORCE", "claim": "${claim}", "user.attribute": "${user_attr}" }
+}
+ENDJSON
+)" >/dev/null 2>&1 \
+      && echo "[init-idp]   Ensured '${name}' uses syncMode=FORCE." \
+      || echo "[init-idp]   WARNING: failed to force syncMode on '${name}'."
+  fi
+}
+
 echo "[init-idp] Ensuring IdP mappers ..."
 
 create_mapper_if_missing "${ALIAS}-groups-importer" "$(cat <<ENDJSON
@@ -1233,63 +1280,14 @@ create_mapper_if_missing "${ALIAS}-email-mapper" "$(cat <<ENDJSON
 ENDJSON
 )"
 
-# Map first name from upstream IdP (tries given_name first, then firstname — covers standard OIDC and Duo)
-create_mapper_if_missing "${ALIAS}-first-name" "$(cat <<ENDJSON
-{
-  "name": "${ALIAS}-first-name",
-  "identityProviderAlias": "${ALIAS}",
-  "identityProviderMapper": "oidc-user-attribute-idp-mapper",
-  "config": {
-    "syncMode": "INHERIT",
-    "claim": "given_name",
-    "user.attribute": "firstName"
-  }
-}
-ENDJSON
-)"
-
-create_mapper_if_missing "${ALIAS}-first-name-duo" "$(cat <<ENDJSON
-{
-  "name": "${ALIAS}-first-name-duo",
-  "identityProviderAlias": "${ALIAS}",
-  "identityProviderMapper": "oidc-user-attribute-idp-mapper",
-  "config": {
-    "syncMode": "INHERIT",
-    "claim": "firstname",
-    "user.attribute": "firstName"
-  }
-}
-ENDJSON
-)"
-
-# Map last name from upstream IdP
-create_mapper_if_missing "${ALIAS}-last-name" "$(cat <<ENDJSON
-{
-  "name": "${ALIAS}-last-name",
-  "identityProviderAlias": "${ALIAS}",
-  "identityProviderMapper": "oidc-user-attribute-idp-mapper",
-  "config": {
-    "syncMode": "INHERIT",
-    "claim": "family_name",
-    "user.attribute": "lastName"
-  }
-}
-ENDJSON
-)"
-
-create_mapper_if_missing "${ALIAS}-last-name-duo" "$(cat <<ENDJSON
-{
-  "name": "${ALIAS}-last-name-duo",
-  "identityProviderAlias": "${ALIAS}",
-  "identityProviderMapper": "oidc-user-attribute-idp-mapper",
-  "config": {
-    "syncMode": "INHERIT",
-    "claim": "lastname",
-    "user.attribute": "lastName"
-  }
-}
-ENDJSON
-)"
+# Map first/last name from the upstream IdP. given_name/family_name are standard
+# OIDC; firstname/lastname cover Duo's variant. syncMode=FORCE (see helper) so the
+# names refresh on every login and accounts linked before the claim was present
+# get backfilled — otherwise the row stays empty and the UI falls back to email.
+ensure_attribute_mapper_force "${ALIAS}-first-name"     "given_name"  "firstName"
+ensure_attribute_mapper_force "${ALIAS}-first-name-duo" "firstname"   "firstName"
+ensure_attribute_mapper_force "${ALIAS}-last-name"      "family_name" "lastName"
+ensure_attribute_mapper_force "${ALIAS}-last-name-duo"  "lastname"    "lastName"
 
 # --- group claims stay identity-only ---
 echo "[init-idp]   Upstream groups are mirrored into idp_groups and synced to CAIPE teams."

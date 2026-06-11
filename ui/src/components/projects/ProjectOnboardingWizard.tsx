@@ -7,12 +7,13 @@ import {
   BookOpen,
   Bot,
   CheckCircle2,
+  ChevronDown,
   FolderKanban,
   Loader2,
   MessageSquare,
   Rocket,
+  Search,
   Sparkles,
-  Users,
   Video,
   type LucideIcon,
 } from "lucide-react";
@@ -58,13 +59,6 @@ function resolveIcon(name?: string): LucideIcon {
   return ICONS[name] ?? Sparkles;
 }
 
-function parseMemberInput(raw: string): string[] {
-  return raw
-    .split(/[\n,]+/)
-    .map((entry) => entry.trim().replace(/^@/, ""))
-    .filter(Boolean);
-}
-
 function buildWizardSteps(configSteps: OnboardingStepConfig[]): WizardStepMeta[] {
   const create: WizardStepMeta = {
     id: "create",
@@ -83,7 +77,7 @@ function buildWizardSteps(configSteps: OnboardingStepConfig[]): WizardStepMeta[]
   }));
   const complete: WizardStepMeta = {
     id: "complete",
-    title: "All Set",
+    title: "Review & Create",
     subtitle: "Your project is ready",
     icon: Rocket,
     gradient: "from-emerald-600 via-green-600 to-teal-600",
@@ -111,9 +105,39 @@ export function ProjectOnboardingWizard({
   const [projectName, setProjectName] = useState("");
   const [description, setDescription] = useState("");
   const [teamId, setTeamId] = useState("");
-  const [membersRaw, setMembersRaw] = useState("");
   const [initiativesRaw, setInitiativesRaw] = useState("");
   const [swimlanesRaw, setSwimlanesRaw] = useState("");
+  // User-shared data sources (forwarded to connected external apps on onboarding).
+  const [githubReposRaw, setGithubReposRaw] = useState("");
+  const [confluenceUrl, setConfluenceUrl] = useState("");
+  // Live source options from the user's provider connections (Connections tab).
+  type SourceState = {
+    connected: boolean;
+    options: { value: string; label: string }[];
+    connectedTo?: string;
+  };
+  const [ghSources, setGhSources] = useState<SourceState>({ connected: false, options: [] });
+  const [cfSources, setCfSources] = useState<SourceState>({ connected: false, options: [] });
+  const ghSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // "Look up from Backstage" — pre-fill the create form from an existing System.
+  type BackstageResult = {
+    slug: string;
+    title: string;
+    description: string;
+    tags: string[];
+    repos: string[];
+  };
+  const [bsConfigured, setBsConfigured] = useState(false);
+  const [bsOpen, setBsOpen] = useState(false);
+  const [bsQuery, setBsQuery] = useState("");
+  const [bsResults, setBsResults] = useState<BackstageResult[]>([]);
+  const [bsLoading, setBsLoading] = useState(false);
+  const bsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Existing label values (for dropdown suggestions on BHAG / Swim Lane).
+  const [labelFacets, setLabelFacets] = useState<{ initiatives: string[]; swimlanes: string[] }>({
+    initiatives: [],
+    swimlanes: [],
+  });
   const [teams, setTeams] = useState<TeamPickerOption[]>([]);
   const [project, setProject] = useState<ProjectDocument | null>(null);
   const [provisioning, setProvisioning] = useState(false);
@@ -136,6 +160,106 @@ export function ProjectOnboardingWizard({
     project?.onboarding?.[phase.id]?.status === "failed" ||
     currentStepRun?.phase === "failed";
 
+  // Live source dropdowns from the user's connections (Connections tab).
+  const loadSources = useCallback(() => {
+    (
+      [
+        ["github", setGhSources],
+        ["atlassian", setCfSources],
+      ] as const
+    ).forEach(([provider, setter]) => {
+      fetch(`/api/projects/source-options?provider=${provider}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((b) => {
+          const data = b?.data ?? b;
+          if (!data) return;
+          setter({
+            connected: Boolean(data.connected),
+            options: Array.isArray(data.options) ? data.options : [],
+            connectedTo: typeof data.connectedTo === "string" ? data.connectedTo : undefined,
+          });
+        })
+        .catch(() => undefined);
+    });
+  }, []);
+
+  // Backstage lookup: debounced search of existing Systems.
+  const lookupBackstage = useCallback((q: string) => {
+    if (bsTimer.current) clearTimeout(bsTimer.current);
+    setBsLoading(true);
+    bsTimer.current = setTimeout(() => {
+      fetch(`/api/projects/backstage/lookup?q=${encodeURIComponent(q)}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((b) => {
+          const d = b?.data ?? b;
+          setBsConfigured(Boolean(d?.configured));
+          setBsResults(Array.isArray(d?.results) ? d.results : []);
+        })
+        .catch(() => setBsResults([]))
+        .finally(() => setBsLoading(false));
+    }, 300);
+  }, []);
+
+  // Apply a chosen Backstage System to the create form. Picking a system always
+  // overwrites the prefilled fields so the user can switch selections and the
+  // form reflects the latest pick (fields stay hand-editable afterwards).
+  const applyBackstageResult = useCallback((r: BackstageResult) => {
+    setProjectName(r.title);
+    setDescription(r.description);
+    setInitiativesRaw(r.tags.join(", "));
+    setGithubReposRaw(r.repos.join(", "));
+    setBsOpen(false);
+  }, []);
+
+  // As the user types a GitHub owner/org (last comma-separated token), re-query
+  // that owner's repos so the dropdown reflects what they typed. We send the
+  // full `owner/name-fragment` so the server can search the org by repo name
+  // (token-scoped, includes private) rather than just listing the first page.
+  const searchGithubRepos = useCallback((text: string) => {
+    if (ghSearchTimer.current) clearTimeout(ghSearchTimer.current);
+    const token = (text.split(/[\n,]/).pop() ?? "")
+      .trim()
+      .replace(/^https?:\/\/github\.com\//i, "");
+    const owner = token.split("/")[0].trim();
+    if (!owner) return;
+    ghSearchTimer.current = setTimeout(() => {
+      fetch(`/api/projects/source-options?provider=github&q=${encodeURIComponent(token)}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((b) => {
+          const d = b?.data ?? b;
+          if (d && d.connected) {
+            setGhSources({
+              connected: true,
+              options: Array.isArray(d.options) ? d.options : [],
+              connectedTo: typeof d.connectedTo === "string" ? d.connectedTo : undefined,
+            });
+          }
+        })
+        .catch(() => undefined);
+    }, 400);
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    loadSources();
+    // Probe whether Backstage lookup is available (shows the button if so).
+    fetch("/api/projects/backstage/lookup")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((b) => setBsConfigured(Boolean((b?.data ?? b)?.configured)))
+      .catch(() => undefined);
+    // Re-check after the user authorizes a provider in another tab and returns.
+    const onFocus = () => loadSources();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") loadSources();
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [open, loadSources]);
+
   useEffect(() => {
     if (!open) return;
     fetch("/api/projects/onboarding-config")
@@ -144,6 +268,26 @@ export function ProjectOnboardingWizard({
         setConfigSteps((body.data?.config?.steps ?? []) as OnboardingStepConfig[]);
       })
       .catch(() => setConfigSteps([]));
+
+    // Existing label values → datalist suggestions for BHAG / Swim Lane.
+    fetch("/api/projects/facets")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body) => {
+        const f = body?.data?.facets ?? body?.data ?? body;
+        const vals = (arr: unknown): string[] =>
+          Array.isArray(arr)
+            ? arr
+                .map((x) => (typeof x === "string" ? x : (x?.value ?? x?.label)))
+                .filter((v): v is string => typeof v === "string" && v.length > 0)
+            : [];
+        if (f) {
+          setLabelFacets({
+            initiatives: vals(f.initiatives),
+            swimlanes: vals(f.swimlanes),
+          });
+        }
+      })
+      .catch(() => undefined);
 
     fetch("/api/dynamic-agents/teams")
       .then((res) => res.json())
@@ -170,7 +314,6 @@ export function ProjectOnboardingWizard({
     setProjectName("");
     setDescription("");
     setTeamId("");
-    setMembersRaw("");
     setInitiativesRaw("");
     setSwimlanesRaw("");
     setProject(null);
@@ -290,9 +433,10 @@ export function ProjectOnboardingWizard({
           name: projectName.trim(),
           description: description.trim() || undefined,
           team_id: teamId,
-          member_ids: parseMemberInput(membersRaw),
           initiatives: initiativesRaw.split(",").map((s) => s.trim()).filter(Boolean),
           swimlanes: swimlanesRaw.split(",").map((s) => s.trim()).filter(Boolean),
+          github_repos: githubReposRaw.split(/[\n,]/).map((s) => s.trim()).filter(Boolean),
+          confluence_url: confluenceUrl.trim() || undefined,
         }),
       });
       const body = await res.json();
@@ -409,7 +553,7 @@ export function ProjectOnboardingWizard({
       >
         <div
           className={cn(
-            "relative overflow-hidden px-8 py-10 text-white",
+            "relative overflow-hidden px-8 pt-10 pb-14 text-white",
             "bg-gradient-to-br",
             phase.gradient,
           )}
@@ -431,7 +575,7 @@ export function ProjectOnboardingWizard({
             </button>
           </div>
 
-          <div className="relative mt-8 flex gap-2 overflow-x-auto pb-1">
+          <div className="relative mt-6 flex gap-2 overflow-x-auto pb-2">
             {wizardSteps.map((step, index) => {
               const Icon = step.icon;
               const done = index < phaseIndex;
@@ -462,8 +606,8 @@ export function ProjectOnboardingWizard({
                       <Icon className="h-4 w-4" />
                     )}
                   </div>
-                  <span className="text-[10px] font-medium text-center leading-tight text-white/80">
-                    {step.id === "create" ? "Create" : step.title.split(" ")[0]}
+                  <span className="w-20 text-[10px] font-medium text-center leading-tight text-white/80">
+                    {step.title}
                   </span>
                 </div>
               );
@@ -482,6 +626,77 @@ export function ProjectOnboardingWizard({
             >
               {phase.id === "create" ? (
                 <div className="grid gap-6 md:grid-cols-2">
+                  {bsConfigured ? (
+                    <div className="md:col-span-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const next = !bsOpen;
+                          setBsOpen(next);
+                          if (next) lookupBackstage("");
+                        }}
+                        className="inline-flex items-center gap-2 rounded-xl border border-border/60 bg-muted/30 px-4 py-2.5 text-sm font-medium transition hover:border-primary/40 hover:bg-accent/40"
+                      >
+                        <FolderKanban className="h-4 w-4 text-muted-foreground" />
+                        Pick from Backstage
+                        <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", bsOpen && "rotate-180")} />
+                      </button>
+                      {bsOpen ? (
+                        <div className="mt-3 rounded-xl border border-border/60 bg-card/40 p-3">
+                          <p className="px-1 pb-2 text-xs text-muted-foreground">
+                            Select a Backstage system to pre-fill this project — name, description,
+                            initiatives, and repos (all still editable).
+                          </p>
+                          {/* Optional filter over the listed systems. */}
+                          <div className="relative">
+                            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                            <input
+                              value={bsQuery}
+                              autoFocus
+                              onChange={(e) => {
+                                setBsQuery(e.target.value);
+                                lookupBackstage(e.target.value);
+                              }}
+                              placeholder="Filter systems…"
+                              className="w-full rounded-lg border border-border/60 bg-muted/30 py-2 pl-9 pr-3 text-sm outline-none ring-primary/30 focus:border-primary focus:ring-2"
+                            />
+                          </div>
+                          <ul className="mt-2 max-h-56 divide-y divide-border/60 overflow-y-auto rounded-lg border border-border/60">
+                            {bsLoading && bsResults.length === 0 ? (
+                              <li className="flex items-center gap-2 px-3 py-3 text-xs text-muted-foreground">
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                                Loading Backstage systems…
+                              </li>
+                            ) : bsResults.length === 0 ? (
+                              <li className="px-3 py-3 text-xs text-muted-foreground">
+                                No Backstage systems found. Check BACKSTAGE_URL and BACKSTAGE_API_TOKEN.
+                              </li>
+                            ) : (
+                              bsResults.map((r) => (
+                                <li key={r.slug}>
+                                  <button
+                                    type="button"
+                                    onClick={() => applyBackstageResult(r)}
+                                    className="block w-full px-3 py-2.5 text-left transition hover:bg-accent/50"
+                                  >
+                                    <span className="flex items-center gap-2">
+                                      <span className="text-sm font-medium text-foreground">{r.title}</span>
+                                      <span className="text-xs text-muted-foreground">{r.slug}</span>
+                                    </span>
+                                    {r.description ? (
+                                      <span className="mt-0.5 line-clamp-2 block text-xs text-muted-foreground">
+                                        {r.description}
+                                      </span>
+                                    ) : null}
+                                  </button>
+                                </li>
+                              ))
+                            )}
+                          </ul>
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
                   <div className="space-y-4">
                     <label className="block space-y-1.5">
                       <span className="text-sm font-medium">Project name</span>
@@ -515,35 +730,71 @@ export function ProjectOnboardingWizard({
                   </div>
                   <div className="space-y-4">
                     <label className="block space-y-1.5">
-                      <span className="text-sm font-medium flex items-center gap-2">
-                        <Users className="h-4 w-4 text-muted-foreground" />
-                        Team members
-                      </span>
-                      <textarea
-                        value={membersRaw}
-                        onChange={(e) => setMembersRaw(e.target.value)}
-                        rows={5}
-                        placeholder="@alice, @bob"
-                        className="w-full rounded-xl border border-border/60 bg-muted/30 px-4 py-3 text-sm outline-none ring-primary/30 focus:border-primary focus:ring-2"
-                      />
-                    </label>
-                    <label className="block space-y-1.5">
                       <span className="text-sm font-medium">BHAG / Initiatives</span>
-                      <input
+                      <ComboBox
+                        ariaLabel="BHAG / Initiatives"
                         value={initiativesRaw}
-                        onChange={(e) => setInitiativesRaw(e.target.value)}
+                        onChange={setInitiativesRaw}
+                        options={labelFacets.initiatives.map((v) => ({ value: v, label: v }))}
                         placeholder="Agentic-2026, Platform Modernization"
-                        className="w-full rounded-xl border border-border/60 bg-muted/30 px-4 py-2.5 text-sm outline-none ring-primary/30 focus:border-primary focus:ring-2"
+                        multi
                       />
+                      <span className="text-xs text-muted-foreground">Pick existing or type a new one (comma-separated).</span>
                     </label>
                     <label className="block space-y-1.5">
                       <span className="text-sm font-medium">Swim Lanes</span>
-                      <input
+                      <ComboBox
+                        ariaLabel="Swim Lanes"
                         value={swimlanesRaw}
-                        onChange={(e) => setSwimlanesRaw(e.target.value)}
+                        onChange={setSwimlanesRaw}
+                        options={labelFacets.swimlanes.map((v) => ({ value: v, label: v }))}
                         placeholder="Now, Next, Later"
-                        className="w-full rounded-xl border border-border/60 bg-muted/30 px-4 py-2.5 text-sm outline-none ring-primary/30 focus:border-primary focus:ring-2"
+                        multi
                       />
+                      <span className="text-xs text-muted-foreground">Pick existing or type a new one (comma-separated).</span>
+                    </label>
+                    <label className="block space-y-1.5">
+                      <span className="text-sm font-medium">GitHub repos</span>
+                      <ComboBox
+                        ariaLabel="GitHub repos"
+                        value={githubReposRaw}
+                        onChange={setGithubReposRaw}
+                        onType={searchGithubRepos}
+                        options={ghSources.options}
+                        placeholder="https://github.com/org/repo, https://github.com/org/another"
+                        multi
+                      />
+                      {ghSources.connected ? (
+                        <span className="text-xs text-muted-foreground">
+                          {ghSources.connectedTo ? (
+                            <>Connected as <span className="text-emerald-500">{ghSources.connectedTo}</span> · </>
+                          ) : null}
+                          type <code>org/name</code> to search that org (your private repos included); select multiple.
+                        </span>
+                      ) : (
+                        <AuthorizePrompt provider="GitHub" onRecheck={loadSources} />
+                      )}
+                    </label>
+                    <label className="block space-y-1.5">
+                      <span className="text-sm font-medium">Confluence space URL</span>
+                      <ComboBox
+                        ariaLabel="Confluence space URL"
+                        value={confluenceUrl}
+                        onChange={setConfluenceUrl}
+                        options={cfSources.options}
+                        placeholder="https://your.atlassian.net/wiki/spaces/PROJ"
+                      />
+                      {cfSources.connected ? (
+                        <span className="text-xs text-muted-foreground">
+                          {cfSources.connectedTo ? (
+                            <>Connected to <span className="text-emerald-500">{cfSources.connectedTo}</span> · pick a space or paste a URL.</>
+                          ) : (
+                            <>Pick a space or paste a URL.</>
+                          )}
+                        </span>
+                      ) : (
+                        <AuthorizePrompt provider="Confluence" onRecheck={loadSources} />
+                      )}
                     </label>
                     <div className="rounded-xl border border-dashed border-primary/30 bg-primary/5 p-4 text-xs text-muted-foreground">
                       Projects belong to teams and can sync to Backstage as{" "}
@@ -557,7 +808,6 @@ export function ProjectOnboardingWizard({
               {isProvisionPhase ? (
                 <ProvisioningCard
                   title={phase.title}
-                  checklist={phase.checklist ?? ["Provision resources", "Verify access"]}
                   runState={currentStepRun}
                   done={currentStepDone}
                   failed={currentStepFailed}
@@ -644,81 +894,171 @@ export function ProjectOnboardingWizard({
 
 function ProvisioningCard({
   title,
-  checklist,
   runState,
   done,
   failed,
   integrationUrl,
 }: {
   title: string;
-  checklist: string[];
   runState?: StepRunState;
   done: boolean;
   failed: boolean;
   integrationUrl?: string;
 }) {
-  const running = runState?.phase === "calling";
+  return (
+    <div className="flex min-h-[180px] flex-col items-center justify-center gap-3 rounded-2xl border border-border/50 bg-gradient-to-br from-muted/40 to-muted/10 p-8 text-center">
+      {failed ? (
+        <>
+          <p className="font-semibold text-red-600">Provisioning failed</p>
+          <p className="text-sm text-muted-foreground">{runState?.error ?? "Unknown error"}</p>
+        </>
+      ) : done ? (
+        <>
+          <CheckCircle2 className="h-8 w-8 text-emerald-500" />
+          <p className="font-semibold text-emerald-600">{title} provisioned</p>
+          <p className="text-sm text-muted-foreground">
+            {runState?.statusMessage ?? "Completed successfully"}
+          </p>
+          {integrationUrl ? (
+            <p className="break-all text-xs text-primary">{integrationUrl}</p>
+          ) : null}
+        </>
+      ) : (
+        <>
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <p className="text-sm font-medium">Provisioning {title}…</p>
+          <p className="text-xs text-muted-foreground">This can take a few seconds.</p>
+        </>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Inline prompt shown when the user hasn't connected a provider — links to the
+ * Connections tab to authorize, so the source dropdown can populate. The field
+ * still accepts free-text in the meantime.
+ */
+function AuthorizePrompt({
+  provider,
+  onRecheck,
+}: {
+  provider: string;
+  onRecheck?: () => void;
+}) {
+  return (
+    <span className="flex flex-wrap items-center gap-1.5 text-xs text-amber-500">
+      <span>Not connected.</span>
+      <a
+        href="/credentials"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="font-medium underline underline-offset-2 hover:text-amber-400"
+      >
+        Authorize {provider}
+      </a>
+      <span className="text-muted-foreground">to pick from your account, or paste a URL.</span>
+      {onRecheck ? (
+        <button
+          type="button"
+          onClick={onRecheck}
+          className="font-medium text-primary underline underline-offset-2 hover:text-primary/80"
+        >
+          Recheck
+        </button>
+      ) : null}
+    </span>
+  );
+}
+
+/** Replace the active token (last comma/newline segment) for multi-value fields. */
+function applyComboSelection(current: string, selected: string, multi: boolean): string {
+  if (!multi) return selected;
+  const lastDelim = Math.max(current.lastIndexOf(","), current.lastIndexOf("\n"));
+  const head = lastDelim >= 0 ? current.slice(0, lastDelim + 1) : "";
+  return `${head ? head.trimEnd() + " " : ""}${selected}, `;
+}
+
+/**
+ * Styled, scrollable combobox: a text input with a filtered dropdown of
+ * suggestions that stays inside the dialog (unlike the native <datalist>).
+ * Free-text is always allowed; `multi` appends comma-separated selections.
+ */
+function ComboBox({
+  value,
+  onChange,
+  options,
+  placeholder,
+  multi = false,
+  onType,
+  ariaLabel,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  options: { value: string; label: string }[];
+  placeholder?: string;
+  multi?: boolean;
+  onType?: (v: string) => void;
+  ariaLabel?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+
+  const lastToken = (multi ? (value.split(/[\n,]/).pop() ?? "") : value).trim().toLowerCase();
+  const filtered = options
+    .filter(
+      (o) =>
+        !lastToken ||
+        o.label.toLowerCase().includes(lastToken) ||
+        o.value.toLowerCase().includes(lastToken),
+    )
+    .slice(0, 50);
 
   return (
-    <div className="grid gap-6 md:grid-cols-2">
-      <ul className="space-y-3">
-        {checklist.map((item, index) => {
-          const itemDone = done;
-          const itemRunning = running && index === 0;
-          return (
-            <li
-              key={item}
-              className="flex items-center gap-3 rounded-xl border border-border/40 bg-card/50 px-4 py-3 text-sm"
+    <div ref={ref} className="relative">
+      <input
+        aria-label={ariaLabel}
+        value={value}
+        placeholder={placeholder}
+        onChange={(e) => {
+          onChange(e.target.value);
+          onType?.(e.target.value);
+          setOpen(true);
+        }}
+        onFocus={() => setOpen(true)}
+        className="w-full rounded-xl border border-border/60 bg-muted/30 px-4 py-2.5 text-sm outline-none ring-primary/30 focus:border-primary focus:ring-2"
+      />
+      {open && filtered.length > 0 ? (
+        <div className="absolute left-0 right-0 z-50 mt-1 max-h-56 overflow-auto rounded-xl border border-border/60 bg-card shadow-xl">
+          {filtered.map((o) => (
+            <button
+              type="button"
+              key={o.value}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                onChange(applyComboSelection(value, o.value, multi));
+                onType?.("");
+                setOpen(false);
+              }}
+              className="block w-full px-3 py-2 text-left transition hover:bg-accent/60"
             >
-              {itemDone ? (
-                <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-500" />
-              ) : itemRunning ? (
-                <Loader2 className="h-5 w-5 shrink-0 animate-spin text-primary" />
-              ) : (
-                <span className="h-5 w-5 shrink-0 rounded-full border-2 border-muted-foreground/30" />
-              )}
-              {item}
-            </li>
-          );
-        })}
-      </ul>
-      <div className="flex flex-col justify-center gap-3 rounded-2xl border border-border/50 bg-gradient-to-br from-muted/40 to-muted/10 p-6">
-        {running ? (
-          <>
-            <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="h-5 w-5 animate-spin text-primary" />
-              Calling {title} API…
-            </div>
-            <p className="text-center text-xs text-muted-foreground animate-pulse">
-              Waiting for mock provider response
-            </p>
-          </>
-        ) : failed ? (
-          <div className="space-y-2 text-sm">
-            <p className="font-semibold text-red-600">Provisioning failed</p>
-            <p className="text-muted-foreground">{runState?.error ?? "Unknown error"}</p>
-          </div>
-        ) : done ? (
-          <div className="space-y-2 text-sm">
-            <p className="font-semibold text-emerald-600">Provisioned</p>
-            <p className="text-muted-foreground">
-              {runState?.statusMessage ?? "Step completed successfully"}
-            </p>
-            {runState?.mockRef ? (
-              <p className="break-all text-xs text-muted-foreground">
-                Ref: {runState.mockRef}
-              </p>
-            ) : null}
-            {integrationUrl ? (
-              <p className="break-all text-xs text-primary">{integrationUrl}</p>
-            ) : null}
-          </div>
-        ) : (
-          <p className="text-center text-sm text-muted-foreground">
-            Starting {title} provisioning…
-          </p>
-        )}
-      </div>
+              <span className="block truncate text-sm">{o.label}</span>
+              {o.label !== o.value ? (
+                <span className="block truncate text-xs text-muted-foreground">{o.value}</span>
+              ) : null}
+            </button>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }

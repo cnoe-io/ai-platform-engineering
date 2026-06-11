@@ -151,6 +151,20 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   const tags = body.tags?.length ? body.tags : ["caipe"];
   const memberIds = body.member_ids?.map((m) => m.trim()).filter(Boolean) ?? [];
 
+  // User-shared data sources (repos / Confluence / component URLs). Stored on
+  // the project and surfaced to onboarding so connected external apps can
+  // ingest them. Also mirrored into integrations so the detail tiles render.
+  const cleanUrls = (arr?: string[]): string[] =>
+    (arr ?? []).map((u) => u.trim()).filter(Boolean);
+  const sources = {
+    repos: cleanUrls(body.github_repos),
+    confluence_url: body.confluence_url?.trim() || undefined,
+    component_urls: cleanUrls(body.component_urls),
+  };
+  const sourceIntegrations: Record<string, string> = {};
+  if (sources.repos[0]) sourceIntegrations.github_url = sources.repos[0];
+  if (sources.confluence_url) sourceIntegrations.confluence_url = sources.confluence_url;
+
   const catalog = buildProjectCatalog({
     name: body.name.trim(),
     description,
@@ -183,7 +197,8 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     catalog,
     components: buildDefaultComponents(slug, teamSlug, catalog.metadata.title),
     onboarding: buildEmptyOnboardingState(),
-    integrations: {},
+    integrations: sourceIntegrations,
+    sources,
     source: "manual",
     created_at: now,
     updated_at: now,
