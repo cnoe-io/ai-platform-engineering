@@ -6620,6 +6620,12 @@ DAEOF
     log "UI secret helm args added"
   fi
 
+  # Delete any stale helm hook Jobs from a previous failed install/upgrade.
+  # If left behind they block pre-upgrade hooks on the next run (helm waits
+  # for them and hits the deadline). Safe to delete: helm recreates them.
+  kubectl delete jobs -n "${CAIPE_NAMESPACE:-caipe}" \
+    -l 'helm.sh/hook' --ignore-not-found 2>/dev/null || true
+
   if ! helm upgrade --install caipe "$CAIPE_OCI_REPO" "${helm_args[@]}" 2>&1; then
     err "Helm install failed (see output above)"
     exit 1
