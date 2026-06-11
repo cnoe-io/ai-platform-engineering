@@ -8282,9 +8282,13 @@ _load_caipe_config() {
     NON_INTERACTIVE=true
     log "Saved configuration loaded — skipping wizard"
   else
+    # Signal cmd_setup to activate non-interactive mode once the cluster
+    # selection wizard has run and the correct context is established.
+    _SAVED_CONFIG_ACCEPTED=true
     log "Saved configuration loaded (wizard will run for cluster selection only)"
   fi
 }
+_SAVED_CONFIG_ACCEPTED=false
 
 # ─── Main ────────────────────────────────────────────────────────────────────
 cmd_setup() {
@@ -8305,6 +8309,7 @@ BANNER
   echo -e "${BLUE}${BOLD}║${NC}                                               ${BLUE}${BOLD}║${NC}"
   echo -e "${BLUE}${BOLD}║${NC}  ${DIM}Multi-Agent System on Kubernetes${NC}             ${BLUE}${BOLD}║${NC}"
   echo -e "${BLUE}${BOLD}║${NC}                                               ${BLUE}${BOLD}║${NC}"
+  echo -e "${BLUE}${BOLD}║${NC}  ${DIM}github.com/cnoe-io/ai-platform-engineering${NC}   ${BLUE}${BOLD}║${NC}"
   echo -e "${BLUE}${BOLD}║${NC}  ${DIM}Powered by cnoe-agent-utils LLMFactory${NC}       ${BLUE}${BOLD}║${NC}"
   echo -e "${BLUE}${BOLD}║${NC}  ${DIM}github.com/cnoe-io/cnoe-agent-utils${NC}          ${BLUE}${BOLD}║${NC}"
   echo -e "${BLUE}${BOLD}╚═══════════════════════════════════════════════╝${NC}"
@@ -8320,6 +8325,10 @@ BANNER
   # here forces k3s kubectl to read the same file as helm so both tools talk
   # to the same cluster.
   export KUBECONFIG="${KUBECONFIG:-${HOME}/.kube/config}"
+
+  # If saved config was loaded but context needed interactive cluster selection,
+  # now that the cluster is set activate non-interactive for the remaining steps.
+  $_SAVED_CONFIG_ACCEPTED && NON_INTERACTIVE=true
 
   # ── Fast re-run detection ──
   # If CAIPE is already deployed, offer the user a shortcut instead of
