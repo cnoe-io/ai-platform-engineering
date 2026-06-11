@@ -8315,16 +8315,16 @@ BANNER
   echo -e "${BLUE}${BOLD}╚═══════════════════════════════════════════════╝${NC}"
   echo ""
 
+  # On hosts where kubectl is a k3s symlink (/usr/local/bin/kubectl -> k3s),
+  # the binary reads /etc/rancher/k3s/k3s.yaml by default when KUBECONFIG is
+  # unset, while helm uses the standard Go client which reads ~/.kube/config.
+  # Set KUBECONFIG here — before any kubectl call — so both tools always read
+  # the same file and see the same cluster and contexts.
+  export KUBECONFIG="${KUBECONFIG:-${HOME}/.kube/config}"
+
   check_prerequisites
   _load_caipe_config
   choose_cluster
-
-  # On hosts where kubectl is a k3s symlink (/usr/local/bin/kubectl -> k3s),
-  # the binary ignores KUBECONFIG and reads /etc/rancher/k3s/k3s.yaml by
-  # default, while helm uses the standard ~/.kube/config. Exporting KUBECONFIG
-  # here forces k3s kubectl to read the same file as helm so both tools talk
-  # to the same cluster.
-  export KUBECONFIG="${KUBECONFIG:-${HOME}/.kube/config}"
 
   # If saved config was loaded but context needed interactive cluster selection,
   # now that the cluster is set activate non-interactive for the remaining steps.
