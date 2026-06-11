@@ -5078,10 +5078,16 @@ PGINIT
         kubectl get statefulset --all-namespaces 2>&1 | while IFS= read -r l; do err "  $l"; done
         err "--- Pods in namespace caipe ---"
         kubectl get pods -n caipe 2>&1 | while IFS= read -r l; do err "  $l"; done
-        err "--- Current kubectl context + server ---"
+        err "--- GET pod caipe-postgres-0 by name ---"
+        kubectl get pod caipe-postgres-0 -n caipe 2>&1 | while IFS= read -r l; do err "  $l"; done
+        err "--- kubectl context + server ---"
         kubectl config current-context 2>&1 | while IFS= read -r l; do err "  context: $l"; done
-        kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}' 2>&1 \
+        kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}{"\n"}' 2>&1 \
           | while IFS= read -r l; do err "  server: $l"; done
+        err "--- helm env (shows KUBECONFIG helm is using) ---"
+        helm env 2>&1 | grep -E 'KUBE|DATA' | while IFS= read -r l; do err "  $l"; done
+        err "--- KUBECONFIG env var ---"
+        err "  KUBECONFIG=${KUBECONFIG:-<unset>}"
         exit 1
       fi
       sleep 3
