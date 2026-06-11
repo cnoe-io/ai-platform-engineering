@@ -8314,6 +8314,13 @@ BANNER
   _load_caipe_config
   choose_cluster
 
+  # On hosts where kubectl is a k3s symlink (/usr/local/bin/kubectl -> k3s),
+  # the binary ignores KUBECONFIG and reads /etc/rancher/k3s/k3s.yaml by
+  # default, while helm uses the standard ~/.kube/config. Exporting KUBECONFIG
+  # here forces k3s kubectl to read the same file as helm so both tools talk
+  # to the same cluster.
+  export KUBECONFIG="${KUBECONFIG:-${HOME}/.kube/config}"
+
   # ── Fast re-run detection ──
   # If CAIPE is already deployed, offer the user a shortcut instead of
   # running the full setup flow again.
