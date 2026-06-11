@@ -2408,7 +2408,7 @@ choose_features() {
       echo -e "    ${BOLD}4)${NC} Cohere             ${DIM}(direct Cohere API: embed-english-v3.0, etc.)${NC}"
       echo -e "    ${BOLD}5)${NC} Voyage AI          ${DIM}(Anthropic's official recommendation — voyage-4-large)${NC}"
       echo -e "    ${BOLD}6)${NC} HuggingFace        ${DIM}(local — requires rag-server -hf image variant)${NC}"
-      echo -e "    ${BOLD}7)${NC} Ollama             ${DIM}(local — runs in cluster, no API key needed)${NC}"
+      echo -e "    ${BOLD}7)${NC} Ollama             ${DIM}(local — nomic-embed-text default, no API key needed)${NC}"
       echo -e "    ${BOLD}8)${NC} LiteLLM Proxy      ${DIM}(any OpenAI-compatible endpoint you operate)${NC}"
       echo ""
       prompt "Select embeddings provider ${CYAN}[1]${NC}${BOLD}: "
@@ -2541,9 +2541,13 @@ choose_features() {
           warn "  Ensure your chart sets rag-stack.rag-server.image.tag to a tag with the -hf suffix."
           ;;
         ollama)
-          echo -e "    ${BOLD}1)${NC} nomic-embed-text       ${DIM}(default, 768 dims)${NC}"
-          echo -e "    ${BOLD}2)${NC} mxbai-embed-large      ${DIM}(higher quality, 1024 dims)${NC}"
-          echo -e "    ${BOLD}3)${NC} Custom"
+          echo -e "    ${BOLD}1)${NC} nomic-embed-text          ${DIM}(default · 274 MB · 768 dims · fast CPU)${NC}"
+          echo -e "    ${BOLD}2)${NC} mxbai-embed-large         ${DIM}(670 MB · 1024 dims · MTEB 64.68 English)${NC}"
+          echo -e "    ${BOLD}3)${NC} qwen3-embedding:0.6b      ${DIM}(639 MB · 1024 dims · MTEB 64.33 multilingual · 32K ctx)${NC}"
+          echo -e "    ${BOLD}4)${NC} snowflake-arctic-embed2   ${DIM}(1.2 GB · 1024 dims · strong retrieval)${NC}"
+          echo -e "    ${BOLD}5)${NC} bge-m3                    ${DIM}(1.2 GB · 1024 dims · hybrid dense+sparse+multi-vector)${NC}"
+          echo -e "    ${BOLD}6)${NC} qwen3-embedding:8b        ${DIM}(4.7 GB · 4096 dims · MTEB #1 multilingual — GPU recommended)${NC}"
+          echo -e "    ${BOLD}7)${NC} Custom"
           echo ""
           prompt "Select embeddings model ${CYAN}[1]${NC}${BOLD}: "
           tty_read -r emb_choice
@@ -2551,7 +2555,11 @@ choose_features() {
           case "$emb_choice" in
             1) EMBEDDINGS_MODEL="nomic-embed-text" ;;
             2) EMBEDDINGS_MODEL="mxbai-embed-large" ;;
-            3)
+            3) EMBEDDINGS_MODEL="qwen3-embedding:0.6b" ;;
+            4) EMBEDDINGS_MODEL="snowflake-arctic-embed2" ;;
+            5) EMBEDDINGS_MODEL="bge-m3" ;;
+            6) EMBEDDINGS_MODEL="qwen3-embedding:8b" ;;
+            7)
               prompt "Enter Ollama model name: "
               tty_read -r EMBEDDINGS_MODEL
               [[ -z "$EMBEDDINGS_MODEL" ]] && { err "Model name is required"; exit 1; }
