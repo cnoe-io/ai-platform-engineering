@@ -1605,8 +1605,9 @@ _collect_vllm_credentials() {
 _collect_ollama_config() {
   if ! $NON_INTERACTIVE; then
     echo ""
-    echo -e "  ${DIM}Tool-calling models (required for agents): mistral:7b, qwen2.5, qwen2.5:14b${NC}"
+    echo -e "  ${DIM}Tool-calling models (required for agents): arcee-ai/arcee-agent, mistral:7b, qwen2.5, qwen2.5:14b${NC}"
     echo -e "  ${DIM}Other models (no tool support): gemma3, llama3.2, phi4-mini${NC}"
+    echo -e "  ${DIM}arcee-ai/arcee-agent: https://ollama.com/arcee-ai/arcee-agent${NC}"
     prompt "Ollama model to use ${CYAN}[${OLLAMA_MODEL}]${NC}${BOLD}: "
     tty_read -r input
     OLLAMA_MODEL="${input:-$OLLAMA_MODEL}"
