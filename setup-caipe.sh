@@ -5952,15 +5952,16 @@ deploy_caipe() {
     # release "caipe" the service is caipe-supervisor-agent, so we must override
     # it or the UI shows the Supervisor permanently OFFLINE.
     --set "caipe-ui.config.A2A_BASE_URL=http://caipe-supervisor-agent:8000"
-    # NEXT_PUBLIC_A2A_BASE_URL: client-side browser fetches (A2A streaming, health)
-    # Must be the externally reachable URL so the browser can connect (via the
-    # /supervisor ingress that routes to caipe-supervisor-agent:8000).
-    --set "caipe-ui.config.NEXT_PUBLIC_A2A_BASE_URL=${CAIPE_DOMAIN:+https://${CAIPE_DOMAIN}/supervisor}"
+    # NEXT_PUBLIC_A2A_BASE_URL: browser-facing supervisor URL for direct A2A
+    # streaming. Only set when a domain is configured — the browser connects to
+    # https://<domain> which the ingress routes to caipe-supervisor-agent:8000.
+    # When no domain is set, leave this UNSET so the UI falls back to /api/a2a
+    # (the Next.js BFF proxy), which reaches the supervisor via the internal
+    # A2A_BASE_URL above. This works for both local kind clusters and cloud VMs
+    # without a public domain, and avoids localhost:8000 resolving to the
+    # client machine rather than the cluster host.
+    ${CAIPE_DOMAIN:+--set "caipe-ui.config.NEXT_PUBLIC_A2A_BASE_URL=https://${CAIPE_DOMAIN}"}
   )
-  # When no domain is set (local dev), default to localhost for port-forward usage
-  if [[ -z "$CAIPE_DOMAIN" ]]; then
-    helm_args+=(--set "caipe-ui.config.NEXT_PUBLIC_A2A_BASE_URL=http://localhost:8000")
-  fi
 
   # SSO: enable when a public domain is configured (NEXTAUTH_URL is already
   # patched in provision_ui_secret; here we flip the server-side flag too)
