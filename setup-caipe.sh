@@ -163,6 +163,9 @@ OPENFGA_PORT=18080
 INJECT_CORPORATE_CA=false
 CA_SSL_FIX_PROMPTED=false
 SUPERVISOR_RAG_RESTARTED=false
+RAG_INGESTOR_SECRET_READY=false
+RAG_INGESTOR_OIDC_ISSUER=""
+RAG_INGESTOR_OIDC_CLIENT_ID=""
 LANGFUSE_PUBLIC_KEY=""
 LANGFUSE_SECRET_KEY=""
 PF_PIDS=()
@@ -1477,16 +1480,18 @@ _collect_vllm_credentials() {
 _collect_ollama_config() {
   if ! $NON_INTERACTIVE; then
     echo ""
-    echo -e "  ${DIM}Available Ollama models: gemma3, llama3.2, llama3.2:1b, mistral, phi4-mini, qwen2.5${NC}"
+    echo -e "  ${DIM}Tool-calling models (required for agents): mistral:7b, qwen2.5, qwen2.5:14b${NC}"
+    echo -e "  ${DIM}Other models (no tool support): gemma3, llama3.2, phi4-mini${NC}"
     prompt "Ollama model to use ${CYAN}[${OLLAMA_MODEL}]${NC}${BOLD}: "
     tty_read -r input
     OLLAMA_MODEL="${input:-$OLLAMA_MODEL}"
   fi
 
-  # Ollama runs in-cluster in the same namespace; agents reach it via the Service name.
-  # The OpenAI SDK appends /chat/completions to the base URL, so the base URL
-  # must include the /v1 prefix or requests will 404.
-  OPENAI_ENDPOINT="http://ollama:${OLLAMA_PORT}/v1"
+  # Ollama runs in-cluster; use the FQDN so DNS resolution works regardless of
+  # the pod's search domain. The OpenAI SDK appends /chat/completions to the
+  # base URL, so the /v1 prefix is required or requests will 404.
+  local _ollama_fqdn="http://ollama.${CAIPE_NAMESPACE:-caipe}.svc.cluster.local:${OLLAMA_PORT}"
+  OPENAI_ENDPOINT="${_ollama_fqdn}/v1"
   OPENAI_API_KEY="ollama"
   OPENAI_MODEL_NAME="${OLLAMA_MODEL}"
 
@@ -1497,6 +1502,19 @@ _collect_ollama_config() {
   # the Ollama init container will pull alongside the chat model.
   if [[ -z "${EMBEDDINGS_MODEL:-}" || "${EMBEDDINGS_MODEL}" == "text-embedding-3-large" ]]; then
     EMBEDDINGS_MODEL="nomic-embed-text"
+  fi
+
+  # Offer LiteLLM as a proxy in front of Ollama. This is recommended for local
+  # setups: it adds a stable OpenAI-compatible endpoint, enables multi-model
+  # routing, and matches the production vLLM architecture.
+  if ! $NON_INTERACTIVE && ! $LLM_VIA_LITELLM; then
+    echo ""
+    echo -e "  ${DIM}LiteLLM proxy provides a stable OpenAI-compatible endpoint in front of${NC}"
+    echo -e "  ${DIM}Ollama, enables multi-model routing, and is recommended for local setups.${NC}"
+    if ask_yn "Deploy LiteLLM proxy in front of Ollama? (recommended)" "y"; then
+      LLM_VIA_LITELLM=true
+      log "LiteLLM proxy enabled (will front Ollama at ${_ollama_fqdn})"
+    fi
   fi
 
   log "Provider: openai (via in-cluster Ollama)  Model: ${OLLAMA_MODEL}  Embeddings: ${EMBEDDINGS_MODEL}"
@@ -2083,8 +2101,8 @@ choose_features() {
       log "RAG skipped (pass --rag to enable)"
     fi
     $ENABLE_TRACING && log "Tracing enabled (--tracing)" || log "Tracing skipped (pass --tracing to enable)"
-    $ENABLE_AGENTGATEWAY && log "AgentGateway enabled (default; pass --no-agentgateway to skip)" || log "AgentGateway disabled (--no-agentgateway)"
-    $ENABLE_RBAC_RUNTIME && log "RBAC runtime enabled (default; pass --no-rbac-runtime to skip)" || log "RBAC runtime disabled (--no-rbac-runtime)"
+    log "AgentGateway enabled (required)"
+    log "RBAC runtime enabled (required — Keycloak + OpenFGA)"
     $ENABLE_PERSISTENCE && log "Redis persistence enabled (default; pass --no-persistence to skip)" || log "Persistence disabled (--no-persistence)"
     $ENABLE_DYNAMIC_AGENTS && log "Dynamic agents enabled (default; pass --no-dynamic-agents to skip)" || log "Dynamic agents disabled (--no-dynamic-agents)"
     $ENABLE_METALLB && log "MetalLB enabled (default; pass --no-metallb to skip)" || log "MetalLB disabled (--no-metallb)"
@@ -2667,43 +2685,12 @@ choose_features() {
     fi
   fi
 
-  echo ""
-  echo -e "  ${DIM}AgentGateway federates all MCP servers behind a single endpoint,${NC}"
-  echo -e "  ${DIM}allowing MCP clients (Cursor, VS Code, Claude Code) to connect once.${NC}"
-  if $ENABLE_AGENTGATEWAY; then
-    log "AgentGateway enabled by default (federates MCP servers)"
-    if ! ask_yn "Keep AgentGateway?" "y"; then
-      ENABLE_AGENTGATEWAY=false
-      log "AgentGateway disabled"
-    fi
-  else
-    if ask_yn "Enable AgentGateway for MCP server access?" "y"; then
-      ENABLE_AGENTGATEWAY=true
-      log "AgentGateway enabled"
-    else
-      log "AgentGateway skipped"
-    fi
-  fi
-
-  echo ""
-  echo -e "  ${DIM}RBAC runtime installs the in-chart Keycloak, OpenFGA, OpenFGA ext_authz bridge,${NC}"
-  echo -e "  ${DIM}and standalone AgentGateway proxy added for the 0.5.0 RBAC release.${NC}"
-  if $ENABLE_RBAC_RUNTIME; then
-    log "RBAC runtime enabled by default (Keycloak + OpenFGA + ext_authz)"
-    ENABLE_AGENTGATEWAY=true
-    if ! ask_yn "Keep RBAC runtime?" "y"; then
-      ENABLE_RBAC_RUNTIME=false
-      log "RBAC runtime disabled"
-    fi
-  else
-    if ask_yn "Enable RBAC runtime services?" "y"; then
-      ENABLE_RBAC_RUNTIME=true
-      ENABLE_AGENTGATEWAY=true
-      log "RBAC runtime enabled"
-    else
-      log "RBAC runtime skipped"
-    fi
-  fi
+  # AgentGateway, Keycloak, and OpenFGA are required components in 0.5.10+.
+  # They are always enabled; the flags remain so env-var overrides still work.
+  ENABLE_AGENTGATEWAY=true
+  ENABLE_RBAC_RUNTIME=true
+  log "AgentGateway enabled (required — federates MCP servers)"
+  log "RBAC runtime enabled (required — Keycloak + OpenFGA + ext_authz)"
 
   echo ""
   echo -e "  ${DIM}Redis persistence stores conversation checkpoints and cross-thread memory${NC}"
@@ -3358,11 +3345,7 @@ create_namespace_and_secrets() {
   # EMBEDDINGS_MODEL is also written so the Ollama init container (which reads
   # it via an optional secretKeyRef) can pull the embedding model on first run.
   if $ENABLE_RAG && [[ "$EMBEDDINGS_PROVIDER" == "ollama" ]]; then
-    if [[ -z "${EMBEDDINGS_MODEL:-}" ]]; then
-      err "EMBEDDINGS_MODEL is required when using Ollama embeddings — re-run and select an embedding model"
-      exit 1
-    fi
-    local _ollama_base="${OLLAMA_BASE_URL:-http://ollama:${OLLAMA_PORT}}"
+    local _ollama_base="${OLLAMA_BASE_URL:-http://ollama.${CAIPE_NAMESPACE:-caipe}.svc.cluster.local:${OLLAMA_PORT}}"
     secret_args+=(--from-literal=OLLAMA_BASE_URL="${_ollama_base}")
     secret_args+=(--from-literal=EMBEDDINGS_MODEL="${EMBEDDINGS_MODEL}")
     log "Added OLLAMA_BASE_URL=${_ollama_base} to llm-secret (Ollama embeddings)"
@@ -4087,9 +4070,9 @@ post_deploy_patches() {
       -o jsonpath='{.data.OIDC_ISSUER}' 2>/dev/null | base64 -d || true)
     _rag_oidc_client_id=$(kubectl get secret caipe-ui-secret -n caipe \
       -o jsonpath='{.data.OIDC_CLIENT_ID}' 2>/dev/null | base64 -d || true)
-    _rag_ingestor_issuer=$(kubectl get secret caipe-ui-secret -n caipe \
+    _rag_ingestor_issuer=$(kubectl get secret rag-ingestor-secret -n caipe \
       -o jsonpath='{.data.INGESTOR_OIDC_ISSUER}' 2>/dev/null | base64 -d || true)
-    _rag_ingestor_client_id=$(kubectl get secret caipe-ui-secret -n caipe \
+    _rag_ingestor_client_id=$(kubectl get secret rag-ingestor-secret -n caipe \
       -o jsonpath='{.data.INGESTOR_OIDC_CLIENT_ID}' 2>/dev/null | base64 -d || true)
     if [[ -n "$_rag_oidc_issuer" && -n "$_rag_oidc_client_id" ]]; then
       local _rag_env_args=(
@@ -4283,6 +4266,16 @@ SUPERVISOR_INGRESS_EOF
     # non-admin user. Self-guards via _local_admin_active (RBAC + DNS domain +
     # no brokered IdP).
     provision_local_users
+
+    # RAG web-ingestor service account: creates caipe-web-ingestor client in
+    # Keycloak and stores credentials in rag-ingestor-secret. Must run after
+    # Keycloak is ready and before helm install so the secret exists when the
+    # rag-server and web-ingestor pods start.
+    provision_rag_ingestor_client
+
+    # Add aud=caipe-ui to user access tokens so the Next.js gateway accepts
+    # bearer auth on dynamic-agents streaming endpoints.
+    provision_caipe_ui_audience_mapper
   fi
 }
 
@@ -4376,6 +4369,213 @@ JSON
     log "Verify the GitHub OAuth App callback URL is: https://${CAIPE_DOMAIN}/realms/caipe/broker/github/endpoint"
   else
     warn "GitHub social login: Keycloak IdP upsert returned HTTP ${code} (check client id/secret)"
+  fi
+}
+
+# Idempotently creates a `caipe-web-ingestor` Keycloak client (client-credentials
+# grant, service-account enabled) and stores the secret in the k8s Secret
+# `rag-ingestor-secret`. Both the rag-server (token validation) and the
+# web-ingestor sidecar (token acquisition) read their INGESTOR_OIDC_* vars from
+# that secret via envFrom, so no credentials appear in Helm values.
+# Must be called after Keycloak is Ready and before helm install/upgrade.
+# assisted-by claude code claude-sonnet-4-6
+provision_rag_ingestor_client() {
+  $ENABLE_RAG || return 0
+  [[ -n "${CAIPE_DOMAIN:-}" ]] || return 0
+
+  local kcadm_user kcadm_pw="${KEYCLOAK_ADMIN_PASSWORD:-}"
+  kcadm_user=$(kubectl get secret caipe-keycloak-admin -n caipe \
+    -o jsonpath='{.data.username}' 2>/dev/null | base64 -d 2>/dev/null || true)
+  [[ -z "$kcadm_user" ]] && kcadm_user="admin"
+  if [[ -z "$kcadm_pw" ]]; then
+    kcadm_pw=$(kubectl get secret caipe-keycloak-admin -n caipe \
+      -o jsonpath='{.data.password}' 2>/dev/null | base64 -d 2>/dev/null || true)
+  fi
+  if [[ -z "$kcadm_pw" ]]; then
+    warn "RAG ingestor client: no Keycloak admin password available; skipping"
+    return 0
+  fi
+
+  local _pf_port=17085
+  kubectl port-forward svc/caipe-keycloak -n caipe ${_pf_port}:8080 >/dev/null 2>&1 &
+  local _pf=$!
+  sleep 4
+  local kc="http://localhost:${_pf_port}"
+
+  local tok
+  tok=$(curl -s "$kc/realms/master/protocol/openid-connect/token" \
+    -d grant_type=password -d client_id=admin-cli \
+    --data-urlencode "username=${kcadm_user}" --data-urlencode "password=${kcadm_pw}" \
+    | sed -n 's/.*"access_token":"\([^"]*\)".*/\1/p')
+  if [[ -z "$tok" ]]; then
+    warn "RAG ingestor client: could not obtain Keycloak admin token; skipping"
+    kill "$_pf" 2>/dev/null || true
+    return 0
+  fi
+
+  local client_id="caipe-web-ingestor"
+  local issuer="https://${CAIPE_DOMAIN}/realms/caipe"
+
+  # Check if client already exists
+  local existing_uuid
+  existing_uuid=$(curl -s -H "Authorization: Bearer $tok" \
+    "$kc/admin/realms/caipe/clients?clientId=${client_id}" \
+    | sed -n 's/.*"id":"\([^"]*\)".*/\1/p' | head -1)
+
+  local client_secret
+  if [[ -n "$existing_uuid" ]]; then
+    # Regenerate secret for idempotency (re-runs get a fresh secret stored in k8s)
+    client_secret=$(curl -s -X POST -H "Authorization: Bearer $tok" \
+      "$kc/admin/realms/caipe/clients/${existing_uuid}/client-secret" \
+      | sed -n 's/.*"value":"\([^"]*\)".*/\1/p')
+    log "RAG ingestor client: reused existing '${client_id}', refreshed secret"
+  else
+    # Create the client
+    local create_body
+    create_body=$(cat <<JSON
+{
+  "clientId": "${client_id}",
+  "name": "CAIPE RAG Web Ingestor",
+  "description": "Service account for the RAG web-ingestor sidecar to authenticate to the RAG server",
+  "enabled": true,
+  "protocol": "openid-connect",
+  "publicClient": false,
+  "bearerOnly": false,
+  "standardFlowEnabled": false,
+  "implicitFlowEnabled": false,
+  "directAccessGrantsEnabled": false,
+  "serviceAccountsEnabled": true,
+  "clientAuthenticatorType": "client-secret"
+}
+JSON
+)
+    local create_code
+    create_code=$(curl -s -o /dev/null -w '%{http_code}' -X POST \
+      -H "Authorization: Bearer $tok" -H "Content-Type: application/json" \
+      "$kc/admin/realms/caipe/clients" -d "$create_body")
+    if [[ ! "$create_code" =~ ^20 ]]; then
+      warn "RAG ingestor client: Keycloak client creation returned HTTP ${create_code}; skipping"
+      kill "$_pf" 2>/dev/null || true
+      return 0
+    fi
+    existing_uuid=$(curl -s -H "Authorization: Bearer $tok" \
+      "$kc/admin/realms/caipe/clients?clientId=${client_id}" \
+      | sed -n 's/.*"id":"\([^"]*\)".*/\1/p' | head -1)
+    client_secret=$(curl -s -H "Authorization: Bearer $tok" \
+      "$kc/admin/realms/caipe/clients/${existing_uuid}/client-secret" \
+      | sed -n 's/.*"value":"\([^"]*\)".*/\1/p')
+    # Add a hardcoded-audience mapper so the token carries aud=caipe-web-ingestor.
+    # The rag-server auth manager validates audience against INGESTOR_OIDC_CLIENT_ID;
+    # Keycloak does not include the client_id in aud by default.
+    curl -s -o /dev/null -X POST \
+      -H "Authorization: Bearer $tok" -H "Content-Type: application/json" \
+      "$kc/admin/realms/caipe/clients/${existing_uuid}/protocol-mappers/models" -d "{
+        \"name\": \"caipe-web-ingestor-audience\",
+        \"protocol\": \"openid-connect\",
+        \"protocolMapper\": \"oidc-hardcoded-claim-mapper\",
+        \"config\": {
+          \"claim.name\": \"aud\",
+          \"claim.value\": \"${client_id}\",
+          \"jsonType.label\": \"String\",
+          \"id.token.claim\": \"false\",
+          \"access.token.claim\": \"true\",
+          \"access.tokenResponse.claim\": \"false\"
+        }
+      }"
+    log "RAG ingestor client: created '${client_id}' in Keycloak realm 'caipe'"
+  fi
+
+  kill "$_pf" 2>/dev/null || true
+
+  if [[ -z "$client_secret" ]]; then
+    warn "RAG ingestor client: could not retrieve client secret; skipping"
+    return 0
+  fi
+
+  # Store in k8s secret so both rag-server and web-ingestor can mount it via envFrom
+  kubectl create secret generic rag-ingestor-secret -n caipe \
+    --from-literal=INGESTOR_OIDC_ISSUER="${issuer}" \
+    --from-literal=INGESTOR_OIDC_CLIENT_ID="${client_id}" \
+    --from-literal=INGESTOR_OIDC_CLIENT_SECRET="${client_secret}" \
+    --dry-run=client -o yaml | kubectl apply -f - &>/dev/null
+  log "RAG ingestor client: credentials stored in rag-ingestor-secret (issuer=${issuer})"
+  RAG_INGESTOR_SECRET_READY=true
+  RAG_INGESTOR_OIDC_ISSUER="${issuer}"
+  RAG_INGESTOR_OIDC_CLIENT_ID="${client_id}"
+}
+
+# Add an oidc-audience-mapper to the caipe-ui Keycloak client so that the
+# user's access token carries aud=caipe-ui. The Next.js gateway validates bearer
+# tokens against OIDC_CLIENT_ID=caipe-ui; without this mapper the token has
+# aud=["account"] only and the dynamic-agents streaming endpoint returns 401
+# BEARER_AUDIENCE_MISMATCH.
+# assisted-by claude code claude-sonnet-4-6
+provision_caipe_ui_audience_mapper() {
+  $ENABLE_RBAC_RUNTIME || return 0
+  [[ -n "${CAIPE_DOMAIN:-}" ]] || return 0
+
+  local kcadm_user kcadm_pw="${KEYCLOAK_ADMIN_PASSWORD:-}"
+  kcadm_user=$(kubectl get secret caipe-keycloak-admin -n caipe \
+    -o jsonpath='{.data.username}' 2>/dev/null | base64 -d 2>/dev/null || true)
+  [[ -z "$kcadm_user" ]] && kcadm_user="admin"
+  if [[ -z "$kcadm_pw" ]]; then
+    kcadm_pw=$(kubectl get secret caipe-keycloak-admin -n caipe \
+      -o jsonpath='{.data.password}' 2>/dev/null | base64 -d 2>/dev/null || true)
+  fi
+  if [[ -z "$kcadm_pw" ]]; then
+    warn "caipe-ui audience mapper: no Keycloak admin password available; skipping"
+    return 0
+  fi
+
+  local _pf_port=17086
+  kubectl port-forward svc/caipe-keycloak -n caipe ${_pf_port}:8080 >/dev/null 2>&1 &
+  local _pf=$!
+  sleep 4
+  local kc="http://localhost:${_pf_port}"
+
+  local tok
+  tok=$(curl -s "$kc/realms/master/protocol/openid-connect/token" \
+    -d grant_type=password -d client_id=admin-cli \
+    --data-urlencode "username=${kcadm_user}" --data-urlencode "password=${kcadm_pw}" \
+    | sed -n 's/.*"access_token":"\([^"]*\)".*/\1/p')
+  if [[ -z "$tok" ]]; then
+    warn "caipe-ui audience mapper: could not obtain Keycloak admin token; skipping"
+    kill "$_pf" 2>/dev/null || true
+    return 0
+  fi
+
+  local client_uuid
+  client_uuid=$(curl -s -H "Authorization: Bearer $tok" \
+    "$kc/admin/realms/caipe/clients?clientId=caipe-ui" \
+    | sed -n 's/.*"id":"\([^"]*\)".*/\1/p' | head -1)
+  if [[ -z "$client_uuid" ]]; then
+    warn "caipe-ui audience mapper: could not find caipe-ui client; skipping"
+    kill "$_pf" 2>/dev/null || true
+    return 0
+  fi
+
+  # Idempotent: 409 Conflict means the mapper already exists
+  local http_code
+  http_code=$(curl -s -o /dev/null -w '%{http_code}' -X POST \
+    -H "Authorization: Bearer $tok" -H "Content-Type: application/json" \
+    "$kc/admin/realms/caipe/clients/${client_uuid}/protocol-mappers/models" -d '{
+      "name": "caipe-ui-audience",
+      "protocol": "openid-connect",
+      "protocolMapper": "oidc-audience-mapper",
+      "config": {
+        "included.client.audience": "caipe-ui",
+        "id.token.claim": "false",
+        "access.token.claim": "true"
+      }
+    }')
+  kill "$_pf" 2>/dev/null || true
+
+  if [[ "$http_code" == "201" ]]; then
+    log "caipe-ui audience mapper: created (aud=caipe-ui will be included in access tokens)"
+  elif [[ "$http_code" == "409" ]]; then
+    log "caipe-ui audience mapper: already exists (idempotent)"
+  else
+    warn "caipe-ui audience mapper: unexpected HTTP ${http_code}"
   fi
 }
 
@@ -5116,41 +5316,56 @@ deploy_vllm() {
 # combos so a bare --litellm never breaks an otherwise-valid install.
 _finalize_litellm_mode() {
   $LLM_VIA_LITELLM || return 0
-  if $ENABLE_VLLM || $ENABLE_OLLAMA; then
-    warn "--litellm ignored: vLLM/Ollama mode already routes through LiteLLM"
+  if $ENABLE_VLLM; then
+    warn "--litellm ignored: vLLM mode already routes through LiteLLM"
     LLM_VIA_LITELLM=false
     return 0
   fi
   case "$LLM_PROVIDER" in
     anthropic-claude|openai|aws-bedrock|azure-openai) ;;
     *)
-      warn "--litellm does not support LLM provider '${LLM_PROVIDER}' yet — continuing without the proxy"
-      LLM_VIA_LITELLM=false
-      return 0
+      # Ollama sets LLM_PROVIDER=openai, so it passes the check above.
+      # Any other unknown provider is unsupported.
+      if ! $ENABLE_OLLAMA; then
+        warn "--litellm does not support LLM provider '${LLM_PROVIDER}' yet — continuing without the proxy"
+        LLM_VIA_LITELLM=false
+        return 0
+      fi
       ;;
   esac
 
-  LITELLM_CHAT_SOURCE="$LLM_PROVIDER"
-  LITELLM_EMBED_SOURCE="$EMBEDDINGS_PROVIDER"
-  LITELLM_EMBED_MODEL_REAL="$EMBEDDINGS_MODEL"
-  LITELLM_ENDPOINT="http://litellm-proxy.caipe.svc.cluster.local:4000/v1"
+  local _lep="http://litellm-proxy.caipe.svc.cluster.local:4000/v1"
+  LITELLM_ENDPOINT="$_lep"
   LITELLM_API_KEY="$LITELLM_MASTER_KEY"
+  LITELLM_EMBED_MODEL_REAL="$EMBEDDINGS_MODEL"
+  LITELLM_EMBED_SOURCE="$EMBEDDINGS_PROVIDER"
 
-  # Only OpenAI-compatible embeddings can be fronted by the proxy; other
-  # embeddings providers (bedrock/cohere/huggingface/voyage) keep their native
-  # path so RAG still works.
-  case "$EMBEDDINGS_PROVIDER" in
-    openai|azure-openai)
-      LITELLM_ROUTE_EMBEDDINGS=true
-      EMBEDDINGS_PROVIDER="litellm"
-      EMBEDDINGS_MODEL="caipe-embeddings"
-      ;;
-    *)
-      LITELLM_ROUTE_EMBEDDINGS=false
-      ;;
-  esac
+  if $ENABLE_OLLAMA; then
+    LITELLM_CHAT_SOURCE="ollama"
+    # Route Ollama embeddings through LiteLLM too so everything goes via
+    # the single proxy endpoint.
+    LITELLM_ROUTE_EMBEDDINGS=true
+    LITELLM_EMBED_SOURCE="ollama"
+    EMBEDDINGS_PROVIDER="litellm"
+    # Keep the real embed model name (e.g. nomic-embed-text) — LiteLLM
+    # registers it under that same alias in the model_list.
+  else
+    LITELLM_CHAT_SOURCE="$LLM_PROVIDER"
+    # Only OpenAI-compatible embeddings can be fronted by the proxy; other
+    # providers (bedrock/cohere/huggingface/voyage) keep their native path.
+    case "$EMBEDDINGS_PROVIDER" in
+      openai|azure-openai)
+        LITELLM_ROUTE_EMBEDDINGS=true
+        EMBEDDINGS_PROVIDER="litellm"
+        EMBEDDINGS_MODEL="caipe-embeddings"
+        ;;
+      *)
+        LITELLM_ROUTE_EMBEDDINGS=false
+        ;;
+    esac
+  fi
 
-  log "Unified LiteLLM mode ON — chat=${LITELLM_CHAT_SOURCE}, embeddings source=${LITELLM_EMBED_SOURCE} (routed via proxy: ${LITELLM_ROUTE_EMBEDDINGS})"
+  log "LiteLLM proxy mode ON — chat=${LITELLM_CHAT_SOURCE}, embed_source=${LITELLM_EMBED_SOURCE} (routed: ${LITELLM_ROUTE_EMBEDDINGS})"
 }
 
 # Build the proxy model_list for unified mode from the captured real provider and
@@ -5180,6 +5395,15 @@ _litellm_unified_assets() {
   local azure_embed_deploy="${AZURE_OPENAI_EMBEDDING_DEPLOYMENT:-${AZURE_OPENAI_DEPLOYMENT:-${LITELLM_EMBED_MODEL_REAL:-text-embedding-3-large}}}"
 
   case "$LITELLM_CHAT_SOURCE" in
+    ollama)
+      local _ollama_base="http://ollama.${CAIPE_NAMESPACE:-caipe}.svc.cluster.local:${OLLAMA_PORT}"
+      ml+='      - model_name: "caipe-chat"
+        litellm_params:
+          model: "ollama/'"${OLLAMA_MODEL}"'"
+          api_base: "'"${_ollama_base}"'"
+'
+      # No upstream secret needed — Ollama has no auth
+      ;;
     anthropic-claude)
       ml+='      - model_name: "caipe-chat"
         litellm_params:
@@ -5227,6 +5451,14 @@ _litellm_unified_assets() {
 
   if $LITELLM_ROUTE_EMBEDDINGS; then
     case "$LITELLM_EMBED_SOURCE" in
+      ollama)
+        local _ollama_base="http://ollama.${CAIPE_NAMESPACE:-caipe}.svc.cluster.local:${OLLAMA_PORT}"
+        ml+='      - model_name: "'"${LITELLM_EMBED_MODEL_REAL}"'"
+        litellm_params:
+          model: "ollama/'"${LITELLM_EMBED_MODEL_REAL}"'"
+          api_base: "'"${_ollama_base}"'"
+'
+        ;;
       openai)
         ml+='      - model_name: "caipe-embeddings"
         litellm_params:
@@ -5720,15 +5952,17 @@ deploy_caipe() {
     # release "caipe" the service is caipe-supervisor-agent, so we must override
     # it or the UI shows the Supervisor permanently OFFLINE.
     --set "caipe-ui.config.A2A_BASE_URL=http://caipe-supervisor-agent:8000"
-    # NEXT_PUBLIC_A2A_BASE_URL: client-side browser fetches (A2A streaming, health)
-    # Must be the externally reachable URL so the browser can connect (via the
-    # /supervisor ingress that routes to caipe-supervisor-agent:8000).
-    --set "caipe-ui.config.NEXT_PUBLIC_A2A_BASE_URL=${CAIPE_DOMAIN:+https://${CAIPE_DOMAIN}/supervisor}"
+    # NEXT_PUBLIC_A2A_BASE_URL: browser-facing supervisor URL for direct A2A
+    # streaming. Only set when a domain is configured. The nginx ingress rewrites
+    # /supervisor(.*) → $2 on the supervisor pod, so the browser must use
+    # https://<domain>/supervisor as the base (not the domain root).
+    # When no domain is set, leave this UNSET so the UI falls back to /api/a2a
+    # (the Next.js BFF proxy), which reaches the supervisor via the internal
+    # A2A_BASE_URL above. This works for both local kind clusters and cloud VMs
+    # without a public domain, and avoids localhost:8000 resolving to the
+    # client machine rather than the cluster host.
+    ${CAIPE_DOMAIN:+--set "caipe-ui.config.NEXT_PUBLIC_A2A_BASE_URL=https://${CAIPE_DOMAIN}/supervisor"}
   )
-  # When no domain is set (local dev), default to localhost for port-forward usage
-  if [[ -z "$CAIPE_DOMAIN" ]]; then
-    helm_args+=(--set "caipe-ui.config.NEXT_PUBLIC_A2A_BASE_URL=http://localhost:8000")
-  fi
 
   # SSO: enable when a public domain is configured (NEXTAUTH_URL is already
   # patched in provision_ui_secret; here we flip the server-side flag too)
@@ -6031,6 +6265,30 @@ DAEOF
       --set 'supervisor-agent.env.RAG_SERVER_URL=http://rag-server:9446'
       --set 'rag-stack.rag-server.env.SKIP_INIT_TESTS=true'
     )
+    # Wire UI OIDC provider into rag-server so user tokens are validated.
+    if [[ -n "${CAIPE_DOMAIN:-}" ]]; then
+      helm_args+=(
+        --set "rag-stack.rag-server.env.OIDC_ISSUER=https://${CAIPE_DOMAIN}/realms/caipe"
+        --set 'rag-stack.rag-server.env.OIDC_CLIENT_ID=caipe-ui'
+        --set 'rag-stack.rag-server.env.OIDC_GROUP_CLAIM=members,groups'
+      )
+    fi
+    # Wire Keycloak client credentials into both rag-server (token validation)
+    # and web-ingestor (token acquisition) when the secret was provisioned.
+    if [[ "${RAG_INGESTOR_SECRET_READY:-false}" == "true" ]]; then
+      helm_args+=(
+        --set 'rag-stack.rag-server.webIngestor.enabled=true'
+        --set 'rag-stack.rag-server.webIngestor.envFrom[0].secretRef.name=rag-ingestor-secret'
+        # Pass non-secret OIDC config directly as env so the rag-server auth manager
+        # can validate ingestor tokens even before the envFrom template fix ships.
+        --set "rag-stack.rag-server.env.INGESTOR_OIDC_ISSUER=${RAG_INGESTOR_OIDC_ISSUER}"
+        --set "rag-stack.rag-server.env.INGESTOR_OIDC_CLIENT_ID=${RAG_INGESTOR_OIDC_CLIENT_ID}"
+      )
+      log "RAG web-ingestor: Keycloak OIDC credentials wired via rag-ingestor-secret"
+    else
+      helm_args+=(--set 'rag-stack.rag-server.webIngestor.enabled=false')
+      log "RAG web-ingestor: disabled (no Keycloak credentials available)"
+    fi
 
     if [[ "$EMBEDDINGS_PROVIDER" == "litellm" && -n "${LITELLM_ENDPOINT:-}" ]]; then
       helm_args+=(
