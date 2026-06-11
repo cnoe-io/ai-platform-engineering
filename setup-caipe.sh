@@ -5025,18 +5025,25 @@ CREATE DATABASE litellm OWNER litellm;
 PGINIT
   fi
 
-  helm repo add bitnami https://charts.bitnami.com/bitnami &>/dev/null 2>&1 || true
-  helm upgrade --install "${SHARED_PG_SERVICE}" bitnami/postgresql \
+  helm repo add bitnami https://charts.bitnami.com/bitnami 2>/dev/null || true
+  helm repo update bitnami 2>/dev/null || true
+  if ! helm upgrade --install "${SHARED_PG_SERVICE}" bitnami/postgresql \
     -n caipe \
     --set "fullnameOverride=${SHARED_PG_SERVICE}" \
     --set architecture=standalone \
     --set "auth.postgresPassword=${SHARED_PG_ADMIN_PASSWORD}" \
     --set primary.persistence.size=4Gi \
     --set-file "primary.initdb.scripts.caipe-init\.sql=${initdb_file}" \
-    --timeout 5m &>/dev/null
+    --timeout 5m 2>&1 | while IFS= read -r line; do log "$line"; done; then
+    rm -f "$initdb_file"
+    err "Shared Postgres install failed — check the output above and re-run"
+    exit 1
+  fi
   rm -f "$initdb_file"
 
-  kubectl rollout status statefulset/"${SHARED_PG_SERVICE}" -n caipe --timeout=300s &>/dev/null
+  log "Waiting for Postgres to be ready..."
+  kubectl rollout status statefulset/"${SHARED_PG_SERVICE}" -n caipe --timeout=300s 2>&1 \
+    | while IFS= read -r line; do log "$line"; done
   log "Shared Postgres deployed (${SHARED_PG_SERVICE}) with keycloak/openfga databases"
 }
 
