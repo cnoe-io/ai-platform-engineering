@@ -1152,22 +1152,22 @@ collect_credentials() {
       echo ""
       echo -e "  ${DIM}Select your LLM provider (powered by cnoe-agent-utils LLMFactory):${NC}"
       echo -e "    ${BOLD}0)${NC} ${DIM}← Back to previous step${NC}"
-      echo -e "    ${BOLD}1) Anthropic Claude  (claude-haiku-4-5, claude-sonnet-4, etc.) — recommended${NC}"
-      echo -e "    ${BOLD}2)${NC} AWS Bedrock       ${DIM}(Claude on Bedrock, cross-region inference)${NC}"
-      echo -e "    ${BOLD}3)${NC} OpenAI            ${DIM}(gpt-5.2, gpt-4.1, etc.)${NC}"
-      echo -e "    ${BOLD}4)${NC} LiteLLM Proxy     ${DIM}(gpt-oss-20B or any OpenAI-compatible endpoint)${NC}"
-      echo -e "    ${BOLD}5)${NC} Ollama            ${DIM}(in-cluster: lfm2.5, qwen3, arcee-ai/arcee-agent, mistral, etc.)${NC}"
+      echo -e "    ${BOLD}1)${NC} Ollama            ${DIM}(in-cluster: lfm2.5, qwen3, arcee-ai/arcee-agent, mistral, etc.) — default${NC}"
+      echo -e "    ${BOLD}2)${NC} Anthropic Claude  ${DIM}(claude-haiku-4-5, claude-sonnet-4, etc.)${NC}"
+      echo -e "    ${BOLD}3)${NC} AWS Bedrock       ${DIM}(Claude on Bedrock, cross-region inference)${NC}"
+      echo -e "    ${BOLD}4)${NC} OpenAI            ${DIM}(gpt-5.2, gpt-4.1, etc.)${NC}"
+      echo -e "    ${BOLD}5)${NC} LiteLLM Proxy     ${DIM}(gpt-oss-20B or any OpenAI-compatible endpoint)${NC}"
       echo ""
       prompt "Select provider ${CYAN}[1]${NC}${BOLD}: "
       tty_read -r provider_choice
       provider_choice="${provider_choice:-1}"
       if _is_back "$provider_choice"; then return 1; fi
       case "$provider_choice" in
-        1) LLM_PROVIDER="anthropic-claude" ;;
-        2) LLM_PROVIDER="aws-bedrock" ;;
-        3) LLM_PROVIDER="openai" ;;
-        4) ENABLE_VLLM=true; LLM_PROVIDER="openai" ;;
-        5) ENABLE_OLLAMA=true; LLM_PROVIDER="openai" ;;
+        1) ENABLE_OLLAMA=true; LLM_PROVIDER="openai" ;;
+        2) LLM_PROVIDER="anthropic-claude" ;;
+        3) LLM_PROVIDER="aws-bedrock" ;;
+        4) LLM_PROVIDER="openai" ;;
+        5) ENABLE_VLLM=true; LLM_PROVIDER="openai" ;;
         *) err "Invalid choice"; continue ;;
       esac
     fi
@@ -2402,26 +2402,26 @@ choose_features() {
 
       echo ""
       echo -e "  ${DIM}Embeddings provider:${NC}"
-      echo -e "    ${BOLD}1)${NC} OpenAI            ${DIM}(text-embedding-3-large — default)${NC}"
-      echo -e "    ${BOLD}2)${NC} Azure OpenAI       ${DIM}(uses your Azure deployment)${NC}"
-      echo -e "    ${BOLD}3)${NC} AWS Bedrock        ${DIM}(Titan / Cohere on Bedrock — reuses LLM AWS creds)${NC}"
-      echo -e "    ${BOLD}4)${NC} Cohere             ${DIM}(direct Cohere API: embed-english-v3.0, etc.)${NC}"
-      echo -e "    ${BOLD}5)${NC} Voyage AI          ${DIM}(Anthropic's official recommendation — voyage-4-large)${NC}"
-      echo -e "    ${BOLD}6)${NC} HuggingFace        ${DIM}(local — requires rag-server -hf image variant)${NC}"
-      echo -e "    ${BOLD}7)${NC} Ollama             ${DIM}(local — snowflake-arctic-embed2 default, no API key needed)${NC}"
-      echo -e "    ${BOLD}8)${NC} LiteLLM Proxy      ${DIM}(any OpenAI-compatible endpoint you operate)${NC}"
+      echo -e "    ${BOLD}1)${NC} Ollama             ${DIM}(local — snowflake-arctic-embed2 default, no API key needed) — default${NC}"
+      echo -e "    ${BOLD}2)${NC} OpenAI             ${DIM}(text-embedding-3-large)${NC}"
+      echo -e "    ${BOLD}3)${NC} Azure OpenAI        ${DIM}(uses your Azure deployment)${NC}"
+      echo -e "    ${BOLD}4)${NC} AWS Bedrock         ${DIM}(Titan / Cohere on Bedrock — reuses LLM AWS creds)${NC}"
+      echo -e "    ${BOLD}5)${NC} Cohere              ${DIM}(direct Cohere API: embed-english-v3.0, etc.)${NC}"
+      echo -e "    ${BOLD}6)${NC} Voyage AI           ${DIM}(Anthropic's official recommendation — voyage-4-large)${NC}"
+      echo -e "    ${BOLD}7)${NC} HuggingFace         ${DIM}(local — requires rag-server -hf image variant)${NC}"
+      echo -e "    ${BOLD}8)${NC} LiteLLM Proxy       ${DIM}(any OpenAI-compatible endpoint you operate)${NC}"
       echo ""
       prompt "Select embeddings provider ${CYAN}[1]${NC}${BOLD}: "
       tty_read -r emb_provider_choice
       emb_provider_choice="${emb_provider_choice:-1}"
       case "$emb_provider_choice" in
-        1) EMBEDDINGS_PROVIDER="openai" ;;
-        2) EMBEDDINGS_PROVIDER="azure-openai" ;;
-        3) EMBEDDINGS_PROVIDER="aws-bedrock" ;;
-        4) EMBEDDINGS_PROVIDER="cohere" ;;
-        5) EMBEDDINGS_PROVIDER="litellm"; EMBEDDINGS_PROVIDER_SOURCE="voyage" ;;
-        6) EMBEDDINGS_PROVIDER="huggingface" ;;
-        7) EMBEDDINGS_PROVIDER="ollama" ;;
+        1) EMBEDDINGS_PROVIDER="ollama" ;;
+        2) EMBEDDINGS_PROVIDER="openai" ;;
+        3) EMBEDDINGS_PROVIDER="azure-openai" ;;
+        4) EMBEDDINGS_PROVIDER="aws-bedrock" ;;
+        5) EMBEDDINGS_PROVIDER="cohere" ;;
+        6) EMBEDDINGS_PROVIDER="litellm"; EMBEDDINGS_PROVIDER_SOURCE="voyage" ;;
+        7) EMBEDDINGS_PROVIDER="huggingface" ;;
         8) EMBEDDINGS_PROVIDER="litellm"; EMBEDDINGS_PROVIDER_SOURCE="custom-litellm" ;;
         *) err "Invalid choice"; exit 1 ;;
       esac
