@@ -5046,6 +5046,9 @@ PGINIT
   fi
   rm -f "$initdb_file"
 
+  # Let the API server process all resource creation before we start polling.
+  sleep 5
+
   # Resolve the actual StatefulSet name — bitnami postgresql 18.x names it
   # 'caipe-postgres-primary' in standalone mode, not 'caipe-postgres'.
   # Search by name prefix so we catch any naming convention.
@@ -5057,10 +5060,14 @@ PGINIT
     if [[ -z "$_pg_sts" ]]; then
       if [[ $SECONDS -ge $_pg_deadline ]]; then
         err "Timed out waiting for ${SHARED_PG_SERVICE} StatefulSet after 90s"
-        err "StatefulSets currently in namespace caipe:"
-        kubectl get statefulset -n caipe 2>&1 | while IFS= read -r l; do err "  $l"; done
-        err "All resources in namespace caipe (helm may have used a different name):"
-        kubectl get all -n caipe 2>&1 | grep -i postgres | while IFS= read -r l; do err "  $l"; done
+        err "--- helm release status ---"
+        helm status "${SHARED_PG_SERVICE}" -n caipe 2>&1 | while IFS= read -r l; do err "  $l"; done
+        err "--- StatefulSets in all namespaces ---"
+        kubectl get statefulset --all-namespaces 2>&1 | while IFS= read -r l; do err "  $l"; done
+        err "--- Pods in namespace caipe ---"
+        kubectl get pods -n caipe 2>&1 | while IFS= read -r l; do err "  $l"; done
+        err "--- Current kubectl context ---"
+        kubectl config current-context 2>&1 | while IFS= read -r l; do err "  $l"; done
         exit 1
       fi
       sleep 3
