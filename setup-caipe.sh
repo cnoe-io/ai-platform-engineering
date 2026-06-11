@@ -1630,7 +1630,7 @@ _collect_ollama_config() {
   # nomic-embed-text is a small (274 MB), purpose-built embedding model that
   # the Ollama init container will pull alongside the chat model.
   if [[ -z "${EMBEDDINGS_MODEL:-}" || "${EMBEDDINGS_MODEL}" == "text-embedding-3-large" ]]; then
-    EMBEDDINGS_MODEL="nomic-embed-text"
+    EMBEDDINGS_MODEL="snowflake-arctic-embed2"
   fi
 
   # Offer LiteLLM as a proxy in front of Ollama. This is recommended for local
@@ -2408,7 +2408,7 @@ choose_features() {
       echo -e "    ${BOLD}4)${NC} Cohere             ${DIM}(direct Cohere API: embed-english-v3.0, etc.)${NC}"
       echo -e "    ${BOLD}5)${NC} Voyage AI          ${DIM}(Anthropic's official recommendation — voyage-4-large)${NC}"
       echo -e "    ${BOLD}6)${NC} HuggingFace        ${DIM}(local — requires rag-server -hf image variant)${NC}"
-      echo -e "    ${BOLD}7)${NC} Ollama             ${DIM}(local — nomic-embed-text default, no API key needed)${NC}"
+      echo -e "    ${BOLD}7)${NC} Ollama             ${DIM}(local — snowflake-arctic-embed2 default, no API key needed)${NC}"
       echo -e "    ${BOLD}8)${NC} LiteLLM Proxy      ${DIM}(any OpenAI-compatible endpoint you operate)${NC}"
       echo ""
       prompt "Select embeddings provider ${CYAN}[1]${NC}${BOLD}: "
@@ -2541,10 +2541,10 @@ choose_features() {
           warn "  Ensure your chart sets rag-stack.rag-server.image.tag to a tag with the -hf suffix."
           ;;
         ollama)
-          echo -e "    ${BOLD}1)${NC} nomic-embed-text          ${DIM}(default · 274 MB · 768 dims · fast CPU)${NC}"
+          echo -e "    ${BOLD}1)${NC} nomic-embed-text          ${DIM}(274 MB · 768 dims · fast CPU)${NC}"
           echo -e "    ${BOLD}2)${NC} mxbai-embed-large         ${DIM}(670 MB · 1024 dims · MTEB 64.68 English)${NC}"
           echo -e "    ${BOLD}3)${NC} qwen3-embedding:0.6b      ${DIM}(639 MB · 1024 dims · MTEB 64.33 multilingual · 32K ctx)${NC}"
-          echo -e "    ${BOLD}4)${NC} snowflake-arctic-embed2   ${DIM}(1.2 GB · 1024 dims · strong retrieval)${NC}"
+          echo -e "    ${BOLD}4)${NC} snowflake-arctic-embed2   ${DIM}(default · 1.2 GB · 1024 dims · strong retrieval)${NC}"
           echo -e "    ${BOLD}5)${NC} bge-m3                    ${DIM}(1.2 GB · 1024 dims · hybrid dense+sparse+multi-vector)${NC}"
           echo -e "    ${BOLD}6)${NC} qwen3-embedding:8b        ${DIM}(4.7 GB · 4096 dims · MTEB #1 multilingual — GPU recommended)${NC}"
           echo -e "    ${BOLD}7)${NC} Custom"
