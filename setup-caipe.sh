@@ -5004,8 +5004,8 @@ deploy_shared_postgres() {
       --dry-run=client -o yaml | kubectl apply -f - &>/dev/null
   fi
 
-  if kubectl get statefulset -n caipe -l "app.kubernetes.io/instance=${SHARED_PG_SERVICE}" \
-      --no-headers 2>/dev/null | grep -q .; then
+  if kubectl get statefulset -n caipe --no-headers 2>/dev/null \
+      | awk -v p="${SHARED_PG_SERVICE}" '$1 ~ "^"p { found=1; exit } END { exit !found }'; then
     log "Shared Postgres already present (${SHARED_PG_SERVICE}) — skipping install"
     return 0
   fi
@@ -5046,16 +5046,23 @@ PGINIT
   fi
   rm -f "$initdb_file"
 
-  # Resolve the actual StatefulSet name — bitnami postgresql 18.x may create
-  # 'caipe-postgres-primary' rather than 'caipe-postgres' for standalone mode.
+  # Resolve the actual StatefulSet name — bitnami postgresql 18.x names it
+  # 'caipe-postgres-primary' in standalone mode, not 'caipe-postgres'.
+  # Search by name prefix so we catch any naming convention.
   log "Waiting for Postgres StatefulSet to appear..."
-  local _pg_sts="" _pg_deadline=$(( SECONDS + 60 ))
+  local _pg_sts="" _pg_deadline=$(( SECONDS + 90 ))
   until [[ -n "$_pg_sts" ]]; do
-    _pg_sts=$(kubectl get statefulset -n caipe \
-      -l "app.kubernetes.io/instance=${SHARED_PG_SERVICE}" \
-      -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+    _pg_sts=$(kubectl get statefulset -n caipe --no-headers 2>/dev/null \
+      | awk -v p="${SHARED_PG_SERVICE}" '$1 ~ "^"p { print $1; exit }')
     if [[ -z "$_pg_sts" ]]; then
-      [[ $SECONDS -lt $_pg_deadline ]] || { err "Timed out waiting for ${SHARED_PG_SERVICE} StatefulSet"; exit 1; }
+      if [[ $SECONDS -ge $_pg_deadline ]]; then
+        err "Timed out waiting for ${SHARED_PG_SERVICE} StatefulSet after 90s"
+        err "StatefulSets currently in namespace caipe:"
+        kubectl get statefulset -n caipe 2>&1 | while IFS= read -r l; do err "  $l"; done
+        err "All resources in namespace caipe (helm may have used a different name):"
+        kubectl get all -n caipe 2>&1 | grep -i postgres | while IFS= read -r l; do err "  $l"; done
+        exit 1
+      fi
       sleep 3
     fi
   done
