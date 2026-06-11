@@ -5848,7 +5848,6 @@ _write_rbac_runtime_values() {
   env:
     KC_HOSTNAME: "https://${CAIPE_DOMAIN}"
     KC_PROXY_HEADERS: "xforwarded"
-    KC_HOSTNAME_STRICT: "false"
   ingress:
     enabled: true
     className: "nginx"
