@@ -352,25 +352,38 @@ export const PUT = withErrorHandler(
       //
       //    OpenFGA owns relationship facts. Fail before Mongo if the remote
       //    PDP state cannot be reconciled.
+      // assisted-by Codex Codex-sonnet-4-6
+      // Treat Save as authoritative: selected resources are desired writes,
+      // and the OpenFGA writer filters tuples that already exist.
       const tupleDiffInput = {
         teamSlug: team.slug || id,
         memberUserIds: resolvedMemberUserIds,
-        agents: agentDiff,
-        agentAdmins: agentAdminDiff,
-        tools: toolDiff,
+        agents: { added: nextAgents, removed: agentDiff.removed },
+        agentAdmins: { added: nextAgentAdmins, removed: agentAdminDiff.removed },
+        tools: { added: nextTools, removed: toolDiff.removed },
         toolWildcard: {
-          added: wildcardAdded,
+          added: nextToolWildcard,
           removed: wildcardRemoved,
         },
       };
-      if (knowledgeBaseDiff.added.length > 0 || knowledgeBaseDiff.removed.length > 0) {
-        Object.assign(tupleDiffInput, { knowledgeBases: knowledgeBaseDiff });
+      if (
+        body.knowledge_bases !== undefined ||
+        prevKnowledgeBases.length > 0 ||
+        nextKnowledgeBases.length > 0
+      ) {
+        Object.assign(tupleDiffInput, {
+          knowledgeBases: { added: nextKnowledgeBases, removed: knowledgeBaseDiff.removed },
+        });
       }
-      if (skillDiff.added.length > 0 || skillDiff.removed.length > 0) {
-        Object.assign(tupleDiffInput, { skills: skillDiff });
+      if (body.skills !== undefined || prevSkills.length > 0 || nextSkills.length > 0) {
+        Object.assign(tupleDiffInput, {
+          skills: { added: nextSkills, removed: skillDiff.removed },
+        });
       }
-      if (taskDiff.added.length > 0 || taskDiff.removed.length > 0) {
-        Object.assign(tupleDiffInput, { tasks: taskDiff });
+      if (body.tasks !== undefined || prevTasks.length > 0 || nextTasks.length > 0) {
+        Object.assign(tupleDiffInput, {
+          tasks: { added: nextTasks, removed: taskDiff.removed },
+        });
       }
       const openFgaTupleDiff = buildTeamResourceTupleDiff(tupleDiffInput);
       const openfga = await writeOpenFgaTupleDiff(openFgaTupleDiff);
