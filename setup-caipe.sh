@@ -4518,7 +4518,15 @@ JSON
 # assisted-by claude code claude-sonnet-4-6
 provision_rag_ingestor_client() {
   $ENABLE_RAG || return 0
-  [[ -n "${CAIPE_DOMAIN:-}" ]] || return 0
+
+  # Use the public domain issuer when available; fall back to the in-cluster
+  # Keycloak service URL so the web-ingestor works on Kind without a domain.
+  local issuer_base
+  if [[ -n "${CAIPE_DOMAIN:-}" ]]; then
+    issuer_base="https://${CAIPE_DOMAIN}"
+  else
+    issuer_base="http://caipe-keycloak.${CAIPE_NAMESPACE:-caipe}.svc.cluster.local:8080"
+  fi
 
   local kcadm_user kcadm_pw="${KEYCLOAK_ADMIN_PASSWORD:-}"
   kcadm_user=$(kubectl get secret caipe-keycloak-admin -n caipe \
@@ -4551,7 +4559,7 @@ provision_rag_ingestor_client() {
   fi
 
   local client_id="caipe-web-ingestor"
-  local issuer="https://${CAIPE_DOMAIN}/realms/caipe"
+  local issuer="${issuer_base}/realms/caipe"
 
   # Check if client already exists
   local existing_uuid
