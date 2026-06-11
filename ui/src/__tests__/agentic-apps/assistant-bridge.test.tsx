@@ -10,6 +10,12 @@ import userEvent from "@testing-library/user-event";
 import { ASSISTANT_CONTEXT_MESSAGE_TYPE } from "@/lib/agentic-apps/assistant-context";
 import { AgenticAppEmbed } from "@/app/(app)/apps/embed/[appId]/AgenticAppEmbed";
 
+jest.mock("next/navigation", () => ({
+  useSearchParams: () => new URLSearchParams(),
+  useRouter: () => ({ push: jest.fn(), replace: jest.fn() }),
+  usePathname: () => "/",
+}));
+
 const mockGetAgenticApps = jest.fn();
 const mockChatPanel = jest.fn();
 

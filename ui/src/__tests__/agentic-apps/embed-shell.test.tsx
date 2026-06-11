@@ -8,6 +8,12 @@ import { render, screen, waitFor } from "@testing-library/react";
 
 import { AgenticAppEmbed } from "@/app/(app)/apps/embed/[appId]/AgenticAppEmbed";
 
+jest.mock("next/navigation", () => ({
+  useSearchParams: () => new URLSearchParams(),
+  useRouter: () => ({ push: jest.fn(), replace: jest.fn() }),
+  usePathname: () => "/",
+}));
+
 const mockGetAgenticApps = jest.fn();
 
 jest.mock("@/lib/api-client", () => ({

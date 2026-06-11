@@ -34,6 +34,13 @@ jest.mock("@/lib/agentic-apps/store", () => ({
   installAppPackage: jest.fn(),
 }));
 
+jest.mock("@/lib/rbac/openfga", () => ({
+  checkOpenFgaTuple: jest.fn(({ relation }: { relation: string }) =>
+    Promise.resolve({ allowed: relation === "can_audit" || relation === "can_use" })
+  ),
+  writeOpenFgaTuples: jest.fn().mockResolvedValue({ writes: 0, deletes: 0 }),
+}));
+
 function sessionMock(): jest.Mock {
   return (require("next-auth") as { getServerSession: jest.Mock }).getServerSession;
 }
@@ -68,6 +75,7 @@ function adminSession() {
     user: { email: "admin@example.com", name: "Admin" },
     role: "admin",
     canViewAdmin: true,
+    sub: "test-subject-admin",
   };
 }
 
@@ -76,6 +84,7 @@ function adminViewSession() {
     user: { email: "viewer@example.com", name: "Viewer" },
     role: "user",
     canViewAdmin: true,
+    sub: "test-subject-viewer",
   };
 }
 
