@@ -897,9 +897,13 @@ choose_cluster() {
     kind:*)
       CLUSTER_NAME="${selected#kind:}"
       if ! kubectl config use-context "kind-${CLUSTER_NAME}" 2>/dev/null; then
-        err "Context 'kind-${CLUSTER_NAME}' not found in kubeconfig."
-        err "Run 'kind export kubeconfig --name ${CLUSTER_NAME}' to restore it, then re-run this script."
-        exit 1
+        warn "Context 'kind-${CLUSTER_NAME}' not found in kubeconfig — restoring via kind export kubeconfig..."
+        if ! kind export kubeconfig --name "${CLUSTER_NAME}" 2>/dev/null; then
+          err "Could not restore kubeconfig for kind cluster '${CLUSTER_NAME}'."
+          err "The cluster container may be stopped. Try: docker start $(docker ps -aqf name=kind)"
+          exit 1
+        fi
+        kubectl config use-context "kind-${CLUSTER_NAME}" 2>/dev/null || true
       fi
       log "Context set to kind-${CLUSTER_NAME}"
       ;;
