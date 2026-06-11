@@ -5045,6 +5045,12 @@ PGINIT
   fi
   rm -f "$initdb_file"
 
+  log "Waiting for Postgres StatefulSet to appear..."
+  local _pg_deadline=$(( SECONDS + 60 ))
+  until kubectl get statefulset/"${SHARED_PG_SERVICE}" -n caipe &>/dev/null; do
+    [[ $SECONDS -lt $_pg_deadline ]] || { err "Timed out waiting for ${SHARED_PG_SERVICE} StatefulSet"; exit 1; }
+    sleep 3
+  done
   log "Waiting for Postgres to be ready..."
   kubectl rollout status statefulset/"${SHARED_PG_SERVICE}" -n caipe --timeout=300s 2>&1 \
     | while IFS= read -r line; do log "$line"; done
@@ -8126,7 +8132,7 @@ _save_caipe_config() {
 # CAIPE setup configuration — saved by setup-caipe.sh
 # Edit or delete this file to change defaults on the next run.
 # API keys and passwords are NOT stored here.
-cluster_context: "${CLUSTER_NAME:-}"
+cluster_context: "$(kubectl config current-context 2>/dev/null || echo '')"
 chart_version: "${CAIPE_CHART_VERSION:-}"
 deployment_mode: "${CAIPE_DEPLOYMENT_MODE:-all-in-one}"
 llm_provider: "${LLM_PROVIDER:-}"
