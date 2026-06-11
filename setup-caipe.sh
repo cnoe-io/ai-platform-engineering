@@ -792,7 +792,7 @@ choose_cluster() {
         CLUSTER_NAME="${KIND_CLUSTER_NAME:-caipe}"
         log "No kubectl context — creating Kind cluster '${CLUSTER_NAME}'..."
         kind create cluster --name "$CLUSTER_NAME" </dev/null
-        kubectl config use-context "kind-${CLUSTER_NAME}" &>/dev/null
+        kubectl config use-context "kind-${CLUSTER_NAME}" 2>/dev/null || true
         log "Context set to kind-${CLUSTER_NAME}"
       else
         err "No current kubectl context. Pass --create-cluster to auto-create a Kind cluster."
@@ -891,12 +891,16 @@ choose_cluster() {
       CLUSTER_NAME="${CLUSTER_NAME:-caipe}"
       log "Creating Kind cluster '${CLUSTER_NAME}'..."
       kind create cluster --name "$CLUSTER_NAME" </dev/null
-      kubectl config use-context "kind-${CLUSTER_NAME}" &>/dev/null
+      kubectl config use-context "kind-${CLUSTER_NAME}" 2>/dev/null || true
       log "Context set to kind-${CLUSTER_NAME}"
       ;;
     kind:*)
       CLUSTER_NAME="${selected#kind:}"
-      kubectl config use-context "kind-${CLUSTER_NAME}" &>/dev/null
+      if ! kubectl config use-context "kind-${CLUSTER_NAME}" 2>/dev/null; then
+        err "Context 'kind-${CLUSTER_NAME}' not found in kubeconfig."
+        err "Run 'kind export kubeconfig --name ${CLUSTER_NAME}' to restore it, then re-run this script."
+        exit 1
+      fi
       log "Context set to kind-${CLUSTER_NAME}"
       ;;
     context)
@@ -924,7 +928,11 @@ choose_cluster() {
       ctx_choice="${ctx_choice:-1}"
       if [[ "$ctx_choice" -ge 1 && "$ctx_choice" -le "${#ctx_arr[@]}" ]]; then
         local target_ctx="${ctx_arr[$((ctx_choice - 1))]}"
-        kubectl config use-context "$target_ctx" &>/dev/null
+        if ! kubectl config use-context "$target_ctx" 2>/dev/null; then
+          err "Could not switch to context '${target_ctx}'."
+          err "Run 'kubectl config get-contexts' to verify available contexts."
+          exit 1
+        fi
         CLUSTER_NAME="$target_ctx"
         log "Switched to context '${target_ctx}'"
       else
