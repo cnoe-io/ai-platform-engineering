@@ -791,7 +791,7 @@ choose_cluster() {
         fi
         CLUSTER_NAME="${KIND_CLUSTER_NAME:-caipe}"
         log "No kubectl context — creating Kind cluster '${CLUSTER_NAME}'..."
-        kind create cluster --name "$CLUSTER_NAME"
+        kind create cluster --name "$CLUSTER_NAME" </dev/null
         kubectl config use-context "kind-${CLUSTER_NAME}" &>/dev/null
         log "Context set to kind-${CLUSTER_NAME}"
       else
@@ -890,7 +890,7 @@ choose_cluster() {
       tty_read -r CLUSTER_NAME
       CLUSTER_NAME="${CLUSTER_NAME:-caipe}"
       log "Creating Kind cluster '${CLUSTER_NAME}'..."
-      kind create cluster --name "$CLUSTER_NAME"
+      kind create cluster --name "$CLUSTER_NAME" </dev/null
       kubectl config use-context "kind-${CLUSTER_NAME}" &>/dev/null
       log "Context set to kind-${CLUSTER_NAME}"
       ;;
@@ -7779,7 +7779,7 @@ cmd_cleanup() {
           prompt "Enter the cluster name to delete: "
           tty_read -r del_cluster
           if [[ -n "$del_cluster" ]] && echo "$clusters" | grep -q "^${del_cluster}$"; then
-            kind delete cluster --name "$del_cluster"
+            kind delete cluster --name "$del_cluster" </dev/null
             log "Cluster '${del_cluster}' deleted"
           else
             err "Cluster '${del_cluster}' not found"
