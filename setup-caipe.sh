@@ -8106,6 +8106,113 @@ ensure_healthy() {
   run_auto_heal
 }
 
+# ─── Saved configuration ─────────────────────────────────────────────────────
+CAIPE_CONFIG_FILE="${CAIPE_CONFIG_FILE:-${HOME}/.config/caipe/config.yaml}"
+
+_cfg_get() {
+  # Extract a scalar value from the saved YAML: _cfg_get <key>
+  local key="$1"
+  grep -m1 "^${key}:" "$CAIPE_CONFIG_FILE" 2>/dev/null \
+    | sed 's/^[^:]*:[[:space:]]*//' | tr -d '"' | tr -d "'"
+}
+
+_save_caipe_config() {
+  mkdir -p "$(dirname "$CAIPE_CONFIG_FILE")"
+  cat > "$CAIPE_CONFIG_FILE" <<CFGYAML
+# CAIPE setup configuration — saved by setup-caipe.sh
+# Edit or delete this file to change defaults on the next run.
+# API keys and passwords are NOT stored here.
+cluster_context: "${CLUSTER_NAME:-}"
+chart_version: "${CAIPE_CHART_VERSION:-}"
+deployment_mode: "${CAIPE_DEPLOYMENT_MODE:-all-in-one}"
+llm_provider: "${LLM_PROVIDER:-}"
+enable_ollama: "${ENABLE_OLLAMA:-false}"
+ollama_model: "${OLLAMA_MODEL:-lfm2.5}"
+embeddings_provider: "${EMBEDDINGS_PROVIDER:-}"
+embeddings_model: "${EMBEDDINGS_MODEL:-}"
+enable_rag: "${ENABLE_RAG:-false}"
+enable_graph_rag: "${ENABLE_GRAPH_RAG:-false}"
+enable_dynamic_agents: "${ENABLE_DYNAMIC_AGENTS:-true}"
+enable_tracing: "${ENABLE_TRACING:-false}"
+enable_metallb: "${ENABLE_METALLB:-false}"
+domain: "${CAIPE_DOMAIN:-}"
+CFGYAML
+  log "Configuration saved to ${CAIPE_CONFIG_FILE}"
+}
+
+_load_caipe_config() {
+  [[ -f "$CAIPE_CONFIG_FILE" ]] || return 0
+  $NON_INTERACTIVE && return 0
+
+  echo ""
+  echo -e "  ${DIM}Saved configuration found: ${CAIPE_CONFIG_FILE}${NC}"
+  echo ""
+
+  local _ctx _chart _mode _llm _ollama _omodel _eprov _emodel _rag _grag _dynagents _tracing _domain
+  _ctx=$(_cfg_get cluster_context)
+  _chart=$(_cfg_get chart_version)
+  _mode=$(_cfg_get deployment_mode)
+  _llm=$(_cfg_get llm_provider)
+  _ollama=$(_cfg_get enable_ollama)
+  _omodel=$(_cfg_get ollama_model)
+  _eprov=$(_cfg_get embeddings_provider)
+  _emodel=$(_cfg_get embeddings_model)
+  _rag=$(_cfg_get enable_rag)
+  _grag=$(_cfg_get enable_graph_rag)
+  _dynagents=$(_cfg_get enable_dynamic_agents)
+  _tracing=$(_cfg_get enable_tracing)
+  _domain=$(_cfg_get domain)
+
+  [[ -n "$_ctx" ]]        && echo -e "    ${DIM}cluster:         ${NC}${_ctx}"
+  [[ -n "$_chart" ]]      && echo -e "    ${DIM}chart version:   ${NC}${_chart}"
+  [[ -n "$_mode" ]]       && echo -e "    ${DIM}deployment mode: ${NC}${_mode}"
+  if [[ "$_ollama" == "true" ]]; then
+    echo -e "    ${DIM}LLM:             ${NC}Ollama (${_omodel})"
+  elif [[ -n "$_llm" ]]; then
+    echo -e "    ${DIM}LLM:             ${NC}${_llm}"
+  fi
+  [[ -n "$_eprov" ]]      && echo -e "    ${DIM}embeddings:      ${NC}${_eprov} (${_emodel})"
+  [[ -n "$_rag" ]]        && echo -e "    ${DIM}RAG:             ${NC}${_rag}  graph-RAG: ${_grag:-false}"
+  [[ -n "$_dynagents" ]]  && echo -e "    ${DIM}dynamic agents:  ${NC}${_dynagents}"
+  [[ -n "$_tracing" ]]    && echo -e "    ${DIM}tracing:         ${NC}${_tracing}"
+  [[ -n "$_domain" ]]     && echo -e "    ${DIM}domain:          ${NC}${_domain}"
+  echo ""
+
+  if ! ask_yn "Use saved configuration?" "y"; then
+    return 0
+  fi
+
+  # Apply saved values — only set if not already overridden by CLI flags / env
+  [[ -n "$_chart"      && -z "${CAIPE_CHART_VERSION:-}"   ]] && CAIPE_CHART_VERSION="$_chart"
+  [[ -n "$_mode"       && -z "${CAIPE_DEPLOYMENT_MODE:-}" ]] && CAIPE_DEPLOYMENT_MODE="$_mode"
+  [[ -n "$_llm"        && -z "${LLM_PROVIDER:-}"          ]] && LLM_PROVIDER="$_llm"
+  [[ "$_ollama" == "true" ]] && ENABLE_OLLAMA=true
+  [[ -n "$_omodel"     && -z "${OLLAMA_MODEL:-}"          ]] && OLLAMA_MODEL="$_omodel"
+  [[ -n "$_eprov"      && -z "${EMBEDDINGS_PROVIDER:-}"   ]] && EMBEDDINGS_PROVIDER="$_eprov"
+  [[ -n "$_emodel"     && -z "${EMBEDDINGS_MODEL:-}"      ]] && EMBEDDINGS_MODEL="$_emodel"
+  [[ "$_rag"      == "true" ]] && ENABLE_RAG=true
+  [[ "$_grag"     == "true" ]] && ENABLE_GRAPH_RAG=true && ENABLE_RAG=true
+  [[ "$_dynagents" == "false" ]] && ENABLE_DYNAMIC_AGENTS=false
+  [[ "$_tracing"  == "true" ]] && ENABLE_TRACING=true
+  [[ -n "$_domain"     && -z "${CAIPE_DOMAIN:-}"          ]] && CAIPE_DOMAIN="$_domain"
+
+  # Switch to the saved context if no context is active or it matches
+  if [[ -n "$_ctx" ]]; then
+    local _cur_ctx
+    _cur_ctx=$(kubectl config current-context 2>/dev/null || true)
+    if [[ "$_cur_ctx" != "$_ctx" ]]; then
+      if kubectl config use-context "$_ctx" 2>/dev/null; then
+        log "Switched to saved context '${_ctx}'"
+      else
+        warn "Saved context '${_ctx}' not found — you will be prompted to choose a cluster"
+      fi
+    fi
+  fi
+
+  NON_INTERACTIVE=true
+  log "Saved configuration loaded — skipping wizard"
+}
+
 # ─── Main ────────────────────────────────────────────────────────────────────
 cmd_setup() {
   echo ""
@@ -8131,6 +8238,7 @@ BANNER
   echo ""
 
   check_prerequisites
+  _load_caipe_config
   choose_cluster
 
   # ── Fast re-run detection ──
@@ -8251,6 +8359,9 @@ BANNER
       *) exit 1 ;;
     esac
   done
+
+  # Persist the wizard choices for the next run (no secrets stored).
+  _save_caipe_config
 
   # Resolve unified LiteLLM mode before secrets/helm so the agent llm-secret and
   # RAG embeddings config are repointed at the proxy (must run after
