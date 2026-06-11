@@ -1,11 +1,17 @@
 import { getCollection } from "@/lib/mongodb";
 import {
-effectiveBaselineBootstrapTuples,
-getBaselineFgaProfileBundle,
-type TeamBaselineProfileOverride,
+  effectiveBaselineBootstrapTuples,
+  getBaselineFgaProfileBundle,
+  type TeamBaselineProfileOverride,
 } from "@/lib/rbac/baseline-access";
 import { getRbacCollection } from "@/lib/rbac/mongo-collections";
-import { writeOpenFgaTuples,type OpenFgaTupleKey } from "@/lib/rbac/openfga";
+import { writeOpenFgaTuples, type OpenFgaTupleKey } from "@/lib/rbac/openfga";
+import { SUPER_ADMINS_TEAM_SLUG } from "@/lib/rbac/super-admins-team";
+import {
+  writeTeamMembershipTuples,
+  mongoRoleToOpenFgaRelations,
+} from "@/lib/rbac/team-membership-sync";
+import { upsertTeamMembershipSource } from "@/lib/rbac/team-membership-source-store";
 import type { TeamMembershipSource } from "@/types/identity-group-sync";
 
 export type LoginOpenFgaBootstrapStatus = "skipped" | "completed" | "failed";
@@ -119,6 +125,38 @@ async function teamOverridesForLogin(email: string | undefined): Promise<TeamBas
   }
 }
 
+async function ensureSuperAdminTeamMembership(subject: string, email: string | undefined): Promise<void> {
+  try {
+    await writeTeamMembershipTuples(subject, SUPER_ADMINS_TEAM_SLUG, mongoRoleToOpenFgaRelations("admin"), "assign");
+
+    const teams = await getCollection<{ _id: unknown; created_at?: Date }>("teams");
+    const team = await teams.findOne({ slug: SUPER_ADMINS_TEAM_SLUG } as never);
+    const teamId = team?._id ? String(team._id) : SUPER_ADMINS_TEAM_SLUG;
+    const now = new Date().toISOString();
+    const normalizedEmail = email?.trim().toLowerCase() ?? "";
+
+    const source: TeamMembershipSource = {
+      team_id: teamId,
+      team_slug: SUPER_ADMINS_TEAM_SLUG,
+      user_email: normalizedEmail,
+      user_subject: subject,
+      source_type: "manual",
+      relationship: "admin",
+      managed: false,
+      status: "active",
+      created_by: "login-bootstrap",
+      created_at: now,
+      first_seen_at: now,
+      last_seen_at: now,
+      last_applied_at: now,
+    };
+    await upsertTeamMembershipSource(source);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`[LoginOpenFGA] Failed to add ${email ?? subject} to super-admins team: ${message}`);
+  }
+}
+
 export async function reconcileLoginOpenFgaAccess(
   input: LoginOpenFgaBootstrapInput
 ): Promise<LoginOpenFgaBootstrapResult> {
@@ -135,6 +173,10 @@ export async function reconcileLoginOpenFgaAccess(
     teamOverrides: await teamOverridesForLogin(input.email),
   });
   writes.push(...(await defaultAgentTuple()));
+
+  if (input.isAdmin) {
+    await ensureSuperAdminTeamMembership(subject, input.email);
+  }
 
   try {
     const result = await writeOpenFgaTuples({ writes, deletes: [] });
