@@ -2796,11 +2796,7 @@ choose_features() {
 
   echo ""
   if $ENABLE_DYNAMIC_AGENTS; then
-    log "Dynamic agents enabled by default (custom agent builder)"
-    if ! ask_yn "Keep dynamic agents?" "y"; then
-      ENABLE_DYNAMIC_AGENTS=false
-      log "Dynamic agents disabled"
-    fi
+    log "Dynamic agents enabled (custom agent builder)"
   else
     if ask_yn "Enable dynamic agents (custom agent builder)?" "y"; then
       ENABLE_DYNAMIC_AGENTS=true
