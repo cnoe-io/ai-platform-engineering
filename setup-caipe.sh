@@ -731,7 +731,13 @@ check_prerequisites() {
   _check_docker_access
 
   if ! command -v kind &>/dev/null; then
-    warn "kind not found — Kind cluster options will be unavailable"
+    if [[ "$(uname -s)" == "Linux" ]]; then
+      _install_kind_linux
+    elif [[ "$(uname -s)" == "Darwin" ]]; then
+      _install_kind_macos
+    else
+      warn "kind not found — install it manually: https://kind.sigs.k8s.io/docs/user/quick-start/"
+    fi
   fi
 
   # k9s — optional but strongly recommended; auto-install if missing
@@ -767,7 +773,7 @@ check_prerequisites() {
     fi
   fi
 
-  log "Prerequisites checked (docker, kubectl, helm, openssl, curl, jq, k9s)"
+  log "Prerequisites checked (docker, kubectl, helm, kind, openssl, curl, jq, k9s)"
 }
 
 choose_cluster() {
