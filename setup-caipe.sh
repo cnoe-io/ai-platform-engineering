@@ -5004,7 +5004,8 @@ deploy_shared_postgres() {
       --dry-run=client -o yaml | kubectl apply -f - &>/dev/null
   fi
 
-  if kubectl get statefulset "${SHARED_PG_SERVICE}" -n caipe &>/dev/null; then
+  if kubectl get statefulset -n caipe -l "app.kubernetes.io/instance=${SHARED_PG_SERVICE}" \
+      --no-headers 2>/dev/null | grep -q .; then
     log "Shared Postgres already present (${SHARED_PG_SERVICE}) — skipping install"
     return 0
   fi
@@ -5045,14 +5046,21 @@ PGINIT
   fi
   rm -f "$initdb_file"
 
+  # Resolve the actual StatefulSet name — bitnami postgresql 18.x may create
+  # 'caipe-postgres-primary' rather than 'caipe-postgres' for standalone mode.
   log "Waiting for Postgres StatefulSet to appear..."
-  local _pg_deadline=$(( SECONDS + 60 ))
-  until kubectl get statefulset/"${SHARED_PG_SERVICE}" -n caipe &>/dev/null; do
-    [[ $SECONDS -lt $_pg_deadline ]] || { err "Timed out waiting for ${SHARED_PG_SERVICE} StatefulSet"; exit 1; }
-    sleep 3
+  local _pg_sts="" _pg_deadline=$(( SECONDS + 60 ))
+  until [[ -n "$_pg_sts" ]]; do
+    _pg_sts=$(kubectl get statefulset -n caipe \
+      -l "app.kubernetes.io/instance=${SHARED_PG_SERVICE}" \
+      -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+    if [[ -z "$_pg_sts" ]]; then
+      [[ $SECONDS -lt $_pg_deadline ]] || { err "Timed out waiting for ${SHARED_PG_SERVICE} StatefulSet"; exit 1; }
+      sleep 3
+    fi
   done
-  log "Waiting for Postgres to be ready..."
-  kubectl rollout status statefulset/"${SHARED_PG_SERVICE}" -n caipe --timeout=300s 2>&1 \
+  log "Waiting for Postgres to be ready (StatefulSet: ${_pg_sts})..."
+  kubectl rollout status statefulset/"${_pg_sts}" -n caipe --timeout=300s 2>&1 \
     | while IFS= read -r line; do log "$line"; done
   log "Shared Postgres deployed (${SHARED_PG_SERVICE}) with keycloak/openfga databases"
 }
