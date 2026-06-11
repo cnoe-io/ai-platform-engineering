@@ -1997,6 +1997,16 @@ install_nginx_ingress() {
 
     # Persist iptables rules and ip_forward so they survive a reboot.
     _persist_iptables "$ingress_ip"
+
+    # Update /etc/hosts so local health-check curls (run_validation, sanity tests)
+    # resolve the domain to the MetalLB IP directly, bypassing the *.local.me →
+    # 127.0.0.1 special-domain default. Idempotent: removes stale entry first.
+    if [[ -n "${CAIPE_DOMAIN:-}" ]]; then
+      local _hosts_marker="# caipe-ingress"
+      sudo sed -i "/${_hosts_marker}/d" /etc/hosts 2>/dev/null || true
+      echo "${ingress_ip} ${CAIPE_DOMAIN} ${_hosts_marker}" | sudo tee -a /etc/hosts >/dev/null \
+        && log "/etc/hosts: ${CAIPE_DOMAIN} → ${ingress_ip} (local health-check resolution)"
+    fi
   elif $ENABLE_METALLB && [[ "$(uname -s)" != "Linux" ]]; then
     log "Skipping iptables DNAT (non-Linux host) — use port-forward or *.local.me → 127.0.0.1 for local access"
   fi
@@ -4564,14 +4574,14 @@ provision_rag_ingestor_client() {
   local existing_uuid
   existing_uuid=$(curl -s -H "Authorization: Bearer $tok" \
     "$kc/admin/realms/caipe/clients?clientId=${client_id}" \
-    | sed -n 's/.*"id":"\([^"]*\)".*/\1/p' | head -1)
+    | jq -r '.[0].id // empty' 2>/dev/null)
 
   local client_secret
   if [[ -n "$existing_uuid" ]]; then
     # Regenerate secret for idempotency (re-runs get a fresh secret stored in k8s)
     client_secret=$(curl -s -X POST -H "Authorization: Bearer $tok" \
       "$kc/admin/realms/caipe/clients/${existing_uuid}/client-secret" \
-      | sed -n 's/.*"value":"\([^"]*\)".*/\1/p')
+      | jq -r '.value // empty' 2>/dev/null)
     log "RAG ingestor client: reused existing '${client_id}', refreshed secret"
   else
     # Create the client
@@ -4604,10 +4614,10 @@ JSON
     fi
     existing_uuid=$(curl -s -H "Authorization: Bearer $tok" \
       "$kc/admin/realms/caipe/clients?clientId=${client_id}" \
-      | sed -n 's/.*"id":"\([^"]*\)".*/\1/p' | head -1)
+      | jq -r '.[0].id // empty' 2>/dev/null)
     client_secret=$(curl -s -H "Authorization: Bearer $tok" \
       "$kc/admin/realms/caipe/clients/${existing_uuid}/client-secret" \
-      | sed -n 's/.*"value":"\([^"]*\)".*/\1/p')
+      | jq -r '.value // empty' 2>/dev/null)
     # Add a hardcoded-audience mapper so the token carries aud=caipe-web-ingestor.
     # The rag-server auth manager validates audience against INGESTOR_OIDC_CLIENT_ID;
     # Keycloak does not include the client_id in aud by default.
@@ -4691,7 +4701,7 @@ provision_caipe_ui_audience_mapper() {
   local client_uuid
   client_uuid=$(curl -s -H "Authorization: Bearer $tok" \
     "$kc/admin/realms/caipe/clients?clientId=caipe-ui" \
-    | sed -n 's/.*"id":"\([^"]*\)".*/\1/p' | head -1)
+    | jq -r '.[0].id // empty' 2>/dev/null)
   if [[ -z "$client_uuid" ]]; then
     warn "caipe-ui audience mapper: could not find caipe-ui client; skipping"
     kill "$_pf" 2>/dev/null || true
@@ -4800,7 +4810,7 @@ provision_local_users() {
     local email="$1" pw="$2" first="$3" last="$4" uid body
     uid=$(curl -s -H "Authorization: Bearer $tok" \
       "$kc/admin/realms/caipe/users?email=${email}&exact=true" \
-      | sed -n 's/.*"id":"\([^"]*\)".*/\1/p' | head -1)
+      | jq -r '.[0].id // empty' 2>/dev/null)
     body=$(cat <<JSON
 {"username":"${email}","email":"${email}","emailVerified":true,"enabled":true,"firstName":"${first}","lastName":"${last}","credentials":[{"type":"password","value":"${pw}","temporary":false}]}
 JSON
@@ -6675,8 +6685,10 @@ run_validation() {
   local pass=0 fail=0 warn_count=0
 
   # ── Kubernetes health ──
+  # Exclude Completed/Succeeded job pods — they are not failures.
   local total ready
-  total=$(kubectl get pods -n caipe --no-headers 2>/dev/null | wc -l | tr -d ' ')
+  total=$(kubectl get pods -n caipe --no-headers 2>/dev/null \
+    | awk '$3!="Completed" && $3!="Succeeded"' | wc -l | tr -d ' ')
   ready=$(kubectl get pods -n caipe --no-headers 2>/dev/null \
     | awk '$3=="Running" && $2~"^[0-9]+/[0-9]+$" {split($2,a,"/"); if(a[1]==a[2]) print}' \
     | wc -l | tr -d ' ')
@@ -6687,7 +6699,7 @@ run_validation() {
     print_result "$(date '+%H:%M:%S') ✗ Pods: ${ready}/${total} ready in caipe namespace"
     fail=$((fail + 1))
     kubectl get pods -n caipe --no-headers 2>/dev/null \
-      | awk '$3!="Running" || ($2~"^[0-9]+/[0-9]+$" && split($2,a,"/") && a[1]!=a[2])' \
+      | awk '$3!="Completed" && $3!="Succeeded" && ($3!="Running" || ($2~"^[0-9]+/[0-9]+$" && split($2,a,"/") && a[1]!=a[2]))' \
       | while IFS= read -r pod_line; do
           print_result "$(date '+%H:%M:%S')   ⚠ ${pod_line}"
         done
@@ -6719,10 +6731,29 @@ run_validation() {
   done
 
   # ── HTTP endpoints ──
-  if check_http "http://localhost:${UI_PORT}" "CAIPE UI"; then
-    pass=$((pass + 1))
+  # When ingress is enabled the UI has no local port-forward; check via ingress.
+  local _ui_url
+  if $ENABLE_INGRESS && [[ -n "${CAIPE_DOMAIN:-}" ]]; then
+    _ui_url="https://${CAIPE_DOMAIN}"
   else
-    fail=$((fail + 1))
+    _ui_url="http://localhost:${UI_PORT}"
+  fi
+  if $ENABLE_INGRESS && [[ -n "${CAIPE_DOMAIN:-}" ]]; then
+    local _ui_code
+    _ui_code=$(curl -sk -o /dev/null -w "%{http_code}" "${_ui_url}/" --max-time 10 2>/dev/null || echo "000")
+    if [[ "$_ui_code" =~ ^(200|301|302|405)$ ]]; then
+      print_result "$(date '+%H:%M:%S') ✓ CAIPE UI reachable via ingress (HTTP ${_ui_code})"
+      pass=$((pass + 1))
+    else
+      print_result "$(date '+%H:%M:%S') ✗ CAIPE UI unreachable via ingress (HTTP ${_ui_code})"
+      fail=$((fail + 1))
+    fi
+  else
+    if check_http "${_ui_url}" "CAIPE UI"; then
+      pass=$((pass + 1))
+    else
+      fail=$((fail + 1))
+    fi
   fi
   if check_http "http://localhost:${SUPERVISOR_PORT}/.well-known/agent.json" "Supervisor A2A"; then
     pass=$((pass + 1))
@@ -6937,8 +6968,14 @@ run_sanity_tests() {
   fi
 
   # ── Test 3: CAIPE UI serves HTML ──
-  local ui_content_type
-  ui_content_type=$(curl -sf -o /dev/null -w "%{content_type}" "http://localhost:${UI_PORT}/" --max-time 5 2>/dev/null || echo "")
+  local ui_content_type _t3_url
+  if $ENABLE_INGRESS && [[ -n "${CAIPE_DOMAIN:-}" ]]; then
+    _t3_url="https://${CAIPE_DOMAIN}/"
+    ui_content_type=$(curl -sk -o /dev/null -w "%{content_type}" "${_t3_url}" --max-time 10 2>/dev/null || echo "")
+  else
+    _t3_url="http://localhost:${UI_PORT}/"
+    ui_content_type=$(curl -sf -o /dev/null -w "%{content_type}" "${_t3_url}" --max-time 5 2>/dev/null || echo "")
+  fi
   if echo "$ui_content_type" | grep -qi "text/html"; then
     print_result "$(date '+%H:%M:%S') ✓ [T3] CAIPE UI serves HTML content"
     pass=$((pass + 1))
