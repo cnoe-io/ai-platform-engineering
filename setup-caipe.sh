@@ -8541,6 +8541,8 @@ Commands:
 Options:
   --non-interactive  Skip all prompts (use current context, latest chart,
                      defaults for endpoint/model, no RAG/tracing unless flagged)
+  --load-config=FILE Load wizard config from FILE instead of the default
+                     ~/.config/caipe/config.yaml (shows summary, asks confirmation)
   --create-cluster   Create a Kind cluster if no kubectl context exists
                      (default name: caipe, override with KIND_CLUSTER_NAME)
   --rag              Enable RAG stack (vector-only by default)
@@ -8771,6 +8773,7 @@ for arg in "$@"; do
     --tls-key=*)       TLS_KEY_FILE="${arg#--tls-key=}" ;;
     --env-file=*)      ENV_FILE="${arg#--env-file=}" ;;
     --ui-env-file=*)   UI_ENV_FILE="${arg#--ui-env-file=}" ;;
+    --load-config=*)   CAIPE_CONFIG_FILE="${arg#--load-config=}" ;;
     --dynamic-agents)    ENABLE_DYNAMIC_AGENTS=true ;;
     --no-dynamic-agents) ENABLE_DYNAMIC_AGENTS=false ;;
     --slack-bot)       ENABLE_SLACK_BOT=true;  _SLACK_BOT_FORCED=on ;;
