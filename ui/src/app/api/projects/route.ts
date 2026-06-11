@@ -28,7 +28,7 @@ async function resolveTeam(teamId: string): Promise<Team & { _id: string }> {
   let team: Team | null = null;
 
   if (ObjectId.isValid(teamId)) {
-    team = await teams.findOne({ _id: new ObjectId(teamId) });
+    team = await teams.findOne({ _id: new ObjectId(teamId) as never });
   }
   if (!team) {
     team = await teams.findOne({ slug: teamId });
