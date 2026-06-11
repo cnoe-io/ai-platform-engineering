@@ -742,6 +742,7 @@ describe('Admin Dashboard Page', () => {
       expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
         'Default Agent',
         'Release notes',
+        'Navigation',
         'AI Review',
         'Credentials',
         'Knowledge Bases',

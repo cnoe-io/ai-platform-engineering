@@ -113,7 +113,7 @@ function normalizeConfig(raw: unknown): ProjectOnboardingConfig {
   const stepsRaw = Array.isArray(record.steps) ? record.steps : [];
 
   const steps: ProjectOnboardingStepConfig[] = stepsRaw
-    .map((step) => {
+    .map((step): ProjectOnboardingStepConfig | null => {
       if (!step || typeof step !== "object") return null;
       const s = step as Record<string, unknown>;
       const id = typeof s.id === "string" ? s.id.trim() : "";

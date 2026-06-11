@@ -27,8 +27,8 @@ describe("agentic app docker compose wiring", () => {
     expect(compose).toContain("RAG_URL=${CAIPE_UI_RAG_URL:-http://rag_server:9446}");
     expect(compose).toContain("DYNAMIC_AGENTS_URL=${CAIPE_UI_DYNAMIC_AGENTS_URL:-http://dynamic-agents:8001}");
     expect(compose).toContain("MONGODB_URI=${CAIPE_UI_MONGODB_URI:-mongodb://admin:changeme@caipe-mongodb:27017/caipe?authSource=admin}");
-    expect(compose).toContain("APP_CONFIG_PATH=/config/app-config.yaml");
-    expect(compose).toContain("./config/agentic-apps:/config/agentic-apps:ro");
+    expect(compose).toContain("APP_CONFIG_PATH=/app/config/app-config.yaml");
+    expect(compose).toContain("./config/agentic-apps:/app/config/agentic-apps:ro");
   });
 
   it("runs caipe-ui with Next.js dev hot reload in the local compose profile", () => {
@@ -42,7 +42,7 @@ describe("agentic app docker compose wiring", () => {
     expect(compose).toContain("NEXT_TELEMETRY_DISABLED=1");
     expect(compose).toContain("WATCHPACK_POLLING=${CAIPE_UI_WATCHPACK_POLLING:-true}");
     expect(compose).toContain('command: ["npm", "run", "dev", "--", "--hostname", "0.0.0.0", "--port", "3000"]');
-    expect(compose).toContain("./ui:/app");
+    expect(compose).toContain("./ui/src:/app/src");
     expect(compose).toContain("/app/node_modules");
     expect(compose).toContain("/app/.next");
   });
