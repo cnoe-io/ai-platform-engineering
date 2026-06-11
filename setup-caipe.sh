@@ -3303,7 +3303,10 @@ WEBEXEOF
 create_namespace_and_secrets() {
   step "Namespace and secrets"
 
-  kubectl create namespace caipe --dry-run=client -o yaml | kubectl apply -f - &>/dev/null
+  if ! kubectl create namespace caipe --dry-run=client -o yaml | kubectl apply -f - 2>&1; then
+    err "Failed to create namespace 'caipe' — check your kubectl context and cluster connectivity"
+    exit 1
+  fi
   log "Namespace 'caipe' ready"
 
   _ensure_caipe_platform_secret  # must exist before helm install; see PR #1519
@@ -5029,6 +5032,7 @@ PGINIT
   helm repo update bitnami 2>/dev/null || true
   if ! helm upgrade --install "${SHARED_PG_SERVICE}" bitnami/postgresql \
     -n caipe \
+    --create-namespace \
     --set "fullnameOverride=${SHARED_PG_SERVICE}" \
     --set architecture=standalone \
     --set "auth.postgresPassword=${SHARED_PG_ADMIN_PASSWORD}" \
