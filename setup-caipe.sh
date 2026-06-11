@@ -8200,7 +8200,7 @@ _load_caipe_config() {
   echo -e "  ${DIM}Saved configuration found: ${CAIPE_CONFIG_FILE}${NC}"
   echo ""
 
-  local _ctx _chart _mode _llm _ollama _omodel _eprov _emodel _rag _grag _dynagents _tracing _domain
+  local _ctx _chart _mode _llm _ollama _omodel _eprov _emodel _rag _grag _dynagents _tracing _metallb _domain
   _ctx=$(_cfg_get cluster_context)
   _chart=$(_cfg_get chart_version)
   _mode=$(_cfg_get deployment_mode)
@@ -8213,6 +8213,7 @@ _load_caipe_config() {
   _grag=$(_cfg_get enable_graph_rag)
   _dynagents=$(_cfg_get enable_dynamic_agents)
   _tracing=$(_cfg_get enable_tracing)
+  _metallb=$(_cfg_get enable_metallb)
   _domain=$(_cfg_get domain)
 
   [[ -n "$_ctx" ]]        && echo -e "    ${DIM}cluster:         ${NC}${_ctx}"
@@ -8227,6 +8228,7 @@ _load_caipe_config() {
   [[ -n "$_rag" ]]        && echo -e "    ${DIM}RAG:             ${NC}${_rag}  graph-RAG: ${_grag:-false}"
   [[ -n "$_dynagents" ]]  && echo -e "    ${DIM}dynamic agents:  ${NC}${_dynagents}"
   [[ -n "$_tracing" ]]    && echo -e "    ${DIM}tracing:         ${NC}${_tracing}"
+  [[ -n "$_metallb" ]]    && echo -e "    ${DIM}metallb:         ${NC}${_metallb}"
   [[ -n "$_domain" ]]     && echo -e "    ${DIM}domain:          ${NC}${_domain}"
   echo ""
 
@@ -8245,7 +8247,9 @@ _load_caipe_config() {
   [[ "$_rag"      == "true" ]] && ENABLE_RAG=true
   [[ "$_grag"     == "true" ]] && ENABLE_GRAPH_RAG=true && ENABLE_RAG=true
   [[ "$_dynagents" == "false" ]] && ENABLE_DYNAMIC_AGENTS=false
-  [[ "$_tracing"  == "true" ]] && ENABLE_TRACING=true
+  [[ "$_tracing"  == "true"  ]] && ENABLE_TRACING=true
+  [[ "$_metallb"  == "true"  ]] && ENABLE_METALLB=true
+  [[ "$_metallb"  == "false" ]] && ENABLE_METALLB=false
   [[ -n "$_domain"     && -z "${CAIPE_DOMAIN:-}"          ]] && CAIPE_DOMAIN="$_domain"
 
   # Switch to the saved context; for kind contexts, re-export if missing.
