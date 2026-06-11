@@ -6470,7 +6470,7 @@ DAEOF
       helm_args+=(
         --set "rag-stack.rag-server.env.OIDC_ISSUER=https://${CAIPE_DOMAIN}/realms/caipe"
         --set 'rag-stack.rag-server.env.OIDC_CLIENT_ID=caipe-ui'
-        --set 'rag-stack.rag-server.env.OIDC_GROUP_CLAIM=members,groups'
+        --set 'rag-stack.rag-server.env.OIDC_GROUP_CLAIM=members\,groups'
       )
     fi
     # Wire Keycloak client credentials into both rag-server (token validation)
