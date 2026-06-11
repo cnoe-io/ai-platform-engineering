@@ -5953,14 +5953,15 @@ deploy_caipe() {
     # it or the UI shows the Supervisor permanently OFFLINE.
     --set "caipe-ui.config.A2A_BASE_URL=http://caipe-supervisor-agent:8000"
     # NEXT_PUBLIC_A2A_BASE_URL: browser-facing supervisor URL for direct A2A
-    # streaming. Only set when a domain is configured — the browser connects to
-    # https://<domain> which the ingress routes to caipe-supervisor-agent:8000.
+    # streaming. Only set when a domain is configured. The nginx ingress rewrites
+    # /supervisor(.*) → $2 on the supervisor pod, so the browser must use
+    # https://<domain>/supervisor as the base (not the domain root).
     # When no domain is set, leave this UNSET so the UI falls back to /api/a2a
     # (the Next.js BFF proxy), which reaches the supervisor via the internal
     # A2A_BASE_URL above. This works for both local kind clusters and cloud VMs
     # without a public domain, and avoids localhost:8000 resolving to the
     # client machine rather than the cluster host.
-    ${CAIPE_DOMAIN:+--set "caipe-ui.config.NEXT_PUBLIC_A2A_BASE_URL=https://${CAIPE_DOMAIN}"}
+    ${CAIPE_DOMAIN:+--set "caipe-ui.config.NEXT_PUBLIC_A2A_BASE_URL=https://${CAIPE_DOMAIN}/supervisor"}
   )
 
   # SSO: enable when a public domain is configured (NEXTAUTH_URL is already
