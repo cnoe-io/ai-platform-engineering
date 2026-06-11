@@ -24,12 +24,38 @@ import {
   writeTeamMembershipTuples,
   mongoRoleToOpenFgaRelations,
 } from "@/lib/rbac/team-membership-sync";
+import { writeOpenFgaTuples } from "@/lib/rbac/openfga";
+import { organizationObjectId } from "@/lib/rbac/organization";
 import { upsertTeamMembershipSource } from "@/lib/rbac/team-membership-source-store";
 import { loadActiveTeamMembers } from "@/lib/rbac/team-membership-store";
 import type { TeamMembershipSource } from "@/types/identity-group-sync";
 
 export const SUPER_ADMINS_TEAM_SLUG = "super-admins";
 export const SUPER_ADMINS_TEAM_NAME = "Super Admins";
+
+/**
+ * Write the connector tuple `team:super-admins#admin admin organization:<key>`.
+ * This makes anyone with the `admin` relation on the super-admins team an org
+ * admin, so BOOTSTRAP_ADMIN_EMAILS is only needed for break-glass access before
+ * this tuple is seeded. Safe to call multiple times (OpenFGA write is idempotent).
+ */
+async function ensureSuperAdminsOrgAdminTuple(warnings: string[]): Promise<void> {
+  try {
+    await writeOpenFgaTuples({
+      writes: [
+        {
+          user: `team:${SUPER_ADMINS_TEAM_SLUG}#admin`,
+          relation: "admin",
+          object: organizationObjectId(),
+        },
+      ],
+      deletes: [],
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    warnings.push(`super-admins org connector tuple: ${message}`);
+  }
+}
 
 export interface SuperAdminsBootstrapMember {
   email: string;
@@ -219,6 +245,7 @@ export async function ensureSuperAdminsTeam(
         warnings.push(`${member.email}: failed to record membership source: ${message}`);
       }
     }
+    await ensureSuperAdminsOrgAdminTuple(warnings);
     return {
       status: "created",
       team_slug: SUPER_ADMINS_TEAM_SLUG,
@@ -316,6 +343,7 @@ export async function ensureSuperAdminsTeam(
   };
   await teams.updateOne({ slug: SUPER_ADMINS_TEAM_SLUG }, { $set: setOps });
 
+  await ensureSuperAdminsOrgAdminTuple(warnings);
   return {
     status: newMemberCount > 0 ? "updated" : "noop",
     team_slug: SUPER_ADMINS_TEAM_SLUG,

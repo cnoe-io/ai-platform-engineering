@@ -186,7 +186,7 @@ export function ProjectDetailView({ slug }: { slug: string }) {
         url,
         external: /^https?:\/\//.test(url),
         // Match the keyword against slug + display label (label comes from
-        // deployment config), so e.g. an "LLM Wiki" tile gets the book icon.
+        // deployment config), so a "wiki" tile gets the book icon.
         Icon: iconForSlug(`${slug} ${label}`),
         gradient: gradientFor(slug),
       };
