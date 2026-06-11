@@ -147,7 +147,7 @@ LITELLM_ROUTE_EMBEDDINGS=false
 LITELLM_MASTER_KEY="${LITELLM_MASTER_KEY:-sk-caipe-litellm}"
 VLLM_MODEL="${VLLM_MODEL:-openai/gpt-oss-20b}"
 VLLM_GPU_COUNT="${VLLM_GPU_COUNT:-1}"
-OLLAMA_MODEL="${OLLAMA_MODEL:-gemma3}"
+OLLAMA_MODEL="${OLLAMA_MODEL:-lfm2.5}"
 OLLAMA_PORT=11434
 # Base URL the RAG server uses for Ollama embeddings. The EmbeddingsFactory
 # default (http://localhost:11434) is the pod's own loopback and cannot reach
@@ -1156,7 +1156,7 @@ collect_credentials() {
       echo -e "    ${BOLD}2)${NC} AWS Bedrock       ${DIM}(Claude on Bedrock, cross-region inference)${NC}"
       echo -e "    ${BOLD}3)${NC} OpenAI            ${DIM}(gpt-5.2, gpt-4.1, etc.)${NC}"
       echo -e "    ${BOLD}4)${NC} LiteLLM Proxy     ${DIM}(gpt-oss-20B or any OpenAI-compatible endpoint)${NC}"
-      echo -e "    ${BOLD}5)${NC} Ollama            ${DIM}(in-cluster: gemma3, llama3.2, mistral, phi4, etc.)${NC}"
+      echo -e "    ${BOLD}5)${NC} Ollama            ${DIM}(in-cluster: lfm2.5, qwen3, arcee-ai/arcee-agent, mistral, etc.)${NC}"
       echo ""
       prompt "Select provider ${CYAN}[1]${NC}${BOLD}: "
       tty_read -r provider_choice
@@ -1605,8 +1605,11 @@ _collect_vllm_credentials() {
 _collect_ollama_config() {
   if ! $NON_INTERACTIVE; then
     echo ""
-    echo -e "  ${DIM}Tool-calling models (required for agents): arcee-ai/arcee-agent, mistral:7b, qwen2.5, qwen2.5:14b${NC}"
-    echo -e "  ${DIM}Other models (no tool support): gemma3, llama3.2, phi4-mini${NC}"
+    echo -e "  ${DIM}Tool-calling models (required for agents):${NC}"
+    echo -e "  ${DIM}  lfm2.5 (1.2b/8b, default) · qwen3:1.7b · qwen3:0.6b · arcee-ai/arcee-agent${NC}"
+    echo -e "  ${DIM}  qwen2.5:7b · qwen2.5:14b · mistral:7b · ministral3:3b · phi4-mini${NC}"
+    echo -e "  ${DIM}Other models (no tool support): gemma3, llama3.2${NC}"
+    echo -e "  ${DIM}lfm2.5: https://ollama.com/library/lfm2.5${NC}"
     echo -e "  ${DIM}arcee-ai/arcee-agent: https://ollama.com/arcee-ai/arcee-agent${NC}"
     prompt "Ollama model to use ${CYAN}[${OLLAMA_MODEL}]${NC}${BOLD}: "
     tty_read -r input
