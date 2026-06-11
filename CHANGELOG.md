@@ -1,3 +1,47 @@
+## 0.5.11 (2026-06-11)
+
+### Feat
+
+- **rbac**: combine AD group admins with super-admins team access
+
+### Fix
+
+- **test**: add role:'admin' to mock user so requireMigrationSuperAdmin passes
+- **rbac**: write org-admin connector tuple for super-admins team on bootstrap
+
+## 0.5.10-dev.3 (2026-06-11)
+
+### Feat
+
+- **setup-caipe**: prompt for LiteLLM proxy when Ollama is selected
+
+### Fix
+
+- **rag-rbac**: elevate OpenFGA org-admins to ADMIN role on ADMIN-gated endpoints
+- **setup-caipe**: restore /supervisor suffix in NEXT_PUBLIC_A2A_BASE_URL
+- **setup-caipe**: don't set NEXT_PUBLIC_A2A_BASE_URL to localhost when no domain
+- **setup-caipe**: remove prompts for AgentGateway and RBAC runtime
+- **rag**: wire OIDC providers and ingestor credentials into rag-server
+- **setup-caipe**: Ollama FQDN, RAG ingestor client, and dynamic-agents bearer auth
+- **openfga**: add organization#member to skill#reader and skill#user type restrictions (#1797)
+
+## 0.5.10-dev.2 (2026-06-09)
+
+### Feat
+
+- **slack**: consolidate JIT shell-user provisioning into shared BFF endpoint (#1788)
+
+## 0.5.10-dev.1 (2026-06-09)
+
+### Fix
+
+- **setup-caipe**: complete Ollama k8s deployment fixes (#1786)
+- **setup-caipe**: Ollama as a K8s deployment (#1695)
+
+### Refactor
+
+- **ui**: group flat admin components by domain + organize imports + fix all lint errors (#1791)
+
 ## 0.5.10 (2026-06-08)
 
 ### Feat
