@@ -438,6 +438,63 @@ _install_helm_linux() {
   log "helm installed"
 }
 
+_install_openssl_linux() {
+  log "Installing openssl..."
+  local os_id
+  os_id=$(. /etc/os-release && echo "$ID")
+  case "$os_id" in
+    ubuntu|debian)
+      sudo apt-get update -qq
+      sudo apt-get install -y openssl &>/dev/null ;;
+    fedora|rhel|centos|rocky|almalinux)
+      sudo dnf install -y openssl &>/dev/null ;;
+    *)
+      err "Cannot auto-install openssl on distro '${os_id}' — install it manually and re-run"
+      exit 1 ;;
+  esac
+  log "openssl installed"
+}
+
+_install_curl_linux() {
+  log "Installing curl..."
+  local os_id
+  os_id=$(. /etc/os-release && echo "$ID")
+  case "$os_id" in
+    ubuntu|debian)
+      sudo apt-get update -qq
+      sudo apt-get install -y curl &>/dev/null ;;
+    fedora|rhel|centos|rocky|almalinux)
+      sudo dnf install -y curl &>/dev/null ;;
+    *)
+      err "Cannot auto-install curl on distro '${os_id}' — install it manually and re-run"
+      exit 1 ;;
+  esac
+  log "curl installed"
+}
+
+_install_jq_linux() {
+  log "Installing jq..."
+  local os_id
+  os_id=$(. /etc/os-release && echo "$ID")
+  case "$os_id" in
+    ubuntu|debian)
+      sudo apt-get update -qq
+      sudo apt-get install -y jq &>/dev/null
+      ;;
+    fedora|rhel|centos|rocky|almalinux)
+      sudo dnf install -y jq &>/dev/null
+      ;;
+    *)
+      local ver
+      ver=$(curl -sL https://api.github.com/repos/jqlang/jq/releases/latest | grep -o '"tag_name": "[^"]*' | cut -d'"' -f4)
+      curl -sLo /tmp/jq "https://github.com/jqlang/jq/releases/download/${ver}/jq-linux-amd64"
+      chmod +x /tmp/jq
+      sudo mv /tmp/jq /usr/local/bin/jq || mv /tmp/jq "$HOME/.local/bin/jq"
+      ;;
+  esac
+  log "jq installed"
+}
+
 _install_kind_linux() {
   log "Installing kind..."
   local ver
@@ -583,6 +640,47 @@ check_prerequisites() {
   done
   if [[ ${#missing[@]} -gt 0 ]]; then
     if [[ "$(uname -s)" == "Linux" ]]; then
+      # Determine which missing tools need sudo vs can be installed as current user
+      local needs_sudo=()
+      local no_sudo=()
+      for tool in "${missing[@]}"; do
+        case "$tool" in
+          kubectl|helm) no_sudo+=("$tool") ;;
+          *)            needs_sudo+=("$tool") ;;
+        esac
+      done
+
+      # If any tools need sudo, check whether sudo is usable and user consents
+      if [[ ${#needs_sudo[@]} -gt 0 ]]; then
+        local sudo_ok=false
+        if sudo -n true 2>/dev/null; then
+          sudo_ok=true
+        elif ask_yn "Installing ${needs_sudo[*]} requires sudo. Allow this script to run sudo?" "y"; then
+          sudo_ok=true
+        fi
+
+        if [[ "$sudo_ok" == false ]]; then
+          warn "Cannot install ${needs_sudo[*]} without sudo."
+          warn "Please run the following command(s) on your machine first, then re-run this script:"
+          warn ""
+          local os_id
+          os_id=$(. /etc/os-release 2>/dev/null && echo "$ID" || echo "unknown")
+          case "$os_id" in
+            ubuntu|debian)
+              warn "  sudo apt-get update && sudo apt-get install -y ${needs_sudo[*]}" ;;
+            fedora|rhel|centos|rocky|almalinux)
+              warn "  sudo dnf install -y ${needs_sudo[*]}" ;;
+            *)
+              warn "  Install: ${needs_sudo[*]}  (use your distro's package manager)"
+              warn "  e.g. for jq: sudo apt-get install -y jq  OR  sudo dnf install -y jq" ;;
+          esac
+          warn ""
+          warn "Then re-run:"
+          warn "  bash <(curl -fsSL https://raw.githubusercontent.com/cnoe-io/ai-platform-engineering/main/setup-caipe.sh)"
+          exit 1
+        fi
+      fi
+
       log "Auto-installing missing tools on Linux: ${missing[*]}"
       mkdir -p "$HOME/.local/bin"
       export PATH="$HOME/.local/bin:$PATH"
@@ -590,6 +688,9 @@ check_prerequisites() {
         case "$tool" in
           kubectl) _install_kubectl_linux ;;
           helm)    _install_helm_linux ;;
+          jq)      _install_jq_linux ;;
+          openssl) _install_openssl_linux ;;
+          curl)    _install_curl_linux ;;
           *)
             err "Missing required tool '${tool}' — install it and re-run"
             exit 1
@@ -636,16 +737,26 @@ check_prerequisites() {
   # k9s — optional but strongly recommended; auto-install if missing
   if ! command -v k9s &>/dev/null; then
     if [[ "$(uname -s)" == "Linux" ]]; then
-      log "Installing k9s (Kubernetes TUI)..."
-      local _k9s_url
-      _k9s_url=$(curl -s https://api.github.com/repos/derailed/k9s/releases/latest \
-        | grep "browser_download_url" | grep "Linux_amd64.tar.gz" | head -1 | cut -d'"' -f4)
-      if [[ -n "$_k9s_url" ]]; then
-        curl -sL "$_k9s_url" | sudo tar xz -C /usr/local/bin k9s 2>/dev/null \
-          && log "k9s installed: $(k9s version --short 2>/dev/null || true)" \
-          || warn "k9s install failed — you can install it manually from https://k9scli.io"
+      local _k9s_sudo_ok=false
+      if sudo -n true 2>/dev/null; then
+        _k9s_sudo_ok=true
+      elif ask_yn "Installing k9s (Kubernetes TUI) requires sudo. Allow?" "y"; then
+        _k9s_sudo_ok=true
+      fi
+      if [[ "$_k9s_sudo_ok" == true ]]; then
+        log "Installing k9s (Kubernetes TUI)..."
+        local _k9s_url
+        _k9s_url=$(curl -s https://api.github.com/repos/derailed/k9s/releases/latest \
+          | grep "browser_download_url" | grep "Linux_amd64.tar.gz" | head -1 | cut -d'"' -f4)
+        if [[ -n "$_k9s_url" ]]; then
+          curl -sL "$_k9s_url" | sudo tar xz -C /usr/local/bin k9s 2>/dev/null \
+            && log "k9s installed: $(k9s version --short 2>/dev/null || true)" \
+            || warn "k9s install failed — you can install it manually from https://k9scli.io"
+        else
+          warn "Could not fetch k9s release URL — skipping k9s install"
+        fi
       else
-        warn "Could not fetch k9s release URL — skipping k9s install"
+        warn "Skipping k9s install — run manually: https://k9scli.io/topics/install/"
       fi
     elif [[ "$(uname -s)" == "Darwin" ]]; then
       if command -v brew &>/dev/null; then
