@@ -5004,11 +5004,15 @@ deploy_shared_postgres() {
       --dry-run=client -o yaml | kubectl apply -f - &>/dev/null
   fi
 
-  if kubectl get statefulset -n caipe --no-headers 2>/dev/null \
-      | awk -v p="${SHARED_PG_SERVICE}" '$1 ~ "^"p { found=1; exit } END { exit !found }'; then
-    log "Shared Postgres already present (${SHARED_PG_SERVICE}) — skipping install"
-    return 0
-  fi
+  # Try known name variants (bitnami 18.x uses -primary suffix in standalone mode).
+  # Use GET-by-name to avoid RBAC restrictions on cluster-wide LIST operations.
+  local _pg_sts_check
+  for _pg_sts_check in "${SHARED_PG_SERVICE}" "${SHARED_PG_SERVICE}-primary"; do
+    if kubectl get statefulset "$_pg_sts_check" -n caipe &>/dev/null; then
+      log "Shared Postgres already present (${_pg_sts_check}) — skipping install"
+      return 0
+    fi
+  done
 
   step "Deploying shared Postgres (${SHARED_PG_SERVICE}) for Keycloak/OpenFGA"
 
@@ -5051,23 +5055,33 @@ PGINIT
 
   # Resolve the actual StatefulSet name — bitnami postgresql 18.x names it
   # 'caipe-postgres-primary' in standalone mode, not 'caipe-postgres'.
-  # Search by name prefix so we catch any naming convention.
+  # Use GET-by-name for each known variant to avoid RBAC list restrictions.
   log "Waiting for Postgres StatefulSet to appear..."
   local _pg_sts="" _pg_deadline=$(( SECONDS + 90 ))
   until [[ -n "$_pg_sts" ]]; do
-    _pg_sts=$(kubectl get statefulset -n caipe --no-headers 2>/dev/null \
-      | awk -v p="${SHARED_PG_SERVICE}" '$1 ~ "^"p { print $1; exit }')
+    local _candidate
+    for _candidate in "${SHARED_PG_SERVICE}" "${SHARED_PG_SERVICE}-primary"; do
+      if kubectl get statefulset "$_candidate" -n caipe &>/dev/null; then
+        _pg_sts="$_candidate"
+        break
+      fi
+    done
     if [[ -z "$_pg_sts" ]]; then
       if [[ $SECONDS -ge $_pg_deadline ]]; then
         err "Timed out waiting for ${SHARED_PG_SERVICE} StatefulSet after 90s"
         err "--- helm release status ---"
         helm status "${SHARED_PG_SERVICE}" -n caipe 2>&1 | while IFS= read -r l; do err "  $l"; done
+        err "--- GET by name attempts ---"
+        kubectl get statefulset "${SHARED_PG_SERVICE}" -n caipe 2>&1 | while IFS= read -r l; do err "  $l"; done
+        kubectl get statefulset "${SHARED_PG_SERVICE}-primary" -n caipe 2>&1 | while IFS= read -r l; do err "  $l"; done
         err "--- StatefulSets in all namespaces ---"
         kubectl get statefulset --all-namespaces 2>&1 | while IFS= read -r l; do err "  $l"; done
         err "--- Pods in namespace caipe ---"
         kubectl get pods -n caipe 2>&1 | while IFS= read -r l; do err "  $l"; done
-        err "--- Current kubectl context ---"
-        kubectl config current-context 2>&1 | while IFS= read -r l; do err "  $l"; done
+        err "--- Current kubectl context + server ---"
+        kubectl config current-context 2>&1 | while IFS= read -r l; do err "  context: $l"; done
+        kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}' 2>&1 \
+          | while IFS= read -r l; do err "  server: $l"; done
         exit 1
       fi
       sleep 3
@@ -8228,21 +8242,42 @@ _load_caipe_config() {
   [[ "$_tracing"  == "true" ]] && ENABLE_TRACING=true
   [[ -n "$_domain"     && -z "${CAIPE_DOMAIN:-}"          ]] && CAIPE_DOMAIN="$_domain"
 
-  # Switch to the saved context if no context is active or it matches
+  # Switch to the saved context; for kind contexts, re-export if missing.
+  # If context can't be restored, skip NON_INTERACTIVE so cluster wizard runs.
+  local _ctx_ok=true
   if [[ -n "$_ctx" ]]; then
     local _cur_ctx
     _cur_ctx=$(kubectl config current-context 2>/dev/null || true)
     if [[ "$_cur_ctx" != "$_ctx" ]]; then
       if kubectl config use-context "$_ctx" 2>/dev/null; then
         log "Switched to saved context '${_ctx}'"
+      elif [[ "$_ctx" == kind-* ]] && command -v kind &>/dev/null; then
+        local _kind_name="${_ctx#kind-}"
+        if kind get clusters 2>/dev/null | grep -qx "$_kind_name"; then
+          kind export kubeconfig --name "$_kind_name" </dev/null 2>/dev/null || true
+          if kubectl config use-context "$_ctx" 2>/dev/null; then
+            log "Restored context '${_ctx}' via kind export kubeconfig"
+          else
+            warn "Saved context '${_ctx}' not found — you will be prompted to choose a cluster"
+            _ctx_ok=false
+          fi
+        else
+          warn "Kind cluster '${_kind_name}' not found — you will be prompted to choose a cluster"
+          _ctx_ok=false
+        fi
       else
         warn "Saved context '${_ctx}' not found — you will be prompted to choose a cluster"
+        _ctx_ok=false
       fi
     fi
   fi
 
-  NON_INTERACTIVE=true
-  log "Saved configuration loaded — skipping wizard"
+  if $_ctx_ok; then
+    NON_INTERACTIVE=true
+    log "Saved configuration loaded — skipping wizard"
+  else
+    log "Saved configuration loaded (wizard will run for cluster selection only)"
+  fi
 }
 
 # ─── Main ────────────────────────────────────────────────────────────────────
