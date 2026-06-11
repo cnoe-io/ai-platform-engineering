@@ -419,6 +419,63 @@ describe("PUT /api/admin/teams/[id]/resources — reconciliation", () => {
     expect(teamsCol.updateOne).toHaveBeenCalledTimes(1);
   });
 
+  it("passes selected resources as desired writes so Save repairs OpenFGA drift", async () => {
+    // assisted-by Codex Codex-sonnet-4-6
+    mockGetServerSession.mockResolvedValue(adminSession());
+    setDefaultPermissionMock(true);
+
+    const teamsCol = createMockCollection();
+    teamsCol.findOne.mockResolvedValue({
+      ...teamWith({ agents: ["agent-keep"], tools: ["mcp-confluence-mcp_*"] }),
+      slug: "platform-engineering",
+      resources: {
+        agents: ["agent-keep"],
+        agent_admins: ["agent-admin"],
+        tools: ["mcp-confluence-mcp_*"],
+        knowledge_bases: ["kb-ops"],
+        skills: ["skill-ops"],
+        tasks: ["task-ops"],
+        tool_wildcard: false,
+      },
+    });
+    mockCollections["teams"] = teamsCol;
+    seedCanonicalMembers([
+      { user_email: "alice@example.com", relationship: "admin" },
+      { user_email: "bob@example.com", relationship: "member" },
+    ], "platform-engineering");
+
+    const { PUT } = await loadRoute();
+
+    const res = await PUT(
+      makeRequest(`/api/admin/teams/${TEAM_ID}/resources`, {
+        method: "PUT",
+        body: JSON.stringify({
+          agents: ["agent-keep"],
+          agent_admins: ["agent-admin"],
+          tools: ["mcp-confluence-mcp_*"],
+          knowledge_bases: ["kb-ops"],
+          skills: ["skill-ops"],
+          tasks: ["task-ops"],
+          tool_wildcard: false,
+        }),
+      }),
+      { params: Promise.resolve({ id: TEAM_ID.toString() }) }
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockBuildTeamResourceTupleDiff).toHaveBeenCalledWith({
+      teamSlug: "platform-engineering",
+      memberUserIds: ["kc-alice@example.com", "kc-bob@example.com"],
+      agents: { added: ["agent-keep"], removed: [] },
+      agentAdmins: { added: ["agent-admin"], removed: [] },
+      tools: { added: ["mcp-confluence-mcp_*"], removed: [] },
+      knowledgeBases: { added: ["kb-ops"], removed: [] },
+      skills: { added: ["skill-ops"], removed: [] },
+      tasks: { added: ["task-ops"], removed: [] },
+      toolWildcard: { added: false, removed: false },
+    });
+  });
+
   it("does not persist Mongo when OpenFGA reconciliation fails", async () => {
     mockGetServerSession.mockResolvedValue(adminSession());
     setDefaultPermissionMock(true);

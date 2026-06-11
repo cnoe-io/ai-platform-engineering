@@ -371,11 +371,15 @@ export function buildMcpServerRelationshipTupleDiff(
   }
   if (input.ownerTeamSlug && isValidOpenFgaId(input.ownerTeamSlug)) {
     writes.push(
+      { user: `team:${input.ownerTeamSlug}#member`, relation: "reader", object },
       { user: `team:${input.ownerTeamSlug}#member`, relation: "user", object },
       { user: `team:${input.ownerTeamSlug}#member`, relation: "invoker", object },
       { user: `team:${input.ownerTeamSlug}#admin`, relation: "manager", object },
     );
   }
+  // assisted-by Codex Codex-sonnet-4-6
+  // User-created servers should be visible/manageable to organization admins immediately.
+  writes.push({ user: `${organizationObjectId()}#admin`, relation: "manager", object });
   return { writes: uniqueTuples(writes), deletes: [] };
 }
 
@@ -470,7 +474,7 @@ export function buildKnowledgeBaseRelationshipTupleDiff(
 export async function reconcileMcpServerRelationships(
   input: McpServerRelationshipInput
 ): Promise<OpenFgaReconcileResult> {
-  return reconcileOwnedResource(buildMcpServerRelationshipTupleDiff(input));
+  return writeOpenFgaTupleDiff(buildMcpServerRelationshipTupleDiff(input));
 }
 
 export async function reconcileConfigDrivenMcpServerRelationships(

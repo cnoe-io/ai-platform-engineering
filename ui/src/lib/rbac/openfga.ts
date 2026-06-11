@@ -9,6 +9,7 @@ openFgaObject,
 openFgaSubject,
 type UniversalRebacTupleDiffInput,
 } from "./tuple-builders";
+import { organizationObjectId } from "./organization";
 
 export interface OpenFgaTupleKey {
   user: string;
@@ -135,6 +136,52 @@ function resourceTuples(
   }));
 }
 
+const MCP_TOOL_WILDCARD_SUFFIX = "_*";
+
+function mcpServerIdFromToolPrefix(toolId: string): string | null {
+  if (!toolId.endsWith(MCP_TOOL_WILDCARD_SUFFIX)) return null;
+  const serverId = toolId.slice(0, -MCP_TOOL_WILDCARD_SUFFIX.length);
+  return serverId || null;
+}
+
+function mcpServerAccessTuples(
+  teamSlug: string,
+  toolIds: string[],
+  includeOrgAdminManager: boolean
+): OpenFgaTupleKey[] {
+  const tuples: OpenFgaTupleKey[] = [];
+  for (const toolId of toolIds) {
+    const serverId = mcpServerIdFromToolPrefix(toolId);
+    if (!serverId) continue;
+    const object = `mcp_server:${serverId}`;
+    tuples.push(
+      { user: `team:${teamSlug}#member`, relation: "reader", object },
+      { user: `team:${teamSlug}#member`, relation: "user", object },
+      { user: `team:${teamSlug}#member`, relation: "invoker", object },
+      { user: `team:${teamSlug}#admin`, relation: "manager", object },
+    );
+    if (includeOrgAdminManager) {
+      tuples.push({ user: `${organizationObjectId()}#admin`, relation: "manager", object });
+    }
+  }
+  return tuples;
+}
+
+function mcpToolAccessTuples(teamSlug: string, toolIds: string[]): OpenFgaTupleKey[] {
+  const tuples: OpenFgaTupleKey[] = [];
+  for (const toolId of toolIds) {
+    if (!mcpServerIdFromToolPrefix(toolId)) continue;
+    const object = `mcp_tool:${toolId}`;
+    tuples.push(
+      { user: `team:${teamSlug}#member`, relation: "reader", object },
+      { user: `team:${teamSlug}#member`, relation: "user", object },
+      { user: `team:${teamSlug}#member`, relation: "caller", object },
+      { user: `team:${teamSlug}#admin`, relation: "manager", object },
+    );
+  }
+  return tuples;
+}
+
 export function buildTeamResourceTupleDiff(input: TeamResourceTupleDiffInput): TeamResourceTupleDiff {
   const teamObject = `team:${input.teamSlug}`;
   const memberTuples = input.memberUserIds.map((userId) => ({
@@ -148,6 +195,10 @@ export function buildTeamResourceTupleDiff(input: TeamResourceTupleDiffInput): T
     ...resourceTuples(input.teamSlug, "user", "agent", input.agents.added),
     ...resourceTuples(input.teamSlug, "manager", "agent", input.agentAdmins.added, "admin"),
     ...resourceTuples(input.teamSlug, "caller", "tool", input.tools.added),
+    // assisted-by Codex Codex-sonnet-4-6
+    // Team Resources stores MCP server tool-wildcard selections as `<server>_*`.
+    ...mcpServerAccessTuples(input.teamSlug, input.tools.added, true),
+    ...mcpToolAccessTuples(input.teamSlug, input.tools.added),
     ...resourceTuples(input.teamSlug, "reader", "knowledge_base", input.knowledgeBases?.added ?? []),
     ...resourceTuples(input.teamSlug, "user", "skill", input.skills?.added ?? []),
     ...resourceTuples(input.teamSlug, "user", "task", input.tasks?.added ?? []),
@@ -160,6 +211,8 @@ export function buildTeamResourceTupleDiff(input: TeamResourceTupleDiffInput): T
     ...resourceTuples(input.teamSlug, "user", "agent", input.agents.removed),
     ...resourceTuples(input.teamSlug, "manager", "agent", input.agentAdmins.removed, "admin"),
     ...resourceTuples(input.teamSlug, "caller", "tool", input.tools.removed),
+    ...mcpServerAccessTuples(input.teamSlug, input.tools.removed, false),
+    ...mcpToolAccessTuples(input.teamSlug, input.tools.removed),
     ...resourceTuples(input.teamSlug, "reader", "knowledge_base", input.knowledgeBases?.removed ?? []),
     ...resourceTuples(input.teamSlug, "user", "skill", input.skills?.removed ?? []),
     ...resourceTuples(input.teamSlug, "user", "task", input.tasks?.removed ?? []),
