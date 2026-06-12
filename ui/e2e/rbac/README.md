@@ -10,6 +10,7 @@ CAIPE + Keycloak stack:
 | `expired-session.spec.ts` | An expired NextAuth cookie surfaces the standardized 401 toast (Spec 102 Phase 7) instead of a generic 500. |
 | `missing-role.spec.ts` | A user without `chat_user` gets a 403 toast on chat submit. |
 | `pdp-down.spec.ts` | When Keycloak is unreachable, the UI shows a 503 toast (no silent allow). |
+| `workflow-agent-access.spec.ts` | Mocked browser regression for workflow run access and denied agent-access grants. |
 
 ## Skip-by-default
 
@@ -46,6 +47,15 @@ each spec hits `test.skip()` immediately, so:
        RBAC_NOACCESS_USER_EMAIL=e2e-rbac-noaccess-user@caipe.local \
        RBAC_NOACCESS_USER_PASSWORD=changeme \
        npx playwright test --config=playwright.rbac.config.ts
+
+## Workflow agent-access regression
+
+`workflow-agent-access.spec.ts` uses the real Workflows UI in Chromium but
+intercepts the BFF APIs it needs. It does not require Keycloak fixture users:
+
+       RUN_WORKFLOW_E2E=1 \
+       CAIPE_UI_BASE_URL=http://localhost:3000 \
+       npx playwright test e2e/rbac/workflow-agent-access.spec.ts --config=playwright.rbac.config.ts
 
 ## PDP-down spec
 

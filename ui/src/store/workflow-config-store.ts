@@ -35,11 +35,26 @@ interface WorkflowConfigState {
 }
 
 function transformConfig(config: Record<string, unknown>): WorkflowConfig {
+  const raw = config as unknown as WorkflowConfig;
   return {
-    ...(config as unknown as WorkflowConfig),
+    ...raw,
+    steps: Array.isArray(raw.steps) ? raw.steps : [],
     created_at: new Date(config.created_at as string),
     updated_at: new Date(config.updated_at as string),
   };
+}
+
+function parseWorkflowConfigList(data: unknown): WorkflowConfig[] {
+  if (Array.isArray(data)) {
+    return data.map((item) => transformConfig(item as Record<string, unknown>));
+  }
+  if (data && typeof data === "object") {
+    const wrapped = (data as { data?: unknown }).data;
+    if (Array.isArray(wrapped)) {
+      return wrapped.map((item) => transformConfig(item as Record<string, unknown>));
+    }
+  }
+  return [];
 }
 
 export const useWorkflowConfigStore = create<WorkflowConfigState>()((set, get) => ({
@@ -50,7 +65,6 @@ export const useWorkflowConfigStore = create<WorkflowConfigState>()((set, get) =
   editMode: null,
 
   loadConfigs: async () => {
-    if (get().isLoading) return;
     set({ isLoading: true, error: null });
 
     try {
@@ -58,17 +72,24 @@ export const useWorkflowConfigStore = create<WorkflowConfigState>()((set, get) =
 
       // Handle 503 (MongoDB not configured) — not an error, just not available
       if (response.status === 503) {
-        set({ configs: [], isLoading: false });
+        set({ configs: [], isLoading: false, error: null });
         return;
       }
 
       if (!response.ok) {
-        throw new Error(`Failed to load workflow configs: ${response.status}`);
+        const message = await response.text().catch(() => "");
+        let detail = `Failed to load workflow configs (${response.status})`;
+        try {
+          const json = JSON.parse(message) as { error?: string; message?: string };
+          detail = json.error || json.message || detail;
+        } catch {
+          if (message.trim()) detail = message.trim();
+        }
+        throw new Error(detail);
       }
 
       const data = await response.json();
-      const configs = Array.isArray(data) ? data.map(transformConfig) : [];
-      set({ configs, isLoading: false });
+      set({ configs: parseWorkflowConfigList(data), isLoading: false, error: null });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to load workflow configs";
       set({ error: message, isLoading: false });
