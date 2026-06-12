@@ -6364,12 +6364,14 @@ DAEOF
       fi
     fi
 
-    # Build provider-appropriate model list for the seed config.
+    # Build provider-appropriate model list.
+    # caipe-ui.appConfig.models → caipe-caipe-ui-app-config ConfigMap →
+    # APP_CONFIG_PATH env → applySeedConfig() at ui startup → llm_models MongoDB.
     # Bedrock requires cross-region inference profile IDs (global.anthropic.* or us.anthropic.*).
     # Anthropic-claude and Azure use short model names.
     cat >> "$_da_values_file" <<DAEOF
-  seedConfig:
-    enabled: true
+caipe-ui:
+  appConfig:
     models:
 DAEOF
     if [[ "$_provider" == "aws-bedrock" ]]; then
@@ -6443,7 +6445,7 @@ DAEOF
     mcp_servers:
 DAEOF
 
-    # Add a seedConfig entry for each deployed MCP agent.
+    # Add an appConfig entry for each deployed MCP agent.
     # The script deploys agents from _AGENT_TAGS when enabled; always add netutils.
     declare -A _MCP_META=(
       [argocd]="ArgoCD|ArgoCD application and deployment management"
@@ -6513,7 +6515,7 @@ DAEOF
     fi
 
     helm_args+=(--values "$_da_values_file")
-    log "Dynamic agents seedConfig: models + MCP servers written to ${_da_values_file}"
+    log "caipe-ui appConfig + dynamic-agents auth: models + MCP servers written to ${_da_values_file}"
   fi
 
   # When a domain is set, push non-sensitive config values from the ui-env-file
