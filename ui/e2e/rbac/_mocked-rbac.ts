@@ -23,7 +23,29 @@ type SessionOverrides = {
 type MockedRbacOptions = {
   isAdmin?: boolean;
   session?: SessionOverrides;
+  gates?: Record<string, boolean>;
   handlers?: MockRouteHandler[];
+};
+
+export const DEFAULT_ADMIN_GATES: Record<string, boolean> = {
+  action_audit: true,
+  audit_logs: true,
+  credentials: false,
+  feedback: false,
+  health: true,
+  identity_group_sync: false,
+  metrics: true,
+  migrations: false,
+  nps: false,
+  openfga: true,
+  roles: true,
+  settings: true,
+  skills: true,
+  slack: false,
+  stats: false,
+  teams: true,
+  users: true,
+  webex: false,
 };
 
 export function mockedRbacEnabled() {
@@ -73,6 +95,7 @@ export async function fulfillJson(route: Route, body: unknown, status = 200) {
 export async function installMockedRbacApp(page: Page, options: MockedRbacOptions = {}) {
   const isAdmin = options.isAdmin ?? false;
   const session = mockSessionBody({ ...options, isAdmin });
+  const gates = { ...DEFAULT_ADMIN_GATES, ...(options.gates ?? {}) };
   const handlers = options.handlers ?? [];
 
   await page.route("**/api/**", async (route) => {
@@ -108,8 +131,82 @@ export async function installMockedRbacApp(page: Page, options: MockedRbacOption
       return;
     }
 
+    if (path === "/api/rbac/admin-tab-gates") {
+      await fulfillJson(route, { gates });
+      return;
+    }
+
     if (path === "/api/admin/platform-config") {
       await fulfillJson(route, { data: { release_notes: { enabled: false } } });
+      return;
+    }
+
+    if (path === "/api/admin/stats") {
+      await fulfillJson(route, {
+        success: true,
+        data: {
+          overview: {
+            active_users: 0,
+            avg_messages_per_conversation: 0,
+            conversations_today: 0,
+            dau: 0,
+            mau: 0,
+            messages_today: 0,
+            shared_conversations: 0,
+            total_conversations: 0,
+            total_messages: 0,
+            total_sessions: 0,
+            total_users: 0,
+          },
+          available_channels: [],
+          completed_workflows: {
+            avg_messages_per_workflow: 0,
+            completion_rate: 0,
+            interrupted: 0,
+            today: 0,
+            total: 0,
+          },
+          daily_activity: [],
+          daily_usage: [],
+          feedback_summary: {
+            negative: 0,
+            positive: 0,
+            total: 0,
+          },
+          hourly_heatmap: [],
+          platform_summary: {
+            estimated_hours_automated: 0,
+            satisfaction_rate: 0,
+          },
+          response_time: {
+            avg_ms: 0,
+            max_ms: 0,
+            min_ms: 0,
+            sample_count: 0,
+          },
+          source_breakdown: [],
+          top_agents: [],
+          top_users: {
+            by_conversations: [],
+            by_messages: [],
+          },
+        },
+      });
+      return;
+    }
+
+    if (path === "/api/admin/teams") {
+      await fulfillJson(route, { success: true, data: { teams: [] } });
+      return;
+    }
+
+    if (path === "/api/admin/stats/skills") {
+      await fulfillJson(route, { success: false });
+      return;
+    }
+
+    if (path === "/api/admin/feedback" || path === "/api/admin/nps") {
+      await fulfillJson(route, { success: true, data: [] });
       return;
     }
 

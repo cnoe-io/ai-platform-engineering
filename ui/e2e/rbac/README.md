@@ -11,6 +11,7 @@ CAIPE + Keycloak stack:
 | `missing-role.spec.ts` | A user without `chat_user` gets a 403 toast on chat submit. |
 | `pdp-down.spec.ts` | When Keycloak is unreachable, the UI shows a 503 toast (no silent allow). |
 | `workflow-agent-access.spec.ts` | Mocked browser regression for workflow run access and denied agent-access grants. |
+| `rbac-admin-regression.spec.ts` | Mocked browser regression for the Permissions Tool and RBAC Audit export UX. |
 
 ## Skip-by-default
 
@@ -56,6 +57,16 @@ intercepts the BFF APIs it needs. It does not require Keycloak fixture users:
        RUN_WORKFLOW_E2E=1 \
        CAIPE_UI_BASE_URL=http://localhost:3000 \
        npx playwright test e2e/rbac/workflow-agent-access.spec.ts --config=playwright.rbac.config.ts
+
+## Mocked RBAC browser regression
+
+The mocked regression suite uses the real browser UI and intercepts BFF APIs.
+It is intended for fast PR checks around RBAC UI behavior without requiring
+Keycloak/OpenFGA fixture data:
+
+       RUN_RBAC_REGRESSION=1 \
+       CAIPE_UI_BASE_URL=http://localhost:3000 \
+       npx playwright test e2e/rbac/workflow-agent-access.spec.ts e2e/rbac/rbac-admin-regression.spec.ts --config=playwright.rbac.config.ts
 
 ## PDP-down spec
 
