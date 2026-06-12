@@ -40,6 +40,7 @@ import { WorkflowStepSidebar } from "./WorkflowStepSidebar";
 import { WorkflowToolbar } from "./WorkflowToolbar";
 import type { AgentAccessGap } from "@/app/api/workflow-configs/check-agent-access/route";
 import { WorkflowAgentAccessModal } from "./WorkflowAgentAccessModal";
+import { grantAgentAccessGaps } from "./agent-access-grants";
 
 // ---------------------------------------------------------------------------
 // Node types — defined outside component to avoid re-renders
@@ -664,30 +665,18 @@ function WorkflowCanvasInner({
   }, [doSave, visibility, steps, sharedWithTeams]);
 
   const handleGrantAndSave = useCallback(async () => {
-    // assisted-by claude code claude-sonnet-4-6
-    // Route grants through the Centralized Authorization Service PAP so CAS owns
-    // grants (audit + meta-authz: caller must manage the agent). This writes the
-    // same `team:<slug>#member user agent:<id>` tuple the direct OpenFGA write did.
-    for (const gap of agentAccessGaps) {
-      for (const teamSlug of gap.teamsWithoutAccess) {
-        if (teamSlug === "(all users)") continue;
-        try {
-          await fetch("/api/admin/authz/grants", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              resource: { type: "agent", id: gap.agentId },
-              grantee: { type: "team", id: teamSlug },
-              capability: "use",
-            }),
-          });
-        } catch { /* best-effort */ }
-      }
+    try {
+      await grantAgentAccessGaps(agentAccessGaps);
+      setShowAccessModal(false);
+      setAgentAccessGaps([]);
+      await doSave("Agent access granted and workflow saved");
+    } catch (error) {
+      toast(
+        error instanceof Error ? error.message : "Failed to grant agent access",
+        "error",
+      );
     }
-    setShowAccessModal(false);
-    setAgentAccessGaps([]);
-    await doSave("Agent access granted and workflow saved");
-  }, [agentAccessGaps, doSave]);
+  }, [agentAccessGaps, doSave, toast]);
 
   // -----------------------------------------------------------------------
   // Run workflow

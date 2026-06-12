@@ -10,6 +10,12 @@ const mockRequireWorkflowAccess = jest.fn();
 const mockWorkflowAccessAllowed = jest.fn();
 const mockFilterAccessibleWorkflowConfigs = jest.fn();
 const mockRequireWorkflowRunAccess = jest.fn();
+const mockRequireWorkflowConfigRunAccess = jest.fn();
+const mockRequireWorkflowConfigRunViewAccess = jest.fn();
+const mockResolveUserTeamSlugsForWorkflow = jest.fn();
+const mockBuildTeamRefToSlugMap = jest.fn();
+const mockFilterWorkflowConfigsByRunAccess = jest.fn();
+const mockMergeWorkflowConfigsById = jest.fn();
 const mockStartWorkflowRun = jest.fn();
 const mockGetAuth = jest.fn();
 const mockAuthUser = { email: "alice@example.com", role: "user", name: "Alice" };
@@ -65,6 +71,15 @@ jest.mock("@/lib/server/workflow-engine", () => ({
   startWorkflowRun: (...args: unknown[]) => mockStartWorkflowRun(...args),
 }));
 
+jest.mock("@/lib/rbac/workflow-config-rebac", () => ({
+  buildTeamRefToSlugMap: (...args: unknown[]) => mockBuildTeamRefToSlugMap(...args),
+  filterWorkflowConfigsByRunAccess: (...args: unknown[]) => mockFilterWorkflowConfigsByRunAccess(...args),
+  mergeWorkflowConfigsById: (...args: unknown[]) => mockMergeWorkflowConfigsById(...args),
+  requireWorkflowConfigRunAccess: (...args: unknown[]) => mockRequireWorkflowConfigRunAccess(...args),
+  requireWorkflowConfigRunViewAccess: (...args: unknown[]) => mockRequireWorkflowConfigRunViewAccess(...args),
+  resolveUserTeamSlugsForWorkflow: (...args: unknown[]) => mockResolveUserTeamSlugsForWorkflow(...args),
+}));
+
 jest.mock("@/lib/server/event-store", () => ({
   deleteEventsByRun: jest.fn(),
   readEventsByRun: jest.fn().mockResolvedValue(new Map()),
@@ -88,9 +103,23 @@ describe("workflow runs OpenFGA config access", () => {
     mockRequireWorkflowAccess.mockResolvedValue(undefined);
     mockRequireWorkflowRunAccess.mockResolvedValue(undefined);
     mockWorkflowAccessAllowed.mockResolvedValue(true);
+    mockRequireWorkflowConfigRunAccess.mockResolvedValue(undefined);
+    mockRequireWorkflowConfigRunViewAccess.mockResolvedValue(undefined);
+    mockResolveUserTeamSlugsForWorkflow.mockResolvedValue(["eng"]);
+    mockBuildTeamRefToSlugMap.mockResolvedValue(new Map([["eng", "eng"]]));
+    mockFilterWorkflowConfigsByRunAccess.mockImplementation((configs) =>
+      configs.filter((config: { _id?: string }) => config._id === "wf-global"),
+    );
     mockFilterAccessibleWorkflowConfigs.mockImplementation(async (_session, resources) =>
       resources.filter((resource: { _id?: string }) => resource._id === "wf-visible"),
     );
+    mockMergeWorkflowConfigsById.mockImplementation((...groups) => {
+      const byId = new Map<string, unknown>();
+      for (const group of groups) {
+        for (const item of group as Array<{ _id: string }>) byId.set(item._id, item);
+      }
+      return [...byId.values()];
+    });
     mockStartWorkflowRun.mockResolvedValue("run-new");
     mockGetAuth.mockResolvedValue({ user: mockAuthUser, session: mockAuthSession });
   });
@@ -125,11 +154,17 @@ describe("workflow runs OpenFGA config access", () => {
   });
 
   it("surfaces CAS outage when listing runs for a specific workflow config", async () => {
+    const config = { _id: "wf-visible", visibility: "private", owner_id: "bob@example.com" };
     const runCollection = {
       deleteMany: jest.fn().mockResolvedValue({ deletedCount: 0 }),
     };
-    mockGetCollection.mockResolvedValue(runCollection);
-    mockRequireWorkflowAccess.mockRejectedValueOnce(
+    const configCollection = {
+      findOne: jest.fn().mockResolvedValue(config),
+    };
+    mockGetCollection.mockImplementation(async (name: string) =>
+      name === "workflow_runs" ? runCollection : configCollection,
+    );
+    mockRequireWorkflowConfigRunViewAccess.mockRejectedValueOnce(
       Object.assign(new Error("Authorization service temporarily unavailable."), { statusCode: 503 }),
     );
     const { GET } = await import("../workflow-runs/route");
@@ -141,7 +176,72 @@ describe("workflow runs OpenFGA config access", () => {
     expect(body).toMatchObject({ success: false, error: "Authorization service temporarily unavailable." });
   });
 
-  it("requires OpenFGA read permission before starting a workflow run", async () => {
+  it("lists runs for a workflow config allowed by Mongo visibility even without a direct CAS read grant", async () => {
+    const config = { _id: "wf-global", visibility: "global", owner_id: "system" };
+    const runCollection = {
+      deleteMany: jest.fn().mockResolvedValue({ deletedCount: 0 }),
+      find: jest.fn().mockReturnValue(cursor([{ _id: "run-global", workflow_config_id: "wf-global" }])),
+    };
+    const configCollection = {
+      findOne: jest.fn().mockResolvedValue(config),
+    };
+    mockGetCollection.mockImplementation(async (name: string) =>
+      name === "workflow_runs" ? runCollection : configCollection,
+    );
+    mockRequireWorkflowAccess.mockRejectedValueOnce(Object.assign(new Error("forbidden"), { statusCode: 403 }));
+    const { GET } = await import("../workflow-runs/route");
+
+    const response = await GET(request("/api/workflow-runs?workflow_config_id=wf-global"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(mockRequireWorkflowConfigRunViewAccess).toHaveBeenCalledWith(
+      expect.objectContaining({ sub: "alice-sub" }),
+      config,
+      "alice@example.com",
+      ["eng"],
+    );
+    expect(body).toEqual([{ _id: "run-global", workflow_config_id: "wf-global" }]);
+  });
+
+  it("merges Mongo-visible workflow configs into the all-runs list", async () => {
+    const configCandidates = [
+      { _id: "wf-global", visibility: "global", owner_id: "system" },
+      { _id: "wf-visible", visibility: "private", owner_id: "bob@example.com" },
+    ];
+    const runCollection = {
+      deleteMany: jest.fn().mockResolvedValue({ deletedCount: 0 }),
+      find: jest.fn().mockReturnValue(cursor([
+        { _id: "run-global", workflow_config_id: "wf-global" },
+        { _id: "run-fga", workflow_config_id: "wf-visible" },
+      ])),
+    };
+    const configCollection = { find: jest.fn().mockReturnValue(cursor(configCandidates)) };
+    mockGetCollection.mockImplementation(async (name: string) =>
+      name === "workflow_runs" ? runCollection : configCollection,
+    );
+    mockFilterWorkflowConfigsByRunAccess.mockReturnValue([configCandidates[0]]);
+    mockFilterAccessibleWorkflowConfigs.mockResolvedValue([configCandidates[1]]);
+    const { GET } = await import("../workflow-runs/route");
+
+    const response = await GET(request("/api/workflow-runs"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(mockFilterWorkflowConfigsByRunAccess).toHaveBeenCalledWith(
+      configCandidates,
+      "alice@example.com",
+      ["eng"],
+      expect.any(Map),
+    );
+    expect(runCollection.find).toHaveBeenCalledWith({ workflow_config_id: { $in: ["wf-global", "wf-visible"] } });
+    expect(body).toEqual([
+      { _id: "run-global", workflow_config_id: "wf-global" },
+      { _id: "run-fga", workflow_config_id: "wf-visible" },
+    ]);
+  });
+
+  it("requires workflow run access before starting a workflow run", async () => {
     const config = { _id: "wf-visible", name: "Workflow" };
     const configCollection = { findOne: jest.fn().mockResolvedValue(config) };
     mockGetCollection.mockResolvedValue(configCollection);
@@ -156,10 +256,11 @@ describe("workflow runs OpenFGA config access", () => {
 
     expect(response.status).toBe(201);
     expect(mockGetUserTeamIds).not.toHaveBeenCalled();
-    expect(mockRequireWorkflowAccess).toHaveBeenCalledWith(
+    expect(mockRequireWorkflowConfigRunAccess).toHaveBeenCalledWith(
       expect.objectContaining({ sub: "alice-sub" }),
-      "wf-visible",
-      "read",
+      expect.objectContaining({ _id: "wf-visible" }),
+      "alice@example.com",
+      ["eng"],
     );
     expect(mockStartWorkflowRun).toHaveBeenCalledWith(
       config,
@@ -168,6 +269,30 @@ describe("workflow runs OpenFGA config access", () => {
       expect.objectContaining({ user: { email: "alice@example.com", name: "Alice" } }),
       { type: "user", id: "alice-sub" },
     );
+  });
+
+  it("starts a workflow config allowed by Mongo visibility even without a direct CAS read grant", async () => {
+    const config = { _id: "wf-global", name: "Global Workflow", visibility: "global", owner_id: "system" };
+    const configCollection = { findOne: jest.fn().mockResolvedValue(config) };
+    mockGetCollection.mockResolvedValue(configCollection);
+    mockRequireWorkflowAccess.mockRejectedValueOnce(Object.assign(new Error("forbidden"), { statusCode: 403 }));
+    const { POST } = await import("../workflow-runs/route");
+
+    const response = await POST(
+      request("/api/workflow-runs", {
+        method: "POST",
+        body: JSON.stringify({ workflow_config_id: "wf-global" }),
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    expect(mockRequireWorkflowConfigRunAccess).toHaveBeenCalledWith(
+      expect.objectContaining({ sub: "alice-sub" }),
+      expect.objectContaining({ _id: "wf-global", owner_id: "system", visibility: "global" }),
+      "alice@example.com",
+      ["eng"],
+    );
+    expect(mockStartWorkflowRun).toHaveBeenCalled();
   });
 
   it("forwards the incoming Bearer to the DA call when present", async () => {
