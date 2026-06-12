@@ -1,73 +1,64 @@
 "use client";
 
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card,CardContent,CardDescription,CardHeader,CardTitle } from "@/components/ui/card";
-import { Dialog,DialogContent,DialogDescription,DialogHeader,DialogTitle } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Tabs,TabsContent,TabsList,TabsTrigger } from "@/components/ui/tabs";
-import { cn } from "@/lib/utils";
-import type {
-UniversalRebacRelationship,
-UniversalRebacResourceAction,
-UniversalRebacResourceType,
-UniversalRebacResourceTypeDefinition,
-UniversalRebacSubjectRef,
-UniversalRebacSubjectType,
-} from "@/types/rbac-universal";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
-Background,
-BackgroundVariant,
-Handle,
-Panel,
-Position,
-ReactFlow,
-ReactFlowProvider,
-useEdgesState,
-useNodesState,
-useReactFlow,
-type Connection,
-type Edge,
-type Node,
-type NodeProps,
-type OnSelectionChangeParams,
+  AlertCircle,
+  Bot,
+  Database,
+  GitBranch,
+  Hash,
+  MessageSquare,
+  Shield,
+  CheckCircle2,
+  Loader2,
+  Maximize2,
+  Minimize2,
+  RefreshCw,
+  Trash2,
+  User,
+  Users,
+  Wrench,
+  type LucideIcon,
+} from "lucide-react";
+import {
+  Background,
+  BackgroundVariant,
+  Handle,
+  Panel,
+  Position,
+  ReactFlow,
+  ReactFlowProvider,
+  useEdgesState,
+  useNodesState,
+  useReactFlow,
+  type Connection,
+  type Edge,
+  type Node,
+  type NodeProps,
+  type OnSelectionChangeParams,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import {
-AlertCircle,
-Bot,
-CheckCircle2,
-Database,
-GitBranch,
-Hash,
-Loader2,
-Maximize2,
-MessageSquare,
-Minimize2,
-RefreshCw,
-Search,
-Shield,
-Trash2,
-User,
-Users,
-Wrench,
-type LucideIcon,
-} from "lucide-react";
-import { usePathname,useRouter,useSearchParams } from "next/navigation";
-import { memo,useCallback,useEffect,useMemo,useState } from "react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { cn } from "@/lib/utils";
 import { BaselineFgaProfilePanel } from "../rebac/BaselineFgaProfilePanel";
 import { PolicyChangeSetDiff } from "../rebac/PolicyChangeSetDiff";
-import { RebacAccessChecker } from "../rebac/RebacAccessChecker";
-import { RebacGraphFilters,type RebacGraphUserOption } from "../rebac/RebacGraphFilters";
-import { UserBaselineDiagnosticsPanel } from "../rebac/UserBaselineDiagnosticsPanel";
+import { RebacGraphFilters, type RebacGraphUserOption } from "../rebac/RebacGraphFilters";
+import type {
+  UniversalRebacRelationship,
+  UniversalRebacResourceAction,
+  UniversalRebacResourceType,
+  UniversalRebacResourceTypeDefinition,
+} from "@/types/rbac-universal";
 
 type AccessResourceType = UniversalRebacResourceType;
 type GraphLayer = "tuples" | "effective" | "model";
-type AccessSubjectType = Extract<
-  UniversalRebacSubjectType,
-  "team" | "user" | "slack_channel" | "webex_space" | "external_group" | "service_account"
->;
 interface CatalogTeam {
   id: string;
   slug: string;
@@ -139,7 +130,7 @@ interface GraphEdge {
 const ALL_RELATIONSHIPS_SCOPE = "__all_relationships__";
 const DEFAULT_GRAPH_LAYER: GraphLayer = "tuples";
 const DEFAULT_OPENFGA_TAB = "tuples";
-const OPENFGA_TABS = new Set(["tuples", "graph", "access", "baseline", "diagnostics"]);
+const OPENFGA_TABS = new Set(["tuples", "graph", "baseline"]);
 const ACTION_TO_BASE_RELATION: Record<UniversalRebacResourceAction, string> = {
   discover: "reader",
   read: "reader",
@@ -186,24 +177,6 @@ const RELATION_TO_ACTION: Record<string, UniversalRebacResourceAction> = {
   can_use: "use",
   can_write: "write",
 };
-const ACTION_TO_CHECK_RELATION: Record<UniversalRebacResourceAction, string> = {
-  discover: "can_discover",
-  read: "can_read",
-  use: "can_use",
-  write: "can_write",
-  create: "can_manage",
-  delete: "can_delete",
-  manage: "can_manage",
-  administer: "can_admin",
-  audit: "can_audit",
-  approve: "can_approve",
-  share: "can_share",
-  call: "can_call",
-  invoke: "can_invoke",
-  map: "can_map",
-  ingest: "can_ingest",
-  "read-metadata": "can_read_metadata",
-};
 
 const ACCESS_RESOURCE_LABELS: Partial<Record<AccessResourceType, string>> = {
   organization: "Organization",
@@ -230,97 +203,6 @@ const ACCESS_RESOURCE_LABELS: Partial<Record<AccessResourceType, string>> = {
   secret_ref: "Secret reference",
   system_config: "System config",
 };
-
-const ACCESS_SUBJECT_LABELS: Record<AccessSubjectType, string> = {
-  team: "Team",
-  user: "User",
-  slack_channel: "Slack channel",
-  webex_space: "Webex space",
-  external_group: "External group",
-  service_account: "Service account",
-};
-
-const ACCESS_SUBJECT_TYPES: AccessSubjectType[] = [
-  "team",
-  "user",
-  "slack_channel",
-  "webex_space",
-  "external_group",
-  "service_account",
-];
-
-const BASE_RELATIONSHIP_CHEATSHEET = [
-  {
-    label: "Agent use",
-    tuple: "team:<slug>#member user agent:<id>",
-    meaning: "Team members can use or invoke agent.",
-  },
-  {
-    label: "Agent manage",
-    tuple: "team:<slug>#admin manager agent:<id>",
-    meaning: "Team admins can edit, delete, and administer agent.",
-  },
-  {
-    label: "Tool call",
-    tuple: "agent:<id> caller tool:<server>/<tool>",
-    meaning: "Agent may call that MCP tool through AgentGateway.",
-  },
-  {
-    label: "Knowledge base read",
-    tuple: "team:<slug>#member reader knowledge_base:<id>",
-    meaning: "Team members can search/read that datasource.",
-  },
-  {
-    label: "Knowledge base ingest",
-    tuple: "team:<slug>#member ingestor knowledge_base:<id>",
-    meaning: "Team members can ingest/update that datasource.",
-  },
-  {
-    label: "Admin surface",
-    tuple: "team:<slug>#member manager admin_surface:<name>",
-    meaning: "Team can administer a protected UI surface.",
-  },
-] as const;
-
-const DERIVED_PERMISSION_CHEATSHEET = [
-  ["can_discover", "show in lists and pickers"],
-  ["can_read", "read metadata or content"],
-  ["can_use", "use or invoke agent"],
-  ["can_write", "edit resource configuration"],
-  ["can_delete", "remove lifecycle-managed resource"],
-  ["can_manage", "administer resource"],
-  ["can_call", "call MCP gateway/tool"],
-] as const;
-
-const SUBJECT_CHEATSHEET = [
-  ["user:<sub>", "single Keycloak user"],
-  ["user:*", "all authenticated users for typed-wildcard grants"],
-  ["service_account:<id>", "machine principal"],
-  ["team:<slug>", "team object for membership tuples"],
-  ["team:<slug>#member", "all members of a team"],
-  ["team:<slug>#admin", "team owners/admins"],
-  ["external_group:<provider>/<id>#member", "synced IdP group members"],
-  ["slack_channel:<workspace>--<channel>", "Slack channel route principal"],
-  ["webex_space:<workspace>--<space>", "Webex space route principal"],
-] as const;
-
-const RESOURCE_OBJECT_CHEATSHEET = [
-  ["organization:<org>", "platform-wide organization scope"],
-  ["team:<slug>", "team membership container"],
-  ["agent:<id>", "Dynamic Agent config/runtime target"],
-  ["tool:<server>/<tool>", "specific MCP tool"],
-  ["tool:<server>/*", "all tools from an MCP server"],
-  ["mcp_gateway:<name>", "AgentGateway coarse MCP call gate"],
-  ["mcp_server:<id>", "MCP server discovery/sync target"],
-  ["knowledge_base:<id>", "RAG datasource or KB resource"],
-  ["conversation:<id>", "chat history and sharing target"],
-  ["skill:<id>", "skill catalog/runtime target"],
-  ["task:<id>", "task template or task execution target"],
-  ["admin_surface:<name>", "protected admin UI surface"],
-  ["system_config:<key>", "platform configuration key"],
-  ["slack_channel:<workspace>--<channel>", "Slack channel association target"],
-  ["webex_space:<workspace>--<space>", "Webex space association target"],
-] as const;
 
 interface RebacNodeData {
   label: string;
@@ -378,45 +260,11 @@ function actionOptions(catalog: CatalogResponse | null, type: AccessResourceType
   return catalog?.resource_types?.find((definition) => definition.type === type)?.actions.slice() ?? [];
 }
 
-function subjectOptions(catalog: CatalogResponse | null, type: AccessSubjectType): CatalogResource[] {
-  if (!catalog) return [];
-  if (type === "team") {
-    return catalog.teams.map((team) => ({
-      type: "team",
-      id: team.slug,
-      display_name: `${team.name} (${team.slug})`,
-      object: `team:${team.slug}`,
-    }));
-  }
-  return accessResources(catalog, type as AccessResourceType);
-}
 
 function accessResourceLabel(type: AccessResourceType): string {
   return ACCESS_RESOURCE_LABELS[type] ?? type.replaceAll("_", " ");
 }
 
-function accessSubjectLabel(type: AccessSubjectType): string {
-  return ACCESS_SUBJECT_LABELS[type];
-}
-
-function subjectRelations(type: AccessSubjectType): Array<NonNullable<UniversalRebacSubjectRef["relation"]>> {
-  if (type === "team") return ["member", "admin"];
-  if (type === "external_group") return ["member"];
-  return [];
-}
-
-function normalizeUserSearchResults(users: RebacGraphUserOption[]): CatalogResource[] {
-  return users.map((user) => {
-    const name = [user.firstName, user.lastName].filter(Boolean).join(" ").trim();
-    const primary = name || user.email || user.username || user.id;
-    return {
-      type: "user",
-      id: user.id,
-      display_name: primary === user.id ? `user:${user.id}` : `${primary} (${user.id})`,
-      object: `user:${user.id}`,
-    };
-  });
-}
 
 function statusBadge(catalog: CatalogResponse | null) {
   if (!catalog?.status.configured) {
@@ -426,95 +274,6 @@ function statusBadge(catalog: CatalogResponse | null) {
     return <Badge variant="secondary">Tuple writes available, team-save reconciliation disabled</Badge>;
   }
   return <Badge variant="default">OpenFGA reconciliation enabled</Badge>;
-}
-
-function OpenFgaPermissionCheatsheet() {
-  return (
-    <Card className="border-cyan-500/25 bg-cyan-500/[0.04]">
-      <CardHeader className="pb-3">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <CardTitle className="text-base">Access Manager Permission Cheatsheet</CardTitle>
-            <CardDescription>
-              Use this reference to connect selected actions to the base relationships that OpenFGA stores and the `can_*` permissions it checks at runtime.
-            </CardDescription>
-          </div>
-          <Badge variant="outline" className="border-cyan-500/40 text-cyan-700 dark:text-cyan-300">
-            Relationship reference
-          </Badge>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
-          <div className="space-y-2">
-          <div className="text-sm font-medium">Base relationships you write</div>
-          <div className="grid gap-2">
-            {BASE_RELATIONSHIP_CHEATSHEET.map((item) => (
-              <div key={item.tuple} className="rounded-md border bg-background/70 p-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge variant="secondary">{item.label}</Badge>
-                  <code className="break-all text-xs">{item.tuple}</code>
-                </div>
-                <p className="mt-1 text-xs text-muted-foreground">{item.meaning}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-          <div className="space-y-2">
-          <div className="text-sm font-medium">Derived permissions OpenFGA checks</div>
-          <div className="rounded-md border bg-background/70 p-3">
-            <dl className="space-y-2">
-              {DERIVED_PERMISSION_CHEATSHEET.map(([permission, meaning]) => (
-                <div key={permission} className="grid grid-cols-[auto_1fr] gap-3 text-xs">
-                  <dt>
-                    <code>{permission}</code>
-                  </dt>
-                  <dd className="text-muted-foreground">{meaning}</dd>
-                </div>
-              ))}
-            </dl>
-          </div>
-          <p className="text-xs text-muted-foreground">
-            Tip: tuple writes use relations like <code>user</code>, <code>manager</code>, <code>caller</code>,
-            <code> reader</code>, and <code>ingestor</code>. Avoid writing derived <code>can_*</code> relations directly.
-          </p>
-        </div>
-        </div>
-        <div className="grid gap-4 lg:grid-cols-2">
-          <div className="space-y-2">
-            <div className="text-sm font-medium">Subjects and usersets</div>
-            <div className="rounded-md border bg-background/70 p-3">
-              <dl className="grid gap-2 sm:grid-cols-2">
-                {SUBJECT_CHEATSHEET.map(([subject, meaning]) => (
-                  <div key={subject} className="space-y-0.5">
-                    <dt>
-                      <code className="break-all text-xs">{subject}</code>
-                    </dt>
-                    <dd className="text-xs text-muted-foreground">{meaning}</dd>
-                  </div>
-                ))}
-              </dl>
-            </div>
-          </div>
-          <div className="space-y-2">
-            <div className="text-sm font-medium">Resource objects</div>
-            <div className="rounded-md border bg-background/70 p-3">
-              <dl className="grid gap-2 sm:grid-cols-2">
-                {RESOURCE_OBJECT_CHEATSHEET.map(([resource, meaning]) => (
-                  <div key={resource} className="space-y-0.5">
-                    <dt>
-                      <code className="break-all text-xs">{resource}</code>
-                    </dt>
-                    <dd className="text-xs text-muted-foreground">{meaning}</dd>
-                  </div>
-                ))}
-              </dl>
-            </div>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  );
 }
 
 function tupleKey(tuple: TupleKey): string {
@@ -675,14 +434,6 @@ export function OpenFgaRebacTab({ isAdmin }: { isAdmin: boolean }) {
   const [graphLayer, setGraphLayer] = useState<GraphLayer>(DEFAULT_GRAPH_LAYER);
   const [graphUser, setGraphUser] = useState<RebacGraphUserOption | null>(null);
   const [graphFullscreenOpen, setGraphFullscreenOpen] = useState(false);
-  const [accessSubjectType, setAccessSubjectType] = useState<AccessSubjectType>("team");
-  const [accessSubjectId, setAccessSubjectId] = useState("");
-  const [accessSubjectRelation, setAccessSubjectRelation] =
-    useState<NonNullable<UniversalRebacSubjectRef["relation"]>>("member");
-  const [accessResourceType, setAccessResourceType] = useState<AccessResourceType>("agent");
-  const [accessResourceId, setAccessResourceId] = useState("");
-  const [accessAction, setAccessAction] = useState<UniversalRebacResourceAction>("use");
-  const [checkResult, setCheckResult] = useState<boolean | null>(null);
   const [tupleFilter, setTupleFilter] = useState<Partial<TupleKey>>({});
   const [pendingGraphWrites, setPendingGraphWrites] = useState<TupleKey[]>([]);
   const [pendingGraphDeletes, setPendingGraphDeletes] = useState<TupleKey[]>([]);
@@ -692,41 +443,12 @@ export function OpenFgaRebacTab({ isAdmin }: { isAdmin: boolean }) {
     return normalizeOpenFgaTab(tab);
   }, [searchParams]);
 
-  const selectedAccessRelationship: UniversalRebacRelationship | null = useMemo(() => {
-    if (!accessSubjectId || !accessResourceId || !accessAction) return null;
-    const allowedSubjectRelations = subjectRelations(accessSubjectType);
-    const subjectRelation = allowedSubjectRelations.includes(accessSubjectRelation)
-      ? accessSubjectRelation
-      : undefined;
-    return {
-      subject: {
-        type: accessSubjectType,
-        id: accessSubjectId,
-        ...(subjectRelation ? { relation: subjectRelation } : {}),
-      },
-      action: accessAction,
-      resource: {
-        type: accessResourceType,
-        id: accessResourceId,
-      },
-    };
-  }, [
-    accessAction,
-    accessResourceId,
-    accessResourceType,
-    accessSubjectId,
-    accessSubjectRelation,
-    accessSubjectType,
-  ]);
-
   const loadCatalog = useCallback(async () => {
     const res = await fetch("/api/admin/openfga/catalog");
     if (!res.ok) throw new Error(`Failed to load catalog: ${res.status}`);
     const payload = await res.json();
     const data = apiData<CatalogResponse>(payload);
     setCatalog(data);
-    setAccessSubjectId((prev) => prev || data.teams[0]?.slug || "");
-    setAccessResourceId((prev) => prev || accessResources(data, "agent")[0]?.id || "");
   }, []);
 
   const loadTuples = useCallback(async (filter: Partial<TupleKey> = {}) => {
@@ -776,22 +498,6 @@ export function OpenFgaRebacTab({ isAdmin }: { isAdmin: boolean }) {
     }
   }, [loadTuples, tupleFilter]);
 
-  useEffect(() => {
-    const nextSubjects = subjectOptions(catalog, accessSubjectType);
-    setAccessSubjectId(nextSubjects[0]?.id || "");
-    const relations = subjectRelations(accessSubjectType);
-    setAccessSubjectRelation(relations[0] ?? "member");
-    setCheckResult(null);
-  }, [accessSubjectType, catalog]);
-
-  useEffect(() => {
-    const nextResources = accessResources(catalog, accessResourceType);
-    const nextActions = actionOptions(catalog, accessResourceType);
-    setAccessResourceId(nextResources[0]?.id || "");
-    setAccessAction(nextActions[0] ?? "read");
-    setCheckResult(null);
-  }, [accessResourceType, catalog]);
-
   const setActiveTab = useCallback(
     (tab: string) => {
       const nextTab = normalizeOpenFgaTab(tab);
@@ -835,81 +541,7 @@ export function OpenFgaRebacTab({ isAdmin }: { isAdmin: boolean }) {
     if (!apply.ok) throw new Error(`Change-set apply failed: ${apply.status}`);
   }
 
-  async function checkAccess() {
-    if (!selectedAccessRelationship) {
-      setError("Select a subject, resource, and action to check effective access");
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    setCheckResult(null);
-    try {
-      const res = await fetch("/api/admin/rebac/check", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ relationship: selectedAccessRelationship }),
-      });
-      if (!res.ok) throw new Error(`ReBAC access check failed: ${res.status}`);
-      const payload = await res.json();
-      setCheckResult(Boolean(apiData<{ allowed: boolean }>(payload).allowed));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "ReBAC access check failed");
-    } finally {
-      setBusy(false);
-    }
-  }
 
-  async function grantSelectedAccess() {
-    if (!selectedAccessRelationship) {
-      setError("Select a subject, resource, and action before granting access");
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    setMessage(null);
-    try {
-      await applyChangeSet(
-        `Grant effective access ${selectedAccessRelationship.action} ${selectedAccessRelationship.resource.type}:${selectedAccessRelationship.resource.id}`,
-        [selectedAccessRelationship],
-        []
-      );
-      setMessage(
-        `Granted ${selectedAccessRelationship.action} on ${selectedAccessRelationship.resource.type}:${selectedAccessRelationship.resource.id}`
-      );
-      await Promise.all([loadTuples(tupleFilter), loadGraph()]);
-      await checkAccess();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Effective access grant failed");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function revokeSelectedAccess() {
-    if (!selectedAccessRelationship) {
-      setError("Select a subject, resource, and action before revoking access");
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    setMessage(null);
-    try {
-      await applyChangeSet(
-        `Revoke effective access ${selectedAccessRelationship.action} ${selectedAccessRelationship.resource.type}:${selectedAccessRelationship.resource.id}`,
-        [],
-        [selectedAccessRelationship]
-      );
-      setMessage(
-        `Revoked ${selectedAccessRelationship.action} on ${selectedAccessRelationship.resource.type}:${selectedAccessRelationship.resource.id}`
-      );
-      await Promise.all([loadTuples(tupleFilter), loadGraph()]);
-      await checkAccess();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Effective access revoke failed");
-    } finally {
-      setBusy(false);
-    }
-  }
 
   async function deleteTuple(tuple: TupleKey) {
     const relationship = relationshipFromTuple(tuple);
@@ -1050,72 +682,11 @@ export function OpenFgaRebacTab({ isAdmin }: { isAdmin: boolean }) {
         <TabsList>
           <TabsTrigger value="tuples" onClick={() => setActiveTab("tuples")}>OpenFGA Tuples</TabsTrigger>
           <TabsTrigger value="graph" onClick={() => setActiveTab("graph")}>Policy Graph</TabsTrigger>
-          <TabsTrigger value="access" onClick={() => setActiveTab("access")}>Access Manager</TabsTrigger>
           <TabsTrigger value="baseline" onClick={() => setActiveTab("baseline")}>Default FGA Grants</TabsTrigger>
-          <TabsTrigger value="diagnostics" onClick={() => setActiveTab("diagnostics")}>Diagnostics</TabsTrigger>
         </TabsList>
 
         <TabsContent value="baseline">
           <BaselineFgaProfilePanel isAdmin={isAdmin} />
-        </TabsContent>
-
-        <TabsContent value="diagnostics">
-          <Card>
-            <CardHeader>
-              <CardTitle>User Baseline Diagnostics</CardTitle>
-              <CardDescription>
-                Compare one user&apos;s actual OpenFGA decisions against the default member and admin baselines.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <UserBaselineDiagnosticsPanel />
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="access">
-          <Card>
-            <CardHeader>
-              <CardTitle>Access Manager</CardTitle>
-              <CardDescription>
-                Select any catalog-backed subject and resource, check the derived permission, then grant or revoke it through a validated change set.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <AccessCheckForm
-                catalog={catalog}
-                subjectType={accessSubjectType}
-                subjectId={accessSubjectId}
-                subjectRelation={accessSubjectRelation}
-                resourceType={accessResourceType}
-                resourceId={accessResourceId}
-                action={accessAction}
-                onSubjectType={setAccessSubjectType}
-                onSubjectId={setAccessSubjectId}
-                onSubjectRelation={setAccessSubjectRelation}
-                onResourceType={setAccessResourceType}
-                onResourceId={setAccessResourceId}
-                onAction={setAccessAction}
-              />
-              {selectedAccessRelationship && <AccessPreview relationship={selectedAccessRelationship} />}
-              <AccessChangeSetPreview
-                relationship={selectedAccessRelationship}
-                allowed={checkResult}
-                canMutate={isAdmin}
-              />
-              <RebacAccessChecker
-                relationship={selectedAccessRelationship}
-                allowed={checkResult}
-                busy={busy}
-                canGrant={isAdmin}
-                onCheck={checkAccess}
-                onGrant={grantSelectedAccess}
-                onRevoke={revokeSelectedAccess}
-              />
-              {!isAdmin && <p className="text-sm text-muted-foreground">You can inspect ReBAC, but only admins can mutate tuples.</p>}
-              <OpenFgaPermissionCheatsheet />
-            </CardContent>
-          </Card>
         </TabsContent>
 
         <TabsContent value="graph">
@@ -1295,260 +866,6 @@ export function OpenFgaRebacTab({ isAdmin }: { isAdmin: boolean }) {
           </Card>
         </TabsContent>
       </Tabs>
-    </div>
-  );
-}
-
-function AccessCheckForm(props: {
-  catalog: CatalogResponse | null;
-  subjectType: AccessSubjectType;
-  subjectId: string;
-  subjectRelation: NonNullable<UniversalRebacSubjectRef["relation"]>;
-  resourceType: AccessResourceType;
-  resourceId: string;
-  action: UniversalRebacResourceAction;
-  onSubjectType: (value: AccessSubjectType) => void;
-  onSubjectId: (value: string) => void;
-  onSubjectRelation: (value: NonNullable<UniversalRebacSubjectRef["relation"]>) => void;
-  onResourceType: (value: AccessResourceType) => void;
-  onResourceId: (value: string) => void;
-  onAction: (value: UniversalRebacResourceAction) => void;
-}) {
-  const [subjectQuery, setSubjectQuery] = useState("");
-  const [subjectResults, setSubjectResults] = useState<CatalogResource[]>([]);
-  const [searchingSubjects, setSearchingSubjects] = useState(false);
-  const [subjectError, setSubjectError] = useState<string | null>(null);
-  const subjectCatalogOptions = subjectOptions(props.catalog, props.subjectType);
-  const availableResourceTypes = accessResourceTypes(props.catalog);
-  const resources = accessResources(props.catalog, props.resourceType);
-  const actions = actionOptions(props.catalog, props.resourceType);
-  const relations = subjectRelations(props.subjectType);
-  const normalizedQuery = subjectQuery.trim().toLowerCase();
-  const visibleSubjects = (subjectResults.length > 0 ? subjectResults : subjectCatalogOptions).filter((subject) => {
-    if (!normalizedQuery || subjectResults.length > 0) return true;
-    return `${resourceName(subject)} ${subject.id}`.toLowerCase().includes(normalizedQuery);
-  });
-  const showSubjectOptions = normalizedQuery.length > 0 || subjectResults.length > 0;
-
-  async function searchSubjects() {
-    if (props.subjectType !== "user") {
-      setSubjectResults([]);
-      return;
-    }
-    const query = subjectQuery.trim();
-    if (!query) {
-      setSubjectResults([]);
-      return;
-    }
-    setSearchingSubjects(true);
-    setSubjectError(null);
-    try {
-      const params = new URLSearchParams({ search: query, pageSize: "20" });
-      const response = await fetch(`/api/admin/users?${params.toString()}`);
-      if (!response.ok) throw new Error(`User search failed: ${response.status}`);
-      const payload = await response.json();
-      setSubjectResults(normalizeUserSearchResults(Array.isArray(payload.users) ? payload.users : []));
-    } catch (err) {
-      setSubjectError(err instanceof Error ? err.message : "Subject search failed");
-    } finally {
-      setSearchingSubjects(false);
-    }
-  }
-
-  return (
-    <div className="space-y-4">
-      <div className="grid gap-3 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.4fr)_minmax(0,0.8fr)]">
-        <div>
-          <Label htmlFor="rebac-access-subject-type">Subject type</Label>
-          <select
-            id="rebac-access-subject-type"
-            className="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm"
-            value={props.subjectType}
-            onChange={(event) => {
-              props.onSubjectType(event.target.value as AccessSubjectType);
-              setSubjectQuery("");
-              setSubjectResults([]);
-              setSubjectError(null);
-            }}
-          >
-            {ACCESS_SUBJECT_TYPES.map((type) => (
-              <option key={type} value={type}>
-                {accessSubjectLabel(type)}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <Label htmlFor="rebac-access-subject">Subject</Label>
-          <div className="mt-1 flex gap-2">
-            <Input
-              id="rebac-access-subject"
-              autoComplete="off"
-              value={subjectQuery}
-              onChange={(event) => {
-                setSubjectQuery(event.target.value);
-                setSubjectResults([]);
-              }}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  void searchSubjects();
-                }
-              }}
-              placeholder={`Search ${accessSubjectLabel(props.subjectType).toLowerCase()} subjects`}
-            />
-            <Button type="button" variant="outline" className="gap-2" onClick={() => void searchSubjects()}>
-              <Search className="h-4 w-4" />
-              Search subjects
-            </Button>
-          </div>
-          {props.subjectId && (
-            <p className="mt-1 text-[11px] text-muted-foreground">
-              Selected <code>{props.subjectType}:{props.subjectId}</code>
-              {relations.length > 0 ? `#${props.subjectRelation}` : ""}
-            </p>
-          )}
-          {subjectError && <p className="mt-2 text-xs text-destructive">{subjectError}</p>}
-          {searchingSubjects && <p className="mt-2 text-xs text-muted-foreground">Searching subjects...</p>}
-          {showSubjectOptions && visibleSubjects.length > 0 && (
-            <div className="mt-2 max-h-44 overflow-auto rounded-md border bg-background">
-              {visibleSubjects.map((subject) => (
-                <button
-                  key={`${subject.type ?? props.subjectType}:${subject.id}`}
-                  type="button"
-                  className="block w-full border-b px-3 py-2 text-left text-xs last:border-b-0 hover:bg-muted"
-                  onClick={() => {
-                    props.onSubjectId(subject.id);
-                    setSubjectQuery(resourceName(subject));
-                    setSubjectResults([]);
-                  }}
-                >
-                  <span className="block font-medium">{resourceName(subject)}</span>
-                  <span className="block text-muted-foreground">
-                    {props.subjectType}:{subject.id}
-                  </span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-        {relations.length > 0 && (
-          <div>
-            <Label htmlFor="rebac-access-subject-relation">Subject relation</Label>
-            <select
-              id="rebac-access-subject-relation"
-              className="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm"
-              value={props.subjectRelation}
-              onChange={(event) =>
-                props.onSubjectRelation(event.target.value as NonNullable<UniversalRebacSubjectRef["relation"]>)
-              }
-            >
-              {relations.map((relationValue) => (
-                <option key={relationValue} value={relationValue}>
-                  {relationValue}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
-      </div>
-      <div className="grid gap-3 md:grid-cols-3">
-        <div>
-          <Label htmlFor="rebac-access-resource-type">Resource type</Label>
-          <select
-            id="rebac-access-resource-type"
-            className="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm"
-            value={props.resourceType}
-            onChange={(event) => props.onResourceType(event.target.value as AccessResourceType)}
-          >
-            {availableResourceTypes.map((definition) => (
-              <option key={definition.type} value={definition.type}>
-                {accessResourceLabel(definition.type)}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <Label htmlFor="rebac-access-resource">Resource</Label>
-          <select
-            id="rebac-access-resource"
-            className="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm"
-            value={props.resourceId}
-            onChange={(event) => props.onResourceId(event.target.value)}
-          >
-            {resources.map((resource) => (
-              <option key={resource.id} value={resource.id}>
-                {resourceName(resource)}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <Label htmlFor="rebac-access-action">Action</Label>
-          <select
-            id="rebac-access-action"
-            className="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm"
-            value={props.action}
-            onChange={(event) => props.onAction(event.target.value as UniversalRebacResourceAction)}
-          >
-            {actions.map((action) => (
-              <option key={action} value={action}>
-                {action}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function AccessPreview({ relationship }: { relationship: UniversalRebacRelationship }) {
-  const subject = `${relationship.subject.type}:${relationship.subject.id}${
-    relationship.subject.relation ? `#${relationship.subject.relation}` : ""
-  }`;
-  const object = `${relationship.resource.type}:${relationship.resource.id}`;
-  return (
-    <div className="rounded-md border bg-muted/30 p-3 text-sm">
-      <div className="font-medium">Check preview</div>
-      <code className="mt-1 block break-all">
-        {subject} <span className="text-muted-foreground">{ACTION_TO_CHECK_RELATION[relationship.action]}</span>{" "}
-        {object}
-      </code>
-    </div>
-  );
-}
-
-function AccessChangeSetPreview({
-  relationship,
-  allowed,
-  canMutate,
-}: {
-  relationship: UniversalRebacRelationship | null;
-  allowed: boolean | null;
-  canMutate: boolean;
-}) {
-  if (!relationship || allowed === null) {
-    return (
-      <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
-        Run an access check to preview the grant or revoke change set for this relationship.
-      </div>
-    );
-  }
-
-  const grants = allowed ? [] : [relationship];
-  const revocations = allowed ? [relationship] : [];
-  return (
-    <div className="space-y-2">
-      <div>
-        <div className="text-sm font-medium">Policy change-set preview</div>
-        <p className="text-xs text-muted-foreground">
-          {canMutate
-            ? "The next mutation will be validated and applied through the ReBAC change-set API."
-            : "Only admins can apply this suggested policy change."}
-        </p>
-      </div>
-      <PolicyChangeSetDiff grants={grants} revocations={revocations} />
     </div>
   );
 }
