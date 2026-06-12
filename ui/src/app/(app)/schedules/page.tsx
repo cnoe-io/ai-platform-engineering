@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Fragment,
   useCallback,
   useEffect,
   useMemo,
@@ -14,6 +15,8 @@ import {
   AlertTriangle,
   Bot,
   CalendarClock,
+  ChevronDown,
+  ChevronRight,
   CheckCircle2,
   Clock3,
   History,
@@ -52,6 +55,33 @@ interface ScheduleRun {
   http_status: number | null;
 }
 
+type OneOffRunStatus =
+  | "pending"
+  | "claimed"
+  | "fired"
+  | "succeeded"
+  | "failed"
+  | "cancelled";
+
+interface ScheduleOneOffRun {
+  one_off_run_id: string;
+  schedule_id: string;
+  run_at: string | null;
+  status: OneOffRunStatus;
+  message_template: string | null;
+  reason: string | null;
+  retry_num: number | null;
+  retry_limit: number | null;
+  job_name: string | null;
+  error: string | null;
+  http_status: number | null;
+  created_at: string | null;
+  updated_at: string | null;
+  claimed_at: string | null;
+  fired_at: string | null;
+  completed_at: string | null;
+}
+
 interface ScheduleVersion {
   version: number;
   superseded_at: string | null;
@@ -88,6 +118,7 @@ interface ScheduleItem {
   created_at: string | null;
   updated_at: string | null;
   last_run: ScheduleRun | null;
+  one_off_runs: ScheduleOneOffRun[];
 }
 
 interface SchedulesResponse {
@@ -270,6 +301,72 @@ function lastRunLabel(schedule: ScheduleItem, now: Date): string {
   return `${prefix} ${formatRelative(schedule.last_run.ts, now)}`;
 }
 
+const ACTIVE_ONE_OFF_STATUSES = new Set<OneOffRunStatus>([
+  "pending",
+  "claimed",
+  "fired",
+]);
+
+function isActiveOneOff(run: ScheduleOneOffRun): boolean {
+  return ACTIVE_ONE_OFF_STATUSES.has(run.status);
+}
+
+function oneOffStatusLabel(status: OneOffRunStatus): string {
+  return status.charAt(0).toUpperCase() + status.slice(1);
+}
+
+function oneOffStatusVariant(
+  status: OneOffRunStatus
+): "secondary" | "destructive" | "status" | "tool" {
+  if (status === "failed") return "destructive";
+  if (status === "succeeded") return "status";
+  if (status === "cancelled") return "secondary";
+  return "tool";
+}
+
+function oneOffTimingLabel(run: ScheduleOneOffRun, now: Date): string {
+  if (run.status === "pending") {
+    return run.run_at ? `Runs ${formatRelative(run.run_at, now)}` : "Run time unknown";
+  }
+  if (run.status === "claimed") {
+    return run.claimed_at
+      ? `Claimed ${formatRelative(run.claimed_at, now)}`
+      : "Claimed";
+  }
+  if (run.status === "fired") {
+    return run.fired_at
+      ? `Fired ${formatRelative(run.fired_at, now)}`
+      : "Fired";
+  }
+  return run.completed_at
+    ? `Completed ${formatRelative(run.completed_at, now)}`
+    : run.run_at
+      ? `Scheduled ${formatRelative(run.run_at, now)}`
+      : "Completed";
+}
+
+function oneOffDetailLabel(run: ScheduleOneOffRun): string {
+  if (run.reason) return run.reason;
+  if (run.message_template) return "Custom message override";
+  return "Parent schedule message";
+}
+
+function oneOffRetryLabel(run: ScheduleOneOffRun): string | null {
+  if (run.retry_num === null && run.retry_limit === null) return null;
+  return `Retry ${run.retry_num ?? "?"} / ${run.retry_limit ?? "?"}`;
+}
+
+function oneOffSummaryLabel(totalCount: number, activeCount: number): string {
+  if (activeCount > 0) {
+    return `${activeCount} active one-off${activeCount === 1 ? "" : "s"}`;
+  }
+  return `${totalCount} recent one-off${totalCount === 1 ? "" : "s"}`;
+}
+
+function oneOffPanelId(scheduleId: string): string {
+  return `one-off-runs-${scheduleId.replace(/[^A-Za-z0-9_-]/g, "-")}`;
+}
+
 function changedFieldsLabel(version: ScheduleVersion): string {
   return version.changed_fields.length > 0
     ? version.changed_fields.join(", ")
@@ -329,6 +426,9 @@ export default function SchedulesPage() {
     serverNowMs: number;
     clientNowMs: number;
   } | null>(null);
+  const [expandedOneOffIds, setExpandedOneOffIds] = useState<Set<string>>(
+    () => new Set()
+  );
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -360,7 +460,12 @@ export default function SchedulesPage() {
         clientNowMs,
       });
       setClockTick(Date.now());
-      setItems(body.data.items);
+      setItems(
+        body.data.items.map((item) => ({
+          ...item,
+          one_off_runs: item.one_off_runs || [],
+        }))
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -381,15 +486,35 @@ export default function SchedulesPage() {
     setEditMessage(item.message_template);
   }, []);
 
+  const toggleOneOffRuns = useCallback((scheduleId: string) => {
+    setExpandedOneOffIds((current) => {
+      const next = new Set(current);
+      if (next.has(scheduleId)) {
+        next.delete(scheduleId);
+      } else {
+        next.add(scheduleId);
+      }
+      return next;
+    });
+  }, []);
+
   const applyUpdatedSchedule = useCallback((updated: ScheduleItem) => {
     setItems((current) =>
-      current.map((currentItem) =>
-        currentItem.schedule_id === updated.schedule_id ? updated : currentItem
-      )
+      current.map((currentItem) => {
+        if (currentItem.schedule_id !== updated.schedule_id) return currentItem;
+        return {
+          ...updated,
+          one_off_runs: updated.one_off_runs || currentItem.one_off_runs || [],
+        };
+      })
     );
-    setEditingItem((current) =>
-      current?.schedule_id === updated.schedule_id ? updated : current
-    );
+    setEditingItem((current) => {
+      if (current?.schedule_id !== updated.schedule_id) return current;
+      return {
+        ...updated,
+        one_off_runs: updated.one_off_runs || current.one_off_runs || [],
+      };
+    });
     setEditTitle(scheduleTitle(updated));
     setEditCron(updated.cron);
     setEditTz(updated.tz);
@@ -573,7 +698,12 @@ export default function SchedulesPage() {
   const stats = useMemo(() => {
     const enabled = items.filter((item) => item.enabled).length;
     const failed = items.filter((item) => item.last_run?.status === "error").length;
-    return { enabled, paused: items.length - enabled, failed };
+    const activeOneOffs = items.reduce(
+      (count, item) =>
+        count + (item.one_off_runs || []).filter(isActiveOneOff).length,
+      0
+    );
+    return { enabled, paused: items.length - enabled, failed, activeOneOffs };
   }, [items]);
 
   return (
@@ -602,7 +732,7 @@ export default function SchedulesPage() {
               </Button>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <Card>
                 <CardContent className="flex items-center justify-between p-4">
                   <div>
@@ -634,6 +764,17 @@ export default function SchedulesPage() {
                     <p className="text-2xl font-semibold">{stats.failed}</p>
                   </div>
                   <AlertTriangle className="h-5 w-5 text-red-400" />
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="flex items-center justify-between p-4">
+                  <div>
+                    <p className="text-xs font-medium uppercase text-muted-foreground">
+                      Active One-Offs
+                    </p>
+                    <p className="text-2xl font-semibold">{stats.activeOneOffs}</p>
+                  </div>
+                  <RefreshCw className="h-5 w-5 text-sky-400" />
                 </CardContent>
               </Card>
             </div>
@@ -896,133 +1037,296 @@ export default function SchedulesPage() {
                     items.map((item) => {
                       const attributeEntries = scheduleAttributeEntries(item);
                       const scheduleDescription = humanizeCron(item.cron);
+                      const oneOffRuns = item.one_off_runs || [];
+                      const activeOneOffCount =
+                        oneOffRuns.filter(isActiveOneOff).length;
+                      const hasOneOffRuns = oneOffRuns.length > 0;
+                      const oneOffExpanded = expandedOneOffIds.has(item.schedule_id);
+                      const oneOffSummary = oneOffSummaryLabel(
+                        oneOffRuns.length,
+                        activeOneOffCount
+                      );
+                      const oneOffDetailsId = oneOffPanelId(item.schedule_id);
 
                       return (
-                        <tr key={item.schedule_id} className="border-b last:border-b-0">
-                          <td className="px-4 py-3 align-top">
-                            <div className="space-y-1">
-                              <div className="font-medium">{scheduleTitle(item)}</div>
-                              <div className="text-xs text-muted-foreground">
-                                agent: {item.agent_name}
-                              </div>
-                              <div className="font-mono text-xs text-muted-foreground">
-                                schedule_id: {item.schedule_id}
-                              </div>
-                              {attributeEntries.map(([key, value]) => (
-                                <div
-                                  key={key}
-                                  className="break-words text-xs text-muted-foreground"
-                                >
-                                  <span className="font-medium">
-                                    {formatAttributeLabel(key)}:
-                                  </span>{" "}
-                                  <span className="font-mono">{value}</span>
-                                </div>
-                              ))}
-                            </div>
-                          </td>
-                          <td className="px-4 py-3 align-top">
-                            <div className="space-y-1">
-                              <div className="font-mono">{item.cron}</div>
-                              {scheduleDescription && (
+                        <Fragment key={item.schedule_id}>
+                          <tr className={oneOffExpanded ? "" : "border-b"}>
+                            <td className="px-4 py-3 align-top">
+                              <div className="space-y-1">
+                                <div className="font-medium">{scheduleTitle(item)}</div>
                                 <div className="text-xs text-muted-foreground">
-                                  {scheduleDescription}
+                                  agent: {item.agent_name}
                                 </div>
-                              )}
-                              <div className="text-xs text-muted-foreground">
-                                Timezone: {item.tz}
-                              </div>
-                              <div className="text-xs text-muted-foreground">
-                                Version {item.version || 1}
-                              </div>
-                              <div className="text-xs text-muted-foreground">
-                                Created {formatRelative(item.created_at, relativeNow)}
-                              </div>
-                            </div>
-                          </td>
-                          <td className="max-w-md px-4 py-3 align-top">
-                            <code className="block max-h-24 overflow-hidden whitespace-pre-wrap break-words rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">
-                              {item.message_template}
-                            </code>
-                          </td>
-                          <td className="px-4 py-3 align-top">
-                            <div className="space-y-1">
-                              <div>{lastRunLabel(item, relativeNow)}</div>
-                              {item.last_run?.ts && (
-                                <div className="text-xs text-muted-foreground">
-                                  {formatDateTime(item.last_run.ts)}
+                                <div className="font-mono text-xs text-muted-foreground">
+                                  schedule_id: {item.schedule_id}
                                 </div>
-                              )}
-                              {item.last_run?.error && (
-                                <div className="max-w-xs break-words text-xs text-red-300">
-                                  {item.last_run.error}
-                                </div>
-                              )}
-                            </div>
-                          </td>
-                          <td className="px-4 py-3 align-top">
-                            <Badge
-                              variant={item.enabled ? "status" : "secondary"}
-                              className={item.enabled ? "" : "text-muted-foreground"}
-                            >
-                              {item.enabled ? "Enabled" : "Paused"}
-                            </Badge>
-                          </td>
-                          <td className="px-4 py-3 text-right align-top">
-                            <div className="flex flex-col items-end gap-2">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="w-28"
-                                onClick={() => openEditor(item)}
-                                disabled={mutatingId === item.schedule_id}
-                                title="Modify schedule"
-                                aria-label={`Modify ${item.schedule_id}`}
-                              >
-                                <Pencil />
-                                Modify
-                              </Button>
-                              <Button
-                                variant={item.enabled ? "outline" : "default"}
-                                size="sm"
-                                className="w-28"
-                                onClick={() => void toggleSchedule(item)}
-                                disabled={mutatingId === item.schedule_id}
-                                title={
-                                  item.enabled
-                                    ? "Pause scheduled runs"
-                                    : "Restart scheduled runs"
-                                }
-                                aria-label={
-                                  item.enabled
-                                    ? `Pause ${item.schedule_id}`
-                                    : `Restart ${item.schedule_id}`
-                                }
-                              >
-                                {mutatingId === item.schedule_id ? (
-                                  <RefreshCw className="animate-spin" />
-                                ) : item.enabled ? (
-                                  <Pause />
-                                ) : (
-                                  <Play />
+                                {attributeEntries.map(([key, value]) => (
+                                  <div
+                                    key={key}
+                                    className="break-words text-xs text-muted-foreground"
+                                  >
+                                    <span className="font-medium">
+                                      {formatAttributeLabel(key)}:
+                                    </span>{" "}
+                                    <span className="font-mono">{value}</span>
+                                  </div>
+                                ))}
+                                {hasOneOffRuns && (
+                                  <div className="pt-1">
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="-ml-2 h-7 px-2 text-xs font-normal text-muted-foreground"
+                                      onClick={() => toggleOneOffRuns(item.schedule_id)}
+                                      aria-expanded={oneOffExpanded}
+                                      aria-controls={oneOffDetailsId}
+                                      aria-label={`${
+                                        oneOffExpanded ? "Hide" : "Show"
+                                      } ${oneOffSummary} for ${item.schedule_id}`}
+                                      title="Show one-off runs"
+                                      type="button"
+                                    >
+                                      {oneOffExpanded ? (
+                                        <ChevronDown className="h-3.5 w-3.5" />
+                                      ) : (
+                                        <ChevronRight className="h-3.5 w-3.5" />
+                                      )}
+                                      <span
+                                        className={
+                                          activeOneOffCount > 0
+                                            ? "text-amber-400"
+                                            : ""
+                                        }
+                                      >
+                                        {oneOffSummary}
+                                      </span>
+                                    </Button>
+                                  </div>
                                 )}
-                                {item.enabled ? "Pause" : "Restart"}
-                              </Button>
-                              <Button
-                                variant="destructive"
-                                size="sm"
-                                className="w-28"
-                                onClick={() => setDeleteItem(item)}
-                                disabled={mutatingId === item.schedule_id}
-                                title="Delete schedule"
-                                aria-label={`Delete ${item.schedule_id}`}
-                              >
-                                <Trash2 />
-                                Delete
-                              </Button>
-                            </div>
-                          </td>
-                        </tr>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 align-top">
+                              <div className="space-y-1">
+                                <div className="font-mono">{item.cron}</div>
+                                {scheduleDescription && (
+                                  <div className="text-xs text-muted-foreground">
+                                    {scheduleDescription}
+                                  </div>
+                                )}
+                                <div className="text-xs text-muted-foreground">
+                                  Timezone: {item.tz}
+                                </div>
+                                <div className="text-xs text-muted-foreground">
+                                  Version {item.version || 1}
+                                </div>
+                                <div className="text-xs text-muted-foreground">
+                                  Created {formatRelative(item.created_at, relativeNow)}
+                                </div>
+                              </div>
+                            </td>
+                            <td className="max-w-md px-4 py-3 align-top">
+                              <code className="block max-h-24 overflow-hidden whitespace-pre-wrap break-words rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">
+                                {item.message_template}
+                              </code>
+                            </td>
+                            <td className="px-4 py-3 align-top">
+                              <div className="space-y-1">
+                                <div>{lastRunLabel(item, relativeNow)}</div>
+                                {item.last_run?.ts && (
+                                  <div className="text-xs text-muted-foreground">
+                                    {formatDateTime(item.last_run.ts)}
+                                  </div>
+                                )}
+                                {item.last_run?.error && (
+                                  <div className="max-w-xs break-words text-xs text-red-300">
+                                    {item.last_run.error}
+                                  </div>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 align-top">
+                              <div className="space-y-2">
+                                <Badge
+                                  variant={item.enabled ? "status" : "secondary"}
+                                  className={item.enabled ? "" : "text-muted-foreground"}
+                                >
+                                  {item.enabled ? "Enabled" : "Paused"}
+                                </Badge>
+                                {!item.enabled && activeOneOffCount > 0 && (
+                                  <div className="max-w-40 text-xs text-amber-300">
+                                    Active one-offs need the parent schedule enabled.
+                                  </div>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 text-right align-top">
+                              <div className="flex flex-col items-end gap-2">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="w-28"
+                                  onClick={() => openEditor(item)}
+                                  disabled={mutatingId === item.schedule_id}
+                                  title="Modify schedule"
+                                  aria-label={`Modify ${item.schedule_id}`}
+                                >
+                                  <Pencil />
+                                  Modify
+                                </Button>
+                                <Button
+                                  variant={item.enabled ? "outline" : "default"}
+                                  size="sm"
+                                  className="w-28"
+                                  onClick={() => void toggleSchedule(item)}
+                                  disabled={mutatingId === item.schedule_id}
+                                  title={
+                                    item.enabled
+                                      ? "Pause scheduled runs"
+                                      : "Restart scheduled runs"
+                                  }
+                                  aria-label={
+                                    item.enabled
+                                      ? `Pause ${item.schedule_id}`
+                                      : `Restart ${item.schedule_id}`
+                                  }
+                                >
+                                  {mutatingId === item.schedule_id ? (
+                                    <RefreshCw className="animate-spin" />
+                                  ) : item.enabled ? (
+                                    <Pause />
+                                  ) : (
+                                    <Play />
+                                  )}
+                                  {item.enabled ? "Pause" : "Restart"}
+                                </Button>
+                                <Button
+                                  variant="destructive"
+                                  size="sm"
+                                  className="w-28"
+                                  onClick={() => setDeleteItem(item)}
+                                  disabled={mutatingId === item.schedule_id}
+                                  title="Delete schedule"
+                                  aria-label={`Delete ${item.schedule_id}`}
+                                >
+                                  <Trash2 />
+                                  Delete
+                                </Button>
+                              </div>
+                            </td>
+                          </tr>
+                          {hasOneOffRuns && oneOffExpanded && (
+                            <tr
+                              id={oneOffDetailsId}
+                              className="border-b bg-muted/10"
+                            >
+                              <td colSpan={6} className="p-0">
+                                <div className="px-4 pb-4 pt-1">
+                                  <div className="border-t border-border/70 pt-3">
+                                    <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                                      <div className="text-sm font-medium">
+                                        One-off fires
+                                      </div>
+                                      <div className="text-xs text-muted-foreground">
+                                        These do not pause or skip the recurring job.
+                                      </div>
+                                    </div>
+
+                                    <div className="mt-3 overflow-hidden border-y bg-background/60">
+                                      <div className="hidden grid-cols-[minmax(10rem,0.9fr)_minmax(14rem,1.1fr)_minmax(16rem,1.4fr)_minmax(12rem,1fr)] gap-3 bg-muted/40 px-3 py-2 text-xs font-medium uppercase text-muted-foreground md:grid">
+                                        <div>Status</div>
+                                        <div>Run Time</div>
+                                        <div>Context</div>
+                                        <div>Result</div>
+                                      </div>
+                                      <div className="divide-y">
+                                        {oneOffRuns.map((run) => {
+                                          const retryLabel = oneOffRetryLabel(run);
+                                          const activePaused =
+                                            !item.enabled && isActiveOneOff(run);
+
+                                          return (
+                                            <div
+                                              key={run.one_off_run_id}
+                                              className="grid gap-3 px-3 py-3 md:grid-cols-[minmax(10rem,0.9fr)_minmax(14rem,1.1fr)_minmax(16rem,1.4fr)_minmax(12rem,1fr)] md:items-start"
+                                            >
+                                              <div className="min-w-0 space-y-1">
+                                                <div className="text-xs font-medium uppercase text-muted-foreground md:hidden">
+                                                  Status
+                                                </div>
+                                                <div className="flex flex-wrap items-center gap-2">
+                                                  <Badge
+                                                    variant={oneOffStatusVariant(run.status)}
+                                                  >
+                                                    {oneOffStatusLabel(run.status)}
+                                                  </Badge>
+                                                  {retryLabel && (
+                                                    <span className="text-xs text-muted-foreground">
+                                                      {retryLabel}
+                                                    </span>
+                                                  )}
+                                                </div>
+                                                <div className="font-mono text-xs text-muted-foreground">
+                                                  {run.one_off_run_id}
+                                                </div>
+                                              </div>
+
+                                              <div className="min-w-0 space-y-1">
+                                                <div className="text-xs font-medium uppercase text-muted-foreground md:hidden">
+                                                  Run Time
+                                                </div>
+                                                <div className="text-sm">
+                                                  {oneOffTimingLabel(run, relativeNow)}
+                                                </div>
+                                                <div className="text-xs text-muted-foreground">
+                                                  {run.run_at
+                                                    ? formatDateTime(run.run_at)
+                                                    : "No run time recorded"}
+                                                </div>
+                                              </div>
+
+                                              <div className="min-w-0 space-y-1">
+                                                <div className="text-xs font-medium uppercase text-muted-foreground md:hidden">
+                                                  Context
+                                                </div>
+                                                <div className="break-words text-xs text-muted-foreground">
+                                                  {oneOffDetailLabel(run)}
+                                                </div>
+                                              </div>
+
+                                              <div className="min-w-0 space-y-1 text-xs text-muted-foreground">
+                                                <div className="font-medium uppercase md:hidden">
+                                                  Result
+                                                </div>
+                                                {run.job_name && (
+                                                  <div className="break-words font-mono">
+                                                    job: {run.job_name}
+                                                  </div>
+                                                )}
+                                                {run.http_status !== null && (
+                                                  <div>HTTP {run.http_status}</div>
+                                                )}
+                                                {activePaused && (
+                                                  <div className="text-amber-300">
+                                                    Parent schedule is paused.
+                                                  </div>
+                                                )}
+                                                {run.error && (
+                                                  <div className="break-words text-red-300">
+                                                    {run.error}
+                                                  </div>
+                                                )}
+                                              </div>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
                       );
                     })
                   )}

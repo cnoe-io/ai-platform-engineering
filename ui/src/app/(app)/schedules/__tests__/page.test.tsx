@@ -65,6 +65,8 @@ jest.mock("lucide-react", () => ({
   AlertTriangle: (props: any) => <svg {...props} />,
   Bot: (props: any) => <svg {...props} />,
   CalendarClock: (props: any) => <svg {...props} />,
+  ChevronDown: (props: any) => <svg {...props} />,
+  ChevronRight: (props: any) => <svg {...props} />,
   CheckCircle2: (props: any) => <svg {...props} />,
   Clock3: (props: any) => <svg {...props} />,
   History: (props: any) => <svg {...props} />,
@@ -161,6 +163,84 @@ describe("SchedulesPage", () => {
     expect(screen.getByText("Every 5 minutes")).toBeInTheDocument();
     expect(screen.getByText("Timezone: UTC")).toBeInTheDocument();
     expect(screen.queryByText("caipe-sched-schedule-1")).not.toBeInTheDocument();
+  });
+
+  it("collapses one-off runs under their recurring schedule", async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        success: true,
+        data: {
+          total: 1,
+          items: [
+            {
+              schedule_id: "schedule-1",
+              agent_id: "agent-1",
+              edit_agent_id: "agent-sunny-webex-meeting-test",
+              agent_name: "Agent One",
+              title: "Important Team 2 Meeting Writeup",
+              message_template: "Run the writeup",
+              pod_id: "important-team-2",
+              attributes: {
+                pod_id: "important-team-2",
+                workflow: "writeup",
+              },
+              cron: "0 18 * * TUE",
+              tz: "UTC",
+              enabled: true,
+              cronjob_name: "caipe-sched-schedule-1",
+              version: 1,
+              versions: [],
+              created_at: "2026-05-25T00:00:00Z",
+              updated_at: null,
+              last_run: null,
+              one_off_runs: [
+                {
+                  one_off_run_id: "oneoff-1",
+                  schedule_id: "schedule-1",
+                  run_at: "2026-06-12T18:10:00Z",
+                  status: "pending",
+                  message_template: null,
+                  reason: "transcript_not_ready",
+                  retry_num: 1,
+                  retry_limit: 3,
+                  job_name: null,
+                  error: null,
+                  http_status: null,
+                  created_at: "2026-06-12T18:00:00Z",
+                  updated_at: "2026-06-12T18:00:00Z",
+                  claimed_at: null,
+                  fired_at: null,
+                  completed_at: null,
+                },
+              ],
+            },
+          ],
+        },
+      }),
+    });
+
+    render(<SchedulesPage />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Important Team 2 Meeting Writeup")).toBeInTheDocument()
+    );
+
+    expect(screen.getByText("1 active one-off")).toBeInTheDocument();
+    expect(screen.queryByText("One-off fires")).not.toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Show 1 active one-off for schedule-1",
+      })
+    );
+
+    expect(screen.getByText("One-off fires")).toBeInTheDocument();
+    expect(screen.getByText("These do not pause or skip the recurring job.")).toBeInTheDocument();
+    expect(screen.getByText("Pending")).toBeInTheDocument();
+    expect(screen.getByText("Retry 1 / 3")).toBeInTheDocument();
+    expect(screen.getByText("oneoff-1")).toBeInTheDocument();
+    expect(screen.getByText("transcript_not_ready")).toBeInTheDocument();
   });
 
   it("lets users edit the schedule title", async () => {
