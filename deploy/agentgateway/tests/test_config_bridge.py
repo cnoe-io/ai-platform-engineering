@@ -11,6 +11,8 @@ import sys
 import urllib.error
 from pathlib import Path
 
+import yaml
+
 
 BRIDGE_PATH = Path(__file__).resolve().parents[1] / "config_bridge.py"
 spec = importlib.util.spec_from_file_location("agentgateway_config_bridge", BRIDGE_PATH)
@@ -474,3 +476,40 @@ def test_reconcile_keeps_existing_config_when_admin_config_is_unavailable(
         raise AssertionError("reconcile should wait for the live config instead of overwriting")
 
     assert config_path.read_text(encoding="utf-8") == existing_config
+
+
+def test_apply_agentgateway_logging_defaults_to_info() -> None:
+    config = _baseline_config()
+    assert config["config"]["logging"]["level"] == "debug"
+
+    bridge.apply_agentgateway_logging(config)
+
+    assert config["config"]["logging"]["level"] == "info"
+    assert config["config"]["logging"]["format"] == "json"
+
+
+def test_apply_agentgateway_logging_honors_env(monkeypatch) -> None:
+    monkeypatch.setenv("AGENTGATEWAY_LOG_LEVEL", "warn")
+    config = _baseline_config()
+
+    bridge.apply_agentgateway_logging(config)
+
+    assert config["config"]["logging"]["level"] == "warn"
+
+
+def test_reconcile_once_enforces_logging_level(tmp_path: Path, monkeypatch) -> None:
+    config_path = tmp_path / "generated" / "config.yaml"
+    config_path.parent.mkdir()
+    config_path.write_text("binds: []\n", encoding="utf-8")
+
+    monkeypatch.setattr(bridge, "_load_targets_from_mongo", lambda: [])
+    monkeypatch.setattr(
+        bridge,
+        "fetch_agentgateway_config",
+        lambda _admin_config_url: _baseline_config(),
+    )
+
+    bridge.reconcile_once(config_path=config_path, admin_config_url="http://agentgateway:15000/config")
+
+    rendered = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    assert rendered["config"]["logging"]["level"] == "info"
