@@ -29,6 +29,18 @@ dependencies = [
     # assisted-by Codex Codex-sonnet-4-6
 ]
 
+[project.optional-dependencies]
+bigtool-openai = [
+    "langchain-openai>=1.1.0",
+]
+bigtool-faiss = [
+    "faiss-cpu>=1.7.4",
+    "langchain-community>=0.3.0",
+]
+bigtool-huggingface = [
+    "langchain-huggingface>=0.1.0",
+]
+
 [tool.hatch.build.targets.wheel]
 packages = ["."]
 
