@@ -58,9 +58,16 @@ jest.mock("@/lib/rbac/openfga-team-membership", () => ({
   listUserTeamSlugs: jest.fn().mockResolvedValue([]),
 }));
 
-jest.mock("@/lib/rbac/keycloak-resource-sync", () => ({
-  syncTaskResource: jest.fn(),
+jest.mock("@/lib/server/workflow-cas-authz", () => ({
+  filterAccessibleWorkflowConfigs: jest.fn(),
+  workflowAccessAllowed: jest.fn().mockResolvedValue(false),
+  requireWorkflowAccess: jest.fn(),
+  requireWorkflowRunAccess: jest.fn(),
+  workflowSubjectFromSession: jest.fn(() => ({ type: "user", id: "alice-sub" })),
 }));
+
+const mockFilterAccessibleWorkflowConfigs = jest.requireMock("@/lib/server/workflow-cas-authz")
+  .filterAccessibleWorkflowConfigs as jest.Mock;
 
 function request(path: string): NextRequest {
   return new NextRequest(new URL(path, "http://localhost:3000"));
@@ -73,6 +80,7 @@ describe("task/workflow config RBAC cutover", () => {
     mockRequireRbacPermission.mockRejectedValue(new Error("not admin"));
     mockRequireResourcePermission.mockResolvedValue(undefined);
     mockFilterResourcesByPermission.mockImplementation(async (_session, items) => items);
+    mockFilterAccessibleWorkflowConfigs.mockImplementation(async (_session, items) => items);
   });
 
   it("lists task configs through OpenFGA task discover instead of legacy team visibility", async () => {
@@ -105,7 +113,7 @@ describe("task/workflow config RBAC cutover", () => {
       { _id: "wf-openfga", name: "OpenFGA Workflow", visibility: "private", owner_id: "bob@example.com" },
       { _id: "wf-global", name: "Global Workflow", visibility: "global", owner_id: "system" },
     ];
-    mockFilterResourcesByPermission.mockResolvedValue([configs[0]]);
+    mockFilterAccessibleWorkflowConfigs.mockResolvedValue([configs[0]]);
     const sort = jest.fn().mockReturnValue({ toArray: jest.fn().mockResolvedValue(configs) });
     const find = jest.fn().mockReturnValue({ sort });
     const teamsCollection = {
@@ -126,11 +134,11 @@ describe("task/workflow config RBAC cutover", () => {
     expect(response.status).toBe(200);
     expect(mockGetUserTeamIds).not.toHaveBeenCalled();
     expect(find).toHaveBeenCalledWith({});
-    expect(mockFilterResourcesByPermission).toHaveBeenCalledWith(
+    expect(mockFilterAccessibleWorkflowConfigs).toHaveBeenCalledWith(
       expect.objectContaining({ sub: "alice-sub" }),
       configs,
-      { type: "task", action: "read", id: expect.any(Function) },
-      { bypassForOrgAdmin: true },
+      expect.any(Function),
+      "read",
     );
     expect(body).toEqual(
       expect.arrayContaining([

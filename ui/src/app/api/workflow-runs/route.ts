@@ -283,10 +283,10 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
 
   // List all runs — filter to only those whose configs the user can read.
   const configCol = await getCollection<WorkflowConfig>("workflow_configs");
-  const configCandidates = await configCol
+  const configCandidates = (await configCol
     .find({})
     .project({ _id: 1, owner_id: 1, visibility: 1, shared_with_teams: 1, config_driven: 1 })
-    .toArray();
+    .toArray()) as WorkflowConfigRebacSnapshot[];
   const userTeamSlugs = await resolveUserTeamSlugsForWorkflow(user.email, session);
   const teamRefToSlug = await buildTeamRefToSlugMap();
   const byVisibility = filterWorkflowConfigsByRunAccess(
@@ -298,7 +298,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   const byFga = await filterAccessibleWorkflowConfigs(
     session,
     configCandidates,
-    (config) => config._id as string,
+    (config) => String(config._id),
     "read",
   );
   const accessibleConfigs = mergeWorkflowConfigsById(byVisibility, byFga);
