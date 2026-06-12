@@ -4661,6 +4661,19 @@ JSON
   RAG_INGESTOR_SECRET_READY=true
   RAG_INGESTOR_OIDC_ISSUER="${issuer}"
   RAG_INGESTOR_OIDC_CLIENT_ID="${client_id}"
+
+  # Restart rag-server so the web-ingestor sidecar picks up the new secret.
+  # Use maxUnavailable=1/maxSurge=0 to avoid scheduling failure on CPU-constrained
+  # single-node clusters where a surge pod cannot fit alongside the old pod.
+  if kubectl get deploy rag-server -n caipe &>/dev/null 2>&1; then
+    local _rs_patch='{"spec":{"strategy":{"rollingUpdate":{"maxUnavailable":1,"maxSurge":0}}}}'
+    kubectl patch deploy rag-server -n caipe -p "$_rs_patch" &>/dev/null 2>&1 || true
+    kubectl rollout restart deploy/rag-server -n caipe &>/dev/null 2>&1 || true
+    kubectl rollout status deploy/rag-server -n caipe --timeout=120s &>/dev/null 2>&1 || true
+    local _rs_restore='{"spec":{"strategy":{"rollingUpdate":{"maxUnavailable":"25%","maxSurge":"25%"}}}}'
+    kubectl patch deploy rag-server -n caipe -p "$_rs_restore" &>/dev/null 2>&1 || true
+    log "RAG ingestor: rag-server restarted to pick up new client secret"
+  fi
 }
 
 # Update caipe-ui and caipe-platform Keycloak client redirect URIs, web origins,
