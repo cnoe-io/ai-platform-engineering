@@ -171,11 +171,28 @@ volumeMounts: []
 #   mountPath: "/etc/foo"
 #   readOnly: true
 
+# Karpenter: to target the `agents` NodePool, set these values or use deploy/eks/values-karpenter.yaml.
+# nodeSelector:
+#   workload-type: agent
+# tolerations:
+#   - key: workload-type
+#     operator: Equal
+#     value: agent
+#     effect: NoSchedule
+
 nodeSelector: {}
 
 tolerations: []
 
 affinity: {}
+
+# PodDisruptionBudget: prevents simultaneous eviction of all replicas during voluntary disruptions.
+# Enable in production; leave disabled for local/single-node environments.
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+  # maxUnavailable: 1  # alternative: allow 1 disruption at a time regardless of replica count
+  annotations: {}
 
 # Environment variables (non-sensitive and sensitive from secrets)
 env: {}
