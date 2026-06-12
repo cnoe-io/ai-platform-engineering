@@ -22,7 +22,9 @@ TooltipContent,
 TooltipProvider,
 TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useToast } from "@/components/ui/toast";
 import { cn,formatRelativeTime } from "@/lib/utils";
+import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
 import { useWorkflowConfigStore } from "@/store/workflow-config-store";
 import {
 useWorkflowExecStore,
@@ -161,6 +163,7 @@ export function WorkflowSidebar({
   onCollapse,
 }: WorkflowSidebarProps) {
   const router = useRouter();
+  const { toast } = useToast();
   const params = useParams();
   const activeRunId = params?.id as string | undefined;
 
@@ -169,12 +172,14 @@ export function WorkflowSidebar({
   const {
     configs,
     isLoading: isLoadingConfigs,
+    error: configsError,
     loadConfigs,
     deleteConfig,
     openEditor,
     editMode,
     selectedConfigId,
   } = useWorkflowConfigStore();
+  const requestDeferredAction = useUnsavedChangesStore((s) => s.requestDeferredAction);
 
   const [activeTab, setActiveTab] = useState<SidebarTab>("workflows");
   const [tabDirection, setTabDirection] = useState(0); // -1 = left, 1 = right
@@ -208,7 +213,7 @@ export function WorkflowSidebar({
   const hasActiveFilters = statusFilter.size > 0 || configFilter !== null || searchQuery.length > 0;
 
   const filteredRuns = useMemo(() => {
-    let result = runs;
+    let result = Array.isArray(runs) ? runs : [];
     if (statusFilter.size > 0) {
       result = result.filter((r) => statusFilter.has(r.status));
     }
@@ -240,10 +245,17 @@ export function WorkflowSidebar({
   const switchTab = useCallback(
     (tab: SidebarTab) => {
       if (tab === activeTab) return;
-      setTabDirection(tab === "runs" ? 1 : -1);
-      setActiveTab(tab);
+      const doSwitch = () => {
+        setTabDirection(tab === "runs" ? 1 : -1);
+        setActiveTab(tab);
+      };
+      if (editMode) {
+        requestDeferredAction(doSwitch);
+        return;
+      }
+      doSwitch();
     },
-    [activeTab]
+    [activeTab, editMode, requestDeferredAction],
   );
 
   const handleRefresh = useCallback(async () => {
@@ -257,22 +269,29 @@ export function WorkflowSidebar({
   }, [activeTab, loadConfigs, loadRuns]);
 
   const handleSelectRun = (runId: string) => {
-    router.push(`/workflows/run/${runId}`);
+    requestDeferredAction(() => router.push(`/workflows/run/${runId}`));
   };
 
   const handleEditConfig = (config: WorkflowConfig) => {
-    openEditor("edit", config._id);
-    router.push("/workflows");
+    if (editMode === "edit" && selectedConfigId === config._id) return;
+    requestDeferredAction(() => {
+      openEditor("edit", config._id);
+      router.push("/workflows");
+    });
   };
 
   const handleCloneConfig = (config: WorkflowConfig) => {
-    openEditor("clone", config._id);
-    router.push("/workflows");
+    requestDeferredAction(() => {
+      openEditor("clone", config._id);
+      router.push("/workflows");
+    });
   };
 
   const handleNewConfig = () => {
-    openEditor("new");
-    router.push("/workflows");
+    requestDeferredAction(() => {
+      openEditor("new");
+      router.push("/workflows");
+    });
   };
 
   const handleDeleteConfig = async (config: WorkflowConfig) => {
@@ -304,7 +323,7 @@ export function WorkflowSidebar({
       switchTab("runs");
       router.push(`/workflows/run/${runId}`);
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to start workflow");
+      toast(err instanceof Error ? err.message : "Failed to start workflow", "error");
     }
   };
 
@@ -660,6 +679,7 @@ export function WorkflowSidebar({
                       <WorkflowsTab
                         configs={configs}
                         isLoading={isLoadingConfigs}
+                        error={configsError}
                         selectedConfigId={editMode ? selectedConfigId : null}
                         searchQuery={workflowSearchQuery}
                         onEdit={handleEditConfig}
@@ -742,6 +762,7 @@ export function WorkflowSidebar({
 function WorkflowsTab({
   configs,
   isLoading,
+  error,
   selectedConfigId,
   searchQuery,
   onEdit,
@@ -751,6 +772,7 @@ function WorkflowsTab({
 }: {
   configs: WorkflowConfig[];
   isLoading: boolean;
+  error: string | null;
   selectedConfigId: string | null;
   searchQuery: string;
   onEdit: (config: WorkflowConfig) => void;
@@ -762,6 +784,16 @@ function WorkflowsTab({
     return (
       <div className="flex items-center justify-center py-10">
         <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (error && configs.length === 0) {
+    return (
+      <div className="text-center py-10 px-4">
+        <XCircle className="h-8 w-8 text-destructive/70 mx-auto mb-3" />
+        <p className="text-sm text-foreground font-medium">Could not load workflows</p>
+        <p className="text-xs text-muted-foreground mt-1">{error}</p>
       </div>
     );
   }
@@ -796,7 +828,7 @@ function WorkflowsTab({
     <div className="py-1">
       {filtered.map((config) => {
         const isActive = config._id === selectedConfigId;
-        const stepCount = config.steps.length;
+        const stepCount = config.steps?.length ?? 0;
 
         return (
           <div
@@ -1022,7 +1054,8 @@ function RunsTab({
         const isActive = run._id === activeRunId;
         const configName =
           configNameMap[run.workflow_config_id] || run.workflow_config_id;
-        const completedSteps = run.steps.filter(
+        const runSteps = run.steps ?? [];
+        const completedSteps = runSteps.filter(
           (s) => s.status === "completed"
         ).length;
 
@@ -1044,7 +1077,7 @@ function RunsTab({
               </div>
               <div className="flex items-center justify-between text-[11px] text-muted-foreground pl-5">
                 <span>
-                  {completedSteps}/{run.steps.length} steps
+                  {completedSteps}/{runSteps.length} steps
                 </span>
                 {run.started_at && <span>{formatRelativeTime(run.started_at)}</span>}
               </div>

@@ -51,6 +51,11 @@ jest.mock("@/lib/api-middleware", () => {
 jest.mock("@/lib/rbac/resource-authz", () => ({
   filterResourcesByPermission: (...args: unknown[]) => mockFilterResourcesByPermission(...args),
   requireResourcePermission: (...args: unknown[]) => mockRequireResourcePermission(...args),
+  subjectFromSession: () => "alice-sub",
+}));
+
+jest.mock("@/lib/rbac/openfga-team-membership", () => ({
+  listUserTeamSlugs: jest.fn().mockResolvedValue([]),
 }));
 
 jest.mock("@/lib/rbac/keycloak-resource-sync", () => ({
@@ -95,15 +100,24 @@ describe("task/workflow config RBAC cutover", () => {
     expect(body).toEqual([expect.objectContaining({ id: "task-openfga" })]);
   });
 
-  it("loads workflow configs through OpenFGA task discover instead of legacy team visibility", async () => {
+  it("lists global workflows for non-admins via visibility and merges OpenFGA read grants", async () => {
     const configs = [
       { _id: "wf-openfga", name: "OpenFGA Workflow", visibility: "private", owner_id: "bob@example.com" },
-      { _id: "wf-denied", name: "Denied Workflow", visibility: "global" },
+      { _id: "wf-global", name: "Global Workflow", visibility: "global", owner_id: "system" },
     ];
     mockFilterResourcesByPermission.mockResolvedValue([configs[0]]);
     const sort = jest.fn().mockReturnValue({ toArray: jest.fn().mockResolvedValue(configs) });
     const find = jest.fn().mockReturnValue({ sort });
-    mockGetCollection.mockResolvedValue({ find });
+    const teamsCollection = {
+      find: jest.fn().mockReturnValue({
+        project: jest.fn().mockReturnValue({
+          toArray: jest.fn().mockResolvedValue([]),
+        }),
+      }),
+    };
+    mockGetCollection.mockImplementation(async (name: string) =>
+      name === "teams" ? teamsCollection : { find },
+    );
     const { GET } = await import("../workflow-configs/route");
 
     const response = await GET(request("/api/workflow-configs"));
@@ -115,8 +129,15 @@ describe("task/workflow config RBAC cutover", () => {
     expect(mockFilterResourcesByPermission).toHaveBeenCalledWith(
       expect.objectContaining({ sub: "alice-sub" }),
       configs,
-      { type: "task", action: "discover", id: expect.any(Function) },
+      { type: "task", action: "read", id: expect.any(Function) },
+      { bypassForOrgAdmin: true },
     );
-    expect(body).toEqual([expect.objectContaining({ _id: "wf-openfga" })]);
+    expect(body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ _id: "wf-openfga" }),
+        expect.objectContaining({ _id: "wf-global" }),
+      ]),
+    );
+    expect(body).toHaveLength(2);
   });
 });
