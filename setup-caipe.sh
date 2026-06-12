@@ -6403,8 +6403,30 @@ DAEOF
         provider: "azure-openai"
         description: "GPT-4o via Azure OpenAI"
 DAEOF
+    elif $ENABLE_OLLAMA; then
+      # Ollama uses the OpenAI-compatible API; seed the actual Ollama model name
+      # (OPENAI_MODEL_NAME = OLLAMA_MODEL, e.g. lfm2.5) so dynamic agents can find it.
+      local _ollama_display="${OPENAI_MODEL_NAME:-lfm2.5}"
+      cat >> "$_da_values_file" <<DAEOF
+      - model_id: "${_ollama_display}"
+        name: "${_ollama_display} (Ollama)"
+        provider: "openai"
+        description: "Local model served via in-cluster Ollama"
+DAEOF
+    elif [[ "$_provider" == "openai" ]]; then
+      local _oai_model="${OPENAI_MODEL_NAME:-gpt-4o-mini}"
+      cat >> "$_da_values_file" <<DAEOF
+      - model_id: "gpt-4o-mini"
+        name: "GPT-4o Mini"
+        provider: "openai"
+        description: "Fast GPT-4o Mini via OpenAI"
+      - model_id: "${_oai_model}"
+        name: "${_oai_model}"
+        provider: "openai"
+        description: "Primary model via OpenAI"
+DAEOF
     else
-      # anthropic-claude (default) and other providers use short model names
+      # anthropic-claude (default)
       local _anthropic_model="${ANTHROPIC_MODEL_NAME:-claude-haiku-4-5}"
       cat >> "$_da_values_file" <<DAEOF
       - model_id: "${_anthropic_model}"
@@ -6551,6 +6573,18 @@ DAEOF
         --set 'rag-stack.rag-server.env.OIDC_CLIENT_ID=caipe-ui'
         --set 'rag-stack.rag-server.env.OIDC_GROUP_CLAIM=members\,groups'
       )
+    fi
+    # Pre-load ingestor secret state from an existing cluster secret so that
+    # re-runs (upgrade path) also get webIngestor.enabled=true without having
+    # to wait for post_deploy_patches to re-provision Keycloak credentials.
+    if [[ "${RAG_INGESTOR_SECRET_READY:-false}" != "true" ]] \
+        && kubectl get secret rag-ingestor-secret -n caipe &>/dev/null 2>&1; then
+      RAG_INGESTOR_OIDC_ISSUER=$(kubectl get secret rag-ingestor-secret -n caipe \
+        -o jsonpath='{.data.INGESTOR_OIDC_ISSUER}' 2>/dev/null | base64 -d || true)
+      RAG_INGESTOR_OIDC_CLIENT_ID=$(kubectl get secret rag-ingestor-secret -n caipe \
+        -o jsonpath='{.data.INGESTOR_OIDC_CLIENT_ID}' 2>/dev/null | base64 -d || true)
+      [[ -n "$RAG_INGESTOR_OIDC_ISSUER" ]] && RAG_INGESTOR_SECRET_READY=true \
+        && log "RAG web-ingestor: loaded existing rag-ingestor-secret from cluster"
     fi
     # Wire Keycloak client credentials into both rag-server (token validation)
     # and web-ingestor (token acquisition) when the secret was provisioned.
