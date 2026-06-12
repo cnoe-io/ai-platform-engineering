@@ -241,36 +241,6 @@ beforeEach(() => {
       rebacCheckAllowed = (lastChangeSetBody?.writes?.length ?? 0) > 0;
       return jsonResponse({ data: { applied: true } });
     }
-    if (url.startsWith("/api/admin/openfga/baseline-diagnostics")) {
-      return jsonResponse({
-        data: {
-          user_id: "alice-sub",
-          summary: { total: 2, matches_member: 2, matches_admin: 1, member_drift: 0, admin_drift: 1 },
-          checks: [
-            {
-              id: "baseline-metrics-read",
-              label: "Read-only metrics admin surface",
-              tuple: { user: "user:alice-sub", relation: "can_read", object: "admin_surface:metrics" },
-              actual: true,
-              expected_member: true,
-              expected_admin: true,
-              matches_member: true,
-              matches_admin: true,
-            },
-            {
-              id: "organization-manage",
-              label: "Organization manage",
-              tuple: { user: "user:alice-sub", relation: "can_manage", object: "organization:caipe" },
-              actual: false,
-              expected_member: false,
-              expected_admin: true,
-              matches_member: true,
-              matches_admin: false,
-            },
-          ],
-        },
-      });
-    }
     if (url === "/api/admin/slack/channels") {
       return jsonResponse({ data: { channels: [] } });
     }
@@ -323,7 +293,7 @@ function jsonResponse(payload: unknown): Response {
 it("does not expose the low-value Enforcement Status tab", async () => {
   render(<OpenFgaRebacTab isAdmin />);
 
-  expect(await screen.findByRole("tab", { name: "Access Manager" })).toBeInTheDocument();
+  expect(await screen.findByRole("tab", { name: "OpenFGA Tuples" })).toBeInTheDocument();
   expect(screen.queryByRole("tab", { name: "Enforcement Status" })).not.toBeInTheDocument();
 });
 
@@ -337,9 +307,7 @@ it("orders OpenFGA tabs by operational flow and defaults to tuples", async () =>
   expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
     "OpenFGA Tuples",
     "Policy Graph",
-    "Access Manager",
     "Default FGA Grants",
-    "Diagnostics",
   ]);
   expect(await screen.findByText("OpenFGA Tuple Store")).toBeInTheDocument();
 
@@ -361,17 +329,18 @@ it("falls back to tuples for integration-owned Slack/Webex query strings", async
   expect(screen.queryByRole("tab", { name: "Webex Spaces" })).not.toBeInTheDocument();
 });
 
-it("keeps OpenFGA focused on tuples, graph, access management, and diagnostics", async () => {
+it("keeps OpenFGA focused on tuples, graph, and default grants", async () => {
   currentSearchParams = new URLSearchParams("subtab=tuples");
 
   render(<OpenFgaRebacTab isAdmin />);
 
-  expect(await screen.findByRole("tab", { name: "Access Manager" })).toBeInTheDocument();
+  expect(await screen.findByRole("tab", { name: "OpenFGA Tuples" })).toBeInTheDocument();
+  expect(screen.getByRole("tab", { name: "Policy Graph" })).toBeInTheDocument();
+  expect(screen.getByRole("tab", { name: "Default FGA Grants" })).toBeInTheDocument();
+  expect(screen.queryByRole("tab", { name: "Access Manager" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("tab", { name: "Diagnostics" })).not.toBeInTheDocument();
   expect(screen.queryByRole("tab", { name: "Relationship Builder" })).not.toBeInTheDocument();
   expect(screen.queryByRole("tab", { name: "Effective Access" })).not.toBeInTheDocument();
-  expect(screen.getByRole("tab", { name: "Policy Graph" })).toBeInTheDocument();
-  expect(screen.getByRole("tab", { name: "OpenFGA Tuples" })).toBeInTheDocument();
-  expect(screen.getByRole("tab", { name: "Diagnostics" })).toBeInTheDocument();
   expect(screen.queryByRole("tab", { name: "RAG Team Access" })).not.toBeInTheDocument();
   expect(screen.queryByRole("tab", { name: "Slack Channels" })).not.toBeInTheDocument();
   expect(screen.queryByRole("tab", { name: "Webex Spaces" })).not.toBeInTheDocument();
@@ -401,47 +370,6 @@ it("only reloads tuple filters when Apply filters is clicked", async () => {
   ).toBe("/api/admin/openfga/tuples?relation=can&limit=100");
 });
 
-it("runs baseline diagnostics for an individual user", async () => {
-  const user = userEvent.setup();
-  currentSearchParams = new URLSearchParams("openfgaTab=diagnostics");
-
-  render(<OpenFgaRebacTab isAdmin />);
-
-  expect(await screen.findByRole("tab", { name: "Diagnostics" })).toHaveAttribute(
-    "aria-selected",
-    "true"
-  );
-  await user.type(screen.getByLabelText("User subject"), "alice-sub");
-  await user.click(screen.getByRole("button", { name: "Diagnose" }));
-
-  expect(await screen.findByText("Member baseline drift")).toBeInTheDocument();
-  expect(screen.getByText("Read-only metrics admin surface")).toBeInTheDocument();
-  expect(fetchMock).toHaveBeenCalledWith(
-    "/api/admin/openfga/baseline-diagnostics?userId=alice-sub"
-  );
-});
-
-it("maps legacy relationship builder links to the access manager", async () => {
-  currentSearchParams = new URLSearchParams("openfgaTab=builder");
-
-  render(<OpenFgaRebacTab isAdmin />);
-
-  expect(await screen.findByRole("tab", { name: "Access Manager" })).toHaveAttribute(
-    "aria-selected",
-    "true"
-  );
-  expect(await screen.findByText("Access Manager Permission Cheatsheet")).toBeInTheDocument();
-  expect(screen.getByText("Base relationships you write")).toBeInTheDocument();
-  expect(screen.getByText("Derived permissions OpenFGA checks")).toBeInTheDocument();
-  expect(screen.getByText(/team:<slug>#member user agent:<id>/)).toBeInTheDocument();
-  expect(screen.getAllByText(/use or invoke agent/).length).toBeGreaterThan(0);
-  expect(screen.getByText("Subjects and usersets")).toBeInTheDocument();
-  expect(screen.getByText("Resource objects")).toBeInTheDocument();
-  expect(screen.getByText("user:<sub>")).toBeInTheDocument();
-  expect(screen.getByText("team:<slug>#member")).toBeInTheDocument();
-  expect(screen.getByText("conversation:<id>")).toBeInTheDocument();
-  expect(screen.getByText("system_config:<key>")).toBeInTheDocument();
-});
 
 it("starts the policy graph with a clean team workspace and selected resources only", async () => {
   const user = userEvent.setup();
@@ -735,139 +663,4 @@ it("shows the manual user subject controls inside the fullscreen graph", async (
   });
 });
 
-it("exposes catalog-backed universal resource types in the access manager", async () => {
-  currentSearchParams = new URLSearchParams("openfgaTab=access");
-
-  render(<OpenFgaRebacTab isAdmin />);
-
-  expect(await screen.findByRole("tab", { name: "Access Manager" })).toHaveAttribute(
-    "aria-selected",
-    "true"
-  );
-
-  const resourceType = screen.getByLabelText("Resource type");
-  expect(within(resourceType).getByRole("option", { name: "Team" })).toBeInTheDocument();
-  expect(within(resourceType).getByRole("option", { name: "Slack channel" })).toBeInTheDocument();
-  expect(within(resourceType).getByRole("option", { name: "AgentGateway" })).toBeInTheDocument();
-  expect(within(resourceType).getByRole("option", { name: "MCP server" })).toBeInTheDocument();
-  expect(within(resourceType).getByRole("option", { name: "Tool" })).toBeInTheDocument();
-});
-
-it("checks effective access for a searched user subject", async () => {
-  const user = userEvent.setup();
-  currentSearchParams = new URLSearchParams("openfgaTab=access");
-
-  render(<OpenFgaRebacTab isAdmin />);
-
-  expect(await screen.findByRole("tab", { name: "Access Manager" })).toHaveAttribute(
-    "aria-selected",
-    "true"
-  );
-
-  await user.selectOptions(screen.getByLabelText("Subject type"), "user");
-  await user.type(screen.getByLabelText("Subject"), "alice");
-  await user.click(screen.getByRole("button", { name: "Search subjects" }));
-  await user.click(await screen.findByRole("button", { name: /Alice Admin/ }));
-
-  await user.selectOptions(screen.getByLabelText("Resource type"), "agent");
-  await user.selectOptions(screen.getByLabelText("Resource"), "agent-1");
-  await user.selectOptions(screen.getByLabelText("Action"), "use");
-  await user.click(screen.getByRole("button", { name: "Explain effective access" }));
-
-  await waitFor(() => {
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/admin/rebac/check",
-      expect.objectContaining({
-        method: "POST",
-        body: JSON.stringify({
-          relationship: {
-            subject: { type: "user", id: "alice-sub" },
-            action: "use",
-            resource: { type: "agent", id: "agent-1" },
-          },
-        }),
-      })
-    );
-  });
-});
-
-it("lets admins grant the selected relationship when effective access is denied", async () => {
-  const user = userEvent.setup();
-  rebacCheckAllowed = false;
-  currentSearchParams = new URLSearchParams("openfgaTab=access");
-
-  render(<OpenFgaRebacTab isAdmin />);
-
-  expect(await screen.findByRole("tab", { name: "Access Manager" })).toHaveAttribute(
-    "aria-selected",
-    "true"
-  );
-
-  await user.selectOptions(screen.getByLabelText("Action"), "use");
-  await user.click(screen.getByRole("button", { name: "Explain effective access" }));
-  expect(await screen.findByText("denied")).toBeInTheDocument();
-
-  await user.click(screen.getByRole("button", { name: "Grant this access" }));
-
-  await waitFor(() => {
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/admin/rebac/change-sets",
-      expect.objectContaining({
-        method: "POST",
-        body: JSON.stringify({
-          name: "Grant effective access use agent:agent-1",
-          writes: [
-            {
-              subject: { type: "team", id: "platform", relation: "member" },
-              action: "use",
-              resource: { type: "agent", id: "agent-1" },
-            },
-          ],
-          deletes: [],
-        }),
-      })
-    );
-  });
-  expect(await screen.findByText("allowed")).toBeInTheDocument();
-});
-
-it("lets admins revoke the selected relationship when effective access is allowed", async () => {
-  const user = userEvent.setup();
-  rebacCheckAllowed = true;
-  currentSearchParams = new URLSearchParams("openfgaTab=access");
-
-  render(<OpenFgaRebacTab isAdmin />);
-
-  expect(await screen.findByRole("tab", { name: "Access Manager" })).toHaveAttribute(
-    "aria-selected",
-    "true"
-  );
-
-  await user.selectOptions(screen.getByLabelText("Action"), "use");
-  await user.click(screen.getByRole("button", { name: "Explain effective access" }));
-  expect(await screen.findByText("allowed")).toBeInTheDocument();
-
-  await user.click(screen.getByRole("button", { name: "Revoke this access" }));
-
-  await waitFor(() => {
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/admin/rebac/change-sets",
-      expect.objectContaining({
-        method: "POST",
-        body: JSON.stringify({
-          name: "Revoke effective access use agent:agent-1",
-          writes: [],
-          deletes: [
-            {
-              subject: { type: "team", id: "platform", relation: "member" },
-              action: "use",
-              resource: { type: "agent", id: "agent-1" },
-            },
-          ],
-        }),
-      })
-    );
-  });
-  expect(await screen.findByText("denied")).toBeInTheDocument();
-});
 

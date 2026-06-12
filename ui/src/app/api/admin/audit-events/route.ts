@@ -9,9 +9,11 @@ UnifiedAuditOutcome,
 import { getServerSession } from "next-auth";
 import { NextRequest,NextResponse } from "next/server";
 
+// assisted-by Codex Codex-sonnet-4-6
+
 const COLLECTION = "audit_events";
 
-const VALID_TYPES: AuditEventType[] = ["auth", "tool_action", "agent_delegation", "openfga_rebac"];
+const VALID_TYPES: AuditEventType[] = ["auth", "tool_action", "agent_delegation", "openfga_rebac", "cas_decision", "cas_grant"];
 const VALID_OUTCOMES: UnifiedAuditOutcome[] = ["allow", "deny", "success", "error"];
 
 interface AuditEventDocument {
@@ -31,11 +33,19 @@ interface AuditEventDocument {
   context_id?: string;
   component?: string;
   resource_ref?: string;
+  resource_type?: string;
+  resource_id?: string;
+  workflow_run_id?: string;
+  decision_via?: string;
   pdp?: string;
   source: string;
   trace_id?: string;
   span_id?: string;
   trace_url?: string;
+  actor_hash?: string;
+  caller_ref?: string;
+  grantee_ref?: string;
+  operation?: "grant" | "revoke";
 }
 
 function normalizeAuditSource(source: string): UnifiedAuditEvent["source"] {
@@ -76,11 +86,61 @@ function documentToEvent(doc: AuditEventDocument): UnifiedAuditEvent {
     context_id: doc.context_id,
     component: doc.component,
     resource_ref: doc.resource_ref,
+    resource_type: doc.resource_type,
+    resource_id: doc.resource_id,
+    workflow_run_id: doc.workflow_run_id,
+    decision_via: doc.decision_via,
     pdp: doc.pdp,
     source: normalizeAuditSource(doc.source),
+    actor_hash: doc.actor_hash,
+    caller_ref: doc.caller_ref,
+    grantee_ref: doc.grantee_ref,
+    operation: doc.operation,
     trace_id: doc.trace_id,
     span_id: doc.span_id,
   };
+}
+
+async function enrichMissingUserEmails(
+  coll: Awaited<ReturnType<typeof getCollection<AuditEventDocument>>>,
+  records: UnifiedAuditEvent[],
+): Promise<UnifiedAuditEvent[]> {
+  const hashes = Array.from(
+    new Set(
+      records
+        .filter((record) => !record.user_email && record.subject_hash)
+        .map((record) => record.subject_hash),
+    ),
+  );
+  if (hashes.length === 0) return records;
+
+  const lookupRows = await coll
+    .find({
+      subject_hash: { $in: hashes },
+      user_email: { $exists: true, $ne: "" },
+    } as Record<string, unknown>)
+    .sort({ ts: -1 })
+    .project({ subject_hash: 1, user_email: 1 })
+    .limit(hashes.length * 5)
+    .toArray();
+
+  const emailByHash = new Map<string, string>();
+  for (const row of lookupRows) {
+    if (emailByHash.has(row.subject_hash)) continue;
+    if (typeof row.user_email === "string" && row.user_email.trim()) {
+      emailByHash.set(row.subject_hash, row.user_email.trim());
+    }
+  }
+
+  if (emailByHash.size === 0) return records;
+  return records.map((record) =>
+    record.user_email
+      ? record
+      : {
+          ...record,
+          user_email: emailByHash.get(record.subject_hash),
+        },
+  );
 }
 
 export const GET = withErrorHandler(async (request: NextRequest): Promise<NextResponse> => {
@@ -203,7 +263,7 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
       .toArray(),
   ]);
 
-  const records: UnifiedAuditEvent[] = docs.map(documentToEvent);
+  const records = await enrichMissingUserEmails(coll, docs.map(documentToEvent));
 
   return NextResponse.json({ records, total, page, limit });
 });
