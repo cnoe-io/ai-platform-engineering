@@ -11,6 +11,22 @@ import { create } from "zustand";
  */
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+async function readWorkflowApiError(res: Response): Promise<string> {
+  const text = await res.text();
+  try {
+    const json = JSON.parse(text) as { error?: string; message?: string };
+    if (typeof json.error === "string" && json.error.trim()) return json.error;
+    if (typeof json.message === "string" && json.message.trim()) return json.message;
+  } catch {
+    // fall through
+  }
+  return text.trim() || `Request failed (${res.status})`;
+}
+
+// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
@@ -137,7 +153,13 @@ export const useWorkflowExecStore = create<WorkflowExecState>()((set, get) => ({
       const res = await fetch("/api/workflow-runs");
       if (!res.ok) throw new Error("Failed to load runs");
       const data = await res.json();
-      set({ runs: data as WfRunSummary[], isLoadingRuns: false });
+      const runs = Array.isArray(data)
+        ? data.map((run) => ({
+            ...run,
+            steps: Array.isArray(run?.steps) ? run.steps : [],
+          }))
+        : [];
+      set({ runs, isLoadingRuns: false });
     } catch {
       set({ isLoadingRuns: false });
     }
@@ -159,8 +181,7 @@ export const useWorkflowExecStore = create<WorkflowExecState>()((set, get) => ({
       });
 
       if (!res.ok) {
-        const err = await res.text();
-        throw new Error(err || `Execute failed: ${res.status}`);
+        throw new Error(await readWorkflowApiError(res));
       }
 
       const data = await res.json();
@@ -245,8 +266,7 @@ export const useWorkflowExecStore = create<WorkflowExecState>()((set, get) => ({
       });
 
       if (!res.ok) {
-        const err = await res.text();
-        throw new Error(err || `Resume failed: ${res.status}`);
+        throw new Error(await readWorkflowApiError(res));
       }
 
       // Resume polling
@@ -266,8 +286,7 @@ export const useWorkflowExecStore = create<WorkflowExecState>()((set, get) => ({
       });
 
       if (!res.ok) {
-        const err = await res.text();
-        throw new Error(err || `Cancel failed: ${res.status}`);
+        throw new Error(await readWorkflowApiError(res));
       }
 
       get().stopPolling();
@@ -287,8 +306,7 @@ export const useWorkflowExecStore = create<WorkflowExecState>()((set, get) => ({
       });
 
       if (!res.ok) {
-        const err = await res.text();
-        throw new Error(err || `Delete failed: ${res.status}`);
+        throw new Error(await readWorkflowApiError(res));
       }
 
       // Remove from sidebar list
