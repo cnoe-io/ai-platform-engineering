@@ -981,3 +981,88 @@ pre code.hljs {
 [data-animating] > [data-panel] {
   transition: flex-grow 300ms ease-in-out;
 }
+
+/* ========================================
+   TOME — Milkdown (Crepe) editor chrome
+   Reconcile Crepe's bundled `frame` theme with CAIPE design tokens so the
+   wiki editor matches the app shell instead of Crepe's stock palette, and
+   style citation chips emitted by CrepeEditor's linkAttr hook.
+   ======================================== */
+.milkdown-host {
+  min-height: 100%;
+  /* Map Crepe theme variables → CAIPE tokens. */
+  --crepe-color-background: hsl(var(--background));
+  --crepe-color-on-background: hsl(var(--foreground));
+  --crepe-color-surface: hsl(var(--card));
+  --crepe-color-surface-low: hsl(var(--muted));
+  --crepe-color-on-surface: hsl(var(--card-foreground));
+  --crepe-color-on-surface-variant: hsl(var(--muted-foreground));
+  --crepe-color-outline: hsl(var(--border));
+  --crepe-color-primary: hsl(var(--primary));
+  --crepe-color-on-primary: hsl(var(--primary-foreground));
+  --crepe-color-secondary: hsl(var(--accent));
+  --crepe-color-on-secondary: hsl(var(--accent-foreground));
+  --crepe-color-inverse: hsl(var(--foreground));
+  --crepe-color-on-inverse: hsl(var(--background));
+  --crepe-color-hover: hsl(var(--muted));
+  --crepe-color-selected: hsl(var(--accent));
+  --crepe-shadow-1: none;
+  --crepe-shadow-2: none;
+}
+
+.milkdown-host .milkdown {
+  min-height: 100%;
+  background: transparent;
+}
+
+.milkdown-host .milkdown .ProseMirror {
+  max-width: 52rem;
+  margin: 0 auto;
+  padding: 2rem 2.5rem 6rem;
+  color: hsl(var(--foreground));
+}
+
+/* Citation chips: github issue/pr/commit/release/mention links rendered by
+   the linkAttr hook get `md-citation md-citation-<kind>`. Inline pill styling. */
+.milkdown-host .md-citation {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25em;
+  padding: 0.05em 0.45em;
+  margin: 0 0.05em;
+  border-radius: 9999px;
+  font-size: 0.85em;
+  font-weight: 500;
+  line-height: 1.4;
+  text-decoration: none;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--muted));
+  color: hsl(var(--muted-foreground));
+  white-space: nowrap;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+.milkdown-host .md-citation:hover {
+  background: hsl(var(--accent));
+  color: hsl(var(--accent-foreground));
+}
+.milkdown-host .md-citation-issue {
+  border-color: rgb(34 197 94 / 0.4);
+  color: rgb(22 163 74);
+}
+.milkdown-host .md-citation-pr {
+  border-color: rgb(168 85 247 / 0.4);
+  color: rgb(147 51 234);
+}
+.milkdown-host .md-citation-commit {
+  border-color: rgb(245 158 11 / 0.4);
+  color: rgb(217 119 6);
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+.milkdown-host .md-citation-release {
+  border-color: rgb(14 165 233 / 0.4);
+  color: rgb(2 132 199);
+}
+.milkdown-host .md-citation-mention {
+  border-color: hsl(var(--primary) / 0.4);
+  color: hsl(var(--primary));
+}

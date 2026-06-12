@@ -1613,7 +1613,8 @@ services:
       # bind-mounts only selected source/config files, so the dev image's
       # installed dependencies and generated Next cache stay intact.
     # Hot-reload command: next dev rebuilds on edits to bind-mounted ./ui/src.
-    command: npm run dev
+    # (The container command is defined above at the service top with explicit
+    # --hostname 0.0.0.0 --port 3000 so the dev server is reachable from the host.)
     depends_on:
       caipe-supervisor:
         condition: service_started

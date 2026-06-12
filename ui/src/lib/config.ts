@@ -221,6 +221,15 @@ export interface Config {
    * SHIP_LOOP_RESOLVED_ARTIFACT_LOOKBACK_HOURS to override the 24h default.
    */
   shipLoopResolvedArtifactLookbackHours: number;
+  /**
+   * Whether the Tome wiki app is available.
+   * When false (default), the entire feature is gated off — `/api/tome/**`
+   * routes return 404 and the `/apps/tome` route returns 404. Set
+   * TOME_ENABLED=true to enable. Tome bodies/index live in CAIPE Mongo
+   * (and later object storage); the ingest/chat agent runs as a separate
+   * service reached over TOME_AGENT_URL.
+   */
+  tomeEnabled: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -303,6 +312,7 @@ const DEFAULT_CONFIG: Config = {
   shipLoopEnabled: false,
   shipLoopAssistantEnabled: false,
   shipLoopResolvedArtifactLookbackHours: DEFAULT_SHIP_LOOP_RESOLVED_ARTIFACT_LOOKBACK_HOURS,
+  tomeEnabled: false,
 };
 
 // ---------------------------------------------------------------------------
@@ -430,6 +440,7 @@ export function getServerConfig(): Config {
     env('SHIP_LOOP_RESOLVED_ARTIFACT_LOOKBACK_HOURS'),
     DEFAULT_SHIP_LOOP_RESOLVED_ARTIFACT_LOOKBACK_HOURS,
   );
+  const tomeEnabled = env('TOME_ENABLED') === 'true';
   const jiraTicketEnabled = env('JIRA_TICKET_ENABLED') === 'true';
   const jiraTicketProject = env('JIRA_TICKET_PROJECT') || null;
   const jiraTicketLabel = env('JIRA_TICKET_LABEL') || 'caipe-reported';
@@ -502,6 +513,7 @@ export function getServerConfig(): Config {
     shipLoopEnabled,
     shipLoopAssistantEnabled,
     shipLoopResolvedArtifactLookbackHours,
+    tomeEnabled,
   };
 }
 
