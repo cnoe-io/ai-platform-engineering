@@ -4422,6 +4422,11 @@ SUPERVISOR_INGRESS_EOF
     # Add aud=caipe-ui to user access tokens so the Next.js gateway accepts
     # bearer auth on dynamic-agents streaming endpoints.
     provision_caipe_ui_audience_mapper
+
+    # Sync Keycloak client redirect URIs / web origins to the current domain.
+    # Must run after audience mapper (which establishes the port-forward pattern)
+    # and is idempotent: safe to re-run on domain changes.
+    update_keycloak_client_urls
   fi
 }
 
@@ -4656,6 +4661,71 @@ JSON
   RAG_INGESTOR_SECRET_READY=true
   RAG_INGESTOR_OIDC_ISSUER="${issuer}"
   RAG_INGESTOR_OIDC_CLIENT_ID="${client_id}"
+}
+
+# Update caipe-ui and caipe-platform Keycloak client redirect URIs, web origins,
+# and root URL to match CAIPE_DOMAIN. Keycloak imports the realm once at first
+# install; the imported URIs are never updated by helm upgrade, so a domain
+# change (e.g. caipe.local.me → caipe-vanilla.outshift.io) leaves stale URIs
+# that cause "Invalid parameter: redirect_uri" on login.
+# assisted-by claude code claude-sonnet-4-6
+update_keycloak_client_urls() {
+  $ENABLE_RBAC_RUNTIME || return 0
+  [[ -n "${CAIPE_DOMAIN:-}" ]] || return 0
+
+  local kcadm_pw="${KEYCLOAK_ADMIN_PASSWORD:-}"
+  if [[ -z "$kcadm_pw" ]]; then
+    kcadm_pw=$(kubectl get secret caipe-keycloak-admin -n caipe \
+      -o jsonpath='{.data.password}' 2>/dev/null | base64 -d 2>/dev/null || true)
+  fi
+  if [[ -z "$kcadm_pw" ]]; then
+    warn "update_keycloak_client_urls: no Keycloak admin password; skipping"
+    return 0
+  fi
+
+  local _pf_port=17087
+  kubectl port-forward svc/caipe-keycloak -n caipe ${_pf_port}:8080 >/dev/null 2>&1 &
+  local _pf=$!
+  sleep 4
+  local kc="http://localhost:${_pf_port}"
+
+  local tok
+  tok=$(curl -s "$kc/realms/master/protocol/openid-connect/token" \
+    -d grant_type=password -d client_id=admin-cli \
+    --data-urlencode "username=admin" --data-urlencode "password=${kcadm_pw}" \
+    | sed -n 's/.*"access_token":"\([^"]*\)".*/\1/p')
+  if [[ -z "$tok" ]]; then
+    warn "update_keycloak_client_urls: could not obtain Keycloak admin token; skipping"
+    kill "$_pf" 2>/dev/null || true
+    return 0
+  fi
+
+  local target_origin="https://${CAIPE_DOMAIN}"
+  for client_id in caipe-ui caipe-platform; do
+    local uuid
+    uuid=$(curl -s -H "Authorization: Bearer $tok" \
+      "$kc/admin/realms/caipe/clients?clientId=${client_id}" \
+      | jq -r '.[0].id // empty' 2>/dev/null)
+    [[ -z "$uuid" ]] && continue
+
+    local current body http_code
+    current=$(curl -s -H "Authorization: Bearer $tok" \
+      "$kc/admin/realms/caipe/clients/${uuid}")
+    body=$(echo "$current" | jq \
+      --arg origin "$target_origin" \
+      '.redirectUris = [$origin + "/*"] | .webOrigins = [$origin] | .rootUrl = $origin | .baseUrl = "/"')
+    http_code=$(curl -s -o /dev/null -w '%{http_code}' -X PUT \
+      -H "Authorization: Bearer $tok" -H "Content-Type: application/json" \
+      "$kc/admin/realms/caipe/clients/${uuid}" -d "$body")
+
+    if [[ "$http_code" == "204" ]]; then
+      log "Keycloak ${client_id}: redirect URIs updated to ${target_origin}/*"
+    else
+      warn "Keycloak ${client_id}: redirect URI update returned HTTP ${http_code}"
+    fi
+  done
+
+  kill "$_pf" 2>/dev/null || true
 }
 
 # Add an oidc-audience-mapper to the caipe-ui Keycloak client so that the
