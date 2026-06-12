@@ -6322,6 +6322,16 @@ deploy_caipe() {
       da_oidc_client_id=$(_env_get "$UI_ENV_FILE" "OIDC_CLIENT_ID")
       da_oidc_admin_group=$(_env_get "$UI_ENV_FILE" "OIDC_REQUIRED_ADMIN_GROUP")
     fi
+    # Fallback: derive issuer from CAIPE_DOMAIN when the env file doesn't have it.
+    # Keycloak sets KC_HOSTNAME=https://${CAIPE_DOMAIN} so tokens carry that as iss.
+    # dynamic-agents must use the same issuer string; without it tokens fail validation
+    # with "Invalid issuer" (internal http://keycloak:8080 vs external https://domain).
+    if [[ -z "$da_oidc_issuer" && -n "${CAIPE_DOMAIN:-}" ]]; then
+      da_oidc_issuer="https://${CAIPE_DOMAIN}/realms/caipe"
+    fi
+    if [[ -z "$da_oidc_client_id" ]]; then
+      da_oidc_client_id="caipe-platform"
+    fi
     # Seed configuration: models + MCP servers pointing to cluster-local services.
     # Also carries auth/OIDC config — using a values file avoids --set comma
     # parsing issues with CORS_ORIGINS (Helm splits on unescaped commas).
@@ -6746,6 +6756,19 @@ DAEOF
     exit 1
   fi
   log "CAIPE Helm release deployed"
+
+  # Helm only restarts pods when the Deployment spec changes, not on ConfigMap-only
+  # updates. When OIDC_ISSUER / AUTH_ENABLED are freshly set (domain run), the
+  # dynamic-agents pod must be cycled so it picks up the new issuer from the ConfigMap.
+  # Without this it keeps using the internal http://keycloak:8080 issuer URL and rejects
+  # every token with "Invalid issuer", blocking all chat in the Custom Agents UI.
+  if $ENABLE_DYNAMIC_AGENTS && [[ -n "${CAIPE_DOMAIN:-}" ]]; then
+    if kubectl rollout restart deploy/caipe-dynamic-agents -n caipe &>/dev/null 2>&1; then
+      kubectl rollout status deploy/caipe-dynamic-agents -n caipe --timeout=120s &>/dev/null 2>&1 || true
+      log "dynamic-agents: restarted to apply OIDC issuer config"
+    fi
+  fi
+
   # Non-fatal: a timeout here (e.g. credential-less agents that never become
   # ready) must NOT abort the script under `set -e` — post_deploy_patches still
   # needs to run the RBAC reconcile + local-admin provisioning on the healthy
