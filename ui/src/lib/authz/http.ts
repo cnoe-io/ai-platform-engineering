@@ -44,6 +44,7 @@ const ACTIONS: ReadonlySet<string> = new Set(RESOURCE_DEFINITIONS.flatMap((defin
 const PUBLIC_GRANTABLE_EVERYONE_RESOURCE_ACTIONS: ReadonlySet<string> = new Set([
   "admin_surface:discover",
   "agent:discover",
+  "agent:use",
   "audit_log:discover",
   "conversation:discover",
   "data_source:discover",

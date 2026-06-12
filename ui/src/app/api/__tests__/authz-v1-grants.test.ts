@@ -131,6 +131,15 @@ it("returns 400 for high-risk everyone grants", async () => {
   expect(mockGrant).not.toHaveBeenCalled();
 });
 
+it("allows everyone grants for agent use so global workflows can run their agents", async () => {
+  const res = await POST(req({ ...validGrant, grantee: { type: "everyone" }, capability: "use" }));
+  expect(res.status).toBe(200);
+  expect(mockGrant).toHaveBeenCalledWith(
+    { resource: { type: "agent", id: "pe" }, grantee: { type: "everyone" }, capability: "use" },
+    expect.objectContaining({ caller: { type: "user", id: "alice" } }),
+  );
+});
+
 it("returns 400 for malformed JSON", async () => {
   const r = new NextRequest(new URL("/api/authz/v1/grants", "http://localhost:3000"), { method: "POST", body: "{bad" });
   expect((await POST(r)).status).toBe(400);

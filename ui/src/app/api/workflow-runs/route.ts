@@ -24,11 +24,19 @@ type WorkflowRunDocument,
 import { deleteEventsByRun,readEventsByRun } from "@/lib/server/event-store";
 import {
 filterAccessibleWorkflowConfigs,
-requireWorkflowAccess,
 requireWorkflowRunAccess,
 workflowSubjectFromSession,
 type WorkflowAuthzSession,
 } from "@/lib/server/workflow-cas-authz";
+import {
+buildTeamRefToSlugMap,
+filterWorkflowConfigsByRunAccess,
+mergeWorkflowConfigsById,
+requireWorkflowConfigRunAccess,
+requireWorkflowConfigRunViewAccess,
+resolveUserTeamSlugsForWorkflow,
+type WorkflowConfigRebacSnapshot,
+} from "@/lib/rbac/workflow-config-rebac";
 import type { WorkflowConfig } from "@/types/workflow-config";
 import { NextRequest,NextResponse } from "next/server";
 
@@ -49,6 +57,16 @@ function ownerMatchesSession(run: WorkflowRunDocument, session: WorkflowAuthzSes
 
 function filterRunsForOwner<T extends WorkflowRunDocument>(runs: T[], session: WorkflowAuthzSession): T[] {
   return runs.filter((run) => !run.owner_subject || ownerMatchesSession(run, session));
+}
+
+function workflowRunAccessConfig(config: WorkflowConfig): WorkflowConfigRebacSnapshot {
+  return {
+    _id: String(config._id),
+    owner_id: config.owner_id,
+    visibility: config.visibility,
+    shared_with_teams: config.shared_with_teams,
+    config_driven: config.config_driven,
+  };
 }
 
 /**
@@ -133,8 +151,16 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     throw new ApiError(`Workflow config ${workflow_config_id} not found`, 404);
   }
 
-  // Verify user has access to this workflow config (via CAS)
-  await requireWorkflowAccess(session, workflow_config_id, "read");
+  // Start uses the same visibility ∪ authorization semantics as workflow config
+  // reads, so global/team/owner-visible workflows remain runnable before every
+  // legacy row has been projected into OpenFGA.
+  const userTeamSlugs = await resolveUserTeamSlugsForWorkflow(user.email, session);
+  await requireWorkflowConfigRunAccess(
+    session,
+    workflowRunAccessConfig(config),
+    user.email,
+    userTeamSlugs,
+  );
 
   // Build auth headers for DA server calls. Prefer the incoming Bearer; fall
   // back to the session's OIDC access token so browser (cookie) sessions still
@@ -182,7 +208,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     throw new ApiError("MongoDB is required for workflow runs", 503);
   }
 
-  const { session } = await getAuthFromBearerOrSession(request);
+  const { user, session } = await getAuthFromBearerOrSession(request);
 
   const { searchParams } = new URL(request.url);
   const runId = searchParams.get("run_id");
@@ -228,11 +254,21 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   const workflowConfigId = searchParams.get("workflow_config_id");
 
   if (workflowConfigId) {
-    // Filter by specific config — check access once
+    const configCol = await getCollection<WorkflowConfig>("workflow_configs");
+    const config = await configCol.findOne({ _id: workflowConfigId });
+    if (!config) {
+      return NextResponse.json([]) as NextResponse;
+    }
+    const userTeamSlugs = await resolveUserTeamSlugsForWorkflow(user.email, session);
     try {
-      await requireWorkflowAccess(session, workflowConfigId, "read");
+      await requireWorkflowConfigRunViewAccess(
+        session,
+        workflowRunAccessConfig(config),
+        user.email,
+        userTeamSlugs,
+      );
     } catch (err) {
-      if (err instanceof ApiError && err.statusCode === 403) {
+      if ((err as { statusCode?: number }).statusCode === 403) {
         return NextResponse.json([]) as NextResponse;
       }
       throw err;
@@ -247,13 +283,25 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
 
   // List all runs — filter to only those whose configs the user can read.
   const configCol = await getCollection<WorkflowConfig>("workflow_configs");
-  const configCandidates = await configCol.find({}).project({ _id: 1 }).toArray();
-  const accessibleConfigs = await filterAccessibleWorkflowConfigs(
+  const configCandidates = await configCol
+    .find({})
+    .project({ _id: 1, owner_id: 1, visibility: 1, shared_with_teams: 1, config_driven: 1 })
+    .toArray();
+  const userTeamSlugs = await resolveUserTeamSlugsForWorkflow(user.email, session);
+  const teamRefToSlug = await buildTeamRefToSlugMap();
+  const byVisibility = filterWorkflowConfigsByRunAccess(
+    configCandidates,
+    user.email,
+    userTeamSlugs,
+    teamRefToSlug,
+  );
+  const byFga = await filterAccessibleWorkflowConfigs(
     session,
     configCandidates,
     (config) => config._id as string,
     "read",
   );
+  const accessibleConfigs = mergeWorkflowConfigsById(byVisibility, byFga);
 
   const accessibleIds = accessibleConfigs.map((c) => c._id);
   if (accessibleIds.length === 0) {
