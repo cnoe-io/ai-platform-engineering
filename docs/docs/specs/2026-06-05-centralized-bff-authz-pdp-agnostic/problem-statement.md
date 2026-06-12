@@ -188,7 +188,7 @@ Spec draft exists: `docs/docs/specs/2026-05-11-identity-group-rebac/contracts/re
 | Read/use gate | `resource-authz.ts` → OpenFGA | `server/rbac.py` (mixed) |
 | Share/write | `shareable-resource.ts` | Partial (KB sharing route on BFF); ingestor paths differ |
 | Mongo in authz hot path | Mostly moved to BFF | Still present ([#1736](https://github.com/cnoe-io/ai-platform-engineering/issues/1736)) |
-| Target architecture | Unified shareable resource RBAC | [Thin PEP plan](docs/docs/specs/2026-05-19-rag-thin-pep-openfga/plan.md) |
+| Target architecture | Unified shareable resource RBAC | [Thin PEP plan](../2026-05-19-rag-thin-pep-openfga/plan.md) |
 
 Kevin’s concern: **“RAG and agents used different RBAC setups”** — still true at the Python RAG layer.
 
@@ -450,7 +450,7 @@ DA `require_agent_use_permission` becomes `require_authorization_claim` — no O
 
 ### Option 5 — Universal relationship contract (spec-only standardization)
 
-**Summary:** Standardize all checks on `UniversalRebacRelationship` from `rbac-universal.ts` — already in [rebac-policy-api.md](docs/docs/specs/2026-05-11-identity-group-rebac/contracts/rebac-policy-api.md).
+**Summary:** Standardize all checks on `UniversalRebacRelationship` from `rbac-universal.ts` — already in [rebac-policy-api.md](../2026-05-11-identity-group-rebac/contracts/rebac-policy-api.md).
 
 #### Request shape
 
@@ -597,12 +597,12 @@ Defined in `workflow-config-rebac.ts`:
 
 ### Docs
 
-- [PDP coverage audit](docs/docs/security/rbac/pdp-coverage-audit.md)
-- [RBAC architecture](docs/docs/security/rbac/architecture.md)
-- [Chat execution authz contract](docs/docs/specs/2026-05-16-dynamic-agent-pdp-gate/contracts/chat-execution-authz.md)
-- [Unified shareable resource RBAC](docs/docs/specs/2026-06-03-unified-shareable-resource-rbac/)
-- [RAG thin PEP plan](docs/docs/specs/2026-05-19-rag-thin-pep-openfga/plan.md)
-- [ReBAC policy API contract](docs/docs/specs/2026-05-11-identity-group-rebac/contracts/rebac-policy-api.md)
+- [PDP coverage audit](../../security/rbac/pdp-coverage-audit.md)
+- [RBAC architecture](../../security/rbac/architecture.md)
+- [Chat execution authz contract](../2026-05-16-dynamic-agent-pdp-gate/contracts/chat-execution-authz.md)
+- [Unified shareable resource RBAC](../2026-06-03-unified-shareable-resource-rbac/spec.md)
+- [RAG thin PEP plan](../2026-05-19-rag-thin-pep-openfga/plan.md)
+- [ReBAC policy API contract](../2026-05-11-identity-group-rebac/contracts/rebac-policy-api.md)
 
 ---
 

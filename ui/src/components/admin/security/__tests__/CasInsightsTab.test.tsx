@@ -1,6 +1,6 @@
 import React from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { CasInsightsTab } from "../CasInsightsTab";
+import { CasInsightsTab } from "../../CasInsightsTab";
 
 const ENGINE = { circuitState: "closed", cacheSize: 5, cacheHits: 8, cacheMisses: 2, cacheHitRatio: 0.8 };
 
