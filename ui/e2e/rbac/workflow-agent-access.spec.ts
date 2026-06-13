@@ -135,6 +135,21 @@ async function installWorkflowMocks(
           return true;
         }
 
+        if (
+          path === "/api/workflow-runs" &&
+          method === "GET" &&
+          (url.searchParams.get("run_id") || url.searchParams.get("id"))
+        ) {
+          await fulfillJson(route, {
+            _id: "wfrun-playwright-rbac",
+            workflow_config_id: workflow._id,
+            status: "running",
+            steps: [],
+            events: {},
+          });
+          return true;
+        }
+
         if (path === "/api/workflow-runs" && method === "GET") {
           await fulfillJson(route, []);
           return true;
@@ -143,16 +158,6 @@ async function installWorkflowMocks(
         if (path === "/api/workflow-runs" && method === "POST") {
           runRequests.push(await postJson(route));
           await fulfillJson(route, { run_id: "wfrun-playwright-rbac" });
-          return true;
-        }
-
-        if (path === "/api/workflow-runs" && url.searchParams.get("run_id")) {
-          await fulfillJson(route, {
-            _id: "wfrun-playwright-rbac",
-            workflow_config_id: workflow._id,
-            status: "running",
-            steps: [],
-          });
           return true;
         }
 
@@ -267,5 +272,6 @@ test.describe("workflow agent access grant modal", () => {
       trigger_info: { triggered_by: "webui" },
     });
     await expect(page).toHaveURL(/\/workflows\/run\/wfrun-playwright-rbac$/);
+    await expect(page.getByText("Running", { exact: true })).toBeVisible();
   });
 });
