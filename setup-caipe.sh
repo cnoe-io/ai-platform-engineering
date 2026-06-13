@@ -3901,7 +3901,7 @@ patch_deployment_with_ca() {
 # 5.    RAG startup sequencing — waits for Milvus, then restarts RAG server
 #       with SKIP_INIT_TESTS=false so it can run its full initialization checks.
 
-AGENT_DEPLOYMENTS="caipe-supervisor-agent caipe-agent-netutils caipe-agent-weather"
+AGENT_DEPLOYMENTS="caipe-supervisor-agent caipe-agent-netutils"
 
 _create_agent_patches_configmap() {
   # Use apply (idempotent) so re-runs update the ConfigMap with new fixes
@@ -6276,7 +6276,7 @@ DAEOF
       [github]="GitHub|GitHub repository and workflow management"
     )
     # Always-on agents
-    local _always_on=(netutils weather)
+    local _always_on=(netutils)
     local _seeded=()
     for _a in "${_always_on[@]}"; do
       [[ -n "${_MCP_META[$_a]+_}" ]] || continue
@@ -6620,7 +6620,7 @@ run_validation() {
   fi
 
   # ── Sub-agent registration ──
-  for agent in weather netutils; do
+  for agent in netutils; do
     if echo "$agent_card" | grep -qi "$agent" 2>/dev/null; then
       print_result "$(date '+%H:%M:%S') ✓ ${agent} agent registered"
       pass=$((pass + 1))
@@ -6866,7 +6866,7 @@ run_sanity_tests() {
   if kubectl get configmap caipe-single-node-agent-env -n caipe &>/dev/null; then
     print_result "$(date '+%H:%M:%S') ─ [T4] skipped (single-node mode: agents run in-process)"
   else
-    for agent_svc in caipe-agent-weather caipe-agent-netutils; do
+    for agent_svc in caipe-agent-netutils; do
       local agent_label="${agent_svc#caipe-agent-}"
       local agent_card_resp
       agent_card_resp=$(kubectl exec deployment/caipe-supervisor-agent -n caipe -- \
@@ -7543,7 +7543,7 @@ monitor_port_forwards() {
   fi
   echo ""
   echo -e "  ${BOLD}Chart:${NC}   v${CAIPE_CHART_VERSION}"
-  local agent_list="weather, netutils"
+  local agent_list="netutils"
   $ENABLE_RAG && agent_list+=", rag"
   echo -e "  ${BOLD}Agents:${NC}  ${agent_list}"
   $AUTOHEAL_ENABLED && echo -e "  ${BOLD}Auto-heal:${NC} ${GREEN}enabled${NC} (every ${AUTOHEAL_INTERVAL}s)"
