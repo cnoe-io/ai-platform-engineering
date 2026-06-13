@@ -3052,7 +3052,7 @@ services:
     build:
       context: ./deploy/agentgateway
       dockerfile: Dockerfile.config-bridge
-    image: ghcr.io/cnoe-io/caipe-agentgateway-config-bridge:${IMAGE_TAG:-localtag}
+    image: ghcr.io/cnoe-io/agentgateway-config-bridge:${IMAGE_TAG:-localtag}
     container_name: agentgateway-config-bridge
     restart: unless-stopped
     read_only: true
@@ -3079,7 +3079,27 @@ services:
         - CMD
         - python
         - -c
-        - "from pathlib import Path; import sys; sys.exit(0 if Path('/generated/config.yaml').is_file() and Path('/generated/config.yaml').stat().st_size > 0 else 1)"
+        - |
+          from pathlib import Path
+          import json
+          import sys
+          import yaml
+
+          config_path = Path("/generated/config.yaml")
+          marker_path = Path("/generated/.reconcile_ok")
+          if not config_path.is_file() or config_path.stat().st_size <= 0 or not marker_path.is_file():
+              sys.exit(1)
+          text = config_path.read_text(encoding="utf-8")
+          try:
+              json.loads(text)
+          except json.JSONDecodeError:
+              try:
+                  parsed = yaml.safe_load(text)
+              except yaml.YAMLError:
+                  sys.exit(1)
+              if not isinstance(parsed, dict):
+                  sys.exit(1)
+          sys.exit(0)
       interval: 5s
       timeout: 3s
       retries: 12
@@ -3109,15 +3129,7 @@ services:
       # `compose up` can race the seed and 403 a user who SHOULD have roles.
       keycloak-init:
         condition: service_completed_successfully
-      # Token-exchange grants must exist before the Slack bot's first OBO
-      # call, but AG itself doesn't need it. Listed here so that bringing
-      # up AG implicitly brings up the full KC initialization chain — saves
-      # operators from having to remember `--profile rbac` orders things
-      # correctly. Marked optional via `restart: on-failure` on the init
-      # container so a failure here doesn't block AG from coming up if the
-      # token-exchange config is intentionally absent in dev.
-      keycloak-init-token-exchange:
-        condition: service_completed_successfully
+      # Token-exchange is for Slack bot OBO, not AgentGateway — do not block AG on it.
       openfga-authz-bridge:
         condition: service_healthy
       agentgateway-config-bridge:
