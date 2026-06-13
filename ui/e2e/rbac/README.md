@@ -12,6 +12,7 @@ CAIPE + Keycloak stack:
 | `pdp-down.spec.ts` | When Keycloak is unreachable, the UI shows a 503 toast (no silent allow). |
 | `workflow-agent-access.spec.ts` | Mocked browser regression for workflow run access and denied agent-access grants. |
 | `rbac-admin-regression.spec.ts` | Mocked browser regression for the Permissions Tool and RBAC Audit export UX. |
+| `mcp-openfga-tuples.spec.ts` | Mocked browser regression for team MCP resource saves and MCP server list visibility. |
 
 ## Skip-by-default
 
@@ -70,7 +71,22 @@ Keycloak/OpenFGA fixture data:
 
        RUN_RBAC_REGRESSION=1 \
        CAIPE_UI_BASE_URL=http://localhost:3000 \
-       npx playwright test e2e/rbac/workflow-agent-access.spec.ts e2e/rbac/rbac-admin-regression.spec.ts --config=playwright.rbac.config.ts
+       npx playwright test e2e/rbac/workflow-agent-access.spec.ts e2e/rbac/rbac-admin-regression.spec.ts e2e/rbac/mcp-openfga-tuples.spec.ts --config=playwright.rbac.config.ts
+
+## MCP OpenFGA tuple regression
+
+`mcp-openfga-tuples.spec.ts` covers the PR #1819 browser contract:
+
+* Admin → Teams → Resources re-sends the full selected MCP tool list on Save
+  (drift repair), not an empty diff.
+* Dynamic Agents → MCP Servers keeps a newly created server visible after the
+  post-create list refresh.
+
+       WORKFLOWS_ENABLED=true npm run dev
+
+       RUN_RBAC_REGRESSION=1 \
+       CAIPE_UI_BASE_URL=http://localhost:3000 \
+       npx playwright test e2e/rbac/mcp-openfga-tuples.spec.ts --config=playwright.rbac.config.ts
 
 ## PDP-down spec
 
@@ -94,14 +110,17 @@ To run it:
 
 ## CI
 
-This harness is **not currently wired into a GitHub Actions workflow**.
-Once the live stack is provisionable from CI (Helm chart in a kind
-cluster, or a hosted preview env), add a workflow under
-`.github/workflows/rbac-e2e.yml` that:
+**Mocked RBAC browser regression** runs in `.github/workflows/caipe-ui-tests.yml`
+(`playwright-rbac-regression` job) on every PR that touches `ui/**`. It starts
+`next dev`, sets `RUN_RBAC_REGRESSION=1`, and runs:
 
-1. Brings up the stack.
-2. Installs Playwright + chromium.
-3. Runs `npx playwright test --config=playwright.rbac.config.ts`.
-4. Uploads the HTML report on failure.
+* `workflow-agent-access.spec.ts`
+* `rbac-admin-regression.spec.ts`
+* `mcp-openfga-tuples.spec.ts`
 
-Tracked in `BLOCKERS.md` until the stack-provisioning piece lands.
+Local parity: `make caipe-ui-e2e-rbac` (with `npm run dev` already on
+`:3000`) or `RUN_RBAC_REGRESSION=1 npm run test:e2e:rbac-regression`.
+
+**Live stack harness** (`sign-in`, `pdp-down`, etc.) is still opt-in via
+`.github/workflows/test-rbac.yaml` (PR label `rbac-e2e` / nightly). Tracked in
+`BLOCKERS.md` until full stack provisioning lands in default CI.
