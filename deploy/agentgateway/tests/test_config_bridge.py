@@ -468,14 +468,26 @@ def test_reconcile_keeps_existing_config_when_admin_config_is_unavailable(
 
     monkeypatch.setattr(bridge, "fetch_agentgateway_config", fail_fetch)
 
-    try:
-        bridge.reconcile_once(config_path=config_path, admin_config_url="http://agentgateway:15000/config")
-    except urllib.error.URLError:
-        pass
-    else:
-        raise AssertionError("reconcile should wait for the live config instead of overwriting")
+    result = bridge.reconcile_once(
+        config_path=config_path,
+        admin_config_url="http://agentgateway:15000/config",
+    )
 
+    assert result["skipped"] is True
+    assert result["reason"] == "admin_unavailable"
     assert config_path.read_text(encoding="utf-8") == existing_config
+    assert bridge._reconcile_ok_path(config_path).is_file()
+
+
+def test_seed_config_from_bootstrap_marks_reconcile_ok(tmp_path: Path) -> None:
+    config_path = tmp_path / "generated" / "config.yaml"
+    bootstrap_path = tmp_path / "bootstrap.yaml"
+    bootstrap_path.write_text('{"binds": []}\n', encoding="utf-8")
+
+    changed = bridge.seed_config_from_bootstrap(config_path, bootstrap_path)
+
+    assert changed is True
+    assert bridge._reconcile_ok_path(config_path).is_file()
 
 
 def test_apply_agentgateway_logging_defaults_to_info() -> None:
