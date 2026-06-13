@@ -1,14 +1,37 @@
+/**
+ * @jest-environment node
+ */
+
+const mockAuthorize = jest.fn();
+const mockAuthorizeMany = jest.fn();
+
+jest.mock("@/lib/authz", () => ({
+  authorize: (...args: unknown[]) => mockAuthorize(...args),
+  authorizeMany: (...args: unknown[]) => mockAuthorizeMany(...args),
+}));
+
 import { ApiError } from "@/lib/api-error";
 
 import {
   filterResourcesByPermission,
   openFgaRelationForResourceAction,
   resourceObject,
+  resourcePermissionActionToCasAction,
   requireResourcePermission,
   subjectFromSession,
 } from "../resource-authz";
 
 describe("resource-authz", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it("maps legacy list/admin actions onto CAS actions", () => {
+    expect(resourcePermissionActionToCasAction("list")).toBe("discover");
+    expect(resourcePermissionActionToCasAction("admin")).toBe("manage");
+    expect(resourcePermissionActionToCasAction("read")).toBe("read");
+  });
+
   it("maps UI resource actions to OpenFGA check relations", () => {
     expect(openFgaRelationForResourceAction("list")).toBe("can_discover");
     expect(openFgaRelationForResourceAction("discover")).toBe("can_discover");
@@ -268,5 +291,72 @@ describe("resource-authz", () => {
     );
 
     expect(visible).toEqual([{ id: "ok" }]);
+  });
+
+  describe("CAS default path (no check injection)", () => {
+    it("delegates requireResourcePermission to authorize", async () => {
+      mockAuthorize.mockResolvedValueOnce({
+        decision: "ALLOW",
+        reason: "OK",
+        retriable: false,
+      });
+
+      await expect(
+        requireResourcePermission(
+          { sub: "alice-sub" },
+          { type: "mcp_server", id: "mcp-jira", action: "manage" },
+        ),
+      ).resolves.toBeUndefined();
+
+      expect(mockAuthorize).toHaveBeenCalledWith({
+        subject: { type: "user", id: "alice-sub" },
+        resource: { type: "mcp_server", id: "mcp-jira" },
+        action: "manage",
+      });
+    });
+
+    it("returns 503 when CAS reports AUTHZ_UNAVAILABLE", async () => {
+      mockAuthorize.mockResolvedValueOnce({
+        decision: "DENY",
+        reason: "AUTHZ_UNAVAILABLE",
+        retriable: true,
+      });
+
+      await expect(
+        requireResourcePermission(
+          { sub: "alice-sub" },
+          { type: "mcp_server", id: "mcp-jira", action: "read" },
+        ),
+      ).rejects.toMatchObject({ statusCode: 503, code: "AUTHZ_UNAVAILABLE" });
+    });
+
+    it("filters resources via authorizeMany", async () => {
+      mockAuthorize.mockResolvedValueOnce({
+        decision: "DENY",
+        reason: "NO_CAPABILITY",
+        retriable: false,
+      });
+      mockAuthorizeMany.mockResolvedValueOnce(
+        new Map([
+          ["visible", { decision: "ALLOW", reason: "OK", retriable: false }],
+          ["hidden", { decision: "DENY", reason: "NO_CAPABILITY", retriable: false }],
+        ]),
+      );
+
+      const resources = [{ id: "visible" }, { id: "hidden" }];
+      const visible = await filterResourcesByPermission(
+        { sub: "alice-sub" },
+        resources,
+        { type: "mcp_server", action: "read", id: (resource) => resource.id },
+      );
+
+      expect(visible).toEqual([{ id: "visible" }]);
+      expect(mockAuthorizeMany).toHaveBeenCalledWith(
+        { type: "user", id: "alice-sub" },
+        "read",
+        "mcp_server",
+        ["visible", "hidden"],
+      );
+    });
   });
 });

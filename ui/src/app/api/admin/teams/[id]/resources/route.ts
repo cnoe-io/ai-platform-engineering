@@ -24,12 +24,12 @@ successResponse,
 withErrorHandler,
 } from "@/lib/api-middleware";
 import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
+import { reconcileTupleDiff } from "@/lib/authz";
 import {
 findUserIdByEmail,
 } from "@/lib/rbac/keycloak-admin";
 import {
 buildTeamResourceTupleDiff,
-writeOpenFgaTupleDiff,
 } from "@/lib/rbac/openfga";
 import { requireTeamMembershipManagementPermission } from "@/lib/rbac/team-admin-guards";
 import { loadActiveTeamMembers } from "@/lib/rbac/team-membership-store";
@@ -386,7 +386,11 @@ export const PUT = withErrorHandler(
         });
       }
       const openFgaTupleDiff = buildTeamResourceTupleDiff(tupleDiffInput);
-      const openfga = await writeOpenFgaTupleDiff(openFgaTupleDiff);
+      const openfga = await reconcileTupleDiff(openFgaTupleDiff, {
+        caller: { type: "user", id: session.sub! },
+        source: "team_resources",
+        tenantId: session.org,
+      });
 
       // ── 3. Persist selection on the team document.
       const now = new Date();

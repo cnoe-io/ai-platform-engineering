@@ -1,3 +1,14 @@
+/**
+ * @jest-environment node
+ */
+
+jest.mock("@/lib/authz", () => ({
+  reconcileTupleDiff: async (diff: { writes: unknown[]; deletes: unknown[] }) => {
+    const { writeOpenFgaTupleDiff } = jest.requireActual("../openfga") as typeof import("../openfga");
+    return writeOpenFgaTupleDiff(diff);
+  },
+}));
+
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
