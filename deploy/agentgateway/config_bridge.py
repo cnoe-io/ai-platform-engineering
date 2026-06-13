@@ -32,6 +32,8 @@ import yaml
 LOGGER = logging.getLogger("agentgateway-config-bridge")
 SAFE_TARGET_ID = re.compile(r"^[A-Za-z0-9._-]+$")
 PUBLISHED_CONFIG_MODE = 0o644
+_VALID_AGENTGATEWAY_LOG_LEVELS = frozenset({"trace", "debug", "info", "warn", "error"})
+DEFAULT_AGENTGATEWAY_LOG_LEVEL = "info"
 
 DEFAULT_MCP_ROUTE_POLICIES: dict[str, Any] = {
     "extAuthz": {
@@ -409,6 +411,28 @@ def _ensure_published_config_mode(path: Path) -> bool:
     return True
 
 
+def resolve_agentgateway_log_level() -> str:
+    """Return the AgentGateway proxy log level from ``AGENTGATEWAY_LOG_LEVEL``."""
+
+    level = os.getenv("AGENTGATEWAY_LOG_LEVEL", DEFAULT_AGENTGATEWAY_LOG_LEVEL).strip().lower()
+    if level not in _VALID_AGENTGATEWAY_LOG_LEVELS:
+        LOGGER.warning(
+            "Invalid AGENTGATEWAY_LOG_LEVEL %r; using %s",
+            level,
+            DEFAULT_AGENTGATEWAY_LOG_LEVEL,
+        )
+        return DEFAULT_AGENTGATEWAY_LOG_LEVEL
+    return level
+
+
+def apply_agentgateway_logging(config: dict[str, Any]) -> None:
+    """Pin proxy logging on every published config so live admin state cannot revert it."""
+
+    logging_config = config.setdefault("config", {}).setdefault("logging", {})
+    logging_config["level"] = resolve_agentgateway_log_level()
+    logging_config.setdefault("format", "json")
+
+
 def write_config_atomically(path: Path, config: dict[str, Any]) -> bool:
     """Write config as JSON/YAML-compatible content; return true when changed."""
 
@@ -487,7 +511,10 @@ def _minimal_config() -> dict[str, Any]:
         ],
         "config": {
             "adminAddr": os.getenv("AGENTGATEWAY_ADMIN_ADDR", "0.0.0.0:15000"),
-            "logging": {"level": os.getenv("LOG_LEVEL", "info"), "format": "json"},
+            "logging": {
+                "level": resolve_agentgateway_log_level(),
+                "format": "json",
+            },
         },
     }
 
@@ -534,6 +561,7 @@ def reconcile_once(
     )
     builtin_routes = load_builtin_mcp_routes(bootstrap_path)
     rendered = merge_agentgateway_mcp_routes(baseline, targets, builtin_routes=builtin_routes)
+    apply_agentgateway_logging(rendered)
     changed = write_config_atomically(config_path, rendered)
     result = {
         "targets": [target.id for target in targets],
