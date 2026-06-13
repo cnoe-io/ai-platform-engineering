@@ -2,6 +2,11 @@
  * @jest-environment node
  */
 
+jest.mock("@/lib/authz", () => ({
+  authorize: jest.fn(),
+  authorizeMany: jest.fn(),
+}));
+
 import { ApiError } from "@/lib/api-error";
 
 import {

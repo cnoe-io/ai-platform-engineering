@@ -97,6 +97,7 @@ describe("MCP server per-resource RBAC", () => {
       expect.objectContaining({ sub: "alice-sub", role: "user" }),
       items,
       { type: "mcp_server", action: "read", id: expect.any(Function) },
+      { bypassForOrgAdmin: true },
     );
     expect(body.data.items).toEqual([{ _id: "mcp-visible", name: "Visible" }]);
   });
@@ -124,6 +125,7 @@ describe("MCP server per-resource RBAC", () => {
       expect.objectContaining({ sub: "admin-sub", role: "admin" }),
       items,
       { type: "mcp_server", action: "read", id: expect.any(Function) },
+      { bypassForOrgAdmin: true },
     );
     expect(body.data.items).toEqual([{ _id: "mcp-visible", name: "Visible", endpoint: "http://mcp-visible:8000/mcp" }]);
   });
@@ -150,16 +152,27 @@ describe("MCP server per-resource RBAC", () => {
     );
 
     expect(response.status).toBe(201);
+    expect(mockRequireResourcePermission).toHaveBeenCalledWith(
+      expect.objectContaining({ sub: "alice-sub", role: "user" }),
+      { type: "organization", id: "caipe", action: "use" },
+      { bypassForOrgAdmin: true },
+    );
     expect(mockRequireRbacPermission).not.toHaveBeenCalledWith(
       expect.anything(),
       "mcp_server",
       "manage",
     );
-    expect(mockReconcileMcpServerRelationships).toHaveBeenCalledWith({
-      serverId: "mcp-ops-tools",
-      ownerSubject: "alice-sub",
-      ownerTeamSlug: null,
-    });
+    expect(mockReconcileMcpServerRelationships).toHaveBeenCalledWith(
+      {
+        serverId: "mcp-ops-tools",
+        ownerSubject: "alice-sub",
+        ownerTeamSlug: null,
+      },
+      {
+        caller: { type: "user", id: "alice-sub" },
+        source: "mcp_server_create",
+      },
+    );
     expect(insertOne).toHaveBeenCalledWith(
       expect.objectContaining({
         _id: "mcp-ops-tools",
@@ -224,11 +237,17 @@ describe("MCP server per-resource RBAC", () => {
       mockSession,
       { type: "team", id: "platform", action: "use" },
     );
-    expect(mockReconcileMcpServerRelationships).toHaveBeenCalledWith({
-      serverId: "mcp-team-tools",
-      ownerSubject: "alice-sub",
-      ownerTeamSlug: "platform",
-    });
+    expect(mockReconcileMcpServerRelationships).toHaveBeenCalledWith(
+      {
+        serverId: "mcp-team-tools",
+        ownerSubject: "alice-sub",
+        ownerTeamSlug: "platform",
+      },
+      {
+        caller: { type: "user", id: "alice-sub" },
+        source: "mcp_server_create",
+      },
+    );
     expect(insertOne).toHaveBeenCalledWith(
       expect.objectContaining({
         owner_team_slug: "platform",
@@ -236,7 +255,7 @@ describe("MCP server per-resource RBAC", () => {
     );
   });
 
-  it("requires mcp_server#write before updating a server", async () => {
+  it("requires mcp_server#manage before updating a server", async () => {
     const server = { _id: "mcp-visible", name: "Visible", config_driven: false };
     mockGetCollection.mockResolvedValue({
       findOne: jest.fn().mockResolvedValue(server),
@@ -254,7 +273,7 @@ describe("MCP server per-resource RBAC", () => {
     expect(response.status).toBe(200);
     expect(mockRequireResourcePermission).toHaveBeenCalledWith(
       expect.objectContaining({ sub: "alice-sub", role: "user" }),
-      { type: "mcp_server", id: "mcp-visible", action: "write" },
+      { type: "mcp_server", id: "mcp-visible", action: "manage" },
     );
   });
 
@@ -275,7 +294,13 @@ describe("MCP server per-resource RBAC", () => {
       expect.objectContaining({ sub: "admin-sub", role: "admin" }),
       { type: "mcp_server", id: "jira", action: "delete" },
     );
-    expect(mockDeleteAllMcpServerRelationshipTuples).toHaveBeenCalledWith("jira");
+    expect(mockDeleteAllMcpServerRelationshipTuples).toHaveBeenCalledWith(
+      "jira",
+      expect.objectContaining({
+        source: "mcp_server_delete",
+        caller: { type: "user", id: "admin-sub" },
+      }),
+    );
     expect(deleteOne).toHaveBeenCalledWith({ _id: "jira" });
   });
 });

@@ -1,7 +1,10 @@
 import {
+  reconcileTupleDiff,
+  type TupleReconcileContext,
+} from "@/lib/authz";
+import {
 isOpenFgaReconciliationEnabled,
 readOpenFgaTuples,
-writeOpenFgaTupleDiff,
 type OpenFgaReconcileResult,
 type OpenFgaTupleKey,
 type TeamResourceTupleDiff,
@@ -29,9 +32,12 @@ function uniqueTuples(tuples: OpenFgaTupleKey[]): OpenFgaTupleKey[] {
   return out;
 }
 
-async function reconcileOwnedResource(diff: TeamResourceTupleDiff): Promise<OpenFgaReconcileResult> {
+async function reconcileOwnedResource(
+  diff: TeamResourceTupleDiff,
+  ctx?: TupleReconcileContext,
+): Promise<OpenFgaReconcileResult> {
   try {
-    return await writeOpenFgaTupleDiff(diff);
+    return await reconcileTupleDiff(diff, ctx);
   } catch (error) {
     console.warn("[openfga-owned-resources] reconciliation failed:", error);
     return { enabled: isOpenFgaReconciliationEnabled(), writes: 0, deletes: 0 };
@@ -472,9 +478,16 @@ export function buildKnowledgeBaseRelationshipTupleDiff(
 }
 
 export async function reconcileMcpServerRelationships(
-  input: McpServerRelationshipInput
+  input: McpServerRelationshipInput,
+  ctx?: TupleReconcileContext,
 ): Promise<OpenFgaReconcileResult> {
-  return writeOpenFgaTupleDiff(buildMcpServerRelationshipTupleDiff(input));
+  return reconcileTupleDiff(buildMcpServerRelationshipTupleDiff(input), {
+    ...ctx,
+    source: ctx?.source ?? "mcp_server_create",
+    caller:
+      ctx?.caller ??
+      (input.ownerSubject ? { type: "user", id: input.ownerSubject } : undefined),
+  });
 }
 
 export async function reconcileConfigDrivenMcpServerRelationships(
@@ -604,14 +617,18 @@ export async function deleteAllMcpToolRelationshipTuples(
     continuationToken = page.continuationToken;
   } while (continuationToken);
 
-  return writeOpenFgaTupleDiff({
-    writes: [],
-    deletes: allTuples.filter((tuple) => tuple.object === object),
-  });
+  return reconcileTupleDiff(
+    {
+      writes: [],
+      deletes: allTuples.filter((tuple) => tuple.object === object),
+    },
+    { source: "mcp_tool_delete" },
+  );
 }
 
 export async function deleteAllMcpServerRelationshipTuples(
-  serverId: string
+  serverId: string,
+  ctx?: TupleReconcileContext,
 ): Promise<OpenFgaReconcileResult> {
   if (!isValidOpenFgaId(serverId)) {
     throw new Error(`Invalid OpenFGA MCP server id: ${serverId}`);
@@ -628,8 +645,13 @@ export async function deleteAllMcpServerRelationshipTuples(
     continuationToken = page.continuationToken;
   } while (continuationToken);
 
-  return writeOpenFgaTupleDiff({
-    writes: [],
-    deletes: allTuples.filter((tuple) => tuple.user === `mcp_server:${serverId}` || tuple.object === `mcp_server:${serverId}`),
-  });
+  return reconcileTupleDiff(
+    {
+      writes: [],
+      deletes: allTuples.filter(
+        (tuple) => tuple.user === `mcp_server:${serverId}` || tuple.object === `mcp_server:${serverId}`,
+      ),
+    },
+    { ...ctx, source: ctx?.source ?? "mcp_server_delete" },
+  );
 }

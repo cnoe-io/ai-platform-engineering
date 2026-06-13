@@ -1,9 +1,10 @@
 import { ApiError } from "@/lib/api-error";
+import { authorize, authorizeMany, type Action, type Subject } from "@/lib/authz";
 import type { UniversalRebacResourceType } from "@/types/rbac-universal";
 
-import { checkOpenFgaTuple,type OpenFgaCheckResult,type OpenFgaTupleKey } from "./openfga";
+import { type OpenFgaCheckResult, type OpenFgaTupleKey } from "./openfga";
 import { openFgaResourceObject } from "./openfga-resource-ids";
-import { organizationObjectId } from "./organization";
+import { caipeOrgKey, organizationObjectId } from "./organization";
 
 export type ResourcePermissionAction =
   | "list"
@@ -63,18 +64,89 @@ function isOrgAdminBypassKillSwitchEnabled(): boolean {
   return raw === "1" || raw.trim().toLowerCase() === "true";
 }
 
+function casSubjectFromSession(session: ResourceAuthzSession): Subject | null {
+  if (typeof session.sub !== "string" || !session.sub.trim()) return null;
+  const id = session.sub.trim();
+  return { type: session.isServiceAccount === true ? "service_account" : "user", id };
+}
+
+/** Maps legacy route actions onto CAS {@link Action} values. */
+export function resourcePermissionActionToCasAction(action: ResourcePermissionAction): Action {
+  switch (action) {
+    case "list":
+      return "discover";
+    case "admin":
+      return "manage";
+    default:
+      return action;
+  }
+}
+
+function authzUnavailableError(): ApiError {
+  return new ApiError(
+    "Authorization service temporarily unavailable.",
+    503,
+    "AUTHZ_UNAVAILABLE",
+    "pdp_unavailable",
+    "retry",
+  );
+}
+
+async function tupleAllowed(
+  subject: string,
+  target: ResourcePermissionTarget,
+  check: (tuple: OpenFgaTupleKey) => Promise<OpenFgaCheckResult>,
+): Promise<boolean> {
+  const result = await check({
+    user: subject,
+    relation: openFgaRelationForResourceAction(target.action),
+    object: resourceObject(target.type, target.id),
+  });
+  return result.allowed === true;
+}
+
+async function casAllowed(subject: Subject, target: ResourcePermissionTarget): Promise<boolean> {
+  const result = await authorize({
+    subject,
+    resource: { type: target.type, id: target.id },
+    action: resourcePermissionActionToCasAction(target.action),
+  });
+  return result.decision === "ALLOW";
+}
+
+async function resourceAllowed(
+  subjectString: string,
+  casSubject: Subject,
+  target: ResourcePermissionTarget,
+  options: ResourcePermissionOptions,
+): Promise<boolean> {
+  if (options.check) {
+    return tupleAllowed(subjectString, target, options.check);
+  }
+  return casAllowed(casSubject, target);
+}
+
 async function isOrgAdmin(
   subject: string,
-  check: (tuple: OpenFgaTupleKey) => Promise<OpenFgaCheckResult>,
+  casSubject: Subject,
+  options: ResourcePermissionOptions,
 ): Promise<boolean> {
   if (isOrgAdminBypassKillSwitchEnabled()) return false;
   try {
-    const result = await check({
-      user: subject,
-      relation: "can_manage",
-      object: organizationObjectId(),
+    if (options.check) {
+      const result = await options.check({
+        user: subject,
+        relation: "can_manage",
+        object: organizationObjectId(),
+      });
+      return result.allowed === true;
+    }
+    const result = await authorize({
+      subject: casSubject,
+      resource: { type: "organization", id: caipeOrgKey() },
+      action: "manage",
     });
-    return result.allowed === true;
+    return result.decision === "ALLOW";
   } catch {
     return false;
   }
@@ -94,16 +166,16 @@ export async function canTransferResourceOwnership(
   options: ResourcePermissionOptions = {},
 ): Promise<boolean> {
   const subject = subjectFromSession(session);
-  if (!subject) return false;
-  const check = options.check ?? checkOpenFgaTuple;
-  if (await isOrgAdmin(subject, check)) return true;
+  const casSubject = casSubjectFromSession(session);
+  if (!subject || !casSubject) return false;
+  if (await isOrgAdmin(subject, casSubject, options)) return true;
   try {
-    const result = await check({
-      user: subject,
-      relation: "can_manage",
-      object: resourceObject(target.type, target.id),
-    });
-    return result.allowed === true;
+    return await resourceAllowed(
+      subject,
+      casSubject,
+      { type: target.type, id: target.id, action: "manage" },
+      options,
+    );
   } catch {
     return false;
   }
@@ -167,7 +239,8 @@ export async function requireSkillPermission(
   options: ResourcePermissionOptions = {},
 ): Promise<void> {
   const subject = subjectFromSession(session);
-  if (!subject) {
+  const casSubject = casSubjectFromSession(session);
+  if (!subject || !casSubject) {
     throw new ApiError(
       "A stable user subject is required for this resource authorization check.",
       401,
@@ -177,20 +250,19 @@ export async function requireSkillPermission(
     );
   }
 
-  const check = options.check ?? checkOpenFgaTuple;
-
-  if (!isOrgAdminBypassKillSwitchEnabled() && (await isOrgAdmin(subject, check))) {
+  if (!isOrgAdminBypassKillSwitchEnabled() && (await isOrgAdmin(subject, casSubject, options))) {
     return;
   }
 
   if (session.role === "admin") {
     try {
-      const surface = await check({
-        user: subject,
-        relation: "can_manage",
-        object: "admin_surface:skills",
-      });
-      if (surface.allowed === true) {
+      const surfaceAllowed = await resourceAllowed(
+        subject,
+        casSubject,
+        { type: "admin_surface", id: "skills", action: "manage" },
+        options,
+      );
+      if (surfaceAllowed) {
         return;
       }
     } catch {
@@ -214,7 +286,8 @@ export async function requireAgentPermission(
   options: ResourcePermissionOptions = {},
 ): Promise<void> {
   const subject = subjectFromSession(session);
-  if (!subject) {
+  const casSubject = casSubjectFromSession(session);
+  if (!subject || !casSubject) {
     throw new ApiError(
       "A stable user subject is required for this resource authorization check.",
       401,
@@ -224,9 +297,7 @@ export async function requireAgentPermission(
     );
   }
 
-  const check = options.check ?? checkOpenFgaTuple;
-
-  if (!isOrgAdminBypassKillSwitchEnabled() && (await isOrgAdmin(subject, check))) {
+  if (!isOrgAdminBypassKillSwitchEnabled() && (await isOrgAdmin(subject, casSubject, options))) {
     return;
   }
 
@@ -236,40 +307,56 @@ export async function requireAgentPermission(
 export async function requireResourcePermission(
   session: ResourceAuthzSession,
   target: ResourcePermissionTarget,
-  options: ResourcePermissionOptions = {}
+  options: ResourcePermissionOptions = {},
 ): Promise<void> {
   const subject = subjectFromSession(session);
-  if (!subject) {
+  const casSubject = casSubjectFromSession(session);
+  if (!subject || !casSubject) {
     throw new ApiError(
       "A stable user subject is required for this resource authorization check.",
       401,
       "NO_SUBJECT",
       "session_expired",
-      "sign_in"
+      "sign_in",
     );
   }
 
-  const check = options.check ?? checkOpenFgaTuple;
-
-  if (options.bypassForOrgAdmin && (await isOrgAdmin(subject, check))) {
+  if (options.bypassForOrgAdmin && (await isOrgAdmin(subject, casSubject, options))) {
     return;
   }
 
-  const tuple: OpenFgaTupleKey = {
-    user: subject,
-    relation: openFgaRelationForResourceAction(target.action),
-    object: resourceObject(target.type, target.id),
-  };
-  const result = await check(tuple);
-  if (!result.allowed) {
-    throw new ApiError(
-      "You do not have permission to access this resource.",
-      403,
-      `${target.type}#${target.action}`,
-      "pdp_denied",
-      "contact_admin"
-    );
+  if (options.check) {
+    const allowed = await tupleAllowed(subject, target, options.check);
+    if (!allowed) {
+      throw new ApiError(
+        "You do not have permission to access this resource.",
+        403,
+        `${target.type}#${target.action}`,
+        "pdp_denied",
+        "contact_admin",
+      );
+    }
+    return;
   }
+
+  const result = await authorize({
+    subject: casSubject,
+    resource: { type: target.type, id: target.id },
+    action: resourcePermissionActionToCasAction(target.action),
+  });
+  if (result.decision === "ALLOW") {
+    return;
+  }
+  if (result.reason === "AUTHZ_UNAVAILABLE" || result.retriable) {
+    throw authzUnavailableError();
+  }
+  throw new ApiError(
+    "You do not have permission to access this resource.",
+    403,
+    `${target.type}#${target.action}`,
+    "pdp_denied",
+    "contact_admin",
+  );
 }
 
 export async function filterResourcesByPermission<T>(
@@ -280,31 +367,43 @@ export async function filterResourcesByPermission<T>(
     action: ResourcePermissionAction;
     id: (resource: T) => string;
   },
-  options: ResourcePermissionOptions = {}
+  options: ResourcePermissionOptions = {},
 ): Promise<T[]> {
   const subject = subjectFromSession(session);
-  if (!subject) return [];
+  const casSubject = casSubjectFromSession(session);
+  if (!subject || !casSubject) return [];
 
-  const check = options.check ?? checkOpenFgaTuple;
-
-  if (options.bypassForOrgAdmin && (await isOrgAdmin(subject, check))) {
+  if (options.bypassForOrgAdmin && (await isOrgAdmin(subject, casSubject, options))) {
     return [...resources];
   }
 
-  const decisions: Array<T | null> = await Promise.all(
-    resources.map(async (resource) => {
-      try {
-        const result = await check({
-          user: subject,
-          relation: openFgaRelationForResourceAction(target.action),
-          object: resourceObject(target.type, target.id(resource)),
-        });
-        return result.allowed ? resource : null;
-      } catch {
-        return null;
-      }
-    })
+  if (options.check) {
+    const decisions: Array<T | null> = await Promise.all(
+      resources.map(async (resource) => {
+        try {
+          const allowed = await tupleAllowed(
+            subject,
+            { type: target.type, id: target.id(resource), action: target.action },
+            options.check!,
+          );
+          return allowed ? resource : null;
+        } catch {
+          return null;
+        }
+      }),
+    );
+    return decisions.filter((resource): resource is T => resource !== null);
+  }
+
+  if (resources.length === 0) return [];
+
+  const ids = resources.map((resource) => target.id(resource));
+  const results = await authorizeMany(
+    casSubject,
+    resourcePermissionActionToCasAction(target.action),
+    target.type,
+    ids,
   );
 
-  return decisions.filter((resource): resource is T => resource !== null);
+  return resources.filter((resource) => results.get(target.id(resource))?.decision === "ALLOW");
 }
