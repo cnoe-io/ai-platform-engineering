@@ -9,7 +9,7 @@ writeOpenFgaTupleDiff,
 type OpenFgaReconcileResult,
 type OpenFgaTupleKey,
 } from "@/lib/rbac/openfga";
-import { reconcileShareableResource } from "@/lib/rbac/openfga-owned-resources";
+import { reconcileShareableResource } from "@/lib/rbac/openfga-owned-resources-reconcile";
 
 interface TeamDoc {
   _id?: ObjectId | string;

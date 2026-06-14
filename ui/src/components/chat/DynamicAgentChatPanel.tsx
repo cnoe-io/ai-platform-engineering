@@ -11,6 +11,7 @@ import { useAgentTimeline } from "@/hooks/useDynamicAgentTimeline";
 import { APIClientError } from "@/lib/api-client";
 import { authErrorToastTitle,type AuthError } from "@/lib/auth-error";
 import { getConfig } from "@/lib/config";
+import { fetchEphemeralFileContent } from "@/lib/ephemeral-files";
 import { createStreamAdapter,StreamError,type StreamCallbacks } from "@/lib/streaming";
 import { createStreamEvent,FILE_TOOL_NAMES,TODO_TOOL_NAME,type StreamEvent } from "@/lib/streaming/types";
 import { cn,deduplicateByKey } from "@/lib/utils";
@@ -526,6 +527,15 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       }
     },
     [conversationId, agentId, isDownloadingFile]
+  );
+
+  const handleGetFileContent = useCallback(
+    async (path: string): Promise<string | null> => {
+      if (!conversationId || !agentId) return null;
+      const fsNamespace = JSON.stringify([agentId, conversationId, "filesystem"]);
+      return fetchEphemeralFileContent(fsNamespace, path);
+    },
+    [conversationId, agentId],
   );
 
   // Handle file delete
@@ -1680,6 +1690,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
                           timelineFiles={timelineFiles}
                           timelineTasks={timelineTasks}
                           onFileDownload={handleTimelineFileDownload}
+                          getFileContent={handleGetFileContent}
                           onFileDelete={handleTimelineFileDelete}
                           isDownloadingFile={isDownloadingFile}
                           downloadingFilePath={downloadingFilePath}
@@ -2067,6 +2078,7 @@ interface ChatMessageProps {
   timelineFiles?: string[];
   timelineTasks?: TaskItem[];
   onFileDownload?: (path: string) => void;
+  getFileContent?: (path: string) => Promise<string | null>;
   onFileDelete?: (path: string) => void;
   isDownloadingFile?: boolean;
   downloadingFilePath?: string;
@@ -2099,6 +2111,7 @@ const ChatMessage = React.memo(function ChatMessage({
   timelineFiles = [],
   timelineTasks = [],
   onFileDownload,
+  getFileContent,
   onFileDelete,
   isDownloadingFile,
   downloadingFilePath,
@@ -2314,6 +2327,7 @@ const ChatMessage = React.memo(function ChatMessage({
                 tasks={isLatestAnswer ? timelineTasks : []}
                 isLatestMessage={isLatestAnswer}
                 onFileDownload={onFileDownload}
+                getFileContent={getFileContent}
                 onFileDelete={onFileDelete}
                 isDownloadingFile={isDownloadingFile}
                 downloadingFilePath={downloadingFilePath}

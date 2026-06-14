@@ -23,8 +23,9 @@ export default function WorkflowsPage() {
         setAgentCount(list.length);
       })
       .catch(() => setAgentCount(null));
+    loadConfigs();
     loadRuns();
-  }, [loadRuns]);
+  }, [loadConfigs, loadRuns]);
 
   const selectedConfig = useMemo(
     () => (selectedConfigId ? configs.find((c) => c._id === selectedConfigId) : undefined),

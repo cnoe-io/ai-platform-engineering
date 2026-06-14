@@ -184,5 +184,5 @@ binds:
 config:
   adminAddr: 0.0.0.0:15000
   logging:
-    level: debug
+    level: info
     format: json

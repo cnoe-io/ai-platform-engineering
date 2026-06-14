@@ -11,7 +11,7 @@ deleteAllMcpToolRelationshipTuples,
 reconcileDataSourceRelationships,
 reconcileKnowledgeBaseRelationships,
 reconcileMcpToolRelationships,
-} from '@/lib/rbac/openfga-owned-resources';
+} from '@/lib/rbac/openfga-owned-resources-reconcile';
 import { organizationObjectId } from '@/lib/rbac/organization';
 import {
 filterResourcesByPermission,

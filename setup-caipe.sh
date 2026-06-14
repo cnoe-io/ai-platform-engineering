@@ -212,18 +212,40 @@ ENABLE_WEBEX_BOT="${ENABLE_WEBEX_BOT:-false}"
 # explicit CLI choice wins over the env-file auto-enable. Empty = no CLI flag given.
 _SLACK_BOT_FORCED=""
 _WEBEX_BOT_FORCED=""
-# Agents selected interactively; empty means all defaults are used (non-interactive path)
+# Agents selected interactively or via CAIPE_SELECTED_AGENTS; empty means all
+# defaults are used (non-interactive path).
+# assisted-by Codex Codex-sonnet-4-6
 SELECTED_AGENTS=()
+CAIPE_SELECTED_AGENTS="${CAIPE_SELECTED_AGENTS:-}"
+if [[ -n "$CAIPE_SELECTED_AGENTS" ]]; then
+  IFS=',' read -ra _selected_agents_from_env <<< "$CAIPE_SELECTED_AGENTS"
+  for _agent in "${_selected_agents_from_env[@]}"; do
+    _agent="${_agent#"${_agent%%[![:space:]]*}"}"
+    _agent="${_agent%"${_agent##*[![:space:]]}"}"
+    [[ -n "$_agent" ]] && SELECTED_AGENTS+=("$_agent")
+  done
+  unset _selected_agents_from_env _agent
+fi
 CAIPE_DEPLOYMENT_MODE="${CAIPE_DEPLOYMENT_MODE:-all-in-one}"
 
 # When run via "curl | bash", stdin is the script content — bash reads it
 # line-by-line. We CANNOT redirect stdin (exec < /dev/tty) because that
 # would stop bash from reading the rest of the script.  Instead, open
 # /dev/tty on fd 3 and redirect all interactive `read` calls to <&3.
+# assisted-by Codex Codex-sonnet-4-6
+for _arg in "$@"; do
+  case "$_arg" in
+    --non-interactive) NON_INTERACTIVE=true ;;
+  esac
+done
+unset _arg
+
 _tty_fd_opened=false
 { exec 3</dev/tty; _tty_fd_opened=true; } 2>/dev/null || true
 if ! $_tty_fd_opened; then
-  if [[ -t 0 ]]; then
+  if $NON_INTERACTIVE; then
+    exec 3</dev/null
+  elif [[ -t 0 ]]; then
     exec 3<&0
   else
     echo "ERROR: no terminal available for interactive prompts." >&2

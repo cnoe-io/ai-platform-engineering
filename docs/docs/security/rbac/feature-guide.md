@@ -168,7 +168,8 @@ OpenFGA stores relationship tuples. The model represents relationships such as:
 ```text
 user:<sub> member team:<slug>
 team:<slug>#member user agent:<agent_id>
-team:<slug>#member caller tool:<server>_*
+team:<slug>#member caller tool:<server>/*
+agent:<agent_id> caller tool:<server>/*
 team:<slug>#member reader knowledge_base:<id>
 team:<slug>#member ingestor knowledge_base:<id>
 slack_channel:<channel> user agent:<agent_id>
@@ -606,9 +607,9 @@ MCP tools are protected by AgentGateway authentication and the OpenFGA `ext_auth
 
 Common grants:
 
-- Specific tool: `tool:jira_search`.
-- Server prefix: `tool:jira_*`.
-- All tools: `tool:*`.
+- Specific tool: `tool:<server>/<tool>`.
+- Server wildcard: `tool:<server>/*`.
+- All MCP servers: Team Resources expands this into `tool:<server>/*` for each currently registered MCP server.
 
 Prefer prefix grants over broad wildcard grants unless the user or team really needs all tools. These grants are modeled in OpenFGA now; confirm the deployed bridge granularity before relying on AgentGateway alone for per-tool enforcement.
 
@@ -904,7 +905,7 @@ Check:
 - Do not add new AgentGateway CEL policy CRUD for MCP authorization.
 - Do not use Mongo ObjectIds as team authorization identifiers.
 - Do not rely on display names as authorization keys.
-- Do not grant `tool:*` when a narrower prefix works.
+- Do not grant every MCP server when a narrower `tool:<server>/*` or `tool:<server>/<tool>` grant works.
 - Do not leave bootstrap admin enabled after setup.
 - Do not authorize Slack requests as the bot service account when the action is really on behalf of a user.
 - Do not log raw JWTs, client secrets, OBO tokens, or Slack tokens.

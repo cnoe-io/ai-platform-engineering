@@ -1319,6 +1319,59 @@ sequenceDiagram
 
 Current strict surfaces include `conversation:<id>` for chat list/read/write/share/stream and message persistence, `skill:<id>` for catalog/config/hub file and scan access, `admin_surface:rag_datasources` for RAG Data Sources tab administration, `knowledge_base:<id>` for RAG proxy paths, datasource list filtering, search filter injection, and direct RAG API/MCP checks, `agent:<id>` for Dynamic Agent listing and mutation, `mcp_server:agentgateway` for AgentGateway discovery/sync, `mcp_server:<id>#can_discover` for the Create Agent → Tools Probe button (probing only enumerates advertised tool metadata, so it is gated on `can_discover` rather than `can_invoke`; the model already grants discover to organization members, organization admins, team-shared members, owners, and channel/group routings), and `system_config:platform_settings` for platform configuration. Conversation checks use implicit owner access first and explicit OpenFGA relationships for non-owner access. RAG proxy calls still forward the Keycloak bearer token after the BFF PDP decision, so RAG validates issuer, audience, signature, and expiry with Keycloak before checking OpenFGA using team-derived `knowledge_base` relationships. The Dynamic Agent **built-in tool catalog** at `GET /api/dynamic-agents/builtin-tools` is intentionally not strict-gated — the catalog is a static metadata listing of supported built-in tool *types* (web_search, file_io, etc.), is needed by every authenticated user who can open the Create Agent wizard, and per-tool authorization happens at MCP invocation time. The route requires an authenticated session and forwards the bearer token to dynamic-agents (where `DA_REQUIRE_BEARER` still applies); it does not consult OpenFGA. Task Builder routes are intentionally excluded from this pass because they are scheduled for refactor.
 
+**Workflow configs and runs** are the first surfaces migrated onto the Centralized Authorization Service (CAS). See [Workflow RBAC on CAS](#workflow-rbac-on-cas) below — those routes still pass through the coarse Keycloak scope gate in `api-middleware.ts`, but object-level allow/deny is decided by CAS rather than direct OpenFGA helper calls in the route handler.
+
+---
+
+## Workflow RBAC on CAS
+
+Workflow authorization is the first end-to-end migration onto the **Centralized Authorization Service (CAS)**. CAS is the single PDP: it evaluates OpenFGA capabilities, applies the org-admin bypass, caches decisions, and writes `cas_decision` audit rows. BFF routes and Dynamic Agents act as **Policy Enforcement Points (PEPs)** that call CAS instead of embedding OpenFGA checks.
+
+### BFF workflow PEP (`workflow-cas-authz.ts`)
+
+`GET/POST /api/workflow-configs` and `GET/POST/PATCH/DELETE /api/workflow-runs` (plus run resume/cancel) delegate object-level checks to `ui/src/lib/server/workflow-cas-authz.ts`:
+
+* **Resource mapping** — workflow configs are modeled as `task:<config_id>` in OpenFGA (`read` / `write` / `delete` actions).
+* **Org-admin bypass** — callers with `organization:<org>#can_manage` are allowed before per-config checks (mirrors legacy `{ bypassForOrgAdmin: true }`).
+* **Run access** — run owners (`owner_subject` on the run document) are allowed without a parent-config check; runs with a different owner are denied; legacy runs without `owner_subject` fall back to parent-config authorization.
+* **List filtering** — config lists use batched `authorizeMany` against CAS instead of per-row OpenFGA calls.
+* **Clean errors** — denials return stable reason codes (`WORKFLOW_FORBIDDEN`, `WORKFLOW_RUN_FORBIDDEN`, `AUTHZ_UNAVAILABLE`) without leaking OpenFGA relation strings in response bodies.
+
+The coarse session gate in `ui/src/lib/api-middleware.ts` still maps these paths to Keycloak scopes (`dynamic_agent#view` for `GET`, `dynamic_agent#manage` / `#invoke` for mutations) before the CAS PEP runs.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant BFF as CAIPE UI BFF
+    participant CAS as CAS /authz/v1/decisions
+    participant FGA as OpenFGA (via CAS)
+    participant Store as MongoDB
+
+    User->>BFF: GET /api/workflow-configs
+    BFF->>BFF: session + Keycloak scope gate
+    BFF->>Store: load config candidates
+    BFF->>CAS: authorizeMany(user, read, task, ids)
+    CAS->>FGA: evaluate capabilities + org-admin bypass
+    FGA-->>CAS: ALLOW / DENY per id
+    CAS-->>BFF: batched decisions + audit
+    BFF-->>User: filtered config list
+```
+
+### Dynamic Agents agent-use PEP (`auth/authz.py`)
+
+Dynamic Agents no longer perform in-process OpenFGA checks for agent invocation. `require_agent_use_permission()` in `ai_platform_engineering/dynamic_agents/src/dynamic_agents/auth/authz.py` is a thin PEP:
+
+1. Read `sub` from the already-validated bearer (signature verified upstream).
+2. `POST {AUTHZ_SERVICE_URL}/api/authz/v1/decisions` with `{ subject, resource: agent:<id>, action: use }`, forwarding the same OBO bearer so CAS **subject-binding** (`caller == subject`) holds.
+3. **Allow** on `decision: ALLOW`; **403** on deny; **503** when CAS is unreachable or `AUTHZ_SERVICE_URL` is unset (fail closed).
+
+Workflow step execution in the BFF orchestrates agents in-process (`/api/v1/chat/stream/start` per step), so per-step agent-use checks run through the BFF CAS path rather than this DA HTTP client.
+
+### Global workflow agent grants (PAP)
+
+The workflow editor's "Share agent access" modal writes intent-based grants through CAS (`agent#use` to `team:<slug>` or global `everyone`). CAS's grant parser intentionally allows low-risk `everyone` + `use` grants (but still blocks high-risk `everyone` + `manage`) so operators can expose a workflow's backing agent org-wide without opening admin capabilities.
+
 ---
 
 ## Compact End-to-End Request Flow (Reference)

@@ -341,8 +341,8 @@ type skill
 type task
   relations
     define owner: [user, service_account]
-    define reader: [user, service_account, team#member, team#admin, external_group#member]
-    define user: [user, service_account, team#member, team#admin, external_group#member]
+    define reader: [user, service_account, team#member, team#admin, external_group#member, organization#member]
+    define user: [user, service_account, team#member, team#admin, external_group#member, organization#member]
     define writer: [user, service_account, team#member, team#admin]
     define manager: [user, service_account, team#admin]
     define auditor: [user, service_account, team#admin]

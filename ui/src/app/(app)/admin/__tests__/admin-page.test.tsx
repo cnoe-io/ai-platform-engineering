@@ -141,6 +141,10 @@ jest.mock('@/components/admin/security/UnifiedAuditTab', () => ({
   UnifiedAuditTab: () => <div data-testid="unified-audit-tab">UnifiedAuditTab</div>,
 }));
 
+jest.mock('@/components/admin/PermissionsToolTab', () => ({
+  PermissionsToolTab: () => <div data-testid="permissions-tool-tab">PermissionsToolTab</div>,
+}));
+
 jest.mock('@/components/admin/teams/CreateTeamDialog', () => ({
   CreateTeamDialog: () => null,
 }));
@@ -666,7 +670,7 @@ describe('Admin Dashboard Page', () => {
       );
     });
 
-    it('orders Security & Policy tabs with OpenFGA ReBAC as the default', async () => {
+    it('orders Security & Policy tabs with RBAC Audit second and Permissions Tool as default', async () => {
       currentSearchParams = new URLSearchParams('cat=security');
 
       render(<AdminPage />);
@@ -677,13 +681,14 @@ describe('Admin Dashboard Page', () => {
 
       fireEvent.click(screen.getByText('Security & Policy'));
       expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
-        'OpenFGA ReBAC',
+        'Permissions Tool',
         'RBAC Audit',
+        'OpenFGA ReBAC',
         'Chat Audit',
         'Keycloak',
         'Migrations',
       ]);
-      expect(screen.getByRole('tab', { name: /OpenFGA ReBAC/i })).toHaveAttribute(
+      expect(screen.getByRole('tab', { name: /^Permissions Tool$/i })).toHaveAttribute(
         'aria-selected',
         'true'
       );
@@ -799,20 +804,21 @@ describe('Admin Dashboard Page', () => {
       expect(screen.queryByRole('tab', { name: /^Users$/i })).not.toBeInTheDocument();
     });
 
-    it('defaults bare /admin to the top-level Settings Default Agent tab', async () => {
+    it('defaults bare /admin to Security & Policy Permissions Tool tab', async () => {
       render(<AdminPage />);
 
-      expect(await screen.findByText('Settings')).toBeInTheDocument();
+      expect(await screen.findByText('Security & Policy')).toBeInTheDocument();
 
-      expect(screen.getByRole('button', { name: 'Settings' })).toHaveClass('bg-primary');
-      expect(screen.getByRole('tab', { name: /default agent/i })).toHaveAttribute(
+      expect(screen.getByRole('button', { name: 'Security & Policy' })).toHaveClass('bg-primary');
+      expect(screen.getByRole('tab', { name: /^Permissions Tool$/i })).toHaveAttribute(
         'aria-selected',
         'true'
       );
-      expect(screen.getByTestId('platform-settings-tab')).toBeInTheDocument();
-      expect(replaceMock).toHaveBeenCalledWith('/admin?cat=settings&tab=settings', {
-        scroll: false,
-      });
+      expect(screen.getByTestId('permissions-tool-tab')).toBeInTheDocument();
+      expect(replaceMock).toHaveBeenCalledWith(
+        '/admin?cat=security&tab=cas-permissions-tool',
+        { scroll: false }
+      );
     });
 
     it('opens the Release notes settings tab from the query string', async () => {

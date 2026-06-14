@@ -16,10 +16,11 @@ withErrorHandler,
 import { getCollection } from "@/lib/mongodb";
 import { agentGatewayMcpEndpointUrl } from "@/lib/rbac/agentgateway-mcp-discovery";
 import { normalizeMcpEndpointForServer } from "@/lib/rbac/mcp-endpoint-normalizer";
+import { caipeOrgKey } from "@/lib/rbac/organization";
 import {
 deleteAllMcpServerRelationshipTuples,
 reconcileMcpServerRelationships,
-} from "@/lib/rbac/openfga-owned-resources";
+} from "@/lib/rbac/openfga-owned-resources-reconcile";
 import {
 filterResourcesByPermission,
 requireResourcePermission,
@@ -125,18 +126,18 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     const collection = await getCollection<MCPServerConfig>(COLLECTION_NAME);
     const { page, pageSize, skip } = getPaginationParams(request);
 
-    const [items] = await Promise.all([
-      collection.find({}).sort({ name: 1 }).skip(skip).limit(pageSize).toArray(),
-      collection.countDocuments({}),
-    ]);
+    const allItems = await collection.find({}).sort({ name: 1 }).toArray();
     const listTarget = {
       type: "mcp_server" as const,
       action: "read" as const,
       id: (server: MCPServerConfig) => String(server._id),
     };
-    const visibleItems = await filterResourcesByPermission(session, items, listTarget);
+    const visibleItems = await filterResourcesByPermission(session, allItems, listTarget, {
+      bypassForOrgAdmin: true,
+    });
+    const pageItems = visibleItems.slice(skip, skip + pageSize);
 
-    return paginatedResponse(visibleItems, visibleItems.length, page, pageSize);
+    return paginatedResponse(pageItems, visibleItems.length, page, pageSize);
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -150,6 +151,14 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
 export const POST = withErrorHandler(async (request: NextRequest) => {
   const { session, user } = await getAuthFromBearerOrSession(request);
   const ownerSubject = requireStableSubject(session);
+
+    // Org members (or org admins) may register MCP servers; owner tuples are
+    // written immediately after insert via CAS reconcileTupleDiff.
+    await requireResourcePermission(
+      session,
+      { type: "organization", id: caipeOrgKey(), action: "use" },
+      { bypassForOrgAdmin: true },
+    );
 
     const body = await request.json();
 
@@ -222,11 +231,21 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       updated_at: now.toISOString(),
     };
 
-    await reconcileMcpServerRelationships({
-      serverId,
-      ownerSubject,
-      ownerTeamSlug,
-    });
+    const ownerSubjectKind =
+      session.isServiceAccount === true ? ("service_account" as const) : ("user" as const);
+
+    await reconcileMcpServerRelationships(
+      {
+        serverId,
+        ownerSubject,
+        ownerSubjectKind,
+        ownerTeamSlug,
+      },
+      {
+        caller: { type: ownerSubjectKind, id: ownerSubject },
+        source: "mcp_server_create",
+      },
+    );
 
     await collection.insertOne(doc);
 
@@ -263,7 +282,7 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     const updateTarget = {
       type: "mcp_server" as const,
       id,
-      action: "write" as const,
+      action: "manage" as const,
     };
     await requireResourcePermission(session, updateTarget);
 
@@ -351,7 +370,15 @@ export const DELETE = withErrorHandler(async (request: NextRequest) => {
       );
     }
 
-    await deleteAllMcpServerRelationshipTuples(id);
+    await deleteAllMcpServerRelationshipTuples(id, {
+      caller: session.sub
+        ? {
+            type: session.isServiceAccount === true ? "service_account" : "user",
+            id: String(session.sub).trim(),
+          }
+        : undefined,
+      source: "mcp_server_delete",
+    });
     await collection.deleteOne({ _id: id });
 
     return successResponse({ deleted: id });

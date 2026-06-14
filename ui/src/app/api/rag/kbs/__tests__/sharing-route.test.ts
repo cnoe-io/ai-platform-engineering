@@ -53,7 +53,7 @@ jest.mock("@/lib/rbac/resource-authz", () => ({
 
 const mockReconcileKnowledgeBaseRelationships = jest.fn();
 const mockReconcileDataSourceRelationships = jest.fn();
-jest.mock("@/lib/rbac/openfga-owned-resources", () => ({
+jest.mock("@/lib/rbac/openfga-owned-resources-reconcile", () => ({
   reconcileKnowledgeBaseRelationships: (...args: unknown[]) =>
     mockReconcileKnowledgeBaseRelationships(...args),
   reconcileDataSourceRelationships: (...args: unknown[]) =>

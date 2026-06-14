@@ -7,7 +7,7 @@ withErrorHandler,
 } from '@/lib/api-middleware';
 import { getCollection,isMongoDBConfigured } from '@/lib/mongodb';
 import { writeOpenFgaTuples,type OpenFgaTupleKey,type TeamResourceTupleDiff } from '@/lib/rbac/openfga';
-import { reconcileDataSourceRelationships } from '@/lib/rbac/openfga-owned-resources';
+import { reconcileDataSourceRelationships } from '@/lib/rbac/openfga-owned-resources-reconcile';
 import { findUserRoleInTeam } from '@/lib/rbac/team-membership-store';
 import type { KbPermission,TeamKbOwnership } from '@/lib/rbac/types';
 import { ObjectId } from 'mongodb';

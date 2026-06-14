@@ -5,6 +5,7 @@ import { FileTree } from "@/components/dynamic-agents/FileTree";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
+import { fetchEphemeralFileContent } from "@/lib/ephemeral-files";
 import { useChatStore } from "@/store/chat-store";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 import { motion } from "framer-motion";
@@ -148,6 +149,12 @@ export function DynamicAgentContext({
     } catch {
       // ignore
     }
+  }, [agentId, conversationId]);
+
+  const handleGetFileContent = useCallback(async (path: string): Promise<string | null> => {
+    if (!agentId || !conversationId) return null;
+    const fsNamespace = JSON.stringify([agentId, conversationId, "filesystem"]);
+    return fetchEphemeralFileContent(fsNamespace, path);
   }, [agentId, conversationId]);
 
   // Download chat handler
@@ -319,6 +326,7 @@ export function DynamicAgentContext({
               isLoadingFiles={isLoadingFiles}
               onToggleFiles={handleToggleFiles}
               onFileDownload={handleFileDownload}
+              getFileContent={handleGetFileContent}
             />
           </div>
         </ScrollArea>
@@ -372,6 +380,7 @@ interface AgentInfoContentProps {
   isLoadingFiles?: boolean;
   onToggleFiles?: () => void;
   onFileDownload?: (path: string) => void;
+  getFileContent?: (path: string) => Promise<string | null>;
 }
 
 function AgentInfoContent({
@@ -389,6 +398,7 @@ function AgentInfoContent({
   isLoadingFiles,
   onToggleFiles,
   onFileDownload,
+  getFileContent,
 }: AgentInfoContentProps) {
   // Count total tools across all MCP servers
   const toolCount = agent?.allowed_tools
@@ -637,6 +647,7 @@ function AgentInfoContent({
               ) : (
                 <FileTree
                   files={files}
+                  getFileContent={getFileContent}
                   onFileClick={onFileDownload}
                 />
               )}

@@ -14,7 +14,7 @@ dependencies = [
     "beautifulsoup4==4.14.2",
     "boto3==1.42.45",
     "common",
-    "fastapi[standard]==0.121.2",
+    "fastapi[standard]==0.135.3",
     "kubernetes==35.0.0",
     "langchain==1.0.7",
     "langchain-text-splitters==1.1.2",

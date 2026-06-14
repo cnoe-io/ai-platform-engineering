@@ -115,7 +115,16 @@ jobs:
 
       - name: Install ui/ npm deps
         working-directory: ui
-        run: npm ci --no-audit --no-fund
+        run: |
+          # assisted-by Codex Codex-sonnet-4-6
+          for attempt in 1 2 3; do
+            npm ci --no-audit --no-fund && break
+            status=$?
+            if [ "$attempt" -eq 3 ]; then
+              exit "$status"
+            fi
+            sleep $((attempt * 10))
+          done
 
       - name: ▶ make test-rbac-lint  (matrix linter + realm validator + requireAdmin guard)
         run: |
@@ -217,12 +226,29 @@ jobs:
 
       - name: Install ui/ npm deps
         working-directory: ui
-        run: npm ci --no-audit --no-fund
+        run: |
+          # assisted-by Codex Codex-sonnet-4-6
+          for attempt in 1 2 3; do
+            npm ci --no-audit --no-fund && break
+            status=$?
+            if [ "$attempt" -eq 3 ]; then
+              exit "$status"
+            fi
+            sleep $((attempt * 10))
+          done
 
       - name: Install Playwright browsers
         working-directory: tests/rbac/e2e
         run: |
-          npm install --no-audit --no-fund
+          # assisted-by Codex Codex-sonnet-4-6
+          for attempt in 1 2 3; do
+            npm install --no-audit --no-fund && break
+            status=$?
+            if [ "$attempt" -eq 3 ]; then
+              exit "$status"
+            fi
+            sleep $((attempt * 10))
+          done
           npx playwright install --with-deps chromium
 
       - name: Pull docker images for the stack (warm cache)

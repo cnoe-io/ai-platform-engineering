@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { WorkflowProgressMap } from "@/components/workflows/WorkflowProgressMap";
 import { WorkflowRunTimeline } from "@/components/workflows/WorkflowRunTimeline";
 import { cn,formatRelativeTime } from "@/lib/utils";
+import { fetchEphemeralFileContent } from "@/lib/ephemeral-files";
 import type { WfRunStatus } from "@/store/workflow-exec-store";
 import { useWorkflowExecStore } from "@/store/workflow-exec-store";
 import { Ban,CheckCircle2,Clock,FolderOpen,Info,Loader2,MessageSquare,XCircle } from "lucide-react";
@@ -90,6 +91,12 @@ export default function WorkflowRunPage() {
     } catch {
       // ignore
     }
+  }, [run, runId]);
+
+  const handleGetFileContent = useCallback(async (path: string): Promise<string | null> => {
+    if (!run || !runId) return null;
+    const fsNamespace = JSON.stringify([run.workflow_config_id, runId, "filesystem"]);
+    return fetchEphemeralFileContent(fsNamespace, path);
   }, [run, runId]);
 
   const handleResume = async (stepIndex: number, data: string) => {
@@ -183,6 +190,7 @@ export default function WorkflowRunPage() {
               stepEvents={stepEvents}
               workflowFiles={showFiles ? workflowFiles : undefined}
               onFileDownload={handleFileDownload}
+              getFileContent={handleGetFileContent}
               onResume={run.status !== "failed" && run.status !== "cancelled" ? handleResume : undefined}
             />
           )}

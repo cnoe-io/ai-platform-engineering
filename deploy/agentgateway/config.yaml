@@ -202,5 +202,5 @@ config:
   # Default is localhost-only; use 0.0.0.0 so Docker can publish :15000 to the host.
   adminAddr: 0.0.0.0:15000
   logging:
-    level: debug
+    level: info
     format: json

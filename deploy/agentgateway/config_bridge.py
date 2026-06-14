@@ -30,8 +30,11 @@ import yaml
 
 
 LOGGER = logging.getLogger("agentgateway-config-bridge")
+RECONCILE_OK_MARKER = ".reconcile_ok"
 SAFE_TARGET_ID = re.compile(r"^[A-Za-z0-9._-]+$")
 PUBLISHED_CONFIG_MODE = 0o644
+_VALID_AGENTGATEWAY_LOG_LEVELS = frozenset({"trace", "debug", "info", "warn", "error"})
+DEFAULT_AGENTGATEWAY_LOG_LEVEL = "info"
 
 DEFAULT_MCP_ROUTE_POLICIES: dict[str, Any] = {
     "extAuthz": {
@@ -97,6 +100,20 @@ class McpGatewayTarget:
 
     id: str
     upstream_url: str
+
+
+def _reconcile_ok_path(config_path: Path) -> Path:
+    """Path to the health marker written after a successful reconcile or seed."""
+
+    return config_path.parent / RECONCILE_OK_MARKER
+
+
+def _mark_reconcile_ok(config_path: Path) -> None:
+    """Record that the published config is safe for AgentGateway to consume."""
+
+    marker = _reconcile_ok_path(config_path)
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.touch()
 
 
 def _as_bool(value: Any, *, default: bool = True) -> bool:
@@ -409,6 +426,28 @@ def _ensure_published_config_mode(path: Path) -> bool:
     return True
 
 
+def resolve_agentgateway_log_level() -> str:
+    """Return the AgentGateway proxy log level from ``AGENTGATEWAY_LOG_LEVEL``."""
+
+    level = os.getenv("AGENTGATEWAY_LOG_LEVEL", DEFAULT_AGENTGATEWAY_LOG_LEVEL).strip().lower()
+    if level not in _VALID_AGENTGATEWAY_LOG_LEVELS:
+        LOGGER.warning(
+            "Invalid AGENTGATEWAY_LOG_LEVEL %r; using %s",
+            level,
+            DEFAULT_AGENTGATEWAY_LOG_LEVEL,
+        )
+        return DEFAULT_AGENTGATEWAY_LOG_LEVEL
+    return level
+
+
+def apply_agentgateway_logging(config: dict[str, Any]) -> None:
+    """Pin proxy logging on every published config so live admin state cannot revert it."""
+
+    logging_config = config.setdefault("config", {}).setdefault("logging", {})
+    logging_config["level"] = resolve_agentgateway_log_level()
+    logging_config.setdefault("format", "json")
+
+
 def write_config_atomically(path: Path, config: dict[str, Any]) -> bool:
     """Write config as JSON/YAML-compatible content; return true when changed."""
 
@@ -448,6 +487,7 @@ def seed_config_from_bootstrap(config_path: Path, bootstrap_path: Path | None) -
     tmp_path.chmod(PUBLISHED_CONFIG_MODE)
     tmp_path.replace(config_path)
     LOGGER.info("Seeded AgentGateway config from %s", bootstrap_path)
+    _mark_reconcile_ok(config_path)
     return True
 
 
@@ -487,7 +527,10 @@ def _minimal_config() -> dict[str, Any]:
         ],
         "config": {
             "adminAddr": os.getenv("AGENTGATEWAY_ADMIN_ADDR", "0.0.0.0:15000"),
-            "logging": {"level": os.getenv("LOG_LEVEL", "info"), "format": "json"},
+            "logging": {
+                "level": resolve_agentgateway_log_level(),
+                "format": "json",
+            },
         },
     }
 
@@ -528,12 +571,31 @@ def reconcile_once(
     """Render and write one AgentGateway config generation."""
 
     targets = _load_targets_from_mongo()
-    baseline = load_baseline_config(
-        admin_config_url,
-        allow_minimal_fallback=not config_path.exists(),
-    )
+    try:
+        baseline = load_baseline_config(
+            admin_config_url,
+            allow_minimal_fallback=not config_path.exists(),
+        )
+    except (OSError, urllib.error.URLError, json.JSONDecodeError, ValueError) as exc:
+        if config_path.exists():
+            LOGGER.warning(
+                "AgentGateway admin unavailable; keeping existing config at %s (%s)",
+                config_path,
+                exc,
+            )
+            _mark_reconcile_ok(config_path)
+            return {
+                "targets": [target.id for target in targets],
+                "target_count": len(targets),
+                "changed": False,
+                "skipped": True,
+                "reason": "admin_unavailable",
+                "config_path": str(config_path),
+            }
+        raise
     builtin_routes = load_builtin_mcp_routes(bootstrap_path)
     rendered = merge_agentgateway_mcp_routes(baseline, targets, builtin_routes=builtin_routes)
+    apply_agentgateway_logging(rendered)
     changed = write_config_atomically(config_path, rendered)
     result = {
         "targets": [target.id for target in targets],
@@ -546,6 +608,7 @@ def reconcile_once(
         LOGGER.info("AgentGateway MCP config reconciled: %s", result)
     else:
         LOGGER.debug("AgentGateway MCP config unchanged: %s", result)
+    _mark_reconcile_ok(config_path)
     return result
 
 
