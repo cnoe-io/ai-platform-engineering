@@ -10,6 +10,7 @@ Supports both single-node (all-in-one, in-process MCP tools) and distributed
 import logging
 import os
 import httpx
+from contextlib import asynccontextmanager
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -144,24 +145,24 @@ a2a_server = A2AStarletteApplication(
     http_handler=request_handler
 )
 
-app = a2a_server.build()
-
 ################################################################################
 # Eager initialisation — load MCP tools at startup, not on first request
 ################################################################################
 _binding = request_handler.agent_executor.agent
 
 
-async def _startup_initialize():
+@asynccontextmanager
+async def _supervisor_lifespan(_starlette_app):
     logger.info("Initialising agent (loading MCP tools)...")
     try:
         await _binding.ensure_initialized()
         logger.info("Agent initialised successfully")
     except Exception:
         logger.exception("Agent initialisation failed — will retry on first request")
+    yield
 
 
-app.add_event_handler("startup", _startup_initialize)
+app = a2a_server.build(lifespan=_supervisor_lifespan)
 
 ################################################################################
 # /tools endpoint – returns tool names per subagent from the running MAS
