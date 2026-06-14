@@ -1934,7 +1934,11 @@ install_nginx_ingress() {
   helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
     --namespace ingress-nginx --create-namespace \
     --set controller.service.type=LoadBalancer \
-    --wait --timeout=120s 2>&1 | grep -v "^Warning\|unchanged" || true
+    2>&1 | grep -v "^Warning\|unchanged" || true
+
+  # Wait for the controller pod to become Ready before polling for IP
+  kubectl rollout status deployment/ingress-nginx-controller -n ingress-nginx \
+    --timeout=120s 2>/dev/null || true
 
   # Wait for LoadBalancer IP assignment from MetalLB
   local ingress_ip="" retries=0
