@@ -1,3 +1,43 @@
+## 0.5.11-dev.5 (2026-06-14)
+
+### Feat
+
+- **ui**: add ephemeral file preview in agents and workflows
+
+### Fix
+
+- **ui**: MCP OpenFGA reconcile, CAS-backed authz, and team sharing (#1819)
+- **supervisor**: eager MCP init via A2A lifespan hook
+
+## 0.5.11-dev.4 (2026-06-12)
+
+### Fix
+
+- **dynamic-agents**: restore workflow settings dropped by 020dc937f
+
+## 0.5.11-dev.3 (2026-06-12)
+
+### Feat
+
+- **workflows**: workflow RBAC on CAS (re-implements #1751) (#1772)
+
+## 0.5.11-dev.2 (2026-06-12)
+
+### Feat
+
+- **authz**: centralized authorization service (CAS) — core, HTTP API, admin UI
+
+### Fix
+
+- **cas**: restore missing workflow modules and fix PR 1770 CI failures
+
+## 0.5.11-dev.1 (2026-06-11)
+
+### Fix
+
+- **setup**: auto-install kind during prerequisites check
+- **setup**: auto-install missing prereqs and gate sudo on user consent
+
 ## 0.5.11 (2026-06-11)
 
 ### Feat
