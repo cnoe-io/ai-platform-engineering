@@ -184,6 +184,11 @@ describe("AgentGateway MCP server discovery API", () => {
       serverId: "jira",
       organizationId: "caipe",
     });
+    const reconcileOrder = mockReconcileConfigDrivenMcpServerRelationships.mock.invocationCallOrder[0];
+    const insertOrder = insertOne.mock.invocationCallOrder[0];
+    const updateOrder = updateOne.mock.invocationCallOrder[0];
+    expect(reconcileOrder).toBeLessThan(insertOrder);
+    expect(reconcileOrder).toBeLessThan(updateOrder);
     expect(body.data).toMatchObject({
       added: ["rag"],
       migrated: ["jira"],
@@ -279,6 +284,43 @@ describe("AgentGateway MCP server discovery API", () => {
       { sub: "admin-sub", role: "admin" },
       { type: "mcp_server", id: "agentgateway", action: "discover" },
     );
+  });
+
+  it("does not persist Mongo when OpenFGA reconcile fails during sync", async () => {
+    const insertOne = jest.fn();
+    const updateOne = jest.fn();
+    mockGetCollection.mockResolvedValue({
+      find: jest.fn().mockReturnValue({
+        toArray: jest.fn().mockResolvedValue([
+          {
+            _id: "jira",
+            name: "Jira",
+            transport: "http",
+            endpoint: "http://mcp-jira:8000/mcp",
+            enabled: true,
+          },
+        ]),
+      }),
+      insertOne,
+      updateOne,
+    });
+    mockReconcileConfigDrivenMcpServerRelationships.mockRejectedValueOnce(
+      new Error("OpenFGA reconcile failed"),
+    );
+    const { POST } = await import("../sync/route");
+
+    await expect(
+      POST(
+        request("/api/mcp-servers/agentgateway/sync", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        }),
+      ),
+    ).rejects.toThrow("OpenFGA reconcile failed");
+
+    expect(insertOne).not.toHaveBeenCalled();
+    expect(updateOne).not.toHaveBeenCalled();
   });
 
   it("denies admin sync when OpenFGA denies the AgentGateway object grant", async () => {

@@ -70,6 +70,49 @@ describe("MCP OpenFGA tuple contract", () => {
       );
     });
 
+    it("writes agent:<id> caller tool:<server>/* for team-assigned agents (AgentGateway runtime)", () => {
+      const serverId = "mcp-confluence-mcp";
+      const selection = mcpServerSelection(serverId);
+      const diff = buildTeamResourceTupleDiff({
+        teamSlug: TEAM,
+        memberUserIds: [],
+        agents: { added: ["agent-platform-helper"], removed: [] },
+        agentAdmins: { added: [], removed: [] },
+        tools: { added: [selection], removed: [] },
+        toolWildcard: { added: false, removed: false },
+      });
+
+      expect(diff.writes).toEqual(
+        expect.arrayContaining([
+          {
+            user: "agent:agent-platform-helper",
+            relation: "caller",
+            object: `tool:${serverId}/*`,
+          },
+        ]),
+      );
+    });
+
+    it("revokes agent runtime caller tuples when MCP server or agent is removed", () => {
+      const serverId = "mcp-litellm";
+      const selection = mcpServerSelection(serverId);
+      const diff = buildTeamResourceTupleDiff({
+        teamSlug: TEAM,
+        memberUserIds: [],
+        agents: { added: ["agent-keep"], removed: ["agent-drop"] },
+        agentAdmins: { added: [], removed: [] },
+        tools: { added: [], removed: [selection] },
+        toolWildcard: { added: false, removed: false },
+      });
+
+      expect(diff.deletes).toEqual(
+        expect.arrayContaining([
+          { user: "agent:agent-drop", relation: "caller", object: `tool:${serverId}/*` },
+          { user: "agent:agent-keep", relation: "caller", object: `tool:${serverId}/*` },
+        ]),
+      );
+    });
+
     it("revokes runtime and legacy tuples when a team unassigns an MCP server", () => {
       const serverId = "mcp-litellm";
       const selection = mcpServerSelection(serverId);
@@ -132,6 +175,11 @@ describe("MCP OpenFGA tuple contract", () => {
           { user: "user:kc-bob", relation: "member", object: `team:${TEAM}` },
           { user: `team:${TEAM}#member`, relation: "caller", object: "tool:mcp-confluence-mcp/*" },
           { user: `team:${TEAM}#admin`, relation: "manager", object: "mcp_server:mcp-confluence-mcp" },
+          {
+            user: "agent:agent-keep",
+            relation: "caller",
+            object: "tool:mcp-confluence-mcp/*",
+          },
         ]),
       );
     });

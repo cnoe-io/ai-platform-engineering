@@ -67,6 +67,10 @@ export async function syncSelectedAgentGatewayMcpServers(ids?: string[]) {
       skipped.push({ id: target.id, reason: target.status });
       continue;
     }
+    await reconcileConfigDrivenMcpServerRelationships({
+      serverId: target.id,
+      organizationId: caipeOrgKey(),
+    });
     const doc = toAgentGatewayMcpServerDocument(target);
     if (target.status === "legacy") {
       await collection.updateOne({ _id: target.id } as never, { $set: doc } as never);
@@ -75,10 +79,6 @@ export async function syncSelectedAgentGatewayMcpServers(ids?: string[]) {
       await collection.insertOne(doc);
       added.push(target.id);
     }
-    await reconcileConfigDrivenMcpServerRelationships({
-      serverId: target.id,
-      organizationId: caipeOrgKey(),
-    });
   }
 
   for (const id of selectedIds) {

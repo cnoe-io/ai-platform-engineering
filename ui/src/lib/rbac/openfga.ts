@@ -182,6 +182,66 @@ function mcpServerGatewayToolCallerTuples(teamSlug: string, toolIds: string[]): 
   return tuples;
 }
 
+const OPENFGA_AGENT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._~@|*+=,/-]{0,191}$/;
+
+function isValidTeamAgentId(agentId: string): boolean {
+  return OPENFGA_AGENT_ID_PATTERN.test(agentId);
+}
+
+/**
+ * AgentGateway extAuthz checks `agent:<id> can_call tool:<server>/*`, not team
+ * membership. Mirror team MCP grants onto team-assigned agents at save time.
+ */
+function agentRuntimeToolCallerTuples(agentIds: string[], toolIds: string[]): OpenFgaTupleKey[] {
+  const { mcpServerSelections, directToolIds } = splitTeamToolSelections(toolIds);
+  const tuples: OpenFgaTupleKey[] = [];
+  for (const agentId of agentIds) {
+    if (!isValidTeamAgentId(agentId)) continue;
+    const agentUser = `agent:${agentId}`;
+    for (const selection of mcpServerSelections) {
+      const serverId = mcpServerIdFromToolPrefix(selection);
+      if (!serverId) continue;
+      tuples.push({
+        user: agentUser,
+        relation: "caller",
+        object: `tool:${serverId}/*`,
+      });
+    }
+    for (const toolId of directToolIds) {
+      tuples.push({
+        user: agentUser,
+        relation: "caller",
+        object: `tool:${toolId}`,
+      });
+    }
+  }
+  return tuples;
+}
+
+function agentRuntimeToolWildcardTuples(agentIds: string[]): OpenFgaTupleKey[] {
+  return agentIds
+    .filter(isValidTeamAgentId)
+    .map((agentId) => ({
+      user: `agent:${agentId}`,
+      relation: "caller",
+      object: "tool:*",
+    }));
+}
+
+function combinedMcpServerToolSelections(added: string[], removed: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const selection of [
+    ...splitTeamToolSelections(added).mcpServerSelections,
+    ...splitTeamToolSelections(removed).mcpServerSelections,
+  ]) {
+    if (seen.has(selection)) continue;
+    seen.add(selection);
+    out.push(selection);
+  }
+  return out;
+}
+
 function splitTeamToolSelections(toolIds: string[]): {
   mcpServerSelections: string[];
   directToolIds: string[];
@@ -244,6 +304,8 @@ export function buildTeamResourceTupleDiff(input: TeamResourceTupleDiffInput): T
     // OpenFGA tuples target `mcp_server:<id>` (BFF) and `tool:<id>/*` (gateway).
     ...mcpServerAccessTuples(input.teamSlug, addedTools.mcpServerSelections, true),
     ...mcpServerGatewayToolCallerTuples(input.teamSlug, addedTools.mcpServerSelections),
+    ...agentRuntimeToolCallerTuples(input.agents.added, input.tools.added),
+    ...(input.toolWildcard.added ? agentRuntimeToolWildcardTuples(input.agents.added) : []),
     ...resourceTuples(input.teamSlug, "reader", "knowledge_base", input.knowledgeBases?.added ?? []),
     ...resourceTuples(input.teamSlug, "user", "skill", input.skills?.added ?? []),
     ...resourceTuples(input.teamSlug, "user", "task", input.tasks?.added ?? []),
@@ -259,6 +321,17 @@ export function buildTeamResourceTupleDiff(input: TeamResourceTupleDiffInput): T
     ...mcpServerAccessTuples(input.teamSlug, removedTools.mcpServerSelections, false),
     ...mcpServerGatewayToolCallerTuples(input.teamSlug, removedTools.mcpServerSelections),
     ...mcpServerLegacyToolGrantDeletes(input.teamSlug, removedTools.mcpServerSelections),
+    ...agentRuntimeToolCallerTuples(
+      input.agents.removed,
+      combinedMcpServerToolSelections(input.tools.added, input.tools.removed),
+    ),
+    ...agentRuntimeToolCallerTuples(input.agents.added, removedTools.mcpServerSelections),
+    ...agentRuntimeToolCallerTuples(input.agents.added, removedTools.directToolIds),
+    ...(input.toolWildcard.removed
+      ? agentRuntimeToolWildcardTuples(
+          Array.from(new Set([...input.agents.added, ...input.agents.removed])),
+        )
+      : []),
     ...resourceTuples(input.teamSlug, "reader", "knowledge_base", input.knowledgeBases?.removed ?? []),
     ...resourceTuples(input.teamSlug, "user", "skill", input.skills?.removed ?? []),
     ...resourceTuples(input.teamSlug, "user", "task", input.tasks?.removed ?? []),

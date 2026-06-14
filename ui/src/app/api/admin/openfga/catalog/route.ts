@@ -147,7 +147,7 @@ export const GET = withErrorHandler(async (request: NextRequest) =>
           id: `${String(server._id)}_*`,
           name: `${String(server._id)}_*`,
           description: server.description || "",
-          object: `tool:${String(server._id)}_*`,
+          object: `tool:${String(server._id)}/*`,
         })),
         knowledge_bases: Array.from(kbIds).sort().map((id) => {
           const datasource = datasourceById.get(id);
