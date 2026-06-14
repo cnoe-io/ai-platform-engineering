@@ -1,11 +1,13 @@
 from contextlib import asynccontextmanager
 import asyncio
+from io import BytesIO
+import hashlib
 import re
 import traceback
 import uuid
 from urllib.parse import urlparse
 from common import utils
-from fastapi import FastAPI, status, HTTPException, Query, Depends, Response
+from fastapi import FastAPI, status, HTTPException, Query, Depends, Response, UploadFile, File, Form
 from fastapi.responses import JSONResponse
 from fastapi.encoders import jsonable_encoder
 from fastmcp import FastMCP
@@ -77,6 +79,7 @@ from server.query_service import VectorDBQueryService
 from langchain_core.globals import set_verbose as set_langchain_verbose
 from server.ingestion import DocumentProcessor
 from common.utils import get_fresh_until, sanitize_url
+from pypdf import PdfReader
 
 mcp_user_context_var: ContextVar[Optional[UserContext]] = ContextVar("mcp_user_context", default=None)
 
@@ -110,6 +113,7 @@ mcp_enabled = os.getenv("ENABLE_MCP", "true").lower() in ("true", "1", "yes")
 mcp_auth_enabled = os.getenv("MCP_AUTH_ENABLED", "true").lower() in ("true", "1", "yes")
 sleep_on_init_failure = int(os.getenv("SLEEP_ON_INIT_FAILURE_SECONDS", 0))  # seconds to sleep on init failure before shutdown
 max_documents_per_ingest = int(os.getenv("MAX_DOCUMENTS_PER_INGEST", 1000))  # max number of documents to ingest per ingestion request
+max_local_file_upload_bytes = int(os.getenv("MAX_LOCAL_FILE_UPLOAD_BYTES", str(10 * 1024 * 1024)))
 max_results_per_query = int(os.getenv("MAX_RESULTS_PER_QUERY", 100))  # max results per query (matches QueryRequest.limit le=100)
 confluence_url = os.getenv("CONFLUENCE_URL")  # optional - base URL for Confluence instance (e.g., https://company.atlassian.net/wiki)
 
@@ -1172,6 +1176,180 @@ async def query_documents(
 # ============================================================================
 # Ingestion Endpoints
 # ============================================================================
+
+
+LOCAL_FILE_INGESTOR_ID = "local-file-upload"
+LOCAL_FILE_ALLOWED_EXTENSIONS = {".md", ".markdown", ".txt", ".text", ".pdf"}
+LOCAL_FILE_TEXT_MIME_TYPES = {
+  "text/plain",
+  "text/markdown",
+  "text/x-markdown",
+  "application/markdown",
+}
+
+
+def _safe_upload_filename(filename: str | None) -> str:
+  candidate = (filename or "uploaded-file").strip().split("/")[-1].split("\\")[-1]
+  return candidate or "uploaded-file"
+
+
+def _local_file_document_type(filename: str, content_type: str | None) -> str:
+  lower = filename.lower()
+  if lower.endswith(".pdf") or content_type == "application/pdf":
+    return "pdf"
+  if lower.endswith((".md", ".markdown")) or content_type in {"text/markdown", "text/x-markdown", "application/markdown"}:
+    return "markdown"
+  return "text"
+
+
+def _local_file_datasource_id(filename: str, content: bytes) -> str:
+  digest = hashlib.sha256(content).hexdigest()[:12]
+  stem = filename.rsplit(".", 1)[0] if "." in filename else filename
+  clean = "".join(char.lower() if char.isalnum() else "_" for char in stem).strip("_")
+  return f"src_file_{clean[:80] or 'upload'}_{digest}"
+
+
+def _extract_local_file_text(filename: str, content_type: str | None, content: bytes) -> tuple[str, str]:
+  document_type = _local_file_document_type(filename, content_type)
+  if document_type in {"markdown", "text"}:
+    return content.decode("utf-8-sig", errors="replace"), document_type
+
+  if document_type == "pdf":
+    try:
+      reader = PdfReader(BytesIO(content))
+      text = "\n\n".join((page.extract_text() or "").strip() for page in reader.pages).strip()
+    except Exception as exc:
+      raise HTTPException(status_code=400, detail=f"Could not extract text from PDF: {type(exc).__name__}") from exc
+    if not text:
+      raise HTTPException(status_code=400, detail="PDF did not contain extractable text")
+    return text, document_type
+
+  raise HTTPException(status_code=415, detail="Unsupported file type")
+
+
+def _validate_local_file_upload(file: UploadFile, content: bytes) -> str:
+  filename = _safe_upload_filename(file.filename)
+  lower = filename.lower()
+  extension_ok = any(lower.endswith(ext) for ext in LOCAL_FILE_ALLOWED_EXTENSIONS)
+  content_type = (file.content_type or "").lower()
+  mime_ok = content_type in LOCAL_FILE_TEXT_MIME_TYPES or content_type == "application/pdf"
+  if not extension_ok and not mime_ok:
+    raise HTTPException(status_code=415, detail="Only Markdown, PDF, and plain text uploads are supported")
+  if not content:
+    raise HTTPException(status_code=400, detail="Uploaded file is empty")
+  if len(content) > max_local_file_upload_bytes:
+    raise HTTPException(status_code=413, detail=f"File exceeds the {max_local_file_upload_bytes} byte upload limit")
+  return filename
+
+
+@app.post("/v1/ingest/local-file", status_code=status.HTTP_202_ACCEPTED)
+async def ingest_local_file(
+  request: Request,
+  file: UploadFile = File(...),
+  description: str = Form(""),
+  owner_team_slug: Optional[str] = Form(None),
+  chunk_size: int = Form(10000),
+  chunk_overlap: int = Form(2000),
+  user: UserContext = Depends(require_authenticated_user),
+):
+  """Ingest a local Markdown, PDF, or text file as a new data source."""
+  if not metadata_storage or not jobmanager or not ingestor:
+    raise HTTPException(status_code=500, detail="Server not initialized")
+
+  content = await file.read()
+  filename = _validate_local_file_upload(file, content)
+  text, document_type = _extract_local_file_text(filename, file.content_type, content)
+  datasource_id = _local_file_datasource_id(filename, content)
+  await authorize_datasource_create(request, user, datasource_id, owner_team_slug)
+
+  existing_datasource = await metadata_storage.get_datasource_info(datasource_id)
+  if existing_datasource:
+    raise HTTPException(status_code=400, detail="File already ingested, please delete existing datasource before re-ingesting")
+
+  job_id = str(uuid.uuid4())
+  success = await jobmanager.upsert_job(
+    job_id,
+    status=JobStatus.IN_PROGRESS,
+    message="Ingesting uploaded file...",
+    total=1,
+    datasource_id=datasource_id,
+  )
+  if not success:
+    raise HTTPException(status_code=500, detail="Failed to create job")
+
+  bounded_chunk_size = max(100, min(chunk_size, 100000))
+  bounded_chunk_overlap = max(0, min(chunk_overlap, 10000, bounded_chunk_size - 1))
+  now = int(time.time())
+  datasource_info = DataSourceInfo(
+    datasource_id=datasource_id,
+    name=filename,
+    ingestor_id=LOCAL_FILE_INGESTOR_ID,
+    description=description or f"Uploaded file {filename}",
+    source_type="local_file",
+    last_updated=now,
+    default_chunk_size=bounded_chunk_size,
+    default_chunk_overlap=bounded_chunk_overlap,
+    metadata={
+      "filename": filename,
+      "content_type": file.content_type,
+      "document_type": document_type,
+      "byte_size": len(content),
+    },
+  )
+
+  await metadata_storage.store_datasource_info(datasource_info)
+  await write_datasource_ownership(datasource_id, owner_team_slug, user)
+
+  document_metadata = {
+    "document_id": f"{datasource_id}__{hashlib.sha256(filename.encode()).hexdigest()[:8]}",
+    "datasource_id": datasource_id,
+    "ingestor_id": LOCAL_FILE_INGESTOR_ID,
+    "title": filename,
+    "description": description or "",
+    "is_structured_entity": False,
+    "document_type": document_type,
+    "document_ingested_at": now,
+    "fresh_until": get_fresh_until(datasource_info.reload_interval),
+    "metadata": {
+      "source": filename,
+      "filename": filename,
+      "content_type": file.content_type,
+      "byte_size": len(content),
+    },
+  }
+
+  try:
+    await ingestor.ingest_documents(
+      ingestor_id=LOCAL_FILE_INGESTOR_ID,
+      datasource_id=datasource_id,
+      job_id=job_id,
+      documents=[Document(page_content=text, metadata=document_metadata)],
+      fresh_until=document_metadata["fresh_until"],
+      chunk_overlap=bounded_chunk_overlap,
+      chunk_size=bounded_chunk_size,
+    )
+    await jobmanager.upsert_job(
+      job_id,
+      status=JobStatus.COMPLETED,
+      message="Uploaded file ingested successfully",
+      total=1,
+      datasource_id=datasource_id,
+    )
+  except Exception as exc:
+    await jobmanager.increment_failure(job_id, message=str(exc))
+    await jobmanager.upsert_job(
+      job_id,
+      status=JobStatus.FAILED,
+      message="Uploaded file ingestion failed",
+      datasource_id=datasource_id,
+    )
+    raise
+
+  return {
+    "datasource_id": datasource_id,
+    "job_id": job_id,
+    "message": "Local file ingested successfully",
+  }
 
 
 @app.post("/v1/ingest/webloader/url", status_code=status.HTTP_202_ACCEPTED)
