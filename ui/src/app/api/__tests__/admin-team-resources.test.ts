@@ -418,6 +418,7 @@ describe("PUT /api/admin/teams/[id]/resources — reconciliation", () => {
       agentAdmins: { added: [], removed: [] },
       tools: { added: ["jira_*"], removed: [] },
       toolWildcard: { added: false, removed: false },
+      allMcpServerIds: [],
     });
     expect(mockReconcileTupleDiff).toHaveBeenCalledWith(
       tupleDiff,
@@ -483,6 +484,7 @@ describe("PUT /api/admin/teams/[id]/resources — reconciliation", () => {
       skills: { added: ["skill-ops"], removed: [] },
       tasks: { added: ["task-ops"], removed: [] },
       toolWildcard: { added: false, removed: false },
+      allMcpServerIds: [],
     });
   });
 

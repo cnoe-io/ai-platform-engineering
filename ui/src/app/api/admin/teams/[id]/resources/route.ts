@@ -320,6 +320,13 @@ export const PUT = withErrorHandler(
       const wildcardAdded = !prevToolWildcard && nextToolWildcard;
       const wildcardRemoved = prevToolWildcard && !nextToolWildcard;
 
+      const mcpCol = await getCollection<MCPServerLite>("mcp_servers");
+      const allMcpServers = await mcpCol
+        .find({ enabled: { $ne: false } } as never, { projection: { _id: 1 } })
+        .toArray()
+        .catch(() => [] as MCPServerLite[]);
+      const allMcpServerIds = allMcpServers.map((server) => String(server._id));
+
       // ── 1. Resolve current member subjects for OpenFGA team membership.
       //
       //    Member list comes from the canonical team_membership_sources
@@ -365,6 +372,7 @@ export const PUT = withErrorHandler(
           added: nextToolWildcard,
           removed: wildcardRemoved,
         },
+        allMcpServerIds,
       };
       if (
         body.knowledge_bases !== undefined ||

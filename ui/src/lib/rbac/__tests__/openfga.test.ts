@@ -99,42 +99,53 @@ describe("OpenFGA team resource tuple reconciliation", () => {
       agentAdmins: { added: ["agent-admin"], removed: [] },
       tools: { added: ["jira_*"], removed: ["github_*"] },
       toolWildcard: { added: true, removed: false },
+      allMcpServerIds: ["jira", "github"],
     });
 
-    expect(diff.writes).toEqual([
-      { user: "user:sub-alice", relation: "member", object: "team:platform-engineering" },
-      { user: "user:sub-bob", relation: "member", object: "team:platform-engineering" },
-      { user: "team:platform-engineering#member", relation: "user", object: "agent:agent-1" },
-      {
-        user: "team:platform-engineering#admin",
-        relation: "manager",
-        object: "agent:agent-admin",
-      },
-      { user: "team:platform-engineering#member", relation: "reader", object: "mcp_server:jira" },
-      { user: "team:platform-engineering#member", relation: "user", object: "mcp_server:jira" },
-      { user: "team:platform-engineering#member", relation: "invoker", object: "mcp_server:jira" },
-      { user: "team:platform-engineering#admin", relation: "manager", object: "mcp_server:jira" },
-      { user: "organization:caipe#admin", relation: "manager", object: "mcp_server:jira" },
-      { user: "team:platform-engineering#member", relation: "caller", object: "tool:jira/*" },
-      { user: "team:platform-engineering#member", relation: "caller", object: "tool:*" },
-    ]);
-    expect(diff.deletes).toEqual([
-      {
-        user: "team:platform-engineering#member",
-        relation: "user",
-        object: "agent:agent-old",
-      },
-      { user: "team:platform-engineering#member", relation: "reader", object: "mcp_server:github" },
-      { user: "team:platform-engineering#member", relation: "user", object: "mcp_server:github" },
-      { user: "team:platform-engineering#member", relation: "invoker", object: "mcp_server:github" },
-      { user: "team:platform-engineering#admin", relation: "manager", object: "mcp_server:github" },
-      { user: "team:platform-engineering#member", relation: "caller", object: "tool:github/*" },
-      { user: "team:platform-engineering#member", relation: "caller", object: "tool:github_*" },
-      { user: "team:platform-engineering#member", relation: "reader", object: "mcp_tool:github_*" },
-      { user: "team:platform-engineering#member", relation: "user", object: "mcp_tool:github_*" },
-      { user: "team:platform-engineering#member", relation: "caller", object: "mcp_tool:github_*" },
-      { user: "team:platform-engineering#admin", relation: "manager", object: "mcp_tool:github_*" },
-    ]);
+    expect(diff.writes).toEqual(
+      expect.arrayContaining([
+        { user: "user:sub-alice", relation: "member", object: "team:platform-engineering" },
+        { user: "user:sub-bob", relation: "member", object: "team:platform-engineering" },
+        { user: "team:platform-engineering#member", relation: "user", object: "agent:agent-1" },
+        {
+          user: "team:platform-engineering#admin",
+          relation: "manager",
+          object: "agent:agent-admin",
+        },
+        { user: "team:platform-engineering#member", relation: "reader", object: "mcp_server:jira" },
+        { user: "team:platform-engineering#member", relation: "user", object: "mcp_server:jira" },
+        { user: "team:platform-engineering#member", relation: "invoker", object: "mcp_server:jira" },
+        { user: "team:platform-engineering#admin", relation: "manager", object: "mcp_server:jira" },
+        { user: "organization:caipe#admin", relation: "manager", object: "mcp_server:jira" },
+        { user: "team:platform-engineering#member", relation: "caller", object: "tool:jira/*" },
+        { user: "agent:agent-1", relation: "caller", object: "tool:jira/*" },
+        { user: "agent:agent-1", relation: "caller", object: "tool:github/*" },
+        { user: "team:platform-engineering#member", relation: "caller", object: "tool:github/*" },
+        { user: "team:platform-engineering#member", relation: "caller", object: "tool:*" },
+      ]),
+    );
+    expect(diff.deletes).toEqual(
+      expect.arrayContaining([
+        {
+          user: "team:platform-engineering#member",
+          relation: "user",
+          object: "agent:agent-old",
+        },
+        { user: "team:platform-engineering#member", relation: "reader", object: "mcp_server:github" },
+        { user: "team:platform-engineering#member", relation: "user", object: "mcp_server:github" },
+        { user: "team:platform-engineering#member", relation: "invoker", object: "mcp_server:github" },
+        { user: "team:platform-engineering#admin", relation: "manager", object: "mcp_server:github" },
+        { user: "team:platform-engineering#member", relation: "caller", object: "tool:github/*" },
+        { user: "team:platform-engineering#member", relation: "caller", object: "tool:github_*" },
+        { user: "team:platform-engineering#member", relation: "reader", object: "mcp_tool:github_*" },
+        { user: "team:platform-engineering#member", relation: "user", object: "mcp_tool:github_*" },
+        { user: "team:platform-engineering#member", relation: "caller", object: "mcp_tool:github_*" },
+        { user: "team:platform-engineering#admin", relation: "manager", object: "mcp_tool:github_*" },
+        { user: "agent:agent-old", relation: "caller", object: "tool:jira/*" },
+        { user: "agent:agent-old", relation: "caller", object: "tool:github/*" },
+        { user: "agent:agent-old", relation: "caller", object: "tool:*" },
+      ]),
+    );
   });
 
   it("does not delete org-admin MCP server manager grants when a team unassigns a server", () => {

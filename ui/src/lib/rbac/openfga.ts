@@ -37,6 +37,8 @@ export interface TeamResourceTupleDiffInput {
   skills?: ResourceStringDiff;
   tasks?: ResourceStringDiff;
   toolWildcard: ResourceBooleanDiff;
+  /** All enabled MCP server ids — expands tool-wildcard grants to tool:<id>/*. */
+  allMcpServerIds?: string[];
 }
 
 export interface TeamResourceTupleDiff {
@@ -218,28 +220,33 @@ function agentRuntimeToolCallerTuples(agentIds: string[], toolIds: string[]): Op
   return tuples;
 }
 
-function agentRuntimeToolWildcardTuples(agentIds: string[]): OpenFgaTupleKey[] {
-  return agentIds
-    .filter(isValidTeamAgentId)
-    .map((agentId) => ({
-      user: `agent:${agentId}`,
-      relation: "caller",
-      object: "tool:*",
-    }));
+function mcpServerSelectionsFromIds(serverIds: string[]): string[] {
+  return serverIds.map((serverId) => `${serverId}${MCP_TOOL_WILDCARD_SUFFIX}`);
 }
 
-function combinedMcpServerToolSelections(added: string[], removed: string[]): string[] {
+/** AgentGateway checks per-server wildcards (`tool:<server>/*`), never `tool:*`. */
+function agentRuntimeAllServerWildcards(agentIds: string[], serverIds: string[]): OpenFgaTupleKey[] {
+  return agentRuntimeToolCallerTuples(agentIds, mcpServerSelectionsFromIds(serverIds));
+}
+
+function combinedTeamToolIds(added: string[], removed: string[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
-  for (const selection of [
-    ...splitTeamToolSelections(added).mcpServerSelections,
-    ...splitTeamToolSelections(removed).mcpServerSelections,
-  ]) {
-    if (seen.has(selection)) continue;
-    seen.add(selection);
-    out.push(selection);
+  for (const toolId of [...added, ...removed]) {
+    if (seen.has(toolId)) continue;
+    seen.add(toolId);
+    out.push(toolId);
   }
   return out;
+}
+
+/** Revoke legacy agent `tool:*` tuples written before per-server expansion. */
+function agentLegacyToolStarDeletes(agentIds: string[]): OpenFgaTupleKey[] {
+  return agentIds.filter(isValidTeamAgentId).map((agentId) => ({
+    user: `agent:${agentId}`,
+    relation: "caller",
+    object: "tool:*",
+  }));
 }
 
 function splitTeamToolSelections(toolIds: string[]): {
@@ -294,6 +301,8 @@ export function buildTeamResourceTupleDiff(input: TeamResourceTupleDiffInput): T
 
   const addedTools = splitTeamToolSelections(input.tools.added);
   const removedTools = splitTeamToolSelections(input.tools.removed);
+  const wildcardServerSelections = mcpServerSelectionsFromIds(input.allMcpServerIds ?? []);
+  const combinedToolIds = combinedTeamToolIds(input.tools.added, input.tools.removed);
 
   const writes = uniqueTuples([
     ...memberTuples,
@@ -305,7 +314,13 @@ export function buildTeamResourceTupleDiff(input: TeamResourceTupleDiffInput): T
     ...mcpServerAccessTuples(input.teamSlug, addedTools.mcpServerSelections, true),
     ...mcpServerGatewayToolCallerTuples(input.teamSlug, addedTools.mcpServerSelections),
     ...agentRuntimeToolCallerTuples(input.agents.added, input.tools.added),
-    ...(input.toolWildcard.added ? agentRuntimeToolWildcardTuples(input.agents.added) : []),
+    ...(input.toolWildcard.added
+      ? [
+          ...mcpServerAccessTuples(input.teamSlug, wildcardServerSelections, true),
+          ...mcpServerGatewayToolCallerTuples(input.teamSlug, wildcardServerSelections),
+          ...agentRuntimeAllServerWildcards(input.agents.added, input.allMcpServerIds ?? []),
+        ]
+      : []),
     ...resourceTuples(input.teamSlug, "reader", "knowledge_base", input.knowledgeBases?.added ?? []),
     ...resourceTuples(input.teamSlug, "user", "skill", input.skills?.added ?? []),
     ...resourceTuples(input.teamSlug, "user", "task", input.tasks?.added ?? []),
@@ -314,6 +329,10 @@ export function buildTeamResourceTupleDiff(input: TeamResourceTupleDiffInput): T
       : []),
   ]);
 
+  const agentsAffectedByWildcard = Array.from(
+    new Set([...input.agents.added, ...input.agents.removed]),
+  );
+
   const deletes = uniqueTuples([
     ...resourceTuples(input.teamSlug, "user", "agent", input.agents.removed),
     ...resourceTuples(input.teamSlug, "manager", "agent", input.agentAdmins.removed, "admin"),
@@ -321,16 +340,22 @@ export function buildTeamResourceTupleDiff(input: TeamResourceTupleDiffInput): T
     ...mcpServerAccessTuples(input.teamSlug, removedTools.mcpServerSelections, false),
     ...mcpServerGatewayToolCallerTuples(input.teamSlug, removedTools.mcpServerSelections),
     ...mcpServerLegacyToolGrantDeletes(input.teamSlug, removedTools.mcpServerSelections),
-    ...agentRuntimeToolCallerTuples(
-      input.agents.removed,
-      combinedMcpServerToolSelections(input.tools.added, input.tools.removed),
-    ),
+    ...agentRuntimeToolCallerTuples(input.agents.removed, combinedToolIds),
     ...agentRuntimeToolCallerTuples(input.agents.added, removedTools.mcpServerSelections),
     ...agentRuntimeToolCallerTuples(input.agents.added, removedTools.directToolIds),
+    ...(input.toolWildcard.added
+      ? agentRuntimeAllServerWildcards(input.agents.removed, input.allMcpServerIds ?? [])
+      : []),
     ...(input.toolWildcard.removed
-      ? agentRuntimeToolWildcardTuples(
-          Array.from(new Set([...input.agents.added, ...input.agents.removed])),
-        )
+      ? [
+          ...mcpServerAccessTuples(input.teamSlug, wildcardServerSelections, false),
+          ...mcpServerGatewayToolCallerTuples(input.teamSlug, wildcardServerSelections),
+          ...agentRuntimeAllServerWildcards(agentsAffectedByWildcard, input.allMcpServerIds ?? []),
+        ]
+      : []),
+    ...agentLegacyToolStarDeletes(input.agents.removed),
+    ...(input.toolWildcard.removed
+      ? agentLegacyToolStarDeletes(agentsAffectedByWildcard)
       : []),
     ...resourceTuples(input.teamSlug, "reader", "knowledge_base", input.knowledgeBases?.removed ?? []),
     ...resourceTuples(input.teamSlug, "user", "skill", input.skills?.removed ?? []),

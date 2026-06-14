@@ -113,6 +113,69 @@ describe("MCP OpenFGA tuple contract", () => {
       );
     });
 
+    it("expands tool wildcard to per-server agent tuples AgentGateway can check", () => {
+      const diff = buildTeamResourceTupleDiff({
+        teamSlug: TEAM,
+        memberUserIds: [],
+        agents: { added: ["agent-a"], removed: [] },
+        agentAdmins: { added: [], removed: [] },
+        tools: { added: [], removed: [] },
+        toolWildcard: { added: true, removed: false },
+        allMcpServerIds: ["mcp-jira", "mcp-rag"],
+      });
+
+      expect(diff.writes).toEqual(
+        expect.arrayContaining([
+          { user: "agent:agent-a", relation: "caller", object: "tool:mcp-jira/*" },
+          { user: "agent:agent-a", relation: "caller", object: "tool:mcp-rag/*" },
+          { user: `team:${TEAM}#member`, relation: "caller", object: "tool:mcp-jira/*" },
+          { user: `team:${TEAM}#member`, relation: "caller", object: "tool:mcp-rag/*" },
+        ]),
+      );
+      expect(diff.writes).not.toEqual(
+        expect.arrayContaining([
+          { user: "agent:agent-a", relation: "caller", object: "tool:*" },
+        ]),
+      );
+    });
+
+    it("revokes per-server wildcard agent tuples when an agent is removed but wildcard stays on", () => {
+      const diff = buildTeamResourceTupleDiff({
+        teamSlug: TEAM,
+        memberUserIds: [],
+        agents: { added: ["agent-keep"], removed: ["agent-drop"] },
+        agentAdmins: { added: [], removed: [] },
+        tools: { added: [], removed: [] },
+        toolWildcard: { added: true, removed: false },
+        allMcpServerIds: ["mcp-jira", "mcp-rag"],
+      });
+
+      expect(diff.deletes).toEqual(
+        expect.arrayContaining([
+          { user: "agent:agent-drop", relation: "caller", object: "tool:mcp-jira/*" },
+          { user: "agent:agent-drop", relation: "caller", object: "tool:mcp-rag/*" },
+          { user: "agent:agent-drop", relation: "caller", object: "tool:*" },
+        ]),
+      );
+    });
+
+    it("revokes direct tool grants for removed agents", () => {
+      const diff = buildTeamResourceTupleDiff({
+        teamSlug: TEAM,
+        memberUserIds: [],
+        agents: { added: ["agent-keep"], removed: ["agent-drop"] },
+        agentAdmins: { added: [], removed: [] },
+        tools: { added: ["jira/search"], removed: [] },
+        toolWildcard: { added: false, removed: false },
+      });
+
+      expect(diff.deletes).toEqual(
+        expect.arrayContaining([
+          { user: "agent:agent-drop", relation: "caller", object: "tool:jira/search" },
+        ]),
+      );
+    });
+
     it("revokes runtime and legacy tuples when a team unassigns an MCP server", () => {
       const serverId = "mcp-litellm";
       const selection = mcpServerSelection(serverId);
