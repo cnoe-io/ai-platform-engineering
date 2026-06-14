@@ -291,7 +291,7 @@ jobs:
 
   playwright-rbac-regression:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 35
     if: github.actor != 'github-actions[bot]' && github.actor != 'caipe-ci-release[bot]'
     permissions:
       contents: read
@@ -314,11 +314,36 @@ jobs:
 
       - name: Install dependencies
         working-directory: ui
-        run: npm ci
+        run: |
+          # assisted-by Codex Codex-sonnet-4-6
+          for attempt in 1 2 3; do
+            npm ci && break
+            status=$?
+            if [ "$attempt" -eq 3 ]; then
+              exit "$status"
+            fi
+            sleep $((attempt * 10))
+          done
+
+      - name: Install Playwright Chromium dependencies
+        working-directory: ui
+        run: npx playwright install-deps chromium
 
       - name: Install Playwright Chromium
         working-directory: ui
-        run: npx playwright install --with-deps chromium
+        env:
+          PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT: '120000'
+        run: |
+          # assisted-by Codex Codex-sonnet-4-6
+          for attempt in 1 2 3; do
+            timeout 420s npx playwright install chromium && break
+            status=$?
+            if [ "$attempt" -eq 3 ]; then
+              exit "$status"
+            fi
+            rm -rf "$HOME/.cache/ms-playwright/chromium-"* "$HOME/.cache/ms-playwright/chromium_headless_shell-"* || true
+            sleep $((attempt * 15))
+          done
 
       - name: Start CAIPE UI dev server
         working-directory: ui
