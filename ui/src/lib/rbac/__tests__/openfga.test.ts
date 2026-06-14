@@ -9,6 +9,16 @@ jest.mock("@/lib/authz", () => ({
   },
 }));
 
+// assisted-by Codex Codex-sonnet-4-6
+const mockTeamsCollection = {
+  find: jest.fn(() => ({ toArray: jest.fn(async () => []) })),
+};
+const mockGetCollection = jest.fn(async () => mockTeamsCollection);
+
+jest.mock("@/lib/mongodb", () => ({
+  getCollection: (...args: unknown[]) => mockGetCollection(...args),
+}));
+
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
@@ -85,6 +95,8 @@ describe("OpenFGA team resource tuple reconciliation", () => {
 
   afterEach(() => {
     global.fetch = originalFetch;
+    mockGetCollection.mockClear();
+    mockTeamsCollection.find.mockClear();
     delete process.env.OPENFGA_RECONCILE_ENABLED;
     delete process.env.OPENFGA_HTTP;
     delete process.env.OPENFGA_STORE_NAME;
