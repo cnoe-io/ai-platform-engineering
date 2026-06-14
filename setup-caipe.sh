@@ -1934,6 +1934,7 @@ install_nginx_ingress() {
   helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
     --namespace ingress-nginx --create-namespace \
     --set controller.service.type=LoadBalancer \
+    --set controller.admissionWebhooks.enabled=false \
     2>&1 | grep -v "^Warning\|unchanged" || true
 
   # Wait for the controller pod to become Ready before polling for IP
