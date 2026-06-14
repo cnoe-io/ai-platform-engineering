@@ -8496,7 +8496,10 @@ _load_caipe_config() {
   [[ "$_ollama" == "true" ]] && ENABLE_OLLAMA=true
   [[ -n "$_omodel"     && -z "${OLLAMA_MODEL:-}"          ]] && OLLAMA_MODEL="$_omodel"
   [[ -n "$_eprov"      && -z "${EMBEDDINGS_PROVIDER:-}"   ]] && EMBEDDINGS_PROVIDER="$_eprov"
-  [[ -n "$_emodel"     && -z "${EMBEDDINGS_MODEL:-}"      ]] && EMBEDDINGS_MODEL="$_emodel"
+  # Use _EMBEDDINGS_MODEL_EXPLICIT (set at startup from env) rather than a
+  # zero-check: EMBEDDINGS_MODEL defaults to text-embedding-3-large so -z
+  # always fails and the saved model is never restored.
+  [[ -n "$_emodel"     && -z "${_EMBEDDINGS_MODEL_EXPLICIT:-}" ]] && EMBEDDINGS_MODEL="$_emodel"
   [[ "$_rag"      == "true" ]] && ENABLE_RAG=true
   [[ "$_grag"     == "true" ]] && ENABLE_GRAPH_RAG=true && ENABLE_RAG=true
   [[ "$_dynagents" == "false" ]] && ENABLE_DYNAMIC_AGENTS=false
