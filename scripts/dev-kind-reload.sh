@@ -46,7 +46,7 @@ build_one() {
       deploy="deploy/${RELEASE}-autonomous-agents"
       echo "==> building $image"
       docker build -t "$image" \
-        -f ai_platform_engineering/autonomous_agents/Dockerfile \
+        -f build/Dockerfile.autonomous-agents \
         ai_platform_engineering/autonomous_agents
       ;;
     *)

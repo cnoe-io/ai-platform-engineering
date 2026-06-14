@@ -47,6 +47,7 @@ jobs:
             --ignore=ai_platform_engineering/agents/argocd/mcp/tests \
             --ignore=ai_platform_engineering/agents/argocd/tests \
             --ignore=ai_platform_engineering/agents/komodor/tests \
+            --ignore=ai_platform_engineering/autonomous_agents/tests \
             --ignore=volumes \
             --ignore=docker-compose \
             --cov=ai_platform_engineering \
@@ -109,4 +110,33 @@ jobs:
   #         path: |
   #           ai_platform_engineering/knowledge_bases/rag/server/coverage.xml
   #           ai_platform_engineering/knowledge_bases/rag/server/htmlcov/
+
+  run-autonomous-agents-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: "3.13"
+      - name: Install UV
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+
+      - name: Run autonomous-agents tests
+        run: |
+          cd ai_platform_engineering/autonomous_agents
+          /home/runner/.local/bin/uv venv
+          /home/runner/.local/bin/uv sync --extra dev
+          /home/runner/.local/bin/uv run pytest --cov=autonomous_agents --cov-report=xml -v
+
+      - name: Upload coverage reports
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: coverage-reports-autonomous-agents
+          path: |
+            ai_platform_engineering/autonomous_agents/coverage.xml
+        continue-on-error: true
 

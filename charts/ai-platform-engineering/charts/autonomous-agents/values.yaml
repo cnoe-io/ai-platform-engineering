@@ -28,7 +28,7 @@ podLabels: {}
 
 # Security contexts satisfy the Kubernetes Pod Security Standards Restricted
 # profile. Unlike most agent images, this image is explicitly built for a
-# read-only root filesystem (see ai_platform_engineering/autonomous_agents/Dockerfile);
+# read-only root filesystem (see build/Dockerfile.autonomous-agents);
 # /tmp is provided as an emptyDir via the default volumes/volumeMounts below.
 # To enforce the policy at the namespace level:
 #   kubectl label namespace <ns> \
