@@ -18,10 +18,8 @@ import { ApiError } from "@/lib/api-error";
 
 import type { UniversalRebacResourceType } from "@/types/rbac-universal";
 import type { OpenFgaReconcileResult } from "./openfga";
-import {
-reconcileShareableResource,
-type ShareableResourceInput,
-} from "./openfga-owned-resources";
+import type { ShareableResourceInput } from "./openfga-owned-resources";
+import { reconcileShareableResource } from "./openfga-owned-resources-reconcile";
 import {
 canTransferResourceOwnership,
 requireResourcePermission,

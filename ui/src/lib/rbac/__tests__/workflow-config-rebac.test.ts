@@ -14,7 +14,7 @@ jest.mock("@/lib/rbac/resource-authz", () => ({
   subjectFromSession: () => "alice-sub",
 }));
 
-jest.mock("@/lib/rbac/openfga-owned-resources", () => ({
+jest.mock("@/lib/rbac/openfga-owned-resources-reconcile", () => ({
   reconcileShareableResource: (...args: unknown[]) => mockReconcileShareableResource(...args),
 }));
 

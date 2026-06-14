@@ -33,8 +33,8 @@ import {
   buildLlmModelRelationshipTupleDiff,
   buildKnowledgeBaseRelationshipTupleDiff,
   buildMcpServerRelationshipTupleDiff,
-  reconcileMcpServerRelationships,
 } from "../openfga-owned-resources";
+import { reconcileMcpServerRelationships } from "../openfga-owned-resources-reconcile";
 
 function agentUserTypes(modelPath: string): Array<Record<string, unknown>> {
   const model = JSON.parse(readFileSync(modelPath, "utf8")) as {
@@ -110,16 +110,12 @@ describe("OpenFGA team resource tuple reconciliation", () => {
         relation: "manager",
         object: "agent:agent-admin",
       },
-      { user: "team:platform-engineering#member", relation: "caller", object: "tool:jira_*" },
       { user: "team:platform-engineering#member", relation: "reader", object: "mcp_server:jira" },
       { user: "team:platform-engineering#member", relation: "user", object: "mcp_server:jira" },
       { user: "team:platform-engineering#member", relation: "invoker", object: "mcp_server:jira" },
       { user: "team:platform-engineering#admin", relation: "manager", object: "mcp_server:jira" },
       { user: "organization:caipe#admin", relation: "manager", object: "mcp_server:jira" },
-      { user: "team:platform-engineering#member", relation: "reader", object: "mcp_tool:jira_*" },
-      { user: "team:platform-engineering#member", relation: "user", object: "mcp_tool:jira_*" },
-      { user: "team:platform-engineering#member", relation: "caller", object: "mcp_tool:jira_*" },
-      { user: "team:platform-engineering#admin", relation: "manager", object: "mcp_tool:jira_*" },
+      { user: "team:platform-engineering#member", relation: "caller", object: "tool:jira/*" },
       { user: "team:platform-engineering#member", relation: "caller", object: "tool:*" },
     ]);
     expect(diff.deletes).toEqual([
@@ -128,15 +124,12 @@ describe("OpenFGA team resource tuple reconciliation", () => {
         relation: "user",
         object: "agent:agent-old",
       },
-      {
-        user: "team:platform-engineering#member",
-        relation: "caller",
-        object: "tool:github_*",
-      },
       { user: "team:platform-engineering#member", relation: "reader", object: "mcp_server:github" },
       { user: "team:platform-engineering#member", relation: "user", object: "mcp_server:github" },
       { user: "team:platform-engineering#member", relation: "invoker", object: "mcp_server:github" },
       { user: "team:platform-engineering#admin", relation: "manager", object: "mcp_server:github" },
+      { user: "team:platform-engineering#member", relation: "caller", object: "tool:github/*" },
+      { user: "team:platform-engineering#member", relation: "caller", object: "tool:github_*" },
       { user: "team:platform-engineering#member", relation: "reader", object: "mcp_tool:github_*" },
       { user: "team:platform-engineering#member", relation: "user", object: "mcp_tool:github_*" },
       { user: "team:platform-engineering#member", relation: "caller", object: "mcp_tool:github_*" },
@@ -159,12 +152,14 @@ describe("OpenFGA team resource tuple reconciliation", () => {
       expect.arrayContaining([
         { user: "team:platform-engineering#admin", relation: "manager", object: "mcp_server:mcp-confluence-mcp" },
         { user: "organization:caipe#admin", relation: "manager", object: "mcp_server:mcp-confluence-mcp" },
-        { user: "team:platform-engineering#member", relation: "caller", object: "mcp_tool:mcp-confluence-mcp_*" },
+        { user: "team:platform-engineering#member", relation: "caller", object: "tool:mcp-confluence-mcp/*" },
       ]),
     );
     expect(diff.deletes).toEqual(
       expect.arrayContaining([
         { user: "team:platform-engineering#admin", relation: "manager", object: "mcp_server:mcp-litellm" },
+        { user: "team:platform-engineering#member", relation: "caller", object: "tool:mcp-litellm/*" },
+        { user: "team:platform-engineering#member", relation: "caller", object: "tool:mcp-litellm_*" },
         { user: "team:platform-engineering#member", relation: "caller", object: "mcp_tool:mcp-litellm_*" },
       ]),
     );
@@ -340,6 +335,17 @@ describe("OpenFGA team resource tuple reconciliation", () => {
       { user: "team:platform#admin", relation: "manager", object: "mcp_server:mcp-team-tools" },
       { user: "organization:caipe#admin", relation: "manager", object: "mcp_server:mcp-team-tools" },
     ]);
+    expect(
+      buildMcpServerRelationshipTupleDiff({
+        serverId: "mcp-bot-tools",
+        ownerSubject: "bot-client-id",
+        ownerSubjectKind: "service_account",
+      }).writes,
+    ).toEqual(
+      expect.arrayContaining([
+        { user: "service_account:bot-client-id", relation: "owner", object: "mcp_server:mcp-bot-tools" },
+      ]),
+    );
     expect(
       buildConfigDrivenMcpServerRelationshipTupleDiff({
         serverId: "argocd",

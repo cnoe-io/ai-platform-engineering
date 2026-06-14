@@ -76,7 +76,7 @@ jest.mock("@/lib/rbac/resource-authz", () => ({
     mockFilterResourcesByPermission(...args),
 }));
 
-jest.mock("@/lib/rbac/openfga-owned-resources", () => ({
+jest.mock("@/lib/rbac/openfga-owned-resources-reconcile", () => ({
   reconcileMcpServerRelationships: (...args: unknown[]) =>
     mockReconcileMcpServerRelationships(...args),
   deleteAllMcpServerRelationshipTuples: (...args: unknown[]) =>

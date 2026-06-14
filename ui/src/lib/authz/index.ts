@@ -122,7 +122,7 @@ export class AuthzDeniedError extends Error {
 
 // ─── Tuple reconciliation (PAP batch writes) ──────────────────────────────────
 
-export { reconcileTupleDiff } from "./reconcile";
+export { reconcileTupleDiff, OpenFgaReconcileRequiredError } from "./reconcile";
 export type { TupleReconcileContext } from "./reconcile";
 
 // ─── Re-exports ───────────────────────────────────────────────────────────────
