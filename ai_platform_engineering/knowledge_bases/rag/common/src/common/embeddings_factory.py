@@ -165,6 +165,19 @@ class EmbeddingsFactory:
     return embeddings
 
   @staticmethod
+  def detect_dimensions(embeddings: Embeddings) -> int:
+    """Embed a single test string and return the actual vector length.
+
+    Use this where you need the true runtime dimension (e.g. Milvus schema
+    validation). Patch this method in tests to avoid a live network call:
+
+        with patch.object(EmbeddingsFactory, "detect_dimensions", return_value=1024):
+            ...
+    """
+    result = embeddings.embed_documents(["test"])
+    return len(result[0])
+
+  @staticmethod
   def get_embedding_dimensions() -> int:
     """
     Get the expected embedding dimensions for the configured model.

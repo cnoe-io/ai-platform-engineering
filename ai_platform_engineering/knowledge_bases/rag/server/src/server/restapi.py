@@ -1920,8 +1920,7 @@ async def init_tests(logger: logging.Logger, redis_client: redis.Redis, embeddin
   logger.info("10. Running enhanced health checks on collections...")
 
   # Get embedding dimensions for validation
-  test_embedding = embeddings.get_embeddings().embed_documents(["test"])
-  expected_dim = len(test_embedding[0])
+  expected_dim = embeddings.detect_dimensions(embeddings.get_embeddings())
   logger.info(f"Expected embedding dimension: {expected_dim}")
 
   collections_to_check = [default_collection_name_docs]

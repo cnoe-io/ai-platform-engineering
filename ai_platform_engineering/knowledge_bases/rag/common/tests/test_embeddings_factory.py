@@ -145,6 +145,14 @@ class TestEmbeddingsFactory:
     with patch.dict(os.environ, {"EMBEDDINGS_MODEL": "qwen3-embedding:8b"}):
       assert EmbeddingsFactory.get_embedding_dimensions() == 4096
 
+  def test_detect_dimensions_monkey_patch(self):
+    """detect_dimensions can be patched so tests never need a live embedding service."""
+    mock_embeddings = MagicMock()
+    with patch.object(EmbeddingsFactory, "detect_dimensions", return_value=1024) as mock_detect:
+      result = EmbeddingsFactory.detect_dimensions(mock_embeddings)
+      assert result == 1024
+      mock_detect.assert_called_once_with(mock_embeddings)
+
   def test_litellm_dimensions(self):
     """Test dimension mappings for LiteLLM models"""
     with patch.dict(os.environ, {"EMBEDDINGS_MODEL": "mistral/mistral-embed"}):
