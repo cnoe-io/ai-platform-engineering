@@ -147,7 +147,7 @@ LITELLM_ROUTE_EMBEDDINGS=false
 LITELLM_MASTER_KEY="${LITELLM_MASTER_KEY:-sk-caipe-litellm}"
 VLLM_MODEL="${VLLM_MODEL:-openai/gpt-oss-20b}"
 VLLM_GPU_COUNT="${VLLM_GPU_COUNT:-1}"
-OLLAMA_MODEL="${OLLAMA_MODEL:-smollm2:1.7b}"
+OLLAMA_MODEL="${OLLAMA_MODEL:-qwen3:0.6b}"
 OLLAMA_PORT=11434
 # Base URL the RAG server uses for Ollama embeddings. The EmbeddingsFactory
 # default (http://localhost:11434) is the pod's own loopback and cannot reach
@@ -1156,7 +1156,7 @@ collect_credentials() {
       echo ""
       echo -e "  ${DIM}Select your LLM provider (powered by cnoe-agent-utils LLMFactory):${NC}"
       echo -e "    ${BOLD}0)${NC} ${DIM}← Back to previous step${NC}"
-      echo -e "    ${BOLD}1)${NC} Ollama            ${DIM}(in-cluster: smollm2:1.7b, qwen2.5:1.5b, lfm2.5, qwen3, arcee-ai/arcee-agent, etc.) — default${NC}"
+      echo -e "    ${BOLD}1)${NC} Ollama            ${DIM}(in-cluster: qwen3:0.6b, qwen2.5:1.5b, lfm2.5, arcee-ai/arcee-agent, etc.) — default${NC}"
       echo -e "    ${BOLD}2)${NC} Anthropic Claude  ${DIM}(claude-haiku-4-5, claude-sonnet-4, etc.)${NC}"
       echo -e "    ${BOLD}3)${NC} AWS Bedrock       ${DIM}(Claude on Bedrock, cross-region inference)${NC}"
       echo -e "    ${BOLD}4)${NC} OpenAI            ${DIM}(gpt-5.2, gpt-4.1, etc.)${NC}"
@@ -1610,9 +1610,9 @@ _collect_ollama_config() {
   if ! $NON_INTERACTIVE; then
     echo ""
     echo -e "  ${DIM}Tool-calling models (required for agents):${NC}"
-    echo -e "  ${DIM}  smollm2:1.7b (default) · qwen2.5:1.5b · lfm2.5 · qwen3:1.7b · qwen3:0.6b · arcee-ai/arcee-agent${NC}"
+    echo -e "  ${DIM}  qwen3:0.6b (default) · qwen3:1.7b · qwen2.5:1.5b · lfm2.5 · arcee-ai/arcee-agent${NC}"
     echo -e "  ${DIM}  qwen2.5:7b · qwen2.5:14b · mistral:7b · ministral3:3b · phi4-mini${NC}"
-    echo -e "  ${DIM}  smollm2:1.7b · smollm2:360m · smollm2:135m  (ultra-compact, CPU-friendly)${NC}"
+    echo -e "  ${DIM}  smollm2:1.7b · smollm2:360m · smollm2:135m  (ultra-compact, no tool support)${NC}"
     echo -e "  ${DIM}Other models (no tool support): gemma3, llama3.2${NC}"
     echo -e "  ${DIM}lfm2.5: https://ollama.com/library/lfm2.5${NC}"
     echo -e "  ${DIM}smollm2: https://ollama.com/library/smollm2${NC}"
@@ -6437,7 +6437,7 @@ DAEOF
     elif $ENABLE_OLLAMA; then
       # Ollama uses the OpenAI-compatible API; seed the actual Ollama model name
       # (OPENAI_MODEL_NAME = OLLAMA_MODEL, e.g. lfm2.5) so dynamic agents can find it.
-      local _ollama_display="${OPENAI_MODEL_NAME:-smollm2:1.7b}"
+      local _ollama_display="${OPENAI_MODEL_NAME:-qwen3:0.6b}"
       cat >> "$_da_values_file" <<DAEOF
       - model_id: "${_ollama_display}"
         name: "${_ollama_display} (Ollama)"
@@ -8369,7 +8369,7 @@ chart_version: "${CAIPE_CHART_VERSION:-}"
 deployment_mode: "${CAIPE_DEPLOYMENT_MODE:-all-in-one}"
 llm_provider: "${LLM_PROVIDER:-}"
 enable_ollama: "${ENABLE_OLLAMA:-false}"
-ollama_model: "${OLLAMA_MODEL:-smollm2:1.7b}"
+ollama_model: "${OLLAMA_MODEL:-qwen3:0.6b}"
 embeddings_provider: "${EMBEDDINGS_PROVIDER:-}"
 embeddings_model: "${EMBEDDINGS_MODEL:-}"
 enable_rag: "${ENABLE_RAG:-false}"
