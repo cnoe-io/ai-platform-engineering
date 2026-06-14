@@ -295,6 +295,9 @@ jobs:
     if: github.actor != 'github-actions[bot]' && github.actor != 'caipe-ci-release[bot]'
     permissions:
       contents: read
+    container:
+      # assisted-by Codex Codex-sonnet-4-6
+      image: mcr.microsoft.com/playwright:v1.59.1-noble@sha256:eac9b0a5312cdab40ee8c2429df5bf19bffdccf8f3bf3c42268e173f97541645
 
     steps:
       - name: 🔒 Harden runner
@@ -323,26 +326,6 @@ jobs:
               exit "$status"
             fi
             sleep $((attempt * 10))
-          done
-
-      - name: Install Playwright Chromium dependencies
-        working-directory: ui
-        run: npx playwright install-deps chromium
-
-      - name: Install Playwright Chromium
-        working-directory: ui
-        env:
-          PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT: '120000'
-        run: |
-          # assisted-by Codex Codex-sonnet-4-6
-          for attempt in 1 2 3; do
-            timeout 420s npx playwright install chromium && break
-            status=$?
-            if [ "$attempt" -eq 3 ]; then
-              exit "$status"
-            fi
-            rm -rf "$HOME/.cache/ms-playwright/chromium-"* "$HOME/.cache/ms-playwright/chromium_headless_shell-"* || true
-            sleep $((attempt * 15))
           done
 
       - name: Start CAIPE UI dev server
