@@ -21,6 +21,8 @@ interface WorkflowRunTimelineProps {
   workflowFiles?: string[];
   /** Callback for file download */
   onFileDownload?: (path: string) => void;
+  /** Fetch file text for inline preview */
+  getFileContent?: (path: string) => Promise<string | null>;
   onResume: (stepIndex: number, resumeData: string) => Promise<void>;
 }
 
@@ -29,6 +31,7 @@ export function WorkflowRunTimeline({
   stepEvents,
   workflowFiles,
   onFileDownload,
+  getFileContent,
   onResume,
 }: WorkflowRunTimelineProps) {
 
@@ -142,6 +145,7 @@ export function WorkflowRunTimeline({
           {workflowFiles.length > 0 ? (
             <FileTree
               files={workflowFiles}
+              getFileContent={getFileContent}
               onFileClick={onFileDownload}
             />
           ) : (
