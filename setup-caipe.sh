@@ -589,6 +589,12 @@ $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
 
 _install_docker_macos() {
   log "Installing Docker..."
+  # Docker.app already present but not started (e.g. after upgrade or first boot)
+  if [[ -d "/Applications/Docker.app" ]]; then
+    warn "Docker Desktop is installed but not running — start it, wait for the whale icon to appear, then re-run this script"
+    open -a Docker 2>/dev/null || true
+    exit 0
+  fi
   if command -v brew &>/dev/null; then
     brew install --cask docker
     log "Docker Desktop installed — open the Docker app to complete setup, then re-run this script"
@@ -731,6 +737,11 @@ check_prerequisites() {
   fi
 
   # Docker is required by kind — detect and auto-install before any cluster work
+  # On macOS, Docker Desktop installs to /usr/local/bin/docker which may not be in PATH
+  # when invoked via SSH or a minimal shell; add it if present.
+  if [[ "$(uname -s)" == "Darwin" && -x "/usr/local/bin/docker" && ! "$(command -v docker 2>/dev/null)" ]]; then
+    export PATH="/usr/local/bin:$PATH"
+  fi
   if ! command -v docker &>/dev/null; then
     warn "Docker is not installed — it is required to run kind clusters."
     local os
