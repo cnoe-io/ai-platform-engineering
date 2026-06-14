@@ -10,7 +10,7 @@
 import { getCollection } from "@/lib/mongodb";
 import { ApiError } from "@/lib/api-error";
 import type { OpenFgaReconcileResult } from "./openfga";
-import { reconcileShareableResource } from "./openfga-owned-resources";
+import { reconcileShareableResource } from "./openfga-owned-resources-reconcile";
 import { listUserTeamSlugs } from "./openfga-team-membership";
 import {
   requireResourcePermission,

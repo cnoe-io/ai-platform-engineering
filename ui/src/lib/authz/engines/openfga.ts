@@ -114,6 +114,11 @@ function recordFailure(): void {
   }
 }
 
+/** Drop cached authorization decisions after relationship graph mutations. */
+export function invalidateDecisionCache(): void {
+  decisionCache.clear();
+}
+
 /** Test-only reset of breaker + store-id state. */
 export function __resetAdapterStateForTests(): void {
   circuitState = "closed";

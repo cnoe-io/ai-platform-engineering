@@ -21,7 +21,7 @@ import {
 reconcileConfigDrivenLlmModelRelationships,
 reconcileConfigDrivenMcpServerRelationships,
 reconcileShareableResource,
-} from "@/lib/rbac/openfga-owned-resources";
+} from "@/lib/rbac/openfga-owned-resources-reconcile";
 import { caipeOrgKey } from "@/lib/rbac/organization";
 import {
 normalizeSharedWithTeamSlugs,

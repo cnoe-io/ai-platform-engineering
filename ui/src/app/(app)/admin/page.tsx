@@ -1675,7 +1675,7 @@ function AdminPage() {
                             />
                             <StatChip
                               icon={<Wrench className="h-3.5 w-3.5" />}
-                              label="Tools"
+                              label="MCP"
                               count={
                                 team.resources?.tool_wildcard
                                   ? "*"

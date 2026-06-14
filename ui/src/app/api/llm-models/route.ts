@@ -15,7 +15,7 @@ successResponse,
 withErrorHandler,
 } from "@/lib/api-middleware";
 import { getCollection } from "@/lib/mongodb";
-import { reconcileLlmModelRelationships } from "@/lib/rbac/openfga-owned-resources";
+import { reconcileLlmModelRelationships } from "@/lib/rbac/openfga-owned-resources-reconcile";
 import {
 filterResourcesByPermission,
 requireResourcePermission,

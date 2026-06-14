@@ -55,11 +55,13 @@ jest.mock("@/lib/rbac/keycloak-admin", () => ({
 }));
 
 const mockBuildTeamResourceTupleDiff = jest.fn();
-const mockWriteOpenFgaTupleDiff = jest.fn();
+const mockReconcileTupleDiff = jest.fn();
 const mockCheckOpenFgaTuple = jest.fn();
+jest.mock("@/lib/authz", () => ({
+  reconcileTupleDiff: (...a: unknown[]) => mockReconcileTupleDiff(...a),
+}));
 jest.mock("@/lib/rbac/openfga", () => ({
   buildTeamResourceTupleDiff: (...a: unknown[]) => mockBuildTeamResourceTupleDiff(...a),
-  writeOpenFgaTupleDiff: (...a: unknown[]) => mockWriteOpenFgaTupleDiff(...a),
   checkOpenFgaTuple: (...a: unknown[]) => mockCheckOpenFgaTuple(...a),
 }));
 
@@ -192,7 +194,7 @@ beforeEach(() => {
   // Default: every email resolves to a fake KC id; tests override per-case.
   mockFindUserIdByEmail.mockImplementation(async (email: string) => `kc-${email}`);
   mockBuildTeamResourceTupleDiff.mockReturnValue({ writes: [], deletes: [] });
-  mockWriteOpenFgaTupleDiff.mockResolvedValue({ enabled: false, writes: 0, deletes: 0 });
+  mockReconcileTupleDiff.mockResolvedValue({ enabled: false, writes: 0, deletes: 0 });
   // Default canonical roster matches teamWith()'s legacy `members[]` so
   // tests don't have to opt in. Tests that need a different roster
   // (e.g. empty team, single user) call seedCanonicalMembers([...]).
@@ -208,9 +210,11 @@ async function loadRoute() {
   jest.doMock("@/lib/rbac/keycloak-admin", () => ({
     findUserIdByEmail: (...a: unknown[]) => mockFindUserIdByEmail(...a),
   }));
+  jest.doMock("@/lib/authz", () => ({
+    reconcileTupleDiff: (...a: unknown[]) => mockReconcileTupleDiff(...a),
+  }));
   jest.doMock("@/lib/rbac/openfga", () => ({
     buildTeamResourceTupleDiff: (...a: unknown[]) => mockBuildTeamResourceTupleDiff(...a),
-    writeOpenFgaTupleDiff: (...a: unknown[]) => mockWriteOpenFgaTupleDiff(...a),
     checkOpenFgaTuple: (...a: unknown[]) => mockCheckOpenFgaTuple(...a),
   }));
   jest.doMock("@/lib/mongodb", () => ({
@@ -241,7 +245,7 @@ describe("PUT /api/admin/teams/[id]/resources — auth gating", () => {
 
     expect(res.status).toBe(401);
     expect(mockFindUserIdByEmail).not.toHaveBeenCalled();
-    expect(mockWriteOpenFgaTupleDiff).not.toHaveBeenCalled();
+    expect(mockReconcileTupleDiff).not.toHaveBeenCalled();
   });
 
   it("returns 403 when user lacks admin_ui#admin and is not a scoped team admin", async () => {
@@ -273,7 +277,7 @@ describe("PUT /api/admin/teams/[id]/resources — auth gating", () => {
 
     expect(res.status).toBe(403);
     expect(mockFindUserIdByEmail).not.toHaveBeenCalled();
-    expect(mockWriteOpenFgaTupleDiff).not.toHaveBeenCalled();
+    expect(mockReconcileTupleDiff).not.toHaveBeenCalled();
   });
 });
 
@@ -415,8 +419,71 @@ describe("PUT /api/admin/teams/[id]/resources — reconciliation", () => {
       tools: { added: ["jira_*"], removed: [] },
       toolWildcard: { added: false, removed: false },
     });
-    expect(mockWriteOpenFgaTupleDiff).toHaveBeenCalledWith(tupleDiff);
+    expect(mockReconcileTupleDiff).toHaveBeenCalledWith(
+      tupleDiff,
+      expect.objectContaining({
+        caller: { type: "user", id: "admin-sub" },
+        source: "team_resources",
+      }),
+    );
     expect(teamsCol.updateOne).toHaveBeenCalledTimes(1);
+  });
+
+  it("passes selected resources as desired writes so Save repairs OpenFGA drift", async () => {
+    // assisted-by Codex Codex-sonnet-4-6
+    mockGetServerSession.mockResolvedValue(adminSession());
+    setDefaultPermissionMock(true);
+
+    const teamsCol = createMockCollection();
+    teamsCol.findOne.mockResolvedValue({
+      ...teamWith({ agents: ["agent-keep"], tools: ["mcp-confluence-mcp_*"] }),
+      slug: "platform-engineering",
+      resources: {
+        agents: ["agent-keep"],
+        agent_admins: ["agent-admin"],
+        tools: ["mcp-confluence-mcp_*"],
+        knowledge_bases: ["kb-ops"],
+        skills: ["skill-ops"],
+        tasks: ["task-ops"],
+        tool_wildcard: false,
+      },
+    });
+    mockCollections["teams"] = teamsCol;
+    seedCanonicalMembers([
+      { user_email: "alice@example.com", relationship: "admin" },
+      { user_email: "bob@example.com", relationship: "member" },
+    ], "platform-engineering");
+
+    const { PUT } = await loadRoute();
+
+    const res = await PUT(
+      makeRequest(`/api/admin/teams/${TEAM_ID}/resources`, {
+        method: "PUT",
+        body: JSON.stringify({
+          agents: ["agent-keep"],
+          agent_admins: ["agent-admin"],
+          tools: ["mcp-confluence-mcp_*"],
+          knowledge_bases: ["kb-ops"],
+          skills: ["skill-ops"],
+          tasks: ["task-ops"],
+          tool_wildcard: false,
+        }),
+      }),
+      { params: Promise.resolve({ id: TEAM_ID.toString() }) }
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockBuildTeamResourceTupleDiff).toHaveBeenCalledWith({
+      teamSlug: "platform-engineering",
+      memberUserIds: ["kc-alice@example.com", "kc-bob@example.com"],
+      agents: { added: ["agent-keep"], removed: [] },
+      agentAdmins: { added: ["agent-admin"], removed: [] },
+      tools: { added: ["mcp-confluence-mcp_*"], removed: [] },
+      knowledgeBases: { added: ["kb-ops"], removed: [] },
+      skills: { added: ["skill-ops"], removed: [] },
+      tasks: { added: ["task-ops"], removed: [] },
+      toolWildcard: { added: false, removed: false },
+    });
   });
 
   it("does not persist Mongo when OpenFGA reconciliation fails", async () => {
@@ -429,7 +496,7 @@ describe("PUT /api/admin/teams/[id]/resources — reconciliation", () => {
       slug: "platform-engineering",
     });
     mockCollections["teams"] = teamsCol;
-    mockWriteOpenFgaTupleDiff.mockRejectedValue(new Error("OpenFGA unavailable"));
+    mockReconcileTupleDiff.mockRejectedValue(new Error("OpenFGA unavailable"));
 
     const { PUT } = await loadRoute();
 

@@ -9,6 +9,7 @@ openFgaObject,
 openFgaSubject,
 type UniversalRebacTupleDiffInput,
 } from "./tuple-builders";
+import { organizationObjectId } from "./organization";
 
 export interface OpenFgaTupleKey {
   user: string;
@@ -135,6 +136,94 @@ function resourceTuples(
   }));
 }
 
+const MCP_TOOL_WILDCARD_SUFFIX = "_*";
+
+function mcpServerIdFromToolPrefix(toolId: string): string | null {
+  if (!toolId.endsWith(MCP_TOOL_WILDCARD_SUFFIX)) return null;
+  const serverId = toolId.slice(0, -MCP_TOOL_WILDCARD_SUFFIX.length);
+  return serverId || null;
+}
+
+function mcpServerAccessTuples(
+  teamSlug: string,
+  toolIds: string[],
+  includeOrgAdminManager: boolean
+): OpenFgaTupleKey[] {
+  const tuples: OpenFgaTupleKey[] = [];
+  for (const toolId of toolIds) {
+    const serverId = mcpServerIdFromToolPrefix(toolId);
+    if (!serverId) continue;
+    const object = `mcp_server:${serverId}`;
+    tuples.push(
+      { user: `team:${teamSlug}#member`, relation: "reader", object },
+      { user: `team:${teamSlug}#member`, relation: "user", object },
+      { user: `team:${teamSlug}#member`, relation: "invoker", object },
+      { user: `team:${teamSlug}#admin`, relation: "manager", object },
+    );
+    if (includeOrgAdminManager) {
+      tuples.push({ user: `${organizationObjectId()}#admin`, relation: "manager", object });
+    }
+  }
+  return tuples;
+}
+
+/** Gateway extAuthz checks `tool:<server>/*` (slash), not underscore wildcards. */
+function mcpServerGatewayToolCallerTuples(teamSlug: string, toolIds: string[]): OpenFgaTupleKey[] {
+  const tuples: OpenFgaTupleKey[] = [];
+  for (const toolId of toolIds) {
+    const serverId = mcpServerIdFromToolPrefix(toolId);
+    if (!serverId) continue;
+    tuples.push({
+      user: `team:${teamSlug}#member`,
+      relation: "caller",
+      object: `tool:${serverId}/*`,
+    });
+  }
+  return tuples;
+}
+
+function splitTeamToolSelections(toolIds: string[]): {
+  mcpServerSelections: string[];
+  directToolIds: string[];
+} {
+  const mcpServerSelections: string[] = [];
+  const directToolIds: string[] = [];
+  for (const toolId of toolIds) {
+    if (mcpServerIdFromToolPrefix(toolId)) {
+      mcpServerSelections.push(toolId);
+    } else {
+      directToolIds.push(toolId);
+    }
+  }
+  return { mcpServerSelections, directToolIds };
+}
+
+/** Revoke legacy `tool:<prefix>_*` and `mcp_tool:<prefix>_*` tuples from older writers. */
+function mcpServerLegacyToolGrantDeletes(teamSlug: string, toolIds: string[]): OpenFgaTupleKey[] {
+  const deletes: OpenFgaTupleKey[] = [];
+  for (const toolId of toolIds) {
+    if (!mcpServerIdFromToolPrefix(toolId)) continue;
+    deletes.push({
+      user: `team:${teamSlug}#member`,
+      relation: "caller",
+      object: `tool:${toolId}`,
+    });
+    for (const relation of ["reader", "user", "caller"] as const) {
+      deletes.push({
+        user: `team:${teamSlug}#member`,
+        relation,
+        object: `mcp_tool:${toolId}`,
+      });
+    }
+    deletes.push({
+      user: `team:${teamSlug}#admin`,
+      relation: "manager",
+      object: `mcp_tool:${toolId}`,
+    });
+  }
+  return deletes;
+}
+
 export function buildTeamResourceTupleDiff(input: TeamResourceTupleDiffInput): TeamResourceTupleDiff {
   const teamObject = `team:${input.teamSlug}`;
   const memberTuples = input.memberUserIds.map((userId) => ({
@@ -143,11 +232,18 @@ export function buildTeamResourceTupleDiff(input: TeamResourceTupleDiffInput): T
     object: teamObject,
   }));
 
+  const addedTools = splitTeamToolSelections(input.tools.added);
+  const removedTools = splitTeamToolSelections(input.tools.removed);
+
   const writes = uniqueTuples([
     ...memberTuples,
     ...resourceTuples(input.teamSlug, "user", "agent", input.agents.added),
     ...resourceTuples(input.teamSlug, "manager", "agent", input.agentAdmins.added, "admin"),
-    ...resourceTuples(input.teamSlug, "caller", "tool", input.tools.added),
+    ...resourceTuples(input.teamSlug, "caller", "tool", addedTools.directToolIds),
+    // Team Resources stores MCP server selections as `<server_id>_*` in Mongo;
+    // OpenFGA tuples target `mcp_server:<id>` (BFF) and `tool:<id>/*` (gateway).
+    ...mcpServerAccessTuples(input.teamSlug, addedTools.mcpServerSelections, true),
+    ...mcpServerGatewayToolCallerTuples(input.teamSlug, addedTools.mcpServerSelections),
     ...resourceTuples(input.teamSlug, "reader", "knowledge_base", input.knowledgeBases?.added ?? []),
     ...resourceTuples(input.teamSlug, "user", "skill", input.skills?.added ?? []),
     ...resourceTuples(input.teamSlug, "user", "task", input.tasks?.added ?? []),
@@ -159,7 +255,10 @@ export function buildTeamResourceTupleDiff(input: TeamResourceTupleDiffInput): T
   const deletes = uniqueTuples([
     ...resourceTuples(input.teamSlug, "user", "agent", input.agents.removed),
     ...resourceTuples(input.teamSlug, "manager", "agent", input.agentAdmins.removed, "admin"),
-    ...resourceTuples(input.teamSlug, "caller", "tool", input.tools.removed),
+    ...resourceTuples(input.teamSlug, "caller", "tool", removedTools.directToolIds),
+    ...mcpServerAccessTuples(input.teamSlug, removedTools.mcpServerSelections, false),
+    ...mcpServerGatewayToolCallerTuples(input.teamSlug, removedTools.mcpServerSelections),
+    ...mcpServerLegacyToolGrantDeletes(input.teamSlug, removedTools.mcpServerSelections),
     ...resourceTuples(input.teamSlug, "reader", "knowledge_base", input.knowledgeBases?.removed ?? []),
     ...resourceTuples(input.teamSlug, "user", "skill", input.skills?.removed ?? []),
     ...resourceTuples(input.teamSlug, "user", "task", input.tasks?.removed ?? []),

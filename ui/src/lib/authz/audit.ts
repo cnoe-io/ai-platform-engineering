@@ -194,6 +194,80 @@ export function buildGrantEvent(
   };
 }
 
+export type ReconcileAuditOutcome = "success" | "error";
+
+export interface ReconcileAuditOptions {
+  outcome?: ReconcileAuditOutcome;
+  reasonCode?: string;
+}
+
+/** Batch tuple reconcile (team resources, MCP ownership, etc.). */
+export interface CasReconcileEvent {
+  audit_event_id: string;
+  ts: Date;
+  type: "cas_reconcile";
+  tenant_id: string;
+  subject_hash?: string;
+  actor_hash?: string;
+  caller_ref?: string;
+  source?: string;
+  writes: number;
+  deletes: number;
+  outcome: ReconcileAuditOutcome;
+  reason_code?: string;
+  correlation_id: string;
+  component: "cas";
+  pdp: "openfga";
+  source_system: "cas";
+  trace_id?: string;
+  span_id?: string;
+}
+
+export function emitReconcileAudit(
+  diff: { writes: unknown[]; deletes: unknown[] },
+  result: { enabled: boolean; writes: number; deletes: number },
+  ctx: DecisionContext & { caller?: Subject; source?: string } = {},
+  options: ReconcileAuditOptions = {},
+): void {
+  if (!isMongoDBConfigured) return;
+
+  const outcome = options.outcome ?? "success";
+  const callerRef = ctx.caller ? principalRef(ctx.caller.type, ctx.caller.id) : undefined;
+  const event: CasReconcileEvent = {
+    audit_event_id: randomUUID(),
+    ts: new Date(),
+    type: "cas_reconcile",
+    tenant_id: ctx.tenantId ?? process.env.TENANT_ID ?? "default",
+    ...(ctx.caller
+      ? {
+          subject_hash: hashSubject(ctx.caller.id),
+          actor_hash: hashSubject(ctx.caller.id),
+          caller_ref: callerRef,
+        }
+      : {}),
+    source: ctx.source,
+    writes: result.writes,
+    deletes: result.deletes,
+    outcome,
+    correlation_id: ctx.correlationId ?? randomUUID(),
+    component: "cas",
+    pdp: "openfga",
+    source_system: "cas",
+    ...(options.reasonCode ? { reason_code: options.reasonCode } : {}),
+    ...(ctx.traceId ? { trace_id: ctx.traceId } : {}),
+    ...(ctx.spanId ? { span_id: ctx.spanId } : {}),
+  };
+
+  void (async () => {
+    try {
+      const coll = await getCollection<CasReconcileEvent>(AUDIT_EVENTS);
+      await coll.insertOne(event);
+    } catch (err) {
+      console.warn("[cas/audit] Failed to persist reconcile event:", err);
+    }
+  })();
+}
+
 /** One audit event per grant/revoke attempt → unified `audit_events`. */
 export async function emitGrantAudit(
   operation: GrantOperation,

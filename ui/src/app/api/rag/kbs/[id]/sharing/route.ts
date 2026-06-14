@@ -28,7 +28,7 @@ import { readOpenFgaTuples } from "@/lib/rbac/openfga";
 import {
 reconcileDataSourceRelationships,
 reconcileKnowledgeBaseRelationships,
-} from "@/lib/rbac/openfga-owned-resources";
+} from "@/lib/rbac/openfga-owned-resources-reconcile";
 import { requireResourcePermission } from "@/lib/rbac/resource-authz";
 import { handleShareableResourceWrite } from "@/lib/rbac/shareable-resource";
 import { getServerSession } from "next-auth";

@@ -1,3 +1,14 @@
+/**
+ * @jest-environment node
+ */
+
+jest.mock("@/lib/authz", () => ({
+  reconcileTupleDiff: async (diff: { writes: unknown[]; deletes: unknown[] }) => {
+    const { writeOpenFgaTupleDiff } = jest.requireActual("../openfga") as typeof import("../openfga");
+    return writeOpenFgaTupleDiff(diff);
+  },
+}));
+
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
@@ -23,6 +34,7 @@ import {
   buildKnowledgeBaseRelationshipTupleDiff,
   buildMcpServerRelationshipTupleDiff,
 } from "../openfga-owned-resources";
+import { reconcileMcpServerRelationships } from "../openfga-owned-resources-reconcile";
 
 function agentUserTypes(modelPath: string): Array<Record<string, unknown>> {
   const model = JSON.parse(readFileSync(modelPath, "utf8")) as {
@@ -98,7 +110,12 @@ describe("OpenFGA team resource tuple reconciliation", () => {
         relation: "manager",
         object: "agent:agent-admin",
       },
-      { user: "team:platform-engineering#member", relation: "caller", object: "tool:jira_*" },
+      { user: "team:platform-engineering#member", relation: "reader", object: "mcp_server:jira" },
+      { user: "team:platform-engineering#member", relation: "user", object: "mcp_server:jira" },
+      { user: "team:platform-engineering#member", relation: "invoker", object: "mcp_server:jira" },
+      { user: "team:platform-engineering#admin", relation: "manager", object: "mcp_server:jira" },
+      { user: "organization:caipe#admin", relation: "manager", object: "mcp_server:jira" },
+      { user: "team:platform-engineering#member", relation: "caller", object: "tool:jira/*" },
       { user: "team:platform-engineering#member", relation: "caller", object: "tool:*" },
     ]);
     expect(diff.deletes).toEqual([
@@ -107,12 +124,50 @@ describe("OpenFGA team resource tuple reconciliation", () => {
         relation: "user",
         object: "agent:agent-old",
       },
-      {
-        user: "team:platform-engineering#member",
-        relation: "caller",
-        object: "tool:github_*",
-      },
+      { user: "team:platform-engineering#member", relation: "reader", object: "mcp_server:github" },
+      { user: "team:platform-engineering#member", relation: "user", object: "mcp_server:github" },
+      { user: "team:platform-engineering#member", relation: "invoker", object: "mcp_server:github" },
+      { user: "team:platform-engineering#admin", relation: "manager", object: "mcp_server:github" },
+      { user: "team:platform-engineering#member", relation: "caller", object: "tool:github/*" },
+      { user: "team:platform-engineering#member", relation: "caller", object: "tool:github_*" },
+      { user: "team:platform-engineering#member", relation: "reader", object: "mcp_tool:github_*" },
+      { user: "team:platform-engineering#member", relation: "user", object: "mcp_tool:github_*" },
+      { user: "team:platform-engineering#member", relation: "caller", object: "mcp_tool:github_*" },
+      { user: "team:platform-engineering#admin", relation: "manager", object: "mcp_tool:github_*" },
     ]);
+  });
+
+  it("does not delete org-admin MCP server manager grants when a team unassigns a server", () => {
+    // assisted-by Codex Codex-sonnet-4-6
+    const diff = buildTeamResourceTupleDiff({
+      teamSlug: "platform-engineering",
+      memberUserIds: [],
+      agents: { added: [], removed: [] },
+      agentAdmins: { added: [], removed: [] },
+      tools: { added: ["mcp-confluence-mcp_*"], removed: ["mcp-litellm_*"] },
+      toolWildcard: { added: false, removed: false },
+    });
+
+    expect(diff.writes).toEqual(
+      expect.arrayContaining([
+        { user: "team:platform-engineering#admin", relation: "manager", object: "mcp_server:mcp-confluence-mcp" },
+        { user: "organization:caipe#admin", relation: "manager", object: "mcp_server:mcp-confluence-mcp" },
+        { user: "team:platform-engineering#member", relation: "caller", object: "tool:mcp-confluence-mcp/*" },
+      ]),
+    );
+    expect(diff.deletes).toEqual(
+      expect.arrayContaining([
+        { user: "team:platform-engineering#admin", relation: "manager", object: "mcp_server:mcp-litellm" },
+        { user: "team:platform-engineering#member", relation: "caller", object: "tool:mcp-litellm/*" },
+        { user: "team:platform-engineering#member", relation: "caller", object: "tool:mcp-litellm_*" },
+        { user: "team:platform-engineering#member", relation: "caller", object: "mcp_tool:mcp-litellm_*" },
+      ]),
+    );
+    expect(diff.deletes).not.toContainEqual({
+      user: "organization:caipe#admin",
+      relation: "manager",
+      object: "mcp_server:mcp-litellm",
+    });
   });
 
   it("allows tuple checks without OpenFGA when the unsafe bypass flag is enabled", async () => {
@@ -274,10 +329,23 @@ describe("OpenFGA team resource tuple reconciliation", () => {
       }).writes,
     ).toEqual([
       { user: "user:alice-sub", relation: "owner", object: "mcp_server:mcp-team-tools" },
+      { user: "team:platform#member", relation: "reader", object: "mcp_server:mcp-team-tools" },
       { user: "team:platform#member", relation: "user", object: "mcp_server:mcp-team-tools" },
       { user: "team:platform#member", relation: "invoker", object: "mcp_server:mcp-team-tools" },
       { user: "team:platform#admin", relation: "manager", object: "mcp_server:mcp-team-tools" },
+      { user: "organization:caipe#admin", relation: "manager", object: "mcp_server:mcp-team-tools" },
     ]);
+    expect(
+      buildMcpServerRelationshipTupleDiff({
+        serverId: "mcp-bot-tools",
+        ownerSubject: "bot-client-id",
+        ownerSubjectKind: "service_account",
+      }).writes,
+    ).toEqual(
+      expect.arrayContaining([
+        { user: "service_account:bot-client-id", relation: "owner", object: "mcp_server:mcp-bot-tools" },
+      ]),
+    );
     expect(
       buildConfigDrivenMcpServerRelationshipTupleDiff({
         serverId: "argocd",
@@ -391,6 +459,38 @@ describe("OpenFGA team resource tuple reconciliation", () => {
     expect(fetchMock).not.toHaveBeenCalledWith(
       "http://openfga:8080/stores/store-1/write",
       expect.anything()
+    );
+  });
+
+  it("propagates MCP server ownership write failures", async () => {
+    // assisted-by Codex Codex-sonnet-4-6
+    process.env.OPENFGA_RECONCILE_ENABLED = "true";
+    process.env.OPENFGA_HTTP = "http://openfga:8080";
+    process.env.OPENFGA_STORE_NAME = "caipe-openfga";
+
+    const fetchMock = jest.fn(async (url: string) => {
+      if (String(url).endsWith("/stores")) {
+        return { ok: true, json: async () => ({ stores: [{ id: "store-1", name: "caipe-openfga" }] }) };
+      }
+      if (String(url).includes("/read")) {
+        return { ok: true, json: async () => ({ tuples: [] }) };
+      }
+      if (String(url).includes("/write")) {
+        return { ok: false, status: 500, text: async () => "boom" };
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    await expect(
+      reconcileMcpServerRelationships({
+        serverId: "mcp-confluence-mcp",
+        ownerSubject: "alice-sub",
+      }),
+    ).rejects.toThrow("OpenFGA tuple write failed");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://openfga:8080/stores/store-1/write",
+      expect.anything(),
     );
   });
 
