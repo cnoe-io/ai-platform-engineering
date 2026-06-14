@@ -67,6 +67,10 @@ COHERE_API_KEY="${COHERE_API_KEY:-}"
 VOYAGE_API_KEY="${VOYAGE_API_KEY:-}"
 HUGGINGFACEHUB_API_TOKEN="${HUGGINGFACEHUB_API_TOKEN:-}"
 EMBEDDINGS_DEVICE="${EMBEDDINGS_DEVICE:-cpu}"
+# Explicit embedding vector dimensions override — passed to rag-server as
+# EMBEDDINGS_DIMENSIONS so Milvus collection creation and query-time validation
+# always use the correct size, even for models not in EmbeddingsFactory's built-in map.
+EMBEDDINGS_DIMENSIONS="${EMBEDDINGS_DIMENSIONS:-}"
 # Source hint for the embeddings menu: distinguishes "voyage" and
 # "custom-litellm" (both materialise EMBEDDINGS_PROVIDER=litellm internally
 # but route through different model menus and credential prompts).
@@ -2593,6 +2597,37 @@ choose_features() {
           ;;
       esac
       log "Embeddings: ${EMBEDDINGS_PROVIDER} / ${EMBEDDINGS_MODEL}"
+      # Resolve dimensions for known models; leave unset for unknowns so the RAG
+      # server's live-embed detection (restapi.py) is the authoritative source.
+      if [[ -z "${EMBEDDINGS_DIMENSIONS:-}" ]]; then
+        case "${EMBEDDINGS_MODEL}" in
+          # Ollama local models
+          nomic-embed-text)              EMBEDDINGS_DIMENSIONS=768  ;;
+          mxbai-embed-large)             EMBEDDINGS_DIMENSIONS=1024 ;;
+          snowflake-arctic-embed2)       EMBEDDINGS_DIMENSIONS=1024 ;;
+          bge-m3)                        EMBEDDINGS_DIMENSIONS=1024 ;;
+          qwen3-embedding:0.6b)          EMBEDDINGS_DIMENSIONS=1024 ;;
+          qwen3-embedding:1.7b)          EMBEDDINGS_DIMENSIONS=1536 ;;
+          qwen3-embedding:4b)            EMBEDDINGS_DIMENSIONS=2560 ;;
+          qwen3-embedding:8b)            EMBEDDINGS_DIMENSIONS=4096 ;;
+          # OpenAI / Azure
+          text-embedding-3-small|text-embedding-ada-002) EMBEDDINGS_DIMENSIONS=1536 ;;
+          text-embedding-3-large)        EMBEDDINGS_DIMENSIONS=3072 ;;
+          # AWS Bedrock
+          amazon.titan-embed-text-v1)    EMBEDDINGS_DIMENSIONS=1536 ;;
+          amazon.titan-embed-text-v2:0)  EMBEDDINGS_DIMENSIONS=1024 ;;
+          cohere.embed-english-v3|cohere.embed-multilingual-v3) EMBEDDINGS_DIMENSIONS=1024 ;;
+          # Cohere direct
+          embed-english-v3.0|embed-multilingual-v3.0) EMBEDDINGS_DIMENSIONS=1024 ;;
+          embed-english-light-v3.0)      EMBEDDINGS_DIMENSIONS=384  ;;
+          # Voyage / LiteLLM
+          voyage/voyage-3-lite)          EMBEDDINGS_DIMENSIONS=512  ;;
+          voyage/voyage-*)               EMBEDDINGS_DIMENSIONS=1024 ;;
+          mistral/mistral-embed)         EMBEDDINGS_DIMENSIONS=1024 ;;
+          gemini/text-embedding-004|vertex_ai/textembedding-gecko*) EMBEDDINGS_DIMENSIONS=768 ;;
+        esac
+        [[ -n "${EMBEDDINGS_DIMENSIONS:-}" ]] && log "Resolved embedding dimensions: ${EMBEDDINGS_DIMENSIONS} (model: ${EMBEDDINGS_MODEL})"
+      fi
 
       # Collect any extra credentials the chosen embeddings provider needs.
       case "${EMBEDDINGS_PROVIDER_SOURCE:-$EMBEDDINGS_PROVIDER}" in
@@ -6587,6 +6622,7 @@ DAEOF
       --set "caipe-ui.config.RAG_SERVER_URL=http://rag-server:${RAG_SERVER_PORT}"
       --set "rag-stack.rag-server.env.EMBEDDINGS_MODEL=${EMBEDDINGS_MODEL}"
       --set "rag-stack.rag-server.env.EMBEDDINGS_PROVIDER=${EMBEDDINGS_PROVIDER}"
+      ${EMBEDDINGS_DIMENSIONS:+--set "rag-stack.rag-server.env.EMBEDDINGS_DIMENSIONS=${EMBEDDINGS_DIMENSIONS}"}
       --set 'rag-stack.milvus.cluster.enabled=false'
       --set 'rag-stack.milvus.standalone.disk.enabled=true'
       --set 'rag-stack.milvus.etcd.replicaCount=1'

@@ -125,6 +125,26 @@ class TestEmbeddingsFactory:
         )
         assert result == mock_instance
 
+  def test_ollama_dimensions(self):
+    """Test dimension mappings for Ollama local models"""
+    with patch.dict(os.environ, {"EMBEDDINGS_MODEL": "snowflake-arctic-embed2"}):
+      assert EmbeddingsFactory.get_embedding_dimensions() == 1024
+
+    with patch.dict(os.environ, {"EMBEDDINGS_MODEL": "nomic-embed-text"}):
+      assert EmbeddingsFactory.get_embedding_dimensions() == 768
+
+    with patch.dict(os.environ, {"EMBEDDINGS_MODEL": "mxbai-embed-large"}):
+      assert EmbeddingsFactory.get_embedding_dimensions() == 1024
+
+    with patch.dict(os.environ, {"EMBEDDINGS_MODEL": "bge-m3"}):
+      assert EmbeddingsFactory.get_embedding_dimensions() == 1024
+
+    with patch.dict(os.environ, {"EMBEDDINGS_MODEL": "qwen3-embedding:0.6b"}):
+      assert EmbeddingsFactory.get_embedding_dimensions() == 1024
+
+    with patch.dict(os.environ, {"EMBEDDINGS_MODEL": "qwen3-embedding:8b"}):
+      assert EmbeddingsFactory.get_embedding_dimensions() == 4096
+
   def test_litellm_dimensions(self):
     """Test dimension mappings for LiteLLM models"""
     with patch.dict(os.environ, {"EMBEDDINGS_MODEL": "mistral/mistral-embed"}):

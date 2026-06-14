@@ -194,6 +194,15 @@ class EmbeddingsFactory:
       "sentence-transformers/all-MiniLM-L6-v2": 384,
       "sentence-transformers/all-mpnet-base-v2": 768,
       "sentence-transformers/all-MiniLM-L12-v2": 384,
+      # Ollama local models
+      "nomic-embed-text": 768,
+      "mxbai-embed-large": 1024,
+      "snowflake-arctic-embed2": 1024,
+      "bge-m3": 1024,
+      "qwen3-embedding:0.6b": 1024,
+      "qwen3-embedding:1.7b": 1536,
+      "qwen3-embedding:4b": 2560,
+      "qwen3-embedding:8b": 4096,
       # LiteLLM models (with provider prefix)
       "mistral/mistral-embed": 1024,
       "gemini/text-embedding-004": 768,
