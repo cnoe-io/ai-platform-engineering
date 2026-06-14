@@ -165,8 +165,9 @@ interface AgentTimelineProps {
   /** Function to look up subagent info by name (for avatar gradient) */
   getSubagentInfo?: SubagentLookupFn;
 
-  // ─── File operations (only active when isLatestMessage=true) ─
+  // ─── File operations ─────────────────────────────────────────
   onFileDownload?: (path: string) => void;
+  getFileContent?: (path: string) => Promise<string | null>;
   onFileDelete?: (path: string) => void;
   isDownloadingFile?: boolean;
   downloadingFilePath?: string;
@@ -189,6 +190,7 @@ export function AgentTimeline({
   isLatestMessage,
   getSubagentInfo,
   onFileDownload,
+  getFileContent,
   onFileDelete,
   isDownloadingFile,
   downloadingFilePath,
@@ -373,6 +375,7 @@ export function AgentTimeline({
             turnEnded={turnEnded}
             isStreaming={isStreaming}
             onFileDownload={onFileDownload}
+            getFileContent={getFileContent}
             onFileDelete={onFileDelete}
             isDownloading={isDownloadingFile}
             downloadingPath={downloadingFilePath}
@@ -1212,6 +1215,7 @@ function FileSection({
   turnEnded = false,
   isStreaming = false,
   onFileDownload,
+  getFileContent,
   onFileDelete,
   isDownloading,
   downloadingPath,
@@ -1223,6 +1227,7 @@ function FileSection({
   turnEnded?: boolean;
   isStreaming?: boolean;
   onFileDownload?: (path: string) => void;
+  getFileContent?: (path: string) => Promise<string | null>;
   onFileDelete?: (path: string) => void;
   isDownloading?: boolean;
   downloadingPath?: string;
@@ -1239,7 +1244,8 @@ function FileSection({
     >
       <FileTree
         files={files}
-        onFileClick={readonly ? undefined : onFileDownload}
+        getFileContent={getFileContent}
+        onFileClick={onFileDownload}
         onFileDelete={readonly ? undefined : onFileDelete}
         isDownloading={isDownloading}
         downloadingPath={downloadingPath}
