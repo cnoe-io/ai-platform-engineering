@@ -54,6 +54,12 @@ jest.mock("@/lib/rbac/openfga", () => ({
   readOpenFgaTuples: jest.fn().mockResolvedValue({ tuples: [], continuationToken: undefined }),
 }));
 
+jest.mock("@/lib/rbac/resource-authz", () => ({
+  filterResourcesByPermission: jest.fn(async (_session, resources: unknown[]) => resources),
+  requireResourcePermission: jest.fn().mockResolvedValue(undefined),
+  requireSkillPermission: jest.fn().mockResolvedValue(undefined),
+}));
+
 jest.mock("@/lib/rbac/skill-team-grants", () => ({
   reconcileSkillTeamShares: jest.fn().mockResolvedValue({
     teamSlugs: [],

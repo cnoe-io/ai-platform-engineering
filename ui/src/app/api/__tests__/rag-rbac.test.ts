@@ -68,7 +68,7 @@ jest.mock('@/lib/rbac/openfga', () => ({
   checkOpenFgaTuple: (...args: unknown[]) => mockCheckOpenFgaTuple(...args),
 }));
 
-jest.mock('@/lib/rbac/openfga-owned-resources', () => ({
+jest.mock('@/lib/rbac/openfga-owned-resources-reconcile', () => ({
   reconcileKnowledgeBaseRelationships: (...args: unknown[]) => mockReconcileKnowledgeBaseRelationships(...args),
   reconcileDataSourceRelationships: (...args: unknown[]) => mockReconcileDataSourceRelationships(...args),
   reconcileMcpToolRelationships: (...args: unknown[]) => mockReconcileMcpToolRelationships(...args),

@@ -22,26 +22,31 @@ function makeCollection<T>(items: T[]) {
 
 const listGroupsCalls: Array<Record<string, unknown>> = [];
 
-jest.mock("@okta/okta-sdk-nodejs", () => ({
-  Client: class {
-    groupApi: {
-      listGroups: (args?: unknown) => Promise<unknown>;
-      listGroupUsers: (args: { groupId: string }) => Promise<unknown>;
-    };
-    constructor(config: unknown) {
-      clientCtor(config);
-      this.groupApi = {
-        listGroups: async (args?: unknown) => {
-          listGroupsCalls.push((args ?? {}) as Record<string, unknown>);
-          if (listGroupsError) throw listGroupsError;
-          return makeCollection(mockGroups);
-        },
-        listGroupUsers: async ({ groupId }: { groupId: string }) =>
-          makeCollection(mockUsersByGroup[groupId] ?? []),
+jest.mock(
+  "@okta/okta-sdk-nodejs",
+  () => ({
+    // assisted-by Codex Codex-sonnet-4-6
+    Client: class {
+      groupApi: {
+        listGroups: (args?: unknown) => Promise<unknown>;
+        listGroupUsers: (args: { groupId: string }) => Promise<unknown>;
       };
-    }
-  },
-}));
+      constructor(config: unknown) {
+        clientCtor(config);
+        this.groupApi = {
+          listGroups: async (args?: unknown) => {
+            listGroupsCalls.push((args ?? {}) as Record<string, unknown>);
+            if (listGroupsError) throw listGroupsError;
+            return makeCollection(mockGroups);
+          },
+          listGroupUsers: async ({ groupId }: { groupId: string }) =>
+            makeCollection(mockUsersByGroup[groupId] ?? []),
+        };
+      }
+    },
+  }),
+  { virtual: true },
+);
 
 describe("Okta directory connector (SDK-based)", () => {
   const originalEnv = process.env;

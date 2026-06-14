@@ -3612,6 +3612,10 @@
               {
                 "type": "external_group",
                 "relation": "member"
+              },
+              {
+                "type": "organization",
+                "relation": "member"
               }
             ]
           },
@@ -3633,6 +3637,10 @@
               },
               {
                 "type": "external_group",
+                "relation": "member"
+              },
+              {
+                "type": "organization",
                 "relation": "member"
               }
             ]
