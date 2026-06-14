@@ -6,7 +6,7 @@ buildAgentGatewayMcpDiscovery,
 toAgentGatewayMcpServerDocument,
 type AgentGatewayMcpDiscovery,
 } from "@/lib/rbac/agentgateway-mcp-discovery";
-import { reconcileConfigDrivenMcpServerRelationships } from "@/lib/rbac/openfga-owned-resources";
+import { reconcileConfigDrivenMcpServerRelationships } from "@/lib/rbac/openfga-owned-resources-reconcile";
 import { caipeOrgKey } from "@/lib/rbac/organization";
 import type { MCPServerConfig } from "@/types/dynamic-agent";
 

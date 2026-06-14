@@ -197,7 +197,7 @@ test.describe("mocked MCP OpenFGA tuple browser regression", () => {
 
     await page.getByRole("button", { name: "1 Tools" }).click();
     await expect(page.getByRole("dialog")).toBeVisible();
-    await expect(page.getByRole("button", { name: "Resources", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Agents & MCP", exact: true })).toBeVisible();
     await expect(page.getByText("mcp-confluence-mcp_*")).toBeVisible();
 
     const putResponse = page.waitForResponse(
@@ -205,7 +205,7 @@ test.describe("mocked MCP OpenFGA tuple browser regression", () => {
         response.request().method() === "PUT" &&
         /\/api\/admin\/teams\/[^/]+\/resources$/.test(new URL(response.url()).pathname),
     );
-    await page.getByRole("button", { name: "Save resources" }).click();
+    await page.getByRole("button", { name: "Save agents and MCP access" }).click();
     await putResponse;
 
     await expect.poll(() => mocks.resourcePutBodies.length).toBe(1);

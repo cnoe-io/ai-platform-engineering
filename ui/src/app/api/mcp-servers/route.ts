@@ -20,7 +20,7 @@ import { caipeOrgKey } from "@/lib/rbac/organization";
 import {
 deleteAllMcpServerRelationshipTuples,
 reconcileMcpServerRelationships,
-} from "@/lib/rbac/openfga-owned-resources";
+} from "@/lib/rbac/openfga-owned-resources-reconcile";
 import {
 filterResourcesByPermission,
 requireResourcePermission,
@@ -126,20 +126,18 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     const collection = await getCollection<MCPServerConfig>(COLLECTION_NAME);
     const { page, pageSize, skip } = getPaginationParams(request);
 
-    const [items] = await Promise.all([
-      collection.find({}).sort({ name: 1 }).skip(skip).limit(pageSize).toArray(),
-      collection.countDocuments({}),
-    ]);
+    const allItems = await collection.find({}).sort({ name: 1 }).toArray();
     const listTarget = {
       type: "mcp_server" as const,
       action: "read" as const,
       id: (server: MCPServerConfig) => String(server._id),
     };
-    const visibleItems = await filterResourcesByPermission(session, items, listTarget, {
+    const visibleItems = await filterResourcesByPermission(session, allItems, listTarget, {
       bypassForOrgAdmin: true,
     });
+    const pageItems = visibleItems.slice(skip, skip + pageSize);
 
-    return paginatedResponse(visibleItems, visibleItems.length, page, pageSize);
+    return paginatedResponse(pageItems, visibleItems.length, page, pageSize);
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -233,14 +231,18 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       updated_at: now.toISOString(),
     };
 
+    const ownerSubjectKind =
+      session.isServiceAccount === true ? ("service_account" as const) : ("user" as const);
+
     await reconcileMcpServerRelationships(
       {
         serverId,
         ownerSubject,
+        ownerSubjectKind,
         ownerTeamSlug,
       },
       {
-        caller: { type: "user", id: ownerSubject },
+        caller: { type: ownerSubjectKind, id: ownerSubject },
         source: "mcp_server_create",
       },
     );
