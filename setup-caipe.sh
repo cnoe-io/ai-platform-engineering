@@ -1059,10 +1059,14 @@ choose_deployment_mode() {
     [[ -n "${CAIPE_DEPLOYMENT_MODE:-}" ]] && log "Detected existing deployment mode from cluster: ${CAIPE_DEPLOYMENT_MODE}"
   fi
 
-  # Already known — confirm and skip
+  # Pre-populated from saved config or cluster — offer to keep or change.
   if [[ -n "${CAIPE_DEPLOYMENT_MODE:-}" ]]; then
-    log "Keeping existing deployment mode: ${CAIPE_DEPLOYMENT_MODE}"
-    return 0
+    local _cur_mode_label="${CAIPE_DEPLOYMENT_MODE}"
+    if ask_yn "Keep existing deployment mode '${_cur_mode_label}'?" "y"; then
+      log "Keeping deployment mode: ${CAIPE_DEPLOYMENT_MODE}"
+      return 0
+    fi
+    CAIPE_DEPLOYMENT_MODE=""  # fall through to full selection menu
   fi
 
   echo ""
@@ -4679,7 +4683,7 @@ JSON
 # Update caipe-ui and caipe-platform Keycloak client redirect URIs, web origins,
 # and root URL to match CAIPE_DOMAIN. Keycloak imports the realm once at first
 # install; the imported URIs are never updated by helm upgrade, so a domain
-# change (e.g. caipe.local.me → caipe-vanilla.outshift.io) leaves stale URIs
+# change (e.g. caipe.local.me → caipe.example.com) leaves stale URIs
 # that cause "Invalid parameter: redirect_uri" on login.
 # assisted-by claude code claude-sonnet-4-6
 update_keycloak_client_urls() {
@@ -8371,7 +8375,9 @@ enable_graph_rag: "${ENABLE_GRAPH_RAG:-false}"
 enable_dynamic_agents: "${ENABLE_DYNAMIC_AGENTS:-true}"
 enable_tracing: "${ENABLE_TRACING:-false}"
 enable_metallb: "${ENABLE_METALLB:-false}"
+enable_ingress: "${ENABLE_INGRESS:-false}"
 domain: "${CAIPE_DOMAIN:-}"
+selected_agents: "${SELECTED_AGENTS[*]:-}"
 CFGYAML
   log "Configuration saved to ${CAIPE_CONFIG_FILE}"
 }
@@ -8384,7 +8390,7 @@ _load_caipe_config() {
   echo -e "  ${DIM}Saved configuration found: ${CAIPE_CONFIG_FILE}${NC}"
   echo ""
 
-  local _ctx _chart _mode _llm _ollama _omodel _eprov _emodel _rag _grag _dynagents _tracing _metallb _domain
+  local _ctx _chart _mode _llm _ollama _omodel _eprov _emodel _rag _grag _dynagents _tracing _metallb _ingress _domain _agents
   _ctx=$(_cfg_get cluster_context)
   _chart=$(_cfg_get chart_version)
   _mode=$(_cfg_get deployment_mode)
@@ -8398,7 +8404,9 @@ _load_caipe_config() {
   _dynagents=$(_cfg_get enable_dynamic_agents)
   _tracing=$(_cfg_get enable_tracing)
   _metallb=$(_cfg_get enable_metallb)
+  _ingress=$(_cfg_get enable_ingress)
   _domain=$(_cfg_get domain)
+  _agents=$(_cfg_get selected_agents)
 
   [[ -n "$_ctx" ]]        && echo -e "    ${DIM}cluster:         ${NC}${_ctx}"
   [[ -n "$_chart" ]]      && echo -e "    ${DIM}chart version:   ${NC}${_chart}"
@@ -8412,8 +8420,9 @@ _load_caipe_config() {
   [[ -n "$_rag" ]]        && echo -e "    ${DIM}RAG:             ${NC}${_rag}  graph-RAG: ${_grag:-false}"
   [[ -n "$_dynagents" ]]  && echo -e "    ${DIM}dynamic agents:  ${NC}${_dynagents}"
   [[ -n "$_tracing" ]]    && echo -e "    ${DIM}tracing:         ${NC}${_tracing}"
-  [[ -n "$_metallb" ]]    && echo -e "    ${DIM}metallb:         ${NC}${_metallb}"
+  [[ -n "$_metallb" ]]    && echo -e "    ${DIM}metallb:         ${NC}${_metallb}  ingress: ${_ingress:-false}"
   [[ -n "$_domain" ]]     && echo -e "    ${DIM}domain:          ${NC}${_domain}"
+  [[ -n "$_agents" ]]     && echo -e "    ${DIM}agents:          ${NC}${_agents}"
   echo ""
 
   if ! ask_yn "Use saved configuration?" "y"; then
@@ -8434,7 +8443,19 @@ _load_caipe_config() {
   [[ "$_tracing"  == "true"  ]] && ENABLE_TRACING=true
   [[ "$_metallb"  == "true"  ]] && ENABLE_METALLB=true
   [[ "$_metallb"  == "false" ]] && ENABLE_METALLB=false
+  # MetalLB is a prerequisite for ingress; restore ingress flag from config,
+  # but always disable it when MetalLB is disabled (even if config says true).
+  if [[ "$_metallb" == "false" ]]; then
+    ENABLE_INGRESS=false
+  elif [[ "$_ingress" == "true" ]]; then
+    ENABLE_INGRESS=true
+  elif [[ "$_ingress" == "false" ]]; then
+    ENABLE_INGRESS=false
+  fi
   [[ -n "$_domain"     && -z "${CAIPE_DOMAIN:-}"          ]] && CAIPE_DOMAIN="$_domain"
+  if [[ -n "$_agents" && ${#SELECTED_AGENTS[@]} -eq 0 ]]; then
+    read -ra SELECTED_AGENTS <<< "$_agents"
+  fi
 
   # Switch to the saved context; for kind contexts, re-export if missing.
   # If context can't be restored, skip NON_INTERACTIVE so cluster wizard runs.
