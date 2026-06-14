@@ -1,3 +1,4 @@
+// assisted-by Codex Codex-sonnet-4-6
 /**
  * Shared env-var resolver and skip-guard for the RBAC e2e suite.
  *
@@ -16,11 +17,13 @@ export interface RbacEnv {
   baseUrl: string;
   keycloakUrl: string;
   keycloakRealm: string;
-  user: { email: string; password: string };
-  noAccess: { email: string; password: string };
+  user: { email: string; password: string; sub?: string };
+  noAccess?: { email: string; password: string; sub?: string };
 }
 
-export function rbacEnvOrSkip(): RbacEnv {
+export function rbacEnvOrSkip(
+  options: { requireNoAccess?: boolean; requireUserSub?: boolean } = {},
+): RbacEnv {
   if (process.env.RUN_RBAC_E2E !== "1") {
     test.skip(true, "RUN_RBAC_E2E not set; skipping RBAC e2e harness.");
     // Unreachable but keeps TS happy.
@@ -33,8 +36,10 @@ export function rbacEnvOrSkip(): RbacEnv {
     "KEYCLOAK_REALM",
     "RBAC_USER_EMAIL",
     "RBAC_USER_PASSWORD",
-    "RBAC_NOACCESS_USER_EMAIL",
-    "RBAC_NOACCESS_USER_PASSWORD",
+    ...(options.requireUserSub === true ? (["RBAC_USER_SUB"] as const) : []),
+    ...(options.requireNoAccess === true
+      ? (["RBAC_NOACCESS_USER_EMAIL", "RBAC_NOACCESS_USER_PASSWORD"] as const)
+      : []),
   ] as const;
 
   const missing = required.filter((k) => !process.env[k]);
@@ -44,6 +49,15 @@ export function rbacEnvOrSkip(): RbacEnv {
     );
   }
 
+  const noAccess =
+    process.env.RBAC_NOACCESS_USER_EMAIL && process.env.RBAC_NOACCESS_USER_PASSWORD
+      ? {
+          email: process.env.RBAC_NOACCESS_USER_EMAIL,
+          password: process.env.RBAC_NOACCESS_USER_PASSWORD,
+          ...(process.env.RBAC_NOACCESS_USER_SUB ? { sub: process.env.RBAC_NOACCESS_USER_SUB } : {}),
+        }
+      : undefined;
+
   return {
     baseUrl: process.env.CAIPE_UI_BASE_URL!,
     keycloakUrl: process.env.KEYCLOAK_URL!,
@@ -51,10 +65,21 @@ export function rbacEnvOrSkip(): RbacEnv {
     user: {
       email: process.env.RBAC_USER_EMAIL!,
       password: process.env.RBAC_USER_PASSWORD!,
+      ...(process.env.RBAC_USER_SUB ? { sub: process.env.RBAC_USER_SUB } : {}),
     },
-    noAccess: {
-      email: process.env.RBAC_NOACCESS_USER_EMAIL!,
-      password: process.env.RBAC_NOACCESS_USER_PASSWORD!,
-    },
+    ...(noAccess ? { noAccess } : {}),
   };
+}
+
+export function rbacEnvWithNoAccessOrSkip(): RbacEnv & {
+  noAccess: { email: string; password: string; sub?: string };
+} {
+  const env = rbacEnvOrSkip();
+  if (!env.noAccess) {
+    test.skip(
+      true,
+      "RBAC_NOACCESS_USER_EMAIL/RBAC_NOACCESS_USER_PASSWORD not set; skipping no-access persona coverage.",
+    );
+  }
+  return env as RbacEnv & { noAccess: { email: string; password: string } };
 }

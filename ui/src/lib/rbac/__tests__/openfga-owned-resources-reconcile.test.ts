@@ -8,6 +8,7 @@
 const mockReconcileTupleDiff = jest.fn();
 const mockReadOpenFgaTuples = jest.fn();
 const mockIsOpenFgaReconciliationEnabled = jest.fn();
+const mockGetCollection = jest.fn();
 
 jest.mock("@/lib/authz", () => {
   class OpenFgaReconcileRequiredError extends Error {
@@ -27,10 +28,15 @@ jest.mock("../openfga", () => ({
   readOpenFgaTuples: (...args: unknown[]) => mockReadOpenFgaTuples(...args),
 }));
 
+jest.mock("@/lib/mongodb", () => ({
+  getCollection: (...args: unknown[]) => mockGetCollection(...args),
+}));
+
 import { OpenFgaReconcileRequiredError } from "@/lib/authz";
 import {
   deleteAllMcpServerRelationshipTuples,
   deleteAllMcpToolRelationshipTuples,
+  reconcileConfigDrivenMcpServerRelationships,
   reconcileMcpServerRelationships,
 } from "../openfga-owned-resources-reconcile";
 
@@ -48,6 +54,11 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockIsOpenFgaReconciliationEnabled.mockReturnValue(true);
   mockReconcileTupleDiff.mockResolvedValue({ enabled: true, writes: 0, deletes: 4 });
+  mockGetCollection.mockResolvedValue({
+    find: jest.fn().mockReturnValue({
+      toArray: jest.fn().mockResolvedValue([]),
+    }),
+  });
 });
 
 describe("deleteAllMcpServerRelationshipTuples", () => {
@@ -212,6 +223,74 @@ describe("deleteAllMcpToolRelationshipTuples", () => {
 });
 
 describe("reconcileMcpServerRelationships", () => {
+  function seedWildcardTeam(): void {
+    mockGetCollection.mockResolvedValue({
+      find: jest.fn().mockReturnValue({
+        toArray: jest.fn().mockResolvedValue([
+          {
+            _id: "team-platform",
+            slug: "platform",
+            resources: { tool_wildcard: true, agents: ["agent-keep", "bad agent id"] },
+          },
+        ]),
+      }),
+    });
+  }
+
+  it("backfills wildcard-enabled teams when a new MCP server is reconciled", async () => {
+    seedWildcardTeam();
+
+    await reconcileMcpServerRelationships({
+      serverId: "mcp-new-tools",
+      ownerSubject: "alice-sub",
+    });
+
+    expect(mockGetCollection).toHaveBeenCalledWith("teams");
+    expect(mockReconcileTupleDiff).toHaveBeenCalledWith(
+      {
+        writes: expect.arrayContaining([
+          { user: "team:platform#member", relation: "reader", object: "mcp_server:mcp-new-tools" },
+          { user: "team:platform#member", relation: "user", object: "mcp_server:mcp-new-tools" },
+          { user: "team:platform#member", relation: "invoker", object: "mcp_server:mcp-new-tools" },
+          { user: "team:platform#admin", relation: "manager", object: "mcp_server:mcp-new-tools" },
+          { user: "team:platform#member", relation: "caller", object: "tool:mcp-new-tools/*" },
+          { user: "agent:agent-keep", relation: "caller", object: "tool:mcp-new-tools/*" },
+        ]),
+        deletes: [],
+      },
+      expect.objectContaining({
+        caller: { type: "user", id: "alice-sub" },
+        source: "mcp_server_create",
+      }),
+    );
+    expect(mockReconcileTupleDiff.mock.calls[0][0].writes).not.toEqual(
+      expect.arrayContaining([
+        { user: "agent:bad agent id", relation: "caller", object: "tool:mcp-new-tools/*" },
+      ]),
+    );
+  });
+
+  it("backfills wildcard-enabled teams when a config-driven MCP server is reconciled", async () => {
+    seedWildcardTeam();
+
+    await reconcileConfigDrivenMcpServerRelationships({
+      serverId: "mcp-config-sync",
+      organizationId: "caipe",
+    });
+
+    expect(mockGetCollection).toHaveBeenCalledWith("teams");
+    expect(mockReconcileTupleDiff).toHaveBeenCalledWith(
+      expect.objectContaining({
+        writes: expect.arrayContaining([
+          { user: "team:platform#member", relation: "reader", object: "mcp_server:mcp-config-sync" },
+          { user: "team:platform#member", relation: "caller", object: "tool:mcp-config-sync/*" },
+          { user: "agent:agent-keep", relation: "caller", object: "tool:mcp-config-sync/*" },
+        ]),
+      }),
+      undefined,
+    );
+  });
+
   it("writes owner tuples with service_account namespace and audit caller", async () => {
     await reconcileMcpServerRelationships(
       {

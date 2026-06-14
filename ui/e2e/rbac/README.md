@@ -13,6 +13,9 @@ CAIPE + Keycloak stack:
 | `workflow-agent-access.spec.ts` | Mocked browser regression for workflow run access and denied agent-access grants. |
 | `rbac-admin-regression.spec.ts` | Mocked browser regression for the Permissions Tool and RBAC Audit export UX. |
 | `mcp-openfga-tuples.spec.ts` | Mocked browser regression for team MCP resource saves and MCP server list visibility. |
+| `mcp-server-create-live.spec.ts` | Live-stack regression for MCP server create → OpenFGA tuple reconcile → BFF list visibility. |
+| `openfga-live.spec.ts` | Live-stack OpenFGA/CAS regression for decisions, grants, revokes, delegation, explain, raw tuple admin APIs, and guardrails. |
+| `resource-lifecycle-live.spec.ts` | Live-stack resource lifecycle matrix for agents, skills, workflows, workflow runs, teams, KB/data-source sharing, credentials, MCP custom headers, and AgentGateway tool-call tuples. |
 
 ## Skip-by-default
 
@@ -42,7 +45,7 @@ each spec hits `test.skip()` immediately, so:
 
        RUN_RBAC_E2E=1 \
        CAIPE_UI_BASE_URL=http://localhost:3000 \
-       KEYCLOAK_URL=http://localhost:8080 \
+       KEYCLOAK_URL=http://localhost:7080 \
        KEYCLOAK_REALM=caipe \
        RBAC_USER_EMAIL=e2e-rbac-user@caipe.local \
        RBAC_USER_PASSWORD=changeme \
@@ -88,6 +91,113 @@ Keycloak/OpenFGA fixture data:
        CAIPE_UI_BASE_URL=http://localhost:3000 \
        npx playwright test e2e/rbac/mcp-openfga-tuples.spec.ts --config=playwright.rbac.config.ts
 
+## Live MCP server create regression
+
+`mcp-server-create-live.spec.ts` covers issue #1832 against a real running stack:
+
+* installs a local NextAuth JWT session for the RBAC fixture user,
+* creates an MCP server through the Dynamic Agents → MCP Servers UI,
+* verifies the server remains visible after the post-create list refresh,
+* checks live CAS decisions for `mcp_server#read` and `mcp_server#manage`, and
+* reads the raw OpenFGA tuples for creator `owner` and organization-admin `manager`.
+
+The `RBAC_USER_*` account must be able to create MCP servers and view OpenFGA
+tuples, so use an org-admin / RBAC-admin fixture. The `RBAC_USER_SUB` value must
+match that user's Keycloak subject because CAS/OpenFGA decisions are keyed by
+stable subject, not email. The test bypasses the interactive OIDC redirect so
+local stacks with `OIDC_IDP_HINT=duo-sso` can run headlessly.
+`playwright.rbac.config.ts` loads `.env`, `ui/.env`, and `ui/.env.local`
+automatically; shell-exported values override file values.
+
+       RUN_RBAC_E2E=1 \
+       CAIPE_UI_BASE_URL=http://localhost:3000 \
+       KEYCLOAK_URL=http://localhost:8080 \
+       KEYCLOAK_REALM=caipe \
+       RBAC_USER_EMAIL=e2e-rbac-admin@caipe.local \
+       RBAC_USER_PASSWORD=changeme \
+       RBAC_USER_SUB=<keycloak-user-id> \
+       npm run test:e2e:rbac-live-mcp
+
+## Comprehensive OpenFGA live regression
+
+`openfga-live.spec.ts` is the broad semantic regression for CAS/OpenFGA. It
+uses the same local NextAuth fixture session as the live MCP test, then creates
+random OpenFGA-only resource ids and cleans up all grants at the end.
+
+It covers:
+
+* default deny on ungranted resources,
+* public request validation for invalid ids and empty batches,
+* subject-binding: non-auditors cannot evaluate another subject,
+* admin-only explain output and relation mapping (`read` → `can_read`),
+* product PAP grant/revoke through `/api/authz/v1/grants`,
+* cache invalidation after grant and revoke,
+* batch allow/deny filtering,
+* resource manager delegation without org-admin,
+* rejection of unsafe `everyone` grants such as `manage`,
+* allowed `everyone` grants for low-risk capabilities,
+* service-account grants on MCP servers, and
+* raw OpenFGA tuple admin read/write/check validation, including rejection of
+  materialized `can_*` writes.
+
+Run it against a live stack:
+
+       RUN_RBAC_E2E=1 \
+       CAIPE_UI_BASE_URL=http://localhost:3000 \
+       KEYCLOAK_URL=http://localhost:7080 \
+       KEYCLOAK_REALM=caipe \
+       RBAC_USER_EMAIL=e2e-rbac-admin@caipe.local \
+       RBAC_USER_PASSWORD=changeme \
+       RBAC_USER_SUB=<keycloak-user-id> \
+       npm run test:e2e:rbac-live-openfga
+
+## Comprehensive resource lifecycle live regression
+
+`resource-lifecycle-live.spec.ts` exercises the product APIs that sit on top of
+CAS/OpenFGA, not only the low-level decision endpoints. It uses generated
+resource ids and cleans up after itself.
+
+It covers:
+
+* org-admin can create global agents, skills, workflows, MCP servers, teams,
+  KB assignments, and public data-source grants,
+* non-org-admin cannot create a global agent until explicitly granted resource
+  management,
+* non-org-admin can update/delete resources after explicit CAS grants,
+* global workflow visibility and workflow-run start/list/poll use the same
+  visibility union semantics,
+* team member vs non-member decisions through OpenFGA team membership tuples,
+* team resource sharing writes both team tool-call tuples and
+  AgentGateway-facing `agent:<id> caller tool:<server>/*` tuples,
+* KB assignment add/remove updates knowledge-base and data-source decisions,
+* public data-source sharing writes and revokes `user:* reader` tuples,
+* credential secret create/read/rotate/share/revoke/delete when credentials are
+  enabled, and
+* MCP server custom headers plus credential source persistence on the MCP-backed
+  workflow path.
+
+Run only the lifecycle matrix:
+
+       RUN_RBAC_E2E=1 \
+       CAIPE_UI_BASE_URL=http://localhost:3000 \
+       KEYCLOAK_URL=http://localhost:7080 \
+       KEYCLOAK_REALM=caipe \
+       RBAC_USER_EMAIL=e2e-rbac-admin@caipe.local \
+       RBAC_USER_PASSWORD=changeme \
+       RBAC_USER_SUB=<keycloak-user-id> \
+       npm run test:e2e:rbac-live-resources
+
+Run the full live RBAC regression target:
+
+       RUN_RBAC_E2E=1 \
+       CAIPE_UI_BASE_URL=http://localhost:3000 \
+       KEYCLOAK_URL=http://localhost:7080 \
+       KEYCLOAK_REALM=caipe \
+       RBAC_USER_EMAIL=e2e-rbac-admin@caipe.local \
+       RBAC_USER_PASSWORD=changeme \
+       RBAC_USER_SUB=<keycloak-user-id> \
+       npm run test:e2e:rbac-live-full
+
 ## PDP-down spec
 
 The `pdp-down.spec.ts` spec needs Keycloak to be unreachable from the
@@ -124,3 +234,13 @@ Local parity: `make caipe-ui-e2e-rbac` (with `npm run dev` already on
 **Live stack harness** (`sign-in`, `pdp-down`, etc.) is still opt-in via
 `.github/workflows/test-rbac.yaml` (PR label `rbac-e2e` / nightly). Tracked in
 `BLOCKERS.md` until full stack provisioning lands in default CI.
+
+**Live Playwright stack** runs in
+`.github/workflows/playwright-rbac-live.yml`. It deploys CAIPE into Kind with
+`setup-caipe.sh --non-interactive --create-cluster --no-ingress`, pins
+`CAIPE_SELECTED_AGENTS=netutils` so the job does not start every built-in agent
+and MCP sidecar, opens local port-forwards for the UI/Keycloak/OpenFGA/
+AgentGateway, resolves the local Keycloak admin subject, then runs one of the
+`test:e2e:rbac-live-*` targets. Use this for manual or nightly live-stack
+confidence; keep it out of default PR gating unless the runner budget can absorb
+a full Helm deploy.

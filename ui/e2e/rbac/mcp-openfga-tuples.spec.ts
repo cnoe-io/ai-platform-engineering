@@ -195,7 +195,7 @@ test.describe("mocked MCP OpenFGA tuple browser regression", () => {
     await page.goto("/admin?cat=people&tab=teams", { waitUntil: "domcontentloaded" });
     await expect(page.getByText(platformTeam.name)).toBeVisible();
 
-    await page.getByRole("button", { name: "1 Tools" }).click();
+    await page.getByRole("button", { name: /1\s+MCP/i }).click();
     await expect(page.getByRole("dialog")).toBeVisible();
     await expect(page.getByRole("button", { name: "Agents & MCP", exact: true })).toBeVisible();
     await expect(page.getByText("mcp-confluence-mcp_*")).toBeVisible();

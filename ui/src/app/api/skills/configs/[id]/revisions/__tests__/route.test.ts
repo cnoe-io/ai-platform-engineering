@@ -60,6 +60,10 @@ jest.mock("@/lib/rbac/openfga", () => ({
   checkOpenFgaTuple: jest.fn().mockResolvedValue({ allowed: true }),
 }));
 
+jest.mock("@/lib/rbac/resource-authz", () => ({
+  requireSkillPermission: jest.fn().mockResolvedValue(undefined),
+}));
+
 function makeRequest(url: string, options: RequestInit = {}): NextRequest {
   return new NextRequest(new URL(url, "http://localhost:3000"), options);
 }

@@ -1,4 +1,5 @@
 // assisted-by Cursor:composer-2.5
+// assisted-by Codex Codex-sonnet-4-6
 //
 // Server-facing OpenFGA reconciliation for owned/shareable resources.
 // Tuple builders live in openfga-owned-resources.ts (pure, no Mongo/CAS).
@@ -8,6 +9,8 @@ import {
   OpenFgaReconcileRequiredError,
   type TupleReconcileContext,
 } from "@/lib/authz";
+import { getCollection } from "@/lib/mongodb";
+import type { Team } from "@/types/teams";
 import {
   isOpenFgaReconciliationEnabled,
   readOpenFgaTuples,
@@ -35,6 +38,12 @@ import {
 } from "./openfga-owned-resources";
 
 export { OpenFgaReconcileRequiredError } from "@/lib/authz";
+
+const OPENFGA_AGENT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._~@|*+=,/-]{0,191}$/;
+
+function isValidAgentId(agentId: string): boolean {
+  return OPENFGA_AGENT_ID_PATTERN.test(agentId);
+}
 
 function uniqueTuples(tuples: OpenFgaTupleKey[]): OpenFgaTupleKey[] {
   const seen = new Set<string>();
@@ -65,6 +74,48 @@ async function reconcileOwnedResource(
   return reconcileTupleDiff(diff, ctx);
 }
 
+async function buildToolWildcardTeamBackfill(serverId: string): Promise<OpenFgaTupleKey[]> {
+  const teams = await getCollection<Team>("teams");
+  const wildcardTeams = await teams
+    .find(
+      { "resources.tool_wildcard": true } as never,
+      { projection: { _id: 1, slug: 1, resources: 1 } },
+    )
+    .toArray();
+
+  const tuples: OpenFgaTupleKey[] = [];
+  for (const team of wildcardTeams) {
+    const teamSlug = team.slug || String(team._id);
+    const mcpServerObject = `mcp_server:${serverId}`;
+    const gatewayToolObject = `tool:${serverId}/*`;
+    tuples.push(
+      { user: `team:${teamSlug}#member`, relation: "reader", object: mcpServerObject },
+      { user: `team:${teamSlug}#member`, relation: "user", object: mcpServerObject },
+      { user: `team:${teamSlug}#member`, relation: "invoker", object: mcpServerObject },
+      { user: `team:${teamSlug}#admin`, relation: "manager", object: mcpServerObject },
+      { user: `team:${teamSlug}#member`, relation: "caller", object: gatewayToolObject },
+    );
+
+    for (const agentId of team.resources?.agents ?? []) {
+      if (!isValidAgentId(agentId)) continue;
+      tuples.push({ user: `agent:${agentId}`, relation: "caller", object: gatewayToolObject });
+    }
+  }
+  return uniqueTuples(tuples);
+}
+
+async function withMcpServerToolWildcardBackfill(
+  serverId: string,
+  diff: TeamResourceTupleDiff,
+): Promise<TeamResourceTupleDiff> {
+  const wildcardTuples = await buildToolWildcardTeamBackfill(serverId);
+  if (wildcardTuples.length === 0) return diff;
+  return {
+    writes: uniqueTuples([...diff.writes, ...wildcardTuples]),
+    deletes: diff.deletes,
+  };
+}
+
 export async function reconcileShareableResource(
   input: ShareableResourceInput,
 ): Promise<OpenFgaReconcileResult> {
@@ -76,7 +127,11 @@ export async function reconcileMcpServerRelationships(
   ctx?: TupleReconcileContext,
 ): Promise<OpenFgaReconcileResult> {
   const ownerKind = input.ownerSubjectKind ?? "user";
-  return reconcileTupleDiff(buildMcpServerRelationshipTupleDiff(input), {
+  const diff = await withMcpServerToolWildcardBackfill(
+    input.serverId,
+    buildMcpServerRelationshipTupleDiff(input),
+  );
+  return reconcileTupleDiff(diff, {
     ...ctx,
     source: ctx?.source ?? "mcp_server_create",
     caller:
@@ -90,7 +145,11 @@ export async function reconcileMcpServerRelationships(
 export async function reconcileConfigDrivenMcpServerRelationships(
   input: ConfigDrivenMcpServerRelationshipInput,
 ): Promise<OpenFgaReconcileResult> {
-  return reconcileOwnedResource(buildConfigDrivenMcpServerRelationshipTupleDiff(input));
+  const diff = await withMcpServerToolWildcardBackfill(
+    input.serverId,
+    buildConfigDrivenMcpServerRelationshipTupleDiff(input),
+  );
+  return reconcileOwnedResource(diff);
 }
 
 export async function reconcileLlmModelRelationships(

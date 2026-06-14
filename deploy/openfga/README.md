@@ -38,7 +38,7 @@ The model is intentionally richer than the current coarse AGW check:
 | `mcp_gateway:list` | `can_call: [user]` | Current route-level AGW `extAuthz` gate for MCP browse/list/init traffic. |
 | `team:<slug>` | `member: [user]` | Team membership from Admin UI team members. |
 | `agent:<agent_id>` | base `user`, `manager`; derived `can_use`, `can_manage` | Dynamic agent use/manage grants from Team Resources. |
-| `tool:<server>_*` / `tool:*` | base `caller`; derived `can_call` | MCP-server prefix and all-tools grants from Team Resources. |
+| `tool:<server>/*` | base `caller`; derived `can_call` | AgentGateway runtime grant for every tool on a concrete MCP server. Team Resources expands "all MCP servers" into one tuple per registered server. |
 | `knowledge_base:<id>` | base `reader`, `ingestor`, `manager`; derived `can_read`, `can_ingest`, `can_manage` | Reserved for the KB admin surface. |
 
 When `OPENFGA_RECONCILE_ENABLED=true` on `caipe-ui`, saving

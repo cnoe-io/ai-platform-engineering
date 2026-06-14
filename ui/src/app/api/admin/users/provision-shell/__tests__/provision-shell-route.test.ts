@@ -47,6 +47,36 @@ jest.mock("@/lib/rbac/openfga", () => ({
   checkOpenFgaTuple: (...args: unknown[]) => mockCheckOpenFgaTuple(...args),
 }));
 
+jest.mock("@/lib/rbac/resource-authz", () => ({
+  requireResourcePermission: async (
+    session: { sub?: string; isServiceAccount?: boolean },
+    target: { type: string; id: string; action: string },
+    options?: { bypassForOrgAdmin?: boolean },
+  ) => {
+    const subject = `${session.isServiceAccount ? "service_account" : "user"}:${session.sub}`;
+    if (options?.bypassForOrgAdmin) {
+      const org = await mockCheckOpenFgaTuple({
+        user: subject,
+        relation: "can_manage",
+        object: "organization:caipe",
+      });
+      if (org.allowed) return;
+    }
+    const result = await mockCheckOpenFgaTuple({
+      user: subject,
+      relation: `can_${target.action}`,
+      object: `${target.type}:${target.id}`,
+    });
+    if (!result.allowed) {
+      throw {
+        message: "You do not have permission to access this resource.",
+        statusCode: 403,
+        code: `${target.type}#${target.action}`,
+      };
+    }
+  },
+}));
+
 jest.mock("@/lib/rbac/audit", () => ({
   logAuthzDecision: jest.fn(),
 }));
