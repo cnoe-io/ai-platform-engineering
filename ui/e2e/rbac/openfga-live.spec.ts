@@ -1,5 +1,6 @@
 // assisted-by Codex Codex-sonnet-4-6
 
+import { randomUUID } from "node:crypto";
 import { expect, test, type Page } from "@playwright/test";
 
 import { rbacEnvOrSkip } from "./_env";
@@ -182,7 +183,7 @@ async function checkTuple(page: Page, tuple: TupleKey): Promise<ApiResult<TupleC
 }
 
 function uniqueSuffix(): string {
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  return `${Date.now()}-${randomUUID().slice(0, 8)}`;
 }
 
 test.describe("RBAC live e2e — comprehensive OpenFGA semantics", () => {

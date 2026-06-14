@@ -176,6 +176,11 @@ export async function expectChatComposerReady(
   await expect(textbox).toBeVisible({ timeout: 1_000 });
 }
 
+export function isDuoSecurityHost(hostname: string): boolean {
+  const normalized = hostname.toLowerCase();
+  return normalized === "duosecurity.com" || normalized.endsWith(".duosecurity.com");
+}
+
 /** Sign in by visiting the home page and walking the NextAuth -> Keycloak flow. */
 export async function signIn(
   page: Page,
@@ -289,7 +294,7 @@ export async function signOut(page: Page, env: RbacEnv): Promise<void> {
       (u) =>
         u.toString().startsWith(`${env.baseUrl}/login`) ||
         u.toString().includes(env.keycloakUrl) ||
-        u.hostname.endsWith("duosecurity.com"),
+        isDuoSecurityHost(u.hostname),
       { timeout: 30_000 },
     ),
     page.getByRole("button", { name: /sign out|log out/i }).click({ force: true }),
