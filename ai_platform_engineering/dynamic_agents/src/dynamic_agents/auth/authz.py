@@ -27,6 +27,7 @@ import httpx
 from fastapi import HTTPException
 
 from dynamic_agents.auth.token_context import current_traceparent, current_user_token
+from dynamic_agents.models import UserContext
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +72,10 @@ def _authz_service_url() -> str | None:
     return url or None
 
 
+def _require_bearer_enabled() -> bool:
+    return os.getenv("DA_REQUIRE_BEARER", "").strip().lower() in ("1", "true", "yes")
+
+
 async def _decide_agent_use(subject: str, agent_id: str, bearer: str) -> bool:
     """Ask CAS whether `subject` may use `agent_id`.
 
@@ -97,7 +102,7 @@ async def _decide_agent_use(subject: str, agent_id: str, bearer: str) -> bool:
     return response.json().get("decision") == "ALLOW"
 
 
-async def require_agent_use_permission(agent_id: str) -> None:
+async def require_agent_use_permission(agent_id: str, user_context: UserContext | None = None) -> None:
     """Require the current bearer's subject to be allowed to use ``agent_id``.
 
     Delegates the decision to CAS (the single PDP). Raises ``HTTPException`` with a
@@ -107,6 +112,14 @@ async def require_agent_use_permission(agent_id: str) -> None:
 
     token = current_user_token.get()
     if not token:
+        if not _require_bearer_enabled() and user_context and user_context.is_admin:
+            logger.warning(
+                "Allowing legacy gateway user-context agent-use check for admin user=%s agent=%s "
+                "(DA_REQUIRE_BEARER=false)",
+                user_context.email,
+                agent_id,
+            )
+            return
         _raise_authz(401, "Bearer token is required", "missing_bearer", "not_signed_in", "sign_in")
 
     subject = _subject_from_token(token)

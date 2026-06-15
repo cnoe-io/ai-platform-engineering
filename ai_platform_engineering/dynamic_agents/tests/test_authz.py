@@ -9,6 +9,7 @@ import pytest
 from fastapi import HTTPException
 
 from dynamic_agents.auth.token_context import current_traceparent, current_user_token
+from dynamic_agents.models import UserContext
 
 
 def _fake_jwt(payload: dict) -> str:
@@ -166,6 +167,48 @@ async def test_missing_bearer_returns_401():
 
     with pytest.raises(HTTPException) as exc:
         await authz.require_agent_use_permission("agent-1")
+    assert exc.value.status_code == 401
+    assert exc.value.detail["code"] == "missing_bearer"
+
+
+@pytest.mark.asyncio
+async def test_missing_bearer_allows_legacy_admin_context_when_bearer_not_required(monkeypatch):
+    from dynamic_agents.auth import authz
+
+    monkeypatch.setenv("DA_REQUIRE_BEARER", "false")
+
+    await authz.require_agent_use_permission(
+        "agent-1",
+        UserContext(email="anonymous@local", is_admin=True),
+    )
+
+
+@pytest.mark.asyncio
+async def test_missing_bearer_rejects_legacy_admin_context_when_bearer_required(monkeypatch):
+    from dynamic_agents.auth import authz
+
+    monkeypatch.setenv("DA_REQUIRE_BEARER", "true")
+
+    with pytest.raises(HTTPException) as exc:
+        await authz.require_agent_use_permission(
+            "agent-1",
+            UserContext(email="anonymous@local", is_admin=True),
+        )
+    assert exc.value.status_code == 401
+    assert exc.value.detail["code"] == "missing_bearer"
+
+
+@pytest.mark.asyncio
+async def test_missing_bearer_rejects_legacy_non_admin_context(monkeypatch):
+    from dynamic_agents.auth import authz
+
+    monkeypatch.setenv("DA_REQUIRE_BEARER", "false")
+
+    with pytest.raises(HTTPException) as exc:
+        await authz.require_agent_use_permission(
+            "agent-1",
+            UserContext(email="alice@example.com", is_admin=False),
+        )
     assert exc.value.status_code == 401
     assert exc.value.detail["code"] == "missing_bearer"
 
