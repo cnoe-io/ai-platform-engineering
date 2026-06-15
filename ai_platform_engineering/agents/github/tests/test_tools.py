@@ -312,6 +312,10 @@ def test_gh_cli_write_commands_require_self_service_mode():
     assert is_valid is False
     assert "self-service" in error
 
+    is_valid, error = tool._validate_command("repo unarchive cnoe-io/repo --yes")
+    assert is_valid is False
+    assert "self-service" in error
+
     tools.set_self_service_mode(True)
     try:
         is_valid, error = tool._validate_command(

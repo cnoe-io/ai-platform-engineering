@@ -110,7 +110,7 @@ WRITE_COMMAND_PATTERNS = [
     r"(^|\s)pr\s+(checkout|close|comment|create|edit|lock|merge|ready|reopen|revert|review|unlock|update-branch)(\s|$)",
     r"(^|\s)project\s+.*(create|delete|edit|item-add|item-archive|item-create|item-delete|item-edit)(\s|$)",
     r"(^|\s)release\s+(create|delete|edit|upload)(\s|$)",
-    r"(^|\s)repo\s+(archive|create|delete|deploy-key|edit|fork|rename|sync)(\s|$)",
+    r"(^|\s)repo\s+(archive|create|delete|deploy-key|edit|fork|rename|sync|unarchive)(\s|$)",
     r"(^|\s)ruleset\s+(check|create|delete|edit)(\s|$)",
     r"(^|\s)secret\s+(delete|set)(\s|$)",
     r"(^|\s)ssh-key\s+(add|delete)(\s|$)",
