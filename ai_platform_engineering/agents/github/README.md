@@ -117,7 +117,6 @@ flowchart TD
 
 - Default ports:
   - A2A Agent: 8000
-  - MCP Server: 9000
 - If port 8000 is already in use:
   1. Choose an available port (e.g., 8001, 8002, etc.)
   2. You'll need to update this in both:
@@ -136,10 +135,6 @@ AGENT_NAME=github
 ## A2A Agent Configuration
 A2A_AGENT_HOST=localhost
 A2A_AGENT_PORT=8000  # Change this if port 8000 is already in use
-
-## MCP Server Configuration
-MCP_HOST=localhost
-MCP_PORT=9000
 
 ############################
 # Azure OpenAI Configuration
