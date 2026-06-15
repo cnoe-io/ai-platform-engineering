@@ -589,6 +589,9 @@ requires-dist = [
 ]
 provides-extras = ["huggingface"]
 
+[package.metadata.requires-dev]
+dev = [{ name = "pytest", specifier = "==9.1.0" }]
+
 [[package]]
 name = "constantly"
 version = "23.10.4"

@@ -39,5 +39,5 @@ ignore = ["F403"]
 
 [dependency-groups]
 dev = [
-    "pytest>=9.1.0",
+    "pytest==9.1.0",
 ]
