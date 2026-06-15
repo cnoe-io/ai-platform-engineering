@@ -201,7 +201,7 @@ make generate-docker-compose-all
 
 ```bash
 cd /path/to/ai-platform-engineering
-for persona in argocd aws backstage confluence github jira komodor \
+for persona in argocd aws backstage cloudability confluence github jira komodor \
                pagerduty slack splunk weather webex petstore \
                platform-engineer devops-engineer incident-engineer \
                caipe-basic caipe-complete-with-tracing slim-tracing rag-only; do

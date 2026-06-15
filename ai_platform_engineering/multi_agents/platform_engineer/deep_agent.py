@@ -55,6 +55,7 @@ from ai_platform_engineering.agents.slack.agent_slack.protocol_bindings.a2a_serv
 from ai_platform_engineering.agents.splunk.agent_splunk.protocol_bindings.a2a_server.agent import SplunkAgent
 from ai_platform_engineering.agents.komodor.agent_komodor.protocol_bindings.a2a_server.agent import KomodorAgent
 from ai_platform_engineering.agents.confluence.agent_confluence.protocol_bindings.a2a_server.agent import ConfluenceAgent
+from ai_platform_engineering.agents.cloudability.agent_cloudability.protocol_bindings.a2a_server.agent import CloudabilityAgent
 
 # Prompt configuration utilities
 from ai_platform_engineering.utils.prompt_config import (
@@ -566,6 +567,18 @@ async def create_komodor_subagent_def(prompt_config: dict = None) -> dict:
     return await create_subagent_def(agent, "komodor", "Komodor: Kubernetes monitoring, troubleshooting", prompt_config)
 
 
+async def create_cloudability_subagent_def(prompt_config: dict = None) -> dict:
+    """Create Cloudability subagent definition with shared filesystem."""
+    cloudability_enabled = (
+        os.getenv("ENABLE_CLOUDABILITY", "false").lower() == "true"
+        or os.getenv("ENABLE_CLOUDABILITY_AGENT", "false").lower() == "true"
+    )
+    if not cloudability_enabled:
+        raise RuntimeError("Cloudability agent is not enabled")
+    agent = CloudabilityAgent()
+    return await create_subagent_def(agent, "cloudability", "Cloudability: FinOps cost, budget, and portfolio analysis", prompt_config)
+
+
 async def create_confluence_subagent_def(prompt_config: dict = None) -> dict:
     """Create Confluence subagent definition with shared filesystem."""
     agent = ConfluenceAgent()
@@ -746,6 +759,7 @@ class PlatformEngineerDeepAgent:
             create_slack_subagent_def(prompt_config),
             create_splunk_subagent_def(prompt_config),
             create_komodor_subagent_def(prompt_config),
+            create_cloudability_subagent_def(prompt_config),
             create_confluence_subagent_def(prompt_config),
             return_exceptions=True,
         )

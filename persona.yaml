@@ -110,6 +110,11 @@ persona:
     agents:
       - komodor
 
+  cloudability:
+    description: "Cloudability FinOps agent only"
+    agents:
+      - cloudability
+
   pagerduty:
     description: "PagerDuty agent only"
     agents:
