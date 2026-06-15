@@ -498,6 +498,7 @@ function CreateServiceAccountDialog({
                 onChange={setOwningTeam}
                 options={teams.map<TeamPickerOption>((t) => ({ slug: t.slug, name: t.name }))}
                 placeholder="Select one of your teams..."
+                portalled={false}
               />
             </div>
 
