@@ -195,6 +195,10 @@ global:
         # securityContext: {}  # optional; defaults to agentgateway.securityContext
         # resources: {}        # optional; defaults to agentgateway.resources
         extraEnv: []
+        # Extra volumes/mounts for the config-bridge container, e.g. to mount a
+        # TLS CA file referenced by the Mongo URI's tlsCAFile.
+        extraVolumeMounts: []
+        extraVolumes: []
     extAuth:
       enabled: false
       serviceName: ""
