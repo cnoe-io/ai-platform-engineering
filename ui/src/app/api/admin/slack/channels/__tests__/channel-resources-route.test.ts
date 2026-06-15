@@ -512,6 +512,12 @@ describe("Slack channel ReBAC APIs", () => {
     ]);
     expect(mockReadOpenFgaTuples).toHaveBeenCalledWith({
       pageSize: 100,
+      // SEC-6: the read is scoped server-side instead of fetching all tuples and
+      // filtering in JS. OpenFGA /read requires an object TYPE in the filter (a
+      // user-only or user+relation filter 400s with "object type field is
+      // required"), so we scope to the `agent:` object type with the channel as
+      // `user`; the agent id is recovered in-memory via agentIdFromObject.
+      tuple: { object: "agent:", user: `slack_channel:${workspaceAlias}--${channelId}` },
     });
   });
 

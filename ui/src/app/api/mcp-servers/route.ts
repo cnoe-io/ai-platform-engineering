@@ -112,6 +112,26 @@ function validateTransportConfig(
   }
 }
 
+async function selfHealAgentGatewayMcpServersForList(
+  collection: Awaited<ReturnType<typeof getCollection<MCPServerConfig>>>,
+): Promise<void> {
+  try {
+    const discoveredCount = await collection.countDocuments({ source: "agentgateway" } as never);
+    if (discoveredCount > 0) return;
+
+    // assisted-by Codex Codex-sonnet-4-6
+    // Startup self-heal can miss AgentGateway readiness; list-time recovery
+    // keeps built-in routes like knowledge-base visible in MCP pickers.
+    const { syncSelectedAgentGatewayMcpServers } = await import("./agentgateway/_lib");
+    await syncSelectedAgentGatewayMcpServers();
+  } catch (error) {
+    console.warn(
+      "[mcp-servers] AgentGateway MCP list self-heal skipped:",
+      error instanceof Error ? error.message : error,
+    );
+  }
+}
+
 // ═══════════════════════════════════════════════════════════════
 // GET — list MCP servers
 // ═══════════════════════════════════════════════════════════════
@@ -125,6 +145,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
 
     const collection = await getCollection<MCPServerConfig>(COLLECTION_NAME);
     const { page, pageSize, skip } = getPaginationParams(request);
+
+    await selfHealAgentGatewayMcpServersForList(collection);
 
     const allItems = await collection.find({}).sort({ name: 1 }).toArray();
     const listTarget = {

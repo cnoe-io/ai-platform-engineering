@@ -113,7 +113,7 @@ Each surface migrates in two steps: (1) CAS ships standalone, (2) surface flips 
 
 **Current:** `POST /api/user/check_agent_access` — ad-hoc, unversioned, calls `evaluateAgentAccess`.
 
-**Migration:** 
+**Migration:**
 - **Option A (preferred):** Slack/Webex bots switch from `/api/user/check_agent_access` to `POST /api/authz/v1/decisions` with `resource.type=agent, action=use`. The new endpoint is versioned and carries `ReasonCode`.
 - **Option B (interim):** `/api/user/check_agent_access` internally calls `authorize()` from the core (one-line change), keeping the old URL alive until bots migrate.
 

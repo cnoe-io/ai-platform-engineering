@@ -40,11 +40,32 @@ DEFAULT_MCP_ROUTE_POLICIES: dict[str, Any] = {
     "extAuthz": {
         "host": "openfga-authz-bridge:9100",
         "failureMode": {"denyWithStatus": 403},
+        # Forward the HTTP request body to the bridge so it can parse the
+        # JSON-RPC `tools/call` method+name and run the caller-keyed per-tool
+        # check (FR-012/SC-010). Without this only gRPC metadata reaches the
+        # bridge, `tool_call` is always None, and the caller-keyed block is
+        # skipped — every MCP call would pass on the coarse `mcp_gateway:list`
+        # check alone. Headers (x-caipe-agent-context*) are already delivered by
+        # the gRPC protocol when includeRequestHeaders is empty; only the body
+        # needs requesting. packAsBytes -> CheckRequest.http.raw_body, which the
+        # bridge's _request_body_text() reads first. See issue #36. The per-route
+        # overrides below only add `transformations` (shallow-merged), so they
+        # inherit this extAuthz block unchanged.
         # Keep this in sync with deploy/agentgateway/config.yaml (bootstrap seed).
+        "includeRequestBody": {
+            "maxRequestBytes": 65536,
+            "allowPartialMessage": False,
+            "packAsBytes": True,
+        },
         "protocol": {
             "grpc": {
                 "metadata": {
-                    "caipe.auth": '{"sub": jwt.sub}',
+                    # Carry preferred_username alongside sub so the bridge can
+                    # detect service accounts (T002 rule) — the gateway's jwtAuth
+                    # consumes the Authorization bearer and does NOT forward it in
+                    # the ext_authz CheckRequest, so metadata is the only channel
+                    # for the SA signal (#46/#49). Keep in sync with config.yaml.
+                    "caipe.auth": '{"sub": jwt.sub, "preferred_username": jwt.preferred_username}',
                 },
             },
         },
@@ -100,6 +121,7 @@ class McpGatewayTarget:
 
     id: str
     upstream_url: str
+    credential_sources: tuple[dict[str, Any], ...] = ()
 
 
 def _reconcile_ok_path(config_path: Path) -> Path:
@@ -146,6 +168,13 @@ def _upstream_url(document: dict[str, Any]) -> str | None:
     return upstream_url
 
 
+def _credential_sources(document: dict[str, Any]) -> tuple[dict[str, Any], ...]:
+    raw_sources = document.get("credential_sources")
+    if not isinstance(raw_sources, list):
+        return ()
+    return tuple(source for source in raw_sources if isinstance(source, dict))
+
+
 def select_gateway_targets(documents: Iterable[dict[str, Any]]) -> list[McpGatewayTarget]:
     """Select enabled AgentGateway-managed MCP targets from Mongo documents."""
 
@@ -164,7 +193,13 @@ def select_gateway_targets(documents: Iterable[dict[str, Any]]) -> list[McpGatew
             continue
         if target_id in seen:
             continue
-        targets.append(McpGatewayTarget(id=target_id, upstream_url=upstream_url))
+        targets.append(
+            McpGatewayTarget(
+                id=target_id,
+                upstream_url=upstream_url,
+                credential_sources=_credential_sources(document),
+            )
+        )
         seen.add(target_id)
     return targets
 
@@ -269,6 +304,60 @@ def _route_policies_for(target_id: str, base: dict[str, Any]) -> dict[str, Any]:
     override = DEFAULT_MCP_ROUTE_POLICY_OVERRIDES.get(target_id)
     if override:
         merged.update(copy.deepcopy(override))
+    return merged
+
+
+def _is_safe_header_name(value: str) -> bool:
+    """Return true when ``value`` is a conservative HTTP header token."""
+
+    return bool(re.fullmatch(r"[A-Za-z][A-Za-z0-9-]{0,127}", value))
+
+
+def _credential_source_transformations(
+    credential_sources: Iterable[dict[str, Any]],
+) -> dict[str, str]:
+    """Build AgentGateway header transforms from MCP ``credential_sources``.
+
+    Dynamic Agents resolves secret/provider/caller credentials before the request
+    reaches AgentGateway and forwards them as headers. The bridge only wires those
+    already-resolved request headers to the upstream target; it never resolves,
+    logs, or stores credential values.
+    """
+
+    transformations: dict[str, str] = {}
+    for source in credential_sources:
+        if source.get("target") != "header":
+            continue
+        header_name = source.get("name")
+        if not isinstance(header_name, str):
+            continue
+        header_name = header_name.strip()
+        if not _is_safe_header_name(header_name):
+            continue
+
+        incoming_header = header_name.lower()
+        outgoing_header = incoming_header
+        expression = f'default(request.headers["{incoming_header}"], "")'
+        if incoming_header == "x-caipe-provider-token":
+            outgoing_header = "authorization"
+            expression = (
+                '"Bearer " + default(request.headers["x-caipe-provider-token"], "")'
+            )
+        transformations[outgoing_header] = expression
+    return transformations
+
+
+def _merge_request_transformations(
+    policies: dict[str, Any],
+    transformations: dict[str, str],
+) -> dict[str, Any]:
+    if not transformations:
+        return policies
+    merged = copy.deepcopy(policies)
+    request = merged.setdefault("transformations", {}).setdefault("request", {})
+    request_set = request.setdefault("set", {})
+    if isinstance(request_set, dict):
+        request_set.update(transformations)
     return merged
 
 
@@ -385,7 +474,10 @@ def merge_agentgateway_mcp_routes(
     retained_routes.extend(
         _mcp_route(
             target,
-            _route_policies_for(target.id, policies),
+            _merge_request_transformations(
+                _route_policies_for(target.id, policies),
+                _credential_source_transformations(target.credential_sources),
+            ),
             # Servers handled by a route-level transformation must NOT carry a
             # target-level backendAuth (drop any stale PAT preserved from the
             # live config); their auth comes from the X-CAIPE-Provider-Token

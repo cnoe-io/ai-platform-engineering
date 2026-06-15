@@ -116,6 +116,7 @@ interface PopoverContentProps {
   sideOffset?: number;
   alignOffset?: number;
   className?: string;
+  portalled?: boolean;
 }
 
 /**
@@ -142,6 +143,7 @@ export function PopoverContent({
   sideOffset = 8,
   alignOffset = 0,
   className,
+  portalled = true,
 }: PopoverContentProps) {
   const { open, setOpen, triggerRef } = React.useContext(PopoverStateContext);
   const contentRef = React.useRef<HTMLDivElement>(null);
@@ -235,6 +237,22 @@ export function PopoverContent({
   }, [open, setOpen, triggerRef]);
 
   if (!open || !mounted) return null;
+
+  if (!portalled) {
+    return (
+      <div
+        ref={contentRef}
+        data-popover-content=""
+        className={cn(
+          "absolute left-0 top-full z-[60] mt-2 pointer-events-auto rounded-lg bg-popover text-popover-foreground shadow-lg border border-border",
+          "animate-in fade-in-0 zoom-in-95 slide-in-from-top-2",
+          className,
+        )}
+      >
+        {children}
+      </div>
+    );
+  }
 
   const node = (
     <div

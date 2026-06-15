@@ -1,28 +1,27 @@
 # Copyright 2025 CNOE Contributors
 # SPDX-License-Identifier: Apache-2.0
-"""Tests for ``create_user_from_slack`` after issue #1781.
+"""Tests for the slack-bot ``keycloak_admin`` BFF client.
 
-Since #1781 ``create_user_from_slack`` no longer POSTs to the Keycloak Admin
-API directly — it calls the first-party BFF endpoint
-``POST /api/admin/users/provision-shell`` (the single canonical JIT
-create-or-resolve implementation, shared with the Okta directory sync).
+Every Keycloak operation in this module now flows through a first-party CAIPE
+BFF endpoint carrying the bot's service-account token (issue #1781 moved JIT
+create; the
+``2026-06-09-slack-bot-remove-direct-keycloak-admin`` spec moved the lookups
+and attribute writes). The bot holds no Keycloak Admin credentials of its own.
 
 These tests pin:
 
-* The request the slack-bot makes to the BFF — URL, the
-  ``X-Client-Source: slack-bot`` header, the service-account bearer token,
-  and the ``{email, source, attributes:{slack_user_id}}`` body.
-* The HTTP-status → typed ``JitError`` mapping that ``identity_linker`` keys
-  off via the ``error_kind`` attribute (401→auth, 403→forbidden,
-  5xx/unexpected→server, network→network).
-* The happy path returns the ``sub`` from the BFF envelope
-  (``{"success": true, "data": {"sub", "created"}}``) for both the
-  newly-created and already-existing (``created: false``) cases.
-* An unconfigured BFF base URL surfaces as ``JitNetworkError`` so the caller
-  falls back to link-onboarding.
-
-The ``set_user_attribute`` test stays as-is: attribute writes were NOT in
-scope for #1781 and still go through the Keycloak Admin API.
+* ``create_user_from_slack`` → ``POST /api/admin/users/provision-shell`` —
+  the request (URL, ``X-Client-Source: slack-bot`` header, SA bearer token,
+  ``{email, source, attributes:{slack_user_id}}`` body), the HTTP-status →
+  typed ``JitError`` mapping (401→auth, 403→forbidden, 5xx/unexpected→server,
+  network→network) keyed off ``error_kind`` (FR-011), the happy path returning
+  the envelope ``sub`` for created and existing users, and the unconfigured-BFF
+  → ``JitNetworkError`` fallback.
+* ``get_user_by_attribute`` / ``get_user_by_email`` / ``get_user_attribute``
+  → ``GET /api/admin/users/resolve`` — URL, headers, query params, envelope
+  parsing (``sub``→``id``), and ``None`` on a ``data: null`` miss.
+* ``set_user_attribute`` → ``PATCH /api/admin/users/{id}/attributes`` — URL,
+  headers, and the ``{attributes: {attr: [value]}}`` merge body.
 
 Mocking strategy: we monkeypatch ``httpx.AsyncClient`` inside
 ``keycloak_admin`` to a fake async-context-manager that records calls and
@@ -110,6 +109,9 @@ class _FakeAsyncClient:
 
     async def put(self, url: str, **kwargs: Any) -> _FakeResponse:
         return await self._dispatch("PUT", url, **kwargs)
+
+    async def patch(self, url: str, **kwargs: Any) -> _FakeResponse:
+        return await self._dispatch("PATCH", url, **kwargs)
 
 
 @pytest.fixture
@@ -262,98 +264,151 @@ def test_jit_2xx_non_json_raises_server_error(fake_client) -> None:
 
 
 # --------------------------------------------------------------------------- #
-# set_user_attribute round-trips Keycloak 26 user-profile-required fields     #
-# (unchanged by #1781 — attribute writes still use the Keycloak Admin API)    #
+# Lookups → GET /api/admin/users/resolve                                      #
 # --------------------------------------------------------------------------- #
 
 
-@pytest.fixture
-def cfg(monkeypatch: pytest.MonkeyPatch) -> ka.KeycloakAdminConfig:
-    monkeypatch.setenv("KEYCLOAK_URL", "http://kc.test:7080")
-    monkeypatch.setenv("KEYCLOAK_REALM", "caipe")
-    monkeypatch.setenv("KEYCLOAK_SLACK_BOT_ADMIN_CLIENT_ID", "caipe-platform")
-    monkeypatch.setenv("KEYCLOAK_SLACK_BOT_ADMIN_CLIENT_SECRET", "test-secret")
-    return ka.KeycloakAdminConfig()
+def _is_resolve(method: str, url: str, **_: Any) -> bool:
+    return method == "GET" and url.endswith("/api/admin/users/resolve")
 
 
-def _is_token(method: str, url: str, **_: Any) -> bool:
-    return method == "POST" and url.endswith("/protocol/openid-connect/token")
+def _resolve_ok(
+    sub: str = "kc-uuid",
+    enabled: bool = True,
+    attributes: dict[str, list[str]] | None = None,
+) -> _FakeResponse:
+    return _FakeResponse(
+        200,
+        {
+            "success": True,
+            "data": {
+                "sub": sub,
+                "enabled": enabled,
+                "attributes": attributes or {},
+            },
+        },
+    )
 
 
-def _token_response() -> _FakeResponse:
-    return _FakeResponse(200, {"access_token": "fake-admin-token"})
+def _resolve_null() -> _FakeResponse:
+    return _FakeResponse(200, {"success": True, "data": None})
 
 
-def test_set_user_attribute_roundtrips_user_profile_fields(
-    fake_client, cfg: ka.KeycloakAdminConfig
-) -> None:
-    """Regression: Keycloak 26 rejects partial UserRepresentation PUTs that
-    omit user-profile-required fields (notably ``email``) with HTTP 400
-    ``error-user-attribute-required``. ``set_user_attribute`` must therefore
-    re-include the identity fields it pulled from the GET response in the
-    PUT body, not just ``{"attributes": ...}``."""
-    captured_put_bodies: list[dict] = []
+def test_get_user_by_attribute_calls_resolve_and_maps_sub_to_id(fake_client) -> None:
+    """``get_user_by_attribute`` MUST hit the resolve endpoint with the
+    attribute+value query, send the SA bearer + X-Client-Source header, and
+    map the envelope ``sub`` to ``id`` so callers (identity_linker) are
+    untouched."""
+    calls = fake_client(
+        [(_is_resolve, _resolve_ok(sub="abc-uuid", attributes={"slack_user_id": ["U1"]}))]
+    )
 
-    existing_user = {
-        "id": "edd383d8-8344-4145-8b37-4c2e732001e8",
-        "username": "alice@corp.com",
-        "email": "alice@corp.com",
-        "firstName": "Alice",
-        "lastName": "Example",
-        "emailVerified": True,
+    user = asyncio.run(ka.get_user_by_attribute("slack_user_id", "U1"))
+
+    assert user == {
+        "id": "abc-uuid",
         "enabled": True,
-        "attributes": {"idp_groups": ["backstage-access"]},
+        "attributes": {"slack_user_id": ["U1"]},
     }
+    call = next(c for c in calls if _is_resolve(c["method"], c["url"]))
+    assert call["url"] == "http://ui.test:3000/api/admin/users/resolve"
+    assert call.get("params") == {"attribute": "slack_user_id", "value": "U1"}
+    headers = call.get("headers", {})
+    assert headers.get("X-Client-Source") == "slack-bot"
+    assert headers.get("Authorization") == "Bearer sa-token"
 
-    def _is_get_user(method: str, url: str, **_: Any) -> bool:
-        return method == "GET" and url.endswith(
-            "/admin/realms/caipe/users/edd383d8-8344-4145-8b37-4c2e732001e8"
-        )
 
-    def _is_put_user(method: str, url: str, **_: Any) -> bool:
-        return method == "PUT" and url.endswith(
-            "/admin/realms/caipe/users/edd383d8-8344-4145-8b37-4c2e732001e8"
-        )
+def test_get_user_by_attribute_returns_none_on_null(fake_client) -> None:
+    """A ``data: null`` miss MUST surface as ``None`` (the "not found"
+    branch the callers rely on)."""
+    fake_client([(_is_resolve, _resolve_null())])
+    assert asyncio.run(ka.get_user_by_attribute("slack_user_id", "nope")) is None
 
-    def _capture_put(method: str, url: str, **kwargs: Any) -> bool:
-        if method == "PUT":
-            captured_put_bodies.append(kwargs.get("json", {}))
-        return False
 
-    fake_client(
-        [
-            (_is_token, _token_response()),
-            (_capture_put, _FakeResponse(200)),
-            (_is_get_user, _FakeResponse(200, existing_user)),
-            (_is_put_user, _FakeResponse(204)),
-        ]
+def test_get_user_by_email_calls_resolve_with_email_param(fake_client) -> None:
+    calls = fake_client([(_is_resolve, _resolve_ok(sub="email-uuid"))])
+
+    user = asyncio.run(ka.get_user_by_email("alice@corp.com"))
+
+    assert user is not None and user["id"] == "email-uuid"
+    call = next(c for c in calls if _is_resolve(c["method"], c["url"]))
+    assert call.get("params") == {"email": "alice@corp.com"}
+
+
+def test_get_user_by_email_returns_none_on_null(fake_client) -> None:
+    fake_client([(_is_resolve, _resolve_null())])
+    assert asyncio.run(ka.get_user_by_email("missing@corp.com")) is None
+
+
+def test_get_user_attribute_reads_first_value(fake_client) -> None:
+    """``get_user_attribute`` resolves by id then returns the first value of
+    the named attribute."""
+    calls = fake_client(
+        [(_is_resolve, _resolve_ok(sub="u", attributes={"caipe_default_team_id": ["platform"]}))]
     )
 
-    asyncio.run(
-        ka.set_user_attribute(
-            user_id="edd383d8-8344-4145-8b37-4c2e732001e8",
-            attr="slack_user_id",
-            value="U09TC6RR8KX",
-            config=cfg,
+    value = asyncio.run(ka.get_user_attribute("u", "caipe_default_team_id"))
+
+    assert value == "platform"
+    call = next(c for c in calls if _is_resolve(c["method"], c["url"]))
+    assert call.get("params") == {"id": "u"}
+
+
+def test_get_user_attribute_returns_none_when_absent(fake_client) -> None:
+    """Attribute not present on the resolved user ⇒ ``None``."""
+    fake_client([(_is_resolve, _resolve_ok(sub="u", attributes={}))])
+    assert asyncio.run(ka.get_user_attribute("u", "caipe_default_team_id")) is None
+
+
+def test_get_user_attribute_returns_none_when_user_missing(fake_client) -> None:
+    """No such user (``data: null``) ⇒ ``None``."""
+    fake_client([(_is_resolve, _resolve_null())])
+    assert asyncio.run(ka.get_user_attribute("ghost", "caipe_default_team_id")) is None
+
+
+def test_resolve_raises_on_unexpected_status(fake_client) -> None:
+    """A non-2xx from the resolve endpoint propagates (raise_for_status),
+    preserving the old direct-Admin error semantics."""
+    fake_client([(_is_resolve, _FakeResponse(500))])
+    with pytest.raises(httpx.HTTPStatusError):
+        asyncio.run(ka.get_user_by_attribute("slack_user_id", "U1"))
+
+
+# --------------------------------------------------------------------------- #
+# set_user_attribute → PATCH /api/admin/users/{id}/attributes                 #
+# --------------------------------------------------------------------------- #
+
+
+def test_set_user_attribute_patches_bff_attributes_endpoint(fake_client) -> None:
+    """``set_user_attribute`` MUST PATCH the per-user attributes endpoint with
+    the ``{attributes: {attr: [value]}}`` merge body and the SA headers. The
+    BFF (not the bot) now owns the Keycloak-26 user-profile round-trip."""
+    user_id = "edd383d8-8344-4145-8b37-4c2e732001e8"
+
+    def _is_patch_attrs(method: str, url: str, **_: Any) -> bool:
+        return method == "PATCH" and url.endswith(
+            f"/api/admin/users/{user_id}/attributes"
         )
-    )
 
-    assert len(captured_put_bodies) == 1, "expected exactly one PUT to /users/{id}"
-    body = captured_put_bodies[0]
+    calls = fake_client([(_is_patch_attrs, _FakeResponse(200, {"success": True, "data": {"ok": True}}))])
 
-    # The new attribute must be set, and pre-existing attributes preserved.
-    assert body["attributes"]["slack_user_id"] == ["U09TC6RR8KX"]
-    assert body["attributes"]["idp_groups"] == ["backstage-access"]
+    asyncio.run(ka.set_user_attribute(user_id, "slack_user_id", "U09TC6RR8KX"))
 
-    # Keycloak 26 user-profile-required fields MUST be round-tripped from
-    # the GET response, otherwise the PUT is rejected with
-    # error-user-attribute-required(email).
-    assert body["email"] == "alice@corp.com", (
-        "email must be round-tripped from GET into PUT body to satisfy "
-        "Keycloak 26's user-profile validator"
-    )
-    assert body["username"] == "alice@corp.com"
-    assert body["firstName"] == "Alice"
-    assert body["lastName"] == "Example"
-    assert body["emailVerified"] is True
-    assert body["enabled"] is True
+    call = next(c for c in calls if _is_patch_attrs(c["method"], c["url"]))
+    assert call["url"] == f"http://ui.test:3000/api/admin/users/{user_id}/attributes"
+    assert call.get("json") == {"attributes": {"slack_user_id": ["U09TC6RR8KX"]}}
+    headers = call.get("headers", {})
+    assert headers.get("X-Client-Source") == "slack-bot"
+    assert headers.get("Authorization") == "Bearer sa-token"
+    assert headers.get("Content-Type") == "application/json"
+
+
+def test_set_user_attribute_raises_on_error_status(fake_client) -> None:
+    """A non-2xx from the attributes endpoint propagates (raise_for_status)."""
+
+    def _is_patch_attrs(method: str, url: str, **_: Any) -> bool:
+        return method == "PATCH" and "/attributes" in url
+
+    fake_client([(_is_patch_attrs, _FakeResponse(403))])
+    with pytest.raises(httpx.HTTPStatusError):
+        asyncio.run(ka.set_user_attribute("u", "slack_user_id", "U1"))

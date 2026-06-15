@@ -96,6 +96,10 @@ interface CommonPickerProps {
    *  KB team assignments) where rendering `team:<objectid>` is just
    *  noise. */
   hideSlugSuffix?: boolean;
+  /** Render inside the trigger wrapper instead of document.body.
+   *  Use inside modal dialogs so focus traps keep the search input usable.
+   */
+  portalled?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -129,6 +133,7 @@ export function TeamPicker({
   ariaInvalid,
   ariaDescribedBy,
   hideSlugSuffix = false,
+  portalled = true,
   toggleOnReselect = false,
   helperText,
 }: TeamPickerProps) {
@@ -224,6 +229,7 @@ export function TeamPicker({
       <PopoverContent
         align="start"
         className={cn("w-[min(360px,90vw)] p-0", contentClassName)}
+        portalled={portalled}
       >
         <div className="flex items-center gap-2 border-b border-border px-3 py-2">
           <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -324,6 +330,7 @@ export function TeamMultiPicker({
   id,
   ariaLabel,
   hideSlugSuffix = false,
+  portalled = true,
   triggerChipCap = 2,
   helperText,
   allowClearAll = true,
@@ -465,6 +472,7 @@ export function TeamMultiPicker({
       <PopoverContent
         align="start"
         className={cn("w-[min(360px,90vw)] p-0", contentClassName)}
+        portalled={portalled}
       >
         <div className="flex items-center gap-2 border-b border-border px-3 py-2">
           <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />

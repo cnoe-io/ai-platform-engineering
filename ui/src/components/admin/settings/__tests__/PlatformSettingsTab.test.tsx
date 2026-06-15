@@ -214,6 +214,26 @@ describe('PlatformSettingsTab', () => {
     );
   });
 
+  // ── [TS-S3] Unlinked Access card visibility ────────────────────────────────
+  it('admin sees the Unlinked Access card and Manage button', async () => {
+    render(<PlatformSettingsTab isAdmin />);
+
+    // Wait for the component to finish loading.
+    await screen.findByRole('combobox');
+
+    const btn = screen.getByTestId("unlinked-access-button")
+    expect(btn).toBeInTheDocument();
+    expect(btn).toHaveTextContent(/manage unlinked access/i);
+  });
+
+  it('non-admin does NOT see the Unlinked Access card or button', async () => {
+    render(<PlatformSettingsTab isAdmin={false} />);
+
+    await screen.findByRole('combobox');
+
+    expect(screen.queryByTestId("unlinked-access-button")).toBeNull();
+  });
+
   it('opens the public-access confirmation modal when selecting a new default', async () => {
     render(<PlatformSettingsTab isAdmin />);
 

@@ -41,6 +41,7 @@ export const DEFAULT_ADMIN_GATES: Record<string, boolean> = {
   roles: true,
   settings: true,
   skills: true,
+  service_accounts: true,
   slack: false,
   stats: false,
   teams: true,

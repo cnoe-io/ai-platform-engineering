@@ -57,6 +57,16 @@ BYPASS_SUBS = frozenset(
 )
 AGENT_CONTEXT_HMAC_SECRET = os.environ.get("CAIPE_AGENT_CONTEXT_HMAC_SECRET", "").strip()
 AGENT_CONTEXT_MAX_AGE_SECONDS = int(os.environ.get("CAIPE_AGENT_CONTEXT_MAX_AGE_SECONDS", "300"))
+# Caller-keyed tool-authorization rollout flag (FR-012c / SC-011 / T022a).
+# When OFF (default), the bridge keeps the legacy agent-only tool check so
+# enabling the new subject→tool check in a shared environment never silently
+# breaks existing human callers who rely on transitive (agent-granted) tool
+# access. Operators turn this ON only after backfilling direct caller tool
+# grants (see docs/docs/security/rbac/workflows.md). Set
+# CAIPE_CALLER_TOOL_CHECK_ENABLED=true to enable.
+CALLER_TOOL_CHECK_ENABLED = os.environ.get(
+    "CAIPE_CALLER_TOOL_CHECK_ENABLED", ""
+).strip().lower() in ("1", "true", "yes", "on")
 _JWKS_CLIENT: jwt.PyJWKClient | None = None
 OK = 0
 PERMISSION_DENIED = 7
@@ -318,8 +328,8 @@ def _get_jwks_client() -> jwt.PyJWKClient:
     return _JWKS_CLIENT
 
 
-def _decode_verified_bearer_subject(auth_header: str) -> str | None:
-    """Validate a bearer JWT and return its subject when the token is trusted."""
+def _decode_verified_bearer_claims(auth_header: str) -> dict | None:
+    """Validate a bearer JWT and return its full claim set when the token is trusted."""
     if not auth_header.startswith("Bearer "):
         return None
     if not JWT_JWKS_URL:
@@ -341,8 +351,83 @@ def _decode_verified_bearer_subject(auth_header: str) -> str | None:
         print(f"[bridge] JWT validation failed: {e}", file=sys.stderr)
         return None
 
+    return payload if isinstance(payload, dict) else None
+
+
+def _decode_verified_bearer_subject(auth_header: str) -> str | None:
+    """Validate a bearer JWT and return its subject when the token is trusted."""
+    payload = _decode_verified_bearer_claims(auth_header)
+    if not payload:
+        return None
     sub = payload.get("sub")
     return sub if isinstance(sub, str) and sub else None
+
+
+def _is_service_account_claims(payload: dict | None) -> bool:
+    """Canonical service-account detection rule (spec 2026-06-05-service-accounts, T002).
+
+    A token is a service account iff its `preferred_username` claim starts with
+    `service-account-`. This MUST match the BFF (`jwt-validation.ts`) and the DA
+    backend (`openfga_authz.py`) so the same token namespaces identically at
+    every enforcement layer.
+    """
+    if not payload:
+        return False
+    preferred = payload.get("preferred_username")
+    return isinstance(preferred, str) and preferred.startswith("service-account-")
+
+
+def caller_is_service_account(headers: dict[str, str]) -> bool:
+    """Whether the request's bearer token is a Keycloak service-account token.
+
+    Metadata-only requests (no verifiable bearer) are treated as non-service
+    accounts and keep the `user:` namespace.
+    """
+    return _is_service_account_claims(
+        _decode_verified_bearer_claims(headers.get("authorization", ""))
+    )
+
+
+def _preferred_username_from_metadata(request: CheckRequest) -> str | None:
+    """Read `preferred_username` from the ext_authz `caipe.auth` gRPC metadata.
+
+    AgentGateway's jwtAuth listener consumes the Authorization bearer and does
+    NOT forward it in the ext_authz CheckRequest, so the bridge cannot re-decode
+    the token (#46/#49). Instead the gateway is configured to pass the SA signal
+    in the `caipe.auth` metadata expression alongside `sub`
+    (`{"sub": jwt.sub, "preferred_username": jwt.preferred_username}`). Mirrors
+    `_subject_from_metadata`. assisted-by Claude claude-opus-4-8
+    """
+    metadata = request.attributes.metadata_context.filter_metadata
+    for key in ("caipe.auth", "dev.agentgateway.jwt"):
+        if key not in metadata:
+            continue
+        fields = metadata[key].fields
+        if "preferred_username" in fields:
+            value = _string_value(fields["preferred_username"])
+            if value:
+                return value
+        if "claims" in fields:
+            claim_fields = fields["claims"].struct_value.fields
+            if "preferred_username" in claim_fields:
+                value = _string_value(claim_fields["preferred_username"])
+                if value:
+                    return value
+    return None
+
+
+def request_caller_is_service_account(request: CheckRequest, headers: dict[str, str]) -> bool:
+    """Whether the caller is a Keycloak service account, T002 rule.
+
+    Prefers the `preferred_username` carried in `caipe.auth` gRPC metadata (the
+    only signal available when AgentGateway's jwtAuth has already consumed the
+    bearer — the production path). Falls back to decoding the Authorization
+    bearer directly (local diagnostics / metadata-less callers).
+    """
+    preferred = _preferred_username_from_metadata(request)
+    if preferred is not None:
+        return preferred.startswith("service-account-")
+    return caller_is_service_account(headers)
 
 
 def _headers_from_check_request(request: CheckRequest) -> dict[str, str]:
@@ -474,6 +559,7 @@ def build_check_request(
     path: str = "/",
     method: str = "GET",
     metadata_subject: str | None = None,
+    metadata_preferred_username: str | None = None,
     body: str = "",
 ) -> CheckRequest:
     """Build a CheckRequest for unit tests and local diagnostics."""
@@ -487,6 +573,10 @@ def build_check_request(
         request.attributes.metadata_context.filter_metadata["caipe.auth"].fields[
             "sub"
         ].string_value = metadata_subject
+    if metadata_preferred_username:
+        request.attributes.metadata_context.filter_metadata["caipe.auth"].fields[
+            "preferred_username"
+        ].string_value = metadata_preferred_username
     return request
 
 
@@ -592,7 +682,16 @@ class OpenFgaAuthorizationService:
             )
             return build_check_response(allowed=True)
 
-        user = f"user:{sub}"
+        # Namespace the caller subject. Service-account tokens (Keycloak
+        # client-credentials) are graphed as `service_account:<sub>`; everything
+        # else stays `user:<sub>`. The rule (preferred_username startsWith
+        # "service-account-") matches the BFF and DA layers (T002). SA-ness is
+        # read from `caipe.auth` gRPC metadata (the gateway consumes the bearer
+        # and doesn't forward it — #46/#49), falling back to the bearer header.
+        if request_caller_is_service_account(request, headers):
+            user = f"service_account:{sub}"
+        else:
+            user = f"user:{sub}"
         start = time.perf_counter()
         try:
             allowed = _check_openfga(user, relation, obj)
@@ -659,6 +758,52 @@ class OpenFgaAuthorizationService:
                         allowed=False,
                         code=PERMISSION_DENIED,
                         message="dynamic agent lacks agent tool grant",
+                    )
+                # Caller-keyed tool authorization (FR-012/012a/012b). The agent
+                # being allowed to call the tool is NOT sufficient — the calling
+                # subject (human user OR service account) must ALSO hold the tool
+                # grant. This closes the confused-deputy gap where a caller's
+                # effective tool reach was the union of every agent they may use.
+                # Applies to all subjects; gated behind a config flag for safe
+                # rollout (FR-012c, see CALLER_TOOL_CHECK_ENABLED).
+                if CALLER_TOOL_CHECK_ENABLED:
+                    caller_tool_obj = f"tool:{tool_call[0]}/{tool_call[1]}"
+                    caller_exact = _check_openfga(user, "can_call", caller_tool_obj)
+                    caller_wildcard = False
+                    if not caller_exact:
+                        caller_wildcard = _check_openfga(
+                            user,
+                            "can_call",
+                            f"tool:{tool_call[0]}/*",
+                        )
+                    if not (caller_exact or caller_wildcard):
+                        _audit_decision(
+                            request=request,
+                            subject=sub,
+                            user=user,
+                            relation="can_call",
+                            obj=caller_tool_obj,
+                            outcome="deny",
+                            reason_code="DENY_CALLER_TOOL",
+                            duration_ms=(time.perf_counter() - start) * 1000,
+                        )
+                        return build_check_response(
+                            allowed=False,
+                            code=PERMISSION_DENIED,
+                            message="caller lacks tool grant",
+                        )
+                    # Caller-keyed tool grant confirmed — audit the allow so every
+                    # call-time decision under any credential is recorded
+                    # (FR-027/SC-009), not only denials.
+                    _audit_decision(
+                        request=request,
+                        subject=sub,
+                        user=user,
+                        relation="can_call",
+                        obj=caller_tool_obj,
+                        outcome="allow",
+                        reason_code="OK_CALLER_TOOL",
+                        duration_ms=(time.perf_counter() - start) * 1000,
                     )
         except Exception as e:
             duration_ms = (time.perf_counter() - start) * 1000

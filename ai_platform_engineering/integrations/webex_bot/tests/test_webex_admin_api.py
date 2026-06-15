@@ -19,6 +19,7 @@ from ai_platform_engineering.integrations.webex_bot.utils.webex_admin_api import
     WebexAdminTokenValidator,
     WebexBotAdminService,
     _WebexAdminRequestHandler,
+    load_webex_bot_config,
     webex_admin_jwt_audience,
 )
 from ai_platform_engineering.integrations.webex_bot.utils.webex_config_models import (
@@ -30,6 +31,8 @@ from ai_platform_engineering.integrations.webex_bot.utils.webex_config_models im
 class _RoutesCollection:
     def __init__(self) -> None:
         self.update_calls: list[tuple[dict[str, object], dict[str, object], bool]] = []
+        self.update_many_calls: list[tuple[dict[str, object], dict[str, object]]] = []
+        self.delete_calls: list[dict[str, object]] = []
 
     def update_one(
         self,
@@ -38,6 +41,12 @@ class _RoutesCollection:
         upsert: bool = False,
     ) -> None:
         self.update_calls.append((filter_query, update, upsert))
+
+    def update_many(self, filter_query: dict[str, object], update: dict[str, object]) -> None:
+        self.update_many_calls.append((filter_query, update))
+
+    def delete_one(self, filter_query: dict[str, object]) -> None:
+        self.delete_calls.append(filter_query)
 
 
 class _Resolver:
@@ -165,6 +174,45 @@ def test_sync_from_config_upserts_routes_writes_openfga_and_invalidates_cache() 
     assert resolver.invalidated == [("CAIPE-WEBEX", "space-abc")]
 
 
+def test_sync_from_config_replaces_existing_agent_metadata_without_touching_others() -> None:
+    config = WebexBotConfig(
+        spaces={
+            "space-abc": SpaceConfig(
+                name="Platform Space",
+                agents=[
+                    AgentBinding(
+                        agent_id="incident-agent",
+                        users=UsersConfig(enabled=True, listen="message"),
+                    )
+                ],
+            )
+        }
+    )
+    routes = _RoutesCollection()
+    service = WebexBotAdminService(
+        config=config,
+        resolver=_Resolver(),
+        collection_factory=lambda _name: routes,
+        openfga_writer=lambda _tuple_key: None,
+    )
+
+    summary = service.sync_from_config(workspace_id="CAIPE-WEBEX", dry_run=False)
+
+    assert summary["routes_upserted"] == 1
+    assert len(routes.update_calls) == 1
+    filter_query, update, upsert = routes.update_calls[0]
+    assert upsert is True
+    assert filter_query == {
+        "workspace_id": "CAIPE-WEBEX",
+        "space_id": "space-abc",
+        "agent_id": "incident-agent",
+    }
+    assert update["$set"]["users"]["listen"] == "message"  # type: ignore[index]
+    assert update["$unset"] == {"bots": "", "escalation": ""}
+    assert routes.update_many_calls == []
+    assert routes.delete_calls == []
+
+
 def test_sync_from_config_canonicalizes_public_webex_room_ids() -> None:
     config = WebexBotConfig(
         spaces={
@@ -191,6 +239,73 @@ def test_sync_from_config_canonicalizes_public_webex_room_ids() -> None:
         "webex_space:CAIPE-WEBEX--6f91b070-531a-11f1-926d-6fd3c20dfdc4"
     )
     assert resolver.invalidated == [("CAIPE-WEBEX", "6f91b070-531a-11f1-926d-6fd3c20dfdc4")]
+
+
+def test_load_webex_bot_config_from_inline_yaml(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(
+        "WEBEX_INTEGRATION_BOT_CONFIG",
+        """
+space-abc:
+  name: Platform Space
+  agents:
+    - agent_id: incident-agent
+      users:
+        enabled: true
+        listen: all
+""",
+    )
+
+    config = load_webex_bot_config()
+
+    assert list(config.spaces) == ["space-abc"]
+    assert config.spaces["space-abc"].agents[0].agent_id == "incident-agent"
+    assert config.spaces["space-abc"].agents[0].users is not None
+    assert config.spaces["space-abc"].agents[0].users.listen == "all"
+
+
+def test_load_webex_bot_config_from_file_path(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    config_path = tmp_path / "webex-bot.yaml"
+    config_path.write_text(
+        """
+spaces:
+  space-from-file:
+    name: File Space
+    agents:
+      - agent_id: file-agent
+        users:
+          enabled: true
+          listen: mention
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("WEBEX_INTEGRATION_BOT_CONFIG", str(config_path))
+
+    config = load_webex_bot_config()
+
+    assert config.spaces["space-from-file"].name == "File Space"
+    assert config.spaces["space-from-file"].agents[0].agent_id == "file-agent"
+
+
+def test_load_webex_bot_config_supports_legacy_agent_id_mapping(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "WEBEX_INTEGRATION_BOT_CONFIG",
+        """
+space-legacy:
+  agent_id: legacy-agent
+""",
+    )
+
+    config = load_webex_bot_config()
+
+    route = config.spaces["space-legacy"].agents[0]
+    assert config.spaces["space-legacy"].name == "space-legacy"
+    assert route.agent_id == "legacy-agent"
+    assert route.users is not None
+    assert route.users.listen == "all"
 
 
 def test_validator_default_audience_is_webex_admin() -> None:

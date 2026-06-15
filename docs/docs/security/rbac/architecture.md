@@ -308,6 +308,81 @@ token with the selected active team scope. The Webex bot clients are
 client-credentials tokens. The full runtime sequence is in
 [Workflows › Webex space ReBAC](./workflows.md#webex-space-rebac-and-bot-dispatch).
 
+### Service Accounts (self-service bot identities)
+
+> **Badge analogy:** A contractor badge any team lead can issue from the front
+> desk — scoped to specific doors, owned by their team, revocable, and never
+> more powerful than the person who issued it. Distinct from the operator-issued
+> Slack/Webex bot badges.
+
+Service accounts (spec `2026-05-24` → `2026-06-05-service-accounts`) are
+**user-minted, team-owned** bot identities for external/API callers (CI jobs,
+webhooks, alerts). Unlike the operator-provisioned Slack/Webex bots, any team
+member creates them self-service from **Admin → Settings → Service Accounts**.
+Three stores of record, each authoritative for one concern:
+
+| Store | Owns | Authoritative for |
+|-------|------|-------------------|
+| **Keycloak** | a confidential client (`serviceAccountsEnabled`) per SA | the **credential** (identity) |
+| **OpenFGA** | tuples on `service_account:<sub>` | **access** (ownership + scopes) |
+| **MongoDB** `service_accounts` | a display doc | **metadata** (name, status, links) |
+
+**Identity chain:** the SA is a dynamically-created Keycloak confidential client
+(`caipe-sa-<slug>-<short-rand>`); its service-account-user `sub` (UUID) IS the
+OpenFGA subject id. The credential = `client_id` + `client_secret` (Keycloak
+client-credentials grant), shown **once** on create/rotate and never persisted
+in CAIPE. Rotation regenerates the secret; revocation deletes the client.
+
+**Authorization model** (additive — `service_account` was subject-only before):
+
+```
+type service_account
+  relations
+    define owner_team: [team#member]
+    define can_manage: owner_team
+```
+
+- Ownership: `team:<team>#member owner_team service_account:<sub>` (exactly one team).
+- Management authority derives from ownership — the BFF gates every manage action
+  with `check(user:<caller>, can_manage, service_account:<sub>)`.
+- Scope grants reuse existing patterns: `service_account:<sub> can_use agent:<id>`
+  and `service_account:<sub> can_call tool:<server>/<tool>` (+ `tool:<server>/*`).
+
+**Permission-bound granting:** a creator/editor can only grant the SA scopes they
+themselves currently hold (`check(user:<editor>, …)` at write time — defense in
+depth on top of the UI's grantable list). Removal is unconditional for any
+owning-team member. Granted access is **static** — it does not re-derive from the
+creator's later permission changes.
+
+**Subject detection (all FOUR enforcement layers agree):** a token is a service account iff
+`preferred_username` starts with `service-account-`; such callers namespace as
+`service_account:<sub>`, everyone else as `user:<sub>`. Enforced identically at
+(1) the BFF resource-authz (`jwt-validation.ts` / `resource-authz.ts`), (2) the **BFF agent-use check**
+(`requireAgentUsePermission` in `openfga-agent-authz.ts` — the gate the SA invoke path `/api/v1/chat/*`
+actually hits; for SA subjects it also skips the human-only email-principal and team-union fallbacks),
+(3) the Dynamic Agents backend (`openfga_authz.py`), and (4) the AgentGateway bridge (`bridge/main.py`).
+The bridge additionally enforces the **caller-keyed tool check** (see
+[Workflows › Caller-Keyed Tool Authorization](./workflows.md#caller-keyed-tool-authorization-service-accounts-fr-012a)),
+which only receives the data to run because the gateway's `extAuthz` policy forwards the request body
+(`includeRequestBody`). Note: SAs invoke via the **dynamic-agent** path and never traverse the deprecated
+`supervisor#invoke` org gate, so they hold **no** organization-membership grant (keeps them least-privilege
+per FR-004 — their reach is exactly their agent/tool scopes).
+
+**Coarse-gate baseline:** SAs also hold `service_account:<sub> caller mcp_gateway:list` (written at create,
+deleted at revoke) so they pass AgentGateway's coarse ext_authz gate — humans get this at login bootstrap;
+SAs never log in. This required adding `service_account` to `mcp_gateway.caller` in the model.
+
+**Team-deletion guard (FR-025):** a team cannot be deleted while it still owns any
+service account — `DELETE /api/admin/teams/[id]` lists
+`service_account` objects via `owner_team` and returns `409
+TEAM_OWNS_SERVICE_ACCOUNTS` until they are revoked, preventing orphaned
+unmanageable identities.
+
+The create + external-call sequences are in
+[Workflows › Service Account create & external call](./workflows.md#service-account-create--external-call).
+The collection, env, and naming details are in the BFF library README at
+`ui/src/lib/README-service-accounts.md` (outside the docs tree).
+
 ---
 
 ## Component 2: CAIPE UI — The Reception Desk
@@ -1536,36 +1611,62 @@ KC_URL=https://keycloak.example.com FORMAT=k8s \
 
 The Helm chart can wire this up as a post-install Job so fresh installs get the Secret populated without operator intervention. Rotation is the same call — the Secret is overwritten in place.
 
-## Slack bot → Keycloak Admin REST API (identity lookup)
+## Slack bot → Keycloak user directory (via the BFF)
 
-Separate from the OBO flow above. The Slack bot also calls Keycloak's **Admin REST API** to find a Keycloak user by `slack_user_id` attribute (and to read/write `team_id`). This is the call that fires when someone @mentions the bot for the first time. It uses `client_credentials` and a **different** Keycloak client than the OBO flow.
+Separate from the OBO flow above. The Slack bot reads and writes Keycloak user
+records — find a user by `slack_user_id` attribute or email, read
+`caipe_default_team_id`, write `slack_user_id` / `slack_preauth_prompted_at`,
+and JIT create-or-resolve a shell user — when someone @mentions the bot or DMs
+it for the first time.
 
+The bot does **not** hold Keycloak Admin credentials for this. Every call goes
+to a first-party CAIPE UI BFF endpoint carrying the bot's own
+**`caipe-slack-bot` service-account token** (the same client-credentials token
+used for the OBO flow) plus `X-Client-Source: slack-bot`. The BFF graphs the
+caller as `service_account:<sub>` and authorizes each endpoint with an explicit
+OpenFGA grant:
+
+| Bot operation | BFF endpoint | OpenFGA grant |
+| --- | --- | --- |
+| lookup by attribute / email / id | `GET /api/admin/users/resolve` | `reader admin_surface:user_directory` |
+| merge a user attribute | `PATCH /api/admin/users/{id}/attributes` | `writer admin_surface:user_directory` |
+| JIT create-or-resolve a shell user | `POST /api/admin/users/provision-shell` | `writer admin_surface:user_provisioning` |
+
+The grants are seeded for every bot service account by the keycloak chart's
+`init-token-exchange.sh` (`SA_GRANTS`). The BFF in turn uses its own
+`KEYCLOAK_ADMIN_*` credentials to reach Keycloak — so realm-management
+privilege lives only in the BFF, never in a bot. This removed the bot's former
+`KEYCLOAK_SLACK_BOT_ADMIN_*` direct-Admin path (spec
+[2026-06-09-slack-bot-remove-direct-keycloak-admin](../../specs/2026-06-09-slack-bot-remove-direct-keycloak-admin/plan.md);
+JIT create moved first in #1781).
+
+The `resolve` endpoint whitelists the attribute names a bot may query
+(`slack_user_id`, `slack_preauth_prompted`, `slack_preauth_prompted_at`,
+`caipe_default_team_id`) and the `attributes` endpoint whitelists the keys a bot
+may write (`slack_user_id`, `slack_preauth_prompted_at`), so the service account
+cannot scrape or mutate arbitrary identity attributes.
 
 | Env var                                      | Purpose                                                                                                                                                                                                                                                                                                                                                                   |
 | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `KEYCLOAK_SLACK_BOT_ADMIN_CLIENT_ID`         | Confidential Keycloak client for slack-bot's Admin API calls (lookup + JIT create). **Default `caipe-platform`** — that client's service account is granted `view-users` + `query-users` + `manage-users` on `realm-management` for user lookup/create, plus the client/authz roles needed by the Web UI BFF Keycloak RBAC migration.                                                                                                                      |
-| `KEYCLOAK_SLACK_BOT_ADMIN_CLIENT_SECRET`     | Matching client_secret. In dev, defaults to `caipe-platform-dev-secret`.                                                                                                                                                                                                                                                                                                  |
-| `KEYCLOAK_URL`, `KEYCLOAK_REALM`             | Same values as everywhere else.                                                                                                                                                                                                                                                                                                                                           |
+| `CAIPE_UI_URL` / `CAIPE_API_URL`            | Base URL of the CAIPE UI BFF the bot calls for all Keycloak user operations. |
+| `KEYCLOAK_URL`, `KEYCLOAK_REALM`             | Same values as everywhere else (used by the OBO token-exchange flow).                                                                                                                                                                                                                                                                                                     |
 | `SLACK_RBAC_ENABLED`                         | Enables Slack-side identity lookup, team/channel resolution, OBO exchange, and channel ReBAC checks before the bot forwards a request.                                                                                                                                                                                                                                    |
-| `SLACK_JIT_CREATE_USER` (spec 103)           | `true` (default) auto-creates a federated-only Keycloak shell user on first DM when no Keycloak user with the Slack email exists. `false` falls through to the HMAC link URL so onboarding requires the web UI. Reuses `KEYCLOAK_SLACK_BOT_ADMIN_*` — no new secret. See [plan R-8](../../specs/103-slack-jit-user-creation/plan.md) for the single-credential trade-off. |
+| `SLACK_JIT_CREATE_USER` (spec 103)           | `true` (default) auto-creates a federated-only Keycloak shell user on first DM when no Keycloak user with the Slack email exists. `false` falls through to the HMAC link URL so onboarding requires the web UI. Provisioning flows through the BFF — no Keycloak Admin credential on the bot. |
 | `SLACK_JIT_ALLOWED_EMAIL_DOMAINS` (spec 103) | Optional comma-separated allowlist (e.g. `corp.com,acme.io`). Empty = any domain. Recommended for prod when the federated IdP can return non-corporate emails.                                                                                                                                                                                                            |
 
 
-In Helm and GitOps installs, `charts/ai-platform-engineering/charts/slack-bot/templates/deployment.yaml` wires `OAUTH2_CLIENT_SECRET` and `KEYCLOAK_BOT_CLIENT_SECRET` from the Keycloak bot Secret, while the Slack tokens and `KEYCLOAK_SLACK_BOT_ADMIN_CLIENT_SECRET` can come from an ExternalSecret such as Vault path `projects/caipe/rbac/slackbot`.
+In Helm and GitOps installs, `charts/ai-platform-engineering/charts/slack-bot/templates/deployment.yaml` wires `OAUTH2_CLIENT_SECRET` and `KEYCLOAK_BOT_CLIENT_SECRET` from the Keycloak bot Secret. There is no longer any Keycloak Admin secret to wire on the bot.
 
-> **Why `KEYCLOAK_SLACK_BOT_ADMIN_*` and not just `KEYCLOAK_ADMIN_*` or `KEYCLOAK_BOT_ADMIN_*`?** Two reasons:
->
-> 1. **No collision with the Web UI backend.** Pre-098 the slack-bot read the same `KEYCLOAK_ADMIN_*` env names as the Web UI backend. Both services share `docker-compose.dev.yaml` env interpolation, so a single `KEYCLOAK_ADMIN_CLIENT_ID=admin-cli` line in `.env` (intended for the UI's password-grant fallback) silently overrode the slack-bot's client_credentials path, producing `HTTP 401 "Public client not allowed to retrieve service account"` on every Slack mention.
-> 2. **Room for future surfaces.** The surface-specific prefix (`KEYCLOAK_<surface>_BOT_ADMIN_*`) means future bot integrations like `KEYCLOAK_WEBEX_BOT_ADMIN_*` or `KEYCLOAK_TEAMS_BOT_ADMIN_*` can each have their own dedicated namespace without yet another rename.
-
-**Required client config in Keycloak** (any client you point this at):
-
-- `publicClient: false`
-- `serviceAccountsEnabled: true`
-- `clientAuthenticatorType: client-secret`
-- Service-account user has these `realm-management` client roles for Slack identity lookup/JIT: `view-users`, `query-users`, and `manage-users`. In the default `caipe-platform` wiring it also has `query-clients`, `view-clients`, `manage-clients`, `view-authorization`, and `manage-authorization` so the Web UI BFF can repair Keycloak OBO mappings.
-
-The realm seeder already provisions `caipe-platform` with all of those, so the default values "just work" in dev.
+> **Operator migration.** `KEYCLOAK_SLACK_BOT_ADMIN_CLIENT_ID` and
+> `KEYCLOAK_SLACK_BOT_ADMIN_CLIENT_SECRET` are no longer used by the Slack bot
+> and can be removed from your `values.yaml` / `.env` (and from any
+> ExternalSecret backing them, e.g. Vault `projects/caipe/rbac/slackbot`). The
+> bot now reaches Keycloak only through the BFF using its `caipe-slack-bot`
+> service account; the required `admin_surface:user_directory` /
+> `admin_surface:user_provisioning` OpenFGA grants are seeded automatically by
+> the keycloak chart's `init-token-exchange.sh`. No action is required beyond
+> dropping the unused vars. Ensure the bot has `CAIPE_UI_URL` / `CAIPE_API_URL`
+> pointed at the BFF (it already needs this for JIT provisioning since #1781).
 
 ## Spec 104 — `active_team` JWT claim (REMOVED by Phase 3 of spec 2026-05-24-derive-team-from-channel) {#spec-104--active_team-jwt-claim-team-scope-refactor}
 
