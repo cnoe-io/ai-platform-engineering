@@ -12,6 +12,7 @@ import urllib.error
 from pathlib import Path
 
 import yaml
+import pytest
 
 
 BRIDGE_PATH = Path(__file__).resolve().parents[1] / "config_bridge.py"
@@ -308,6 +309,27 @@ def test_merge_agentgateway_mcp_routes_applies_provider_token_transform() -> Non
     assert transform["authorization"] == (
         '"Bearer " + default(request.headers["x-caipe-provider-token"], "")'
     )
+    # The per-route transform override must NOT drop the base extAuthz body
+    # forwarding (#36) — it's only shallow-merged on top, so includeRequestBody
+    # is inherited and the caller-keyed per-tool check still works on this route.
+    assert route["policies"]["extAuthz"]["includeRequestBody"] == {
+        "maxRequestBytes": 65536,
+        "allowPartialMessage": False,
+        "packAsBytes": True,
+    }
+
+
+def test_default_mcp_route_policies_forward_request_body() -> None:
+    # #36: the bridge can only run the caller-keyed per-tool check if the gateway
+    # forwards the request body. Lock the policy shape so a future edit can't
+    # silently drop it. packAsBytes -> CheckRequest.http.raw_body (read first by
+    # the bridge); allowPartialMessage False so json.loads sees a complete body.
+    ext_authz = bridge.DEFAULT_MCP_ROUTE_POLICIES["extAuthz"]
+    assert ext_authz["includeRequestBody"] == {
+        "maxRequestBytes": 65536,
+        "allowPartialMessage": False,
+        "packAsBytes": True,
+    }
 
 
 def test_merge_agentgateway_mcp_routes_applies_knowledge_base_transform() -> None:
@@ -477,6 +499,70 @@ def test_load_builtin_mcp_routes_parses_shipped_config() -> None:
 def test_load_builtin_mcp_routes_missing_path_returns_empty() -> None:
     assert bridge.load_builtin_mcp_routes(None) == {}
     assert bridge.load_builtin_mcp_routes(Path("/does/not/exist.yaml")) == {}
+
+
+# #36 (FR-012/SC-010): the caller-keyed (and agent→tool) per-tool checks only run
+# when the bridge receives the HTTP request body, which requires the extAuthz
+# policy's `includeRequestBody`. Built-in routes are re-rendered from the
+# bootstrap config.yaml definition (NOT from DEFAULT_MCP_ROUTE_POLICIES), so a
+# bare bootstrap route would silently ship without body-forwarding. The earlier
+# static-file-only test missed exactly this — testing-manager found 5 builtin
+# routes bare in the LIVE GENERATED config. This asserts against the GENERATED
+# output (what config-bridge actually writes) for every shipped built-in.
+EXPECTED_INCLUDE_REQUEST_BODY = {
+    "maxRequestBytes": 65536,
+    "allowPartialMessage": False,
+    "packAsBytes": True,
+}
+
+# The rbac/outshift host-specific variant feeds the chart/prod gateway and repeats
+# the same builtin routes — assert generated parity there too (#36).
+RBAC_CONFIG_PATH = BRIDGE_PATH.parent / "config.caipe-rbac.yaml"
+
+
+@pytest.mark.parametrize(
+    "config_path", [SHIPPED_CONFIG_PATH, RBAC_CONFIG_PATH], ids=["config", "caipe-rbac"]
+)
+def test_generated_config_forwards_request_body_on_every_builtin_route(config_path: Path) -> None:
+    import yaml
+
+    baseline = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    builtins = bridge.load_builtin_mcp_routes(config_path)
+    assert builtins, f"expected built-in MCP routes from {config_path.name}"
+
+    # No dynamic Mongo targets — exercises the builtin re-render path
+    # (config_bridge deep-copies builtins verbatim from bootstrap, bypassing
+    # DEFAULT_MCP_ROUTE_POLICIES), which is where the 5 bare routes were found in
+    # the live (stale) container.
+    rendered = bridge.merge_agentgateway_mcp_routes(baseline, [], builtin_routes=builtins)
+    routes = rendered["binds"][0]["listeners"][0]["routes"]
+
+    mcp_routes = [
+        route
+        for route in routes
+        if isinstance(route, dict)
+        and route.get("matches", [{}])[0].get("path", {}).get("pathPrefix", "").startswith("/mcp/")
+    ]
+    assert mcp_routes, f"expected /mcp/* routes in the generated config from {config_path.name}"
+
+    missing = []
+    for route in mcp_routes:
+        path = route["matches"][0]["path"]["pathPrefix"]
+        ext_authz = route.get("policies", {}).get("extAuthz")
+        body_opts = ext_authz.get("includeRequestBody") if isinstance(ext_authz, dict) else None
+        if body_opts != EXPECTED_INCLUDE_REQUEST_BODY:
+            missing.append((path, body_opts))
+
+    assert not missing, (
+        f"generated config from {config_path.name} has /mcp/* routes missing "
+        f"includeRequestBody — the per-tool caller-keyed check would be skipped on these: {missing}"
+    )
+    # Belt-and-suspenders: the specific servers testing-manager flagged.
+    rendered_paths = {r["matches"][0]["path"]["pathPrefix"] for r in mcp_routes}
+    for sid in ("slack", "splunk", "victorops", "webex", "knowledge-base"):
+        assert f"/mcp/{sid}" in rendered_paths, (
+            f"/mcp/{sid} missing from generated config ({config_path.name})"
+        )
 
 
 def test_merge_preserves_builtin_routes_when_mongo_empty() -> None:

@@ -54,6 +54,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     email: authResult.email,
     tenantId: authResult.tenantId,
     traceparent: traceContext.traceparent,
+    isServiceAccount: authResult.isServiceAccount,
   });
   if (authzResponse) return authzResponse;
 

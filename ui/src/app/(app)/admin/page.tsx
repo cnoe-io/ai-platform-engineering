@@ -33,6 +33,7 @@ import { CreateTeamDialog } from "@/components/admin/teams/CreateTeamDialog";
 import { IdentitySyncPanel } from "@/components/admin/teams/IdentitySyncPanel";
 import { TeamDetailsDialog,type DialogMode as TeamDialogMode } from "@/components/admin/teams/TeamDetailsDialog";
 import { UserDetailModal } from "@/components/admin/teams/UserDetailModal";
+import { ServiceAccountsTab } from "@/components/admin/ServiceAccountsTab";
 import { UserDetailPanel } from "@/components/admin/teams/UserDetailPanel";
 import { UserManagementTab } from "@/components/admin/teams/UserManagementTab";
 import { AuthGuard } from "@/components/auth-guard";
@@ -254,8 +255,8 @@ interface SimulationTeamOption {
   description?: string;
 }
 
-const VALID_TABS = ['users', 'teams', 'identity-sync', 'stats', 'skills', 'feedback', 'nps', 'metrics', 'health', 'cas-insights', 'credentials', 'audit-logs', 'action-audit', 'cas-permissions-tool', 'openfga', 'keycloak', 'migrations', 'ai-review', 'settings', 'release-notes', 'slack', 'webex', 'rag-access'] as const;
-const VALID_OPENFGA_SUBTABS = ['builder', 'explorer', 'graph', 'tuples', 'baseline'] as const;
+const VALID_TABS = ['users', 'teams', 'identity-sync', 'stats', 'skills', 'feedback', 'nps', 'metrics', 'health', 'cas-insights', 'credentials', 'audit-logs', 'action-audit', 'cas-permissions-tool', 'openfga', 'keycloak', 'migrations', 'ai-review', 'settings', 'release-notes', 'slack', 'webex', 'rag-access', 'service-accounts'] as const;
+const VALID_OPENFGA_SUBTABS = ['builder', 'explorer', 'graph', 'tuples', 'access', 'baseline', 'diagnostics'] as const;
 const MOVED_ADMIN_TAB_MAP = {
   insights: 'stats',
 } as const;
@@ -294,6 +295,7 @@ const CATEGORIES: Category[] = [
       { value: 'credentials', label: 'Credentials', icon: Shield, gateKey: 'credentials' },
       { value: 'rag-access', label: 'Knowledge Bases', icon: Database, gateKey: 'openfga' },
       { value: 'skills', label: 'Skills', icon: Layers, gateKey: 'skills' },
+      { value: 'service-accounts', label: 'Service Accounts', icon: Bot, gateKey: 'service_accounts' },
     ],
   },
   {
@@ -1482,6 +1484,12 @@ function AdminPage() {
               {tabGateValues.settings && (
                 <TabsContent value="release-notes" className="space-y-4">
                   <ReleaseNotesSettingsTab isAdmin={isAdmin} />
+                </TabsContent>
+              )}
+
+              {tabGateValues.service_accounts && (
+                <TabsContent value="service-accounts" className="space-y-4">
+                  <ServiceAccountsTab />
                 </TabsContent>
               )}
 
