@@ -1,6 +1,8 @@
 name: "[Release] Manual Version Release"
 description: "Manually trigger a new release by specifying the version"
 
+# assisted-by Codex Codex-sonnet-4-6
+
 on:
   workflow_dispatch:
     inputs:
@@ -10,14 +12,17 @@ on:
         type: string
 
 permissions:
-  contents: write
-  packages: write
+  contents: read
 
 jobs:
   # Commit version bump (pyproject.toml + Chart.yaml), changelog, and tag
   commit-release:
     name: Commit Release
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      RELEASE_VERSION: ${{ github.event.inputs.version }}
     outputs:
       current_version: ${{ steps.validate.outputs.current_version }}
     steps:
@@ -32,6 +37,7 @@ jobs:
         with:
           app-id: ${{ secrets.CI_RELEASE_APP_ID }}
           private-key: ${{ secrets.CI_RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
 
       - name: 📥 Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -42,7 +48,9 @@ jobs:
 
       - name: ✅ Validate version format
         run: |
-          VERSION="${{ github.event.inputs.version }}"
+          set -euo pipefail
+
+          VERSION="$RELEASE_VERSION"
           echo "📦 Requested version: $VERSION"
 
           if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
@@ -59,7 +67,7 @@ jobs:
           # Extract current version from pyproject.toml (strip any pre-release suffix to bare x.y.z)
           RAW_VERSION=$(grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
           CURRENT_BARE=$(echo "$RAW_VERSION" | grep -oE '^[0-9]+\.[0-9]+\.[0-9]+')
-          NEW_VERSION="${{ github.event.inputs.version }}"
+          NEW_VERSION="$RELEASE_VERSION"
 
           echo "📋 Current version (raw): $RAW_VERSION"
           echo "📋 Current version (bare): $CURRENT_BARE"
@@ -81,7 +89,9 @@ jobs:
 
       - name: 🔍 Check tag doesn't already exist
         run: |
-          NEW_VERSION="${{ github.event.inputs.version }}"
+          set -euo pipefail
+
+          NEW_VERSION="$RELEASE_VERSION"
           if git tag -l "$NEW_VERSION" | grep -q .; then
             echo "❌ ERROR: Tag '$NEW_VERSION' already exists"
             exit 1
@@ -103,7 +113,9 @@ jobs:
 
       - name:  Commit, tag, and push
         run: |
-          NEW_VERSION="${{ github.event.inputs.version }}"
+          set -euo pipefail
+
+          NEW_VERSION="$RELEASE_VERSION"
 
           # Configure git
           git config user.name "github-actions[bot]"
@@ -142,6 +154,10 @@ jobs:
     name: Create Draft Release
     needs: commit-release
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      RELEASE_VERSION: ${{ github.event.inputs.version }}
     steps:
       - name: 🔑 Generate GitHub App token
         id: app-token
@@ -149,12 +165,15 @@ jobs:
         with:
           app-id: ${{ secrets.CI_RELEASE_APP_ID }}
           private-key: ${{ secrets.CI_RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
 
       - name: 🚀 Create GitHub Release (Draft)
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          NEW_VERSION="${{ github.event.inputs.version }}"
+          set -euo pipefail
+
+          NEW_VERSION="$RELEASE_VERSION"
           echo "🔄 Creating DRAFT GitHub Release for $NEW_VERSION..."
 
           gh release create "$NEW_VERSION" \
@@ -169,7 +188,9 @@ jobs:
 
       - name: 📊 Summary
         run: |
-          NEW_VERSION="${{ github.event.inputs.version }}"
+          set -euo pipefail
+
+          NEW_VERSION="$RELEASE_VERSION"
           CURRENT_VERSION="${{ needs.commit-release.outputs.current_version }}"
 
           echo "## Release Summary" >> $GITHUB_STEP_SUMMARY

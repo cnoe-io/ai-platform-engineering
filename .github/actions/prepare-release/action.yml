@@ -4,6 +4,8 @@ description: >
   Wraps update-version-files (already modifies all files with version + uv.lock) + commitizen changelog generation.
   Used by release-manual.yml and pr-version-bump.yml (for release/* → main PRs or commits).
 
+# assisted-by Codex Codex-sonnet-4-6
+
 inputs:
   version:
     description: 'Release version (bare x.y.z, e.g. 0.3.0)'
@@ -26,8 +28,11 @@ runs:
 
     - name: 📋 Generate changelog
       shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
       run: |
-        VERSION="${{ inputs.version }}"
+        set -euo pipefail
+
         echo "🔄 Generating changelog for $VERSION using commitizen..."
         cz changelog --unreleased-version "$VERSION"
         echo "✅ Generated changelog entry for $VERSION"

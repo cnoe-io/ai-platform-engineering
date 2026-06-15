@@ -11,6 +11,8 @@ description: >
       the -chart.M suffix on version field in Chart.yaml files of changed charts.
       appVersion, pyproject.toml and uv.lock are left untouched.
 
+# assisted-by Codex Codex-sonnet-4-6
+
 inputs:
   version:
     description: >
@@ -48,11 +50,16 @@ runs:
   steps:
     - name: ⚙️ Install yq
       shell: bash
+      env:
+        YQ_VERSION: v4.53.3
+        YQ_SHA256: fa52a4e758c63d38299163fbdd1edfb4c4963247918bf9c1c5d31d84789eded4
       run: |
-        if ! command -v yq &>/dev/null; then
-          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
-          sudo chmod +x /usr/local/bin/yq
-        fi
+        set -euo pipefail
+
+        curl -fsSL -o /tmp/yq \
+          "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
+        echo "${YQ_SHA256}  /tmp/yq" | sha256sum -c -
+        sudo install -m 0755 /tmp/yq /usr/local/bin/yq
         yq --version
 
     - name: 📝 Write version files
