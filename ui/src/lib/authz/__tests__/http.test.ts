@@ -203,10 +203,12 @@ describe("grant parsing", () => {
     ).toThrow(HttpAuthzError);
   });
 
-  it("parseGrantIntent blocks executable everyone use grants through the generic PAP", () => {
-    expect(() =>
-      parseGrantIntent({ resource: { type: "agent", id: "pe" }, grantee: { type: "everyone" }, capability: "use" }),
-    ).toThrow(HttpAuthzError);
+  it("parseGrantIntent allows everyone use grants for global workflow agent access", () => {
+    expect(parseGrantIntent({ resource: { type: "agent", id: "pe" }, grantee: { type: "everyone" }, capability: "use" })).toEqual({
+      resource: { type: "agent", id: "pe" },
+      grantee: { type: "everyone" },
+      capability: "use",
+    });
   });
 
   it("parseGrantIntent allows explicitly low-risk everyone grants", () => {
