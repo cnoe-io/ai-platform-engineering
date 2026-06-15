@@ -210,6 +210,7 @@ test.describe("mocked service accounts browser regression", () => {
     await createDialog.getByLabel("Name").fill("incident-bot");
     await createDialog.getByLabel(/Description/).fill("PagerDuty integration");
     await createDialog.getByLabel("Owning team").click();
+    await page.getByLabel("Search teams...").fill("sre");
     await page.getByRole("option", { name: /SRE Team/ }).click();
     await createDialog.getByRole("button", { name: "Grant agents you hold..." }).click();
     await page.getByRole("button", { name: "Incident Resolver" }).first().click({ force: true });
