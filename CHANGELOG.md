@@ -1,3 +1,29 @@
+## 0.5.13-dev.4 (2026-06-15)
+
+### Fix
+
+- **rag**: sync uv lock metadata
+
+## 0.5.13-dev.3 (2026-06-15)
+
+### Fix
+
+- **jira-mcp**: add assign_issue tool using dedicated assignee endpoint (#1846)
+
+## 0.5.13-dev.2 (2026-06-15)
+
+### Fix
+
+- **validate**: Remove weather-agent validation (#1790)
+
+## 0.5.13-dev.1 (2026-06-15)
+
+### Fix
+
+- **setup**: production-ready setup-caipe.sh — prereqs, domain/TLS, Keycloak, dynamic agents (#1823)
+
+## 0.5.13 (2026-06-15)
+
 ## 0.5.12-dev.9 (2026-06-15)
 
 ### Feat
