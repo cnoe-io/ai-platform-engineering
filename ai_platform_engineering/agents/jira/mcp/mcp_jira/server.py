@@ -66,6 +66,7 @@ def main():
     mcp.tool()(issues.get_issue)
     mcp.tool()(issues.create_issue)
     mcp.tool()(issues.update_issue)
+    mcp.tool()(issues.assign_issue)
     mcp.tool()(issues.create_issue_link)
     mcp.tool()(issues.remove_issue_link)
     mcp.tool()(search.search)
