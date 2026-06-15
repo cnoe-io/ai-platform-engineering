@@ -196,6 +196,7 @@ caipe-ui-e2e-rbac: ## Run mocked RBAC Playwright regression (dev server on :3000
 			e2e/rbac/workflow-agent-access.spec.ts \
 			e2e/rbac/rbac-admin-regression.spec.ts \
 			e2e/rbac/mcp-openfga-tuples.spec.ts \
+			e2e/rbac/admin-settings-regression.spec.ts \
 			--config=playwright.rbac.config.ts
 
 migrate-canonical-team-membership: ## Backfill team_membership_sources from legacy teams.members[] and $$unset the field. Dry-run by default; APPLY=1 to apply.
