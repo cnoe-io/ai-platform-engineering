@@ -114,6 +114,9 @@ mcp_auth_enabled = os.getenv("MCP_AUTH_ENABLED", "true").lower() in ("true", "1"
 sleep_on_init_failure = int(os.getenv("SLEEP_ON_INIT_FAILURE_SECONDS", 0))  # seconds to sleep on init failure before shutdown
 max_documents_per_ingest = int(os.getenv("MAX_DOCUMENTS_PER_INGEST", 1000))  # max number of documents to ingest per ingestion request
 max_local_file_upload_bytes = int(os.getenv("MAX_LOCAL_FILE_UPLOAD_BYTES", str(10 * 1024 * 1024)))
+max_local_file_total_upload_bytes = int(os.getenv("MAX_LOCAL_FILE_TOTAL_UPLOAD_BYTES", str(25 * 1024 * 1024)))
+max_local_file_pdf_pages = int(os.getenv("MAX_LOCAL_FILE_PDF_PAGES", 100))
+max_local_file_extracted_chars = int(os.getenv("MAX_LOCAL_FILE_EXTRACTED_CHARS", str(2 * 1024 * 1024)))
 max_results_per_query = int(os.getenv("MAX_RESULTS_PER_QUERY", 100))  # max results per query (matches QueryRequest.limit le=100)
 confluence_url = os.getenv("CONFLUENCE_URL")  # optional - base URL for Confluence instance (e.g., https://company.atlassian.net/wiki)
 
@@ -1186,6 +1189,17 @@ LOCAL_FILE_TEXT_MIME_TYPES = {
   "text/x-markdown",
   "application/markdown",
 }
+LOCAL_FILE_PDF_MIME_TYPES = {"application/pdf"}
+LOCAL_FILE_MARKDOWN_EXTENSIONS = {".md", ".markdown"}
+LOCAL_FILE_TEXT_EXTENSIONS = {".txt", ".text"}
+LOCAL_FILE_PDF_EXTENSIONS = {".pdf"}
+# assisted-by Codex Codex-sonnet-4-6
+LOCAL_FILE_FORBIDDEN_TEXT_PREFIXES = (
+  "<!doctype html",
+  "<html",
+  "<script",
+  "<?xml",
+)
 
 
 def _safe_upload_filename(filename: str | None) -> str:
@@ -1193,11 +1207,16 @@ def _safe_upload_filename(filename: str | None) -> str:
   return candidate or "uploaded-file"
 
 
-def _local_file_document_type(filename: str, content_type: str | None) -> str:
+def _local_file_extension(filename: str) -> str:
   lower = filename.lower()
-  if lower.endswith(".pdf") or content_type == "application/pdf":
+  return f".{lower.rsplit('.', 1)[1]}" if "." in lower else ""
+
+
+def _local_file_document_type(filename: str, content_type: str | None) -> str:
+  extension = _local_file_extension(filename)
+  if extension in LOCAL_FILE_PDF_EXTENSIONS or content_type == "application/pdf":
     return "pdf"
-  if lower.endswith((".md", ".markdown")) or content_type in {"text/markdown", "text/x-markdown", "application/markdown"}:
+  if extension in LOCAL_FILE_MARKDOWN_EXTENSIONS or content_type in {"text/markdown", "text/x-markdown", "application/markdown"}:
     return "markdown"
   return "text"
 
@@ -1209,69 +1228,156 @@ def _local_file_datasource_id(filename: str, content: bytes) -> str:
   return f"src_file_{clean[:80] or 'upload'}_{digest}"
 
 
+def _local_files_datasource_id(files: list[tuple[str, bytes]]) -> str:
+  digest = hashlib.sha256()
+  for filename, content in files:
+    digest.update(filename.encode("utf-8"))
+    digest.update(b"\0")
+    digest.update(hashlib.sha256(content).hexdigest().encode("ascii"))
+    digest.update(b"\0")
+  first_filename = files[0][0] if files else "upload"
+  stem = first_filename.rsplit(".", 1)[0] if "." in first_filename else first_filename
+  clean = "".join(char.lower() if char.isalnum() else "_" for char in stem).strip("_")
+  if len(files) == 1:
+    return f"src_file_{clean[:80] or 'upload'}_{digest.hexdigest()[:12]}"
+  return f"src_file_{clean[:64] or 'upload'}_{len(files)}_files_{digest.hexdigest()[:12]}"
+
+
 def _extract_local_file_text(filename: str, content_type: str | None, content: bytes) -> tuple[str, str]:
   document_type = _local_file_document_type(filename, content_type)
   if document_type in {"markdown", "text"}:
-    return content.decode("utf-8-sig", errors="replace"), document_type
+    text = content.decode("utf-8-sig", errors="replace")
+    if len(text) > max_local_file_extracted_chars:
+      raise HTTPException(status_code=413, detail=f"Extracted text exceeds the {max_local_file_extracted_chars} character limit")
+    return text, document_type
 
   if document_type == "pdf":
     try:
       reader = PdfReader(BytesIO(content))
+      if reader.is_encrypted:
+        raise HTTPException(status_code=400, detail="Encrypted PDFs are not supported")
+      if len(reader.pages) > max_local_file_pdf_pages:
+        raise HTTPException(status_code=413, detail=f"PDF exceeds the {max_local_file_pdf_pages} page limit")
       text = "\n\n".join((page.extract_text() or "").strip() for page in reader.pages).strip()
+    except HTTPException:
+      raise
     except Exception as exc:
       raise HTTPException(status_code=400, detail=f"Could not extract text from PDF: {type(exc).__name__}") from exc
     if not text:
       raise HTTPException(status_code=400, detail="PDF did not contain extractable text")
+    if len(text) > max_local_file_extracted_chars:
+      raise HTTPException(status_code=413, detail=f"Extracted text exceeds the {max_local_file_extracted_chars} character limit")
     return text, document_type
 
   raise HTTPException(status_code=415, detail="Unsupported file type")
 
 
+def _content_looks_like_text_document(content: bytes) -> bool:
+  sample = content[:4096]
+  if b"\x00" in sample:
+    return False
+  stripped = sample.lstrip().lower()
+  for prefix in LOCAL_FILE_FORBIDDEN_TEXT_PREFIXES:
+    if stripped.startswith(prefix.encode()):
+      return False
+  return True
+
+
+def _validate_local_file_declared_type(filename: str, content_type: str) -> str:
+  extension = _local_file_extension(filename)
+  if extension not in LOCAL_FILE_ALLOWED_EXTENSIONS:
+    raise HTTPException(status_code=415, detail="Only Markdown, PDF, and plain text uploads are supported")
+
+  if extension in LOCAL_FILE_PDF_EXTENSIONS:
+    if content_type and content_type not in LOCAL_FILE_PDF_MIME_TYPES:
+      raise HTTPException(status_code=415, detail="PDF uploads must use application/pdf")
+    return "pdf"
+
+  if extension in LOCAL_FILE_MARKDOWN_EXTENSIONS:
+    if content_type and content_type not in LOCAL_FILE_TEXT_MIME_TYPES:
+      raise HTTPException(status_code=415, detail="Markdown uploads must use a text or markdown content type")
+    return "markdown"
+
+  if content_type and content_type not in LOCAL_FILE_TEXT_MIME_TYPES:
+    raise HTTPException(status_code=415, detail="Text uploads must use a text content type")
+  return "text"
+
+
 def _validate_local_file_upload(file: UploadFile, content: bytes) -> str:
   filename = _safe_upload_filename(file.filename)
-  lower = filename.lower()
-  extension_ok = any(lower.endswith(ext) for ext in LOCAL_FILE_ALLOWED_EXTENSIONS)
   content_type = (file.content_type or "").lower()
-  mime_ok = content_type in LOCAL_FILE_TEXT_MIME_TYPES or content_type == "application/pdf"
-  if not extension_ok and not mime_ok:
-    raise HTTPException(status_code=415, detail="Only Markdown, PDF, and plain text uploads are supported")
   if not content:
     raise HTTPException(status_code=400, detail="Uploaded file is empty")
   if len(content) > max_local_file_upload_bytes:
     raise HTTPException(status_code=413, detail=f"File exceeds the {max_local_file_upload_bytes} byte upload limit")
+  document_type = _validate_local_file_declared_type(filename, content_type)
+  if document_type == "pdf":
+    if not content.startswith(b"%PDF-"):
+      raise HTTPException(status_code=415, detail="PDF upload content did not match the expected file signature")
+  elif not _content_looks_like_text_document(content):
+    raise HTTPException(status_code=415, detail="Text upload content did not match the expected safe text format")
   return filename
+
+
+def _validate_local_file_batch(files: list[tuple[str, bytes]]) -> None:
+  if not files:
+    raise HTTPException(status_code=400, detail="At least one file is required")
+  if len(files) > max_documents_per_ingest:
+    raise HTTPException(status_code=413, detail=f"Upload contains more than the {max_documents_per_ingest} file limit")
+  total_size = sum(len(content) for _, content in files)
+  if total_size > max_local_file_total_upload_bytes:
+    raise HTTPException(status_code=413, detail=f"Upload exceeds the {max_local_file_total_upload_bytes} byte batch limit")
 
 
 @app.post("/v1/ingest/local-file", status_code=status.HTTP_202_ACCEPTED)
 async def ingest_local_file(
   request: Request,
-  file: UploadFile = File(...),
+  files: List[UploadFile] = File(..., alias="file"),
   description: str = Form(""),
   owner_team_slug: Optional[str] = Form(None),
   chunk_size: int = Form(10000),
   chunk_overlap: int = Form(2000),
   user: UserContext = Depends(require_authenticated_user),
 ):
-  """Ingest a local Markdown, PDF, or text file as a new data source."""
+  """Ingest one or more local Markdown, PDF, or text files as a new data source."""
   if not metadata_storage or not jobmanager or not ingestor:
     raise HTTPException(status_code=500, detail="Server not initialized")
 
-  content = await file.read()
-  filename = _validate_local_file_upload(file, content)
-  text, document_type = _extract_local_file_text(filename, file.content_type, content)
-  datasource_id = _local_file_datasource_id(filename, content)
+  uploads: list[tuple[UploadFile, str, bytes, str, str]] = []
+  for upload_file in files:
+    content = await upload_file.read()
+    try:
+      filename = _validate_local_file_upload(upload_file, content)
+      text, document_type = _extract_local_file_text(filename, upload_file.content_type, content)
+    except HTTPException as exc:
+      safe_filename = _safe_upload_filename(upload_file.filename)
+      logger.warning(
+        "local_file_upload rejected filename=%s content_type=%s bytes=%d status=%d detail=%s user=%s",
+        safe_filename,
+        upload_file.content_type,
+        len(content),
+        exc.status_code,
+        exc.detail,
+        user.email,
+      )
+      raise
+    uploads.append((upload_file, filename, content, text, document_type))
+
+  _validate_local_file_batch([(filename, content) for _, filename, content, _, _ in uploads])
+  total_bytes = sum(len(content) for _, _, content, _, _ in uploads)
+  datasource_id = _local_files_datasource_id([(filename, content) for _, filename, content, _, _ in uploads])
   await authorize_datasource_create(request, user, datasource_id, owner_team_slug)
 
   existing_datasource = await metadata_storage.get_datasource_info(datasource_id)
   if existing_datasource:
-    raise HTTPException(status_code=400, detail="File already ingested, please delete existing datasource before re-ingesting")
+    raise HTTPException(status_code=400, detail="File set already ingested, please delete existing datasource before re-ingesting")
 
   job_id = str(uuid.uuid4())
   success = await jobmanager.upsert_job(
     job_id,
     status=JobStatus.IN_PROGRESS,
-    message="Ingesting uploaded file...",
-    total=1,
+    message="Ingesting uploaded file..." if len(uploads) == 1 else f"Ingesting {len(uploads)} uploaded files...",
+    total=len(uploads),
     datasource_id=datasource_id,
   )
   if not success:
@@ -1280,59 +1386,83 @@ async def ingest_local_file(
   bounded_chunk_size = max(100, min(chunk_size, 100000))
   bounded_chunk_overlap = max(0, min(chunk_overlap, 10000, bounded_chunk_size - 1))
   now = int(time.time())
+  first_filename = uploads[0][1]
+  datasource_name = first_filename if len(uploads) == 1 else f"{first_filename} + {len(uploads) - 1} files"
+  file_metadata = [
+    {
+      "filename": filename,
+      "content_type": upload_file.content_type,
+      "document_type": document_type,
+      "byte_size": len(content),
+    }
+    for upload_file, filename, content, _, document_type in uploads
+  ]
   datasource_info = DataSourceInfo(
     datasource_id=datasource_id,
-    name=filename,
+    name=datasource_name,
     ingestor_id=LOCAL_FILE_INGESTOR_ID,
-    description=description or f"Uploaded file {filename}",
+    description=description or (f"Uploaded file {first_filename}" if len(uploads) == 1 else f"Uploaded {len(uploads)} files"),
     source_type="local_file",
     last_updated=now,
     default_chunk_size=bounded_chunk_size,
     default_chunk_overlap=bounded_chunk_overlap,
     metadata={
-      "filename": filename,
-      "content_type": file.content_type,
-      "document_type": document_type,
-      "byte_size": len(content),
+      "filename": first_filename,
+      "file_count": len(uploads),
+      "total_byte_size": total_bytes,
+      "files": file_metadata,
     },
   )
 
   await metadata_storage.store_datasource_info(datasource_info)
   await write_datasource_ownership(datasource_id, owner_team_slug, user)
 
-  document_metadata = {
-    "document_id": f"{datasource_id}__{hashlib.sha256(filename.encode()).hexdigest()[:8]}",
-    "datasource_id": datasource_id,
-    "ingestor_id": LOCAL_FILE_INGESTOR_ID,
-    "title": filename,
-    "description": description or "",
-    "is_structured_entity": False,
-    "document_type": document_type,
-    "document_ingested_at": now,
-    "fresh_until": get_fresh_until(datasource_info.reload_interval),
-    "metadata": {
-      "source": filename,
-      "filename": filename,
-      "content_type": file.content_type,
-      "byte_size": len(content),
-    },
-  }
+  fresh_until = get_fresh_until(datasource_info.reload_interval)
+  documents = []
+  for upload_file, filename, content, text, document_type in uploads:
+    document_metadata = {
+      "document_id": f"{datasource_id}__{hashlib.sha256(filename.encode()).hexdigest()[:8]}",
+      "datasource_id": datasource_id,
+      "ingestor_id": LOCAL_FILE_INGESTOR_ID,
+      "title": filename,
+      "description": description or "",
+      "is_structured_entity": False,
+      "document_type": document_type,
+      "document_ingested_at": now,
+      "fresh_until": fresh_until,
+      "metadata": {
+        "source": filename,
+        "filename": filename,
+        "content_type": upload_file.content_type,
+        "byte_size": len(content),
+      },
+    }
+    documents.append(Document(page_content=text, metadata=document_metadata))
+    logger.info(
+      "local_file_upload accepted filename=%s content_type=%s bytes=%d document_type=%s datasource_id=%s user=%s",
+      filename,
+      upload_file.content_type,
+      len(content),
+      document_type,
+      datasource_id,
+      user.email,
+    )
 
   try:
     await ingestor.ingest_documents(
       ingestor_id=LOCAL_FILE_INGESTOR_ID,
       datasource_id=datasource_id,
       job_id=job_id,
-      documents=[Document(page_content=text, metadata=document_metadata)],
-      fresh_until=document_metadata["fresh_until"],
+      documents=documents,
+      fresh_until=fresh_until,
       chunk_overlap=bounded_chunk_overlap,
       chunk_size=bounded_chunk_size,
     )
     await jobmanager.upsert_job(
       job_id,
       status=JobStatus.COMPLETED,
-      message="Uploaded file ingested successfully",
-      total=1,
+      message="Uploaded file ingested successfully" if len(uploads) == 1 else f"Uploaded {len(uploads)} files ingested successfully",
+      total=len(uploads),
       datasource_id=datasource_id,
     )
   except Exception as exc:
@@ -1348,7 +1478,7 @@ async def ingest_local_file(
   return {
     "datasource_id": datasource_id,
     "job_id": job_id,
-    "message": "Local file ingested successfully",
+    "message": "Local file ingested successfully" if len(uploads) == 1 else "Local files ingested successfully",
   }
 
 

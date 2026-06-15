@@ -406,7 +406,7 @@ test.describe("mocked MCP OpenFGA tuple browser regression", () => {
     await expect(page.getByText("No MCP Servers Yet")).toHaveCount(0);
   });
 
-  test("uploads local files as multipart FormData from the ingest UI", async ({ page }) => {
+  test("uploads multiple local files as multipart FormData from the ingest UI", async ({ page }) => {
     const mocks = await installRagFileIngestMocks(page);
 
     await page.goto("/knowledge-bases/ingest", { waitUntil: "domcontentloaded" });
@@ -414,11 +414,18 @@ test.describe("mocked MCP OpenFGA tuple browser regression", () => {
 
     await page.getByRole("button", { name: "File" }).click();
     const fileInput = page.locator('input[type="file"]');
-    await fileInput.setInputFiles({
-      name: "playwright-rbac.md",
-      mimeType: "text/markdown",
-      buffer: Buffer.from("# RBAC fixture\n\nUploaded by Playwright.\n"),
-    });
+    await fileInput.setInputFiles([
+      {
+        name: "playwright-rbac.md",
+        mimeType: "text/markdown",
+        buffer: Buffer.from("# RBAC fixture\n\nUploaded by Playwright.\n"),
+      },
+      {
+        name: "playwright-rbac-notes.txt",
+        mimeType: "text/plain",
+        buffer: Buffer.from("Second local file in the same datasource.\n"),
+      },
+    ]);
 
     const uploadResponse = page.waitForResponse(
       (response) =>
@@ -431,7 +438,9 @@ test.describe("mocked MCP OpenFGA tuple browser regression", () => {
     await expect.poll(() => mocks.uploadRequests.length).toBe(1);
     expect(mocks.uploadRequests[0].contentType).toContain("multipart/form-data");
     expect(mocks.uploadRequests[0].body).toContain('name="file"; filename="playwright-rbac.md"');
+    expect(mocks.uploadRequests[0].body).toContain('name="file"; filename="playwright-rbac-notes.txt"');
     expect(mocks.uploadRequests[0].body).toContain("Uploaded by Playwright.");
+    expect(mocks.uploadRequests[0].body).toContain("Second local file in the same datasource.");
     expect(mocks.uploadRequests[0].body).toContain('name="chunk_size"');
     expect(mocks.uploadRequests[0].body).toContain("10000");
     expect(mocks.uploadRequests[0].body).toContain('name="chunk_overlap"');

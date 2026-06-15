@@ -189,14 +189,14 @@ export const ingestUrl = async (params: {
 };
 
 export const ingestLocalFile = async (params: {
-    file: File;
+    files: File[];
     description?: string;
     owner_team_slug?: string;
     chunk_size?: number;
     chunk_overlap?: number;
 }): Promise<{ datasource_id: string | null; job_id: string | null; message: string }> => {
     const form = new FormData();
-    form.append('file', params.file);
+    params.files.forEach((file) => form.append('file', file));
     if (params.description) form.append('description', params.description);
     if (params.owner_team_slug) form.append('owner_team_slug', params.owner_team_slug);
     if (params.chunk_size !== undefined) form.append('chunk_size', String(params.chunk_size));

@@ -213,7 +213,7 @@ export default function IngestView() {
 
   // Ingestion state
   const [url, setUrl] = useState('')
-  const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([])
   const [ingestType, setIngestType] = useState<string>('web')
   const [description, setDescription] = useState('')
   const [includeSubPages, setIncludeSubPages] = useState(false)
@@ -875,7 +875,7 @@ export default function IngestView() {
   const ingestOwnerTeamMissing = ingestOwnerTeamRequired && !ingestOwnerTeamSlug
 
   const handleIngest = async () => {
-    if (ingestType === 'file' && !selectedFile) return
+    if (ingestType === 'file' && selectedFiles.length === 0) return
     if (ingestType !== 'file' && !url) return
     if (ingestOwnerTeamMissing) {
       toast('Select an owning team for this data source', 'error')
@@ -885,7 +885,7 @@ export default function IngestView() {
     try {
       const response = ingestType === 'file'
         ? await ingestLocalFile({
-            file: selectedFile!,
+            files: selectedFiles,
             description,
             owner_team_slug: ingestOwnerTeamSlug || undefined,
             chunk_size: chunkSize,
@@ -927,7 +927,7 @@ export default function IngestView() {
         }
       }
       setUrl('')
-      setSelectedFile(null)
+      setSelectedFiles([])
       setDescription('')
       setIngestOwnerTeamSlug('')
     } catch (error: any) {
@@ -1113,7 +1113,7 @@ export default function IngestView() {
             {/* Source Input */}
             <div className="mb-4">
               <label className="block text-sm font-medium text-muted-foreground mb-2">
-                {ingestType === 'file' ? 'File' : 'URL'}
+                {ingestType === 'file' ? 'Files' : 'URL'}
               </label>
               <div className="flex gap-2">
                 <div className="relative flex-1">
@@ -1123,9 +1123,17 @@ export default function IngestView() {
                       <Input
                         type="file"
                         accept=".md,.markdown,.pdf,.txt,text/markdown,text/plain,application/pdf"
-                        onChange={(e) => setSelectedFile(e.target.files?.[0] ?? null)}
+                        multiple
+                        onChange={(e) => setSelectedFiles(Array.from(e.target.files ?? []))}
                         className="pl-10"
                       />
+                      {selectedFiles.length > 0 && (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {selectedFiles.length === 1
+                            ? selectedFiles[0].name
+                            : `${selectedFiles.length} files selected: ${selectedFiles.map((file) => file.name).join(', ')}`}
+                        </p>
+                      )}
                     </>
                   ) : (
                     <>
@@ -1144,7 +1152,7 @@ export default function IngestView() {
                 <Button
                   onClick={handleIngest}
                   disabled={
-                    (ingestType === 'file' ? !selectedFile : !url) ||
+                    (ingestType === 'file' ? selectedFiles.length === 0 : !url) ||
                     !hasPermission(Permission.INGEST) ||
                     ingestOwnerTeamMissing
                   }
@@ -1154,7 +1162,9 @@ export default function IngestView() {
                       : ingestOwnerTeamMissing
                         ? 'Select an owning team for this data source'
                         : ingestType === 'file'
-                          ? 'Ingest this file'
+                          ? selectedFiles.length > 1
+                            ? `Ingest ${selectedFiles.length} files`
+                            : 'Ingest this file'
                           : 'Ingest this URL'
                   }
                 >
