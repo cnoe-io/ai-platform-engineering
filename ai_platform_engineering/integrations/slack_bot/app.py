@@ -1,5 +1,6 @@
 # Copyright 2025 CNOE Contributors
 # SPDX-License-Identifier: Apache-2.0
+# ruff: noqa: E402
 """
 CAIPE Slack Bot - Entry Point
 
