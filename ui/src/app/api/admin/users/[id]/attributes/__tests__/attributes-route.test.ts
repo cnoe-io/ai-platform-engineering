@@ -12,11 +12,14 @@
  *  - a caller with no grant is denied 403;
  *  - the writable-key whitelist (400 on a disallowed key, incl. created_by);
  *  - body validation (non-object body, empty attributes, non-string-array).
+ *
+ * assisted-by Codex Codex-sonnet-4-6
  */
 
+import { ApiError } from "@/lib/api-error";
 import { NextRequest } from "next/server";
 
-const mockCheckOpenFgaTuple = jest.fn();
+const mockRequireResourcePermission = jest.fn();
 const mockMergeUserAttributes = jest.fn();
 
 jest.mock("next-auth", () => ({
@@ -43,8 +46,9 @@ jest.mock("@/lib/jwt-validation", () => ({
   })),
 }));
 
-jest.mock("@/lib/rbac/openfga", () => ({
-  checkOpenFgaTuple: (...args: unknown[]) => mockCheckOpenFgaTuple(...args),
+jest.mock("@/lib/rbac/resource-authz", () => ({
+  requireResourcePermission: (...args: unknown[]) =>
+    mockRequireResourcePermission(...args),
 }));
 
 jest.mock("@/lib/rbac/audit", () => ({
@@ -73,19 +77,20 @@ function request(id: string, body: unknown) {
 
 // Grant `writer admin_surface:user_directory` to the bot SA.
 function grantDirectoryWriter() {
-  mockCheckOpenFgaTuple.mockImplementation(
-    async (tuple: { user: string; relation: string; object: string }) => ({
-      allowed:
-        tuple.user === "service_account:slack-bot-sub" &&
-        tuple.relation === "can_write" &&
-        tuple.object === "admin_surface:user_directory",
-    })
-  );
+  mockRequireResourcePermission.mockResolvedValue(undefined);
 }
 
 beforeEach(() => {
   jest.clearAllMocks();
-  mockCheckOpenFgaTuple.mockResolvedValue({ allowed: false });
+  mockRequireResourcePermission.mockRejectedValue(
+    new ApiError(
+      "You do not have permission to access this resource.",
+      403,
+      "admin_surface#write",
+      "pdp_denied",
+      "contact_admin"
+    )
+  );
   mockMergeUserAttributes.mockResolvedValue(undefined);
 });
 
@@ -108,12 +113,7 @@ describe("PATCH /api/admin/users/[id]/attributes", () => {
   });
 
   it("allows an org admin via the can_manage bypass", async () => {
-    mockCheckOpenFgaTuple.mockImplementation(
-      async (tuple: { relation: string; object: string }) => ({
-        allowed:
-          tuple.relation === "can_manage" && tuple.object === "organization:caipe",
-      })
-    );
+    mockRequireResourcePermission.mockResolvedValue(undefined);
 
     const { PATCH } = await import("../route");
     const { req, context } = request("kc-uuid-2", {
@@ -122,6 +122,11 @@ describe("PATCH /api/admin/users/[id]/attributes", () => {
     const response = await PATCH(req, context);
 
     expect(response.status).toBe(200);
+    expect(mockRequireResourcePermission).toHaveBeenCalledWith(
+      expect.objectContaining({ sub: "slack-bot-sub" }),
+      { type: "admin_surface", id: "user_directory", action: "write" },
+      { bypassForOrgAdmin: true }
+    );
     expect(mockMergeUserAttributes).toHaveBeenCalledWith("kc-uuid-2", {
       slack_preauth_prompted_at: ["1700000000"],
     });
