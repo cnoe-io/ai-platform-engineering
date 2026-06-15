@@ -44,45 +44,21 @@ def test_policy_file_exists():
 
 
 def test_readonly_tools_allowed_for_github():
-    """Test that read-only GitHub tools are allowed for github subagent."""
+    """Test that gh-backed GitHub tools are allowed for github subagent."""
     middleware = PolicyMiddleware(policy_path=TEST_POLICY_PATH, agent_name="github", agent_type="subagent")
     
-    readonly_tools = [
-        "get_me",
-        "get_team_members", 
-        "get_teams",
-        "get_label",
-        "issue_read",
-        "list_issue_types",
-        "list_issues",
-        "search_issues",
-        "list_pull_requests",
-        "pull_request_read",
-        "search_pull_requests",
-        "get_commit",
-        "get_file_contents",
-        "get_latest_release",
-        "get_release_by_tag",
-        "get_tag",
-        "list_branches",
-        "list_commits",
-        "list_releases",
-        "list_tags",
-        "search_code",
-        "search_repositories",
-        "search_users",
-    ]
+    readonly_tools = ["gh_cli_execute", "get_file_contents"]
     
     for tool in readonly_tools:
         allowed = middleware._is_allowed(tool)
         print(f"  {tool}: {'✅ allowed' if allowed else '❌ denied'}")
-        assert allowed, f"Read-only tool '{tool}' should be allowed for github agent"
+        assert allowed, f"GitHub tool '{tool}' should be allowed for github agent"
     
-    print(f"\n✅ All {len(readonly_tools)} read-only tools correctly allowed")
+    print(f"\n✅ All {len(readonly_tools)} gh-backed GitHub tools correctly allowed")
 
 
 def test_write_tools_denied_for_github():
-    """Test that write GitHub tools are denied for github subagent (without self-service mode)."""
+    """Test that removed GitHub MCP tools are denied for github subagent."""
     with patch(
         "ai_platform_engineering.utils.mongodb_client.get_policy_from_mongodb",
         return_value=None,
@@ -93,14 +69,19 @@ def test_write_tools_denied_for_github():
             policy_path=_GITHUB_SUBAGENT_POLICY_LP,
         )
 
-        # These tools are always denied (not available even in self-service mode)
-        write_tools = [
+        removed_mcp_tools = [
             "add_issue_comment",
             "assign_copilot_to_issue",
+            "create_branch",
+            "create_or_update_file",
+            "create_pull_request",
+            "create_repository",
             "issue_write",
             "sub_issue_write",
             "add_comment_to_pending_review",
+            "fork_repository",
             "merge_pull_request",
+            "push_files",
             "pull_request_review_write",
             "request_copilot_review",
             "update_pull_request",
@@ -108,16 +89,16 @@ def test_write_tools_denied_for_github():
             "delete_file",
         ]
 
-        for tool in write_tools:
+        for tool in removed_mcp_tools:
             allowed = middleware._is_allowed(tool)
             print(f"  {tool}: {'❌ SHOULD BE DENIED but was allowed' if allowed else '✅ correctly denied'}")
-            assert not allowed, f"Write tool '{tool}' should be DENIED for github agent"
+            assert not allowed, f"Removed GitHub MCP tool '{tool}' should be DENIED for github agent"
 
-        print(f"\n✅ All {len(write_tools)} write tools correctly denied")
+        print(f"\n✅ All {len(removed_mcp_tools)} removed GitHub MCP tools correctly denied")
 
 
-def test_self_service_tools_denied_without_self_service_mode():
-    """Test that self-service tools are denied without self-service mode."""
+def test_removed_mcp_tools_denied_without_self_service_mode():
+    """Test that removed GitHub MCP tools stay denied without self-service mode."""
     with patch(
         "ai_platform_engineering.utils.mongodb_client.get_policy_from_mongodb",
         return_value=None,
@@ -128,7 +109,7 @@ def test_self_service_tools_denied_without_self_service_mode():
             policy_path=_GITHUB_SUBAGENT_POLICY_LP,
         )
 
-        self_service_tools = [
+        removed_tools = [
             "create_repository",
             "create_pull_request",
             "create_branch",
@@ -137,16 +118,16 @@ def test_self_service_tools_denied_without_self_service_mode():
             "fork_repository",
         ]
 
-        for tool in self_service_tools:
+        for tool in removed_tools:
             allowed = middleware._is_allowed(tool)
             print(f"  {tool}: {'❌ SHOULD BE DENIED but was allowed' if allowed else '✅ correctly denied'}")
-            assert not allowed, f"Self-service tool '{tool}' should be DENIED without self-service mode"
+            assert not allowed, f"Removed GitHub MCP tool '{tool}' should be DENIED without self-service mode"
 
-        print("\n✅ Self-service tools correctly denied without self-service mode")
+        print("\n✅ Removed GitHub MCP tools correctly denied without self-service mode")
 
 
-def test_self_service_tools_allowed_with_self_service_mode():
-    """Test that self-service tools are allowed with self-service mode."""
+def test_gh_backed_tools_allowed_with_self_service_mode():
+    """Test that gh-backed GitHub tools remain policy-allowed in self-service mode."""
     from ai_platform_engineering.agents.github.agent_github.tools import self_service_mode_ctx
 
     with patch(
@@ -159,27 +140,20 @@ def test_self_service_tools_allowed_with_self_service_mode():
             policy_path=_GITHUB_SUBAGENT_POLICY_LP,
         )
     
-    self_service_tools = [
-        "create_repository",
-        "create_pull_request",
-        "create_branch",
-        "create_or_update_file",
-        "push_files",
-        "fork_repository",
-    ]
+    gh_backed_tools = ["gh_cli_execute", "get_file_contents"]
     
     # Set self-service mode
     token = self_service_mode_ctx.set(True)
     try:
-        for tool in self_service_tools:
+        for tool in gh_backed_tools:
             allowed = middleware._is_allowed(tool)
             print(f"  {tool} (self_service=True): {'✅ allowed' if allowed else '❌ SHOULD BE ALLOWED but was denied'}")
-            assert allowed, f"Self-service tool '{tool}' should be ALLOWED with self-service mode"
+            assert allowed, f"GitHub tool '{tool}' should be ALLOWED with self-service mode"
     finally:
         # Reset self-service mode
         self_service_mode_ctx.reset(token)
     
-    print("\n✅ Self-service tools correctly allowed with self-service mode")
+    print("\n✅ gh-backed GitHub tools correctly allowed with self-service mode")
 
 
 def test_non_github_agents_allow_all():
@@ -260,8 +234,8 @@ if __name__ == "__main__":
         ("Policy file exists", test_policy_file_exists),
         ("Read-only tools allowed for github", test_readonly_tools_allowed_for_github),
         ("Write tools denied for github", test_write_tools_denied_for_github),
-        ("Self-service tools denied without mode", test_self_service_tools_denied_without_self_service_mode),
-        ("Self-service tools allowed with mode", test_self_service_tools_allowed_with_self_service_mode),
+        ("Removed MCP tools denied without mode", test_removed_mcp_tools_denied_without_self_service_mode),
+        ("gh-backed tools allowed with mode", test_gh_backed_tools_allowed_with_self_service_mode),
         ("Non-GitHub agents allow all", test_non_github_agents_allow_all),
         ("Deep agent allows all", test_deep_agent_allows_all),
         ("Built-in tools allowed", test_builtin_tools_allowed),

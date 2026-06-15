@@ -8,6 +8,7 @@ import base64
 import contextvars
 import json
 import logging
+import mimetypes
 import os
 import re
 import shlex
@@ -77,20 +78,38 @@ def get_task_allowed_tools() -> Optional[list]:
     return getattr(_thread_local, 'task_allowed_tools', None)
 
 
-# Dangerous commands that should be blocked by default
-BLOCKED_COMMAND_PATTERNS = [
-    r"delete\s",
-    r"repo\s+delete",
-    r"secret\s+delete",
-    r"api\s+--method\s+(DELETE|PUT|POST|PATCH)",
-    r"issue\s+delete",
-    r"pr\s+close",
-    r"release\s+delete",
-    r"workflow\s+disable",
-    # SECURITY: block commands that expose credentials
-    r"auth\s+token",       # gh auth token prints raw token to stdout
-    r"auth\s+setup-git",   # gh auth setup-git modifies git credential config
+# Commands that should never run through the agent-facing gh wrapper.
+ABSOLUTELY_BLOCKED_COMMAND_PATTERNS = [
+    # SECURITY: block commands that expose or persist credentials
+    r"(^|\s)auth\s+token(\s|$)",       # gh auth token prints raw token to stdout
+    r"(^|\s)auth\s+setup-git(\s|$)",   # gh auth setup-git modifies git credential config
 ]
+
+# GitHub write commands are allowed only for deterministic self-service tasks or
+# when a caller explicitly constructs GHCLITool(allow_write_operations=True).
+WRITE_COMMAND_PATTERNS = [
+    r"(^|\s)api\s+.*(--method(=|\s+)|-X\s+)(delete|put|post|patch)(\s|$)",
+    r"(^|\s)attestation\s+trusted-root(\s|$)",
+    r"(^|\s)cache\s+delete(\s|$)",
+    r"(^|\s)codespace\s+(create|delete|edit|jupyter|logs|ports|rebuild|ssh|stop)(\s|$)",
+    r"(^|\s)gist\s+(create|delete|edit|rename)(\s|$)",
+    r"(^|\s)gpg-key\s+(add|delete)(\s|$)",
+    r"(^|\s)issue\s+(close|comment|create|delete|develop|edit|lock|pin|reopen|transfer|unlock|unpin)(\s|$)",
+    r"(^|\s)label\s+(clone|create|delete|edit)(\s|$)",
+    r"(^|\s)pr\s+(checkout|close|comment|create|edit|lock|merge|ready|reopen|review|unlock)(\s|$)",
+    r"(^|\s)project\s+.*(create|delete|edit|item-add|item-archive|item-create|item-delete|item-edit)(\s|$)",
+    r"(^|\s)release\s+(create|delete|edit|upload)(\s|$)",
+    r"(^|\s)repo\s+(archive|create|delete|deploy-key|edit|fork|rename|sync)(\s|$)",
+    r"(^|\s)ruleset\s+(check|create|delete|edit)(\s|$)",
+    r"(^|\s)secret\s+(delete|set)(\s|$)",
+    r"(^|\s)ssh-key\s+(add|delete)(\s|$)",
+    r"(^|\s)variable\s+(delete|set)(\s|$)",
+    r"(^|\s)workflow\s+(disable|enable|run)(\s|$)",
+    r"(^|\s)run\s+(cancel|delete|rerun)(\s|$)",
+]
+
+# Backwards-compatible name for tests/imports that referenced the older guard.
+BLOCKED_COMMAND_PATTERNS = ABSOLUTELY_BLOCKED_COMMAND_PATTERNS + WRITE_COMMAND_PATTERNS
 
 # Maximum execution time for gh CLI commands
 GH_CLI_TIMEOUT = int(os.getenv("GH_CLI_MAX_EXECUTION_TIME", "30"))
@@ -101,7 +120,8 @@ MAX_OUTPUT_SIZE = int(os.getenv("GH_CLI_MAX_OUTPUT_SIZE", "50000"))
 
 NO_GITHUB_AUTH_ERROR = (
     "❌ Error: No GitHub auth configured. Set GITHUB_APP_ID + GITHUB_APP_PRIVATE_KEY + "
-    "GITHUB_APP_INSTALLATION_ID for App auth, or GITHUB_PERSONAL_ACCESS_TOKEN for PAT auth."
+    "GITHUB_APP_INSTALLATION_ID for App auth, or GITHUB_PERSONAL_ACCESS_TOKEN, "
+    "GH_TOKEN, or GITHUB_TOKEN for PAT auth."
 )
 
 # Concurrency control - limit parallel gh CLI calls
@@ -117,7 +137,7 @@ class GHCLIToolInput(BaseModel):
             "The gh CLI command to execute. Should be a valid gh CLI command "
             "without the 'gh' prefix. Examples: 'run view 123 --repo org/repo --log', "
             "'pr list --repo org/repo', 'issue list --repo org/repo'. "
-            "The command will be executed with the GITHUB_TOKEN from environment."
+            "The command will be executed with the configured GitHub token."
         )
     )
 
@@ -132,11 +152,23 @@ class GHGetFileContentsInput(BaseModel):
         description="Repository name, for example 'ai-platform-engineering'."
     )
     path: str = Field(
-        description="Path to the file in the repository, for example 'README.md' or 'src/app.py'."
+        default="/",
+        description=(
+            "Path to the file or directory in the repository, for example "
+            "'README.md' or 'src/app.py'. Defaults to '/'."
+        ),
     )
     ref: Optional[str] = Field(
         default=None,
-        description="Optional branch, tag, or commit SHA. Defaults to the repository default branch.",
+        description=(
+            "Optional git ref such as refs/tags/{tag}, refs/heads/{branch}, "
+            "refs/pull/{pr_number}/head, or a branch name. Defaults to the "
+            "repository default branch."
+        ),
+    )
+    sha: Optional[str] = Field(
+        default=None,
+        description="Optional commit SHA. If specified, it is used instead of ref.",
     )
 
 
@@ -159,7 +191,7 @@ class GHCLITool(BaseTool):
         "Supports workflow runs, pull requests, issues, releases, etc. "
         "The command should NOT include the 'gh' prefix - just the subcommand and arguments. "
         "Examples: 'run view 123 --repo org/repo --log', 'pr list --repo org/repo --state open'. "
-        "Write operations (delete, close, disable) are blocked. "
+        "Write operations are blocked unless deterministic self-service mode is active. "
         "Use this tool to fetch GitHub Actions logs from workflow run URLs."
     )
     args_schema: type[BaseModel] = GHCLIToolInput
@@ -188,17 +220,31 @@ class GHCLITool(BaseTool):
         Returns:
             Tuple of (is_valid, error_message)
         """
-        command_lower = command.lower()
-
-        # Block dangerous operations unless explicitly allowed
-        if not self.allow_write_operations:
-            for pattern in BLOCKED_COMMAND_PATTERNS:
-                if re.search(pattern, command_lower):
-                    return False, f"Blocked: Command contains potentially destructive operation '{pattern}'"
+        command_stripped = command.strip()
 
         # Validate command is not empty
-        if not command.strip():
+        if not command_stripped:
             return False, "Command cannot be empty"
+
+        command_lower = command_stripped.lower()
+
+        try:
+            shlex.split(command_stripped)
+        except ValueError as exc:
+            return False, f"Invalid gh CLI command syntax: {exc}"
+
+        for pattern in ABSOLUTELY_BLOCKED_COMMAND_PATTERNS:
+            if re.search(pattern, command_lower):
+                return False, f"Blocked: Command contains unsafe credential operation '{pattern}'"
+
+        writes_allowed = self.allow_write_operations or is_self_service_mode()
+        if not writes_allowed:
+            for pattern in WRITE_COMMAND_PATTERNS:
+                if re.search(pattern, command_lower):
+                    return False, (
+                        "Blocked: GitHub write commands are only allowed in "
+                        "deterministic self-service tasks."
+                    )
 
         return True, ""
 
@@ -302,9 +348,10 @@ class GHGetFileContentsTool(BaseTool):
 
     name: str = "get_file_contents"
     description: str = (
-        "Fetch the decoded contents of a single file from a GitHub repository using gh CLI. "
-        "Use this when you need to read a specific file from a public or private repository. "
-        "Requires owner, repo, and path; optionally accepts ref for a branch, tag, or SHA."
+        "Fetch file contents or directory metadata from a GitHub repository using gh CLI. "
+        "Use this when you need to read a specific file or inspect a repository directory. "
+        "Requires owner and repo; path defaults to '/'. Optionally accepts ref or sha, "
+        "with sha taking precedence over ref."
     )
     args_schema: type[BaseModel] = GHGetFileContentsInput
 
@@ -317,35 +364,161 @@ class GHGetFileContentsTool(BaseTool):
             return f"{field_name} contains unsupported characters"
         return None
 
-    def _build_endpoint(self, owner: str, repo: str, path: str, ref: Optional[str]) -> str:
+    def _build_endpoint(
+        self,
+        owner: str,
+        repo: str,
+        path: str,
+        ref: Optional[str],
+        sha: Optional[str] = None,
+    ) -> str:
         clean_path = path.strip().lstrip("/")
-        encoded_path = quote(clean_path, safe="/")
-        endpoint = f"repos/{owner}/{repo}/contents/{encoded_path}"
-        clean_ref = ref.strip() if ref else None
+        endpoint = f"repos/{owner}/{repo}/contents"
+        if clean_path:
+            endpoint = f"{endpoint}/{quote(clean_path, safe='/')}"
+        clean_ref = sha.strip() if sha and sha.strip() else (ref.strip() if ref else None)
         if clean_ref:
             endpoint = f"{endpoint}?ref={quote(clean_ref, safe='')}"
         return endpoint
+
+    async def _execute_gh_api(
+        self,
+        command_parts: list[str],
+        github_token: str,
+    ) -> tuple[int, bytes, str]:
+        env = os.environ.copy()
+        env["GH_TOKEN"] = github_token
+
+        process = await asyncio.create_subprocess_exec(
+            *command_parts,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=env,
+        )
+
+        try:
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(),
+                timeout=GH_CLI_TIMEOUT,
+            )
+        except asyncio.TimeoutError:
+            process.kill()
+            await process.wait()
+            full_command = " ".join(shlex.quote(part) for part in command_parts)
+            raise TimeoutError(f"Command timed out after {GH_CLI_TIMEOUT}s: {full_command}") from None
+
+        stderr_text = stderr.decode("utf-8", errors="replace") if stderr else ""
+        return process.returncode, stdout or b"", stderr_text
+
+    def _truncate_output(self, output: str, label: str) -> str:
+        if len(output) <= MAX_OUTPUT_SIZE:
+            return output
+        remaining = len(output) - MAX_OUTPUT_SIZE
+        logger.warning("%s truncated to %s chars", label, MAX_OUTPUT_SIZE)
+        return f"{output[:MAX_OUTPUT_SIZE]}\n\n... (truncated {remaining} characters)"
+
+    def _file_metadata(self, payload: dict[str, Any]) -> dict[str, Any]:
+        keys = ("name", "path", "sha", "size", "download_url", "html_url", "git_url", "url")
+        return {key: payload[key] for key in keys if payload.get(key) is not None}
+
+    def _directory_entry_metadata(self, entry: Any) -> dict[str, Any]:
+        if not isinstance(entry, dict):
+            return {"value": entry}
+        keys = ("name", "path", "type", "sha", "size", "download_url", "html_url", "git_url", "url")
+        return {key: entry[key] for key in keys if entry.get(key) is not None}
+
+    def _render_directory_contents(self, payload: list[Any]) -> str:
+        output = json.dumps(
+            {
+                "type": "directory",
+                "entries": [self._directory_entry_metadata(entry) for entry in payload],
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        return sanitize_output(self._truncate_output(output, "gh directory listing output"))
+
+    def _looks_like_text(self, content_bytes: bytes, path: str) -> bool:
+        if not content_bytes:
+            return True
+
+        guessed_type, _ = mimetypes.guess_type(path)
+        if guessed_type:
+            is_text_mime = (
+                guessed_type.startswith("text/")
+                or guessed_type in {"application/json", "application/xml", "application/yaml"}
+                or guessed_type.endswith("+json")
+                or guessed_type.endswith("+xml")
+            )
+            if not is_text_mime:
+                return False
+
+        sample = content_bytes[:4096]
+        if b"\x00" in sample:
+            return False
+
+        try:
+            content_bytes.decode("utf-8")
+        except UnicodeDecodeError:
+            return False
+
+        control_count = sum(1 for byte in sample if byte < 32 and byte not in (9, 10, 13))
+        return control_count <= max(8, len(sample) // 100)
+
+    def _render_file_contents(
+        self,
+        payload: dict[str, Any],
+        content_bytes: bytes,
+        path: str,
+    ) -> str:
+        if self._looks_like_text(content_bytes, path):
+            content = content_bytes.decode("utf-8")
+            return sanitize_output(self._truncate_output(content, "gh file content output"))
+
+        encoded = base64.b64encode(content_bytes).decode("ascii")
+        metadata = self._file_metadata(payload)
+        metadata.update(
+            {
+                "type": "file",
+                "encoding": "base64",
+                "content": encoded,
+                "content_truncated": False,
+            }
+        )
+
+        output = json.dumps(metadata, indent=2, sort_keys=True)
+        if len(output) > MAX_OUTPUT_SIZE:
+            budget = max(0, MAX_OUTPUT_SIZE - (len(output) - len(encoded)) - 200)
+            metadata["content"] = encoded[:budget]
+            metadata["content_truncated"] = True
+            metadata["truncation_note"] = (
+                f"Base64 content truncated from {len(encoded)} characters to fit "
+                f"the {MAX_OUTPUT_SIZE} character tool output limit."
+            )
+            output = json.dumps(metadata, indent=2, sort_keys=True)
+
+        return sanitize_output(self._truncate_output(output, "gh binary file content output"))
 
     async def _arun(
         self,
         owner: str,
         repo: str,
-        path: str,
+        path: str = "/",
         ref: Optional[str] = None,
+        sha: Optional[str] = None,
     ) -> str:
         for value, field_name in ((owner, "owner"), (repo, "repo")):
             error = self._validate_identifier(value, field_name)
             if error:
                 return f"❌ Error: {error}"
 
-        if not path or not path.strip().lstrip("/"):
-            return "❌ Error: path cannot be empty"
+        clean_path = (path or "/").strip() or "/"
 
         github_token = get_github_token()
         if not github_token:
             return NO_GITHUB_AUTH_ERROR
 
-        endpoint = self._build_endpoint(owner.strip(), repo.strip(), path, ref)
+        endpoint = self._build_endpoint(owner.strip(), repo.strip(), clean_path, ref, sha)
         command_parts = ["gh", "api", endpoint, "--method", "GET"]
         full_command = " ".join(shlex.quote(part) for part in command_parts)
 
@@ -353,33 +526,13 @@ class GHGetFileContentsTool(BaseTool):
 
         async with _gh_cli_semaphore:
             try:
-                env = os.environ.copy()
-                env["GH_TOKEN"] = github_token
-
-                process = await asyncio.create_subprocess_exec(
-                    *command_parts,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                    env=env,
-                )
-
-                try:
-                    stdout, stderr = await asyncio.wait_for(
-                        process.communicate(),
-                        timeout=GH_CLI_TIMEOUT,
-                    )
-                except asyncio.TimeoutError:
-                    process.kill()
-                    await process.wait()
-                    return sanitize_output(f"❌ Command timed out after {GH_CLI_TIMEOUT}s: {full_command}")
-
+                returncode, stdout, stderr_text = await self._execute_gh_api(command_parts, github_token)
                 stdout_text = stdout.decode("utf-8", errors="replace") if stdout else ""
-                stderr_text = stderr.decode("utf-8", errors="replace") if stderr else ""
 
-                if process.returncode != 0:
+                if returncode != 0:
                     error_msg = stderr_text or stdout_text or "Unknown error"
-                    logger.warning("gh file fetch failed (exit %s): %s", process.returncode, full_command)
-                    return sanitize_output(f"❌ Command failed (exit {process.returncode}): {error_msg}")
+                    logger.warning("gh file fetch failed (exit %s): %s", returncode, full_command)
+                    return sanitize_output(f"❌ Command failed (exit {returncode}): {error_msg}")
 
                 try:
                     payload = json.loads(stdout_text)
@@ -387,7 +540,7 @@ class GHGetFileContentsTool(BaseTool):
                     return sanitize_output(f"❌ Error: GitHub API returned invalid JSON: {exc}")
 
                 if isinstance(payload, list):
-                    return "❌ Error: path points to a directory. Provide the path to a single file."
+                    return self._render_directory_contents(payload)
 
                 if not isinstance(payload, dict):
                     return "❌ Error: GitHub API returned an unexpected response for this path."
@@ -398,22 +551,46 @@ class GHGetFileContentsTool(BaseTool):
 
                 encoding = payload.get("encoding")
                 raw_content = payload.get("content")
-                if encoding != "base64" or raw_content is None:
-                    return "❌ Error: GitHub API did not return base64 file content for this path."
+                if encoding == "base64" and raw_content is not None:
+                    try:
+                        normalized = "".join(str(raw_content).split())
+                        content_bytes = base64.b64decode(normalized.encode("utf-8"))
+                    except Exception as exc:
+                        return sanitize_output(f"❌ Error: failed to decode GitHub file content: {exc}")
 
-                try:
-                    content_bytes = base64.b64decode(raw_content.encode("utf-8"))
-                    content = content_bytes.decode("utf-8", errors="replace")
-                except Exception as exc:
-                    return sanitize_output(f"❌ Error: failed to decode GitHub file content: {exc}")
+                    return self._render_file_contents(payload, content_bytes, clean_path)
 
-                if len(content) > MAX_OUTPUT_SIZE:
-                    remaining = len(content) - MAX_OUTPUT_SIZE
-                    content = f"{content[:MAX_OUTPUT_SIZE]}\n\n... (truncated {remaining} characters)"
-                    logger.warning("gh file content output truncated to %s chars", MAX_OUTPUT_SIZE)
+                raw_command_parts = [
+                    "gh",
+                    "api",
+                    endpoint,
+                    "--method",
+                    "GET",
+                    "--header",
+                    "Accept: application/vnd.github.raw",
+                ]
+                raw_full_command = " ".join(shlex.quote(part) for part in raw_command_parts)
+                logger.info("Executing gh raw file fetch: %s", raw_full_command)
+                raw_returncode, raw_stdout, raw_stderr_text = await self._execute_gh_api(
+                    raw_command_parts,
+                    github_token,
+                )
+                if raw_returncode != 0:
+                    error_msg = (
+                        raw_stderr_text
+                        or raw_stdout.decode("utf-8", errors="replace")
+                        or "Unknown error"
+                    )
+                    logger.warning("gh raw file fetch failed (exit %s): %s", raw_returncode, raw_full_command)
+                    return sanitize_output(
+                        "❌ Error: GitHub API did not return inline file content, "
+                        f"and raw fetch failed (exit {raw_returncode}): {error_msg}"
+                    )
 
-                return sanitize_output(content)
+                return self._render_file_contents(payload, raw_stdout, clean_path)
 
+            except TimeoutError as exc:
+                return sanitize_output(f"❌ {exc}")
             except FileNotFoundError:
                 return "❌ Error: gh CLI not found. Please ensure it's installed in the container."
             except Exception as exc:
@@ -424,11 +601,12 @@ class GHGetFileContentsTool(BaseTool):
         self,
         owner: str,
         repo: str,
-        path: str,
+        path: str = "/",
         ref: Optional[str] = None,
+        sha: Optional[str] = None,
     ) -> str:
         """Synchronous wrapper - not recommended, use _arun instead."""
-        return asyncio.run(self._arun(owner=owner, repo=repo, path=path, ref=ref))
+        return asyncio.run(self._arun(owner=owner, repo=repo, path=path, ref=ref, sha=sha))
 
 
 def get_gh_cli_tool() -> Optional[GHCLITool]:
@@ -438,7 +616,8 @@ def get_gh_cli_tool() -> Optional[GHCLITool]:
     Returns:
         GHCLITool instance if USE_GH_CLI_AS_TOOL=true, None otherwise
 
-    Note: Write operations are always disabled. Only read operations allowed.
+    Note: Write operations are allowed only when deterministic self-service mode
+          is active; otherwise gh_cli_execute remains read-only.
     """
     use_gh_cli = os.getenv("USE_GH_CLI_AS_TOOL", "true").lower() == "true"
 
@@ -446,8 +625,7 @@ def get_gh_cli_tool() -> Optional[GHCLITool]:
         logger.info("gh CLI tool is disabled (USE_GH_CLI_AS_TOOL=false)")
         return None
 
-    # Always read-only - no delete, close, disable operations
-    logger.info("gh CLI tool enabled (read-only mode)")
+    logger.info("gh CLI tool enabled (self-service-gated write mode)")
 
     return GHCLITool(allow_write_operations=False)
 

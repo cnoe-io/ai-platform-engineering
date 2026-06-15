@@ -51,7 +51,8 @@ class GitHubAgent(BaseLangGraphAgent):
         Supports two authentication modes:
         1. GitHub App (recommended): Set GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY,
            and GITHUB_APP_INSTALLATION_ID for auto-refreshing tokens.
-        2. PAT (fallback): Set GITHUB_PERSONAL_ACCESS_TOKEN for static token auth.
+        2. PAT (fallback): Set GITHUB_PERSONAL_ACCESS_TOKEN, GH_TOKEN, or
+           GITHUB_TOKEN for static token auth.
 
         GitHub operations are handled by local gh CLI-backed tools. The
         GitHub MCP server may still exist elsewhere in the platform, but this
@@ -61,10 +62,15 @@ class GitHubAgent(BaseLangGraphAgent):
         if self._use_app_auth:
             logger.info("GitHub agent using GitHub App authentication (auto-refreshing tokens)")
         else:
-            token = os.getenv("GITHUB_PERSONAL_ACCESS_TOKEN")
+            token = (
+                os.getenv("GITHUB_PERSONAL_ACCESS_TOKEN")
+                or os.getenv("GH_TOKEN")
+                or os.getenv("GITHUB_TOKEN")
+            )
             if not token:
                 logger.warning("No GitHub auth configured. Set GITHUB_APP_ID + GITHUB_APP_PRIVATE_KEY + "
-                               "GITHUB_APP_INSTALLATION_ID for App auth, or GITHUB_PERSONAL_ACCESS_TOKEN for PAT auth.")
+                               "GITHUB_APP_INSTALLATION_ID for App auth, or GITHUB_PERSONAL_ACCESS_TOKEN, "
+                               "GH_TOKEN, or GITHUB_TOKEN for PAT auth.")
 
         super().__init__()
 
@@ -197,7 +203,10 @@ class GitHubAgent(BaseLangGraphAgent):
             repo_name = repo_match.group(1) if repo_match else "repository"
             return f"Repository '{repo_name}' not found. Please check the organization and repository names are correct."
         elif "401" in error_str or "403" in error_str:
-            return "GitHub authentication failed or insufficient permissions. Please check your GITHUB_PERSONAL_ACCESS_TOKEN."
+            return (
+                "GitHub authentication failed or insufficient permissions. Please check "
+                "GITHUB_PERSONAL_ACCESS_TOKEN, GH_TOKEN, or GITHUB_TOKEN."
+            )
         elif "rate limit" in error_str.lower() or "429" in error_str:
             return "GitHub API rate limit exceeded. Please wait a few minutes before trying again."
         elif "timeout" in error_str.lower() or "timed out" in error_str.lower():
