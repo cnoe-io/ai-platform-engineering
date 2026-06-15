@@ -10,6 +10,7 @@ const mockRequireResourcePermission = jest.fn();
 const mockFilterResourcesByPermission = jest.fn();
 const mockReconcileMcpServerRelationships = jest.fn();
 const mockDeleteAllMcpServerRelationshipTuples = jest.fn();
+const mockSyncSelectedAgentGatewayMcpServers = jest.fn();
 let mockSession = { sub: "alice-sub", role: "user", user: { email: "alice@example.com" } };
 let mockPagination = { page: 1, pageSize: 20, skip: 0 };
 
@@ -59,6 +60,10 @@ jest.mock("@/lib/rbac/openfga-owned-resources-reconcile", () => ({
   deleteAllMcpServerRelationshipTuples: (...args: unknown[]) => mockDeleteAllMcpServerRelationshipTuples(...args),
 }));
 
+jest.mock("../mcp-servers/agentgateway/_lib", () => ({
+  syncSelectedAgentGatewayMcpServers: (...args: unknown[]) => mockSyncSelectedAgentGatewayMcpServers(...args),
+}));
+
 function request(path: string, init?: RequestInit): NextRequest {
   return new NextRequest(new URL(path, "http://localhost:3000"), init);
 }
@@ -75,6 +80,7 @@ describe("MCP server per-resource RBAC", () => {
     );
     mockReconcileMcpServerRelationships.mockResolvedValue({ enabled: true, writes: 3, deletes: 0 });
     mockDeleteAllMcpServerRelationshipTuples.mockResolvedValue({ enabled: true, writes: 0, deletes: 3 });
+    mockSyncSelectedAgentGatewayMcpServers.mockResolvedValue({ summary: { added: 0, migrated: 0 } });
   });
 
   it("filters listed MCP servers through mcp_server#read", async () => {
@@ -85,6 +91,7 @@ describe("MCP server per-resource RBAC", () => {
     const toArray = jest.fn().mockResolvedValue(items);
     const sort = jest.fn().mockReturnValue({ toArray });
     mockGetCollection.mockResolvedValue({
+      countDocuments: jest.fn().mockResolvedValue(1),
       find: jest.fn().mockReturnValue({ sort }),
     });
     const { GET } = await import("../mcp-servers/route");
@@ -111,6 +118,7 @@ describe("MCP server per-resource RBAC", () => {
     const toArray = jest.fn().mockResolvedValue(items);
     const sort = jest.fn().mockReturnValue({ toArray });
     mockGetCollection.mockResolvedValue({
+      countDocuments: jest.fn().mockResolvedValue(1),
       find: jest.fn().mockReturnValue({ sort }),
     });
     const { GET } = await import("../mcp-servers/route");
@@ -145,6 +153,7 @@ describe("MCP server per-resource RBAC", () => {
     const toArray = jest.fn().mockResolvedValue(allServers);
     const sort = jest.fn().mockReturnValue({ toArray });
     mockGetCollection.mockResolvedValue({
+      countDocuments: jest.fn().mockResolvedValue(1),
       find: jest.fn().mockReturnValue({ sort }),
     });
 
@@ -168,6 +177,27 @@ describe("MCP server per-resource RBAC", () => {
     });
     expect(sort).toHaveBeenCalledWith({ name: 1 });
     expect(toArray).toHaveBeenCalledTimes(1);
+  });
+
+  it("self-heals AgentGateway-discovered MCP rows before listing an empty discovered set", async () => {
+    const items = [{ _id: "knowledge-base", name: "Knowledge Base" }];
+    mockFilterResourcesByPermission.mockResolvedValue(items);
+    const toArray = jest.fn().mockResolvedValue(items);
+    const sort = jest.fn().mockReturnValue({ toArray });
+    const countDocuments = jest.fn().mockResolvedValue(0);
+    mockGetCollection.mockResolvedValue({
+      countDocuments,
+      find: jest.fn().mockReturnValue({ sort }),
+    });
+    const { GET } = await import("../mcp-servers/route");
+
+    const response = await GET(request("/api/mcp-servers"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(countDocuments).toHaveBeenCalledWith({ source: "agentgateway" });
+    expect(mockSyncSelectedAgentGatewayMcpServers).toHaveBeenCalledTimes(1);
+    expect(body.data.items).toEqual(items);
   });
 
   it("lets a service account create an MCP server with service_account owner tuples", async () => {

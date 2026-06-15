@@ -166,6 +166,63 @@ describe("PUT /api/admin/teams/[id]/resources — MCP OpenFGA tuple integration"
     expect(teamsCol.updateOne).toHaveBeenCalledTimes(1);
   });
 
+  it("re-saves unchanged MCP selections to repair OpenFGA drift", async () => {
+    const teamsCol = createMockCollection();
+    teamsCol.findOne.mockResolvedValue({
+      _id: TEAM_ID,
+      slug: "platform-engineering",
+      resources: {
+        agents: ["hello-world"],
+        tools: ["mcp-confluence-mcp_*"],
+        tool_wildcard: false,
+      },
+    });
+    mockCollections.teams = teamsCol;
+
+    const { PUT } = await import("@/app/api/admin/teams/[id]/resources/route");
+    const response = await PUT(
+      makeRequest(`/api/admin/teams/${TEAM_ID}/resources`, {
+        method: "PUT",
+        body: JSON.stringify({
+          agents: ["hello-world"],
+          tools: ["mcp-confluence-mcp_*"],
+          tool_wildcard: false,
+        }),
+      }),
+      { params: Promise.resolve({ id: TEAM_ID.toString() }) },
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockReconcileTupleDiff).toHaveBeenCalledTimes(1);
+
+    const [tupleDiff] = mockReconcileTupleDiff.mock.calls[0] as [
+      { writes: Array<{ user: string; relation: string; object: string }>; deletes: unknown[] },
+      unknown,
+    ];
+
+    expect(tupleDiff.writes).toEqual(
+      expect.arrayContaining([
+        {
+          user: "team:platform-engineering#member",
+          relation: "caller",
+          object: "tool:mcp-confluence-mcp/*",
+        },
+        {
+          user: "team:platform-engineering#member",
+          relation: "reader",
+          object: "mcp_server:mcp-confluence-mcp",
+        },
+        {
+          user: "agent:hello-world",
+          relation: "caller",
+          object: "tool:mcp-confluence-mcp/*",
+        },
+      ]),
+    );
+    expect(tupleDiff.deletes).toEqual([]);
+    expect(teamsCol.updateOne).toHaveBeenCalledTimes(1);
+  });
+
   it("does not persist Mongo when reconcileTupleDiff rejects the MCP tuple write", async () => {
     const teamsCol = createMockCollection();
     teamsCol.findOne.mockResolvedValue({

@@ -73,6 +73,7 @@ getIngestors,
 getJobsBatch,
 getJobsByDataSource,
 getJobStatus,
+ingestLocalFile,
 ingestUrl,
 JIRA_INGESTOR_ID,
 reloadDataSource,
@@ -212,6 +213,7 @@ export default function IngestView() {
 
   // Ingestion state
   const [url, setUrl] = useState('')
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([])
   const [ingestType, setIngestType] = useState<string>('web')
   const [description, setDescription] = useState('')
   const [includeSubPages, setIncludeSubPages] = useState(false)
@@ -873,38 +875,47 @@ export default function IngestView() {
   const ingestOwnerTeamMissing = ingestOwnerTeamRequired && !ingestOwnerTeamSlug
 
   const handleIngest = async () => {
-    if (!url) return
+    if (ingestType === 'file' && selectedFiles.length === 0) return
+    if (ingestType !== 'file' && !url) return
     if (ingestOwnerTeamMissing) {
       toast('Select an owning team for this data source', 'error')
       return
     }
 
     try {
-      const response = await ingestUrl({
-        url,
-        description: description,
-        ingest_type: ingestType,
-        get_child_pages: ingestType === 'confluence' ? includeSubPages : undefined,
-        owner_team_slug: ingestOwnerTeamSlug || undefined,
-        // ScrapySettings for web ingest type
-        settings: ingestType === 'web' ? {
-          crawl_mode: crawlMode,
-          max_depth: maxDepth,
-          max_pages: maxPages,
-          render_javascript: renderJavascript,
-          wait_for_selector: waitForSelector || null,
-          download_delay: downloadDelay,
-          concurrent_requests: concurrentRequests,
-          respect_robots_txt: respectRobotsTxt,
-          follow_external_links: followExternalLinks,
-          allowed_url_patterns: allowedUrlPatterns ? allowedUrlPatterns.split('\n').filter(p => p.trim()) : null,
-          denied_url_patterns: deniedUrlPatterns ? deniedUrlPatterns.split('\n').filter(p => p.trim()) : null,
-          chunk_size: chunkSize,
-          chunk_overlap: chunkOverlap,
-        } : undefined,
-        // Per-datasource reload interval (null = use global default)
-        reload_interval: ingestType === 'web' ? reloadInterval : undefined,
-      })
+      const response = ingestType === 'file'
+        ? await ingestLocalFile({
+            files: selectedFiles,
+            description,
+            owner_team_slug: ingestOwnerTeamSlug || undefined,
+            chunk_size: chunkSize,
+            chunk_overlap: chunkOverlap,
+          })
+        : await ingestUrl({
+            url,
+            description: description,
+            ingest_type: ingestType,
+            get_child_pages: ingestType === 'confluence' ? includeSubPages : undefined,
+            owner_team_slug: ingestOwnerTeamSlug || undefined,
+            // ScrapySettings for web ingest type
+            settings: ingestType === 'web' ? {
+              crawl_mode: crawlMode,
+              max_depth: maxDepth,
+              max_pages: maxPages,
+              render_javascript: renderJavascript,
+              wait_for_selector: waitForSelector || null,
+              download_delay: downloadDelay,
+              concurrent_requests: concurrentRequests,
+              respect_robots_txt: respectRobotsTxt,
+              follow_external_links: followExternalLinks,
+              allowed_url_patterns: allowedUrlPatterns ? allowedUrlPatterns.split('\n').filter(p => p.trim()) : null,
+              denied_url_patterns: deniedUrlPatterns ? deniedUrlPatterns.split('\n').filter(p => p.trim()) : null,
+              chunk_size: chunkSize,
+              chunk_overlap: chunkOverlap,
+            } : undefined,
+            // Per-datasource reload interval (null = use global default)
+            reload_interval: ingestType === 'web' ? reloadInterval : undefined,
+          })
       const { datasource_id, job_id, message } = response
       await fetchDataSources()
       if (datasource_id) {
@@ -916,6 +927,7 @@ export default function IngestView() {
         }
       }
       setUrl('')
+      setSelectedFiles([])
       setDescription('')
       setIngestOwnerTeamSlug('')
     } catch (error: any) {
@@ -1098,32 +1110,62 @@ export default function IngestView() {
               )}
             </div>
 
-            {/* URL Input */}
+            {/* Source Input */}
             <div className="mb-4">
               <label className="block text-sm font-medium text-muted-foreground mb-2">
-                URL
+                {ingestType === 'file' ? 'Files' : 'URL'}
               </label>
               <div className="flex gap-2">
                 <div className="relative flex-1">
-                  <LinkIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    type="url"
-                    placeholder="https://docs.example.com"
-                    value={url}
-                    onChange={(e) => setUrl(e.target.value)}
-                    className="pl-10"
-                    onKeyDown={(e) => e.key === 'Enter' && handleIngest()}
-                  />
+                  {ingestType === 'file' ? (
+                    <>
+                      <FileText className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        type="file"
+                        accept=".md,.markdown,.pdf,.txt,text/markdown,text/plain,application/pdf"
+                        multiple
+                        onChange={(e) => setSelectedFiles(Array.from(e.target.files ?? []))}
+                        className="pl-10"
+                      />
+                      {selectedFiles.length > 0 && (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {selectedFiles.length === 1
+                            ? selectedFiles[0].name
+                            : `${selectedFiles.length} files selected: ${selectedFiles.map((file) => file.name).join(', ')}`}
+                        </p>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <LinkIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        type="url"
+                        placeholder="https://docs.example.com"
+                        value={url}
+                        onChange={(e) => setUrl(e.target.value)}
+                        className="pl-10"
+                        onKeyDown={(e) => e.key === 'Enter' && handleIngest()}
+                      />
+                    </>
+                  )}
                 </div>
                 <Button
                   onClick={handleIngest}
-                  disabled={!url || !hasPermission(Permission.INGEST) || ingestOwnerTeamMissing}
+                  disabled={
+                    (ingestType === 'file' ? selectedFiles.length === 0 : !url) ||
+                    !hasPermission(Permission.INGEST) ||
+                    ingestOwnerTeamMissing
+                  }
                   title={
                     !hasPermission(Permission.INGEST)
                       ? 'Insufficient permissions to ingest data'
                       : ingestOwnerTeamMissing
                         ? 'Select an owning team for this data source'
-                        : 'Ingest this URL'
+                        : ingestType === 'file'
+                          ? selectedFiles.length > 1
+                            ? `Ingest ${selectedFiles.length} files`
+                            : 'Ingest this file'
+                          : 'Ingest this URL'
                   }
                 >
                   Ingest
@@ -1536,6 +1578,44 @@ export default function IngestView() {
                             </p>
                           </div>
                         </>
+                      )}
+                      {ingestType === 'file' && (
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-sm font-medium text-muted-foreground mb-1">
+                              Chunk Size
+                            </label>
+                            <Input
+                              type="number"
+                              min={100}
+                              max={100000}
+                              step={500}
+                              value={chunkSize}
+                              onChange={(e) => setChunkSize(Number(e.target.value))}
+                              className="w-full"
+                            />
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              Max characters per chunk
+                            </p>
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-muted-foreground mb-1">
+                              Chunk Overlap
+                            </label>
+                            <Input
+                              type="number"
+                              min={0}
+                              max={10000}
+                              step={100}
+                              value={chunkOverlap}
+                              onChange={(e) => setChunkOverlap(Number(e.target.value))}
+                              className="w-full"
+                            />
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              Overlap between chunks
+                            </p>
+                          </div>
+                        </div>
                       )}
                     </div>
                   </motion.div>

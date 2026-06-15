@@ -77,6 +77,13 @@ def test_select_gateway_targets_uses_enabled_agentgateway_rows_only() -> None:
                 "enabled": True,
                 "source": "agentgateway",
                 "agentgateway_target_endpoint": "http://rag-server:9446/mcp",
+                "credential_sources": [
+                    {
+                        "kind": "caller_token",
+                        "target": "header",
+                        "name": "X-CAIPE-Provider-Token",
+                    }
+                ],
             },
             {
                 "_id": "disabled-target",
@@ -108,6 +115,13 @@ def test_select_gateway_targets_uses_enabled_agentgateway_rows_only() -> None:
         bridge.McpGatewayTarget(
             id="knowledge-base",
             upstream_url="http://rag-server:9446/mcp",
+            credential_sources=(
+                {
+                    "kind": "caller_token",
+                    "target": "header",
+                    "name": "X-CAIPE-Provider-Token",
+                },
+            ),
         )
     ]
 
@@ -320,6 +334,71 @@ def test_merge_agentgateway_mcp_routes_applies_knowledge_base_transform() -> Non
     assert transform["authorization"] == (
         '"Bearer " + default(request.headers["x-caipe-provider-token"], "")'
     )
+
+
+def test_merge_agentgateway_mcp_routes_uses_header_credential_sources() -> None:
+    baseline = _baseline_config()
+
+    rendered = bridge.merge_agentgateway_mcp_routes(
+        baseline,
+        [
+            bridge.McpGatewayTarget(
+                id="custom-docs",
+                upstream_url="http://custom-docs:8080/mcp",
+                credential_sources=(
+                    {
+                        "kind": "secret_ref",
+                        "target": "header",
+                        "name": "X-API-Key",
+                        "secret_ref": "cred-custom-docs",
+                    },
+                ),
+            )
+        ],
+    )
+
+    route = next(
+        route
+        for route in rendered["binds"][0]["listeners"][0]["routes"]
+        if route["matches"][0]["path"]["pathPrefix"] == "/mcp/custom-docs"
+    )
+    transform = route["policies"]["transformations"]["request"]["set"]
+    assert transform["x-api-key"] == 'default(request.headers["x-api-key"], "")'
+    assert "secret_ref" not in str(route)
+    assert "cred-custom-docs" not in str(route)
+
+
+def test_merge_agentgateway_mcp_routes_uses_provider_token_source_for_authorization() -> None:
+    baseline = _baseline_config()
+
+    rendered = bridge.merge_agentgateway_mcp_routes(
+        baseline,
+        [
+            bridge.McpGatewayTarget(
+                id="custom-github",
+                upstream_url="http://custom-github:8080/mcp",
+                credential_sources=(
+                    {
+                        "kind": "provider_connection",
+                        "target": "header",
+                        "name": "X-CAIPE-Provider-Token",
+                        "provider": "github",
+                    },
+                ),
+            )
+        ],
+    )
+
+    route = next(
+        route
+        for route in rendered["binds"][0]["listeners"][0]["routes"]
+        if route["matches"][0]["path"]["pathPrefix"] == "/mcp/custom-github"
+    )
+    transform = route["policies"]["transformations"]["request"]["set"]
+    assert transform["authorization"] == (
+        '"Bearer " + default(request.headers["x-caipe-provider-token"], "")'
+    )
+    assert "provider_connection" not in str(route)
 
 
 def test_write_config_atomically_publishes_agentgateway_readable_file(tmp_path: Path) -> None:

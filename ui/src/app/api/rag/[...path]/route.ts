@@ -840,6 +840,8 @@ export async function POST(
     const ragServerUrl = getRagServerUrl();
     const targetPath = path.join('/');
     const targetUrl = `${ragServerUrl}/${targetPath}`;
+    const contentType = request.headers.get('content-type') ?? '';
+    const isMultipart = contentType.toLowerCase().includes('multipart/form-data');
 
     // Parse the JSON body when present. We attempt a parse whenever a
     // content-length is absent-but-nonempty OR positive, because the
@@ -850,7 +852,7 @@ export async function POST(
     let body: unknown = undefined;
     const contentLength = request.headers.get('content-length');
     const hasBody = contentLength === null || parseInt(contentLength) > 0;
-    if (hasBody) {
+    if (hasBody && !isMultipart) {
       try {
         body = await request.json();
       } catch {
@@ -911,7 +913,10 @@ export async function POST(
       headers,
     };
 
-    if (body !== undefined) {
+    if (isMultipart) {
+      delete headers['Content-Type'];
+      fetchOptions.body = await request.formData();
+    } else if (body !== undefined) {
       fetchOptions.body = JSON.stringify(body);
     }
 
