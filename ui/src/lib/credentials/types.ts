@@ -1,4 +1,4 @@
-export type CredentialOwnerType = "organization" | "team" | "user";
+export type CredentialOwnerType = "organization" | "team" | "user" | "service_account";
 export type CredentialSecretType = "api_key" | "basic_auth" | "bearer_token" | "custom";
 export type ProviderConnectionStatus =
   | "connected"
