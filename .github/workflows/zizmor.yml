@@ -1,7 +1,5 @@
 name: "[CI] GitHub Actions Static Analysis"
 
-# assisted-by Codex Codex-sonnet-4-6
-
 on:
   pull_request:
     paths:

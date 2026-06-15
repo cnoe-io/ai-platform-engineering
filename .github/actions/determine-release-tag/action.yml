@@ -4,8 +4,6 @@ description: >
   Supports tag push (primary), workflow_dispatch, and push-to-main (legacy fallback).
   Recognises -dev.N, -rc.N, -hotfix.N, -chart.M suffixes.
 
-# assisted-by Codex Codex-sonnet-4-6
-
 inputs:
   manual_tag:
     description: 'Tag version provided manually (from inputs.tag_version)'

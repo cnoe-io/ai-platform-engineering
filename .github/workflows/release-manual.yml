@@ -1,8 +1,6 @@
 name: "[Release] Manual Version Release"
 description: "Manually trigger a new release by specifying the version"
 
-# assisted-by Codex Codex-sonnet-4-6
-
 on:
   workflow_dispatch:
     inputs:

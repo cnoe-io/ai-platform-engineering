@@ -1,8 +1,6 @@
 name: "[CI] PR Version Bump"
 description: "Automatically bump version files on PRs"
 
-# assisted-by Codex Codex-sonnet-4-6
-
 on:
   pull_request:
     branches:

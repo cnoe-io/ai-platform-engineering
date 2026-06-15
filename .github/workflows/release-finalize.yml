@@ -1,8 +1,6 @@
 name: "[Release] Finalize Release"
 description: "Automatically publish draft release when all CI builds pass"
 
-# assisted-by Codex Codex-sonnet-4-6
-
 on:
   repository_dispatch:
     types: [ci-completed]

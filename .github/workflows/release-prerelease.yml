@@ -1,9 +1,6 @@
 name: "[Release] Pre-release Build"
 description: "Create an rc/hotfix tag on a release/* branch and trigger a coordinated build of all containers and the Helm chart."
 
-# assisted-by claude code claude-sonnet-4-6
-# assisted-by Codex Codex-sonnet-4-6
-
 # Usage:
 #   GitHub UI → Actions → "[Release] Pre-release Build" → Run workflow
 #   gh workflow run release-prerelease.yml -f release_branch=release/0.8.0

@@ -11,8 +11,6 @@ description: >
       the -chart.M suffix on version field in Chart.yaml files of changed charts.
       appVersion, pyproject.toml and uv.lock are left untouched.
 
-# assisted-by Codex Codex-sonnet-4-6
-
 inputs:
   version:
     description: >
