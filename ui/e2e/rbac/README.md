@@ -15,6 +15,7 @@ CAIPE + Keycloak stack:
 | `mcp-openfga-tuples.spec.ts` | Mocked browser regression for team MCP resource saves and MCP server list visibility. |
 | `service-accounts.spec.ts` | Mocked browser regression for Service Accounts create, see-once credential reveal, scope manage, rotate, and revoke UX. |
 | `slack-run-as.spec.ts` | Mocked browser regression for Slack route “Run as Service Account” selection and route-save payload. |
+| `slack-bff-user-directory-live.spec.ts` | Live-stack Slack bot service-account regression for BFF user-directory lookup, federation metadata, validation guardrails, and IdP broker summary. |
 | `mcp-server-create-live.spec.ts` | Live-stack regression for MCP server create → OpenFGA tuple reconcile → BFF list visibility. |
 | `openfga-live.spec.ts` | Live-stack OpenFGA/CAS regression for decisions, grants, revokes, delegation, explain, raw tuple admin APIs, and guardrails. |
 | `resource-lifecycle-live.spec.ts` | Live-stack resource lifecycle matrix for agents, skills, workflows, workflow runs, teams, KB/data-source sharing, credentials, MCP custom headers, and AgentGateway tool-call tuples. |
@@ -119,6 +120,36 @@ automatically; shell-exported values override file values.
        RBAC_USER_PASSWORD=changeme \
        RBAC_USER_SUB=<keycloak-user-id> \
        npm run test:e2e:rbac-live-mcp
+
+## Live Slack bot BFF user-directory regression
+
+`slack-bff-user-directory-live.spec.ts` covers the Slack bot’s BFF-only
+Keycloak access path. It obtains a Slack bot service-account token with
+`SLACK_INTEGRATION_AUTH_*`, calls the real BFF endpoints, and verifies:
+
+* unauthenticated Slack-source calls are denied,
+* `GET /api/admin/users/resolve?id=...` returns `{sub, enabled, attributes,
+  federatedIdentities}`,
+* a missing id returns `data:null` with HTTP 200,
+* ambiguous locators and disallowed attributes fail with stable 400 codes,
+* optional email and allowed-attribute locators resolve the same user, and
+* `GET /api/admin/realm/identity-providers` returns enabled-broker state.
+
+The test user should be a real Keycloak user visible to the BFF. The Slack bot
+service account must have `reader admin_surface:user_directory`.
+
+       RUN_RBAC_E2E=1 \
+       CAIPE_UI_BASE_URL=http://localhost:3000 \
+       KEYCLOAK_URL=http://localhost:7080 \
+       KEYCLOAK_REALM=caipe \
+       SLACK_INTEGRATION_AUTH_TOKEN_URL=http://localhost:7080/realms/caipe/protocol/openid-connect/token \
+       SLACK_INTEGRATION_AUTH_CLIENT_ID=caipe-slack-bot \
+       SLACK_INTEGRATION_AUTH_CLIENT_SECRET=<secret> \
+       SLACK_BFF_TEST_USER_ID=<keycloak-user-id> \
+       SLACK_BFF_TEST_USER_EMAIL=e2e-rbac-admin@caipe.local \
+       SLACK_BFF_TEST_ATTRIBUTE_NAME=slack_user_id \
+       SLACK_BFF_TEST_ATTRIBUTE_VALUE=<optional-slack-user-id> \
+       npm run test:e2e:rbac-live-slack-bff
 
 ## Comprehensive OpenFGA live regression
 

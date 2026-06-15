@@ -14,6 +14,7 @@ export interface KeycloakIdpAlias {
   alias: string;
   displayName?: string;
   providerId: string;
+  enabled?: boolean;
 }
 
 export interface KeycloakIdpMapper {
@@ -317,6 +318,7 @@ export async function listIdpAliases(): Promise<KeycloakIdpAlias[]> {
     displayName:
       p.displayName !== undefined && p.displayName !== null ? String(p.displayName) : undefined,
     providerId: String(p.providerId ?? ""),
+    enabled: p.enabled !== false,
   }));
 }
 
@@ -438,6 +440,23 @@ export async function getRealmUserById(
   const enc = encodeURIComponent(userId);
   const response = await adminFetch(`/users/${enc}`, { method: "GET" });
   await assertOk(response, `getRealmUserById(${userId})`);
+  return (await response.json()) as Record<string, unknown>;
+}
+
+/**
+ * Like {@link getRealmUserById} but returns `null` on a Keycloak 404 instead
+ * of throwing. Used by the `/api/admin/users/resolve` BFF endpoint so a
+ * "no such user" lookup is a normal `data: null` result rather than a 500 —
+ * matching the "not found is a branch, not an error" contract its callers
+ * (the Slack bot's user-directory lookups) rely on.
+ */
+export async function getRealmUserByIdOrNull(
+  userId: string
+): Promise<Record<string, unknown> | null> {
+  const enc = encodeURIComponent(userId);
+  const response = await adminFetch(`/users/${enc}`, { method: "GET" });
+  if (response.status === 404) return null;
+  await assertOk(response, `getRealmUserByIdOrNull(${userId})`);
   return (await response.json()) as Record<string, unknown>;
 }
 

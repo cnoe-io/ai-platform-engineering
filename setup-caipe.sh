@@ -3174,7 +3174,7 @@ provision_bot_secrets() {
     local _slack_keys=(
       SLACK_BOT_TOKEN SLACK_APP_TOKEN SLACK_SIGNING_SECRET SLACK_CLIENT_SECRET
       SLACK_LINK_HMAC_SECRET SLACK_INTEGRATION_AUTH_CLIENT_SECRET
-      KEYCLOAK_BOT_CLIENT_SECRET KEYCLOAK_SLACK_BOT_ADMIN_CLIENT_SECRET OAUTH2_CLIENT_SECRET
+      KEYCLOAK_BOT_CLIENT_SECRET OAUTH2_CLIENT_SECRET
     )
     local _slack_literals=()
     if [[ -n "$env_file" && -f "$env_file" ]]; then
@@ -3184,11 +3184,10 @@ provision_bot_secrets() {
         [[ -n "$_v" ]] && _slack_literals+=(--from-literal="${_k}=${_v}")
       done
     fi
-    # Local-dev OBO/admin defaults (match charts/.../keycloak/realm-config.json).
+    # Local-dev OBO defaults (match charts/.../keycloak/realm-config.json).
     if [[ -z "$CAIPE_DOMAIN" ]]; then
       _bot_default_literal _slack_literals "${_slack_literals[*]}" KEYCLOAK_BOT_CLIENT_SECRET caipe-slack-bot-dev-secret
       _bot_default_literal _slack_literals "${_slack_literals[*]}" OAUTH2_CLIENT_SECRET caipe-slack-bot-dev-secret
-      _bot_default_literal _slack_literals "${_slack_literals[*]}" KEYCLOAK_SLACK_BOT_ADMIN_CLIENT_SECRET caipe-platform-dev-secret
     fi
     if [[ ${#_slack_literals[@]} -gt 0 ]]; then
       kubectl create secret generic slack-bot-secrets -n caipe "${_slack_literals[@]}" \
@@ -3282,7 +3281,6 @@ slack-bot:
     SLACK_INTEGRATION_AUTH_TOKEN_URL: "${_issuer}/protocol/openid-connect/token"
     SLACK_INTEGRATION_AUTH_CLIENT_ID: "caipe-slack-bot"
     KEYCLOAK_BOT_CLIENT_ID: "caipe-slack-bot"
-    KEYCLOAK_SLACK_BOT_ADMIN_CLIENT_ID: "caipe-platform"
     SLACK_JIT_CREATE_USER: "true"
 SLACKEOF
   fi

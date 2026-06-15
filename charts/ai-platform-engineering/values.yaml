@@ -1352,10 +1352,6 @@ slack-bot:
       #   remoteRef:
       #     key: prod/slack-bot
       #     property: keycloak_bot_client_secret
-      # - secretKey: KEYCLOAK_SLACK_BOT_ADMIN_CLIENT_SECRET
-      #   remoteRef:
-      #     key: prod/slack-bot
-      #     property: keycloak_slack_bot_admin_client_secret
 
   resources:
     requests:

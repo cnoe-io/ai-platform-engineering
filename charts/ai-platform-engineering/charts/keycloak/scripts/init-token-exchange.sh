@@ -567,6 +567,14 @@ fi
 #   - writer admin_surface:user_provisioning — JIT create-or-resolve a
 #     federated shell user via `POST /api/admin/users/provision-shell`
 #     (issue #1781), so a bot can provision a Keycloak account on first DM.
+#   - reader admin_surface:user_directory — exact user lookups (by attribute,
+#     email, or id) via `GET /api/admin/users/resolve`.
+#   - writer admin_surface:user_directory — merge a user attribute via
+#     `PATCH /api/admin/users/{id}/attributes`.
+#     The user_directory grants (read = lookups, write = attribute merge) let
+#     the bot reach Keycloak entirely through the BFF, replacing its former
+#     direct Keycloak Admin credentials (spec
+#     2026-06-09-slack-bot-remove-direct-keycloak-admin).
 # Add rows to SA_GRANTS as the bots take on more service-to-service calls —
 # each grant is applied to all bots in BOT_SA_USER_IDS, so the Webex bot gets
 # parity automatically.
@@ -578,7 +586,9 @@ fi
 # Newline-separated "<relation> <object>" pairs to grant each bot's service
 # account (the seeding loop splits on newlines).
 SA_GRANTS="reader system_config:platform_settings
-writer admin_surface:user_provisioning"
+writer admin_surface:user_provisioning
+reader admin_surface:user_directory
+writer admin_surface:user_directory"
 
 # resolve_openfga_store_id <openfga_base_url> <store_name> -> echoes store id
 resolve_openfga_store_id() {

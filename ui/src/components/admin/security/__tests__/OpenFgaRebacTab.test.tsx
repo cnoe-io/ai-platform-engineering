@@ -280,7 +280,6 @@ beforeEach(() => {
     return jsonResponse({ data: {} });
   });
 });
-
 function jsonResponse(payload: unknown): Response {
   return {
     ok: true,
@@ -662,5 +661,4 @@ it("shows the manual user subject controls inside the fullscreen graph", async (
     expect(fetchMock).toHaveBeenCalledWith("/api/admin/rebac/graph?subject=user%3A*&layer=tuples&limit=1000");
   });
 });
-
 

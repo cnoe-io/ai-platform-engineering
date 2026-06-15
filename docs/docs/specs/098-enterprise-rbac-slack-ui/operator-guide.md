@@ -237,6 +237,16 @@ Used by the Next.js BFF (`ui/src/lib/rbac/keycloak-admin.ts`) for role-mapping C
 
 ### Keycloak Admin API — Slack bot (FR-025 identity lookup)
 
+> **Superseded.** As of spec
+> [2026-06-09-slack-bot-remove-direct-keycloak-admin](../2026-06-09-slack-bot-remove-direct-keycloak-admin/plan.md),
+> the Slack bot no longer holds Keycloak Admin credentials. The
+> `KEYCLOAK_SLACK_BOT_ADMIN_CLIENT_ID/_SECRET` vars below are **removed** — all
+> user-directory access (lookups, attribute writes, JIT create) now flows
+> through the CAIPE UI BFF using the bot's `caipe-slack-bot` service-account
+> token, authorized by OpenFGA grants on `admin_surface:user_directory` /
+> `admin_surface:user_provisioning`. The rest of this subsection is retained
+> for historical context.
+
 Used by `ai_platform_engineering/integrations/slack_bot/utils/keycloak_admin.py` to find a Keycloak user by `slack_user_id` user attribute and read/write `team_id`. Always uses `client_credentials` against the `caipe` realm — there is no password fallback.
 
 The client referenced here MUST be **confidential** and have these realm-management roles: `view-users`, `query-users` (and `manage-users` if you also use the bot to set attributes).

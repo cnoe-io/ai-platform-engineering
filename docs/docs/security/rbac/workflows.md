@@ -1409,8 +1409,8 @@ There are three onboarding paths, in priority order: **(1) auto-link to existing
 On the user's first Slack message the bot:
 
 1. Calls Slack `users.info` → fetches `profile.email`
-2. Queries Keycloak Admin API for a user with that exact email
-3. **If found:** writes `slack_user_id` attribute → linked silently, zero user action required
+2. Resolves the user by exact email via the BFF (`GET /api/admin/users/resolve?email=`)
+3. **If found:** merges the `slack_user_id` attribute via the BFF (`PATCH /api/admin/users/{id}/attributes`) → linked silently, zero user action required
 4. **If not found:** the bot continues to step 2 (JIT) below.
 
 ### 2. Just-In-Time user creation (default ON, `SLACK_JIT_CREATE_USER=true`)
@@ -1418,14 +1418,14 @@ On the user's first Slack message the bot:
 When no existing Keycloak user matches the Slack email, and JIT is enabled, the bot:
 
 1. **Optionally checks** the email domain against `SLACK_JIT_ALLOWED_EMAIL_DOMAINS` (comma-separated allowlist; empty = any domain).
-2. **POSTs to `/admin/realms/{realm}/users`** using the same `KEYCLOAK_SLACK_BOT_ADMIN_*` credentials (`caipe-platform` service account, holds `realm-management:{view-users, query-users, manage-users}` for this path).
-3. The created user is **federated-only**: no password, no required actions, `emailVerified=true`, with attributes `slack_user_id`, `created_by=slack-bot:jit`, `created_at=<RFC3339>`.
-4. **Race-safe**: an HTTP 409 from a concurrent create is resolved by re-querying the email and returning the surviving UUID.
+2. **POSTs to the BFF `/api/admin/users/provision-shell`** with its `caipe-slack-bot` service-account token (gated `writer admin_surface:user_provisioning` in OpenFGA). The BFF — not the bot — calls Keycloak Admin to create-or-resolve the user.
+3. The created user is **federated-only**: no password, no required actions, `emailVerified=true`, with attributes `slack_user_id`, `created_by=slack-bot:jit`, `created_at=<RFC3339>` (the BFF owns the `created_by`/`created_at` stamping).
+4. **Race-safe**: an HTTP 409 from a concurrent create is resolved by re-querying the email and returning the surviving UUID (handled BFF-side).
 5. **On failure** (4xx/5xx/network), the bot logs `event=jit_failed error_kind=<auth_failure|forbidden|server_error|network_error|unexpected>` and falls through to step 3.
 
 JIT is **default ON in dev** so first-time DMs work without an admin handshake. **Set `SLACK_JIT_CREATE_USER=false` in production** if you want web-UI onboarding to be a hard prerequisite — in which case all unknown emails go to the link URL below.
 
-> **Single-credential design (spec 103, plan R-8).** JIT deliberately reuses the existing `caipe-platform` admin client rather than introducing a separate `caipe-slack-bot-provisioner`. This trades strict privilege separation (one secret can both read and create users) for operational simplicity (one Secret to manage, one rotation procedure, one audit identity). Compensating mitigations: only the `create_user_from_slack` helper writes `/users`; all JIT actions are logged with stable `event=jit_*` tokens for SIEM. The same service account also holds client/authz `realm-management` roles because the Web UI BFF Keycloak RBAC migration must inspect and repair OBO clients and scope permissions.
+> **First-party-BFF design.** The bot holds no Keycloak Admin credentials: provisioning (and every other Keycloak user operation) goes through the BFF authenticated by the bot's `caipe-slack-bot` service-account token and authorized by an OpenFGA grant (`writer admin_surface:user_provisioning`). Realm-management privilege lives only in the BFF. All JIT actions are logged with stable `event=jit_*` tokens for SIEM. This superseded spec 103's earlier single-credential design (which reused the `caipe-platform` admin client directly from the bot) — see spec [2026-06-09-slack-bot-remove-direct-keycloak-admin](../../specs/2026-06-09-slack-bot-remove-direct-keycloak-admin/plan.md).
 
 ### 3. Explicit link URL (fallback or `SLACK_FORCE_LINK=true`)
 
@@ -1625,8 +1625,8 @@ Slack User: "What's the status of my ArgoCD deployment?"
 STEP 1: Identity Resolution  (Slack Bot)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   slack_user_id U09TC6RR8KX
-    → Keycloak Admin API lookup by attribute
-    → user: { id: "a3f9...", email: "alice@example.com" }
+    → BFF GET /api/admin/users/resolve?attribute=slack_user_id (SA token)
+    → user: { sub: "a3f9...", enabled: true, attributes: {...} }
   RFC 8693 exchange → OBO JWT
     sub=alice, act.sub=slack-bot
 

@@ -1,9 +1,9 @@
 # Problem Statement: Centralized BFF Authorization & PDP-Agnostic API
 
-**Status:** Draft for second-opinion review  
-**Date:** 2026-06-05  
-**Authors:** Sri Aradhyula (problem framing); AI-assisted synthesis from PR review + team discussion  
-**Audience:** Platform engineers, security architects, agents reviewing implementation options  
+**Status:** Draft for second-opinion review<br />
+**Date:** 2026-06-05<br />
+**Authors:** Sri Aradhyula (problem framing); AI-assisted synthesis from PR review + team discussion<br />
+**Audience:** Platform engineers, security architects, agents reviewing implementation options<br />
 
 **Related work:**
 

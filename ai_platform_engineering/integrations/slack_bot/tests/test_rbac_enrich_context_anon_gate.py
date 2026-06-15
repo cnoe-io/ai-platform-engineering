@@ -1,5 +1,6 @@
 # Copyright 2025 CNOE Contributors
 # SPDX-License-Identifier: Apache-2.0
+# assisted-by Codex Codex-sonnet-4-6
 """Tests for the unlinked-fallback gate in _rbac_enrich_context.
 
 Covers the four decisive rows from the decision table:
@@ -180,23 +181,23 @@ def _clear_kc_caches():
 class TestRealKcHelpers:
     """Behavior tests for the two keycloak_admin.py helpers, mocked at httpx."""
 
-    def _mock_admin_token(self):
-        return patch(
-            "ai_platform_engineering.integrations.slack_bot.utils.keycloak_admin._get_admin_token",
-            new_callable=AsyncMock,
-            return_value="admin.token",
+    def _mock_bff_env(self):
+        return patch.multiple(
+            "ai_platform_engineering.integrations.slack_bot.utils.keycloak_admin",
+            resolve_bff_base_url=MagicMock(return_value="http://ui.test:3000"),
+            service_account_token=MagicMock(return_value="sa-token"),
         )
 
     def test_broker_helper_returns_true_when_enabled(self) -> None:
         from ai_platform_engineering.integrations.slack_bot.utils.keycloak_admin import (
             realm_has_enabled_idp_broker,
         )
-        instances = [{"alias": "okta", "enabled": True}]
-        with self._mock_admin_token():
+        envelope = {"success": True, "data": {"hasEnabledBroker": True}}
+        with self._mock_bff_env():
             with patch("httpx.AsyncClient") as mock_client_cls:
                 mock_resp = MagicMock()
                 mock_resp.raise_for_status = MagicMock()
-                mock_resp.json.return_value = instances
+                mock_resp.json.return_value = envelope
                 mock_client = MagicMock()
                 mock_client.__aenter__ = AsyncMock(return_value=mock_client)
                 mock_client.__aexit__ = AsyncMock(return_value=None)
@@ -209,12 +210,12 @@ class TestRealKcHelpers:
         from ai_platform_engineering.integrations.slack_bot.utils.keycloak_admin import (
             realm_has_enabled_idp_broker,
         )
-        instances = [{"alias": "okta", "enabled": False}]
-        with self._mock_admin_token():
+        envelope = {"success": True, "data": {"hasEnabledBroker": False}}
+        with self._mock_bff_env():
             with patch("httpx.AsyncClient") as mock_client_cls:
                 mock_resp = MagicMock()
                 mock_resp.raise_for_status = MagicMock()
-                mock_resp.json.return_value = instances
+                mock_resp.json.return_value = envelope
                 mock_client = MagicMock()
                 mock_client.__aenter__ = AsyncMock(return_value=mock_client)
                 mock_client.__aexit__ = AsyncMock(return_value=None)
@@ -227,12 +228,18 @@ class TestRealKcHelpers:
         from ai_platform_engineering.integrations.slack_bot.utils.keycloak_admin import (
             user_is_federated,
         )
-        user_repr = {"id": _KC_USER_ID, "federatedIdentities": [{"identityProvider": "okta"}]}
-        with self._mock_admin_token():
+        envelope = {
+            "success": True,
+            "data": {
+                "sub": _KC_USER_ID,
+                "federatedIdentities": [{"identityProvider": "okta"}],
+            },
+        }
+        with self._mock_bff_env():
             with patch("httpx.AsyncClient") as mock_client_cls:
                 mock_resp = MagicMock()
                 mock_resp.raise_for_status = MagicMock()
-                mock_resp.json.return_value = user_repr
+                mock_resp.json.return_value = envelope
                 mock_client = MagicMock()
                 mock_client.__aenter__ = AsyncMock(return_value=mock_client)
                 mock_client.__aexit__ = AsyncMock(return_value=None)
@@ -245,12 +252,15 @@ class TestRealKcHelpers:
         from ai_platform_engineering.integrations.slack_bot.utils.keycloak_admin import (
             user_is_federated,
         )
-        user_repr = {"id": _KC_USER_ID, "federatedIdentities": []}
-        with self._mock_admin_token():
+        envelope = {
+            "success": True,
+            "data": {"sub": _KC_USER_ID, "federatedIdentities": []},
+        }
+        with self._mock_bff_env():
             with patch("httpx.AsyncClient") as mock_client_cls:
                 mock_resp = MagicMock()
                 mock_resp.raise_for_status = MagicMock()
-                mock_resp.json.return_value = user_repr
+                mock_resp.json.return_value = envelope
                 mock_client = MagicMock()
                 mock_client.__aenter__ = AsyncMock(return_value=mock_client)
                 mock_client.__aexit__ = AsyncMock(return_value=None)
@@ -263,7 +273,7 @@ class TestRealKcHelpers:
         from ai_platform_engineering.integrations.slack_bot.utils.keycloak_admin import (
             user_is_federated,
         )
-        with self._mock_admin_token():
+        with self._mock_bff_env():
             with patch("httpx.AsyncClient") as mock_client_cls:
                 mock_client = MagicMock()
                 mock_client.__aenter__ = AsyncMock(return_value=mock_client)

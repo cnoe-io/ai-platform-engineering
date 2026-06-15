@@ -176,7 +176,7 @@ the "Settings" category is the right home for a "Service Accounts" sub-tab. Tabs
 `tabGateValues` and the page is fronted by `useAdminRole()` (`canViewAdmin`/`isAdmin`).
 
 **Tension**: Spec says self-service for **any team member** (not admin-only). So the tab's visibility
-must key on "user belongs to ≥1 team," not `isAdmin`. 
+must key on "user belongs to ≥1 team," not `isAdmin`.
 
 **Decision (FINAL, T001)**: Mount a `service-accounts` sub-tab under the **Settings** category in
 `ui/src/app/(app)/admin/page.tsx` `CATEGORIES`. Gate it on **team membership** (user belongs to ≥1
