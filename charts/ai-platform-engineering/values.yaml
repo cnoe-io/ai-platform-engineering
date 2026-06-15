@@ -162,16 +162,16 @@ global:
       # Dynamic MCP route reconciliation (static routing mode only).
       #
       # When enabled, a config-bridge sidecar runs alongside the standalone
-      # AgentGateway proxy and reconciles runtime-added MCP servers (the Mongo
-      # `mcp_servers` collection, source=agentgateway) into the proxy config so
+      # AgentGateway proxy and reconciles runtime-added MCP servers from the BFF
+      # internal target API into the proxy config so
       # they receive a /mcp/<id> route WITHOUT a `helm upgrade` / values change.
       #
       # How it works:
       #   - The Helm-rendered static config (jwtAuth + extraMcpTargets) is the
       #     bootstrap/seed; an initContainer seeds a shared emptyDir so the
       #     proxy always starts with a valid config.
-      #   - The sidecar polls Mongo and writes /mcp/<id> routes into that shared
-      #     file; the proxy hot-reloads on change.
+      #   - The sidecar polls the BFF target API and writes /mcp/<id> routes into
+      #     that shared file; the proxy hot-reloads on change.
       #
       # NOTE: route discovery only — it does NOT affect JWT authentication
       # (jwtAuth). Ignored in `gateway-api` routing mode (CRDs manage routes).
@@ -182,16 +182,15 @@ global:
           tag: ""              # defaults to agentgateway subchart appVersion
           pullPolicy: IfNotPresent
         pollSeconds: 5
-        mongodb:
-          # MCP-server store connection. Prefer existingSecret over uri.
-          uri: ""              # plain MONGODB_URI (discouraged for real creds)
-          database: caipe
+        bff:
+          # Internal BFF route that publishes sanitized AgentGateway MCP targets.
+          url: ""              # defaults to http://<release>-caipe-ui:3000/api/internal/agentgateway/mcp-targets
           existingSecret:
-            # Name of the Kubernetes Secret containing MONGODB_URI.
-            # Set to the same secret used by caipe-ui (e.g. the ExternalSecret
-            # target name: "<release>-caipe-ui" or your custom override).
-            name: ""           # e.g. "a-caipe-dev-argoapp-caipe-ui" or "caipe-ui-mongodb"
-            key: MONGODB_URI
+            # Name of the Kubernetes Secret containing AGENTGATEWAY_TARGETS_TOKEN.
+            # Mount the same key into caipe-ui (via caipe-ui.existingSecret or
+            # caipe-ui.externalSecrets) so the BFF and bridge share the token.
+            name: ""
+            key: AGENTGATEWAY_TARGETS_TOKEN
         # securityContext: {}  # optional; defaults to agentgateway.securityContext
         # resources: {}        # optional; defaults to agentgateway.resources
         extraEnv: []
@@ -1231,6 +1230,8 @@ dynamic-agents:
     # Connections & Secrets credential exchange client. Disabled by default.
     CAIPE_CREDENTIALS_ENABLED: "false"
     CREDENTIAL_API_URL: ""
+    # CAIPE UI server base URL for built-in workflow tools.
+    CAIPE_API_URL: ""
     CREDENTIAL_SERVICE_AUDIENCE: "caipe-credential-service"
     USE_IMPERSONATION_TOKENS: "false"
     # MCP server IDs routed through AgentGateway. "all" only applies to
