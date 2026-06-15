@@ -109,6 +109,18 @@ describe("UnlinkedServiceAccountModal", () => {
     });
   });
 
+  it("keeps Add scope controls in a responsive row that cannot bleed past the modal", async () => {
+    render(
+      <UnlinkedServiceAccountModal open isAdmin onOpenChange={jest.fn()} />,
+    );
+
+    const controls = await screen.findByTestId("unlinked-add-scope-controls");
+    expect(controls).toHaveClass("min-w-0", "flex-col", "sm:flex-row");
+    expect(screen.getByRole("combobox", { name: /scope type/i })).toHaveClass("min-w-0");
+    expect(screen.getByRole("combobox", { name: /scope ref/i })).toHaveClass("min-w-0", "flex-1");
+    expect(screen.getByRole("button", { name: /^add$/i })).toHaveClass("w-full", "sm:w-auto");
+  });
+
   it("hides Add a scope and shows read-only notice for non-admins", async () => {
     render(
       <UnlinkedServiceAccountModal open isAdmin={false} onOpenChange={jest.fn()} />,

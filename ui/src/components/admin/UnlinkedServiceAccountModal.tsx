@@ -321,7 +321,10 @@ export function UnlinkedServiceAccountModal({
                         granted the desired {addType} scope first.
                       </p>
                     )}
-                    <div className="flex gap-2">
+                    <div
+                      className="flex min-w-0 flex-col gap-2 sm:flex-row"
+                      data-testid="unlinked-add-scope-controls"
+                    >
                       <select
                         aria-label="Scope type"
                         value={addType}
@@ -329,7 +332,7 @@ export function UnlinkedServiceAccountModal({
                           setAddType(e.target.value as "agent" | "tool");
                           setAddRef("");
                         }}
-                        className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+                        className="h-9 min-w-0 rounded-md border border-input bg-background px-2 text-sm sm:w-24"
                       >
                         <option value="agent">Agent</option>
                         <option value="tool">Tool</option>
@@ -338,7 +341,7 @@ export function UnlinkedServiceAccountModal({
                         aria-label="Scope ref"
                         value={addRef}
                         onChange={(e) => setAddRef(e.target.value)}
-                        className="h-9 flex-1 rounded-md border border-input bg-background px-2 text-sm"
+                        className="h-9 min-w-0 flex-1 rounded-md border border-input bg-background px-2 text-sm"
                       >
                         <option value="">
                           {addableOptions.length === 0
@@ -354,7 +357,7 @@ export function UnlinkedServiceAccountModal({
                       <Button
                         onClick={addScope}
                         disabled={busy || !addRef}
-                        className="gap-1.5"
+                        className="w-full gap-1.5 sm:w-auto"
                       >
                         <Plus className="h-4 w-4" />
                         Add
