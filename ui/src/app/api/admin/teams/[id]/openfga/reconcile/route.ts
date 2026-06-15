@@ -12,30 +12,30 @@
 // "You do not have permission to manage this team" to avoid leaking team
 // existence to non-members.
 
-import { NextRequest, NextResponse } from 'next/server';
-import { ObjectId } from 'mongodb';
-import { getCollection, isMongoDBConfigured } from '@/lib/mongodb';
 import {
-  getAuthFromBearerOrSession,
-  withErrorHandler,
-  successResponse,
-  ApiError,
+ApiError,
+getAuthFromBearerOrSession,
+successResponse,
+withErrorHandler,
 } from '@/lib/api-middleware';
+import { getCollection,isMongoDBConfigured } from '@/lib/mongodb';
 import { requireTeamMembershipManagementPermission } from '@/lib/rbac/team-admin-guards';
 import {
-  listTeamMembershipSources,
-  upsertTeamMembershipSource,
+listTeamMembershipSources,
+upsertTeamMembershipSource,
 } from '@/lib/rbac/team-membership-source-store';
 import {
-  mongoRoleToOpenFgaRelations,
-  resolveKeycloakUserSubject,
-  writeTeamMembershipTuples,
-  type TeamMemberRelation,
+mongoRoleToOpenFgaRelations,
+resolveKeycloakUserSubject,
+writeTeamMembershipTuples,
+type TeamMemberRelation,
 } from '@/lib/rbac/team-membership-sync';
 import {
-  computeTeamMembershipSyncReport,
-  readTeamOpenFgaTuples,
+computeTeamMembershipSyncReport,
+readTeamOpenFgaTuples,
 } from '@/lib/rbac/team-openfga-sync-status';
+import { ObjectId } from 'mongodb';
+import { NextRequest,NextResponse } from 'next/server';
 
 function requireMongoDB() {
   if (!isMongoDBConfigured) {
@@ -121,13 +121,13 @@ export const POST = withErrorHandler(async (
       // returns nothing), so reconcile is the place to retry.
       let userSubject = source.user_subject;
       if (!userSubject) {
-        // eslint-disable-next-line no-await-in-loop -- per-user resolution
+         
         userSubject = await resolveKeycloakUserSubject(email, teamSlug);
         if (userSubject) {
           summary.resolved_subjects += 1;
           // Persist the resolved subject back to the source row so future
           // reads of the team show the user as no-longer-pending.
-          // eslint-disable-next-line no-await-in-loop
+           
           await upsertTeamMembershipSource({
             ...source,
             user_subject: userSubject,
@@ -149,7 +149,7 @@ export const POST = withErrorHandler(async (
       );
       if (relations.length === 0) continue;
 
-      // eslint-disable-next-line no-await-in-loop
+       
       const result = await writeTeamMembershipTuples(
         userSubject,
         teamSlug,

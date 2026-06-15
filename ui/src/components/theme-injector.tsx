@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect } from "react";
 import { getConfig } from "@/lib/config";
+import { useEffect } from "react";
 
 /**
  * ThemeInjector component

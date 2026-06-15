@@ -5,15 +5,15 @@
  * Response: SSE stream (text/event-stream)
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import {
-  authenticateRequest,
-  getDynamicAgentsConfig,
-  proxySSEStream,
-} from "../../_helpers";
-import { requireAgentUsePermission } from "@/lib/rbac/openfga-agent-authz";
 import { createAuthzTraceContext } from "@/lib/rbac/authz-tracing";
+import { requireAgentUsePermission } from "@/lib/rbac/openfga-agent-authz";
+import { NextRequest,NextResponse } from "next/server";
 import { requireConversationWriteAccess } from "../../_conversation-authz";
+import {
+authenticateRequest,
+getDynamicAgentsConfig,
+proxySSEStream,
+} from "../../_helpers";
 
 export const runtime = "nodejs";
 export const maxDuration = 300; // 5 minutes
@@ -54,6 +54,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     email: authResult.email,
     tenantId: authResult.tenantId,
     traceparent: traceContext.traceparent,
+    isServiceAccount: authResult.isServiceAccount,
   });
   if (authzResponse) return authzResponse;
 

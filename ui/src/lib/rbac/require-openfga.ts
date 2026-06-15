@@ -1,12 +1,12 @@
 import { ApiError } from "@/lib/api-error";
 import { isDevAnonymousAuthEnabled } from "@/lib/auth/dev-auth-provider";
-import { checkOpenFgaTuple } from "@/lib/rbac/openfga";
 import {
-  adminSurfaceObject,
-  userProfileObject,
-  type AdminSurface,
-  type BaselineAdminSurface,
+adminSurfaceObject,
+userProfileObject,
+type AdminSurface,
+type BaselineAdminSurface,
 } from "@/lib/rbac/baseline-access";
+import { checkOpenFgaTuple } from "@/lib/rbac/openfga";
 
 export interface OpenFgaSessionSubject {
   sub?: string;

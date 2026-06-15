@@ -1,5 +1,5 @@
-import type { NextAuthOptions } from "next-auth";
 import { decodeJwt } from "jose";
+import type { NextAuthOptions } from "next-auth";
 
 /**
  * Auth configuration for OIDC SSO

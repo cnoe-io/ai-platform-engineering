@@ -1,18 +1,18 @@
-import type {
-  IdentityGroupSyncDryRunResult,
-  TeamMembershipSource,
-} from "@/types/identity-group-sync";
 import { getCollection } from "@/lib/mongodb";
+import type {
+IdentityGroupSyncDryRunResult,
+TeamMembershipSource,
+} from "@/types/identity-group-sync";
 
 import {
-  OpenFgaWriteError,
-  writeOpenFgaTuples,
-  type OpenFgaTupleKey,
-  type TeamResourceTupleDiff,
+OpenFgaWriteError,
+writeOpenFgaTuples,
+type OpenFgaTupleKey,
+type TeamResourceTupleDiff,
 } from "./openfga";
 import {
-  markTeamMembershipSourceRemoved,
-  upsertTeamMembershipSource,
+markTeamMembershipSourceRemoved,
+upsertTeamMembershipSource,
 } from "./team-membership-source-store";
 
 interface IdentitySyncTeam {
@@ -284,5 +284,5 @@ async function rollbackPhase1(input: {
 
 // Re-export tuple types so callers that build plans don't have to
 // double-import from openfga.ts as well as from this module.
-export type { OpenFgaTupleKey, TeamResourceTupleDiff };
 export { OpenFgaWriteError };
+export type { OpenFgaTupleKey,TeamResourceTupleDiff };

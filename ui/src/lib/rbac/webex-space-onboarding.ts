@@ -8,8 +8,8 @@ import { writeOpenFgaTuples } from "@/lib/rbac/openfga";
 import { buildUniversalRebacTupleDiff } from "@/lib/rbac/tuple-builders";
 import { webexWorkspaceRef } from "@/lib/rbac/webex-space-grant-store";
 import {
-  webexSpaceGrantRelationship,
-  webexSpaceTeamVisibilityRelationships,
+webexSpaceGrantRelationship,
+webexSpaceTeamVisibilityRelationships,
 } from "@/lib/rbac/webex-space-rebac";
 import { callWebexBotAdmin } from "@/lib/webex-bot-admin";
 import type { UniversalRebacRelationship } from "@/types/rbac-universal";

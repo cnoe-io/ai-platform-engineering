@@ -83,7 +83,7 @@ async def test_allows_agent_use_when_openfga_allows(monkeypatch):
     finally:
         current_user_token.reset(token_ref)
 
-    assert calls == [("alice-sub", "agent-1")]
+    assert calls == [("user:alice-sub", "agent-1")]
 
 
 @pytest.mark.asyncio
@@ -94,7 +94,7 @@ async def test_allows_agent_use_with_email_membership_fallback(monkeypatch):
 
     async def fake_check(subject: str, agent_id: str) -> bool:
         calls.append((subject, agent_id))
-        return subject == "alice@example.com"
+        return subject == "user:alice@example.com"
 
     monkeypatch.setattr(openfga_authz, "_check_agent_use", fake_check)
     token_ref = current_user_token.set(
@@ -105,7 +105,70 @@ async def test_allows_agent_use_with_email_membership_fallback(monkeypatch):
     finally:
         current_user_token.reset(token_ref)
 
-    assert calls == [("alice-sub", "agent-1"), ("alice@example.com", "agent-1")]
+    assert calls == [
+        ("user:alice-sub", "agent-1"),
+        ("user:alice@example.com", "agent-1"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_service_account_token_uses_service_account_namespace(monkeypatch):
+    """A client-credentials token (preferred_username service-account-*) is graphed
+    as service_account:<sub>, not user:<sub> (WS-G / FR-011)."""
+    from dynamic_agents.auth import openfga_authz
+
+    calls: list[tuple[str, str]] = []
+
+    async def fake_check(subject: str, agent_id: str) -> bool:
+        calls.append((subject, agent_id))
+        return subject == "service_account:sa-sub"
+
+    monkeypatch.setattr(openfga_authz, "_check_agent_use", fake_check)
+    token_ref = current_user_token.set(
+        _fake_jwt(
+            {
+                "sub": "sa-sub",
+                "preferred_username": "service-account-caipe-sa-incident-bot-a1b2c3",
+                # An SA token may also carry an email-shaped claim; it MUST be ignored
+                # (no user-email fallback for service accounts).
+                "email": "irrelevant@example.com",
+            }
+        )
+    )
+    try:
+        await openfga_authz.require_agent_use_permission("agent-1")
+    finally:
+        current_user_token.reset(token_ref)
+
+    # Only the service_account namespace is checked — no user: fallback.
+    assert calls == [("service_account:sa-sub", "agent-1")]
+
+
+@pytest.mark.asyncio
+async def test_service_account_denied_when_no_grant(monkeypatch):
+    """An SA whose service_account:<sub> tuple is absent is denied (403)."""
+    from dynamic_agents.auth import openfga_authz
+
+    async def fake_check(subject: str, agent_id: str) -> bool:
+        return False
+
+    monkeypatch.setattr(openfga_authz, "_check_agent_use", fake_check)
+    token_ref = current_user_token.set(
+        _fake_jwt(
+            {
+                "sub": "sa-sub",
+                "preferred_username": "service-account-caipe-sa-incident-bot-a1b2c3",
+            }
+        )
+    )
+    try:
+        with pytest.raises(HTTPException) as exc:
+            await openfga_authz.require_agent_use_permission("agent-1")
+    finally:
+        current_user_token.reset(token_ref)
+
+    assert exc.value.status_code == 403
+    assert exc.value.detail["reason"] == "pdp_denied"
 
 
 @pytest.mark.asyncio

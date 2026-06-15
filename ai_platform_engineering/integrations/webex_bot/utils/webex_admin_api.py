@@ -34,6 +34,7 @@ from .webex_ids import canonicalize_webex_space_id
 logger = logging.getLogger("caipe.webex_bot.webex_admin_api")
 
 MAX_ADMIN_REQUEST_BODY_BYTES = 64 * 1024
+ROUTE_METADATA_FIELDS = ("users", "bots", "escalation")
 
 CollectionFactory = Callable[[str], Optional[Collection[Any]]]
 OpenFgaWriter = Callable[[dict[str, str]], None]
@@ -256,19 +257,7 @@ class WebexBotAdminService:
                         "space_id": route["space_id"],
                         "agent_id": route["agent_id"],
                     },
-                    {
-                        "$set": {
-                            **route,
-                            "source_type": "config_sync",
-                            "status": "active",
-                            "updated_by": "webex_admin_sync",
-                            "updated_at": now,
-                        },
-                        "$setOnInsert": {
-                            "created_by": "webex_admin_sync",
-                            "created_at": now,
-                        },
-                    },
+                    _route_upsert_update(route, now),
                     upsert=True,
                 )
                 summary["routes_upserted"] += 1
@@ -344,6 +333,26 @@ def _route_from_agent_binding(
     if agent.escalation is not None:
         route["escalation"] = agent.escalation.model_dump(exclude_none=True)
     return route
+
+
+def _route_upsert_update(route: dict[str, Any], now: str) -> dict[str, Any]:
+    unset = {field: "" for field in ROUTE_METADATA_FIELDS if field not in route}
+    update: dict[str, Any] = {
+        "$set": {
+            **route,
+            "source_type": "config_sync",
+            "status": "active",
+            "updated_by": "webex_admin_sync",
+            "updated_at": now,
+        },
+        "$setOnInsert": {
+            "created_by": "webex_admin_sync",
+            "created_at": now,
+        },
+    }
+    if unset:
+        update["$unset"] = unset
+    return update
 
 
 def _openfga_store_id(base_url: str) -> str:
@@ -455,7 +464,7 @@ def _optional_string(value: object) -> str | None:
 def load_webex_bot_config() -> WebexBotConfig:
     """Load optional static Webex routing config (empty when unset)."""
 
-    return WebexBotConfig()
+    return WebexBotConfig.from_env()
 
 
 def start_webex_admin_api_server(

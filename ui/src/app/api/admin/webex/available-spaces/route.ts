@@ -7,15 +7,15 @@
  * When WEBEX_INTEGRATION_BOT_ACCESS_TOKEN is unset, returns 503 so admins can paste space IDs manually.
  */
 
-import { NextRequest } from "next/server";
 import {
-  getAuthFromBearerOrSession,
-  withErrorHandler,
-  successResponse,
-  requireRbacPermission,
-  ApiError,
+ApiError,
+getAuthFromBearerOrSession,
+requireRbacPermission,
+successResponse,
+withErrorHandler,
 } from "@/lib/api-middleware";
 import { getDiscoveryCacheTtlMs } from "@/lib/rbac/discovery-cache-config";
+import { NextRequest } from "next/server";
 
 interface WebexRoom {
   id: string;

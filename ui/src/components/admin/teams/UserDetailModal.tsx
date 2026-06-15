@@ -1,10 +1,10 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { createPortal } from "react-dom";
+import { TeamPicker,type TeamPickerOption } from "@/components/ui/team-picker";
 import { Loader2 } from "lucide-react";
 import { useSession } from "next-auth/react";
-import { TeamPicker, type TeamPickerOption } from "@/components/ui/team-picker";
+import { useCallback,useEffect,useMemo,useState } from "react";
+import { createPortal } from "react-dom";
 
 export interface UserDetailModalProps {
   userId: string;

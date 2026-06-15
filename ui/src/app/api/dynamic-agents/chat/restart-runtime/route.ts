@@ -9,13 +9,13 @@
  * Body: { agent_id, conversation_id }
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import { getServerConfig } from "@/lib/config";
 import {
-  ApiError,
-  getAuthFromBearerOrSession,
+ApiError,
+getAuthFromBearerOrSession,
 } from "@/lib/api-middleware";
+import { getServerConfig } from "@/lib/config";
 import { requireAgentPermission } from "@/lib/rbac/resource-authz";
+import { NextRequest,NextResponse } from "next/server";
 
 export async function POST(request: NextRequest): Promise<Response> {
   const config = getServerConfig();

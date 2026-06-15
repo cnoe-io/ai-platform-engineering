@@ -1,14 +1,14 @@
-import { NextRequest, NextResponse } from "next/server";
+import { ApiError } from "@/lib/api-middleware";
+import { authOptions } from "@/lib/auth-config";
+import { findRealmUserIdByAttribute,mergeUserAttributes } from "@/lib/rbac/keycloak-admin";
+import {
+consumeWebexLinkNonce,
+findValidWebexLinkNonce,
+mintWebexLinkNonceFromHmac,
+} from "@/lib/rbac/webex-link-nonce";
 import crypto from "crypto";
 import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth-config";
-import { ApiError } from "@/lib/api-middleware";
-import { findRealmUserIdByAttribute, mergeUserAttributes } from "@/lib/rbac/keycloak-admin";
-import {
-  consumeWebexLinkNonce,
-  findValidWebexLinkNonce,
-  mintWebexLinkNonceFromHmac,
-} from "@/lib/rbac/webex-link-nonce";
+import { NextRequest,NextResponse } from "next/server";
 
 const HMAC_TTL_SECONDS = 600;
 

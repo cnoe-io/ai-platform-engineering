@@ -1,24 +1,24 @@
 import {
-  ApiError,
-  getAuthFromBearerOrSession,
-  requireRbacPermission,
-  withErrorHandler,
+ApiError,
+getAuthFromBearerOrSession,
+requireRbacPermission,
+withErrorHandler,
 } from "@/lib/api-middleware";
-import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
+import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
 import {
-  countRealmUsers,
-  getRealmUserById,
-  listRealmRoleMappingsForUser,
-  listUsersWithRole,
-  searchRealmUsers,
+countRealmUsers,
+getRealmUserById,
+listRealmRoleMappingsForUser,
+listUsersWithRole,
+searchRealmUsers,
 } from "@/lib/rbac/keycloak-admin";
 import {
-  curateRealmRolesForUser,
-  type RealmRoleClassification,
+curateRealmRolesForUser,
+type RealmRoleClassification,
 } from "@/lib/rbac/keycloak-transition";
 import { requireBaselineAdminSurfaceRead } from "@/lib/rbac/require-openfga";
 import { listTeamMembershipSources } from "@/lib/rbac/team-membership-source-store";
-import { type NextRequest, NextResponse } from "next/server";
+import { type NextRequest,NextResponse } from "next/server";
 
 type AdminUsersListBase = {
   id: string;

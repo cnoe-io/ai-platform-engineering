@@ -1,10 +1,10 @@
 import { NextRequest } from "next/server";
 
 import {
-  ApiError,
-  getAuthFromBearerOrSession,
-  successResponse,
-  withErrorHandler,
+ApiError,
+getAuthFromBearerOrSession,
+successResponse,
+withErrorHandler,
 } from "@/lib/api-middleware";
 import { CREDENTIAL_COLLECTIONS } from "@/lib/credentials/collections";
 import { getCredentialFeatureConfig } from "@/lib/feature-flags/credentials";

@@ -1,16 +1,16 @@
-import { type NextRequest } from "next/server";
 import {
-  withErrorHandler,
-  successResponse,
-  ApiError,
-  getAuthFromBearerOrSession,
-  requireRbacPermission,
+ApiError,
+getAuthFromBearerOrSession,
+requireRbacPermission,
+successResponse,
+withErrorHandler,
 } from "@/lib/api-middleware";
 import {
-  getRoleByName,
-  assignRealmRolesToUser,
-  removeRealmRolesFromUser,
+assignRealmRolesToUser,
+getRoleByName,
+removeRealmRolesFromUser,
 } from "@/lib/rbac/keycloak-admin";
+import { type NextRequest } from "next/server";
 
 type RoleNameInput = { name?: string };
 

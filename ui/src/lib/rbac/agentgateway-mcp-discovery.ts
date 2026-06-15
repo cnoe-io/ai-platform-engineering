@@ -1,5 +1,5 @@
-import type { MCPCredentialSource, MCPServerConfig } from "@/types/dynamic-agent";
 import { isAgentGatewayBaseEndpoint } from "@/lib/rbac/mcp-endpoint-normalizer";
+import type { MCPCredentialSource,MCPServerConfig } from "@/types/dynamic-agent";
 
 /**
  * Built-in MCP credential sources, keyed by discovered target id. AgentGateway

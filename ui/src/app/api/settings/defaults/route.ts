@@ -1,13 +1,13 @@
 // PATCH /api/settings/defaults - Update default settings only
 
-import { NextRequest } from 'next/server';
-import { getCollection } from '@/lib/mongodb';
 import {
-  withAuth,
-  withErrorHandler,
-  successResponse,
+successResponse,
+withAuth,
+withErrorHandler,
 } from '@/lib/api-middleware';
+import { getCollection } from '@/lib/mongodb';
 import type { UserSettings } from '@/types/mongodb';
+import { NextRequest } from 'next/server';
 
 // PATCH /api/settings/defaults
 export const PATCH = withErrorHandler(async (request: NextRequest) => {

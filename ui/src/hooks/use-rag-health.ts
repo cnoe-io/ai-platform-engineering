@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
-import { config } from "@/lib/config";
 import { getHealthStatus } from "@/components/rag/api";
+import { config } from "@/lib/config";
+import { useCallback,useEffect,useRef,useState } from "react";
 
 export type HealthStatus = "checking" | "connected" | "disconnected";
 
@@ -35,7 +35,7 @@ export function useRAGHealth(): UseRAGHealthResult {
   const [secondsUntilNextCheck, setSecondsUntilNextCheck] = useState(0);
   const [graphRagEnabled, setGraphRagEnabled] = useState<boolean>(true);
   const [cleanupConfig, setCleanupConfig] = useState<CleanupConfig | null>(null);
-  const nextCheckTimeRef = useRef<number>(Date.now() + POLL_INTERVAL_MS);
+  const nextCheckTimeRef = useRef<number>(0);
   const hasInitialCheckCompleted = useRef<boolean>(false);
   const url = config.ragUrl;
   const ragEnabled = config.ragEnabled;
@@ -84,13 +84,14 @@ export function useRAGHealth(): UseRAGHealthResult {
   useEffect(() => {
     // If RAG is disabled, don't check health at all
     if (!ragEnabled) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: set disconnected status immediately when RAG is disabled
       setStatus("disconnected");
       hasInitialCheckCompleted.current = true;
       return;
     }
 
     // Check immediately on mount
-    checkHealth();
+    void checkHealth();
 
     // Set up 30-second polling interval
     const interval = setInterval(checkHealth, POLL_INTERVAL_MS);

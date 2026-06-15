@@ -1,14 +1,14 @@
 import { NextRequest } from "next/server";
 
 import {
-  ApiError,
-  getAuthFromBearerOrSession,
-  successResponse,
-  withErrorHandler,
+ApiError,
+getAuthFromBearerOrSession,
+successResponse,
+withErrorHandler,
 } from "@/lib/api-middleware";
-import { getCredentialFeatureConfig } from "@/lib/feature-flags/credentials";
 import { getCredentialSecretService } from "@/lib/credentials/secret-service-factory";
-import type { CredentialOwnerType, CredentialSecretType } from "@/lib/credentials/types";
+import type { CredentialOwnerType,CredentialSecretType } from "@/lib/credentials/types";
+import { getCredentialFeatureConfig } from "@/lib/feature-flags/credentials";
 import { requireResourcePermission } from "@/lib/rbac/resource-authz";
 
 function assertFeatureEnabled(): void {

@@ -56,14 +56,18 @@ jest.mock('@/lib/rbac/keycloak-authz', () => ({
   checkPermission: jest.fn().mockResolvedValue({ allowed: true }),
 }));
 
-// `requireConversationResourcePermission` (used by the messages route)
-// delegates to `requireResourcePermission` which calls `checkOpenFgaTuple`.
-// Without this mock the test hits the real OpenFGA client and errors with
-// `OPENFGA_HTTP is not set`. Default to allow so most tests just exercise
-// route-level logic.
+// `requireConversationResourcePermission` delegates to `requireResourcePermission`
+// (CAS-backed). Mock resource-authz so tests exercise route logic without a PDP.
 const mockCheckOpenFgaTuple = jest.fn().mockResolvedValue({ allowed: true });
 jest.mock('@/lib/rbac/openfga', () => ({
   checkOpenFgaTuple: (...args: unknown[]) => mockCheckOpenFgaTuple(...args),
+}));
+
+const mockRequireResourcePermission = jest.fn().mockResolvedValue(undefined);
+const mockFilterResourcesByPermission = jest.fn().mockImplementation(async (_session, items) => items);
+jest.mock('@/lib/rbac/resource-authz', () => ({
+  requireResourcePermission: (...args: unknown[]) => mockRequireResourcePermission(...args),
+  filterResourcesByPermission: (...args: unknown[]) => mockFilterResourcesByPermission(...args),
 }));
 
 // ============================================================================

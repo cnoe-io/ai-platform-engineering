@@ -1,8 +1,8 @@
 "use client";
 
+import type { PermissionsMap,RbacResource,RbacScope } from "@/lib/rbac/types";
 import { useSession } from "next-auth/react";
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { PermissionsMap, RbacResource, RbacScope } from "@/lib/rbac/types";
+import { useCallback,useEffect,useRef,useState } from "react";
 
 interface RbacPermissionsState {
   permissions: PermissionsMap;

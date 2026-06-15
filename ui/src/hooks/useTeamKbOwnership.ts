@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
 import type { KbPermission } from "@/lib/rbac/types";
+import { useCallback,useEffect,useState } from "react";
 
 interface TeamKbInfo {
   teamId: string;

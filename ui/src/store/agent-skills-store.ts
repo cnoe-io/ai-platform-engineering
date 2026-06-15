@@ -1,10 +1,10 @@
-import { create } from "zustand";
 import type {
-  AgentSkill,
-  CreateAgentSkillInput,
-  UpdateAgentSkillInput,
-  AgentSkillCategory,
+AgentSkill,
+AgentSkillCategory,
+CreateAgentSkillInput,
+UpdateAgentSkillInput,
 } from "@/types/agent-skill";
+import { create } from "zustand";
 
 /**
  * Agent Skills Store

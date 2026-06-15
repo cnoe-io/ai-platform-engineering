@@ -2,16 +2,16 @@
  * API route for listing available subagents for a dynamic agent.
  */
 
-import { NextRequest } from "next/server";
-import { getCollection } from "@/lib/mongodb";
 import {
-  withErrorHandler,
-  successResponse,
-  ApiError,
-  getAuthFromBearerOrSession,
+ApiError,
+getAuthFromBearerOrSession,
+successResponse,
+withErrorHandler,
 } from "@/lib/api-middleware";
-import { filterResourcesByPermission, requireAgentPermission } from "@/lib/rbac/resource-authz";
+import { getCollection } from "@/lib/mongodb";
+import { filterResourcesByPermission,requireAgentPermission } from "@/lib/rbac/resource-authz";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
+import { NextRequest } from "next/server";
 
 const COLLECTION_NAME = "dynamic_agents";
 

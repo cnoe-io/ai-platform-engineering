@@ -1,5 +1,5 @@
-import type { CreateConnectorInput, OAuthConnectorService } from "./oauth-service";
 import { BUILT_IN_OAUTH_CONNECTORS } from "./built-in-oauth-connectors";
+import type { CreateConnectorInput,OAuthConnectorService } from "./oauth-service";
 
 type Env = Record<string, string | undefined>;
 

@@ -1,24 +1,24 @@
 // GET /api/chat/conversations - List user's conversations
 // POST /api/chat/conversations - Create new conversation (or return existing via upsert)
 
-import { NextRequest, NextResponse } from 'next/server';
-import { v4 as uuidv4 } from 'uuid';
-import { getCollection, isMongoDBConfigured } from '@/lib/mongodb';
 import {
-  getAuthFromBearerOrSession,
-  withErrorHandler,
-  successResponse,
-  paginatedResponse,
-  validateRequired,
-  getPaginationParams,
-  requireRbacPermission,
+getAuthFromBearerOrSession,
+getPaginationParams,
+paginatedResponse,
+requireRbacPermission,
+successResponse,
+validateRequired,
+withErrorHandler,
 } from '@/lib/api-middleware';
-import type { Conversation, CreateConversationRequest, ClientType } from '@/types/mongodb';
-import { VALID_CLIENT_TYPES } from '@/types/mongodb';
-import { buildParticipants } from '@/types/a2a';
-import packageJson from '../../../../../package.json';
+import { getCollection,isMongoDBConfigured } from '@/lib/mongodb';
 import { filterConversationsByImplicitOrExplicitPermission } from '@/lib/rbac/conversation-implicit-authz';
 import { requireAgentUsePermission } from '@/lib/rbac/openfga-agent-authz';
+import { buildParticipants } from '@/types/a2a';
+import type { ClientType,Conversation,CreateConversationRequest } from '@/types/mongodb';
+import { VALID_CLIENT_TYPES } from '@/types/mongodb';
+import { NextRequest,NextResponse } from 'next/server';
+import { v4 as uuidv4 } from 'uuid';
+import packageJson from '../../../../../package.json';
 
 type ConversationWithAgentDisplay = Conversation & {
   agent_id?: string;
@@ -182,10 +182,13 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
 
   if (body.agent_id) {
     // Dynamic agent conversation — gate on agent-level can_use, not supervisor#invoke.
+    // Service-account callers are graphed as `service_account:<sub>` (their grants
+    // live under that type); see requireAgentUsePermission (spec 2026-06-05).
     const denial = await requireAgentUsePermission({
       subject: session.sub,
       agentId: body.agent_id,
       email: user.email,
+      isServiceAccount: session.isServiceAccount,
     });
     if (denial) {
       return denial;

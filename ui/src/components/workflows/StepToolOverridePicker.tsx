@@ -1,17 +1,17 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  AlertTriangle,
-  ChevronDown,
-  ChevronRight,
-  Loader2,
-  Lock,
-  Server,
-  Wrench,
-} from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { BuiltinToolsConfig, BuiltinToolDefinition, DynamicAgentConfig } from "@/types/dynamic-agent";
+import type { BuiltinToolDefinition,BuiltinToolsConfig,DynamicAgentConfig } from "@/types/dynamic-agent";
+import {
+AlertTriangle,
+ChevronDown,
+ChevronRight,
+Loader2,
+Lock,
+Server,
+Wrench,
+} from "lucide-react";
+import { useCallback,useEffect,useMemo,useState } from "react";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -183,10 +183,12 @@ export function StepToolOverridePicker({
   // ── Fetch agent config ──
   useEffect(() => {
     if (!agentId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: reset agent config when agentId is cleared
       setAgentConfig(null);
       return;
     }
     let cancelled = false;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: start loading state before async fetch
     setAgentLoading(true);
     fetch(`/api/dynamic-agents/agents/${encodeURIComponent(agentId)}`)
       .then((r) => r.json())

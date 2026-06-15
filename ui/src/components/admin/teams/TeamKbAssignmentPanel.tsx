@@ -1,30 +1,30 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useMemo } from "react";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { Button } from "@/components/ui/button";
 import { MultiSelect } from "@/components/ui/multi-select";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
+Tooltip,
+TooltipContent,
+TooltipProvider,
+TooltipTrigger,
 } from "@/components/ui/tooltip";
-import {
-  Database,
-  Plus,
-  Trash2,
-  Loader2,
-  CheckCircle2,
-  AlertCircle,
-  Info,
-  ExternalLink,
-  Eye,
-  Upload,
-  ShieldCheck,
-} from "lucide-react";
 import type { KbPermission } from "@/lib/rbac/types";
+import {
+AlertCircle,
+CheckCircle2,
+Database,
+ExternalLink,
+Eye,
+Info,
+Loader2,
+Plus,
+ShieldCheck,
+Trash2,
+Upload,
+} from "lucide-react";
+import React,{ useCallback,useEffect,useMemo,useState } from "react";
 
 interface KbAssignment {
   team_id: string;

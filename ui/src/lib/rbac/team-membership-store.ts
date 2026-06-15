@@ -27,8 +27,8 @@
  */
 
 import type {
-  TeamMembershipSource,
-  TeamRelationshipRole,
+TeamMembershipSource,
+TeamRelationshipRole,
 } from "@/types/identity-group-sync";
 
 import { getRbacCollection } from "./mongo-collections";

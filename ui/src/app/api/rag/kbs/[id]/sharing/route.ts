@@ -18,21 +18,21 @@
  * OpenFGA model.
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth-config";
 import {
-  ApiError,
-  handleApiError,
-  requireRbacPermission,
+ApiError,
+handleApiError,
+requireRbacPermission,
 } from "@/lib/api-middleware";
-import { requireResourcePermission } from "@/lib/rbac/resource-authz";
-import {
-  reconcileKnowledgeBaseRelationships,
-  reconcileDataSourceRelationships,
-} from "@/lib/rbac/openfga-owned-resources";
-import { handleShareableResourceWrite } from "@/lib/rbac/shareable-resource";
+import { authOptions } from "@/lib/auth-config";
 import { readOpenFgaTuples } from "@/lib/rbac/openfga";
+import {
+reconcileDataSourceRelationships,
+reconcileKnowledgeBaseRelationships,
+} from "@/lib/rbac/openfga-owned-resources-reconcile";
+import { requireResourcePermission } from "@/lib/rbac/resource-authz";
+import { handleShareableResourceWrite } from "@/lib/rbac/shareable-resource";
+import { getServerSession } from "next-auth";
+import { NextRequest,NextResponse } from "next/server";
 
 const OPENFGA_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._~@|*+=,/-]{0,191}$/;
 

@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useMemo } from "react";
+import { getConfig,getLogoFilterClass } from "@/lib/config";
 import { motion } from "framer-motion";
-import { getConfig, getLogoFilterClass } from "@/lib/config";
+import { useMemo } from "react";
 
 // Integration logos - simple single-color icons for small containers
 // Sources: simpleicons.org, devicons

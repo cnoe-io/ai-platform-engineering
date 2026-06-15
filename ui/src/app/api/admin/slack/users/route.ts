@@ -1,15 +1,15 @@
-import { NextRequest } from "next/server";
 import {
-  withErrorHandler,
-  getPaginationParams,
-  paginatedResponse,
-  getAuthFromBearerOrSession,
-  requireRbacPermission,
+getAuthFromBearerOrSession,
+getPaginationParams,
+paginatedResponse,
+requireRbacPermission,
+withErrorHandler,
 } from "@/lib/api-middleware";
 import { getCollection } from "@/lib/mongodb";
 import {
-  listRealmUsersPage,
+listRealmUsersPage,
 } from "@/lib/rbac/keycloak-admin";
+import { NextRequest } from "next/server";
 
 type SlackUserMetrics = {
   slack_user_id: string;

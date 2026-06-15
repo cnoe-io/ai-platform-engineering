@@ -29,7 +29,7 @@ binds:
           protocol:
             grpc:
               metadata:
-                caipe.auth: '{"sub": jwt.sub}'
+                caipe.auth: '{"sub": jwt.sub, "preferred_username": jwt.preferred_username}'
         authorization:
           rules:
           - deny: '!has(jwt.sub)'

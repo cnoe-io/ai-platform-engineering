@@ -447,3 +447,47 @@ export interface WebexUserMetrics {
   last_seen_at?: string;
   updated_at?: string;
 }
+
+// ============================================================================
+// Service Accounts Collection
+// ============================================================================
+//
+// Spec: docs/docs/specs/2026-06-05-service-accounts/data-model.md
+//
+// Three stores of record:
+//   - Keycloak  → owns the confidential client + secret (the credential / identity)
+//   - OpenFGA   → owns tuples on service_account:<sub> (access: ownership + scopes)
+//   - MongoDB   → owns this document (display metadata only — NOT authoritative)
+//
+// The Mongo doc is a convenience/index layer. Access decisions never read it;
+// they read OpenFGA. NO credential material is persisted here — no secret, no
+// hash (contrast catalog_api_keys, which stores a hash). Keycloak owns the
+// secret entirely and shows it once.
+
+/** A single agent/tool grant snapshot. Display cache only — OpenFGA tuples are
+ *  the source of truth for access. */
+export interface ServiceAccountScope {
+  type: 'agent' | 'tool';
+  /** For agent: the agent id. For tool: "<server>/<toolname>" or "<server>/*". */
+  ref: string;
+  added_by: string; // Keycloak sub of who added this scope (audit).
+  added_at: Date;
+}
+
+/** A user-minted machine identity backed by a dynamic Keycloak confidential
+ *  client. Owned by a single team; managed by any member of that team. */
+export interface ServiceAccount {
+  _id?: ObjectId;
+  sa_sub: string; // Keycloak service-account-user UUID — the OpenFGA subject id. UNIQUE.
+  client_id: string; // Keycloak clientId, e.g. "caipe-sa-incident-bot-a1b2c3". UNIQUE.
+  client_uuid: string; // Keycloak internal client UUID (for admin API calls: secret/delete).
+  name: string; // Human-friendly name, unique among ACTIVE SAs within owning_team_id.
+  description?: string;
+  owning_team_id: string; // The single owning team (team slug/id used in OpenFGA team:<id>).
+  created_by: string; // Keycloak sub of the creating user (audit/display).
+  created_at: Date;
+  status: 'active' | 'revoked';
+  revoked_at?: Date | null;
+  // Display cache ONLY — not authoritative. OpenFGA tuples are the source of truth for access.
+  scopes_snapshot?: ServiceAccountScope[];
+}

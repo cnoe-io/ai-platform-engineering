@@ -1,12 +1,12 @@
-import { NextRequest } from "next/server";
-import { ApiError, successResponse, withErrorHandler } from "@/lib/api-middleware";
+import { ApiError,successResponse,withErrorHandler } from "@/lib/api-middleware";
 import { logOpenFgaRebacAuditEvent } from "@/lib/rbac/audit";
 import {
-  readOpenFgaTuples,
-  writeOpenFgaTuples,
-  type OpenFgaTupleKey,
+readOpenFgaTuples,
+writeOpenFgaTuples,
+type OpenFgaTupleKey,
 } from "@/lib/rbac/openfga";
-import { ALLOWED_RELATIONS, validateTupleKey, withOpenFgaAdminAuth, withOpenFgaViewAuth } from "../_lib";
+import { NextRequest } from "next/server";
+import { ALLOWED_RELATIONS,validateTupleKey,withOpenFgaAdminAuth,withOpenFgaViewAuth } from "../_lib";
 
 function limitFromQuery(request: NextRequest): number {
   const raw = request.nextUrl.searchParams.get("limit");

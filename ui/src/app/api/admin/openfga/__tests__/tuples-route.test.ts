@@ -201,6 +201,36 @@ describe("/api/admin/openfga/tuples", () => {
     );
   });
 
+  it("accepts fine-grained MCP tool tuples containing '/' (#33)", async () => {
+    const { POST } = await import("../tuples/route");
+
+    // A team#member -> caller -> tool:<server>/<tool> grant: the object contains
+    // a slash, which SAFE_ID previously rejected before the shape allowlist ran.
+    const exactTool = {
+      user: "team:platform#member",
+      relation: "caller",
+      object: "tool:jira/search",
+    };
+    const wildcardTool = {
+      user: "user:alice",
+      relation: "caller",
+      object: "tool:jira/*",
+    };
+
+    const response = await POST(
+      request("/api/admin/openfga/tuples", {
+        method: "POST",
+        body: JSON.stringify({ writes: [exactTool, wildcardTool] }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
+      writes: [exactTool, wildcardTool],
+      deletes: [],
+    });
+  });
+
   it("rejects materialized can_* tuple writes", async () => {
     const { POST } = await import("../tuples/route");
 

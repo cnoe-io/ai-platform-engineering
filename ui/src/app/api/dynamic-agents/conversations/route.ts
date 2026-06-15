@@ -7,17 +7,17 @@
  * Only returns conversations that have an agent participant (Dynamic Agent conversations).
  */
 
-import { NextRequest } from "next/server";
 import {
-  withErrorHandler,
-  getPaginationParams,
-  paginatedResponse,
-  getAuthFromBearerOrSession,
+getAuthFromBearerOrSession,
+getPaginationParams,
+paginatedResponse,
+withErrorHandler,
 } from "@/lib/api-middleware";
-import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import { getServerConfig } from "@/lib/config";
+import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
 import { requireResourcePermission } from "@/lib/rbac/resource-authz";
 import type { Conversation } from "@/types/mongodb";
+import { NextRequest } from "next/server";
 
 /**
  * GET /api/dynamic-agents/conversations

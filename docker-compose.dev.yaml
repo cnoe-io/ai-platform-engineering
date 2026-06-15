@@ -1749,6 +1749,10 @@ services:
       - OIDC_DISCOVERY_URL=${OIDC_DISCOVERY_URL:-}
       - OIDC_GROUP_CLAIM=${OIDC_GROUP_CLAIM:-}
       - OIDC_REQUIRED_ADMIN_GROUP=${OIDC_REQUIRED_ADMIN_GROUP:-}
+      # Centralized Authorization Service — DA delegates agent-use decisions to the
+      # BFF's /api/authz/v1/decisions (forwards the caller's bearer / OBO). DA fails
+      # closed if unset or unreachable. Point at whichever UI service is running.
+      - AUTHZ_SERVICE_URL=${AUTHZ_SERVICE_URL:-http://caipe-ui-prod:3000}
       # Tracing (Langfuse)
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
@@ -3022,7 +3026,22 @@ services:
       OPENFGA_RELATION: can_call
       OPENFGA_OBJECT: mcp_gateway:list
       OPENFGA_BYPASS_SUBS: ${OPENFGA_BYPASS_SUBS:-}
+      # JWT validation config so the bridge can DECODE the caller's bearer and
+      # detect service accounts (preferred_username starts "service-account-", T002)
+      # → namespace service_account:<sub> vs user:<sub>. Without these,
+      # _decode_verified_bearer_claims returns None, SA detection is always False,
+      # and SA tool calls are mis-graphed as user:<sub> → DENY_NO_CAPABILITY (#46).
+      # Values match the AgentGateway listener jwtAuth + every other service's OIDC
+      # config so the iss/aud claims validate identically.
+      JWT_JWKS_URL: ${BRIDGE_JWT_JWKS_URL:-http://keycloak:7080/realms/caipe/protocol/openid-connect/certs}
+      JWT_ISSUER: ${BRIDGE_JWT_ISSUER:-http://localhost:7080/realms/caipe}
+      JWT_AUDIENCES: ${BRIDGE_JWT_AUDIENCES:-caipe-platform,agentgateway}
       CAIPE_AGENT_CONTEXT_HMAC_SECRET: ${CAIPE_AGENT_CONTEXT_HMAC_SECRET:-}
+      # Caller-keyed tool-authorization rollout flag (FR-012c). Default-off so
+      # prod/compose without the var keeps legacy agent-only tool enforcement;
+      # set CAIPE_CALLER_TOOL_CHECK_ENABLED=true (in .env) to enforce the dual
+      # agent+caller tool check for E2E.
+      CAIPE_CALLER_TOOL_CHECK_ENABLED: ${CAIPE_CALLER_TOOL_CHECK_ENABLED:-false}
       MONGODB_URI: ${MONGODB_URI:-mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin}
       MONGODB_DATABASE: ${MONGODB_DATABASE:-caipe}
       TENANT_ID: ${TENANT_ID:-default}
@@ -3048,7 +3067,7 @@ services:
     build:
       context: ./deploy/agentgateway
       dockerfile: Dockerfile.config-bridge
-    image: ghcr.io/cnoe-io/caipe-agentgateway-config-bridge:${IMAGE_TAG:-localtag}
+    image: ghcr.io/cnoe-io/agentgateway-config-bridge:${IMAGE_TAG:-localtag}
     container_name: agentgateway-config-bridge
     restart: unless-stopped
     read_only: true
@@ -3063,6 +3082,7 @@ services:
       AGENTGATEWAY_BOOTSTRAP_CONFIG_PATH: /bootstrap/config.yaml
       AGENTGATEWAY_ADMIN_CONFIG_URL: http://agentgateway:15000/config
       AGENTGATEWAY_CONFIG_BRIDGE_POLL_SECONDS: ${AGENTGATEWAY_CONFIG_BRIDGE_POLL_SECONDS:-5}
+      AGENTGATEWAY_LOG_LEVEL: ${AGENTGATEWAY_LOG_LEVEL:-info}
       LOG_LEVEL: ${AGENTGATEWAY_CONFIG_BRIDGE_LOG_LEVEL:-INFO}
     volumes:
       - agentgateway_config:/generated
@@ -3074,7 +3094,27 @@ services:
         - CMD
         - python
         - -c
-        - "from pathlib import Path; import sys; sys.exit(0 if Path('/generated/config.yaml').is_file() and Path('/generated/config.yaml').stat().st_size > 0 else 1)"
+        - |
+          from pathlib import Path
+          import json
+          import sys
+          import yaml
+
+          config_path = Path("/generated/config.yaml")
+          marker_path = Path("/generated/.reconcile_ok")
+          if not config_path.is_file() or config_path.stat().st_size <= 0 or not marker_path.is_file():
+              sys.exit(1)
+          text = config_path.read_text(encoding="utf-8")
+          try:
+              json.loads(text)
+          except json.JSONDecodeError:
+              try:
+                  parsed = yaml.safe_load(text)
+              except yaml.YAMLError:
+                  sys.exit(1)
+              if not isinstance(parsed, dict):
+                  sys.exit(1)
+          sys.exit(0)
       interval: 5s
       timeout: 3s
       retries: 12
@@ -3104,15 +3144,7 @@ services:
       # `compose up` can race the seed and 403 a user who SHOULD have roles.
       keycloak-init:
         condition: service_completed_successfully
-      # Token-exchange grants must exist before the Slack bot's first OBO
-      # call, but AG itself doesn't need it. Listed here so that bringing
-      # up AG implicitly brings up the full KC initialization chain — saves
-      # operators from having to remember `--profile rbac` orders things
-      # correctly. Marked optional via `restart: on-failure` on the init
-      # container so a failure here doesn't block AG from coming up if the
-      # token-exchange config is intentionally absent in dev.
-      keycloak-init-token-exchange:
-        condition: service_completed_successfully
+      # Token-exchange is for Slack bot OBO, not AgentGateway — do not block AG on it.
       openfga-authz-bridge:
         condition: service_healthy
       agentgateway-config-bridge:

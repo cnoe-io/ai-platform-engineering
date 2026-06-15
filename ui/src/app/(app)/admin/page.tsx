@@ -1,66 +1,67 @@
 "use client";
 
-import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { useSearchParams, useRouter, usePathname } from "next/navigation";
-import { useSession } from "next-auth/react";
-import { motion } from "framer-motion";
-import { User, Users, MessageSquare, TrendingUp, Activity, Database, Share2, ShieldCheck, UserPlus, Trash2, UsersIcon, Loader2, Bot, ThumbsUp, ThumbsDown, Clock, Zap, CheckCircle2, Layers, Eye, Star, Filter, ExternalLink, Plus, Calendar, X, FileText, Shield, HelpCircle, Globe, RefreshCw, Settings, Wrench, Hash, Search, type LucideIcon } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { AuthGuard } from "@/components/auth-guard";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { CAIPESpinner } from "@/components/ui/caipe-spinner";
-import { MultiSelect, TagInput } from "@/components/ui/multi-select";
-import { SimpleLineChart } from "@/components/admin/SimpleLineChart";
-import { MetricsTab } from "@/components/admin/MetricsTab";
-import { HealthTab } from "@/components/admin/HealthTab";
-import {
-  VisibilityBreakdown,
-  CategoryBreakdown,
-  RunStatsTable,
-  TopCreatorsCard,
-} from "@/components/admin/SkillMetricsCards";
-import { CreateTeamDialog } from "@/components/admin/teams/CreateTeamDialog";
-import { TeamDetailsDialog, type DialogMode as TeamDialogMode } from "@/components/admin/teams/TeamDetailsDialog";
-import { AuditLogsTab } from "@/components/admin/AuditLogsTab";
-import { UnifiedAuditTab } from "@/components/admin/UnifiedAuditTab";
-import { OpenFgaRebacTab } from "@/components/admin/OpenFgaRebacTab";
+CategoryBreakdown,
+RunStatsTable,
+TopCreatorsCard,
+VisibilityBreakdown,
+} from "@/components/admin/insights/SkillMetricsCards";
+import { CheckpointStatsSection } from "@/components/admin/platform/CheckpointStatsSection";
+import { CrawlConsoleDialog } from "@/components/admin/platform/CrawlConsoleDialog";
+import { CrawlConsoleHeaderPill } from "@/components/admin/platform/CrawlConsoleHeaderPill";
+import { HealthTab } from "@/components/admin/platform/HealthTab";
+import { MetricsTab } from "@/components/admin/platform/MetricsTab";
+import { SkillHubsSection } from "@/components/admin/platform/SkillHubsSection";
+import { SlackStatsSection } from "@/components/admin/platform/SlackStatsSection";
+import { SupervisorSkillsStatusSection } from "@/components/admin/platform/SupervisorSkillsStatusSection";
+import { CasInsightsTab } from "@/components/admin/CasInsightsTab";
+import { PermissionsToolTab } from "@/components/admin/PermissionsToolTab";
 import { RagTeamAccessPanel } from "@/components/admin/rebac/RagTeamAccessPanel";
 import { SlackChannelRebacPanel } from "@/components/admin/rebac/SlackChannelRebacPanel";
 import { WebexSpaceRebacPanel } from "@/components/admin/rebac/WebexSpaceRebacPanel";
+import { AuditLogsTab } from "@/components/admin/security/AuditLogsTab";
+import { KeycloakMigrationHealthPanel } from "@/components/admin/security/KeycloakMigrationHealthPanel";
+import { MigrationTab } from "@/components/admin/security/MigrationTab";
+import { OpenFgaRebacTab } from "@/components/admin/security/OpenFgaRebacTab";
+import { UnifiedAuditTab } from "@/components/admin/security/UnifiedAuditTab";
+import { PlatformSettingsTab } from "@/components/admin/settings/PlatformSettingsTab";
+import { ReleaseNotesSettingsTab } from "@/components/admin/settings/ReleaseNotesSettingsTab";
+import { ReviewConfigsTab } from "@/components/admin/settings/ReviewConfigsTab";
+import { DateRangeFilter,presetToRange,type DateRange,type DateRangePreset } from "@/components/admin/shared/DateRangeFilter";
+import { SimpleLineChart } from "@/components/admin/shared/SimpleLineChart";
+import { CreateTeamDialog } from "@/components/admin/teams/CreateTeamDialog";
 import { IdentitySyncPanel } from "@/components/admin/teams/IdentitySyncPanel";
-import { ReviewConfigsTab } from "@/components/admin/ReviewConfigsTab";
-import { CheckpointStatsSection } from "@/components/admin/CheckpointStatsSection";
-import { SlackStatsSection } from "@/components/admin/SlackStatsSection";
-import { DateRangeFilter, type DateRangePreset, type DateRange, presetToRange } from "@/components/admin/DateRangeFilter";
-import { SkillHubsSection } from "@/components/admin/SkillHubsSection";
-import { CrawlConsoleDialog } from "@/components/admin/CrawlConsoleDialog";
-import { CrawlConsoleHeaderPill } from "@/components/admin/CrawlConsoleHeaderPill";
-import { UserDetailPanel } from "@/components/admin/teams/UserDetailPanel";
-import { SupervisorSkillsStatusSection } from "@/components/admin/SupervisorSkillsStatusSection";
-import { UserManagementTab } from "@/components/admin/teams/UserManagementTab";
+import { TeamDetailsDialog,type DialogMode as TeamDialogMode } from "@/components/admin/teams/TeamDetailsDialog";
 import { UserDetailModal } from "@/components/admin/teams/UserDetailModal";
-import { PlatformSettingsTab } from "@/components/admin/PlatformSettingsTab";
-import { ReleaseNotesSettingsTab } from "@/components/admin/ReleaseNotesSettingsTab";
-import { MigrationTab } from "@/components/admin/MigrationTab";
-import { KeycloakMigrationHealthPanel } from "@/components/admin/KeycloakMigrationHealthPanel";
+import { ServiceAccountsTab } from "@/components/admin/ServiceAccountsTab";
+import { UserDetailPanel } from "@/components/admin/teams/UserDetailPanel";
+import { UserManagementTab } from "@/components/admin/teams/UserManagementTab";
+import { AuthGuard } from "@/components/auth-guard";
 import { AdminCredentialManagementPanel } from "@/components/credentials/AdminCredentialManagementPanel";
+import { Button } from "@/components/ui/button";
+import { CAIPESpinner } from "@/components/ui/caipe-spinner";
+import { Card,CardContent,CardDescription,CardHeader,CardTitle } from "@/components/ui/card";
+import {
+Dialog,
+DialogContent,
+DialogDescription,
+DialogFooter,
+DialogHeader,
+DialogTitle,
+} from "@/components/ui/dialog";
+import { MultiSelect,TagInput } from "@/components/ui/multi-select";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tabs,TabsContent,TabsList,TabsTrigger } from "@/components/ui/tabs";
 import { useAdminRole } from "@/hooks/use-admin-role";
-import { useAdminTabGates, type AdminTabGateSimulationTarget } from "@/hooks/useAdminTabGates";
+import { useAdminTabGates,type AdminTabGateSimulationTarget } from "@/hooks/useAdminTabGates";
 import { getConfig } from "@/lib/config";
-import { apiClient } from "@/lib/api-client";
-import type { Team as TeamType } from "@/types/teams";
+import { cn } from "@/lib/utils";
 import type { SkillMetricsAdmin } from "@/types/agent-skill";
+import type { Team as TeamType } from "@/types/teams";
+import { Activity,Bot,Bug,Calendar,CheckCircle2,Clock,Database,ExternalLink,Eye,FileText,Filter,Globe,Hash,HelpCircle,Layers,Loader2,MessageSquare,Plus,RefreshCw,Search,Settings,Share2,Shield,ShieldCheck,Star,ThumbsDown,ThumbsUp,Trash2,TrendingUp,User,UserPlus,Users,UsersIcon,Wrench,X,Zap,type LucideIcon } from "lucide-react";
+import { useSession } from "next-auth/react";
+import { usePathname,useRouter,useSearchParams } from "next/navigation";
+import React,{ useCallback,useEffect,useMemo,useRef,useState } from "react";
 
 interface AdminStats {
   platform_summary?: {
@@ -254,7 +255,7 @@ interface SimulationTeamOption {
   description?: string;
 }
 
-const VALID_TABS = ['users', 'teams', 'identity-sync', 'stats', 'skills', 'feedback', 'nps', 'metrics', 'health', 'credentials', 'audit-logs', 'action-audit', 'openfga', 'keycloak', 'migrations', 'ai-review', 'settings', 'release-notes', 'slack', 'webex', 'rag-access'] as const;
+const VALID_TABS = ['users', 'teams', 'identity-sync', 'stats', 'skills', 'feedback', 'nps', 'metrics', 'health', 'cas-insights', 'credentials', 'audit-logs', 'action-audit', 'cas-permissions-tool', 'openfga', 'keycloak', 'migrations', 'ai-review', 'settings', 'release-notes', 'slack', 'webex', 'rag-access', 'service-accounts'] as const;
 const VALID_OPENFGA_SUBTABS = ['builder', 'explorer', 'graph', 'tuples', 'access', 'baseline', 'diagnostics'] as const;
 const MOVED_ADMIN_TAB_MAP = {
   insights: 'stats',
@@ -266,8 +267,8 @@ const MOVED_OPENFGA_DEEPLINK_TAB_MAP = {
 } as const;
 
 type CategoryKey = 'settings' | 'people' | 'integrations' | 'insights' | 'platform' | 'security';
-const DEFAULT_ADMIN_CATEGORY: CategoryKey = 'settings';
-const DEFAULT_ADMIN_TAB = 'settings';
+const DEFAULT_ADMIN_CATEGORY: CategoryKey = 'security';
+const DEFAULT_ADMIN_TAB = 'cas-permissions-tool';
 const DEFAULT_READONLY_TAB = 'users';
 
 interface Category {
@@ -294,6 +295,7 @@ const CATEGORIES: Category[] = [
       { value: 'credentials', label: 'Credentials', icon: Shield, gateKey: 'credentials' },
       { value: 'rag-access', label: 'Knowledge Bases', icon: Database, gateKey: 'openfga' },
       { value: 'skills', label: 'Skills', icon: Layers, gateKey: 'skills' },
+      { value: 'service-accounts', label: 'Service Accounts', icon: Bot, gateKey: 'service_accounts' },
     ],
   },
   {
@@ -332,6 +334,7 @@ const CATEGORIES: Category[] = [
     tabs: [
       { value: 'metrics', label: 'Metrics', icon: Activity, gateKey: 'metrics' },
       { value: 'health', label: 'Health', icon: Database, gateKey: 'health' },
+      { value: 'cas-insights', label: 'Authorization Insights', icon: Activity, gateKey: 'metrics' },
     ],
   },
   {
@@ -339,8 +342,9 @@ const CATEGORIES: Category[] = [
     label: 'Security & Policy',
     icon: Shield,
     tabs: [
-      { value: 'openfga', label: 'OpenFGA ReBAC', icon: Shield, gateKey: 'openfga' },
+      { value: 'cas-permissions-tool', label: 'Permissions Tool', icon: Bug, gateKey: 'openfga' },
       { value: 'action-audit', label: 'RBAC Audit', icon: Shield, gateKey: 'action_audit' },
+      { value: 'openfga', label: 'OpenFGA ReBAC', icon: Shield, gateKey: 'openfga' },
       { value: 'audit-logs', label: 'Chat Audit', icon: FileText, gateKey: 'audit_logs' },
       { value: 'keycloak', label: 'Keycloak', icon: ShieldCheck, gateKey: 'migrations' },
       { value: 'migrations', label: 'Migrations', icon: Database, gateKey: 'migrations' },
@@ -1483,6 +1487,12 @@ function AdminPage() {
                 </TabsContent>
               )}
 
+              {tabGateValues.service_accounts && (
+                <TabsContent value="service-accounts" className="space-y-4">
+                  <ServiceAccountsTab />
+                </TabsContent>
+              )}
+
               {tabGateValues.ai_review && (
                 <TabsContent value="ai-review" className="space-y-4">
                   <ReviewConfigsTab />
@@ -1673,7 +1683,7 @@ function AdminPage() {
                             />
                             <StatChip
                               icon={<Wrench className="h-3.5 w-3.5" />}
-                              label="Tools"
+                              label="MCP"
                               count={
                                 team.resources?.tool_wildcard
                                   ? "*"
@@ -3144,9 +3154,23 @@ function AdminPage() {
                 <HealthTab />
               </TabsContent>
 
+              {/* CAS Insights — authorization service health + decision stats */}
+              {tabGateValues.metrics && (
+                <TabsContent value="cas-insights" className="space-y-4">
+                  <CasInsightsTab isAdmin={isAdmin} />
+                </TabsContent>
+              )}
+
               {tabGateValues.audit_logs && (
                 <TabsContent value="audit-logs" className="space-y-4">
                   <AuditLogsTab isAdmin={isAdmin} onUserClick={setSelectedUserEmail} />
+                </TabsContent>
+              )}
+
+              {/* Permission Debugger — interactive OpenFGA /explain */}
+              {tabGateValues.openfga && (
+                <TabsContent value="cas-permissions-tool" className="space-y-4">
+                  <PermissionsToolTab isAdmin={isAdmin} />
                 </TabsContent>
               )}
 

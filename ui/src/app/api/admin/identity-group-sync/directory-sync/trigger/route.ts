@@ -1,23 +1,23 @@
 import { randomUUID } from "crypto";
 
-import { NextRequest, NextResponse, after } from "next/server";
+import { NextRequest,NextResponse,after } from "next/server";
 
-import { getAuthFromBearerOrSession, successResponse, withErrorHandler } from "@/lib/api-middleware";
-import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
-import { resolveOrProvisionUserSub } from "@/lib/rbac/keycloak-admin";
-import { fetchExternalGroupsForProvider } from "@/lib/rbac/idp-connectors";
-import {
-  getIdpSyncSettings,
-  heartbeatIdpSyncRun,
-  HEARTBEAT_INTERVAL_MS,
-  insertIdpSyncRun,
-  listRunningIdpSyncRuns,
-  reapStaleIdpSyncRuns,
-  updateIdpSyncRun,
-} from "@/lib/rbac/idp-sync-store";
+import { getAuthFromBearerOrSession,successResponse,withErrorHandler } from "@/lib/api-middleware";
+import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
 import { planIdentityGroupSync } from "@/lib/rbac/identity-group-sync-planner";
 import { applyIdentityGroupSyncPlan } from "@/lib/rbac/identity-group-sync-reconciler";
 import { listIdentityGroupSyncRules } from "@/lib/rbac/identity-group-sync-rule-store";
+import { fetchExternalGroupsForProvider } from "@/lib/rbac/idp-connectors";
+import {
+HEARTBEAT_INTERVAL_MS,
+getIdpSyncSettings,
+heartbeatIdpSyncRun,
+insertIdpSyncRun,
+listRunningIdpSyncRuns,
+reapStaleIdpSyncRuns,
+updateIdpSyncRun,
+} from "@/lib/rbac/idp-sync-store";
+import { provisionShellUser } from "@/lib/rbac/keycloak-admin";
 import { listActiveTeamMembershipSourcesForProvider } from "@/lib/rbac/team-membership-source-store";
 
 import { withIdentityGroupSyncAdminAuth } from "../../_lib";
@@ -99,8 +99,13 @@ async function executeSyncRun(runId: string, provider: string, actor: string): P
         if (!member.active || !email) continue;
         if (!subCache.has(email)) {
           try {
-            const { sub } = await resolveOrProvisionUserSub(email, {
-              created_by: [`idp-sync:${provider}`],
+            // Shares the canonical JIT provisioning logic with the BFF
+            // `POST /api/admin/users/provision-shell` endpoint the bots call
+            // (issue #1781) — in-process, so no self-network hop. This route's
+            // own RBAC gate has already authorized the admin action.
+            const { sub } = await provisionShellUser({
+              email,
+              source: `idp-sync:${provider}`,
             });
             subCache.set(email, sub);
           } catch (err) {

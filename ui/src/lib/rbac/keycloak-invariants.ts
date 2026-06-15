@@ -30,8 +30,8 @@
  * assisted-by Claude Claude-opus-4-7
  */
 import type {
-  KeycloakAttachedPolicy,
-  KeycloakRbacDiagnosticValues,
+KeycloakAttachedPolicy,
+KeycloakRbacDiagnosticValues,
 } from "@/lib/rbac/keycloak-admin";
 
 export type KeycloakInvariantStatus = "pass" | "fail" | "unknown";

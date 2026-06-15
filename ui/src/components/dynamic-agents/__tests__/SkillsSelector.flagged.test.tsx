@@ -26,6 +26,7 @@ import { SkillsSelector } from '../SkillsSelector'
 
 // Lucide icons render to test svgs so their text content is grep-able.
 jest.mock('lucide-react', () => {
+  // eslint-disable-next-line react/display-name
   const stub = (name: string) => (props: any) => <svg data-testid={`icon-${name}`} {...props} />
   return {
     Loader2: stub('loader'),

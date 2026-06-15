@@ -101,12 +101,15 @@ jest.mock('@/lib/utils', () => ({
 
 jest.mock('framer-motion', () => ({
   motion: {
+    // eslint-disable-next-line react/display-name
     div: React.forwardRef(({ children, ...p }: any, ref: any) => <div ref={ref} {...p}>{children}</div>),
+    // eslint-disable-next-line react/display-name
     button: React.forwardRef(({ children, ...p }: any, ref: any) => <button ref={ref} {...p}>{children}</button>),
   },
   AnimatePresence: ({ children }: any) => <>{children}</>,
 }))
 
+// eslint-disable-next-line react/display-name
 jest.mock('react-markdown', () => ({ children }: any) => <div>{children}</div>)
 jest.mock('remark-gfm', () => () => {})
 jest.mock('react-syntax-highlighter', () => ({
@@ -119,6 +122,7 @@ jest.mock('@/components/shared/timeline/MarkdownRenderer', () => ({
 }))
 jest.mock('react-syntax-highlighter/dist/esm/styles/prism', () => ({ oneDark: {} }))
 jest.mock('react-textarea-autosize', () =>
+  // eslint-disable-next-line react/display-name
   React.forwardRef((props: any, ref: any) => <textarea ref={ref} {...props} />)
 )
 
@@ -131,6 +135,7 @@ jest.mock('../AgentStreamBox', () => ({
 }))
 
 jest.mock('@/components/ui/scroll-area', () => ({
+  // eslint-disable-next-line react/display-name
   ScrollArea: React.forwardRef(({ children, viewportRef, ...props }: any, ref: any) => {
     const setRef = React.useCallback((node: HTMLDivElement | null) => {
       if (viewportRef) viewportRef.current = node
@@ -147,8 +152,10 @@ jest.mock('@/components/ui/tooltip', () => ({
   Tooltip: ({ children }: any) => <>{children}</>,
   TooltipContent: ({ children }: any) => <div>{children}</div>,
   TooltipProvider: ({ children }: any) => <>{children}</>,
+  // eslint-disable-next-line react/display-name
   TooltipTrigger: React.forwardRef(({ children, asChild, ...props }: any, ref: any) => {
     if (asChild && React.isValidElement(children)) {
+      // eslint-disable-next-line react-hooks/refs
       return React.cloneElement(children as React.ReactElement<any>, { ref, ...props })
     }
     return <div ref={ref} {...props}>{children}</div>
@@ -156,6 +163,7 @@ jest.mock('@/components/ui/tooltip', () => ({
 }))
 
 jest.mock('@/components/ui/button', () => ({
+  // eslint-disable-next-line react/display-name
   Button: React.forwardRef(({ children, ...p }: any, ref: any) => <button ref={ref} {...p}>{children}</button>),
 }))
 

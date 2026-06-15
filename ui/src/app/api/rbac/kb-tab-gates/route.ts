@@ -1,10 +1,10 @@
-import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions, isBootstrapAdmin } from "@/lib/auth-config";
+import { authOptions,isBootstrapAdmin } from "@/lib/auth-config";
 import { checkOpenFgaTuple } from "@/lib/rbac/openfga";
 import { organizationObjectId } from "@/lib/rbac/organization";
 import { filterResourcesByPermission } from "@/lib/rbac/resource-authz";
 import type { KbTabGatesMap } from "@/lib/rbac/types";
+import { getServerSession } from "next-auth";
+import { NextResponse } from "next/server";
 
 /**
  * GET /api/rbac/kb-tab-gates

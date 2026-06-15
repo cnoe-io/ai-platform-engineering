@@ -1,7 +1,7 @@
 import type {
-  UniversalRebacResourceAction,
-  UniversalRebacResourceType,
-  UniversalRebacResourceTypeDefinition,
+UniversalRebacResourceAction,
+UniversalRebacResourceType,
+UniversalRebacResourceTypeDefinition,
 } from "@/types/rbac-universal";
 
 export const STANDARD_REBAC_ACTIONS = [

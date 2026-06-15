@@ -66,6 +66,7 @@ function GuardedLink({
     hasUnsavedChanges: boolean;
     requestNavigation: (href: string) => void;
   };
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { usePathname } = require("next/navigation") as {
     usePathname: () => string;
   };

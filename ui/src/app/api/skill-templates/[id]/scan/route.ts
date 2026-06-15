@@ -1,19 +1,19 @@
 import { NextRequest } from "next/server";
 
 import {
-  withAuth,
-  withErrorHandler,
-  successResponse,
-  ApiError,
-} from "@/lib/api-middleware";
-import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
-import { scanSkillContent, isSkillScannerConfigured } from "@/lib/skill-scan";
-import { recordScanEvent } from "@/lib/skill-scan-history";
-import {
-  loadSkillTemplatesInternal,
-  loadTemplateAncillaryFiles,
-  resolveTemplateDir,
+loadSkillTemplatesInternal,
+loadTemplateAncillaryFiles,
+resolveTemplateDir,
 } from "@/app/api/skills/skill-templates-loader";
+import {
+ApiError,
+successResponse,
+withAuth,
+withErrorHandler,
+} from "@/lib/api-middleware";
+import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
+import { isSkillScannerConfigured,scanSkillContent } from "@/lib/skill-scan";
+import { recordScanEvent } from "@/lib/skill-scan-history";
 import type { ScanStatus } from "@/types/agent-skill";
 
 const BUILTIN_SCAN_COLLECTION = "builtin_skill_scans";

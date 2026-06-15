@@ -20,9 +20,9 @@
  */
 
 import type {
-  DynamicAgentConfig,
-  LegacyVisibilityType,
-  VisibilityType,
+DynamicAgentConfig,
+LegacyVisibilityType,
+VisibilityType,
 } from "@/types/dynamic-agent";
 
 const STRICT_VISIBILITY: ReadonlySet<VisibilityType> = new Set(["team", "global"]);

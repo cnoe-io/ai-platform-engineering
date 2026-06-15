@@ -1,4 +1,4 @@
-import { CREDENTIAL_COLLECTIONS, CredentialCollectionName } from "./collections";
+import { CREDENTIAL_COLLECTIONS,CredentialCollectionName } from "./collections";
 
 export interface CredentialIndexSpec {
   collection: CredentialCollectionName;

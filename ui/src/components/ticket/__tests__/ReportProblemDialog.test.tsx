@@ -21,7 +21,7 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 // ============================================================================
 
 let mockTicketProvider: string | null = "jira";
-let mockCaipeUrl = "http://localhost:8000";
+const mockCaipeUrl = "http://localhost:8000";
 
 jest.mock("@/lib/config", () => ({
   getConfig: (key: string) => {
@@ -61,6 +61,7 @@ jest.mock("next/navigation", () => ({
 
 jest.mock("framer-motion", () => ({
   motion: {
+    // eslint-disable-next-line react/display-name
     div: React.forwardRef(
       (
         {
@@ -120,6 +121,7 @@ jest.mock("@/components/ui/dialog", () => ({
 }));
 
 jest.mock("@/components/ui/button", () => ({
+  // eslint-disable-next-line react/display-name
   Button: React.forwardRef(
     (
       {

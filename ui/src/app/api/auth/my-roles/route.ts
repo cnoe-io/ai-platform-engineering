@@ -1,10 +1,10 @@
-import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth-config";
-import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
+import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
 import { getRealmUserById } from "@/lib/rbac/keycloak-admin";
 import { getRbacCollection } from "@/lib/rbac/mongo-collections";
 import type { TeamMembershipSource } from "@/types/identity-group-sync";
+import { getServerSession } from "next-auth";
+import { NextResponse } from "next/server";
 
 function decodeJwtPayload(token: string): Record<string, unknown> {
   try {
@@ -77,7 +77,12 @@ export async function GET() {
 
   const idpSource = (payload.azp as string) || (payload.iss as string) || "unknown";
 
-  let teams: Array<{ _id: string; name: string; role?: string }> = [];
+  // `slug` is the canonical OpenFGA team identity (team:<slug>) — membership
+  // tuples, the SA owning-team check, and owner_team tuples are all keyed by it.
+  // Clients that submit a team identifier (e.g. the Service Accounts owning-team
+  // picker) MUST use `slug`, NOT `_id` (the Mongo ObjectId), or the OpenFGA
+  // check misses the membership tuple (#48). `_id` is retained for display/back-compat.
+  let teams: Array<{ _id: string; slug: string; name: string; role?: string }> = [];
   let slackLinked = false;
 
   if (isMongoDBConfigured) {
@@ -109,6 +114,7 @@ export async function GET() {
           const slug = typeof t.slug === "string" ? t.slug : "";
           return {
             _id: t._id.toString(),
+            slug,
             name: t.name as string,
             role: roleBySlug.get(slug),
           };

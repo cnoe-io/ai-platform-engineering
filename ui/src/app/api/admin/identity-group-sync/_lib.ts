@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 
-import { getAuthFromBearerOrSession, requireRbacPermission } from "@/lib/api-middleware";
+import { getAuthFromBearerOrSession,requireRbacPermission } from "@/lib/api-middleware";
 
 export async function withIdentityGroupSyncViewAuth<T>(
   request: NextRequest,

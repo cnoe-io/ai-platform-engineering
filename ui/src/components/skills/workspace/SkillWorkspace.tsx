@@ -24,55 +24,55 @@
  * small and trivially testable in isolation.
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import {
-  ArrowLeft,
-  ArrowRight,
-  Copy,
-  Download,
-  Eye,
-  FileCode,
-  History as HistoryIcon,
-  Loader2,
-  Save,
-  Settings as SettingsIcon,
-  ShieldCheck,
-  Wrench,
+ArrowLeft,
+ArrowRight,
+Copy,
+Download,
+Eye,
+FileCode,
+History as HistoryIcon,
+Loader2,
+Save,
+Settings as SettingsIcon,
+ShieldCheck,
+Wrench,
 } from "lucide-react";
+import { useRouter } from "next/navigation";
+import React,{ useCallback,useEffect,useMemo,useState } from "react";
 
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
-  Tabs,
-  TabsList,
-  TabsTrigger,
-  TabsContent,
-} from "@/components/ui/tabs";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
+Dialog,
+DialogContent,
+DialogDescription,
+DialogFooter,
+DialogHeader,
+DialogTitle,
 } from "@/components/ui/dialog";
+import {
+Tabs,
+TabsContent,
+TabsList,
+TabsTrigger,
+} from "@/components/ui/tabs";
 import { useToast } from "@/components/ui/toast";
 import { getConfig } from "@/lib/config";
 import { cn } from "@/lib/utils";
 
-import {
-  useSkillForm,
-} from "@/components/skills/workspace/use-skill-form";
+import { buildLastReview,useAiReview } from "@/components/ai-review";
 import { SkillScanStatusIndicator } from "@/components/skills/SkillScanStatusIndicator";
+import {
+useSkillForm,
+} from "@/components/skills/workspace/use-skill-form";
 import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
-import { useAiReview, buildLastReview } from "@/components/ai-review";
 import type { AgentSkill } from "@/types/agent-skill";
 
-import { OverviewTab } from "@/components/skills/workspace/tabs/OverviewTab";
 import { FilesTab } from "@/components/skills/workspace/tabs/FilesTab";
-import { ToolsTab } from "@/components/skills/workspace/tabs/ToolsTab";
 import { ScanTab } from "@/components/skills/workspace/tabs/HistoryTab";
+import { OverviewTab } from "@/components/skills/workspace/tabs/OverviewTab";
+import { ToolsTab } from "@/components/skills/workspace/tabs/ToolsTab";
 import { VersionsTab } from "@/components/skills/workspace/tabs/VersionsTab";
 
 // ---------------------------------------------------------------------------

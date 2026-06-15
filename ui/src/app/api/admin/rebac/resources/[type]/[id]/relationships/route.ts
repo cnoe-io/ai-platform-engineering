@@ -1,8 +1,8 @@
-import { NextRequest } from "next/server";
-import { ApiError, getAuthFromBearerOrSession, requireRbacPermission, successResponse, withErrorHandler } from "@/lib/api-middleware";
-import { getRbacCollection, type RebacRelationshipDocument } from "@/lib/rbac/mongo-collections";
-import { readOpenFgaTuples, type OpenFgaTuple } from "@/lib/rbac/openfga";
+import { ApiError,getAuthFromBearerOrSession,requireRbacPermission,successResponse,withErrorHandler } from "@/lib/api-middleware";
+import { getRbacCollection,type RebacRelationshipDocument } from "@/lib/rbac/mongo-collections";
+import { readOpenFgaTuples,type OpenFgaTuple } from "@/lib/rbac/openfga";
 import { isUniversalRebacResourceType } from "@/lib/rbac/relationship-validator";
+import { NextRequest } from "next/server";
 
 interface RouteContext {
   params: Promise<{ type: string; id: string }>;

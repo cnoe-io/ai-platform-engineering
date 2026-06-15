@@ -1,14 +1,14 @@
 import { NextRequest } from "next/server";
 
-import { getAuthFromBearerOrSession, successResponse, withErrorHandler } from "@/lib/api-middleware";
+import { getAuthFromBearerOrSession,successResponse,withErrorHandler } from "@/lib/api-middleware";
 import { getRbacCollection } from "@/lib/rbac/mongo-collections";
 import { checkOpenFgaTuple } from "@/lib/rbac/openfga";
 import { subjectFromSession } from "@/lib/rbac/resource-authz";
-import { listWebexSpaceGrants, webexWorkspaceRef } from "@/lib/rbac/webex-space-grant-store";
 import {
-  computeWebexSpaceHealthSummary,
-  type WebexSpaceHealthSummary,
+computeWebexSpaceHealthSummary,
+type WebexSpaceHealthSummary,
 } from "@/lib/rbac/webex-space-diagnostics";
+import { listWebexSpaceGrants,webexWorkspaceRef } from "@/lib/rbac/webex-space-grant-store";
 
 interface WebexSpaceTeamMappingDoc {
   webex_workspace_id?: string;

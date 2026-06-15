@@ -16,17 +16,15 @@
 
 import { ApiError } from "@/lib/api-error";
 
-import {
-  reconcileShareableResource,
-  type ShareableResourceInput,
-} from "./openfga-owned-resources";
-import type { OpenFgaReconcileResult } from "./openfga";
-import {
-  canTransferResourceOwnership,
-  requireResourcePermission,
-  type ResourceAuthzSession,
-} from "./resource-authz";
 import type { UniversalRebacResourceType } from "@/types/rbac-universal";
+import type { OpenFgaReconcileResult } from "./openfga";
+import type { ShareableResourceInput } from "./openfga-owned-resources";
+import { reconcileShareableResource } from "./openfga-owned-resources-reconcile";
+import {
+canTransferResourceOwnership,
+requireResourcePermission,
+type ResourceAuthzSession,
+} from "./resource-authz";
 
 /** Owner/shared/creator + org-scope state persisted on (and read from) config. */
 export interface ShareableOwnershipState {

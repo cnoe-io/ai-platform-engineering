@@ -3,13 +3,13 @@ import { ObjectId } from "mongodb";
 import { getCollection } from "@/lib/mongodb";
 import { teamSlugsFromSkillTuples } from "@/lib/rbac/agent-skill-openfga-reconcile";
 import {
-  isOpenFgaReconciliationEnabled,
-  readOpenFgaTuples,
-  writeOpenFgaTupleDiff,
-  type OpenFgaReconcileResult,
-  type OpenFgaTupleKey,
+isOpenFgaReconciliationEnabled,
+readOpenFgaTuples,
+writeOpenFgaTupleDiff,
+type OpenFgaReconcileResult,
+type OpenFgaTupleKey,
 } from "@/lib/rbac/openfga";
-import { reconcileShareableResource } from "@/lib/rbac/openfga-owned-resources";
+import { reconcileShareableResource } from "@/lib/rbac/openfga-owned-resources-reconcile";
 
 interface TeamDoc {
   _id?: ObjectId | string;

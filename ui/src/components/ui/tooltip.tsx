@@ -1,8 +1,8 @@
 "use client";
 
+import { cn } from "@/lib/utils";
 import * as React from "react";
 import { createPortal } from "react-dom";
-import { cn } from "@/lib/utils";
 
 interface TooltipProviderProps {
   children: React.ReactNode;
@@ -167,6 +167,7 @@ export function TooltipTrigger({ children, asChild }: TooltipTriggerProps) {
         if (typeof (children as any).ref === 'function') {
           (children as any).ref(node);
         } else if ((children as any).ref) {
+          // eslint-disable-next-line react-hooks/immutability
           (children as any).ref.current = node;
         }
       },

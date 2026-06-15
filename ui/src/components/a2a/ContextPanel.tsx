@@ -1,20 +1,20 @@
 "use client";
 
-import React, { useMemo } from "react";
-import { motion } from "framer-motion";
-import {
-  Radio,
-  Bug,
-  ChevronLeft,
-  ChevronRight,
-} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { useChatStore } from "@/store/chat-store";
 import { cn } from "@/lib/utils";
-import { A2AStreamPanel } from "./A2AStreamPanel";
+import { useChatStore } from "@/store/chat-store";
 import { A2AEvent } from "@/types/a2a";
+import { motion } from "framer-motion";
+import {
+Bug,
+ChevronLeft,
+ChevronRight,
+Radio,
+} from "lucide-react";
+import { useMemo } from "react";
 import { useShallow } from "zustand/react/shallow";
+import { A2AStreamPanel } from "./A2AStreamPanel";
 
 // Stable empty array to avoid infinite re-render loops in selectors
 const EMPTY_EVENTS: A2AEvent[] = [];

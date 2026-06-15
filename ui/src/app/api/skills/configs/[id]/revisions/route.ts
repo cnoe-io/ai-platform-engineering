@@ -1,15 +1,15 @@
 import { NextRequest } from "next/server";
 
+import { getAgentSkillVisibleToUser } from "@/lib/agent-skill-visibility";
 import {
-  withAuth,
-  withErrorHandler,
-  successResponse,
-  ApiError,
+ApiError,
+successResponse,
+withAuth,
+withErrorHandler,
 } from "@/lib/api-middleware";
 import { isMongoDBConfigured } from "@/lib/mongodb";
-import { getAgentSkillVisibleToUser } from "@/lib/agent-skill-visibility";
-import { listRevisions } from "@/lib/skill-revisions";
 import { requireSkillPermission } from "@/lib/rbac/resource-authz";
+import { listRevisions } from "@/lib/skill-revisions";
 
 /**
  * GET /api/skills/configs/[id]/revisions
