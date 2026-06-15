@@ -6,6 +6,14 @@ jest.mock("@/components/ui/toast", () => ({
   useToast: () => ({ toast: jest.fn() }),
 }));
 
+const replaceMock = jest.fn();
+let currentSearchParams = new URLSearchParams();
+jest.mock("next/navigation", () => ({
+  usePathname: () => "/admin",
+  useRouter: () => ({ replace: replaceMock }),
+  useSearchParams: () => currentSearchParams,
+}));
+
 const fetchMock = jest.fn();
 
 function jsonResponse(body: unknown, init: { status?: number; statusText?: string } = {}) {
@@ -43,6 +51,8 @@ function reviewConfig(target: string) {
 }
 
 beforeEach(() => {
+  replaceMock.mockReset();
+  currentSearchParams = new URLSearchParams();
   fetchMock.mockReset();
   global.fetch = fetchMock as unknown as typeof fetch;
   fetchMock.mockImplementation(async (url: RequestInfo | URL) => {
@@ -97,4 +107,22 @@ it("keeps the AI Review save action in the page header row", async () => {
       expect.objectContaining({ method: "PUT" }),
     ),
   );
+});
+
+it("writes the active target to the subtab URL param", async () => {
+  render(<ReviewConfigsTab />);
+
+  fireEvent.click(await screen.findByRole("tab", { name: "Skills" }));
+  expect(replaceMock).toHaveBeenLastCalledWith("/admin?subtab=skill-md", { scroll: false });
+
+  fireEvent.click(screen.getByRole("tab", { name: "Agents" }));
+  expect(replaceMock).toHaveBeenLastCalledWith("/admin?subtab=agent-system-prompt", { scroll: false });
+});
+
+it("opens the target named by the subtab URL param on load", async () => {
+  currentSearchParams = new URLSearchParams("subtab=skill-md");
+  render(<ReviewConfigsTab />);
+
+  expect(await screen.findByRole("tab", { name: "Skills" })).toHaveAttribute("aria-selected", "true");
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/review-configs/skill-md"));
 });
