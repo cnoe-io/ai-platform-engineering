@@ -3,7 +3,10 @@
 
 import functools
 import logging
+from datetime import datetime, timezone
 from typing import Annotated, Any, Literal
+from urllib.parse import urlparse
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
 from fastmcp.server.dependencies import get_http_headers
@@ -12,6 +15,9 @@ from mcp.types import INTERNAL_ERROR, INVALID_PARAMS, ErrorData
 from pydantic import BaseModel, Field
 
 WEBEX_API_BASE = "https://webexapis.com/v1"
+USERHUB_DEFAULT_SITE = "https://cisco.webex.com"
+USERHUB_CALENDAR_PATH = "/webappng/api/v1/mymeetings/calendarView"
+SENSITIVE_KEY_SUBSTRINGS = ("password", "hostkey")
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +92,89 @@ class ListMeetings(BaseModel):
 
     class Config:
         description = "List/search Webex meetings the authenticated user can see."
+
+
+class UserHubCalendar(BaseModel):
+    from_iso: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Optional ISO-8601 lower bound for occurrence start time. "
+                "Filtering is applied client-side after reading User Hub calendar rows."
+            ),
+            default=None,
+        ),
+    ] = None
+    to_iso: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Optional ISO-8601 upper bound for occurrence start time. "
+                "Filtering is applied client-side after reading User Hub calendar rows."
+            ),
+            default=None,
+        ),
+    ] = None
+    title: Annotated[
+        str | None,
+        Field(
+            description="Optional case-insensitive title/subject substring filter.",
+            default=None,
+        ),
+    ] = None
+    site_url: Annotated[
+        str,
+        Field(
+            description=(
+                "Webex site base URL for the signed-in user's User Hub calendar, "
+                "for example 'https://cisco.webex.com'."
+            ),
+            default=USERHUB_DEFAULT_SITE,
+        ),
+    ] = USERHUB_DEFAULT_SITE
+    meeting_list_type: Annotated[
+        str,
+        Field(
+            description=(
+                "User Hub meetingListType query value. Use 'All' for the broadest "
+                "calendar view, including external calendar-backed rows."
+            ),
+            default="All",
+        ),
+    ] = "All"
+    max_results: Annotated[
+        int,
+        Field(description="Maximum calendar rows to request (1-500).", default=200, ge=1, le=500),
+    ] = 200
+
+    class Config:
+        description = (
+            "Read the signed-in user's Webex User Hub calendar feed. Best-effort "
+            "fallback for Office365/Google-backed future occurrences that may not "
+            "appear as public Webex scheduledMeeting rows."
+        )
+
+
+class ResolveMeetingLink(BaseModel):
+    web_link: Annotated[
+        str,
+        Field(
+            description=(
+                "Full Webex join/calendar link to resolve through the official "
+                "/v1/meetings?webLink=... API."
+            )
+        ),
+    ]
+    max_results: Annotated[
+        int,
+        Field(description="Maximum matching Webex meeting rows to return (1-100).", default=10, ge=1, le=100),
+    ] = 10
+
+    class Config:
+        description = (
+            "Resolve a Webex meeting link to official Webex meeting metadata, "
+            "with password/host-key fields removed."
+        )
 
 
 class GetMeetingStatus(BaseModel):
@@ -268,6 +357,154 @@ def _handle_errors(func):
     return wrapper
 
 
+def _parse_iso_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    if text.endswith("Z"):
+        text = f"{text[:-1]}+00:00"
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return None
+    return parsed.astimezone(timezone.utc)
+
+
+def _normalize_userhub_site_url(site_url: str | None) -> str:
+    raw = (site_url or USERHUB_DEFAULT_SITE).strip() or USERHUB_DEFAULT_SITE
+    if "://" not in raw:
+        raw = f"https://{raw}"
+    parsed = urlparse(raw)
+    host = (parsed.hostname or "").lower()
+    if parsed.scheme != "https" or not host:
+        raise ValueError("site_url must be an HTTPS Webex site URL.")
+    if host != "webex.com" and not host.endswith(".webex.com"):
+        raise ValueError("site_url must point to a Webex site host, e.g. https://cisco.webex.com.")
+    return f"https://{parsed.netloc}"
+
+
+def _webex_link_from_text(value: Any) -> str | None:
+    if not value:
+        return None
+    for token in str(value).replace("\n", " ").split():
+        candidate = token.strip(" <>[]()'\".,;")
+        parsed = urlparse(candidate)
+        host = (parsed.hostname or "").lower()
+        if parsed.scheme in {"http", "https"} and (
+            host == "webex.com" or host.endswith(".webex.com")
+        ):
+            return candidate
+    return None
+
+
+def _userhub_time_to_iso(value: Any) -> tuple[str | None, str | None, str | None]:
+    if isinstance(value, dict):
+        raw_datetime = value.get("dateTime") or value.get("datetime")
+        timezone_name = value.get("timeZone") or value.get("timezone")
+    elif isinstance(value, str):
+        raw_datetime = value
+        timezone_name = None
+    else:
+        return None, None, None
+
+    if not raw_datetime:
+        return None, timezone_name, None
+
+    raw_text = str(raw_datetime)
+    normalized = raw_text.replace(" ", "T", 1) if " " in raw_text and "T" not in raw_text else raw_text
+    parsed: datetime | None = None
+    try:
+        parsed = datetime.fromisoformat(normalized.replace("Z", "+00:00"))
+    except ValueError:
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S"):
+            try:
+                parsed = datetime.strptime(raw_text, fmt)
+                break
+            except ValueError:
+                continue
+
+    if parsed is None:
+        return raw_text, timezone_name, raw_text
+    if parsed.tzinfo is not None:
+        return parsed.isoformat(), timezone_name, raw_text
+    if timezone_name:
+        try:
+            return parsed.replace(tzinfo=ZoneInfo(timezone_name)).isoformat(), timezone_name, raw_text
+        except ZoneInfoNotFoundError:
+            return raw_text, timezone_name, raw_text
+    return raw_text, timezone_name, raw_text
+
+
+def _organizer_email(organizer: Any) -> str | None:
+    if not isinstance(organizer, dict):
+        return None
+    for key in ("email", "emailAddress", "mail", "userName"):
+        value = organizer.get(key)
+        if value:
+            return str(value)
+    return None
+
+
+def _normalize_userhub_calendar_item(item: Any) -> dict[str, Any]:
+    if not isinstance(item, dict):
+        return {"raw": item}
+
+    start_iso, start_tz, start_raw = _userhub_time_to_iso(item.get("startTime") or item.get("start"))
+    end_iso, end_tz, end_raw = _userhub_time_to_iso(item.get("endTime") or item.get("end"))
+    subject = item.get("subject") or item.get("title")
+    location = item.get("location")
+
+    return {
+        "id": item.get("id"),
+        "seriesId": item.get("seriesId"),
+        "subject": subject,
+        "source": item.get("externalType") or item.get("source"),
+        "start": start_iso,
+        "end": end_iso,
+        "timezone": start_tz or end_tz,
+        "startRaw": start_raw,
+        "endRaw": end_raw,
+        "location": location,
+        "webLink": item.get("webLink") or _webex_link_from_text(location),
+        "organizerEmail": _organizer_email(item.get("organizer")),
+        "organizer": item.get("organizer"),
+        "occurrenceType": item.get("occurrenceType"),
+        "isCancelled": item.get("isCancelled"),
+        "isAllDay": item.get("isAllDay"),
+        "originalStartTime": item.get("originalStartTime"),
+    }
+
+
+def _sanitize_sensitive(obj: Any) -> Any:
+    if isinstance(obj, dict):
+        clean: dict[str, Any] = {}
+        for key, value in obj.items():
+            key_lower = key.lower()
+            if any(part in key_lower for part in SENSITIVE_KEY_SUBSTRINGS):
+                continue
+            clean[key] = _sanitize_sensitive(value)
+        return clean
+    if isinstance(obj, list):
+        return [_sanitize_sensitive(value) for value in obj]
+    return obj
+
+
+def _extract_items(payload: Any) -> list[Any] | None:
+    if isinstance(payload, list):
+        return payload
+    if not isinstance(payload, dict):
+        return None
+    for key in ("items", "data", "meetings", "meetingList", "calendarItems", "entries"):
+        value = payload.get(key)
+        if isinstance(value, list):
+            return value
+    return None
+
+
 # ─────────────────────────── tool registration ────────────────────────
 def register_tools(server) -> None:
     """Register all Webex Meetings tools on the FastMCP server."""
@@ -300,6 +537,24 @@ def register_tools(server) -> None:
                 return resp.json()
             return {"ok": True, "body": resp.text}
 
+    async def _userhub_calendar_request(site_url: str, params: dict[str, Any]) -> Any:
+        bearer = _bearer_from_request()
+        headers = {
+            "Authorization": bearer,
+            "Accept": "application/json",
+        }
+        base_url = _normalize_userhub_site_url(site_url)
+        async with httpx.AsyncClient(base_url=base_url, timeout=30.0) as client:
+            resp = await client.get(USERHUB_CALENDAR_PATH, params=params, headers=headers)
+            resp.raise_for_status()
+            try:
+                return resp.json()
+            except ValueError as e:
+                raise ValueError(
+                    "User Hub calendar endpoint did not return JSON. "
+                    "Check that site_url is the user's Webex site, e.g. https://cisco.webex.com."
+                ) from e
+
     @server.tool(name="webex_list_meetings")
     @_handle_errors
     async def list_meetings(args: ListMeetings) -> dict[str, Any]:
@@ -314,6 +569,104 @@ def register_tools(server) -> None:
         if args.meeting_type:
             params["meetingType"] = args.meeting_type
         return await _request("GET", "/meetings", params=params)
+
+    @server.tool(name="webex_userhub_calendar")
+    @_handle_errors
+    async def userhub_calendar(args: UserHubCalendar) -> dict[str, Any]:
+        """Read the user's Webex User Hub calendar feed."""
+        params: dict[str, Any] = {
+            "meetingListType": args.meeting_list_type,
+            "limit": args.max_results,
+        }
+        payload = await _userhub_calendar_request(args.site_url, params=params)
+        raw_items = _extract_items(payload)
+        if raw_items is None:
+            shape = (
+                {"type": "dict", "keys": sorted(payload.keys())[:20]}
+                if isinstance(payload, dict)
+                else {"type": type(payload).__name__}
+            )
+            return {
+                "items": [],
+                "rawCount": 0,
+                "filteredCount": 0,
+                "siteUrl": _normalize_userhub_site_url(args.site_url),
+                "meetingListType": args.meeting_list_type,
+                "unexpectedShape": shape,
+                "note": (
+                    "User Hub calendar feed is best-effort/internal and may include "
+                    "external calendar rows not present in public Webex schedule APIs."
+                ),
+            }
+
+        from_dt = _parse_iso_datetime(args.from_iso)
+        to_dt = _parse_iso_datetime(args.to_iso)
+        if args.from_iso and from_dt is None:
+            raise ValueError("from_iso must be an ISO-8601 datetime with timezone, e.g. 2026-06-12T00:00:00Z.")
+        if args.to_iso and to_dt is None:
+            raise ValueError("to_iso must be an ISO-8601 datetime with timezone, e.g. 2026-06-26T00:00:00Z.")
+        title_filter = (args.title or "").casefold()
+        normalized_items: list[dict[str, Any]] = []
+        for raw_item in raw_items:
+            normalized = _normalize_userhub_calendar_item(raw_item)
+            subject = str(normalized.get("subject") or "")
+            if title_filter and title_filter not in subject.casefold():
+                continue
+            start_dt = _parse_iso_datetime(normalized.get("start"))
+            if start_dt is not None:
+                if from_dt is not None and start_dt < from_dt:
+                    continue
+                if to_dt is not None and start_dt >= to_dt:
+                    continue
+            normalized_items.append(normalized)
+
+        normalized_items.sort(key=lambda item: item.get("start") or "")
+        return {
+            "items": normalized_items,
+            "rawCount": len(raw_items),
+            "filteredCount": len(normalized_items),
+            "siteUrl": _normalize_userhub_site_url(args.site_url),
+            "meetingListType": args.meeting_list_type,
+            "note": (
+                "User Hub calendar feed is best-effort/internal and may include "
+                "Office365/Google-backed occurrences that are not exposed as public "
+                "Webex scheduledMeeting rows. Resolve Webex links separately before "
+                "treating a calendar row as official Webex metadata."
+            ),
+        }
+
+    @server.tool(name="webex_resolve_meeting_link")
+    @_handle_errors
+    async def resolve_meeting_link(args: ResolveMeetingLink) -> dict[str, Any]:
+        """Resolve a Webex link through the official meetings API."""
+        parsed = urlparse(args.web_link)
+        host = (parsed.hostname or "").lower()
+        if parsed.scheme not in {"http", "https"} or (
+            host != "webex.com" and not host.endswith(".webex.com")
+        ):
+            raise ValueError("web_link must be a Webex HTTP(S) URL.")
+
+        payload = await _request(
+            "GET",
+            "/meetings",
+            params={"webLink": args.web_link, "max": args.max_results},
+        )
+        sanitized = _sanitize_sensitive(payload)
+        if isinstance(sanitized, dict):
+            sanitized["queryWebLink"] = args.web_link
+            sanitized["note"] = (
+                "Resolved through the official Webex /v1/meetings API; "
+                "password and host-key fields were removed."
+            )
+            return sanitized
+        return {
+            "items": sanitized,
+            "queryWebLink": args.web_link,
+            "note": (
+                "Resolved through the official Webex /v1/meetings API; "
+                "password and host-key fields were removed."
+            ),
+        }
 
     @server.tool(name="webex_get_meeting_status")
     @_handle_errors

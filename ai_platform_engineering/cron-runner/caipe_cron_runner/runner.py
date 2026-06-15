@@ -14,10 +14,12 @@ own service token + chat-API token, both mounted from k8s Secrets at fire time.
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import os
 import sys
 from datetime import datetime, timezone
+from typing import Any
 
 import httpx
 
@@ -50,6 +52,9 @@ def main() -> int:
     retry_num = os.environ.get("RETRY_NUM", "").strip() or None
     retry_limit = os.environ.get("RETRY_LIMIT", "").strip() or None
     retry_reason = os.environ.get("RETRY_REASON", "").strip() or None
+    one_off_metadata = _load_one_off_metadata(
+        os.environ.get("ONE_OFF_METADATA_JSON", "").strip()
+    )
     message_override = os.environ.get("MESSAGE_TEMPLATE_OVERRIDE")
 
     sched_headers = {"X-Scheduler-Token": scheduler_token}
@@ -67,22 +72,16 @@ def main() -> int:
             log.exception("Failed to fetch schedule %s: %s", schedule_id, e)
             return 3
 
-        if not schedule.get("enabled", True):
+        if not schedule.get("enabled", True) and not one_off_run_id:
             log.info("Schedule %s is disabled, skipping fire.", schedule_id)
-            if one_off_run_id:
-                try:
-                    client.post(
-                        f"{scheduler_url}/v1/schedules/{schedule_id}/runs",
-                        headers=sched_headers,
-                        json={
-                            "status": "error",
-                            "error": "Schedule disabled, skipping one-off fire.",
-                            "one_off_run_id": one_off_run_id,
-                        },
-                    )
-                except Exception:
-                    log.exception("Failed to report disabled one-off skip")
             return 0
+        if not schedule.get("enabled", True) and one_off_run_id:
+            log.info(
+                "Schedule %s is disabled, but one-off run %s is independent; "
+                "continuing fire.",
+                schedule_id,
+                one_off_run_id,
+            )
 
         # 2. POST to chat as the schedule's owner user.
         run_ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -104,6 +103,15 @@ def main() -> int:
                 metadata_lines.append(f"retry_limit={retry_limit}")
             if retry_reason:
                 metadata_lines.append(f"retry_reason={retry_reason}")
+            if one_off_metadata:
+                metadata_lines.append(
+                    "one_off_metadata_json="
+                    + json.dumps(
+                        one_off_metadata,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    )
+                )
         message = "\n".join([message, *metadata_lines])
 
         chat_payload = {
@@ -122,6 +130,7 @@ def main() -> int:
                 "retry_num": retry_num,
                 "retry_limit": retry_limit,
                 "retry_reason": retry_reason,
+                "one_off_metadata": one_off_metadata,
             },
         }
         if schedule.get("pod_id"):
@@ -198,6 +207,20 @@ def main() -> int:
             )
 
     return 0 if status == "ok" else 1
+
+
+def _load_one_off_metadata(raw: str) -> dict[str, Any]:
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except ValueError:
+        log.warning("Ignoring invalid ONE_OFF_METADATA_JSON.")
+        return {}
+    if not isinstance(parsed, dict):
+        log.warning("Ignoring non-object ONE_OFF_METADATA_JSON.")
+        return {}
+    return parsed
 
 
 if __name__ == "__main__":

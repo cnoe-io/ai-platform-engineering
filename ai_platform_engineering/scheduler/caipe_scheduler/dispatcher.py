@@ -87,11 +87,12 @@ class OneOffDispatcher:
                 )
                 return
             if not schedule.get("enabled", True):
-                self._store.mark_one_off_failed(
+                log.info(
+                    "Parent schedule %s is disabled; dispatching one-off run %s "
+                    "from its existing CronJob template anyway.",
+                    schedule_id,
                     one_off_run_id,
-                    error=f"Parent schedule {schedule_id} is disabled.",
                 )
-                return
 
             cronjob_name = schedule.get("cronjob_name") or cronjob_name_for(schedule_id)
             job_name = self._k8s.create_one_off_job_from_cronjob(
@@ -100,6 +101,7 @@ class OneOffDispatcher:
                 retry_num=run.get("retry_num"),
                 retry_limit=run.get("retry_limit"),
                 retry_reason=run.get("reason"),
+                metadata=run.get("metadata") or {},
                 message_template_override=run.get("message_template"),
             )
             self._store.mark_one_off_fired(one_off_run_id, job_name=job_name)

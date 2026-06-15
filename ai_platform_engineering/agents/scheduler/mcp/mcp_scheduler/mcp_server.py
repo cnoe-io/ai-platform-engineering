@@ -176,7 +176,8 @@ class ListSchedulesArgs(BaseModel):
         Field(default=None, description="Filter by owner_user_id."),
     ] = None
     pod_id: Annotated[
-        str | None, Field(default=None, description="Filter by pod_id.")
+        str | None,
+        Field(default=None, description="Filter by pod_id. Matching is case-insensitive."),
     ] = None
     agent_id: Annotated[
         str | None, Field(default=None, description="Filter by agent_id.")
@@ -261,9 +262,17 @@ class ScheduleOneOffArgs(BaseModel):
         str | None,
         Field(
             default=None,
-            description="Optional short reason, e.g. transcript_not_ready.",
+            description="Optional short reason, e.g. transcript_not_ready or moved_meeting.",
         ),
     ] = None
+    metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        description=(
+            "Optional small JSON object carried into the one-off runner metadata. "
+            "Use for context such as target_meeting_start, target_meeting_end, "
+            "moved_from, moved_to, or moved_meeting_reason."
+        ),
+    )
     retry_num: Annotated[
         int | None,
         Field(default=None, ge=0, description="Optional retry attempt number."),
@@ -422,7 +431,9 @@ def register_tools(server) -> None:
             "The scheduler stores the request in Mongo, then creates a normal "
             "Kubernetes Job from the parent CronJob's jobTemplate when due. Pass "
             "exactly one of run_at or delay_minutes. Use retry_num/retry_limit for "
-            "domain retries such as transcript_not_ready."
+            "domain retries such as transcript_not_ready. One-offs are independent "
+            "of the parent schedule enabled state and still run if the recurring "
+            "CronJob is paused, as long as the parent schedule/CronJob template exists."
         ),
     )
     @_handle_errors

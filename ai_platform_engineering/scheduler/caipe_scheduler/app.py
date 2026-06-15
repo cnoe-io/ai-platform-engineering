@@ -433,6 +433,7 @@ def create_schedule_one_off_run(
         "status": "pending",
         "message_template": body.message_template,
         "reason": body.reason,
+        "metadata": body.metadata,
         "retry_num": body.retry_num,
         "retry_limit": body.retry_limit,
     }
