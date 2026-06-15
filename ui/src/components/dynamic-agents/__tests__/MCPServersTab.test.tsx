@@ -1,6 +1,8 @@
 import React from "react";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MCPServersTab } from "../MCPServersTab";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { MCP_SERVERS_REFRESH_INTERVAL_MS, MCPServersTab } from "../MCPServersTab";
+
+// assisted-by Codex Codex-sonnet-4-6
 
 const jiraServer = {
   _id: "jira",
@@ -107,5 +109,63 @@ describe("MCPServersTab AgentGateway sync", () => {
 
     expect(screen.getByText("AgentGateway")).toBeInTheDocument();
     expect(screen.getByText(/Target: http:\/\/rag-server:9446\/mcp/i)).toBeInTheDocument();
+  });
+
+  it("refreshes the mounted list when servers are added outside the tab", async () => {
+    jest.useFakeTimers();
+    const { unmount } = render(<MCPServersTab />);
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText("Jira")).toBeInTheDocument();
+    expect(screen.queryByText("RAG")).not.toBeInTheDocument();
+
+    serverItems = [jiraServer, agentGatewayRagServer];
+
+    await act(async () => {
+      jest.advanceTimersByTime(MCP_SERVERS_REFRESH_INTERVAL_MS);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText("RAG")).toBeInTheDocument();
+    expect(global.fetch).toHaveBeenCalledWith(
+      "/api/mcp-servers?page_size=100",
+      expect.objectContaining({ cache: "no-store" }),
+    );
+
+    unmount();
+    jest.useRealTimers();
+  });
+
+  it("refreshes the mounted list when servers are removed outside the tab", async () => {
+    jest.useFakeTimers();
+    serverItems = [jiraServer, agentGatewayRagServer];
+    const { unmount } = render(<MCPServersTab />);
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText("Jira")).toBeInTheDocument();
+    expect(screen.getByText("RAG")).toBeInTheDocument();
+
+    serverItems = [jiraServer];
+
+    await act(async () => {
+      jest.advanceTimersByTime(MCP_SERVERS_REFRESH_INTERVAL_MS);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText("Jira")).toBeInTheDocument();
+    expect(screen.queryByText("RAG")).not.toBeInTheDocument();
+
+    unmount();
+    jest.useRealTimers();
   });
 });

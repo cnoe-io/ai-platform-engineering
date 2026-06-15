@@ -103,6 +103,15 @@ async function installTeamResourceMocks(page: Page): Promise<InstalledTeamMocks>
 type InstalledMcpMocks = {
   createRequests: Array<Record<string, unknown>>;
   listRequests: number;
+  addExternalServer: (server: {
+    _id: string;
+    name: string;
+    description?: string;
+    transport?: string;
+    endpoint?: string;
+    enabled?: boolean;
+    config_driven?: boolean;
+  }) => void;
 };
 
 type InstalledRagFileMocks = {
@@ -115,17 +124,16 @@ type InstalledRagFileMocks = {
 async function installMcpServerMocks(page: Page): Promise<InstalledMcpMocks> {
   const createRequests: Array<Record<string, unknown>> = [];
   let listRequests = 0;
-  let createdServer:
-    | {
-        _id: string;
-        name: string;
-        description: string;
-        transport: string;
-        endpoint: string;
-        enabled: boolean;
-        config_driven: boolean;
-      }
-    | null = null;
+  type BrowserMcpServer = {
+    _id: string;
+    name: string;
+    description: string;
+    transport: string;
+    endpoint: string;
+    enabled: boolean;
+    config_driven: boolean;
+  };
+  let servers: BrowserMcpServer[] = [];
 
   await installMockedRbacApp(page, {
     isAdmin: true,
@@ -139,12 +147,11 @@ async function installMcpServerMocks(page: Page): Promise<InstalledMcpMocks> {
 
         if (path === "/api/mcp-servers" && method === "GET") {
           listRequests += 1;
-          const items = createdServer ? [createdServer] : [];
           await fulfillJson(route, {
             success: true,
             data: {
-              items,
-              total: items.length,
+              items: servers,
+              total: servers.length,
               page: 1,
               page_size: 100,
               has_more: false,
@@ -160,16 +167,18 @@ async function installMcpServerMocks(page: Page): Promise<InstalledMcpMocks> {
             typeof body.id === "string" && body.id.startsWith("mcp-")
               ? body.id
               : `mcp-${String(body.id ?? "ops-tools")}`;
-          createdServer = {
-            _id: serverId,
-            name: String(body.name ?? "Ops Tools"),
-            description: String(body.description ?? ""),
-            transport: String(body.transport ?? "sse"),
-            endpoint: String(body.endpoint ?? ""),
-            enabled: true,
-            config_driven: false,
-          };
-          await fulfillJson(route, { success: true, data: createdServer }, 201);
+          servers = [
+            {
+              _id: serverId,
+              name: String(body.name ?? "Ops Tools"),
+              description: String(body.description ?? ""),
+              transport: String(body.transport ?? "sse"),
+              endpoint: String(body.endpoint ?? ""),
+              enabled: true,
+              config_driven: false,
+            },
+          ];
+          await fulfillJson(route, { success: true, data: servers[0] }, 201);
           return true;
         }
 
@@ -184,6 +193,20 @@ async function installMcpServerMocks(page: Page): Promise<InstalledMcpMocks> {
     },
     get listRequests() {
       return listRequests;
+    },
+    addExternalServer(server) {
+      servers = [
+        ...servers,
+        {
+          _id: server._id,
+          name: server.name,
+          description: server.description ?? "",
+          transport: server.transport ?? "sse",
+          endpoint: server.endpoint ?? "",
+          enabled: server.enabled ?? true,
+          config_driven: server.config_driven ?? false,
+        },
+      ];
     },
   };
 }
@@ -390,6 +413,27 @@ test.describe("mocked MCP OpenFGA tuple browser regression", () => {
 
     await expect(page.getByText("Ops Tools")).toBeVisible();
     await expect.poll(() => mocks.listRequests).toBeGreaterThanOrEqual(2);
+    await expect(page.getByText("No MCP Servers Yet")).toHaveCount(0);
+  });
+
+  test("mounted MCP server list refreshes when servers change outside the tab", async ({ page }) => {
+    const mocks = await installMcpServerMocks(page);
+
+    await page.goto("/dynamic-agents?tab=mcp-servers", { waitUntil: "domcontentloaded" });
+    await expect(page.getByText("No MCP Servers Yet")).toBeVisible();
+    const initialListRequests = mocks.listRequests;
+
+    mocks.addExternalServer({
+      _id: "mcp-incident-tools",
+      name: "Incident Tools",
+      endpoint: "https://mcp.example.test/incidents",
+    });
+
+    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+
+    await expect(page.getByText("Incident Tools")).toBeVisible();
+    await expect(page.getByText("mcp-incident-tools")).toBeVisible();
+    await expect.poll(() => mocks.listRequests).toBeGreaterThan(initialListRequests);
     await expect(page.getByText("No MCP Servers Yet")).toHaveCount(0);
   });
 
