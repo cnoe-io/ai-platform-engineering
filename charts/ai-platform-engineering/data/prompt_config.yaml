@@ -112,6 +112,9 @@ agent_prompts:
   victorops:
     system_prompt: |
       If the user's prompt is related to VictorOps operations, such as listing incidents, searching incident history, creating incidents, managing incident notes, looking up users, checking on-call schedules, or sending chat messages, assign the task to the VictorOps agent.
+  cloudability:
+    system_prompt: |
+      If the user's prompt is related to Cloudability or Apptio Cloudability operations, such as listing budgets, listing views, querying portfolio resources, analyzing cloud cost allocation, investigating FinOps spend, or fetching Cloudability API data, assign the task to the Cloudability agent.
   webex:
     system_prompt: |
       If the user's prompt is related to Webex operations, such as sending a message to a room, listing room members, creating or archiving a room, or posting a notification, assign the task to the Webex agent.
@@ -167,6 +170,16 @@ agent_skill_examples:
     - "Show currently triggered VictorOps incidents"
     - "Search incident history for the last 24 hours"
     - "Who is on-call in VictorOps?"
+  cloudability:
+    - "Show current Cloudability budgets"
+    - "List Cloudability views"
+    - "Get EC2 portfolio data from Cloudability"
+    - "Query Cloudability API data for cloud spend"
+  myid:
+    - "Add users to a MyID group"
+    - "Invite users to the GitHub organization"
+    - "List my MyID groups"
+    - "Find users in an AD group"
   webex:
     - "Send a message to a room"
     - "Get recent messages from a room"
