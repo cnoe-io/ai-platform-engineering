@@ -43,6 +43,8 @@ def test_get_file_contents_decodes_file_and_encodes_path(monkeypatch):
         return _FakeProcess(json.dumps(payload).encode())
 
     monkeypatch.setattr(tools, "get_github_token", lambda: "token-value-1234567890")
+    monkeypatch.delenv("GITHUB_API_URL", raising=False)
+    monkeypatch.delenv("GITHUB_HOST", raising=False)
     monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
 
     tool = GHGetFileContentsTool()
@@ -65,6 +67,47 @@ def test_get_file_contents_decodes_file_and_encodes_path(monkeypatch):
         "GET",
     )
     assert captured["env"]["GH_TOKEN"] == "token-value-1234567890"
+    assert "GH_HOST" not in captured["env"]
+    assert "GH_ENTERPRISE_TOKEN" not in captured["env"]
+
+
+def test_get_file_contents_targets_configured_github_enterprise_host(monkeypatch):
+    captured = {}
+    content = "enterprise content\n"
+    payload = {
+        "type": "file",
+        "encoding": "base64",
+        "content": base64.b64encode(content.encode()).decode(),
+    }
+
+    async def fake_create_subprocess_exec(*args, **kwargs):
+        captured["args"] = args
+        captured["env"] = kwargs["env"]
+        return _FakeProcess(json.dumps(payload).encode())
+
+    monkeypatch.setattr(tools, "get_github_token", lambda: "enterprise-token")
+    monkeypatch.setenv("GITHUB_API_URL", "https://github.example.com/api/v3")
+    monkeypatch.delenv("GITHUB_HOST", raising=False)
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
+
+    result = asyncio.run(
+        GHGetFileContentsTool()._arun(
+            owner="cnoe-io",
+            repo="ai-platform-engineering",
+            path="README.md",
+        )
+    )
+
+    assert result == content
+    assert captured["args"] == (
+        "gh",
+        "api",
+        "repos/cnoe-io/ai-platform-engineering/contents/README.md",
+        "--method",
+        "GET",
+    )
+    assert captured["env"]["GH_HOST"] == "github.example.com"
+    assert captured["env"]["GH_ENTERPRISE_TOKEN"] == "enterprise-token"
 
 
 def test_get_file_contents_returns_directory_response(monkeypatch):
@@ -271,12 +314,50 @@ def test_gh_cli_write_commands_require_self_service_mode():
 
     tools.set_self_service_mode(True)
     try:
-        is_valid, error = tool._validate_command("repo delete cnoe-io/repo --yes")
+        is_valid, error = tool._validate_command(
+            "repo create cnoe-io/new-repo --private"
+        )
     finally:
         tools.set_self_service_mode(False)
 
     assert is_valid is True
     assert error == ""
+
+
+def test_gh_cli_blocks_high_risk_writes_even_in_self_service_mode():
+    tool = GHCLITool()
+
+    tools.set_self_service_mode(True)
+    try:
+        for command in [
+            "repo delete cnoe-io/repo --yes",
+            "secret set TOKEN --body value --repo cnoe-io/repo",
+            "workflow disable deploy.yml --repo cnoe-io/repo",
+        ]:
+            is_valid, error = tool._validate_command(command)
+            assert is_valid is False
+            assert "self-service allowlist" in error
+    finally:
+        tools.set_self_service_mode(False)
+
+
+def test_gh_cli_self_service_allows_previous_github_workflow_writes():
+    tool = GHCLITool()
+
+    tools.set_self_service_mode(True)
+    try:
+        for command in [
+            "pr merge 12 --squash --delete-branch --repo cnoe-io/repo",
+            "pr review 12 --approve --repo cnoe-io/repo",
+            "pr update-branch 12 --repo cnoe-io/repo --rebase",
+            "api repos/cnoe-io/repo/contents/README.md --method PUT -f message=update -f content=abc",
+            "api orgs/cnoe-io/invitations --method POST -f email=user@example.com",
+        ]:
+            is_valid, error = tool._validate_command(command)
+            assert is_valid is True, command
+            assert error == ""
+    finally:
+        tools.set_self_service_mode(False)
 
 
 def test_gh_cli_blocks_api_implicit_post_body_flags():
@@ -328,6 +409,19 @@ def test_gh_cli_can_disable_trusted_issue_and_pr_writes():
 
     assert is_valid is False
     assert "self-service" in error
+
+
+def test_gh_cli_blocks_pr_review_and_branch_updates_outside_self_service():
+    tool = GHCLITool()
+
+    for command in [
+        "pr review 12 --approve --repo cnoe-io/repo",
+        "pr update-branch 12 --repo cnoe-io/repo --rebase",
+        "pr revert 12 --repo cnoe-io/repo",
+    ]:
+        is_valid, error = tool._validate_command(command)
+        assert is_valid is False
+        assert "self-service" in error
 
 
 def test_github_token_provider_honors_gh_token(monkeypatch):

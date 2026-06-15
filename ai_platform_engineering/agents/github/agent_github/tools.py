@@ -14,7 +14,7 @@ import re
 import shlex
 import threading
 from typing import Any, Optional
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
@@ -89,7 +89,13 @@ ABSOLUTELY_BLOCKED_COMMAND_PATTERNS = [
 # when a caller explicitly constructs GHCLITool(allow_write_operations=True).
 TRUSTED_WRITE_COMMAND_PATTERNS = [
     r"(^|\s)issue\s+(close|comment|create|edit|reopen)(\s|$)",
-    r"(^|\s)pr\s+(comment|create|edit|ready|reopen|review)(\s|$)",
+    r"(^|\s)pr\s+(comment|create|edit|ready|reopen)(\s|$)",
+]
+
+SELF_SERVICE_ALLOWED_WRITE_COMMAND_PATTERNS = [
+    *TRUSTED_WRITE_COMMAND_PATTERNS,
+    r"(^|\s)pr\s+(merge|review|update-branch)(\s|$)",
+    r"(^|\s)repo\s+(create|fork)(\s|$)",
 ]
 
 WRITE_COMMAND_PATTERNS = [
@@ -101,7 +107,7 @@ WRITE_COMMAND_PATTERNS = [
     r"(^|\s)gpg-key\s+(add|delete)(\s|$)",
     r"(^|\s)issue\s+(close|comment|create|delete|develop|edit|lock|pin|reopen|transfer|unlock|unpin)(\s|$)",
     r"(^|\s)label\s+(clone|create|delete|edit)(\s|$)",
-    r"(^|\s)pr\s+(checkout|close|comment|create|edit|lock|merge|ready|reopen|review|unlock)(\s|$)",
+    r"(^|\s)pr\s+(checkout|close|comment|create|edit|lock|merge|ready|reopen|revert|review|unlock|update-branch)(\s|$)",
     r"(^|\s)project\s+.*(create|delete|edit|item-add|item-archive|item-create|item-delete|item-edit)(\s|$)",
     r"(^|\s)release\s+(create|delete|edit|upload)(\s|$)",
     r"(^|\s)repo\s+(archive|create|delete|deploy-key|edit|fork|rename|sync)(\s|$)",
@@ -129,6 +135,35 @@ NO_GITHUB_AUTH_ERROR = (
 # Concurrency control - limit parallel gh CLI calls
 MAX_CONCURRENT_GH_CALLS = int(os.getenv("MAX_CONCURRENT_GH_CALLS", "10"))
 _gh_cli_semaphore = asyncio.Semaphore(MAX_CONCURRENT_GH_CALLS)
+
+
+def _github_host_from_env() -> Optional[str]:
+    host = os.getenv("GITHUB_HOST", "").strip()
+    if host:
+        parsed = urlparse(host if "://" in host else f"https://{host}")
+        return parsed.hostname or host.split("/", 1)[0]
+
+    api_url = os.getenv("GITHUB_API_URL", "").strip()
+    if not api_url:
+        return None
+
+    parsed = urlparse(api_url)
+    if not parsed.hostname:
+        return None
+    if parsed.hostname == "api.github.com":
+        return "github.com"
+    return parsed.hostname
+
+
+def _apply_github_auth_env(env: dict[str, str], github_token: str) -> None:
+    env["GH_TOKEN"] = github_token
+
+    host = _github_host_from_env()
+    if not host or host == "github.com":
+        return
+
+    env["GH_HOST"] = host
+    env["GH_ENTERPRISE_TOKEN"] = github_token
 
 
 class GHCLIToolInput(BaseModel):
@@ -259,6 +294,102 @@ class GHCLITool(BaseTool):
             return True
         return has_body_input and explicit_method != "get"
 
+    @staticmethod
+    def _gh_api_endpoint_and_method(parts: list[str]) -> tuple[Optional[str], str]:
+        explicit_method: Optional[str] = None
+        has_body_input = False
+        endpoint: Optional[str] = None
+        value_flags = {
+            "-f",
+            "--raw-field",
+            "-F",
+            "--field",
+            "--input",
+            "--header",
+            "-H",
+            "--jq",
+            "-q",
+        }
+        boolean_flags = {"--paginate", "--silent", "--slurp", "--verbose"}
+
+        index = 1
+        while index < len(parts):
+            part = parts[index]
+            lower = part.lower()
+
+            if lower in {"--method", "-x"} and index + 1 < len(parts):
+                explicit_method = parts[index + 1].lower()
+                index += 2
+                continue
+            if lower.startswith("--method="):
+                explicit_method = lower.split("=", 1)[1]
+                index += 1
+                continue
+            if lower in {"-f", "--raw-field", "-F", "--field", "--input"}:
+                has_body_input = True
+                index += 2
+                continue
+            if (
+                lower.startswith("--raw-field=")
+                or lower.startswith("--field=")
+                or lower.startswith("--input=")
+            ):
+                has_body_input = True
+                index += 1
+                continue
+            if lower in value_flags:
+                index += 2
+                continue
+            if any(lower.startswith(f"{flag}=") for flag in value_flags if flag.startswith("--")):
+                index += 1
+                continue
+            if lower in boolean_flags:
+                index += 1
+                continue
+            if endpoint is None:
+                endpoint = part
+            index += 1
+
+        if explicit_method:
+            method = explicit_method
+        elif has_body_input:
+            method = "post"
+        else:
+            method = "get"
+        return endpoint, method
+
+    @staticmethod
+    def _self_service_allows_api_write(parts: list[str]) -> bool:
+        if not parts or parts[0] != "api":
+            return False
+
+        endpoint, method = GHCLITool._gh_api_endpoint_and_method(parts)
+        if not endpoint or method == "get":
+            return True
+
+        endpoint = endpoint.lstrip("/")
+        allowed_methods = {"post", "put", "patch"}
+        if method == "delete":
+            return bool(re.match(r"^repos/[^/\s]+/[^/\s]+/contents/.+", endpoint))
+        if method not in allowed_methods:
+            return False
+
+        return any(
+            re.match(pattern, endpoint)
+            for pattern in (
+                r"^repos/[^/\s]+/[^/\s]+/contents/.+",
+                r"^repos/[^/\s]+/[^/\s]+/git/refs(/.*)?$",
+                r"^repos/[^/\s]+/[^/\s]+/issues(/.*)?$",
+                r"^repos/[^/\s]+/[^/\s]+/pulls(/.*)?$",
+                r"^orgs/[^/\s]+/invitations$",
+            )
+        )
+
+    def _self_service_allows_write(self, command_parts: list[str], command_lower: str) -> bool:
+        if command_parts and command_parts[0] == "api":
+            return self._self_service_allows_api_write(command_parts)
+        return self._command_matches(command_lower, SELF_SERVICE_ALLOWED_WRITE_COMMAND_PATTERNS)
+
     def _validate_command(self, command: str) -> tuple[bool, str]:
         """
         Validate gh CLI command for safety.
@@ -291,20 +422,24 @@ class GHCLITool(BaseTool):
             command_lower,
             TRUSTED_WRITE_COMMAND_PATTERNS,
         )
-        if not writes_allowed:
-            if self._gh_api_uses_implicit_write(command_parts):
+        is_api_write = self._gh_api_uses_implicit_write(command_parts)
+        is_write_command = is_api_write or self._command_matches(command_lower, WRITE_COMMAND_PATTERNS)
+        if is_write_command:
+            if writes_allowed and not self._self_service_allows_write(command_parts, command_lower):
+                return False, (
+                    "Blocked: This GitHub write command is not in the deterministic "
+                    "self-service allowlist."
+                )
+            if not writes_allowed and is_api_write:
                 return False, (
                     "Blocked: gh api body fields and input are treated as GitHub "
                     "write commands unless --method GET is explicit."
                 )
-            for pattern in WRITE_COMMAND_PATTERNS:
-                if re.search(pattern, command_lower):
-                    if is_trusted_write:
-                        continue
-                    return False, (
-                        "Blocked: GitHub write commands are only allowed in "
-                        "deterministic self-service tasks or trusted issue/PR flows."
-                    )
+            if not writes_allowed and not is_trusted_write:
+                return False, (
+                    "Blocked: GitHub write commands are only allowed in "
+                    "deterministic self-service tasks or trusted issue/PR flows."
+                )
 
         return True, ""
 
@@ -342,7 +477,7 @@ class GHCLITool(BaseTool):
             try:
                 # Set environment with GitHub token
                 env = os.environ.copy()
-                env["GH_TOKEN"] = github_token
+                _apply_github_auth_env(env, github_token)
 
                 # Execute command with timeout
                 process = await asyncio.create_subprocess_exec(
@@ -447,7 +582,7 @@ class GHGetFileContentsTool(BaseTool):
         github_token: str,
     ) -> tuple[int, bytes, str]:
         env = os.environ.copy()
-        env["GH_TOKEN"] = github_token
+        _apply_github_auth_env(env, github_token)
 
         process = await asyncio.create_subprocess_exec(
             *command_parts,
