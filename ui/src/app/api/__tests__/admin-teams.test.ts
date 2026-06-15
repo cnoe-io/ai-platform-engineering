@@ -56,6 +56,9 @@ jest.mock('@/lib/rbac/openfga', () => ({
   isOpenFgaConfigured: jest.fn(() => false),
   readOpenFgaTuples: jest.fn(async () => ({ tuples: [], continuationToken: undefined })),
   writeOpenFgaTuples: jest.fn(async () => ({ enabled: false, writes: 0, deletes: 0 })),
+  // FR-025 team-deletion guard: DELETE lists owned service accounts before
+  // deleting. No SAs owned in this suite → deletion proceeds.
+  listOpenFgaObjects: jest.fn(async () => ({ objects: [] as string[] })),
 }));
 jest.mock('@/lib/rbac/audit', () => ({
   logAuthzDecision: jest.fn(),
@@ -71,6 +74,7 @@ jest.mock('@/lib/rbac/keycloak-admin', () => ({
 
 /** After resetModules(), re-require the mock so we configure the fresh jest.fn(). */
 function setDefaultCheckPermissionMock() {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { checkPermission } = require('@/lib/rbac/keycloak-authz') as {
     checkPermission: jest.Mock;
   };

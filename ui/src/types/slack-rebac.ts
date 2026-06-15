@@ -1,6 +1,6 @@
 import type {
-  UniversalRebacResourceAction,
-  UniversalRebacResourceRef,
+UniversalRebacResourceAction,
+UniversalRebacResourceRef,
 } from "./rbac-universal";
 
 export type SlackChannelGrantResourceType = "agent" | "tool" | "knowledge_base" | "skill" | "task";

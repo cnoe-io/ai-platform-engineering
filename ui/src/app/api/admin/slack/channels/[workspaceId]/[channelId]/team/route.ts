@@ -1,7 +1,7 @@
-import { NextRequest } from "next/server";
 import type { Document } from "mongodb";
+import { NextRequest } from "next/server";
 
-import { ApiError, getAuthFromBearerOrSession, successResponse, withErrorHandler } from "@/lib/api-middleware";
+import { ApiError,getAuthFromBearerOrSession,successResponse,withErrorHandler } from "@/lib/api-middleware";
 import { getCollection } from "@/lib/mongodb";
 import { writeOpenFgaTuples } from "@/lib/rbac/openfga";
 import { slackWorkspaceRef } from "@/lib/rbac/slack-channel-grant-store";

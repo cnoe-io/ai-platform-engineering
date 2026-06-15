@@ -1,10 +1,10 @@
-import { NextRequest } from "next/server";
-import { successResponse, withErrorHandler } from "@/lib/api-middleware";
+import { successResponse,withErrorHandler } from "@/lib/api-middleware";
 import { getCollection } from "@/lib/mongodb";
-import { isOpenFgaConfigured, isOpenFgaReconciliationEnabled } from "@/lib/rbac/openfga";
+import { isOpenFgaConfigured,isOpenFgaReconciliationEnabled } from "@/lib/rbac/openfga";
 import { listRebacCatalog } from "@/lib/rbac/resource-catalog";
 import { loadTeamMembersForSlugs } from "@/lib/rbac/team-membership-store";
 import type { Team } from "@/types/teams";
+import { NextRequest } from "next/server";
 import { withOpenFgaViewAuth } from "../_lib";
 
 interface CatalogAgent {
@@ -147,7 +147,7 @@ export const GET = withErrorHandler(async (request: NextRequest) =>
           id: `${String(server._id)}_*`,
           name: `${String(server._id)}_*`,
           description: server.description || "",
-          object: `tool:${String(server._id)}_*`,
+          object: `tool:${String(server._id)}/*`,
         })),
         knowledge_bases: Array.from(kbIds).sort().map((id) => {
           const datasource = datasourceById.get(id);

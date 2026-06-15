@@ -8,10 +8,9 @@
  * collapses naturally for legacy rows.
  */
 
-import * as React from "react";
-import { Grade } from "./Grade";
 import { cn } from "@/lib/utils";
 import type { LastReview } from "@/types/ai-review";
+import { Grade } from "./Grade";
 
 export interface LastReviewBadgeProps {
   review?: LastReview | null;

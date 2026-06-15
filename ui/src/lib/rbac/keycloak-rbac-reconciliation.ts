@@ -1,15 +1,16 @@
-import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
+// assisted-by Codex Codex-sonnet-4-6
+import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
 import {
-  ensureBotServiceAccountImpersonationRoles,
-  ensureCaipePlatformTokenExchangeDecisionStrategy,
-  ensureSlackBotOboPermissions,
-  ensureWebexBotOboPermissions,
-  isValidTeamSlug,
+ensureBotServiceAccountImpersonationRoles,
+ensureCaipePlatformTokenExchangeDecisionStrategy,
+ensureSlackBotOboPermissions,
+ensureWebexBotOboPermissions,
+isValidTeamSlug,
 } from "@/lib/rbac/keycloak-admin";
-import { reconcileBootstrapAdmins } from "@/lib/rbac/keycloak-bootstrap-admins";
 import type { BootstrapAdminReconciliationResult } from "@/lib/rbac/keycloak-bootstrap-admins";
+import { reconcileBootstrapAdmins } from "@/lib/rbac/keycloak-bootstrap-admins";
+import type { MigrationApplyResult,MigrationDefinition,MigrationPlanResult } from "@/lib/rbac/migrations/types";
 import { ensureSuperAdminsTeam } from "@/lib/rbac/super-admins-team";
-import type { MigrationApplyResult, MigrationDefinition, MigrationPlanResult } from "@/lib/rbac/migrations/types";
 
 export const KEYCLOAK_RBAC_RECONCILIATION_MIGRATION_ID = "keycloak_rbac_mapping_reconciliation_v1";
 export const KEYCLOAK_RBAC_SCHEMA_AREA = "keycloak_rbac_mappings";
@@ -307,7 +308,9 @@ export async function runKeycloakRbacStartupMigration(input: {
     counts.bot_service_accounts_reconciled = 2;
 
     await ensureCaipePlatformTokenExchangeDecisionStrategy("AFFIRMATIVE");
-    counts.token_exchange_permissions_reconciled = 1;
+    // 1 shared audience + 2 per-bot (Slack, Webex) — ensureBotOboPermissions
+    // now sets AFFIRMATIVE on the bot's own token-exchange permission as well.
+    counts.token_exchange_permissions_reconciled = 3;
 
     bootstrapAdmins = await reconcileBootstrapAdmins({ actor });
     counts.bootstrap_admins_resolved = bootstrapAdmins.resolved_count;

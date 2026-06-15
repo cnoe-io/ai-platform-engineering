@@ -9,9 +9,9 @@
 export { KnowledgePanel } from "./KnowledgePanel";
 
 // Views (ported from RAG WebUI)
-export { default as SearchView } from "./SearchView";
-export { default as IngestView } from "./IngestView";
 export { default as GraphView } from "./GraphView";
+export { default as IngestView } from "./IngestView";
+export { default as SearchView } from "./SearchView";
 
 // Models and utilities
 export * from "./Models";

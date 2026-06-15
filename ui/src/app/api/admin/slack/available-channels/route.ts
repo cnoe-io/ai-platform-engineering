@@ -37,15 +37,15 @@
  * assisted-by Claude Claude-opus-4-7
  */
 
-import { NextRequest } from "next/server";
 import {
-  getAuthFromBearerOrSession,
-  withErrorHandler,
-  successResponse,
-  requireRbacPermission,
-  ApiError,
+ApiError,
+getAuthFromBearerOrSession,
+requireRbacPermission,
+successResponse,
+withErrorHandler,
 } from "@/lib/api-middleware";
 import { getDiscoveryCacheTtlMs } from "@/lib/rbac/discovery-cache-config";
+import { NextRequest } from "next/server";
 
 interface SlackConversation {
   id: string;

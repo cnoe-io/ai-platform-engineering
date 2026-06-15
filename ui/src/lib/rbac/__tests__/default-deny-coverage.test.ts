@@ -11,6 +11,11 @@
  * assisted-by Cursor claude-opus-4.8
  */
 
+jest.mock("@/lib/authz", () => ({
+  authorize: jest.fn(),
+  authorizeMany: jest.fn(),
+}));
+
 import { requireResourcePermission } from "../resource-authz";
 import { UNIVERSAL_REBAC_RESOURCE_TYPES } from "../resource-model";
 import { isUnsafeRbacBypassEnabled } from "../bypass";

@@ -5,11 +5,11 @@
  * import everything they need from here so internal file moves stay free.
  */
 
-export { useAiReview, buildLastReview } from "./use-ai-review";
+export { buildLastReview,useAiReview } from "./use-ai-review";
 export type {
-  AiReviewStatus,
-  UseAiReviewArgs,
-  UseAiReviewResult,
+AiReviewStatus,
+UseAiReviewArgs,
+UseAiReviewResult
 } from "./use-ai-review";
 
 export { AiReviewButton } from "./AiReviewButton";
@@ -31,20 +31,20 @@ export { applyFix } from "./apply-fix";
 export { sha256Hex } from "./hash";
 
 // Re-export wire-format types from the locked contract for consumer convenience.
-export type {
-  CriterionVerdict,
-  GradeThresholds,
-  LastReview,
-  ReviewAnchor,
-  ReviewConfig,
-  ReviewConfigUpdate,
-  ReviewContext,
-  ReviewCriterion,
-  ReviewEnforcement,
-  ReviewGrade,
-  ReviewRequest,
-  ReviewResult,
-  ReviewSeverity,
-  SuggestedFix,
-} from "@/types/ai-review";
 export { DEFAULT_GRADE_THRESHOLDS } from "@/types/ai-review";
+export type {
+CriterionVerdict,
+GradeThresholds,
+LastReview,
+ReviewAnchor,
+ReviewConfig,
+ReviewConfigUpdate,
+ReviewContext,
+ReviewCriterion,
+ReviewEnforcement,
+ReviewGrade,
+ReviewRequest,
+ReviewResult,
+ReviewSeverity,
+SuggestedFix
+} from "@/types/ai-review";

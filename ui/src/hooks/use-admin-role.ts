@@ -1,6 +1,6 @@
-import { useSession } from 'next-auth/react';
-import { useEffect, useState } from 'react';
 import { isDevAnonymousAuthEnabled } from '@/lib/auth/dev-auth-provider';
+import { useSession } from 'next-auth/react';
+import { useEffect,useState } from 'react';
 
 /**
  * Hook to check admin role.

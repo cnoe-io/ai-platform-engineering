@@ -1,14 +1,18 @@
 "use client";
 
-import React, { useMemo, useCallback } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { FileText, Folder, Download, Loader2, Trash2 } from "lucide-react";
+import { EphemeralFilePreview } from "@/components/dynamic-agents/EphemeralFilePreview";
 import { cn } from "@/lib/utils";
+import { isPreviewableEphemeralFile } from "@/lib/ephemeral-files";
+import { AnimatePresence,motion } from "framer-motion";
+import { Download,Eye,FileText,Folder,Loader2,Trash2 } from "lucide-react";
+import React,{ useCallback,useMemo,useState } from "react";
 
 interface FileTreeProps {
   /** List of file paths from the agent's in-memory filesystem */
   files: string[];
-  /** Callback when a file is clicked (for download) */
+  /** Fetch file text for inline preview (.md, .txt) */
+  getFileContent?: (path: string) => Promise<string | null>;
+  /** Callback when a non-previewable file is clicked, or download is requested */
   onFileClick?: (path: string) => void;
   /** Callback when delete is clicked */
   onFileDelete?: (path: string) => void;
@@ -32,10 +36,11 @@ interface TreeNode {
 /**
  * FileTree component displays files from the agent's in-memory filesystem.
  * Files are shown in a tree structure with folders expanded.
- * Clicking a file triggers a download.
+ * .md and .txt files open an inline preview when getFileContent is provided.
  */
 export function FileTree({
   files,
+  getFileContent,
   onFileClick,
   onFileDelete,
   isDownloading = false,
@@ -43,6 +48,57 @@ export function FileTree({
   isDeleting = false,
   deletingPath,
 }: FileTreeProps) {
+  const [previewPath, setPreviewPath] = useState<string | null>(null);
+  const [previewContent, setPreviewContent] = useState<string | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+
+  const loadPreview = useCallback(
+    async (path: string) => {
+      if (!getFileContent) return;
+      setPreviewPath(path);
+      setPreviewLoading(true);
+      setPreviewError(null);
+      setPreviewContent(null);
+      try {
+        const content = await getFileContent(path);
+        if (content === null) {
+          setPreviewError("Failed to load file preview.");
+        } else {
+          setPreviewContent(content);
+        }
+      } catch {
+        setPreviewError("Failed to load file preview.");
+      } finally {
+        setPreviewLoading(false);
+      }
+    },
+    [getFileContent],
+  );
+
+  const handleFileActivate = useCallback(
+    async (path: string) => {
+      if (getFileContent && isPreviewableEphemeralFile(path)) {
+        if (previewPath === path) {
+          setPreviewPath(null);
+          setPreviewContent(null);
+          setPreviewError(null);
+          return;
+        }
+        await loadPreview(path);
+        return;
+      }
+      onFileClick?.(path);
+    },
+    [getFileContent, loadPreview, onFileClick, previewPath],
+  );
+
+  const closePreview = useCallback(() => {
+    setPreviewPath(null);
+    setPreviewContent(null);
+    setPreviewError(null);
+  }, []);
+
   // Build tree structure from flat file paths
   const tree = useMemo(() => buildTree(files), [files]);
 
@@ -59,23 +115,50 @@ export function FileTree({
       </div>
       <p className="text-[10px] text-muted-foreground/60 italic">Ephemeral — files may be deleted automatically.</p>
 
-      <div className="rounded-lg border border-border/50 bg-muted/30 p-2">
-        <AnimatePresence mode="popLayout">
-          {tree.map((node, idx) => (
-            <TreeNodeItem
-              key={node.path}
-              node={node}
-              depth={0}
-              index={idx}
-              onFileClick={onFileClick}
-              onFileDelete={onFileDelete}
-              isDownloading={isDownloading}
-              downloadingPath={downloadingPath}
-              isDeleting={isDeleting}
-              deletingPath={deletingPath}
-            />
-          ))}
-        </AnimatePresence>
+      <div
+        className={cn(
+          "flex gap-3 items-stretch min-h-[16rem]",
+          previewPath && getFileContent ? "flex-row" : "flex-col",
+        )}
+      >
+        <div
+          className={cn(
+            "rounded-lg border border-border/50 bg-muted/30 p-2 min-h-0",
+            previewPath && getFileContent ? "w-[38%] max-w-xs shrink-0 overflow-y-auto" : "flex-1",
+          )}
+        >
+          <AnimatePresence mode="popLayout">
+            {tree.map((node, idx) => (
+              <TreeNodeItem
+                key={node.path}
+                node={node}
+                depth={0}
+                index={idx}
+                previewPath={previewPath}
+                canPreview={!!getFileContent}
+                onFileActivate={handleFileActivate}
+                onFileDownload={onFileClick}
+                onFileDelete={onFileDelete}
+                isDownloading={isDownloading}
+                downloadingPath={downloadingPath}
+                isDeleting={isDeleting}
+                deletingPath={deletingPath}
+              />
+            ))}
+          </AnimatePresence>
+        </div>
+
+        {previewPath && getFileContent && (
+          <EphemeralFilePreview
+            path={previewPath}
+            content={previewContent}
+            isLoading={previewLoading}
+            error={previewError}
+            onClose={closePreview}
+            onDownload={onFileClick}
+            className="flex-1 min-w-0"
+          />
+        )}
       </div>
     </div>
   );
@@ -85,7 +168,10 @@ interface TreeNodeItemProps {
   node: TreeNode;
   depth: number;
   index: number;
-  onFileClick?: (path: string) => void;
+  previewPath: string | null;
+  canPreview: boolean;
+  onFileActivate?: (path: string) => void;
+  onFileDownload?: (path: string) => void;
   onFileDelete?: (path: string) => void;
   isDownloading?: boolean;
   downloadingPath?: string;
@@ -97,7 +183,10 @@ function TreeNodeItem({
   node,
   depth,
   index,
-  onFileClick,
+  previewPath,
+  canPreview,
+  onFileActivate,
+  onFileDownload,
   onFileDelete,
   isDownloading,
   downloadingPath,
@@ -106,12 +195,24 @@ function TreeNodeItem({
 }: TreeNodeItemProps) {
   const isCurrentlyDownloading = isDownloading && downloadingPath === node.path;
   const isCurrentlyDeleting = isDeleting && deletingPath === node.path;
+  const isPreviewable = canPreview && isPreviewableEphemeralFile(node.path);
+  const isPreviewOpen = previewPath === node.path;
 
   const handleClick = useCallback(() => {
-    if (!node.isDirectory && onFileClick) {
-      onFileClick(node.path);
+    if (!node.isDirectory && onFileActivate) {
+      onFileActivate(node.path);
     }
-  }, [node.isDirectory, node.path, onFileClick]);
+  }, [node.isDirectory, node.path, onFileActivate]);
+
+  const handleDownload = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (!node.isDirectory && onFileDownload) {
+        onFileDownload(node.path);
+      }
+    },
+    [node.isDirectory, node.path, onFileDownload],
+  );
 
   const handleDelete = useCallback(
     (e: React.MouseEvent) => {
@@ -134,7 +235,8 @@ function TreeNodeItem({
           "flex items-center gap-1.5 py-1 px-1 rounded text-xs",
           !node.isDirectory && "hover:bg-muted cursor-pointer group",
           !node.isDirectory && isCurrentlyDownloading && "bg-blue-500/10",
-          !node.isDirectory && isCurrentlyDeleting && "bg-red-500/10"
+          !node.isDirectory && isCurrentlyDeleting && "bg-red-500/10",
+          isPreviewOpen && "bg-primary/10 ring-1 ring-primary/20",
         )}
         style={{ paddingLeft: `${depth * 12 + 4}px` }}
         onClick={handleClick}
@@ -167,7 +269,21 @@ function TreeNodeItem({
         </span>
         {!node.isDirectory && !isCurrentlyDownloading && !isCurrentlyDeleting && (
           <>
-            <Download className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+            {isPreviewable ? (
+              <Eye className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+            ) : (
+              <Download className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+            )}
+            {onFileDownload && isPreviewable && (
+              <button
+                type="button"
+                onClick={handleDownload}
+                className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-foreground transition-all shrink-0"
+                title="Download file"
+              >
+                <Download className="h-3 w-3" />
+              </button>
+            )}
             {onFileDelete && (
               <button
                 onClick={handleDelete}
@@ -190,7 +306,10 @@ function TreeNodeItem({
               node={child}
               depth={depth + 1}
               index={idx}
-              onFileClick={onFileClick}
+              previewPath={previewPath}
+              canPreview={canPreview}
+              onFileActivate={onFileActivate}
+              onFileDownload={onFileDownload}
               onFileDelete={onFileDelete}
               isDownloading={isDownloading}
               downloadingPath={downloadingPath}

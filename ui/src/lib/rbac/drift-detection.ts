@@ -1,6 +1,6 @@
-import { classifyRealmRole, isRoleSupersededByRebac } from "./keycloak-transition";
-import type { RebacEnforcementStatusRecord } from "./enforcement-status";
 import type { UniversalRebacResourceType } from "@/types/rbac-universal";
+import type { RebacEnforcementStatusRecord } from "./enforcement-status";
+import { classifyRealmRole,isRoleSupersededByRebac } from "./keycloak-transition";
 
 export interface RealmRoleDriftFinding {
   subject: string;

@@ -1,9 +1,8 @@
 "use client";
 
-import React from "react";
+import { cn,formatRelativeTimeCompact } from "@/lib/utils";
+import { Bot,Clock,MessageSquare,Users2 } from "lucide-react";
 import Link from "next/link";
-import { Bot, MessageSquare, Users2, Clock } from "lucide-react";
-import { cn, formatRelativeTimeCompact } from "@/lib/utils";
 
 interface ConversationCardProps {
   id: string;

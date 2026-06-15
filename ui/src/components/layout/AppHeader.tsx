@@ -1,50 +1,50 @@
 "use client";
 
-import React from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import { useSession } from "next-auth/react";
-import { useAdminRole } from "@/hooks/use-admin-role";
-import {
-  BookOpen,
-  Zap,
-  Loader2,
-  Database,
-  Shield,
-  FileText,
-  Workflow,
-  Home,
-  Bot,
-  AlertTriangle,
-  KeyRound,
-  ChevronDown,
-  ChevronRight,
-} from "lucide-react";
-import { GithubIcon as Github } from "@/components/ui/icons";
-import { UserMenu } from "@/components/user-menu";
-import { SettingsPanel } from "@/components/settings-panel";
-import { Button } from "@/components/ui/button";
-import { cn, formatRelativeTime } from "@/lib/utils";
-import { config, getLogoFilterClass } from "@/lib/config";
-import { useChatStore } from "@/store/chat-store";
-import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
-import { UnsavedChangesDialog } from "@/components/task-builder/UnsavedChangesDialog";
-import { useCAIPEHealth } from "@/hooks/use-caipe-health";
-import { useRAGHealth } from "@/hooks/use-rag-health";
-import { useAgentRuntimeHealth } from "@/hooks/use-agent-runtime-health";
-import { useVersion } from "@/hooks/use-version";
-import { useReleaseUpgradePrompt } from "@/hooks/use-release-upgrade-prompt";
-import { useMigrationStatus } from "@/hooks/use-migration-status";
-import { useKeycloakHealthSummary } from "@/hooks/use-keycloak-health-summary";
 import { ReleaseUpgradeDialog } from "@/components/release/ReleaseUpgradeDialog";
+import { SettingsPanel } from "@/components/settings-panel";
+import { UnsavedChangesDialog } from "@/components/task-builder/UnsavedChangesDialog";
 import { ReportProblemDialog } from "@/components/ticket/ReportProblemDialog";
+import { Button } from "@/components/ui/button";
+import { GithubIcon as Github } from "@/components/ui/icons";
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
+Popover,
+PopoverContent,
+PopoverTrigger,
 } from "@/components/ui/popover";
 import { useToast } from "@/components/ui/toast";
+import { UserMenu } from "@/components/user-menu";
+import { useAdminRole } from "@/hooks/use-admin-role";
+import { useAgentRuntimeHealth } from "@/hooks/use-agent-runtime-health";
+import { useCAIPEHealth } from "@/hooks/use-caipe-health";
+import { useKeycloakHealthSummary } from "@/hooks/use-keycloak-health-summary";
+import { useMigrationStatus } from "@/hooks/use-migration-status";
+import { useRAGHealth } from "@/hooks/use-rag-health";
+import { useReleaseUpgradePrompt } from "@/hooks/use-release-upgrade-prompt";
+import { useVersion } from "@/hooks/use-version";
+import { config,getLogoFilterClass } from "@/lib/config";
+import { cn,formatRelativeTime } from "@/lib/utils";
+import { useChatStore } from "@/store/chat-store";
+import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
+import { AnimatePresence,motion } from "framer-motion";
+import {
+AlertTriangle,
+BookOpen,
+Bot,
+ChevronDown,
+ChevronRight,
+Database,
+FileText,
+Home,
+KeyRound,
+Loader2,
+Shield,
+Workflow,
+Zap,
+} from "lucide-react";
+import { useSession } from "next-auth/react";
+import Link from "next/link";
+import { usePathname,useRouter } from "next/navigation";
+import React from "react";
 
 /** Format seconds into a human-readable interval (e.g., "3h", "30m", "45s") */
 function formatInterval(seconds: number): string {
@@ -90,7 +90,6 @@ const EDITOR_ROUTES_WITH_OWN_DISCARD_DIALOG = [
  */
 const EDITOR_ROUTES_WITH_HEADER_DIALOG = [
   "/task-builder",
-  "/workflows",
   "/dynamic-agents",
 ];
 
@@ -494,7 +493,7 @@ export function AppHeader() {
     ro.observe(container);
     recompute();
     return () => ro.disconnect();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   }, [allNavItems.length]);
 
   const overflowItems = allNavItems.slice(visibleCount);

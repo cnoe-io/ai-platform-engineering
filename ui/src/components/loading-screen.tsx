@@ -1,7 +1,6 @@
 "use client";
 
-import React from "react";
-import { config, getLogoFilterClass } from "@/lib/config";
+import { config,getLogoFilterClass } from "@/lib/config";
 
 interface LoadingScreenProps {
   message?: string;

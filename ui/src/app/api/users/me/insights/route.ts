@@ -1,13 +1,13 @@
 // GET /api/users/me/insights - Get user prompt insights and usage analytics
 
-import { NextRequest, NextResponse } from 'next/server';
-import { getCollection, isMongoDBConfigured } from '@/lib/mongodb';
 import {
-  withAuth,
-  withErrorHandler,
-  successResponse,
+successResponse,
+withAuth,
+withErrorHandler,
 } from '@/lib/api-middleware';
-import type { Conversation, Message } from '@/types/mongodb';
+import { getCollection,isMongoDBConfigured } from '@/lib/mongodb';
+import type { Conversation,Message } from '@/types/mongodb';
+import { NextRequest,NextResponse } from 'next/server';
 
 // GET /api/users/me/insights
 export const GET = withErrorHandler(async (request: NextRequest) => {

@@ -1,44 +1,44 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import {
-  withAuth,
-  withErrorHandler,
-  successResponse,
-  ApiError,
+getAgentSkillVisibleToUser,
+hydrateAgentSkillTeamShares,
+hydrateAgentSkillTeamSharesList,
+} from "@/lib/agent-skill-visibility";
+import {
+ApiError,
+successResponse,
+withAuth,
+withErrorHandler,
 } from "@/lib/api-middleware";
-import type {
-  AgentSkill,
-  CreateAgentSkillInput,
-  UpdateAgentSkillInput,
-  SkillVisibility,
-  ScanStatus,
-} from "@/types/agent-skill";
-import { syncSkillResource } from "@/lib/rbac/keycloak-resource-sync";
-import { scanSkillContent as runSkillScan } from "@/lib/skill-scan";
-import { recordScanEvent } from "@/lib/skill-scan-history";
 import {
-  recordRevision,
-  deleteRevisionsForSkill,
-  snapshotsDiffer,
-  type SkillSnapshotInput,
-} from "@/lib/skill-revisions";
-import {
-  canMutateBuiltinSkill,
-  BUILTIN_LOCKED_MESSAGE,
+BUILTIN_LOCKED_MESSAGE,
+canMutateBuiltinSkill,
 } from "@/lib/builtin-skill-policy";
+import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
+import { syncSkillResource } from "@/lib/rbac/keycloak-resource-sync";
 import {
-  filterResourcesByPermission,
-  requireSkillPermission,
+filterResourcesByPermission,
+requireSkillPermission,
 } from "@/lib/rbac/resource-authz";
 import {
-  readSkillSharedTeamSlugsFromOpenFga,
-  reconcileSkillTeamShares,
+readSkillSharedTeamSlugsFromOpenFga,
+reconcileSkillTeamShares,
 } from "@/lib/rbac/skill-team-grants";
 import {
-  getAgentSkillVisibleToUser,
-  hydrateAgentSkillTeamShares,
-  hydrateAgentSkillTeamSharesList,
-} from "@/lib/agent-skill-visibility";
+deleteRevisionsForSkill,
+recordRevision,
+snapshotsDiffer,
+type SkillSnapshotInput,
+} from "@/lib/skill-revisions";
+import { scanSkillContent as runSkillScan } from "@/lib/skill-scan";
+import { recordScanEvent } from "@/lib/skill-scan-history";
+import type {
+AgentSkill,
+CreateAgentSkillInput,
+ScanStatus,
+SkillVisibility,
+UpdateAgentSkillInput,
+} from "@/types/agent-skill";
+import { NextRequest,NextResponse } from "next/server";
 
 /**
  * Persisted agent skill configs (CRUD)

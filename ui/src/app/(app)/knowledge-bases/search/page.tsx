@@ -1,10 +1,9 @@
 "use client";
 
-import React, { useState, useCallback } from "react";
+import SearchView from "@/components/rag/SearchView";
 import { motion } from "framer-motion";
 import { useRouter } from "next/navigation";
-import { AuthGuard } from "@/components/auth-guard";
-import SearchView from "@/components/rag/SearchView";
+import { useCallback } from "react";
 
 function SearchPage() {
   const router = useRouter();

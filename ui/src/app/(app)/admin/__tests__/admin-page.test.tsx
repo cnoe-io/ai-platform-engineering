@@ -57,42 +57,42 @@ jest.mock('@/components/ui/scroll-area', () => ({
   ScrollArea: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
 
-jest.mock('@/components/admin/SimpleLineChart', () => ({
+jest.mock('@/components/admin/shared/SimpleLineChart', () => ({
   SimpleLineChart: () => <div data-testid="line-chart" />,
 }));
 
-jest.mock('@/components/admin/MetricsTab', () => ({
+jest.mock('@/components/admin/platform/MetricsTab', () => ({
   MetricsTab: () => <div data-testid="metrics-tab">MetricsTab</div>,
 }));
 
-jest.mock('@/components/admin/HealthTab', () => ({
+jest.mock('@/components/admin/platform/HealthTab', () => ({
   HealthTab: () => <div data-testid="health-tab">HealthTab</div>,
 }));
 
-jest.mock('@/components/admin/ReviewConfigsTab', () => ({
+jest.mock('@/components/admin/settings/ReviewConfigsTab', () => ({
   ReviewConfigsTab: () => <div data-testid="review-configs-tab">ReviewConfigsTab</div>,
 }));
 
-jest.mock('@/components/admin/PlatformSettingsTab', () => ({
+jest.mock('@/components/admin/settings/PlatformSettingsTab', () => ({
   PlatformSettingsTab: () => <div data-testid="platform-settings-tab">PlatformSettingsTab</div>,
 }));
 
-jest.mock('@/components/admin/ReleaseNotesSettingsTab', () => ({
+jest.mock('@/components/admin/settings/ReleaseNotesSettingsTab', () => ({
   ReleaseNotesSettingsTab: () => <div data-testid="release-notes-settings-tab">ReleaseNotesSettingsTab</div>,
 }));
 
-jest.mock('@/components/admin/SkillMetricsCards', () => ({
+jest.mock('@/components/admin/insights/SkillMetricsCards', () => ({
   VisibilityBreakdown: () => <div />,
   CategoryBreakdown: () => <div />,
   RunStatsTable: () => <div />,
   TopCreatorsCard: () => <div />,
 }));
 
-jest.mock('@/components/admin/CheckpointStatsSection', () => ({
+jest.mock('@/components/admin/platform/CheckpointStatsSection', () => ({
   CheckpointStatsSection: () => <div data-testid="checkpoint-stats">CheckpointStatsSection</div>,
 }));
 
-jest.mock('@/components/admin/OpenFgaRebacTab', () => ({
+jest.mock('@/components/admin/security/OpenFgaRebacTab', () => ({
   OpenFgaRebacTab: () => <div data-testid="openfga-rebac-tab">OpenFgaRebacTab</div>,
 }));
 
@@ -125,20 +125,24 @@ jest.mock('@/components/admin/rebac/RagTeamAccessPanel', () => ({
 }));
 
 
-jest.mock('@/components/admin/MigrationTab', () => ({
+jest.mock('@/components/admin/security/MigrationTab', () => ({
   MigrationTab: () => <div data-testid="migration-tab">MigrationTab</div>,
 }));
 
-jest.mock('@/components/admin/KeycloakMigrationHealthPanel', () => ({
+jest.mock('@/components/admin/security/KeycloakMigrationHealthPanel', () => ({
   KeycloakMigrationHealthPanel: () => <div data-testid="keycloak-health-tab">KeycloakHealthTab</div>,
 }));
 
-jest.mock('@/components/admin/AuditLogsTab', () => ({
+jest.mock('@/components/admin/security/AuditLogsTab', () => ({
   AuditLogsTab: () => <div data-testid="audit-logs-tab">AuditLogsTab</div>,
 }));
 
-jest.mock('@/components/admin/UnifiedAuditTab', () => ({
+jest.mock('@/components/admin/security/UnifiedAuditTab', () => ({
   UnifiedAuditTab: () => <div data-testid="unified-audit-tab">UnifiedAuditTab</div>,
+}));
+
+jest.mock('@/components/admin/PermissionsToolTab', () => ({
+  PermissionsToolTab: () => <div data-testid="permissions-tool-tab">PermissionsToolTab</div>,
 }));
 
 jest.mock('@/components/admin/teams/CreateTeamDialog', () => ({
@@ -666,7 +670,7 @@ describe('Admin Dashboard Page', () => {
       );
     });
 
-    it('orders Security & Policy tabs with OpenFGA ReBAC as the default', async () => {
+    it('orders Security & Policy tabs with RBAC Audit second and Permissions Tool as default', async () => {
       currentSearchParams = new URLSearchParams('cat=security');
 
       render(<AdminPage />);
@@ -677,13 +681,14 @@ describe('Admin Dashboard Page', () => {
 
       fireEvent.click(screen.getByText('Security & Policy'));
       expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
-        'OpenFGA ReBAC',
+        'Permissions Tool',
         'RBAC Audit',
+        'OpenFGA ReBAC',
         'Chat Audit',
         'Keycloak',
         'Migrations',
       ]);
-      expect(screen.getByRole('tab', { name: /OpenFGA ReBAC/i })).toHaveAttribute(
+      expect(screen.getByRole('tab', { name: /^Permissions Tool$/i })).toHaveAttribute(
         'aria-selected',
         'true'
       );
@@ -741,6 +746,7 @@ describe('Admin Dashboard Page', () => {
         'Credentials',
         'Knowledge Bases',
         'Skills',
+        'Service Accounts',
       ]);
       expect(screen.getByTestId('platform-settings-tab')).toBeInTheDocument();
       expect(screen.getByRole('tab', { name: /release notes/i })).toBeInTheDocument();
@@ -799,20 +805,21 @@ describe('Admin Dashboard Page', () => {
       expect(screen.queryByRole('tab', { name: /^Users$/i })).not.toBeInTheDocument();
     });
 
-    it('defaults bare /admin to the top-level Settings Default Agent tab', async () => {
+    it('defaults bare /admin to Security & Policy Permissions Tool tab', async () => {
       render(<AdminPage />);
 
-      expect(await screen.findByText('Settings')).toBeInTheDocument();
+      expect(await screen.findByText('Security & Policy')).toBeInTheDocument();
 
-      expect(screen.getByRole('button', { name: 'Settings' })).toHaveClass('bg-primary');
-      expect(screen.getByRole('tab', { name: /default agent/i })).toHaveAttribute(
+      expect(screen.getByRole('button', { name: 'Security & Policy' })).toHaveClass('bg-primary');
+      expect(screen.getByRole('tab', { name: /^Permissions Tool$/i })).toHaveAttribute(
         'aria-selected',
         'true'
       );
-      expect(screen.getByTestId('platform-settings-tab')).toBeInTheDocument();
-      expect(replaceMock).toHaveBeenCalledWith('/admin?cat=settings&tab=settings', {
-        scroll: false,
-      });
+      expect(screen.getByTestId('permissions-tool-tab')).toBeInTheDocument();
+      expect(replaceMock).toHaveBeenCalledWith(
+        '/admin?cat=security&tab=cas-permissions-tool',
+        { scroll: false }
+      );
     });
 
     it('opens the Release notes settings tab from the query string', async () => {

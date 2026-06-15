@@ -62,10 +62,20 @@ data:
                     host: {{ $extAuthHost | quote }}
                     failureMode:
                       denyWithStatus: 403
+                    # Forward the HTTP request body so the OpenFGA bridge can parse
+                    # the JSON-RPC `tools/call` method+name and run the caller-keyed
+                    # per-tool check (FR-012/SC-010). Without this only gRPC metadata
+                    # reaches the bridge, tool_call is always None, and the
+                    # caller-keyed block is skipped. Keep in sync with
+                    # deploy/agentgateway/config.yaml + config_bridge.py. See #36.
+                    includeRequestBody:
+                      maxRequestBytes: 65536
+                      allowPartialMessage: false
+                      packAsBytes: true
                     protocol:
                       grpc:
                         metadata:
-                          caipe.auth: '{"sub": jwt.sub}'
+                          caipe.auth: '{"sub": jwt.sub, "preferred_username": jwt.preferred_username}'
                   authorization:
                     rules:
                       - allow: 'true'

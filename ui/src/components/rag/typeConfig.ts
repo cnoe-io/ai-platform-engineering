@@ -47,6 +47,11 @@ export interface IngestTypeConfig {
 }
 
 export const ingestTypeConfigs: Record<string, IngestTypeConfig> = {
+    'file': {
+        label: 'File',
+        requiredIngestorType: 'local-file',
+        icon: '📄'
+    },
     'web': {
         label: 'Web',
         requiredIngestorType: 'webloader',
@@ -72,6 +77,7 @@ export const isIngestTypeAvailable = (
 ): boolean => {
     const config = ingestTypeConfigs[ingestType];
     if (!config) return false;
+    if (ingestType === 'file') return true;
     
     return availableIngestors.some(
         ingestor => ingestor.ingestor_type === config.requiredIngestorType

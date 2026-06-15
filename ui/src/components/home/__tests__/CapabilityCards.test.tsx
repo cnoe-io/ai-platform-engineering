@@ -18,6 +18,7 @@ import { render, screen } from '@testing-library/react'
 // ============================================================================
 
 jest.mock('next/link', () => {
+  // eslint-disable-next-line react/display-name
   return React.forwardRef(({ children, href, className, ...props }: any, ref: any) => (
     <a ref={ref} href={href} className={className} data-testid={props['data-testid'] || `link-${href}`} {...props}>
       {children}

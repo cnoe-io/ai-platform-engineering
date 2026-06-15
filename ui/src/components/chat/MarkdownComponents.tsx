@@ -1,10 +1,10 @@
 "use client";
 
-import React, { useState } from "react";
-import { Copy, Check } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { Check,Copy } from "lucide-react";
+import React,{ useState } from "react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
-import { cn } from "@/lib/utils";
 
 // ─── Code Block with Copy Button ─────────────────────────────────────────────
 

@@ -16,26 +16,26 @@
  * OpenFGA tuple store is the resource PDP.
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import { ObjectId } from "mongodb";
-import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import {
-  getAuthFromBearerOrSession,
-  withErrorHandler,
-  successResponse,
-  requireRbacPermission,
-  ApiError,
+ApiError,
+getAuthFromBearerOrSession,
+requireRbacPermission,
+successResponse,
+withErrorHandler,
 } from "@/lib/api-middleware";
-import { requireTeamMembershipManagementPermission } from "@/lib/rbac/team-admin-guards";
+import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
+import { reconcileTupleDiff } from "@/lib/authz";
 import {
-  findUserIdByEmail,
+findUserIdByEmail,
 } from "@/lib/rbac/keycloak-admin";
 import {
-  buildTeamResourceTupleDiff,
-  writeOpenFgaTupleDiff,
+buildTeamResourceTupleDiff,
 } from "@/lib/rbac/openfga";
+import { requireTeamMembershipManagementPermission } from "@/lib/rbac/team-admin-guards";
 import { loadActiveTeamMembers } from "@/lib/rbac/team-membership-store";
 import type { Team } from "@/types/teams";
+import { ObjectId } from "mongodb";
+import { NextRequest,NextResponse } from "next/server";
 
 interface DynamicAgentLite {
   _id: string;
@@ -175,9 +175,15 @@ export const GET = withErrorHandler(
         ownershipCol.find({}).sort({}).toArray().catch(() => []),
       ]);
 
-      // We render tools by MCP server prefix (e.g. `jira_*`) and persist those
-      // prefixes directly as OpenFGA tool objects.
-      const toolPrefixes = allServers.map((s) => `${s._id}_*`);
+      // We render tools by MCP server wildcard (e.g. `jira/*`) and persist those
+      // directly as OpenFGA tool objects. The slash form (`<server>/*`) is the
+      // ONLY wildcard the AgentGateway bridge enforces at runtime
+      // (deploy/openfga/bridge/main.py — caller-keyed check queries
+      // `tool:<server>/*`); the legacy underscore form (`<server>_*`) never
+      // matched and silently failed closed once the caller-keyed check went live
+      // (#43). Existing `<server>_*` grants are migrated to `<server>/*` by
+      // ui/src/lib/rbac/migrations (team-tool-wildcard-slash).
+      const toolPrefixes = allServers.map((s) => `${s._id}/*`);
       const kbIds = new Set<string>();
       for (const row of ownership) {
         for (const id of row.kb_ids ?? []) kbIds.add(id);
@@ -320,6 +326,13 @@ export const PUT = withErrorHandler(
       const wildcardAdded = !prevToolWildcard && nextToolWildcard;
       const wildcardRemoved = prevToolWildcard && !nextToolWildcard;
 
+      const mcpCol = await getCollection<MCPServerLite>("mcp_servers");
+      const allMcpServers = await mcpCol
+        .find({ enabled: { $ne: false } } as never, { projection: { _id: 1 } })
+        .toArray()
+        .catch(() => [] as MCPServerLite[]);
+      const allMcpServerIds = allMcpServers.map((server) => String(server._id));
+
       // ── 1. Resolve current member subjects for OpenFGA team membership.
       //
       //    Member list comes from the canonical team_membership_sources
@@ -352,28 +365,46 @@ export const PUT = withErrorHandler(
       //
       //    OpenFGA owns relationship facts. Fail before Mongo if the remote
       //    PDP state cannot be reconciled.
+      // assisted-by Codex Codex-sonnet-4-6
+      // Treat Save as authoritative: selected resources are desired writes,
+      // and the OpenFGA writer filters tuples that already exist.
       const tupleDiffInput = {
         teamSlug: team.slug || id,
         memberUserIds: resolvedMemberUserIds,
-        agents: agentDiff,
-        agentAdmins: agentAdminDiff,
-        tools: toolDiff,
+        agents: { added: nextAgents, removed: agentDiff.removed },
+        agentAdmins: { added: nextAgentAdmins, removed: agentAdminDiff.removed },
+        tools: { added: nextTools, removed: toolDiff.removed },
         toolWildcard: {
-          added: wildcardAdded,
+          added: nextToolWildcard,
           removed: wildcardRemoved,
         },
+        allMcpServerIds,
       };
-      if (knowledgeBaseDiff.added.length > 0 || knowledgeBaseDiff.removed.length > 0) {
-        Object.assign(tupleDiffInput, { knowledgeBases: knowledgeBaseDiff });
+      if (
+        body.knowledge_bases !== undefined ||
+        prevKnowledgeBases.length > 0 ||
+        nextKnowledgeBases.length > 0
+      ) {
+        Object.assign(tupleDiffInput, {
+          knowledgeBases: { added: nextKnowledgeBases, removed: knowledgeBaseDiff.removed },
+        });
       }
-      if (skillDiff.added.length > 0 || skillDiff.removed.length > 0) {
-        Object.assign(tupleDiffInput, { skills: skillDiff });
+      if (body.skills !== undefined || prevSkills.length > 0 || nextSkills.length > 0) {
+        Object.assign(tupleDiffInput, {
+          skills: { added: nextSkills, removed: skillDiff.removed },
+        });
       }
-      if (taskDiff.added.length > 0 || taskDiff.removed.length > 0) {
-        Object.assign(tupleDiffInput, { tasks: taskDiff });
+      if (body.tasks !== undefined || prevTasks.length > 0 || nextTasks.length > 0) {
+        Object.assign(tupleDiffInput, {
+          tasks: { added: nextTasks, removed: taskDiff.removed },
+        });
       }
       const openFgaTupleDiff = buildTeamResourceTupleDiff(tupleDiffInput);
-      const openfga = await writeOpenFgaTupleDiff(openFgaTupleDiff);
+      const openfga = await reconcileTupleDiff(openFgaTupleDiff, {
+        caller: { type: "user", id: session.sub! },
+        source: "team_resources",
+        tenantId: session.org,
+      });
 
       // ── 3. Persist selection on the team document.
       const now = new Date();

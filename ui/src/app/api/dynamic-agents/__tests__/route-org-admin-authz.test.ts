@@ -64,6 +64,40 @@ jest.mock("@/lib/rbac/openfga", () => {
   };
 });
 
+jest.mock("@/lib/rbac/resource-authz", () => {
+  const actual = jest.requireActual<typeof import("@/lib/rbac/resource-authz")>("@/lib/rbac/resource-authz");
+  return {
+    ...actual,
+    requireAgentPermission: async (
+      session: { sub?: string },
+      agentId: string,
+      action: string,
+    ) => {
+      const subject = `user:${session.sub}`;
+      const org = await mockCheckOpenFgaTuple({
+        user: subject,
+        relation: "can_manage",
+        object: "organization:caipe",
+      });
+      if (org.allowed) return;
+      const result = await mockCheckOpenFgaTuple({
+        user: subject,
+        relation: `can_${action}`,
+        object: `agent:${agentId}`,
+      });
+      if (!result.allowed) {
+        const error = new Error("You do not have permission to access this resource.") as Error & {
+          statusCode: number;
+          code: string;
+        };
+        error.statusCode = 403;
+        error.code = `agent#${action}`;
+        throw error;
+      }
+    },
+  };
+});
+
 jest.mock("@/lib/rbac/openfga-agent-tools", () => ({
   allowedToolsFromAgent: (agent: { allowed_tools?: Record<string, string[]> }) =>
     agent.allowed_tools ?? {},

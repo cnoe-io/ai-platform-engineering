@@ -1,17 +1,17 @@
 // PUT /api/chat/messages/[id] - Update message (content, metadata, events)
 // [id] can be either a MongoDB ObjectId or a client-generated message_id (UUID)
 
-import { NextRequest } from 'next/server';
-import { ObjectId } from 'mongodb';
-import { getCollection } from '@/lib/mongodb';
 import {
-  withAuth,
-  withErrorHandler,
-  successResponse,
-  ApiError,
+ApiError,
+successResponse,
+withAuth,
+withErrorHandler,
 } from '@/lib/api-middleware';
+import { getCollection } from '@/lib/mongodb';
 import { requireResourcePermission } from '@/lib/rbac/resource-authz';
-import type { Message, UpdateMessageRequest } from '@/types/mongodb';
+import type { Message,UpdateMessageRequest } from '@/types/mongodb';
+import { ObjectId } from 'mongodb';
+import { NextRequest } from 'next/server';
 
 // PUT /api/chat/messages/[id]
 export const PUT = withErrorHandler(async (

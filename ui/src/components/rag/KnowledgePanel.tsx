@@ -8,18 +8,18 @@
  * Full screen layout with theme-compatible dark mode.
  */
 
-import React, { useState, useCallback } from "react";
-import {
-  Loader2,
-  WifiOff,
-  RefreshCw,
-} from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { config } from "@/lib/config";
 import { useRAGHealth } from "@/hooks/use-rag-health";
-import SearchView from "./SearchView";
-import IngestView from "./IngestView";
+import { config } from "@/lib/config";
+import {
+Loader2,
+RefreshCw,
+WifiOff,
+} from "lucide-react";
+import { useCallback,useState } from "react";
 import GraphView from "./GraphView";
+import IngestView from "./IngestView";
+import SearchView from "./SearchView";
 
 type TabType = "ingest" | "search" | "graph";
 

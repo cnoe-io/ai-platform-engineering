@@ -1,16 +1,16 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
-import { Plus, Trash2, GripVertical } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import {
-  type CaipeFormField,
-  parseCaipeFields,
-  generateCaipePrompt,
+type CaipeFormField,
+generateCaipePrompt,
+parseCaipeFields,
 } from "@/types/task-config";
+import { GripVertical,Plus,Trash2 } from "lucide-react";
+import { useCallback,useEffect,useState } from "react";
 
 interface CaipeFormBuilderProps {
   prompt: string;
@@ -39,6 +39,7 @@ export function CaipeFormBuilder({ prompt, onChange }: CaipeFormBuilderProps) {
   useEffect(() => {
     const parsed = parseCaipeFields(prompt);
     if (parsed.length > 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: re-parse fields when prompt prop changes
       setFields(parsed);
     }
   }, [prompt]);

@@ -1,9 +1,7 @@
 "use client";
 
-import React from "react";
-import { motion } from "framer-motion";
-import { AuthGuard } from "@/components/auth-guard";
 import IngestView from "@/components/rag/IngestView";
+import { motion } from "framer-motion";
 
 function IngestPage() {
   return (

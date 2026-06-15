@@ -1,9 +1,8 @@
 "use client";
 
-import React from "react";
-import { AlertTriangle, CheckCircle2, Variable } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { extractEnvVarsWithSteps, KNOWN_ENV_VARS, type TaskStep } from "@/types/task-config";
+import { extractEnvVarsWithSteps,KNOWN_ENV_VARS,type TaskStep } from "@/types/task-config";
+import { AlertTriangle,CheckCircle2,Variable } from "lucide-react";
 
 interface EnvVarsPanelProps {
   tasks: TaskStep[];

@@ -9,12 +9,12 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from dynamic_agents.auth.auth import get_user_context
-from dynamic_agents.auth.openfga_authz import require_agent_use_permission
+from dynamic_agents.auth.authz import require_agent_use_permission
 from dynamic_agents.config import get_settings
 from dynamic_agents.log_config import conversation_id_var
 from dynamic_agents.models import ChatRequest, ClientContext, DynamicAgentConfig, UserContext
-from dynamic_agents.services.mongo import MongoDBService, get_mongo_service
 from dynamic_agents.services.llm_clients import LLMConfigError
+from dynamic_agents.services.mongo import MongoDBService, get_mongo_service
 from dynamic_agents.services.runtime_cache import (
     RuntimeCapacityError,
     RuntimeInitError,
@@ -175,6 +175,10 @@ class ResumeStreamRequest(BaseModel):
             "backend config) will cause the agent to lose conversation context, "
             "since the runtime will be reconstructed against a different checkpoint store."
         ),
+    )
+    workflow_config_id: str | None = Field(
+        None,
+        description="Workflow config ID when resuming a workflow step (for delegated agent use).",
     )
 
 

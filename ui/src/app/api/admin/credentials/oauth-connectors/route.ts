@@ -1,14 +1,14 @@
 import { NextRequest } from "next/server";
 
 import {
-  ApiError,
-  getAuthFromBearerOrSession,
-  successResponse,
-  withErrorHandler,
+ApiError,
+getAuthFromBearerOrSession,
+successResponse,
+withErrorHandler,
 } from "@/lib/api-middleware";
 import { getOAuthConnectorService } from "@/lib/credentials/oauth-service-factory";
 import { getCredentialFeatureConfig } from "@/lib/feature-flags/credentials";
-import { requireAdminSurfaceManage, requireBaselineAdminSurfaceRead } from "@/lib/rbac/require-openfga";
+import { requireAdminSurfaceManage,requireBaselineAdminSurfaceRead } from "@/lib/rbac/require-openfga";
 
 function assertFeatureEnabled(): void {
   if (!getCredentialFeatureConfig().enabled) {

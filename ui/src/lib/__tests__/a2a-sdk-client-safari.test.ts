@@ -923,6 +923,7 @@ describe("A2ASDKClient Safari Compatibility", () => {
       await collectEvents(client.sendMessageStream("test"));
 
       // createAuthenticatingFetchWithRetry should have been called
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { createAuthenticatingFetchWithRetry } = require("@a2a-js/sdk/client");
       expect(createAuthenticatingFetchWithRetry).toHaveBeenCalled();
     });

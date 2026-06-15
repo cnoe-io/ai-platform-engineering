@@ -21,11 +21,11 @@
 
 import { fetchAssistantSuggest } from "@/lib/server/assistant-suggest-da";
 import type {
-  CriterionVerdict,
-  ReviewAnchor,
-  ReviewContext,
-  ReviewCriterion,
-  SuggestedFix,
+CriterionVerdict,
+ReviewAnchor,
+ReviewContext,
+ReviewCriterion,
+SuggestedFix,
 } from "@/types/ai-review";
 
 const SYSTEM_PROMPT =

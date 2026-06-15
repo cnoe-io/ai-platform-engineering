@@ -2,23 +2,24 @@
 // PATCH /api/admin/teams/[id] - Update team name/description
 // DELETE /api/admin/teams/[id] - Delete a team
 
-import { NextRequest, NextResponse } from 'next/server';
-import { ObjectId, type Document } from 'mongodb';
-import { getCollection, isMongoDBConfigured } from '@/lib/mongodb';
 import {
-  getAuthFromBearerOrSession,
-  withErrorHandler,
-  successResponse,
-  requireRbacPermission,
-  ApiError,
+ApiError,
+getAuthFromBearerOrSession,
+requireRbacPermission,
+successResponse,
+withErrorHandler,
 } from '@/lib/api-middleware';
+import { getCollection,isMongoDBConfigured } from '@/lib/mongodb';
 import { requireTeamMembershipManagementPermission } from '@/lib/rbac/team-admin-guards';
 import { listTeamMembershipSources } from '@/lib/rbac/team-membership-source-store';
 import {
-  computeTeamMembershipSyncReport,
-  readTeamOpenFgaTuples,
+computeTeamMembershipSyncReport,
+readTeamOpenFgaTuples,
 } from '@/lib/rbac/team-openfga-sync-status';
+import { listOpenFgaObjects } from '@/lib/rbac/openfga';
 import type { UpdateTeamRequest } from '@/types/teams';
+import { ObjectId,type Document } from 'mongodb';
+import { NextRequest,NextResponse } from 'next/server';
 
 interface TeamDocument extends Document {
   slug?: string;
@@ -168,6 +169,43 @@ export const DELETE = withErrorHandler(async (
     // Issue #1509: scoped team admins can delete their own team. Platform
     // admins still bypass via `admin_ui#admin`.
     await requireTeamMembershipManagementPermission(session, user.email, team);
+
+    // FR-025 (service accounts): block deletion while the team still owns any
+    // service account. Orphaning a service account would leave an
+    // unmanageable bot identity (only owning-team members can manage it). The
+    // team's members must revoke its service accounts first. OpenFGA is
+    // authoritative for ownership: SA tuples are written as
+    // `team:<slug>#member owner_team service_account:<sub>`, so list the
+    // `service_account` objects this team owns.
+    const teamSlug = typeof team.slug === 'string' ? team.slug : '';
+    if (teamSlug) {
+      let ownedServiceAccounts: string[] = [];
+      try {
+        const result = await listOpenFgaObjects({
+          user: `team:${teamSlug}#member`,
+          relation: 'owner_team',
+          type: 'service_account',
+        });
+        ownedServiceAccounts = result.objects;
+      } catch (err) {
+        // Fail closed: if we cannot confirm there are no owned service
+        // accounts, do not risk orphaning one.
+        console.error('[Admin] FR-025 service-account ownership check failed:', err);
+        throw new ApiError(
+          'Unable to verify service-account ownership; team deletion blocked. Please try again.',
+          503,
+          'SA_OWNERSHIP_CHECK_FAILED',
+        );
+      }
+      if (ownedServiceAccounts.length > 0) {
+        throw new ApiError(
+          `This team owns ${ownedServiceAccounts.length} service account(s). ` +
+            'Revoke them before deleting the team.',
+          409,
+          'TEAM_OWNS_SERVICE_ACCOUNTS',
+        );
+      }
+    }
 
     // Remove team references from conversations shared_with_teams
     try {

@@ -16,24 +16,24 @@
  * SSE log when expanded — useful for debugging dynamic-agents wiring.
  */
 
-import React, { useCallback, useMemo, useState } from "react";
 import {
-  Bug,
-  Loader2,
-  Sparkles,
-  Square,
-  WandSparkles,
+Bug,
+Loader2,
+Sparkles,
+Square,
+WandSparkles,
 } from "lucide-react";
+import React,{ useCallback,useMemo,useState } from "react";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 
 import {
-  useSkillAiAssist,
-  ENHANCE_PRESETS,
+ENHANCE_PRESETS,
+useSkillAiAssist,
 } from "@/components/skills/workspace/use-skill-ai-assist";
 
 // ---------------------------------------------------------------------------

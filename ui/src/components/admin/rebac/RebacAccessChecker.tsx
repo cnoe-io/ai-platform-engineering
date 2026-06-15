@@ -1,9 +1,9 @@
 "use client";
 
-import { Shield } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { UniversalRebacRelationship } from "@/types/rbac-universal";
+import { Shield } from "lucide-react";
 
 export function RebacAccessChecker({
   relationship,

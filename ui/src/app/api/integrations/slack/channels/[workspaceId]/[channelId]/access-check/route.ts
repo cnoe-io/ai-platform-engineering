@@ -1,13 +1,13 @@
 import { NextRequest } from "next/server";
 
 import {
-  ApiError,
-  getAuthFromBearerOrSession,
-  successResponse,
-  withErrorHandler,
+ApiError,
+getAuthFromBearerOrSession,
+successResponse,
+withErrorHandler,
 } from "@/lib/api-middleware";
 import { checkSlackChannelAccess } from "@/lib/rbac/slack-channel-rebac";
-import type { UniversalRebacResourceAction, UniversalRebacResourceRef } from "@/types/rbac-universal";
+import type { UniversalRebacResourceAction,UniversalRebacResourceRef } from "@/types/rbac-universal";
 
 interface RouteContext {
   params: Promise<{ workspaceId: string; channelId: string }>;

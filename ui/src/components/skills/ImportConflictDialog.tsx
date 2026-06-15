@@ -28,27 +28,27 @@
  *   is the dominant flow for re-running a previously-imported zip.
  */
 
-import React, { useCallback, useMemo, useState, useEffect } from "react";
-import { AlertTriangle, FileWarning } from "lucide-react";
+import { AlertTriangle,FileWarning } from "lucide-react";
+import { useCallback,useEffect,useMemo,useState } from "react";
 
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import {
+Dialog,
+DialogContent,
+DialogDescription,
+DialogFooter,
+DialogHeader,
+DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { cn } from "@/lib/utils";
 import {
-  suggestRenamedSkillName,
-  type ImportConflictAction,
-  type ImportConflictDecision,
+suggestRenamedSkillName,
+type ImportConflictAction,
+type ImportConflictDecision,
 } from "@/lib/skill-import-helpers";
+import { cn } from "@/lib/utils";
 
 export interface ImportConflictDialogProps {
   open: boolean;

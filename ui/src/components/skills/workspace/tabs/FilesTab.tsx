@@ -22,31 +22,31 @@
  * model to base64 to support them — out of scope for this stage).
  */
 
-import React, { useCallback, useMemo, useRef, useState } from "react";
 import {
-  Upload as UploadIcon,
-  Variable as VariableIcon,
-  Archive as ArchiveIcon,
+Archive as ArchiveIcon,
+Upload as UploadIcon,
+Variable as VariableIcon,
 } from "lucide-react";
+import React,{ useCallback,useMemo,useRef,useState } from "react";
 
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 
+import { AiAssistButton } from "@/components/ai-assist";
+import type { UseAiReviewResult } from "@/components/ai-review";
+import { AiReviewButton,AiReviewPanel } from "@/components/ai-review";
+import {
+ImportSkillZipDialog,
+type ZipSingleSkillPayload,
+} from "@/components/skills/ImportSkillZipDialog";
+import { GithubImportPanel } from "@/components/skills/workspace/GithubImportPanel";
+import { ImportSkillMdDialog } from "@/components/skills/workspace/ImportSkillMdDialog";
 import { RichCodeEditor } from "@/components/skills/workspace/RichCodeEditor";
+import { SkillFileTree } from "@/components/skills/workspace/SkillFileTree";
 import { SkillMdEditor } from "@/components/skills/workspace/SkillMdEditor";
 import { SkillTemplatesMenu } from "@/components/skills/workspace/SkillTemplatesMenu";
-import { ImportSkillMdDialog } from "@/components/skills/workspace/ImportSkillMdDialog";
-import { GithubImportPanel } from "@/components/skills/workspace/GithubImportPanel";
-import {
-  ImportSkillZipDialog,
-  type ZipSingleSkillPayload,
-} from "@/components/skills/ImportSkillZipDialog";
-import { SkillFileTree } from "@/components/skills/workspace/SkillFileTree";
-import { AiAssistButton } from "@/components/ai-assist";
-import { AiReviewButton, AiReviewPanel } from "@/components/ai-review";
-import type { UseAiReviewResult } from "@/components/ai-review";
 import { parseSkillMd } from "@/lib/skill-md-parser";
 // Variables editor is now hosted inside FilesTab as a collapsible
 // side-panel (toggled from the toolbar) so authors can declare

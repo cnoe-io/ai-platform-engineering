@@ -1,30 +1,30 @@
-import { NextRequest } from "next/server";
 import type { Document } from "mongodb";
+import { NextRequest } from "next/server";
 
 import {
-  ApiError,
-  getAuthFromBearerOrSession,
-  successResponse,
-  withErrorHandler,
+ApiError,
+getAuthFromBearerOrSession,
+successResponse,
+withErrorHandler,
 } from "@/lib/api-middleware";
 import { getCollection } from "@/lib/mongodb";
 import { ensureSlackBotOboPermissions } from "@/lib/rbac/keycloak-admin";
 import {
-  OnboardingDefaultsValidationError,
-  readOnboardingDefaults,
-  writeOnboardingDefaults,
+OnboardingDefaultsValidationError,
+readOnboardingDefaults,
+writeOnboardingDefaults,
 } from "@/lib/rbac/onboarding-defaults";
 import { writeOpenFgaTuples } from "@/lib/rbac/openfga";
 import { slackWorkspaceRef } from "@/lib/rbac/slack-channel-grant-store";
 import {
-  slackChannelGrantRelationship,
-  slackChannelTeamVisibilityRelationships,
+slackChannelGrantRelationship,
+slackChannelTeamVisibilityRelationships,
 } from "@/lib/rbac/slack-channel-rebac";
 import { buildUniversalRebacTupleDiff } from "@/lib/rbac/tuple-builders";
 import { callSlackBotAdmin } from "@/lib/slack-bot-admin";
 import type { UniversalRebacRelationship } from "@/types/rbac-universal";
 
-import { withSlackChannelRebacManageAuth, withSlackChannelRebacViewAuth } from "../_lib";
+import { withSlackChannelRebacManageAuth,withSlackChannelRebacViewAuth } from "../_lib";
 
 interface SlackMigrationDefaultsRequest {
   team_slug?: unknown;

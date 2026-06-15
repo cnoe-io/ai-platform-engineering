@@ -5,36 +5,36 @@
  * The gateway owns all config writes — DA is a pure runtime reader.
  */
 
-import { NextRequest } from "next/server";
-import { Collection, ObjectId } from "mongodb";
+import {
+ApiError,
+getAuthFromBearerOrSession,
+getPaginationParams,
+paginatedResponse,
+successResponse,
+withErrorHandler,
+} from "@/lib/api-middleware";
 import { getCollection } from "@/lib/mongodb";
 import {
-  withErrorHandler,
-  successResponse,
-  ApiError,
-  getPaginationParams,
-  paginatedResponse,
-  getAuthFromBearerOrSession,
-} from "@/lib/api-middleware";
-import type {
-  DynamicAgentConfig,
-  VisibilityType,
-  LegacyVisibilityType,
-  SubAgentRef,
-} from "@/types/dynamic-agent";
-import {
-  allowedToolsFromAgent,
-  deleteAllAgentToolTuples,
-  reconcileAgentRelationships,
+allowedToolsFromAgent,
+deleteAllAgentToolTuples,
+reconcileAgentRelationships,
 } from "@/lib/rbac/openfga-agent-tools";
-import {
-  filterResourcesByPermission,
-  requireAgentPermission,
-  requireResourcePermission,
-} from "@/lib/rbac/resource-authz";
-import { resolveShareableOwnershipWrite } from "@/lib/rbac/shareable-resource";
 import { caipeOrgKey } from "@/lib/rbac/organization";
 import { isPlatformDefaultAgent } from "@/lib/rbac/platform-default";
+import {
+filterResourcesByPermission,
+requireAgentPermission,
+requireResourcePermission,
+} from "@/lib/rbac/resource-authz";
+import { resolveShareableOwnershipWrite } from "@/lib/rbac/shareable-resource";
+import type {
+DynamicAgentConfig,
+LegacyVisibilityType,
+SubAgentRef,
+VisibilityType,
+} from "@/types/dynamic-agent";
+import { Collection,ObjectId } from "mongodb";
+import { NextRequest } from "next/server";
 
 const PLATFORM_DEFAULT_VISIBILITY_ERROR =
   "This agent is currently the platform default for new chats. Open Admin → Settings and change the platform default before changing this agent's visibility.";

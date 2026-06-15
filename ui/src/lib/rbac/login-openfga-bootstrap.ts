@@ -1,17 +1,17 @@
-import { writeOpenFgaTuples, type OpenFgaTupleKey } from "@/lib/rbac/openfga";
+import { getCollection } from "@/lib/mongodb";
 import {
   effectiveBaselineBootstrapTuples,
   getBaselineFgaProfileBundle,
   type TeamBaselineProfileOverride,
 } from "@/lib/rbac/baseline-access";
+import { getRbacCollection } from "@/lib/rbac/mongo-collections";
+import { writeOpenFgaTuples, type OpenFgaTupleKey } from "@/lib/rbac/openfga";
+import { SUPER_ADMINS_TEAM_SLUG } from "@/lib/rbac/super-admins-team";
 import {
   writeTeamMembershipTuples,
   mongoRoleToOpenFgaRelations,
 } from "@/lib/rbac/team-membership-sync";
 import { upsertTeamMembershipSource } from "@/lib/rbac/team-membership-source-store";
-import { SUPER_ADMINS_TEAM_SLUG } from "@/lib/rbac/super-admins-team";
-import { getCollection } from "@/lib/mongodb";
-import { getRbacCollection } from "@/lib/rbac/mongo-collections";
 import type { TeamMembershipSource } from "@/types/identity-group-sync";
 
 export type LoginOpenFgaBootstrapStatus = "skipped" | "completed" | "failed";

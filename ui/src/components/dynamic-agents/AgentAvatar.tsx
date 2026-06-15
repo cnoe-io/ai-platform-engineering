@@ -12,11 +12,11 @@
  * 2. agent.gradient_theme + agent.custom_theme_config (legacy, no ui wrapper)
  */
 
-import React from "react";
-import { Bot, Loader2 } from "lucide-react";
+import { getAccentColor,getGradientStyle } from "@/lib/gradient-themes";
 import { cn } from "@/lib/utils";
-import { getGradientStyle, getAccentColor } from "@/lib/gradient-themes";
 import type { CustomThemeConfig } from "@/types/dynamic-agent";
+import { Bot,Loader2 } from "lucide-react";
+import React from "react";
 
 /** Minimal shape the avatar needs — accepts full agent or any subset */
 export interface AgentAvatarAgent {

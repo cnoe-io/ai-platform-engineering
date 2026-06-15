@@ -1,13 +1,13 @@
 // GET /api/admin/stats - Get platform usage statistics
 
-import { NextRequest, NextResponse } from 'next/server';
-import { getCollection, isMongoDBConfigured } from '@/lib/mongodb';
 import {
-  getAuthFromBearerOrSession,
-  withErrorHandler,
-  successResponse,
+getAuthFromBearerOrSession,
+successResponse,
+withErrorHandler,
 } from '@/lib/api-middleware';
+import { getCollection,isMongoDBConfigured } from '@/lib/mongodb';
 import { requireAdminSurfaceManage } from '@/lib/rbac/require-openfga';
+import { NextRequest,NextResponse } from 'next/server';
 
 /** Parse range params into a { rangeStart, days } pair. Supports preset strings and explicit from/to ISO dates. */
 function parseRange(searchParams: URLSearchParams): { rangeStart: Date; days: number } {

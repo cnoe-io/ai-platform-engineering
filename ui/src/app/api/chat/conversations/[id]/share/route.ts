@@ -2,20 +2,19 @@
 // POST /api/chat/conversations/[id]/share - Share conversation with users
 // DELETE /api/chat/conversations/[id]/share/[userId] handled in separate file
 
-import { NextRequest } from 'next/server';
-import { ObjectId } from 'mongodb';
-import { getCollection } from '@/lib/mongodb';
 import {
-  withAuth,
-  withErrorHandler,
-  successResponse,
-  ApiError,
-  validateUUID,
-  validateRequired,
-  validateEmail,
+ApiError,
+successResponse,
+validateEmail,
+validateUUID,
+withAuth,
+withErrorHandler
 } from '@/lib/api-middleware';
+import { getCollection } from '@/lib/mongodb';
 import { requireConversationResourcePermission } from '@/lib/rbac/conversation-implicit-authz';
-import type { Conversation, ShareConversationRequest, SharingAccess } from '@/types/mongodb';
+import type { Conversation,ShareConversationRequest,SharingAccess } from '@/types/mongodb';
+import { ObjectId } from 'mongodb';
+import { NextRequest } from 'next/server';
 
 // GET /api/chat/conversations/[id]/share
 export const GET = withErrorHandler(async (

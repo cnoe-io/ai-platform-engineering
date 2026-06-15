@@ -242,6 +242,7 @@ let lastPopoverState: {
 jest.mock('@/components/ui/popover', () => {
   const Popover = ({ children, open, onOpenChange }: any) => {
     popoverOpenProps.push(Boolean(open))
+    // eslint-disable-next-line react-hooks/globals
     lastPopoverState = { open: Boolean(open), onOpenChange }
     return <>{children}</>
   }

@@ -1,98 +1,98 @@
 "use client";
 
-import React, { useEffect, useState, useMemo, useCallback } from "react";
-import { useRouter } from "next/navigation";
-import Link from "next/link";
-import { useSession } from "next-auth/react";
-import { motion, AnimatePresence } from "framer-motion";
-import {
-  Search,
-  Plus,
-  Workflow,
-  GitBranch,
-  GitPullRequest,
-  GitMerge,
-  Cloud,
-  Rocket,
-  Key,
-  Users,
-  Settings,
-  Loader2,
-  AlertCircle,
-  Edit,
-  Eye,
-  FolderOpen,
-  Trash2,
-  Sparkles,
-  Zap,
-  Server,
-  Bug,
-  BarChart,
-  Shield,
-  Database,
-  AlertTriangle,
-  CheckCircle,
-  Container,
-  Terminal,
-  Network,
-  Activity,
-  FileCode,
-  MonitorCheck,
-  RefreshCcw,
-  CircleDot,
-  Layers,
-  PackageCheck,
-  Gauge,
-  ScrollText,
-  Webhook,
-  Cpu,
-  HardDrive,
-  Wrench,
-  ArrowRight,
-  X,
-  MessageSquare,
-  Star,
-  Lock,
-  Globe,
-  UsersRound,
-  User,
-  ChevronsUpDown,
-  Check,
-  Filter,
-  Waypoints,
-  Copy,
-  Archive,
-} from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { useToast } from "@/components/ui/toast";
-import { CAIPESpinner } from "@/components/ui/caipe-spinner";
-import { cn } from "@/lib/utils";
-import { getConfig } from "@/lib/config";
-import { useAgentSkillsStore } from "@/store/agent-skills-store";
-import { useChatStore } from "@/store/chat-store";
-import { useAdminRole } from "@/hooks/use-admin-role";
-import type { AgentSkill, ScanOverride } from "@/types/agent-skill";
-import { SkillScanStatusIndicator } from "@/components/skills/SkillScanStatusIndicator";
 import { LastReviewBadge } from "@/components/ai-review";
-import { SkillFolderViewer } from "@/components/skills/SkillFolderViewer";
 import { ImportSkillZipDialog } from "@/components/skills/ImportSkillZipDialog";
 import {
-  makeConfigFolderAdapter,
-  makeHubFolderAdapter,
-  makeStaticFolderAdapter,
+makeConfigFolderAdapter,
+makeHubFolderAdapter,
+makeStaticFolderAdapter,
 } from "@/components/skills/skill-folder-adapters";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { SkillFolderViewer } from "@/components/skills/SkillFolderViewer";
+import { SkillScanStatusIndicator } from "@/components/skills/SkillScanStatusIndicator";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { CAIPESpinner } from "@/components/ui/caipe-spinner";
+import {
+Dialog,
+DialogContent,
+DialogDescription,
+DialogFooter,
+DialogHeader,
+DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Popover,PopoverContent,PopoverTrigger } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { useToast } from "@/components/ui/toast";
+import { useAdminRole } from "@/hooks/use-admin-role";
+import { getConfig } from "@/lib/config";
+import { cn } from "@/lib/utils";
+import { useAgentSkillsStore } from "@/store/agent-skills-store";
+import { useChatStore } from "@/store/chat-store";
+import type { AgentSkill,ScanOverride } from "@/types/agent-skill";
+import { AnimatePresence,motion } from "framer-motion";
+import {
+Activity,
+AlertCircle,
+AlertTriangle,
+Archive,
+ArrowRight,
+BarChart,
+Bug,
+Check,
+CheckCircle,
+ChevronsUpDown,
+CircleDot,
+Cloud,
+Container,
+Copy,
+Cpu,
+Database,
+Edit,
+Eye,
+FileCode,
+Filter,
+FolderOpen,
+Gauge,
+GitBranch,
+GitMerge,
+GitPullRequest,
+Globe,
+HardDrive,
+Key,
+Layers,
+Loader2,
+Lock,
+MessageSquare,
+MonitorCheck,
+Network,
+PackageCheck,
+Plus,
+RefreshCcw,
+Rocket,
+ScrollText,
+Search,
+Server,
+Settings,
+Shield,
+Sparkles,
+Star,
+Terminal,
+Trash2,
+User,
+Users,
+UsersRound,
+Waypoints,
+Webhook,
+Workflow,
+Wrench,
+X,
+Zap,
+} from "lucide-react";
+import { useSession } from "next-auth/react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import React,{ useCallback,useEffect,useMemo,useState } from "react";
 
 interface SkillsGalleryProps {
   onEditConfig?: (config: AgentSkill) => void;

@@ -1,12 +1,12 @@
 import { NextRequest } from "next/server";
 
-import { ApiError, successResponse, withErrorHandler } from "@/lib/api-middleware";
+import { ApiError,successResponse,withErrorHandler } from "@/lib/api-middleware";
 import { getCollection } from "@/lib/mongodb";
-import { deleteExactOpenFgaTuples, readOpenFgaTuples, type OpenFgaTupleKey } from "@/lib/rbac/openfga";
+import { deleteExactOpenFgaTuples,readOpenFgaTuples,type OpenFgaTupleKey } from "@/lib/rbac/openfga";
 import {
-  deleteSlackChannelGrants,
-  slackChannelSubjectId,
-  slackWorkspaceRef,
+deleteSlackChannelGrants,
+slackChannelSubjectId,
+slackWorkspaceRef,
 } from "@/lib/rbac/slack-channel-grant-store";
 import { deleteSlackChannelAgentRoutes } from "@/lib/rbac/slack-channel-route-store";
 

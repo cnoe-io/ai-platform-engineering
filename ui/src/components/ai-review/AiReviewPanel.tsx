@@ -15,25 +15,25 @@
  *   - Collapsible by default — when collapsed, the panel is a thin rail.
  */
 
-import * as React from "react";
-import {
-  AlertTriangle,
-  CheckCircle2,
-  ChevronLeft,
-  ChevronRight,
-  Loader2,
-  RotateCw,
-  ShieldCheck,
-  Wand2,
-} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import type {
-  CriterionVerdict,
-  ReviewAnchor,
-  ReviewSeverity,
+CriterionVerdict,
+ReviewAnchor,
+ReviewSeverity,
 } from "@/types/ai-review";
+import {
+AlertTriangle,
+CheckCircle2,
+ChevronLeft,
+ChevronRight,
+Loader2,
+RotateCw,
+ShieldCheck,
+Wand2,
+} from "lucide-react";
+import * as React from "react";
 import { CommentCard } from "./CommentCard";
 import { Grade } from "./Grade";
 import type { UseAiReviewResult } from "./use-ai-review";

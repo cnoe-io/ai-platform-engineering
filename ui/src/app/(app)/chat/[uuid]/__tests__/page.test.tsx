@@ -632,6 +632,7 @@ describe("ChatContainer", () => {
 
   it("handles unexpected error in outer try/catch with fallback conversation", async () => {
     // Override getConversation to throw a non-standard error
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { apiClient } = require("@/lib/api-client");
     apiClient.getConversation.mockImplementationOnce(() => {
       throw new TypeError("Cannot read properties of undefined");
@@ -726,6 +727,7 @@ describe("ChatContainer", () => {
   // ========================================================================
 
   it("adds conversation to store via setState when loaded from MongoDB", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { useChatStore } = require("@/store/chat-store");
 
     render(<ChatContainer />);
@@ -748,6 +750,7 @@ describe("ChatContainer", () => {
   });
 
   it("adds fallback conversation to store when MongoDB returns 404", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { useChatStore } = require("@/store/chat-store");
 
     render(<ChatContainer />);

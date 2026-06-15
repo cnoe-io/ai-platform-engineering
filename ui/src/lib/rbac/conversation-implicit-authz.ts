@@ -1,10 +1,10 @@
 import type { Conversation } from "@/types/mongodb";
 
 import {
-  filterResourcesByPermission,
-  requireResourcePermission,
-  type ResourceAuthzSession,
-  type ResourcePermissionAction,
+filterResourcesByPermission,
+requireResourcePermission,
+type ResourceAuthzSession,
+type ResourcePermissionAction,
 } from "./resource-authz";
 
 function stableSubject(session: ResourceAuthzSession): string | null {

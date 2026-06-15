@@ -5,27 +5,28 @@
  * The gateway owns all config writes — DA is a pure runtime reader.
  */
 
-import { NextRequest } from "next/server";
-import { getCollection } from "@/lib/mongodb";
 import {
-  withErrorHandler,
-  successResponse,
-  ApiError,
-  getPaginationParams,
-  paginatedResponse,
-  getAuthFromBearerOrSession,
+ApiError,
+getAuthFromBearerOrSession,
+getPaginationParams,
+paginatedResponse,
+successResponse,
+withErrorHandler,
 } from "@/lib/api-middleware";
-import {
-  filterResourcesByPermission,
-  requireResourcePermission,
-} from "@/lib/rbac/resource-authz";
-import {
-  deleteAllMcpServerRelationshipTuples,
-  reconcileMcpServerRelationships,
-} from "@/lib/rbac/openfga-owned-resources";
+import { getCollection } from "@/lib/mongodb";
 import { agentGatewayMcpEndpointUrl } from "@/lib/rbac/agentgateway-mcp-discovery";
 import { normalizeMcpEndpointForServer } from "@/lib/rbac/mcp-endpoint-normalizer";
-import type { MCPServerConfig, TransportType } from "@/types/dynamic-agent";
+import { caipeOrgKey } from "@/lib/rbac/organization";
+import {
+deleteAllMcpServerRelationshipTuples,
+reconcileMcpServerRelationships,
+} from "@/lib/rbac/openfga-owned-resources-reconcile";
+import {
+filterResourcesByPermission,
+requireResourcePermission,
+} from "@/lib/rbac/resource-authz";
+import type { MCPServerConfig,TransportType } from "@/types/dynamic-agent";
+import { NextRequest } from "next/server";
 
 const COLLECTION_NAME = "mcp_servers";
 
@@ -111,6 +112,26 @@ function validateTransportConfig(
   }
 }
 
+async function selfHealAgentGatewayMcpServersForList(
+  collection: Awaited<ReturnType<typeof getCollection<MCPServerConfig>>>,
+): Promise<void> {
+  try {
+    const discoveredCount = await collection.countDocuments({ source: "agentgateway" } as never);
+    if (discoveredCount > 0) return;
+
+    // assisted-by Codex Codex-sonnet-4-6
+    // Startup self-heal can miss AgentGateway readiness; list-time recovery
+    // keeps built-in routes like knowledge-base visible in MCP pickers.
+    const { syncSelectedAgentGatewayMcpServers } = await import("./agentgateway/_lib");
+    await syncSelectedAgentGatewayMcpServers();
+  } catch (error) {
+    console.warn(
+      "[mcp-servers] AgentGateway MCP list self-heal skipped:",
+      error instanceof Error ? error.message : error,
+    );
+  }
+}
+
 // ═══════════════════════════════════════════════════════════════
 // GET — list MCP servers
 // ═══════════════════════════════════════════════════════════════
@@ -125,18 +146,20 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     const collection = await getCollection<MCPServerConfig>(COLLECTION_NAME);
     const { page, pageSize, skip } = getPaginationParams(request);
 
-    const [items] = await Promise.all([
-      collection.find({}).sort({ name: 1 }).skip(skip).limit(pageSize).toArray(),
-      collection.countDocuments({}),
-    ]);
+    await selfHealAgentGatewayMcpServersForList(collection);
+
+    const allItems = await collection.find({}).sort({ name: 1 }).toArray();
     const listTarget = {
       type: "mcp_server" as const,
       action: "read" as const,
       id: (server: MCPServerConfig) => String(server._id),
     };
-    const visibleItems = await filterResourcesByPermission(session, items, listTarget);
+    const visibleItems = await filterResourcesByPermission(session, allItems, listTarget, {
+      bypassForOrgAdmin: true,
+    });
+    const pageItems = visibleItems.slice(skip, skip + pageSize);
 
-    return paginatedResponse(visibleItems, visibleItems.length, page, pageSize);
+    return paginatedResponse(pageItems, visibleItems.length, page, pageSize);
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -150,6 +173,14 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
 export const POST = withErrorHandler(async (request: NextRequest) => {
   const { session, user } = await getAuthFromBearerOrSession(request);
   const ownerSubject = requireStableSubject(session);
+
+    // Org members (or org admins) may register MCP servers; owner tuples are
+    // written immediately after insert via CAS reconcileTupleDiff.
+    await requireResourcePermission(
+      session,
+      { type: "organization", id: caipeOrgKey(), action: "use" },
+      { bypassForOrgAdmin: true },
+    );
 
     const body = await request.json();
 
@@ -222,11 +253,21 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       updated_at: now.toISOString(),
     };
 
-    await reconcileMcpServerRelationships({
-      serverId,
-      ownerSubject,
-      ownerTeamSlug,
-    });
+    const ownerSubjectKind =
+      session.isServiceAccount === true ? ("service_account" as const) : ("user" as const);
+
+    await reconcileMcpServerRelationships(
+      {
+        serverId,
+        ownerSubject,
+        ownerSubjectKind,
+        ownerTeamSlug,
+      },
+      {
+        caller: { type: ownerSubjectKind, id: ownerSubject },
+        source: "mcp_server_create",
+      },
+    );
 
     await collection.insertOne(doc);
 
@@ -263,7 +304,7 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     const updateTarget = {
       type: "mcp_server" as const,
       id,
-      action: "write" as const,
+      action: "manage" as const,
     };
     await requireResourcePermission(session, updateTarget);
 
@@ -351,7 +392,15 @@ export const DELETE = withErrorHandler(async (request: NextRequest) => {
       );
     }
 
-    await deleteAllMcpServerRelationshipTuples(id);
+    await deleteAllMcpServerRelationshipTuples(id, {
+      caller: session.sub
+        ? {
+            type: session.isServiceAccount === true ? "service_account" : "user",
+            id: String(session.sub).trim(),
+          }
+        : undefined,
+      source: "mcp_server_delete",
+    });
     await collection.deleteOne({ _id: id });
 
     return successResponse({ deleted: id });

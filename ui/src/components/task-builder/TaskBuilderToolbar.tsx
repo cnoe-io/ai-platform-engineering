@@ -1,11 +1,10 @@
 "use client";
 
-import React from "react";
-import { ArrowLeft, Save, Plus, Download, Upload, Variable, Eye } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import type { TaskConfigCategory } from "@/types/task-config";
+import { ArrowLeft,Download,Eye,Plus,Save,Upload,Variable } from "lucide-react";
 
 const CATEGORY_OPTIONS: TaskConfigCategory[] = [
   "GitHub Operations",

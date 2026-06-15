@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 
 import { ApiError } from "@/lib/api-middleware";
-import { DEFAULT_CONNECTOR_ID, isImplementedConnector } from "@/lib/rbac/idp-connectors";
+import { DEFAULT_CONNECTOR_ID,isImplementedConnector } from "@/lib/rbac/idp-connectors";
 
 /**
  * Resolve the `?provider=` query param for the directory-sync routes,

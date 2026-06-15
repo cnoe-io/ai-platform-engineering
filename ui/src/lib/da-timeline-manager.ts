@@ -11,20 +11,20 @@
  * - Final answer detection (content after last tool_end)
  */
 
-import type {
-  TimelineData,
-  TimelineStats,
-  ToolInfo,
-  SubagentInfo,
-  TimelineSegment,
-  ContentSegment,
-  ToolSegment,
-  SubagentSegment,
-  StatusSegment,
-  StatusType,
-} from "@/types/dynamic-agent-timeline";
 import type { ToolStartEventData } from "@/lib/streaming/types";
 import { SUBAGENT_TOOL_NAME } from "@/lib/streaming/types";
+import type {
+ContentSegment,
+StatusSegment,
+StatusType,
+SubagentInfo,
+SubagentSegment,
+TimelineData,
+TimelineSegment,
+TimelineStats,
+ToolInfo,
+ToolSegment,
+} from "@/types/dynamic-agent-timeline";
 
 // ═══════════════════════════════════════════════════════════════
 // Internal Types

@@ -1,16 +1,15 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { use } from "react";
+import { useRouter,useSearchParams } from "next/navigation";
+import { use,useEffect,useMemo,useState } from "react";
 
 import { AuthGuard } from "@/components/auth-guard";
+import {
+SkillWorkspace,
+type SkillWorkspaceTabId,
+} from "@/components/skills/workspace/SkillWorkspace";
 import { CAIPESpinner } from "@/components/ui/caipe-spinner";
 import { useAgentSkillsStore } from "@/store/agent-skills-store";
-import {
-  SkillWorkspace,
-  type SkillWorkspaceTabId,
-} from "@/components/skills/workspace/SkillWorkspace";
 import type { AgentSkill } from "@/types/agent-skill";
 
 // ---------------------------------------------------------------------------
@@ -113,12 +112,14 @@ export default function SkillWorkspacePage({
   // (matching `SkillsGallery`'s mapping for `catalog-*` IDs).
   useEffect(() => {
     if (isNew) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: initialize ready state for new skills
       setReady(true);
       return;
     }
     if (configs.length === 0) return;
     const found = getSkillById(id);
     if (found) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: sync skill state from configs when id resolves
       setSkill(found);
       setNotFound(false);
       setReady(true);

@@ -1,8 +1,8 @@
 "use client";
 
-import React from "react";
-import { Loader2, CheckCircle, XCircle, Clock, PauseCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { CheckCircle,Clock,Loader2,PauseCircle,XCircle } from "lucide-react";
+import React from "react";
 
 export type StatusType = "running" | "completed" | "failed" | "pending" | "input_required";
 

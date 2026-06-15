@@ -18,6 +18,10 @@ jest.mock("@/lib/rbac/openfga", () => ({
   writeOpenFgaTupleDiff: jest.fn(async () => ({ enabled: true, writes: 2, deletes: 0 })),
 }));
 
+jest.mock("@/lib/rbac/resource-authz", () => ({
+  requireResourcePermission: jest.fn(async () => undefined),
+}));
+
 jest.mock("@/lib/jwt-validation", () => ({
   validateLocalSkillsJWT: jest.fn(async () => null),
   validateBearerJWT: jest.fn(async () => ({

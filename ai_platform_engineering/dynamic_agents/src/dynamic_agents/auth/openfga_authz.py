@@ -301,7 +301,28 @@ async def _get_openfga_store_id(client: httpx.AsyncClient, base_url: str) -> str
     raise RuntimeError(f"OpenFGA store {store_name} was not found")
 
 
-async def _check_agent_use(subject: str, agent_id: str) -> bool:
+def _is_service_account(payload: dict[str, Any] | None) -> bool:
+    """Canonical service-account detection rule (spec 2026-06-05-service-accounts, T002).
+
+    A token is a service account iff its `preferred_username` claim starts with
+    `service-account-`. This MUST match the BFF (`jwt-validation.ts`) and the AGW
+    bridge (`bridge/main.py`) so the same token namespaces identically at every
+    enforcement layer. assisted-by Claude claude-opus-4-8
+    """
+    if not payload:
+        return False
+    preferred = payload.get("preferred_username")
+    return isinstance(preferred, str) and preferred.startswith("service-account-")
+
+
+async def _check_agent_use(fga_subject: str, agent_id: str) -> bool:
+    """Check `<fga_subject> can_use agent:<agent_id>`.
+
+    `fga_subject` is the fully-namespaced OpenFGA subject (e.g. `user:<sub>`,
+    `user:<email>`, or `service_account:<sub>`) — the caller is responsible for
+    namespacing so a service-account token is graphed as `service_account:<sub>`
+    rather than `user:<sub>` (WS-G / FR-011).
+    """
     base_url = _openfga_http_url()
     async with httpx.AsyncClient(timeout=5.0) as client:
         store_id = await _get_openfga_store_id(client, base_url)
@@ -310,7 +331,7 @@ async def _check_agent_use(subject: str, agent_id: str) -> bool:
             headers=_openfga_headers(),
             json={
                 "tuple_key": {
-                    "user": f"user:{subject}",
+                    "user": fga_subject,
                     "relation": "can_use",
                     "object": f"agent:{agent_id}",
                 }
@@ -353,10 +374,18 @@ async def require_agent_use_permission(agent_id: str) -> None:
             "sign_in",
         )
 
-    email_principal = _normalize_email_principal(payload.get("email") if payload else None)
-    principal_candidates = [subject]
-    if email_principal:
-        principal_candidates.append(email_principal)
+    # Namespace the OpenFGA subject. Service-account tokens (client-credentials)
+    # MUST be graphed as `service_account:<sub>` — their grants are written under
+    # that type, so checking them as `user:<sub>` would wrongly deny (WS-G /
+    # FR-011). Interactive users keep `user:<sub>` (+ an email-principal fallback,
+    # which is meaningless for service accounts so it is skipped).
+    if _is_service_account(payload):
+        principal_candidates = [f"service_account:{subject}"]
+    else:
+        email_principal = _normalize_email_principal(payload.get("email") if payload else None)
+        principal_candidates = [f"user:{subject}"]
+        if email_principal:
+            principal_candidates.append(f"user:{email_principal}")
 
     parent_traceparent = current_traceparent.get()
     trace_id, span_id, child_traceparent = _child_traceparent(parent_traceparent)

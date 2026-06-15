@@ -25,15 +25,15 @@
  * solve (consistent UX across preview and refresh).
  */
 
-import { Buffer } from "node:buffer";
 import {
-  NOOP_EMITTER,
-  type CrawlEvent,
-  type CrawlEventEmitter,
-  type CrawlErrorCode,
+NOOP_EMITTER,
+type CrawlErrorCode,
+type CrawlEvent,
+type CrawlEventEmitter,
 } from "@/lib/crawl-events";
 import { NdjsonStreamEncoder } from "@/lib/crawl-stream";
 import { emitScopeHintIfApplicable } from "@/lib/gitlab-token-introspect";
+import { Buffer } from "node:buffer";
 
 /**
  * Cap on the number of events we persist to ``hub.last_crawl_log``

@@ -24,13 +24,6 @@ def can_view_agent(agent: DynamicAgentConfig, user: UserContext) -> bool:
     return False
 
 
-def can_use_agent(agent: DynamicAgentConfig, user: UserContext) -> bool:
-    if not agent.enabled:
-        return False
-
-    return can_view_agent(agent, user)
-
-
 def can_access_conversation(conversation: dict, user: UserContext) -> bool:
     """Check if user can access the conversation.
 

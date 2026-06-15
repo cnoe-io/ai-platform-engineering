@@ -1,24 +1,24 @@
 import { NextRequest } from "next/server";
 
-import { ApiError, successResponse, withErrorHandler } from "@/lib/api-middleware";
+import { ApiError,successResponse,withErrorHandler } from "@/lib/api-middleware";
 import { writeOpenFgaTuples } from "@/lib/rbac/openfga";
 import { isSupportedResourceAction } from "@/lib/rbac/resource-model";
-import {
-  listWebexSpaceGrants,
-  replaceWebexSpaceGrants,
-  WEBEX_SPACE_GRANT_RESOURCE_TYPES,
-  type WebexSpaceGrantInput,
-} from "@/lib/rbac/webex-space-grant-store";
-import { webexSpaceGrantRelationship } from "@/lib/rbac/webex-space-rebac";
-import {
-  listOpenFgaWebexSpaceAgentIds,
-  parseWebexSpaceRouteParams,
-} from "@/lib/rbac/webex-space-openfga";
 import { buildUniversalRebacTupleDiff } from "@/lib/rbac/tuple-builders";
+import {
+listWebexSpaceGrants,
+replaceWebexSpaceGrants,
+WEBEX_SPACE_GRANT_RESOURCE_TYPES,
+type WebexSpaceGrantInput,
+} from "@/lib/rbac/webex-space-grant-store";
+import {
+listOpenFgaWebexSpaceAgentIds,
+parseWebexSpaceRouteParams,
+} from "@/lib/rbac/webex-space-openfga";
+import { webexSpaceGrantRelationship } from "@/lib/rbac/webex-space-rebac";
 import type { UniversalRebacResourceAction } from "@/types/rbac-universal";
 import type { WebexSpaceGrantResourceType } from "@/types/webex-rebac";
 
-import { withWebexSpaceRebacManageAuth, withWebexSpaceRebacViewAuth } from "../../../_lib";
+import { withWebexSpaceRebacManageAuth,withWebexSpaceRebacViewAuth } from "../../../_lib";
 
 interface RouteContext {
   params: Promise<{ workspaceId: string; spaceId: string }>;

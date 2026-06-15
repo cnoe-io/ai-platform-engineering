@@ -11,7 +11,9 @@
  *   node test-a2a-debug.js "your custom message"
  */
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 const { JsonRpcTransport } = require('@a2a-js/sdk/client');
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 const { v4: uuidv4 } = require('uuid');
 
 const A2A_ENDPOINT = process.env.NEXT_PUBLIC_A2A_BASE_URL || 'http://localhost:8000';

@@ -14,7 +14,7 @@ export async function requireMigrationAdmin(request: NextRequest) {
 
 export async function requireMigrationSuperAdmin(request: NextRequest) {
   const auth = await requireMigrationAdmin(request);
-  if (auth.user.role !== 'admin') {
+  if (auth.user.role !== "admin") {
     const error = new Error("Admin access required") as Error & {
       statusCode?: number;
       code?: string;

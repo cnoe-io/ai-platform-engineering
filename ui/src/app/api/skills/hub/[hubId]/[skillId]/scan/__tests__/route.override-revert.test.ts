@@ -75,6 +75,10 @@ jest.mock("@/lib/rbac/openfga", () => ({
   checkOpenFgaTuple: jest.fn().mockResolvedValue({ allowed: true }),
 }));
 
+jest.mock("@/lib/rbac/resource-authz", () => ({
+  requireResourcePermission: jest.fn().mockResolvedValue(undefined),
+}));
+
 jest.spyOn(console, "warn").mockImplementation(() => {});
 jest.spyOn(console, "error").mockImplementation(() => {});
 
