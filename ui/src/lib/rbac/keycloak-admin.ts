@@ -1,3 +1,4 @@
+// assisted-by Codex Codex-sonnet-4-6
 import { randomBytes } from "crypto";
 
 export interface KeycloakRole {
@@ -1375,6 +1376,16 @@ async function ensureBotOboPermissions(botClientId: string, policyName: string):
       realmManagementClient.id,
       oboAudienceTokenExchangePermissionId,
       policy.id
+    ),
+    // Keycloak creates scope-permissions with UNANIMOUS by default. A single
+    // per-client policy under UNANIMOUS is functionally equivalent to
+    // AFFIRMATIVE, but the invariant checker flags UNANIMOUS to prevent a
+    // second policy being added later (e.g. during a future bot) from silently
+    // breaking OBO via cross-DENY. Set it here so it is never left as UNANIMOUS.
+    setScopePermissionDecisionStrategy(
+      realmManagementClient.id,
+      botTokenExchangePermissionId,
+      "AFFIRMATIVE"
     ),
   ]);
 }

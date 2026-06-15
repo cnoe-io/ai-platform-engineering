@@ -1,3 +1,4 @@
+// assisted-by Codex Codex-sonnet-4-6
 import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
 import {
 ensureBotServiceAccountImpersonationRoles,
@@ -307,7 +308,9 @@ export async function runKeycloakRbacStartupMigration(input: {
     counts.bot_service_accounts_reconciled = 2;
 
     await ensureCaipePlatformTokenExchangeDecisionStrategy("AFFIRMATIVE");
-    counts.token_exchange_permissions_reconciled = 1;
+    // 1 shared audience + 2 per-bot (Slack, Webex) — ensureBotOboPermissions
+    // now sets AFFIRMATIVE on the bot's own token-exchange permission as well.
+    counts.token_exchange_permissions_reconciled = 3;
 
     bootstrapAdmins = await reconcileBootstrapAdmins({ actor });
     counts.bootstrap_admins_resolved = bootstrapAdmins.resolved_count;
