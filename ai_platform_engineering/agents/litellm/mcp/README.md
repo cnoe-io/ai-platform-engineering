@@ -67,8 +67,8 @@ docker compose -f docker-compose/docker-compose.litellm.dev.yaml up --build
 Use one of these MCP URLs depending on where the client runs:
 
 ```text
-http://localhost:18080/mcp/
-http://mcp-litellm:8000/mcp/
+http://localhost:18080/mcp
+http://mcp-litellm:8000/mcp
 ```
 
 Use `localhost` from your host machine. Use `mcp-litellm` from another service
@@ -106,7 +106,7 @@ caipe-ui:
         name: LiteLLM
         description: LiteLLM FinOps reporting tools
         transport: http
-        endpoint: http://ai-platform-engineering-litellm-mcp:8000/mcp/
+        endpoint: http://ai-platform-engineering-litellm-mcp:8000/mcp
         enabled: true
 ```
 
@@ -139,7 +139,7 @@ caipe-ui:
         name: LiteLLM
         description: LiteLLM FinOps reporting tools
         transport: http
-        endpoint: http://ai-platform-engineering-litellm-mcp:8000/mcp/
+        endpoint: http://ai-platform-engineering-litellm-mcp:8000/mcp
         enabled: true
 ```
 

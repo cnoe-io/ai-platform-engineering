@@ -6,8 +6,8 @@
 #   docker compose -f docker-compose/docker-compose.litellm.dev.yaml up --build
 #
 # MCP endpoints:
-#   Host machine: http://localhost:18080/mcp/
-#   Same compose network: http://mcp-litellm:8000/mcp/
+#   Host machine: http://localhost:18080/mcp
+#   Same compose network: http://mcp-litellm:8000/mcp
 # ============================================================================
 
 services:
