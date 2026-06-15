@@ -48,6 +48,7 @@ class OIDCProvider:
     self.jwks_cache: Dict[str, Any] = {}
     self.jwks_cache_time: float = 0
     self.jwks_cache_ttl: int = 3600  # Cache JWKS for 1 hour
+    self.verify_ssl = os.getenv("OIDC_VERIFY_SSL", "true").lower() == "true"
 
     if discovery_url:
       logger.info(f"Initialized OIDC provider '{name}': issuer={issuer}, audience={audience}, discovery_url={discovery_url}")
@@ -122,7 +123,7 @@ class OIDCProvider:
 
     # Fetch JWKS
     logger.debug(f"Fetching JWKS from {self.jwks_uri}")
-    async with httpx.AsyncClient(follow_redirects=True) as client:
+    async with httpx.AsyncClient(follow_redirects=True, verify=self.verify_ssl) as client:
       response = await client.get(self.jwks_uri, timeout=10.0)
       response.raise_for_status()
       return response.json()
@@ -140,7 +141,7 @@ class OIDCProvider:
     Raises:
         Exception if fetch fails
     """
-    async with httpx.AsyncClient(follow_redirects=True) as client:
+    async with httpx.AsyncClient(follow_redirects=True, verify=self.verify_ssl) as client:
       response = await client.get(well_known_url, timeout=10.0)
       response.raise_for_status()
       return response.json()

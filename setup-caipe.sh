@@ -190,6 +190,8 @@ CAIPE_DOMAIN_DEFAULT="${CAIPE_DOMAIN_DEFAULT:-caipe.local.me}"
 CAIPE_DOMAIN=""
 TLS_CERT_FILE=""
 TLS_KEY_FILE=""
+OIDC_VERIFY_SSL="${OIDC_VERIFY_SSL:-}"
+INGESTOR_OIDC_VERIFY_SSL="${INGESTOR_OIDC_VERIFY_SSL:-}"
 ENV_FILE=""
 UI_ENV_FILE=""
 # Dynamic agents: default ON (custom agent builder UI is part of the
@@ -3489,6 +3491,10 @@ create_namespace_and_secrets() {
     log "Added EMBEDDINGS_MODEL=${EMBEDDINGS_MODEL} to llm-secret (Ollama init container pull)"
   fi
 
+  if [[ -n "$OIDC_VERIFY_SSL" ]]; then
+    secret_args+=(--from-literal=OIDC_VERIFY_SSL="$OIDC_VERIFY_SSL")
+  fi
+
   kubectl create secret generic llm-secret -n caipe \
     "${secret_args[@]}" \
     --dry-run=client -o yaml | kubectl apply -f - &>/dev/null
@@ -4393,6 +4399,12 @@ SUPERVISOR_INGRESS_EOF
         kubectl patch deploy caipe-caipe-ui -n caipe --type=merge \
           -p "{\"spec\":{\"template\":{\"spec\":{\"hostAliases\":[{\"ip\":\"${_ningx_ip}\",\"hostnames\":[\"${CAIPE_DOMAIN}\"]}]}}}}" &>/dev/null \
           && log "caipe-ui hostAliases: ${CAIPE_DOMAIN} -> ${_ningx_ip} (in-cluster ingress; fixes SSO callback)"
+
+        if kubectl get deploy rag-server -n caipe &>/dev/null; then
+          kubectl patch deploy rag-server -n caipe --type=merge \
+            -p "{\"spec\":{\"template\":{\"spec\":{\"hostAliases\":[{\"ip\":\"${_ningx_ip}\",\"hostnames\":[\"${CAIPE_DOMAIN}\"]}]}}}}" &>/dev/null \
+            && log "rag-server hostAliases: ${CAIPE_DOMAIN} -> ${_ningx_ip} (in-cluster ingress; fixes SSO/OIDC token verification)"
+        fi
       fi
     fi
 
@@ -4630,10 +4642,17 @@ JSON
   fi
 
   # Store in k8s secret so both rag-server and web-ingestor can mount it via envFrom
+  local verify_ssl_val="true"
+  if [[ -n "$INGESTOR_OIDC_VERIFY_SSL" ]]; then
+    verify_ssl_val="$INGESTOR_OIDC_VERIFY_SSL"
+  elif [[ -n "$OIDC_VERIFY_SSL" ]]; then
+    verify_ssl_val="$OIDC_VERIFY_SSL"
+  fi
   kubectl create secret generic rag-ingestor-secret -n caipe \
     --from-literal=INGESTOR_OIDC_ISSUER="${issuer}" \
     --from-literal=INGESTOR_OIDC_CLIENT_ID="${client_id}" \
     --from-literal=INGESTOR_OIDC_CLIENT_SECRET="${client_secret}" \
+    --from-literal=INGESTOR_OIDC_VERIFY_SSL="${verify_ssl_val}" \
     --dry-run=client -o yaml | kubectl apply -f - &>/dev/null
   log "RAG ingestor client: credentials stored in rag-ingestor-secret (issuer=${issuer})"
   RAG_INGESTOR_SECRET_READY=true
@@ -6072,12 +6091,31 @@ deploy_caipe() {
   # surprised by H2-backed Keycloak losing realm state on restart.
   _warn_if_chart_lacks_keycloak_db
 
+  # Determine Node TLS validation settings based on OIDC_VERIFY_SSL.
+  # If OIDC_VERIFY_SSL is explicitly set (e.g. false/0), we map that to the
+  # Node.js NODE_TLS_REJECT_UNAUTHORIZED variable (0 disables verification).
+  # If OIDC_VERIFY_SSL is unset/empty, we automatically disable verification
+  # (reject_unauthorized="0") if self-signed certificates are in use for local Kind/ingress.
+  local reject_unauthorized=""
+  if [[ -n "$OIDC_VERIFY_SSL" ]]; then
+    if [[ "$OIDC_VERIFY_SSL" == "false" || "$OIDC_VERIFY_SSL" == "0" ]]; then
+      reject_unauthorized="0"
+    else
+      reject_unauthorized="1"
+    fi
+  else
+    if [[ -z "$TLS_CERT_FILE" || -z "$TLS_KEY_FILE" ]]; then
+      reject_unauthorized="0"
+    fi
+  fi
+
   local helm_args=(
     --namespace caipe
     --version "$CAIPE_CHART_VERSION"
     --set tags.caipe-ui=true
     --set tags.agent-weather=false
     --set tags.agent-netutils=true
+    ${reject_unauthorized:+--set "caipe-ui.config.NODE_TLS_REJECT_UNAUTHORIZED=${reject_unauthorized}"}
     # A2A_BASE_URL: server-side only (Next.js API routes fetching /tools, the
     # /api/a2a health probe, etc.). Must use the internal k8s service URL to
     # avoid hairpin routing failures through the nginx ingress when the pod calls
@@ -8206,6 +8244,16 @@ BANNER
     if _env_true "$(_env_get "$ENV_FILE" ENABLE_RAG)"; then ENABLE_RAG=true; fi
     if _env_true "$(_env_get "$ENV_FILE" ENABLE_GRAPH_RAG)"; then ENABLE_GRAPH_RAG=true; ENABLE_RAG=true; fi
     if _env_true "$(_env_get "$ENV_FILE" ENABLE_TRACING)"; then ENABLE_TRACING=true; fi
+    local _env_oidc_verify
+    _env_oidc_verify=$(_env_get "$ENV_FILE" OIDC_VERIFY_SSL)
+    if [[ -n "$_env_oidc_verify" ]]; then
+      OIDC_VERIFY_SSL="$_env_oidc_verify"
+    fi
+    local _env_ingestor_oidc_verify
+    _env_ingestor_oidc_verify=$(_env_get "$ENV_FILE" INGESTOR_OIDC_VERIFY_SSL)
+    if [[ -n "$_env_ingestor_oidc_verify" ]]; then
+      INGESTOR_OIDC_VERIFY_SSL="$_env_ingestor_oidc_verify"
+    fi
     # The slack/webex MCP agents (ENABLE_SLACK/ENABLE_WEBEX) and the chat-bot
     # surfaces share the same .env. docker-compose.dev.yaml runs the bot
     # surfaces via the slack-bot/webex-bot profiles, so treat ENABLE_SLACK_BOT/

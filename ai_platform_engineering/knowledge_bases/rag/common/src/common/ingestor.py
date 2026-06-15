@@ -48,6 +48,8 @@ class Client:
     self.oidc_discovery_url = os.getenv("INGESTOR_OIDC_DISCOVERY_URL")
     # Scope is optional - if not set, don't send any scope (many providers don't need it for client credentials)
     self.oidc_scope = os.getenv("INGESTOR_OIDC_SCOPE", "")
+    # Verify SSL option
+    self.oidc_verify_ssl = os.getenv("INGESTOR_OIDC_VERIFY_SSL", "true").lower() == "true"
 
     # Token cache
     self._access_token: Optional[str] = None
@@ -73,6 +75,7 @@ class Client:
       logger.info(f"  - INGESTOR_OIDC_CLIENT_ID: {self.oidc_client_id}")
       logger.info(f"  - INGESTOR_OIDC_CLIENT_SECRET: {'***' if self.oidc_client_secret else 'NOT SET'}")
       logger.info(f"  - INGESTOR_OIDC_SCOPE: {self.oidc_scope if self.oidc_scope else '(none - will omit scope parameter)'}")
+      logger.info(f"  - INGESTOR_OIDC_VERIFY_SSL: {self.oidc_verify_ssl}")
       logger.info("  - Authentication mode: OAUTH2 (will send authenticated requests)")
     else:
       logger.info(f"Ingestor '{self.ingestor_name}': OAuth2 client credentials NOT fully configured")
@@ -189,7 +192,8 @@ class Client:
     Raises:
         Exception if fetch fails or token_endpoint not found
     """
-    async with aiohttp.ClientSession() as session:
+    connector = aiohttp.TCPConnector(ssl=None if self.oidc_verify_ssl else False)
+    async with aiohttp.ClientSession(connector=connector) as session:
       async with session.get(discovery_url, allow_redirects=True) as resp:
         if resp.status == 404:
           raise aiohttp.ClientError(f"Discovery endpoint not found (404): {discovery_url}")
@@ -238,7 +242,8 @@ class Client:
     logger.info(f"Ingestor '{self.ingestor_name}': Fetching new OAuth2 access token from {token_endpoint}")
 
     try:
-      async with aiohttp.ClientSession() as session:
+      connector = aiohttp.TCPConnector(ssl=None if self.oidc_verify_ssl else False)
+      async with aiohttp.ClientSession(connector=connector) as session:
         # Build token request data
         token_data = {
           "grant_type": "client_credentials",
