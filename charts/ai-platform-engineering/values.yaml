@@ -219,6 +219,7 @@ global:
       port: 9446
       protocol: StreamableHTTP
       pathPrefix: /mcp/knowledge-base
+      providerTokenAuth: true
     # GitHub MCP server — official GitHub MCP server container.
     # Routes /mcp/github-mcp-server -> the in-cluster Deployment.
     # The Deployment is enabled by this same section; keep it opt-in because
@@ -251,6 +252,14 @@ global:
     #     port: 9446
     #     protocol: StreamableHTTP
     #     pathPrefix: /mcp/knowledge-base
+    #     # Optional: set providerTokenAuth directly, or declare header-targeted
+    #     # credential_sources and the chart derives the AgentGateway transform.
+    #     # assisted-by Codex Codex-sonnet-4-6
+    #     providerTokenAuth: false
+    #     # credential_sources:
+    #     #   - kind: caller_token
+    #     #     name: X-CAIPE-Provider-Token
+    #     #     target: header
     extraMcpTargets: []
 
   # OpenFGA service discovery defaults for CAIPE components that perform
@@ -595,6 +604,11 @@ agent-github:
     pullPolicy: "IfNotPresent"
   mcp:
     useRemoteMcpServer: true
+    agentgateway:
+      enabled: false
+      protocol: StreamableHTTP
+      # Rewrite X-CAIPE-Provider-Token into Authorization: Bearer for per-caller OAuth/PAT passthrough.
+      providerTokenAuth: true
 
 agent-gitlab:
   nameOverride: "agent-gitlab"
@@ -613,6 +627,11 @@ agent-gitlab:
       pullPolicy: "IfNotPresent"
     mode: "http" # Options: stdio, http
     port: 8000
+    agentgateway:
+      enabled: false
+      protocol: StreamableHTTP
+      # Rewrite X-CAIPE-Provider-Token into Authorization: Bearer for per-caller OAuth/PAT passthrough.
+      providerTokenAuth: true
     env:
       STREAMABLE_HTTP: "true"
       HOST: "0.0.0.0"
