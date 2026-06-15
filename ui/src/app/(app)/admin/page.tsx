@@ -267,8 +267,8 @@ const MOVED_OPENFGA_DEEPLINK_TAB_MAP = {
 } as const;
 
 type CategoryKey = 'settings' | 'people' | 'integrations' | 'insights' | 'platform' | 'security';
-const DEFAULT_ADMIN_CATEGORY: CategoryKey = 'security';
-const DEFAULT_ADMIN_TAB = 'cas-permissions-tool';
+const DEFAULT_ADMIN_CATEGORY: CategoryKey = 'settings';
+const DEFAULT_ADMIN_TAB = 'settings';
 const DEFAULT_READONLY_TAB = 'users';
 
 interface Category {
@@ -289,7 +289,7 @@ const CATEGORIES: Category[] = [
     label: 'Settings',
     icon: Settings,
     tabs: [
-      { value: 'settings', label: 'Default Agent', icon: Settings, gateKey: 'settings' },
+      { value: 'settings', label: 'General', icon: Settings, gateKey: 'settings' },
       { value: 'release-notes', label: 'Release notes', icon: FileText, gateKey: 'settings' },
       { value: 'ai-review', label: 'AI Review', icon: ShieldCheck, gateKey: 'ai_review' },
       { value: 'credentials', label: 'Credentials', icon: Shield, gateKey: 'credentials' },
