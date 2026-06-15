@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -362,6 +363,144 @@ _SLACK_JIT_SOURCE = "slack-bot:jit"
 # Keycloak calls because the BFF itself does a lookup + create round-trip to
 # Keycloak on a miss.
 _PROVISION_TIMEOUT_SECONDS = 15.0
+
+
+# --------------------------------------------------------------------------- #
+# IdP broker / federation helpers (anonymous-and-obo-routing)                #
+# --------------------------------------------------------------------------- #
+#
+# These are NEVER-THROW helpers: any HTTP, timeout, or parse error returns a
+# conservative (fail-closed) default value so the caller can make a safe
+# routing decision without crashing the middleware.
+
+# user_is_federated cache: {kc_user_id: (result: bool, cached_at: float)}
+_USER_FEDERATED_TTL: float = float(os.environ.get("KC_USER_FEDERATED_TTL_SECONDS", "60"))
+_user_federated_cache: dict[str, tuple[bool, float]] = {}
+
+# realm_has_enabled_idp_broker cache: (result: bool, cached_at: float)
+_BROKER_CACHE_TTL: float = float(os.environ.get("KC_BROKER_CACHE_TTL_SECONDS", "300"))
+_broker_cache: tuple[bool | None, float] = (None, 0.0)
+# Last-known-good broker result (SEC-2): on Keycloak transient errors we return
+# the last successful result instead of defaulting to False (fail-open).
+# Only falls back to False when we have NEVER successfully contacted Keycloak.
+_broker_last_known_good: bool | None = None
+
+
+def _invalidate_user_federated_cache(kc_user_id: str | None = None) -> None:
+    """Clear the user_is_federated cache.  Pass a kc_user_id to clear just
+    that entry, or ``None`` to clear all."""
+    if kc_user_id is None:
+        _user_federated_cache.clear()
+    else:
+        _user_federated_cache.pop(kc_user_id, None)
+
+
+def _invalidate_broker_cache() -> None:
+    """Force the next realm_has_enabled_idp_broker call to re-query Keycloak."""
+    global _broker_cache
+    _broker_cache = (None, 0.0)
+    # Note: _broker_last_known_good is intentionally NOT cleared here — it
+    # represents the last confirmed truth, not the cache TTL state.
+
+
+async def user_is_federated(
+    keycloak_user_id: str,
+    config: KeycloakAdminConfig | None = None,
+) -> bool:
+    """Return ``True`` when the Keycloak user has at least one live IdP link.
+
+    Uses ``GET /admin/realms/{realm}/users/{id}`` which embeds
+    ``federatedIdentities`` (unlike the ``?q=`` search endpoint).
+
+    Fail-closed: on ANY error (HTTP, timeout, parse) logs a warning and
+    returns ``False`` — a non-federated classification — so the caller
+    treats the user as anonymous when a broker is present.  This is the
+    safe direction: it's better to briefly over-route a federated user as
+    anonymous than to allow an unverified JIT shell to run as themselves.
+
+    Per-user-id TTL cache of 60 s (configurable via
+    ``KC_USER_FEDERATED_TTL_SECONDS``) mirrors the monotonic-time pattern
+    in :class:`~utils.service_account_resolver.ServiceAccountResolver`.
+    """
+    now = time.monotonic()
+    cached = _user_federated_cache.get(keycloak_user_id)
+    if cached is not None:
+        result, cached_at = cached
+        if now - cached_at < _USER_FEDERATED_TTL:
+            return result
+
+    try:
+        cfg = config or _default_config
+        token = await _get_admin_token(cfg)
+        url = f"{cfg.server_url}/admin/realms/{cfg.realm}/users/{keycloak_user_id}"
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(url, headers={"Authorization": f"Bearer {token}"})
+            resp.raise_for_status()
+            user = resp.json()
+        result = bool(user.get("federatedIdentities"))
+    except Exception as exc:
+        logger.warning(
+            "user_is_federated: lookup failed for kc_id=%s (fail-closed → False): %s",
+            keycloak_user_id,
+            exc,
+        )
+        result = False
+
+    _user_federated_cache[keycloak_user_id] = (result, now)
+    return result
+
+
+async def realm_has_enabled_idp_broker(
+    config: KeycloakAdminConfig | None = None,
+) -> bool:
+    """Return ``True`` when the realm has at least one ENABLED IdP broker.
+
+    Uses ``GET /admin/realms/{realm}/identity-provider/instances``.
+
+    On error: returns the last-known-good result if we have ever succeeded;
+    only falls back to ``False`` (no broker) when we have NEVER successfully
+    contacted Keycloak (SEC-2).  This prevents a transient Keycloak blip
+    from silently promoting JIT/unverified users to full user access.
+
+    Process-wide TTL cache of 300 s (configurable via
+    ``KC_BROKER_CACHE_TTL_SECONDS``) — broker configuration changes at
+    deploy time, not per request.
+    """
+    global _broker_cache, _broker_last_known_good
+    now = time.monotonic()
+    cached_result, cached_at = _broker_cache
+    if cached_result is not None and now - cached_at < _BROKER_CACHE_TTL:
+        return cached_result
+
+    try:
+        cfg = config or _default_config
+        token = await _get_admin_token(cfg)
+        url = f"{cfg.server_url}/admin/realms/{cfg.realm}/identity-provider/instances"
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(url, headers={"Authorization": f"Bearer {token}"})
+            resp.raise_for_status()
+            instances = resp.json()
+        result = any(i.get("enabled") for i in instances)
+        _broker_last_known_good = result  # SEC-2: update last-known-good on success
+    except Exception as exc:
+        if _broker_last_known_good is not None:
+            logger.warning(
+                "realm_has_enabled_idp_broker: lookup failed — using last-known-good "
+                "result (%s) to prevent inadvertent access promotion: %s",
+                _broker_last_known_good,
+                exc,
+            )
+            result = _broker_last_known_good
+        else:
+            logger.warning(
+                "realm_has_enabled_idp_broker: lookup failed and no prior result "
+                "available — defaulting to False (no broker): %s",
+                exc,
+            )
+            result = False
+
+    _broker_cache = (result, now)
+    return result
 
 
 async def create_user_from_slack(

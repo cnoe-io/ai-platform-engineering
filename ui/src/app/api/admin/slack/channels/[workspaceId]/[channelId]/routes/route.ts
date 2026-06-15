@@ -1,8 +1,9 @@
 import { NextRequest } from "next/server";
 
 import { ApiError,successResponse,withErrorHandler } from "@/lib/api-middleware";
+import { getCollection } from "@/lib/mongodb";
 import { readOpenFgaTuples,writeOpenFgaTuples } from "@/lib/rbac/openfga";
-import { slackChannelSubjectId } from "@/lib/rbac/slack-channel-grant-store";
+import { slackChannelSubjectId,slackWorkspaceRef } from "@/lib/rbac/slack-channel-grant-store";
 import { slackChannelGrantRelationship } from "@/lib/rbac/slack-channel-rebac";
 import {
 deleteSlackChannelAgentRoute,
@@ -11,10 +12,12 @@ replaceSlackChannelAgentRoutes,
 type SlackChannelAgentRouteInput,
 } from "@/lib/rbac/slack-channel-route-store";
 import { buildUniversalRebacTupleDiff } from "@/lib/rbac/tuple-builders";
+import { getBySub } from "@/lib/service-accounts";
 import type { UniversalRebacRelationship } from "@/types/rbac-universal";
 import type {
 SlackChannelAgentRoute,
 SlackRouteEscalationConfig,
+SlackRouteExecutionIdentity,
 SlackRouteSideConfig,
 } from "@/types/slack-rebac";
 
@@ -24,6 +27,56 @@ interface RouteContext {
   params: Promise<{ workspaceId: string; channelId: string }>;
 }
 
+interface ChannelTeamMappingDoc {
+  slack_workspace_id?: string;
+  slack_channel_id: string;
+  team_slug?: string;
+  active?: boolean;
+}
+
+/**
+ * SEC-1: Look up the team that owns a given Slack channel via the
+ * channel_team_mappings collection. Returns the team slug or null when
+ * no active mapping exists.
+ */
+async function getChannelOwningTeamSlug(workspaceId: string, channelId: string): Promise<string | null> {
+  const mappings = await getCollection<ChannelTeamMappingDoc>("channel_team_mappings");
+  const mapping = await mappings.findOne({
+    slack_workspace_id: slackWorkspaceRef(workspaceId),
+    slack_channel_id: channelId,
+    active: { $ne: false },
+  } as never);
+  return mapping?.team_slug ?? null;
+}
+
+/**
+ * SEC-1: Verify that the service account identified by `saSub` belongs to the
+ * channel's owning team. Throws ApiError(403) when:
+ *  - The SA doc does not exist or is revoked.
+ *  - The SA's owning_team_id does not match the channel's team.
+ *
+ * Returns silently when valid.
+ */
+async function verifyServiceAccountOwnership(
+  saSub: string,
+  channelOwningTeamSlug: string | null,
+  routeIndex: number,
+): Promise<void> {
+  const saDoc = await getBySub(saSub);
+  if (!saDoc || saDoc.status !== "active") {
+    throw new ApiError(
+      `routes[${routeIndex}].execution_identity.service_account_sub: service account not found or is revoked`,
+      403
+    );
+  }
+  if (channelOwningTeamSlug !== null && saDoc.owning_team_id !== channelOwningTeamSlug) {
+    throw new ApiError(
+      `routes[${routeIndex}].execution_identity.service_account_sub: service account does not belong to this channel's team`,
+      403
+    );
+  }
+}
+
 function agentIdFromObject(object: string): string | null {
   if (!object.startsWith("agent:")) return null;
   const agentId = object.slice("agent:".length).trim();
@@ -31,16 +84,21 @@ function agentIdFromObject(object: string): string | null {
 }
 
 async function listOpenFgaChannelAgentIds(workspaceId: string, channelId: string): Promise<string[]> {
+  // SEC-6: pass a server-side tuple filter scoped to this channel's subject so
+  // OpenFGA only returns tuples where the channel is the "user" (i.e. the channel
+  // has been granted access to use an agent). Without the filter the read fetched
+  // all tuples in the store and relied on in-memory filtering — both a performance
+  // hazard and an over-read of unrelated data.
   const subject = `slack_channel:${slackChannelSubjectId(workspaceId, channelId)}`;
   const seen = new Set<string>();
   let continuationToken: string | undefined;
   do {
     const result = await readOpenFgaTuples({
+      tuple: { user: subject, relation: "user" },
       pageSize: 100,
       ...(continuationToken ? { continuationToken } : {}),
     });
     for (const tuple of result.tuples) {
-      if (tuple.key.user !== subject || tuple.key.relation !== "user") continue;
       const agentId = agentIdFromObject(tuple.key.object);
       if (agentId) seen.add(agentId);
     }
@@ -168,6 +226,51 @@ function parseEscalation(value: unknown): SlackRouteEscalationConfig | undefined
   };
 }
 
+/**
+ * Validate and parse the optional execution_identity field on a route input.
+ *
+ * Rules:
+ *  - Omitted → undefined (caller defaults to obo_user in the store).
+ *  - mode "service_account" requires service_account_sub (400 otherwise).
+ *  - mode "obo_user" must NOT include service_account_sub (ignored if provided
+ *    but we strip it so it doesn't leak noise into Mongo).
+ */
+function parseExecutionIdentity(
+  value: unknown,
+  index: number
+): SlackRouteExecutionIdentity | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "object") {
+    throw new ApiError(`routes[${index}].execution_identity must be an object`, 400);
+  }
+  const input = value as Record<string, unknown>;
+  const mode = input.mode;
+  if (mode !== "obo_user" && mode !== "service_account") {
+    throw new ApiError(
+      `routes[${index}].execution_identity.mode must be "obo_user" or "service_account"`,
+      400
+    );
+  }
+  if (mode === "service_account") {
+    const sub = typeof input.service_account_sub === "string" ? input.service_account_sub.trim() : "";
+    if (!sub) {
+      throw new ApiError(
+        `routes[${index}].execution_identity.service_account_sub is required when mode is "service_account"`,
+        400
+      );
+    }
+    return {
+      mode: "service_account",
+      service_account_sub: sub,
+      ...(typeof input.service_account_name === "string" && input.service_account_name.trim()
+        ? { service_account_name: input.service_account_name.trim() }
+        : {}),
+    };
+  }
+  // mode === "obo_user" — strip SA fields
+  return { mode: "obo_user" };
+}
+
 function parseRoute(
   value: unknown,
   index: number,
@@ -191,6 +294,7 @@ function parseRoute(
   if (users?.enabled === false && bots?.enabled === false) {
     throw new ApiError(`routes[${index}] must enable users, bots, or both`, 400);
   }
+  const execution_identity = parseExecutionIdentity(input.execution_identity, index);
   return {
     workspace_id: workspaceId,
     channel_id: channelId,
@@ -200,6 +304,7 @@ function parseRoute(
     users,
     bots,
     escalation: parseEscalation(input.escalation),
+    ...(execution_identity !== undefined ? { execution_identity } : {}),
     created_by: "api",
   };
 }
@@ -228,6 +333,27 @@ export const PUT = withErrorHandler(async (request: NextRequest, context: RouteC
     const routes = body.routes.map((route, index) =>
       parseRoute(route, index, workspaceId, channelId)
     );
+
+    // SEC-1: for any route with execution_identity.mode === "service_account",
+    // verify the SA belongs to this channel's owning team. We resolve the team
+    // once (lazy — only when at least one SA route is present) and validate each.
+    const saRoutes = routes
+      .map((route, index) => ({ route, index }))
+      .filter(({ route }) => route.execution_identity?.mode === "service_account");
+
+    if (saRoutes.length > 0) {
+      const channelOwningTeamSlug = await getChannelOwningTeamSlug(workspaceId, channelId);
+      await Promise.all(
+        saRoutes.map(({ route, index }) =>
+          verifyServiceAccountOwnership(
+            route.execution_identity!.service_account_sub!,
+            channelOwningTeamSlug,
+            index,
+          )
+        )
+      );
+    }
+
     const existingAgentIds = await listOpenFgaChannelAgentIds(workspaceId, channelId);
     const enabledAgentIds = routes
       .filter((route) => route.enabled)

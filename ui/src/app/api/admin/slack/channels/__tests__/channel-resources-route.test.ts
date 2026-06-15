@@ -512,6 +512,9 @@ describe("Slack channel ReBAC APIs", () => {
     ]);
     expect(mockReadOpenFgaTuples).toHaveBeenCalledWith({
       pageSize: 100,
+      // SEC-6: the read is now scoped to the channel subject server-side
+      // instead of fetching all tuples and filtering in JS.
+      tuple: { user: `slack_channel:${workspaceAlias}--${channelId}`, relation: "user" },
     });
   });
 

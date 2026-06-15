@@ -93,6 +93,13 @@ export interface Conversation {
   is_archived: boolean;
   is_pinned: boolean;
   deleted_at?: Date | null; // Soft-delete timestamp; null = not deleted; auto-purged after 7 days
+  /**
+   * Set ONLY when the conversation was created by a service account (session.isServiceAccount).
+   * Stores the SA's Keycloak sub (session.sub). Used by the audit/reconcile step to
+   * backfill missing `service_account:<sub> writer conversation:<id>` OpenFGA grants.
+   * Never set for normal user-created conversations.
+   */
+  created_by_service_account?: string;
 }
 
 // ============================================================================
@@ -490,4 +497,23 @@ export interface ServiceAccount {
   revoked_at?: Date | null;
   // Display cache ONLY — not authoritative. OpenFGA tuples are the source of truth for access.
   scopes_snapshot?: ServiceAccountScope[];
+  /**
+   * True only for the platform-wide unlinked service account bootstrapped at
+   * startup. Used as a stable resolver flag: `{ is_platform_unlinked: true,
+   * status: "active" }`. Never set on user-created SAs.
+   * See: ui/src/lib/rbac/unlinked-service-account.ts (C2 contract).
+   */
+  is_platform_unlinked?: boolean;
+}
+
+/**
+ * A "protected" service account cannot be revoked/deleted or moved to another
+ * owning team. For now this is hardcoded to the platform unlinked SA; there is
+ * no UI/API to set or unset it yet. Centralized here so backend guards and the
+ * UI agree on the rule.
+ */
+export function isProtectedServiceAccount(
+  sa: Pick<ServiceAccount, "is_platform_unlinked">,
+): boolean {
+  return sa.is_platform_unlinked === true;
 }

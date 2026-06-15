@@ -25,7 +25,11 @@ export async function requireConversationWriteAccess(
 
   try {
     await requireConversationResourcePermission(
-      { sub: authResult.subject, user: { email: authResult.email } },
+      // Carry isServiceAccount so subjectFromSession graphs SA callers as
+      // `service_account:<sub>` (not `user:<sub>`). Without this, a Slack route
+      // running as a service account fails conversation#write even though the
+      // SA holds the writer grant on the conversation it created.
+      { sub: authResult.subject, user: { email: authResult.email }, isServiceAccount: authResult.isServiceAccount },
       authResult.email ?? "",
       conversation,
       "write",

@@ -16,6 +16,8 @@ import {
   type ScopeRef,
 } from "@/lib/service-account-scopes";
 import type { ServiceAccountScope } from "@/types/mongodb";
+// [unlinked-sa][TS-B1] Import shared helpers for the org-admin bypass.
+import { isPlatformAdmin } from "@/lib/rbac/unlinked-service-account";
 
 /**
  * Scope management for a service account (US3).
@@ -100,12 +102,32 @@ async function authorizeScopeMutation(
     object: `service_account:${id}`,
   });
   if (!canManage.allowed) {
-    return {
-      response: NextResponse.json(
-        { success: false, error: "Service account not found" },
-        { status: 404 },
-      ),
-    };
+    // [unlinked-sa][TS-B1] Org-admin bypass for the unlinked SA.
+    // The unlinked SA is owned by super-admins, but its scopes are intended to be
+    // managed by any platform/org-admin (mirrors the unlinked GET route's auth gate).
+    // ADDITIVE: normal SAs still require owning-team can_manage; the bypass ONLY
+    // fires for is_platform_unlinked===true docs when the caller is a platform admin.
+    const targetDoc = await getBySub(id);
+    const isUnlinkedSa = targetDoc?.is_platform_unlinked === true;
+    if (isUnlinkedSa) {
+      const admin = await isPlatformAdmin(session);
+      if (!admin) {
+        return {
+          response: NextResponse.json(
+            { success: false, error: "Service account not found" },
+            { status: 404 },
+          ),
+        };
+      }
+      // Org-admin managing the unlinked SA — allow.
+    } else {
+      return {
+        response: NextResponse.json(
+          { success: false, error: "Service account not found" },
+          { status: 404 },
+        ),
+      };
+    }
   }
 
   return { actor: { callerSub: session.sub, email: session.user.email ?? undefined }, scope };

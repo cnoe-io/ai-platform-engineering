@@ -22,6 +22,7 @@ from .config_models import (
     AgentBinding,
     BotsConfig,
     EscalationConfig,
+    ExecutionIdentity,
     UsersConfig,
     get_escalation_config,
 )
@@ -471,6 +472,24 @@ def _route_to_agent_binding(route: dict[str, Any]) -> AgentBinding | None:
         return None
 
     try:
+        # Build execution_identity from the Mongo route doc when present.
+        # Omitted / None / unexpected values all fall back to the default
+        # ExecutionIdentity (mode="obo_user") — preserving backward compat.
+        exec_id_raw = route.get("execution_identity")
+        execution_identity: ExecutionIdentity
+        if isinstance(exec_id_raw, dict):
+            try:
+                execution_identity = ExecutionIdentity(**exec_id_raw)
+            except (ValidationError, TypeError):
+                logger.warning(
+                    "SlackAgentRouteResolver: invalid execution_identity for agent=%s; "
+                    "defaulting to obo_user",
+                    agent_id,
+                )
+                execution_identity = ExecutionIdentity()
+        else:
+            execution_identity = ExecutionIdentity()
+
         return AgentBinding(
             agent_id=agent_id.strip(),
             users=UsersConfig(**route["users"]) if isinstance(route.get("users"), dict) else None,
@@ -480,6 +499,7 @@ def _route_to_agent_binding(route: dict[str, Any]) -> AgentBinding | None:
                 if isinstance(route.get("escalation"), dict)
                 else None
             ),
+            execution_identity=execution_identity,
         )
     except ValidationError as exc:
         logger.warning("SlackAgentRouteResolver: invalid route for agent=%s: %s", agent_id, exc)
