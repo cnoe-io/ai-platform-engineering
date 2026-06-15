@@ -2,25 +2,27 @@
 GitHub MCP server — official GitHub MCP server container.
 
 Enabled when global.agentgateway.enabled=true AND
-global.agentgateway.githubMcpServer.enabled=true (default).
+global.agentgateway.githubMcpServer.enabled=true.
 
 The container runs in HTTP mode on port 8082 (matching the docker-compose
 mcp-servers profile) and exposes all toolsets. GITHUB_PERSONAL_ACCESS_TOKEN
-is injected via secretKeyRef when global.agentgateway.githubMcpServer.existingSecret.name
-is set, or falls through to agentgateway.extraEnv entries.
+is injected via global.agentgateway.githubMcpServer.existingSecret.
 
 The agentgateway static-config template wires /mcp/github-mcp-server ->
 this Service via the ai-platform-engineering.agentgatewayMcpTargets helper.
+assisted-by Codex Codex-sonnet-4-6
 */ -}}
 {{- $agw := (.Values.global).agentgateway | default dict -}}
 {{- $ghMcp := $agw.githubMcpServer | default dict -}}
-{{- if and $agw.enabled (or (not (hasKey $ghMcp "enabled")) $ghMcp.enabled) -}}
+{{- if and $agw.enabled (hasKey $ghMcp "enabled") $ghMcp.enabled -}}
 {{- $port := $ghMcp.port | default 8082 -}}
 {{- $image := $ghMcp.image | default dict -}}
 {{- $imageRepo := $image.repository | default "ghcr.io/github/github-mcp-server" -}}
-{{- $imageTag := $image.tag | default "latest" -}}
+{{- $imageTag := $image.tag | default "latest@sha256:5c83359327a0bacc3d34db730bea6557d39d341cee0bf6c58c9a896e33150e80" -}}
 {{- $imagePullPolicy := $image.pullPolicy | default "IfNotPresent" -}}
 {{- $secret := $ghMcp.existingSecret | default dict -}}
+{{- $secretName := required "global.agentgateway.githubMcpServer.existingSecret.name is required when githubMcpServer.enabled=true" $secret.name -}}
+{{- $secretKey := $secret.key | default "GITHUB_PERSONAL_ACCESS_TOKEN" -}}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -28,22 +30,19 @@ metadata:
   name: {{ printf "%s-github-mcp-server" .Release.Name }}
   labels:
     {{- include "ai-platform-engineering.labels" . | nindent 4 }}
-    app.kubernetes.io/name: {{ printf "%s-github-mcp-server" .Release.Name }}
-    app.kubernetes.io/component: mcp
+    app.kubernetes.io/component: github-mcp-server
 spec:
   replicas: 1
   revisionHistoryLimit: 3
   selector:
     matchLabels:
-      app.kubernetes.io/name: {{ printf "%s-github-mcp-server" .Release.Name }}
-      app.kubernetes.io/component: mcp
       app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: github-mcp-server
   template:
     metadata:
       labels:
         {{- include "ai-platform-engineering.labels" . | nindent 8 }}
-        app.kubernetes.io/name: {{ printf "%s-github-mcp-server" .Release.Name }}
-        app.kubernetes.io/component: mcp
+        app.kubernetes.io/component: github-mcp-server
     spec:
       automountServiceAccountToken: false
       containers:
@@ -56,13 +55,11 @@ spec:
               containerPort: {{ $port }}
               protocol: TCP
           env:
-            {{- if $secret.name }}
             - name: GITHUB_PERSONAL_ACCESS_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: {{ $secret.name | quote }}
-                  key: {{ $secret.key | default "GITHUB_PERSONAL_ACCESS_TOKEN" | quote }}
-            {{- end }}
+                  name: {{ $secretName | quote }}
+                  key: {{ $secretKey | quote }}
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -82,13 +79,11 @@ metadata:
   name: {{ printf "%s-github-mcp-server" .Release.Name }}
   labels:
     {{- include "ai-platform-engineering.labels" . | nindent 4 }}
-    app.kubernetes.io/name: {{ printf "%s-github-mcp-server" .Release.Name }}
-    app.kubernetes.io/component: mcp
+    app.kubernetes.io/component: github-mcp-server
 spec:
   selector:
-    app.kubernetes.io/name: {{ printf "%s-github-mcp-server" .Release.Name }}
-    app.kubernetes.io/component: mcp
     app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: github-mcp-server
   ports:
     - name: http
       port: {{ $port }}
