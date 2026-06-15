@@ -740,7 +740,7 @@ describe('Admin Dashboard Page', () => {
 
       fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
       expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
-        'Default Agent',
+        'General',
         'Release notes',
         'AI Review',
         'Credentials',
@@ -805,19 +805,19 @@ describe('Admin Dashboard Page', () => {
       expect(screen.queryByRole('tab', { name: /^Users$/i })).not.toBeInTheDocument();
     });
 
-    it('defaults bare /admin to Security & Policy Permissions Tool tab', async () => {
+    it('defaults bare /admin to Settings General tab', async () => {
       render(<AdminPage />);
 
-      expect(await screen.findByText('Security & Policy')).toBeInTheDocument();
+      expect(await screen.findByText('Settings')).toBeInTheDocument();
 
-      expect(screen.getByRole('button', { name: 'Security & Policy' })).toHaveClass('bg-primary');
-      expect(screen.getByRole('tab', { name: /^Permissions Tool$/i })).toHaveAttribute(
+      expect(screen.getByRole('button', { name: 'Settings' })).toHaveClass('bg-primary');
+      expect(screen.getByRole('tab', { name: /^General$/i })).toHaveAttribute(
         'aria-selected',
         'true'
       );
-      expect(screen.getByTestId('permissions-tool-tab')).toBeInTheDocument();
+      expect(screen.getByTestId('platform-settings-tab')).toBeInTheDocument();
       expect(replaceMock).toHaveBeenCalledWith(
-        '/admin?cat=security&tab=cas-permissions-tool',
+        '/admin?cat=settings&tab=settings',
         { scroll: false }
       );
     });
@@ -840,7 +840,7 @@ describe('Admin Dashboard Page', () => {
     });
 
     it.each([
-      ['settings', 'settings', /^Default Agent$/i],
+      ['settings', 'settings', /^General$/i],
       ['settings', 'release-notes', /^Release notes$/i],
       ['settings', 'ai-review', /^AI Review$/i],
       ['settings', 'rag-access', /^Knowledge Bases$/i],
