@@ -11,13 +11,13 @@ with other agents (ArgoCD, Komodor, etc.).
 import logging
 import os
 import re
-import shutil
 from typing import Dict, Any, Literal, AsyncIterable
 from dotenv import load_dotenv
+from langgraph.prebuilt import create_react_agent
 from pydantic import BaseModel
 
-from ai_platform_engineering.utils.a2a_common.base_langgraph_agent import BaseLangGraphAgent
-from ai_platform_engineering.utils.github_app_token_provider import get_github_token, is_github_app_mode
+from ai_platform_engineering.utils.a2a_common.base_langgraph_agent import BaseLangGraphAgent, memory
+from ai_platform_engineering.utils.github_app_token_provider import is_github_app_mode
 from ai_platform_engineering.utils.subagent_prompts import load_subagent_prompt_config
 from ai_platform_engineering.utils.token_sanitizer import sanitize_output
 from agent_github.tools import get_gh_cli_tool, get_gh_file_contents_tool  # type: ignore[import-untyped]
@@ -53,12 +53,9 @@ class GitHubAgent(BaseLangGraphAgent):
            and GITHUB_APP_INSTALLATION_ID for auto-refreshing tokens.
         2. PAT (fallback): Set GITHUB_PERSONAL_ACCESS_TOKEN for static token auth.
 
-        MCP server modes:
-        - Multi-node (HTTP): Connects to GitHub Copilot MCP API at
-          https://api.githubcopilot.com/mcp/ with token auth.
-        - Single-node (STDIO): Uses github-mcp-server via ``go run``.
-          Source lives at ``ai_platform_engineering/mcp/mcp_github/``.
-          Override with ``GITHUB_MCP_SERVER_DIR`` env var if needed.
+        GitHub operations are handled by local gh CLI-backed tools. The
+        GitHub MCP server may still exist elsewhere in the platform, but this
+        agent does not load remote or local GitHub MCP tools.
         """
         self._use_app_auth = is_github_app_mode()
         if self._use_app_auth:
@@ -75,84 +72,68 @@ class GitHubAgent(BaseLangGraphAgent):
         """Return the agent name."""
         return "github"
 
-    def get_mcp_http_config(self) -> Dict[str, Any] | None:
-        """Return HTTP MCP config for connecting to the GitHub MCP server.
+    async def _load_mcp_tools(self, args: dict | None = None, include_fallback: bool = True) -> list:
+        """Disable GitHub MCP loading and use gh CLI-backed tools instead."""
+        logger.info("GitHub agent: MCP tool loading disabled; using gh CLI-backed tools only")
+        if include_fallback:
+            return self.get_additional_tools()
+        return []
 
-        Single-node HTTP mode (GITHUB_MCP_MODE=http): connects to the local
-        GitHub MCP HTTP pod. The Go server expects per-request Bearer auth,
-        so we pass the token (App installation token or PAT) in the header.
+    async def _setup_mcp_and_graph(self, config: Any) -> None:
+        """Create the agent graph with gh CLI-backed tools only."""
+        agent_name = self.get_agent_name()
+        tools = self.get_additional_tools()
 
-        Single-node stdio mode (GITHUB_MCP_MODE=stdio): returns None so
-        _load_mcp_tools falls through to get_mcp_config() which launches
-        github-mcp-server via ``go run``.
-        """
-        from ai_platform_engineering.utils.mcp_config import resolve_mcp_mode, is_http_mode, resolve_mcp_url
+        logger.info("=" * 50)
+        logger.info("🔧 INITIALIZING %s AGENT", agent_name.upper())
+        logger.info("=" * 50)
+        logger.info("%s: Using gh CLI-backed tools only; GitHub MCP loading is disabled", agent_name)
 
-        mcp_mode = resolve_mcp_mode("github")
-        if not is_http_mode(mcp_mode):
-            return None
+        self.tools_info = {}
+        for tool in tools:
+            args_schema = tool.args_schema if tool.args_schema is not None else {}
+            if hasattr(args_schema, "model_json_schema"):
+                args_schema = args_schema.model_json_schema()
+            elif not isinstance(args_schema, dict):
+                args_schema = {}
 
-        token = get_github_token()
-        if not token:
-            logger.warning("No GitHub token configured for HTTP MCP — falling back to gh CLI")
-            return None
+            self.tools_info[tool.name] = {
+                "description": tool.description.strip(),
+                "parameters": args_schema.get("properties", {}),
+                "required": args_schema.get("required", []),
+            }
 
-        return {
-            "url": resolve_mcp_url("github"),
-            "headers": {
-                "Authorization": f"Bearer {token}",
-            },
+        model_with_name = self.model.with_config(
+            run_name=agent_name,
+            tags=[f"agent:{agent_name}"],
+            metadata={"agent_name": agent_name},
+        )
+
+        create_agent_kwargs: Dict[str, Any] = {
+            "checkpointer": memory,
+            "prompt": self._get_system_instruction_with_date(),
+            "response_format": (
+                self.get_response_format_instruction(),
+                self.get_response_format_class(),
+            ),
         }
 
-    def _get_github_mcp_server_dir(self) -> str:
-        """Resolve the github-mcp-server Go project directory.
-
-        Lookup order:
-        1. ``GITHUB_MCP_SERVER_DIR`` environment variable (explicit override)
-        2. ``ai_platform_engineering/mcp/mcp_github/`` relative to the
-           project root — works in Docker (``/app``) and local dev alike.
-        """
-        explicit = os.getenv("GITHUB_MCP_SERVER_DIR")
-        if explicit:
-            return explicit
-        # Derive project root from this file's location:
-        #   agents/github/agent_github/protocol_bindings/a2a_server/agent.py
-        #   → up 6 dirs → ai_platform_engineering/
-        ai_pkg_dir = os.path.dirname(os.path.abspath(__file__))
-        for _ in range(5):
-            ai_pkg_dir = os.path.dirname(ai_pkg_dir)
-        return os.path.join(ai_pkg_dir, "mcp", "mcp_github")
-
-    def get_mcp_config(self, server_path: str | None = None) -> Dict[str, Any]:
-        """Configure STDIO transport via ``go run`` against the local source.
-
-        Set ``GITHUB_MCP_SERVER_DIR`` to override the default project
-        location (``~/outshift/github-mcp-server``).
-        """
-        token = get_github_token()
-        if not token:
-            raise ValueError(
-                "No GitHub token configured. "
-                "Set GITHUB_PERSONAL_ACCESS_TOKEN or configure GitHub App auth."
+        if self.enable_auto_compression:
+            create_agent_kwargs["pre_model_hook"] = self._build_pre_model_hook()
+            logger.info(
+                "%s: pre_model_hook enabled for inter-iteration context compression "
+                "(threshold: %s tokens)",
+                agent_name,
+                int(self.max_context_tokens * 0.8),
             )
 
-        go_bin = shutil.which("go") or "go"
-        mcp_dir = self._get_github_mcp_server_dir()
-        logger.info("GitHub MCP: go run from %s", mcp_dir)
+        self.graph = create_react_agent(
+            model_with_name,
+            tools,
+            **create_agent_kwargs,
+        )
 
-        env = {"GITHUB_PERSONAL_ACCESS_TOKEN": token}
-        for key in ("HOME", "PATH", "GOPATH", "GOMODCACHE", "GOCACHE", "TMPDIR"):
-            val = os.environ.get(key)
-            if val:
-                env[key] = val
-
-        return {
-            "command": go_bin,
-            "args": ["run", "./cmd/github-mcp-server", "stdio"],
-            "env": env,
-            "transport": "stdio",
-            "cwd": mcp_dir,
-        }
+        logger.info("✅ %s agent initialized with %s gh CLI-backed tools", agent_name, len(tools))
 
     def get_system_instruction(self) -> str:
         """Return the system instruction for the agent."""
@@ -175,17 +156,7 @@ class GitHubAgent(BaseLangGraphAgent):
         return _prompt_config.tool_processing_message
 
     def get_additional_tools(self) -> list:
-        """Provide gh CLI tools for GitHub operations.
-
-        In multi-node mode (MCP_MODE=http) gh CLI is the primary tool for
-        repository operations, workflow logs, and other GitHub interactions.
-        A small gh-backed file contents helper covers the ergonomic gap where
-        gh does not have a first-class command for reading a single repo file.
-
-        In single-node mode (MCP_MODE=stdio) the go-based github-mcp-server
-        provides full MCP coverage; gh CLI is only used as a fallback if
-        MCP tools fail to load.
-        """
+        """Provide gh CLI-backed tools for GitHub operations."""
         tools = []
         gh_tool = get_gh_cli_tool()
         if gh_tool:
@@ -194,50 +165,8 @@ class GitHubAgent(BaseLangGraphAgent):
         gh_file_tool = get_gh_file_contents_tool()
         if gh_file_tool:
             tools.append(gh_file_tool)
-            logger.info("GitHub agent: Added gh file contents tool (gh_get_file_contents)")
+            logger.info("GitHub agent: Added gh file contents tool (get_file_contents)")
         return tools
-
-    def _wrap_mcp_tools(self, tools: list, context_id: str) -> list:
-        """
-        Wrap MCP tools with token sanitization on top of base class error handling.
-
-        SECURITY: GitHub MCP (Copilot API) responses may contain tokens or
-        auth info in error messages. This override ensures all MCP tool output
-        is passed through sanitize_output() before reaching the LLM or user.
-        """
-        from functools import wraps
-
-        # First apply base class wrapping (error handling + truncation)
-        wrapped = super()._wrap_mcp_tools(tools, context_id)
-
-        # Then add token sanitization on top
-        for tool in wrapped:
-            if hasattr(tool, '_run'):
-                original_run = tool._run
-
-                @wraps(original_run)
-                def sanitized_run(*args, _orig=original_run, **kwargs):
-                    result = _orig(*args, **kwargs)
-                    if isinstance(result, str):
-                        return sanitize_output(result)
-                    return result
-
-                tool._run = sanitized_run
-
-            if hasattr(tool, '_arun'):
-                original_arun = tool._arun
-
-                @wraps(original_arun)
-                async def sanitized_arun(*args, _orig=original_arun, **kwargs):
-                    result = await _orig(*args, **kwargs)
-                    if isinstance(result, str):
-                        return sanitize_output(result)
-                    return result
-
-                tool._arun = sanitized_arun
-
-        logger.info(f"GitHub agent: Applied token sanitization to {len(wrapped)} MCP tools")
-        return wrapped
 
     def _parse_tool_error(self, error: Exception, tool_name: str) -> str:
         """
@@ -288,7 +217,7 @@ class GitHubAgent(BaseLangGraphAgent):
         """
         Stream responses with safety-net error handling.
 
-        Tool-level errors are handled by _wrap_mcp_tools(), but this catches
+        Tool-level errors are handled by the gh-backed tools, but this catches
         any other unexpected failures (LLM errors, graph errors, etc.) as a last resort.
 
         Note: CancelledError is handled gracefully in the base class (BaseLangGraphAgent).
