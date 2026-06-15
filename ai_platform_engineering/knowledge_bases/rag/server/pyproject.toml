@@ -26,7 +26,7 @@ dependencies = [
     "uvicorn==0.37.0",
     "fastmcp==3.2.4",
     # HTTP clients
-    "aiohttp==3.14.0",
+    "aiohttp==3.14.1",
     "aiohttp-retry==2.9.1",
     "httpx==0.28.1",
     # Data processing
