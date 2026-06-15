@@ -12,7 +12,7 @@ import {
 
 const adminSession = {
   email: "rbac-admin@example.com",
-  name: "Sri Aradhyula",
+  name: "RBAC Admin",
   role: "admin" as const,
   canViewAdmin: true,
 };
@@ -105,6 +105,25 @@ test.describe("mocked service accounts browser regression", () => {
               { ref: "jira/*", name: "jira: all tools" },
             ],
           },
+        });
+        return true;
+      }
+
+      if (
+        path === "/api/admin/service-accounts/sa-sub-playwright/credentials" &&
+        method === "GET"
+      ) {
+        await fulfillJson(route, { success: true, data: [] });
+        return true;
+      }
+
+      if (path === "/api/admin/service-accounts/token-providers" && method === "GET") {
+        await fulfillJson(route, {
+          success: true,
+          data: [
+            { provider: "jira", name: "Jira" },
+            { provider: "github", name: "GitHub" },
+          ],
         });
         return true;
       }
@@ -280,7 +299,7 @@ test.describe("mocked service accounts browser regression", () => {
     await expect(manageDialog.getByRole("button", { name: "Remove tool jira/search" })).toBeVisible();
     await manageDialog.getByRole("button", { name: "Add agents you hold..." }).click();
     await page.getByRole("button", { name: "Runbook Agent" }).first().click({ force: true });
-    await manageDialog.getByRole("button", { name: "Add", exact: true }).click({ force: true });
+    await manageDialog.getByRole("button", { name: "Add", exact: true }).first().click({ force: true });
     await expect.poll(() => requests.some((request) => request.method === "POST" && request.path.endsWith("/scopes"))).toBe(true);
     expect(
       requests.find((request) => request.method === "POST" && request.path.endsWith("/scopes"))?.body,
