@@ -187,16 +187,6 @@ test.describe("mocked service accounts browser regression", () => {
         return true;
       }
 
-      if (path === "/api/admin/service-accounts/sa-sub-playwright/credentials" && method === "GET") {
-        await fulfillJson(route, { success: true, data: [] });
-        return true;
-      }
-
-      if (path === "/api/admin/service-accounts/token-providers" && method === "GET") {
-        await fulfillJson(route, { success: false, code: "CREDENTIALS_DISABLED" }, 404);
-        return true;
-      }
-
       if (path === "/api/admin/service-accounts/sa-sub-playwright/scopes") {
         const body = (await postJson(route)) as ScopeRef;
         requests.push({ method, path, body });
@@ -652,16 +642,20 @@ test.describe("mocked service accounts browser regression", () => {
 
       if (path === "/api/admin/service-accounts/grantable" && method === "GET") {
         requests.push({ method, path, search: url.search, body: null });
-        await fulfillJson(route, {
-          success: true,
-          data: {
-            agents: [{ ref: "incident-resolver", name: "Incident Resolver" }],
-            tools: [
-              { ref: "jira/*", name: "jira: all tools" },
-              { ref: "github/*", name: "github: all tools" },
-            ],
-          },
-        });
+        if (url.searchParams.get("context") === "unlinked") {
+          await fulfillJson(route, {
+            success: true,
+            data: {
+              agents: [{ ref: "incident-resolver", name: "Incident Resolver" }],
+              tools: [
+                { ref: "jira/*", name: "jira: all tools" },
+                { ref: "github/*", name: "github: all tools" },
+              ],
+            },
+          });
+          return true;
+        }
+        await fulfillJson(route, { success: true, data: { agents: [], tools: [] } });
         return true;
       }
 
