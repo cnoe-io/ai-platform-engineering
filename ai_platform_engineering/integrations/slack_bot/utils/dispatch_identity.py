@@ -122,10 +122,30 @@ def apply_execution_identity(
             sa_sub,
         )
         return True
-    except BaseException as exc:
+    except asyncio.CancelledError as exc:
         # PY-B2 / PY-S3: abort — never dispatch under the wrong identity.
-        # Use BaseException so asyncio.CancelledError (a BaseException since
-        # Python 3.8) is also caught and doesn't escape to the caller.
+        logger.warning(
+            "dispatch_identity: run_as=service_account token mint cancelled "
+            "agent=%s sa_sub=%s: %s — aborting dispatch to avoid running "
+            "under wrong identity",
+            agent_id,
+            sa_sub,
+            exc,
+        )
+        _send_error_notice(
+            event=event,
+            client=client,
+            say=say,
+            is_bot=is_bot,
+            text=(
+                "This agent route is configured to run as a service account, "
+                "but its access token could not be minted. "
+                "Please try again shortly or contact your admin."
+            ),
+        )
+        return False
+    except Exception as exc:
+        # PY-B2 / PY-S3: abort — never dispatch under the wrong identity.
         logger.warning(
             "dispatch_identity: run_as=service_account token mint failed "
             "agent=%s sa_sub=%s: %s — aborting dispatch to avoid running "

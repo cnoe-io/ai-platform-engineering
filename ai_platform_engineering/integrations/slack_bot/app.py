@@ -1274,8 +1274,15 @@ def handle_mention(event, say, client, context=None):
         )
         if not should_proceed:
           return
-      except AttributeError:
-        pass
+      except AttributeError as exc:
+        # assisted-by Codex codex-gpt-5-5
+        # Older route records may not carry execution_identity yet; keep using
+        # the request-bound identity instead of failing the mention handler.
+        logger.debug(
+          "Slack mention route has no execution_identity for agent_id={}: {}",
+          agent_id,
+          exc,
+        )
     # SEC-3: bind OBO ONCE here (after the identity decision), unconditionally.
     # When RBAC is disabled or no agent_match, context["obo_token"] is absent
     # and _bind_obo_for_handler is a no-op; when RBAC enabled the SA token (if

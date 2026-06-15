@@ -63,7 +63,6 @@ class TestAppPyGateWiring:
 
 _KC_USER_ID = "kc-uuid-1234"
 _OBO_TOKEN = "obo.token.xyz"
-_SLACK_USER = "USLACK001"
 
 
 class _OboResult:

@@ -39,7 +39,6 @@ from ai_platform_engineering.integrations.slack_bot.utils.slack_agent_routes imp
 # ---------------------------------------------------------------------------
 
 _SA_SUB = "aaaa1111-0000-0000-0000-000000000001"
-_ANON_SUB = "cccc3333-0000-0000-0000-000000000003"
 _USER_TOKEN = "user.obo.token"
 _SA_TOKEN = "sa.minted.token"
 _ANON_TOKEN = "anon.sa.token"
