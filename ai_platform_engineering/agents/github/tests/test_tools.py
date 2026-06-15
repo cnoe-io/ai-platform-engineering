@@ -265,18 +265,69 @@ def test_file_contents_tool_can_be_disabled(monkeypatch):
 def test_gh_cli_write_commands_require_self_service_mode():
     tool = GHCLITool()
 
-    is_valid, error = tool._validate_command("pr create --repo cnoe-io/repo --title t --body b")
+    is_valid, error = tool._validate_command("repo delete cnoe-io/repo --yes")
     assert is_valid is False
     assert "self-service" in error
 
     tools.set_self_service_mode(True)
     try:
-        is_valid, error = tool._validate_command("pr create --repo cnoe-io/repo --title t --body b")
+        is_valid, error = tool._validate_command("repo delete cnoe-io/repo --yes")
     finally:
         tools.set_self_service_mode(False)
 
     assert is_valid is True
     assert error == ""
+
+
+def test_gh_cli_blocks_api_implicit_post_body_flags():
+    tool = GHCLITool()
+
+    for command in [
+        "api repos/cnoe-io/repo/issues -X POST",
+        "api repos/cnoe-io/repo/issues -f title=x -f body=y",
+        "api repos/cnoe-io/repo/issues --field title=x",
+        "api repos/cnoe-io/repo/issues --raw-field title=x",
+        "api repos/cnoe-io/repo/issues --input payload.json",
+    ]:
+        is_valid, error = tool._validate_command(command)
+        assert is_valid is False
+        assert "GitHub write commands" in error or "body fields" in error
+
+
+def test_gh_cli_allows_api_body_flags_with_explicit_get():
+    tool = GHCLITool()
+
+    is_valid, error = tool._validate_command(
+        "api repos/cnoe-io/repo/issues --method GET -f per_page=100"
+    )
+
+    assert is_valid is True
+    assert error == ""
+
+
+def test_gh_cli_preserves_trusted_issue_and_pr_writes():
+    tool = GHCLITool()
+
+    for command in [
+        "issue create --repo cnoe-io/repo --title t --body b",
+        "issue edit 1 --repo cnoe-io/repo --add-label bug",
+        "pr create --repo cnoe-io/repo --title t --body b",
+        "pr comment 1 --repo cnoe-io/repo --body ok",
+    ]:
+        is_valid, error = tool._validate_command(command)
+        assert is_valid is True
+        assert error == ""
+
+
+def test_gh_cli_can_disable_trusted_issue_and_pr_writes():
+    tool = GHCLITool(allow_trusted_write_operations=False)
+
+    is_valid, error = tool._validate_command(
+        "issue create --repo cnoe-io/repo --title t --body b"
+    )
+
+    assert is_valid is False
+    assert "self-service" in error
 
 
 def test_github_token_provider_honors_gh_token(monkeypatch):

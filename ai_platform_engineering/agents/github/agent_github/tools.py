@@ -87,8 +87,13 @@ ABSOLUTELY_BLOCKED_COMMAND_PATTERNS = [
 
 # GitHub write commands are allowed only for deterministic self-service tasks or
 # when a caller explicitly constructs GHCLITool(allow_write_operations=True).
+TRUSTED_WRITE_COMMAND_PATTERNS = [
+    r"(^|\s)issue\s+(close|comment|create|edit|reopen)(\s|$)",
+    r"(^|\s)pr\s+(comment|create|edit|ready|reopen|review)(\s|$)",
+]
+
 WRITE_COMMAND_PATTERNS = [
-    r"(^|\s)api\s+.*(--method(=|\s+)|-X\s+)(delete|put|post|patch)(\s|$)",
+    r"(^|\s)api\s+.*(--method(=|\s+)|-x\s+)(delete|put|post|patch)(\s|$)",
     r"(^|\s)attestation\s+trusted-root(\s|$)",
     r"(^|\s)cache\s+delete(\s|$)",
     r"(^|\s)codespace\s+(create|delete|edit|jupyter|logs|ports|rebuild|ssh|stop)(\s|$)",
@@ -107,9 +112,6 @@ WRITE_COMMAND_PATTERNS = [
     r"(^|\s)workflow\s+(disable|enable|run)(\s|$)",
     r"(^|\s)run\s+(cancel|delete|rerun)(\s|$)",
 ]
-
-# Backwards-compatible name for tests/imports that referenced the older guard.
-BLOCKED_COMMAND_PATTERNS = ABSOLUTELY_BLOCKED_COMMAND_PATTERNS + WRITE_COMMAND_PATTERNS
 
 # Maximum execution time for gh CLI commands
 GH_CLI_TIMEOUT = int(os.getenv("GH_CLI_MAX_EXECUTION_TIME", "30"))
@@ -174,11 +176,12 @@ class GHGetFileContentsInput(BaseModel):
 
 class GHCLITool(BaseTool):
     """
-    Tool for executing gh CLI commands (READ-ONLY).
+    Tool for executing gh CLI commands.
 
-    This tool provides secure read-only access to GitHub via gh CLI:
-    - Only read operations allowed (list, view, status)
-    - No create, update, delete, or modify operations
+    This tool provides controlled access to GitHub via gh CLI:
+    - Read operations allowed (list, view, status)
+    - Limited issue/PR authoring allowed for trusted chat flows
+    - Broader writes require deterministic self-service mode or explicit opt-in
     - Timeout protection
     - Output size limits
 
@@ -198,17 +201,63 @@ class GHCLITool(BaseTool):
 
     # Configuration
     allow_write_operations: bool = False
+    allow_trusted_write_operations: bool = True
 
-    def __init__(self, allow_write_operations: bool = False, **kwargs: Any):
+    def __init__(
+        self,
+        allow_write_operations: bool = False,
+        allow_trusted_write_operations: bool = True,
+        **kwargs: Any,
+    ):
         """
         Initialize the gh CLI tool.
 
         Args:
             allow_write_operations: If True, allows write/modify operations.
                                    If False (default), only read operations are allowed.
+            allow_trusted_write_operations: If True, allows limited issue/PR
+                                   authoring commands used by trusted chat flows.
         """
         super().__init__(**kwargs)
         self.allow_write_operations = allow_write_operations
+        self.allow_trusted_write_operations = allow_trusted_write_operations
+
+    @staticmethod
+    def _command_matches(command_lower: str, patterns: list[str]) -> bool:
+        return any(re.search(pattern, command_lower) for pattern in patterns)
+
+    @staticmethod
+    def _gh_api_uses_implicit_write(parts: list[str]) -> bool:
+        if not parts or parts[0] != "api":
+            return False
+
+        explicit_method: Optional[str] = None
+        has_body_input = False
+        field_flags = {"-f", "--raw-field", "-F", "--field", "--input"}
+
+        index = 1
+        while index < len(parts):
+            part = parts[index]
+            lower = part.lower()
+
+            if lower in {"--method", "-x"} and index + 1 < len(parts):
+                explicit_method = parts[index + 1].lower()
+                index += 2
+                continue
+            if lower.startswith("--method="):
+                explicit_method = lower.split("=", 1)[1]
+            elif lower in field_flags:
+                has_body_input = True
+                index += 2
+                continue
+            elif lower.startswith("--raw-field=") or lower.startswith("--field=") or lower.startswith("--input="):
+                has_body_input = True
+
+            index += 1
+
+        if explicit_method and explicit_method != "get":
+            return True
+        return has_body_input and explicit_method != "get"
 
     def _validate_command(self, command: str) -> tuple[bool, str]:
         """
@@ -229,7 +278,7 @@ class GHCLITool(BaseTool):
         command_lower = command_stripped.lower()
 
         try:
-            shlex.split(command_stripped)
+            command_parts = shlex.split(command_stripped)
         except ValueError as exc:
             return False, f"Invalid gh CLI command syntax: {exc}"
 
@@ -238,12 +287,23 @@ class GHCLITool(BaseTool):
                 return False, f"Blocked: Command contains unsafe credential operation '{pattern}'"
 
         writes_allowed = self.allow_write_operations or is_self_service_mode()
+        is_trusted_write = self.allow_trusted_write_operations and self._command_matches(
+            command_lower,
+            TRUSTED_WRITE_COMMAND_PATTERNS,
+        )
         if not writes_allowed:
+            if self._gh_api_uses_implicit_write(command_parts):
+                return False, (
+                    "Blocked: gh api body fields and input are treated as GitHub "
+                    "write commands unless --method GET is explicit."
+                )
             for pattern in WRITE_COMMAND_PATTERNS:
                 if re.search(pattern, command_lower):
+                    if is_trusted_write:
+                        continue
                     return False, (
                         "Blocked: GitHub write commands are only allowed in "
-                        "deterministic self-service tasks."
+                        "deterministic self-service tasks or trusted issue/PR flows."
                     )
 
         return True, ""
