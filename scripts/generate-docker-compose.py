@@ -28,7 +28,7 @@ from typing import Dict, List, Optional, Any
 # All available agents in the platform
 ALL_AGENTS = [
     'argocd', 'aws', 'backstage', 'confluence', 'github', 'gitlab', 'jira',
-    'komodor', 'pagerduty', 'slack', 'splunk', 'cloudability', 'weather', 'webex',
+    'komodor', 'pagerduty', 'slack', 'splunk', 'weather', 'webex',
     'petstore', 'rag'
 ]
 
@@ -328,11 +328,7 @@ def generate_agent_service(
     if dev_mode and agent_name != 'rag':
         service['build'] = {
             'context': '..',
-            'dockerfile': 'build/agents/Dockerfile.a2a',
-            'args': [
-                f'AGENT_NAME={agent_name}',
-                f'AGENT_PACKAGE={agent_name}'
-            ]
+            'dockerfile': f'ai_platform_engineering/agents/{agent_name}/build/Dockerfile.a2a'
         }
         del service['image']
 
@@ -405,11 +401,8 @@ def generate_mcp_service(
             f'../ai_platform_engineering/agents/{agent_name}/mcp/mcp_{agent_name}:/app/mcp_{agent_name}'
         ]
         service['build'] = {
-            'context': '..',
-            'dockerfile': 'build/agents/Dockerfile.mcp',
-            'args': [
-                f'AGENT_NAME={agent_name}'
-            ]
+            'context': f'../ai_platform_engineering/agents/{agent_name}',
+            'dockerfile': 'build/Dockerfile.mcp'
         }
         del service['image']
 

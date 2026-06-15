@@ -61,7 +61,6 @@ Agents that can be included in personas:
 - `argocd` - GitOps with ArgoCD
 - `aws` - AWS cloud operations
 - `backstage` - Developer portal
-- `cloudability` - FinOps cloud cost management
 - `confluence` - Documentation
 - `github` - Source code management
 - `jira` - Issue tracking
@@ -76,3 +75,4 @@ Agents that can be included in personas:
 ## Default Profile
 
 The default profile is specified in `persona.yaml` under `default_profile` and will be used if no specific persona is specified.
+

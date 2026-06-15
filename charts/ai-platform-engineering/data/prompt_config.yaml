@@ -118,9 +118,6 @@ agent_prompts:
   komodor:
     system_prompt: |
       If the user's prompt is related to Komodor operations, such as getting the status of a cluster, fetching health risks, triggering a RCA, or getting RCA results, assign the task to the Komodor agent.
-  cloudability:
-    system_prompt: |
-      If the user's prompt is related to Cloudability or Apptio Cloudability operations, such as listing budgets, listing views, querying portfolio resources, analyzing cloud cost allocation, investigating FinOps spend, or fetching Cloudability API data, assign the task to the Cloudability agent.
   webex:
     system_prompt: |
       If the user's prompt is related to Webex operations, such as sending a message to a room, listing room members, creating or archiving a room, or posting a notification, assign the task to the Webex agent.
@@ -176,11 +173,6 @@ agent_skill_examples:
   komodor:
     - "Show health risks for clusters"
     - "Trigger a root cause analysis"
-  cloudability:
-    - "Show current Cloudability budgets"
-    - "List Cloudability views"
-    - "Get EC2 portfolio data from Cloudability"
-    - "Query Cloudability API data for cloud spend"
   myid:
     - "Add users to a MyID group"
     - "Invite users to the GitHub organization"
