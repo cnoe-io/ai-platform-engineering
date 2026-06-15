@@ -216,6 +216,17 @@ async function createIndexes(db: Db) {
     safeCreateIndex(db, 'catalog_api_keys', { key_id: 1 }, { unique: true }),
     safeCreateIndex(db, 'catalog_api_keys', { owner_user_id: 1, created_at: -1 }),
 
+    // Service accounts (user-minted machine identities; BFF-owned display
+    // metadata — credential lives in Keycloak, access in OpenFGA). See
+    // docs/docs/specs/2026-06-05-service-accounts/data-model.md.
+    // Name uniqueness (FR-002a) is enforced at the application layer (T007),
+    // not via a partial unique index, to keep "freed on revoke" semantics simple.
+    safeCreateIndex(db, 'service_accounts', { sa_sub: 1 }, { unique: true }),
+    safeCreateIndex(db, 'service_accounts', { client_id: 1 }, { unique: true }),
+    safeCreateIndex(db, 'service_accounts', { owning_team_id: 1, status: 1 }),
+    safeCreateIndex(db, 'service_accounts', { owning_team_id: 1, name: 1, status: 1 }),
+    safeCreateIndex(db, 'service_accounts', { created_by: 1 }),
+
     // Agent skills collection (catalog source agent_skills)
     safeCreateIndex(db, 'agent_skills', { id: 1 }, { unique: true }),
     safeCreateIndex(db, 'agent_skills', { owner_id: 1 }),

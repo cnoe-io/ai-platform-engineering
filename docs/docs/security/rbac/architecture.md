@@ -308,6 +308,81 @@ token with the selected active team scope. The Webex bot clients are
 client-credentials tokens. The full runtime sequence is in
 [Workflows › Webex space ReBAC](./workflows.md#webex-space-rebac-and-bot-dispatch).
 
+### Service Accounts (self-service bot identities)
+
+> **Badge analogy:** A contractor badge any team lead can issue from the front
+> desk — scoped to specific doors, owned by their team, revocable, and never
+> more powerful than the person who issued it. Distinct from the operator-issued
+> Slack/Webex bot badges.
+
+Service accounts (spec `2026-05-24` → `2026-06-05-service-accounts`) are
+**user-minted, team-owned** bot identities for external/API callers (CI jobs,
+webhooks, alerts). Unlike the operator-provisioned Slack/Webex bots, any team
+member creates them self-service from **Admin → Settings → Service Accounts**.
+Three stores of record, each authoritative for one concern:
+
+| Store | Owns | Authoritative for |
+|-------|------|-------------------|
+| **Keycloak** | a confidential client (`serviceAccountsEnabled`) per SA | the **credential** (identity) |
+| **OpenFGA** | tuples on `service_account:<sub>` | **access** (ownership + scopes) |
+| **MongoDB** `service_accounts` | a display doc | **metadata** (name, status, links) |
+
+**Identity chain:** the SA is a dynamically-created Keycloak confidential client
+(`caipe-sa-<slug>-<short-rand>`); its service-account-user `sub` (UUID) IS the
+OpenFGA subject id. The credential = `client_id` + `client_secret` (Keycloak
+client-credentials grant), shown **once** on create/rotate and never persisted
+in CAIPE. Rotation regenerates the secret; revocation deletes the client.
+
+**Authorization model** (additive — `service_account` was subject-only before):
+
+```
+type service_account
+  relations
+    define owner_team: [team#member]
+    define can_manage: owner_team
+```
+
+- Ownership: `team:<team>#member owner_team service_account:<sub>` (exactly one team).
+- Management authority derives from ownership — the BFF gates every manage action
+  with `check(user:<caller>, can_manage, service_account:<sub>)`.
+- Scope grants reuse existing patterns: `service_account:<sub> can_use agent:<id>`
+  and `service_account:<sub> can_call tool:<server>/<tool>` (+ `tool:<server>/*`).
+
+**Permission-bound granting:** a creator/editor can only grant the SA scopes they
+themselves currently hold (`check(user:<editor>, …)` at write time — defense in
+depth on top of the UI's grantable list). Removal is unconditional for any
+owning-team member. Granted access is **static** — it does not re-derive from the
+creator's later permission changes.
+
+**Subject detection (all FOUR enforcement layers agree):** a token is a service account iff
+`preferred_username` starts with `service-account-`; such callers namespace as
+`service_account:<sub>`, everyone else as `user:<sub>`. Enforced identically at
+(1) the BFF resource-authz (`jwt-validation.ts` / `resource-authz.ts`), (2) the **BFF agent-use check**
+(`requireAgentUsePermission` in `openfga-agent-authz.ts` — the gate the SA invoke path `/api/v1/chat/*`
+actually hits; for SA subjects it also skips the human-only email-principal and team-union fallbacks),
+(3) the Dynamic Agents backend (`openfga_authz.py`), and (4) the AgentGateway bridge (`bridge/main.py`).
+The bridge additionally enforces the **caller-keyed tool check** (see
+[Workflows › Caller-Keyed Tool Authorization](./workflows.md#caller-keyed-tool-authorization-service-accounts-fr-012a)),
+which only receives the data to run because the gateway's `extAuthz` policy forwards the request body
+(`includeRequestBody`). Note: SAs invoke via the **dynamic-agent** path and never traverse the deprecated
+`supervisor#invoke` org gate, so they hold **no** organization-membership grant (keeps them least-privilege
+per FR-004 — their reach is exactly their agent/tool scopes).
+
+**Coarse-gate baseline:** SAs also hold `service_account:<sub> caller mcp_gateway:list` (written at create,
+deleted at revoke) so they pass AgentGateway's coarse ext_authz gate — humans get this at login bootstrap;
+SAs never log in. This required adding `service_account` to `mcp_gateway.caller` in the model.
+
+**Team-deletion guard (FR-025):** a team cannot be deleted while it still owns any
+service account — `DELETE /api/admin/teams/[id]` lists
+`service_account` objects via `owner_team` and returns `409
+TEAM_OWNS_SERVICE_ACCOUNTS` until they are revoked, preventing orphaned
+unmanageable identities.
+
+The create + external-call sequences are in
+[Workflows › Service Account create & external call](./workflows.md#service-account-create--external-call).
+The collection, env, and naming details are in the BFF library README at
+`ui/src/lib/README-service-accounts.md` (outside the docs tree).
+
 ---
 
 ## Component 2: CAIPE UI — The Reception Desk
@@ -342,7 +417,7 @@ Two authorization paths:
 
 1. **Primary PDP:** `requireRbacPermission()` calls Keycloak Authorization Services with the caller's bearer/session access token and the requested `resource#scope`.
 2. **Role-based fallback:** `hasRoleFallback()` checks `realm_access.roles` from the session JWT when the PDP is unavailable or not configured.
-3. **Bootstrap admin path:** `isBootstrapAdmin(email)` still provides a temporary break-glass fallback from `BOOTSTRAP_ADMIN_EMAILS`, but the same email list is also reconciled by the BFF into durable OpenFGA tuples. Prefer the durable tuple state shown in Admin → Security & Policy → Keycloak, and remove the email fallback once group/team-admin relationships are configured.
+3. **Bootstrap admin path:** `isBootstrapAdmin(email)` still provides a temporary break-glass fallback from `BOOTSTRAP_ADMIN_EMAILS`, but the same email list is also reconciled by the BFF into durable OpenFGA tuples. Prefer the durable tuple state shown in Admin → Security & Policy → Keycloak, and remove the email fallback once group/team-admin relationships are configured. `requireMigrationSuperAdmin` (the guard on privileged ReBAC migration endpoints) gates on `user.role === 'admin'` rather than bootstrap email — AD group admins and super-admins team members both satisfy this check once their login bootstrap has run.
 
 Routes that have not yet been rewritten inline no longer remain session-only: the deprecated `withAuth()` compatibility wrapper now uses `getAuthFromBearerOrSession()`, resolves the route family to a least-privilege RBAC policy, and calls `requireRbacPermission()` before invoking the handler. The old generic supervisor umbrella is now split for basic user surfaces: profile and identity-link routes use `self_profile#read/write`, user search uses `user_directory#read`, chat/A2A/model discovery uses `chat_supervisor#invoke`, settings use `user_settings#read/write`, feedback/NPS uses `feedback#submit`, session files use `user_files#read/write`, AI assist uses `ai_assist#invoke`, credentials use `credential_vault#use`, and platform settings reads use `system_config#read`. Unmatched compatibility routes fall back to `admin_ui#view` for `GET` and `admin_ui#manage` for writes instead of a generic baseline-use capability. These user-surface capabilities map to organization-level OpenFGA relations (`can_read_self`, `can_manage_self`, `can_search_directory`, `can_chat`, `can_submit_feedback`, `can_use_files`, `can_use_ai_assist`, `can_use_credentials`) that derive from existing organization membership/admin relationships so upgrades preserve current access automatically.
 
@@ -1314,7 +1389,7 @@ The dev PDP model keeps the coarse AgentGateway gate and adds admin-configured t
 | `mcp_gateway:list`             | `can_call: [user]`                                    | `openfga-init` seed / manual bootstrap for the current AGW coarse browse/list gate                     |
 | `team:<slug>`                  | `member: [user]`                                      | Team Resources save, using Keycloak `sub` values resolved from team member emails                      |
 | `agent:<agent_id>`             | base `user`, `manager`; derived `can_use`, `can_manage` | Team Resources agent Use / Manage checkboxes write base relations                                      |
-| `tool:<server>_`* and `tool:*` | base `caller`; derived `can_call`                     | Team Resources MCP-server prefix checkboxes and the All Tools wildcard write base relations            |
+| `tool:<server>/*`              | base `caller`; derived `can_call`                     | AgentGateway runtime grant for every tool on a concrete MCP server; Team Resources expands all-MCP-server access into one tuple per registered server |
 | `knowledge_base:<id>`          | base `reader`, `ingestor`, `manager`; derived `can_read`, `can_ingest`, `can_admin` | Team Knowledge Base assignments and **Settings → Knowledge Bases** write `team:<slug>#member reader/ingestor` for read and ingest, and `team:<slug>#admin manager` for admin, before persisting Mongo assignment metadata. KB pages, sharing, and KB-scoped routes check these relationships. |
 | `data_source:<id>`             | base `reader` (incl. `user:*` wildcard), `ingestor`, `manager`; derived `can_read`, `can_ingest`, `can_manage` | Datasource component grants are reconciled alongside Knowledge Base grants when a KB-backed datasource is created, shared, or assigned to a team (every `knowledge_base:<id>` grant is mirrored onto the matching `data_source:<id>` so the team can actually search, not just discover). Datasource lists, search filters, and ingest/reload operations check these relationships so read and write can differ per datasource. A `user:* reader data_source:<id>` tuple (written by `POST /api/admin/rag/public-datasources`) makes a datasource readable by every authenticated user. |
 | `skill:<id>`                   | base `reader`, `user`, `writer`, `manager`; derived `can_read`, `can_use`, `can_write`, `can_manage` | Team Resources skill selection writes `user` relationships for local and Skill Hub catalog ids; `/api/skills` filters by `can_read`/`can_use`. |

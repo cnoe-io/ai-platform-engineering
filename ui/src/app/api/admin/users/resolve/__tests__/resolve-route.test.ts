@@ -18,10 +18,11 @@
 
 import { NextRequest } from "next/server";
 
-const mockCheckOpenFgaTuple = jest.fn();
 const mockFindRealmUserIdByAttribute = jest.fn();
 const mockFindUserIdByEmail = jest.fn();
 const mockGetRealmUserByIdOrNull = jest.fn();
+const mockGetUserFederatedIdentities = jest.fn();
+const mockRequireResourcePermission = jest.fn();
 
 jest.mock("next-auth", () => ({
   getServerSession: jest.fn(async () => null),
@@ -47,12 +48,13 @@ jest.mock("@/lib/jwt-validation", () => ({
   })),
 }));
 
-jest.mock("@/lib/rbac/openfga", () => ({
-  checkOpenFgaTuple: (...args: unknown[]) => mockCheckOpenFgaTuple(...args),
-}));
-
 jest.mock("@/lib/rbac/audit", () => ({
   logAuthzDecision: jest.fn(),
+}));
+
+jest.mock("@/lib/rbac/resource-authz", () => ({
+  requireResourcePermission: (...args: unknown[]) =>
+    mockRequireResourcePermission(...args),
 }));
 
 jest.mock("@/lib/rbac/keycloak-admin", () => ({
@@ -61,6 +63,8 @@ jest.mock("@/lib/rbac/keycloak-admin", () => ({
   findUserIdByEmail: (...args: unknown[]) => mockFindUserIdByEmail(...args),
   getRealmUserByIdOrNull: (...args: unknown[]) =>
     mockGetRealmUserByIdOrNull(...args),
+  getUserFederatedIdentities: (...args: unknown[]) =>
+    mockGetUserFederatedIdentities(...args),
 }));
 
 function request(query: string): NextRequest {
@@ -78,23 +82,22 @@ function request(query: string): NextRequest {
 
 // Grant `reader admin_surface:user_directory` to the bot SA.
 function grantDirectoryReader() {
-  mockCheckOpenFgaTuple.mockImplementation(
-    async (tuple: { user: string; relation: string; object: string }) => ({
-      allowed:
-        tuple.user === "service_account:slack-bot-sub" &&
-        tuple.relation === "can_read" &&
-        tuple.object === "admin_surface:user_directory",
-    })
-  );
+  mockRequireResourcePermission.mockResolvedValue(undefined);
 }
 
 beforeEach(() => {
   jest.clearAllMocks();
   // Default: deny everything; individual tests grant what they need.
-  mockCheckOpenFgaTuple.mockResolvedValue({ allowed: false });
+  mockRequireResourcePermission.mockRejectedValue(
+    Object.assign(new Error("Forbidden"), {
+      statusCode: 403,
+      code: "admin_surface#read",
+    })
+  );
   mockFindRealmUserIdByAttribute.mockResolvedValue(null);
   mockFindUserIdByEmail.mockResolvedValue(null);
   mockGetRealmUserByIdOrNull.mockResolvedValue(null);
+  mockGetUserFederatedIdentities.mockResolvedValue([]);
 });
 
 describe("GET /api/admin/users/resolve", () => {
@@ -116,7 +119,12 @@ describe("GET /api/admin/users/resolve", () => {
     expect(response.status).toBe(200);
     expect(body).toEqual({
       success: true,
-      data: { sub: "kc-uuid-1", enabled: true, attributes: { slack_user_id: ["U123"] } },
+      data: {
+        sub: "kc-uuid-1",
+        enabled: true,
+        attributes: { slack_user_id: ["U123"] },
+        federatedIdentities: [],
+      },
     });
     expect(mockFindRealmUserIdByAttribute).toHaveBeenCalledWith("slack_user_id", "U123");
     expect(mockGetRealmUserByIdOrNull).toHaveBeenCalledWith("kc-uuid-1");
@@ -147,6 +155,9 @@ describe("GET /api/admin/users/resolve", () => {
       enabled: false,
       attributes: { caipe_default_team_id: ["platform"] },
     });
+    mockGetUserFederatedIdentities.mockResolvedValue([
+      { identityProvider: "okta", userId: "alice@corp.com", userName: "Alice" },
+    ]);
 
     const { GET } = await import("../route");
     const response = await GET(request("?id=kc-uuid-3"));
@@ -157,8 +168,12 @@ describe("GET /api/admin/users/resolve", () => {
       sub: "kc-uuid-3",
       enabled: false,
       attributes: { caipe_default_team_id: ["platform"] },
+      federatedIdentities: [
+        { identityProvider: "okta", userId: "alice@corp.com", userName: "Alice" },
+      ],
     });
     expect(mockGetRealmUserByIdOrNull).toHaveBeenCalledWith("kc-uuid-3");
+    expect(mockGetUserFederatedIdentities).toHaveBeenCalledWith("kc-uuid-3");
   });
 
   it("returns data:null with 200 when no user matches (not 404)", async () => {
@@ -177,12 +192,7 @@ describe("GET /api/admin/users/resolve", () => {
   });
 
   it("allows an org admin via the can_manage bypass", async () => {
-    mockCheckOpenFgaTuple.mockImplementation(
-      async (tuple: { relation: string; object: string }) => ({
-        allowed:
-          tuple.relation === "can_manage" && tuple.object === "organization:caipe",
-      })
-    );
+    mockRequireResourcePermission.mockResolvedValue(undefined);
     mockGetRealmUserByIdOrNull.mockResolvedValue({ id: "kc-uuid-4", enabled: true });
 
     const { GET } = await import("../route");

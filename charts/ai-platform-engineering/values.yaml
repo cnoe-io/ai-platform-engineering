@@ -123,7 +123,7 @@ global:
       #   memory: 2Gi
 
   agentgateway:
-    enabled: false
+    enabled: true
     # How AgentGateway MCP routing is provisioned. This controls whether the
     # umbrella chart renders Gateway API / AgentGateway custom resources.
     #
@@ -176,7 +176,7 @@ global:
       # NOTE: route discovery only — it does NOT affect JWT authentication
       # (jwtAuth). Ignored in `gateway-api` routing mode (CRDs manage routes).
       configBridge:
-        enabled: false
+        enabled: true
         image:
           repository: ghcr.io/cnoe-io/agentgateway-config-bridge
           tag: ""              # defaults to agentgateway subchart appVersion
@@ -187,7 +187,10 @@ global:
           uri: ""              # plain MONGODB_URI (discouraged for real creds)
           database: caipe
           existingSecret:
-            name: ""           # e.g. "caipe-ui-mongodb" / your Mongo secret
+            # Name of the Kubernetes Secret containing MONGODB_URI.
+            # Set to the same secret used by caipe-ui (e.g. the ExternalSecret
+            # target name: "<release>-caipe-ui" or your custom override).
+            name: ""           # e.g. "a-caipe-dev-argoapp-caipe-ui" or "caipe-ui-mongodb"
             key: MONGODB_URI
         # securityContext: {}  # optional; defaults to agentgateway.securityContext
         # resources: {}        # optional; defaults to agentgateway.resources
@@ -217,6 +220,26 @@ global:
       port: 9446
       protocol: StreamableHTTP
       pathPrefix: /mcp/knowledge-base
+    # GitHub MCP server — official GitHub MCP server container.
+    # Routes /mcp/github-mcp-server -> the in-cluster Deployment.
+    # The Deployment is enabled by this same section; keep it opt-in because
+    # the official GitHub MCP server needs a GitHub PAT secret at startup.
+    # When enabled, GITHUB_PERSONAL_ACCESS_TOKEN is injected from
+    # existingSecret; Helm fails early if the secret name is omitted.
+    # assisted-by Codex Codex-sonnet-4-6
+    githubMcpServer:
+      enabled: false
+      image:
+        repository: ghcr.io/github/github-mcp-server
+        # Multi-arch index digest inspected from ghcr.io/github/github-mcp-server:latest.
+        tag: latest@sha256:5c83359327a0bacc3d34db730bea6557d39d341cee0bf6c58c9a896e33150e80
+        pullPolicy: IfNotPresent
+      port: 8082
+      pathPrefix: /mcp/github-mcp-server
+      # Secret containing GITHUB_PERSONAL_ACCESS_TOKEN.
+      existingSecret:
+        name: ""   # e.g. "github-mcp-secret"
+        key: GITHUB_PERSONAL_ACCESS_TOKEN
     # Additional MCP routes that are not rendered from `agent-*` subcharts.
     # Use this for platform MCP endpoints such as RAG/Knowledge Base.
     # Each item renders one AgentgatewayBackend and one HTTPRoute:
@@ -238,7 +261,7 @@ global:
     storeName: "caipe-openfga"
 
 agentgateway:
-  enabled: false
+  enabled: true
   image:
     repository: cr.agentgateway.dev/agentgateway
     tag: v1.1.0
@@ -953,6 +976,13 @@ caipe-ui:
     # Unsafe dev/emergency escape hatch: when true, UI RBAC checks allow all
     # requests without consulting OpenFGA. Do not enable in staging or prod.
     CAIPE_UNSAFE_RBAC_BYPASS: "false"
+    # Identity sync: process IDP group claims at login time and automatically
+    # create teams matching the user's AD/LDAP group memberships.
+    # Set both to "true" when using an IDP (e.g. Keycloak brokering AD/LDAP)
+    # that includes group claims in the OIDC token, so teams stay in sync with
+    # AD groups without requiring manual team management in the Admin UI.
+    IDENTITY_SYNC_LOGIN_CLAIMS_ENABLED: "false"
+    IDENTITY_SYNC_LOGIN_AUTO_CREATE_TEAMS: "false"
     # Keycloak Admin API integration for resource/scope synchronization.
     KEYCLOAK_URL: ""
     KEYCLOAK_REALM: "caipe"

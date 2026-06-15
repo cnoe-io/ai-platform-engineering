@@ -1,5 +1,5 @@
 name: "[CI] CAIPE UI Tests"
-description: "Run CAIPE UI Jest tests on pull requests"
+description: "Run CAIPE UI Jest tests and mocked RBAC Playwright regression on pull requests"
 
 on:
   pull_request:
@@ -287,6 +287,103 @@ jobs:
         if: steps.jest.outcome == 'failure'
         run: |
           echo "❌ Tests failed. Please review the errors above."
+          exit 1
+
+  playwright-rbac-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    if: github.actor != 'github-actions[bot]' && github.actor != 'caipe-ci-release[bot]'
+    permissions:
+      contents: read
+    container:
+      # assisted-by Codex Codex-sonnet-4-6
+      image: mcr.microsoft.com/playwright:v1.59.1-noble@sha256:eac9b0a5312cdab40ee8c2429df5bf19bffdccf8f3bf3c42268e173f97541645
+
+    steps:
+      - name: 🔒 Harden runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411  # v2.19.4
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ui
+        run: |
+          # assisted-by Codex Codex-sonnet-4-6
+          for attempt in 1 2 3; do
+            npm ci && break
+            status=$?
+            if [ "$attempt" -eq 3 ]; then
+              exit "$status"
+            fi
+            sleep $((attempt * 10))
+          done
+
+      - name: Start CAIPE UI dev server
+        working-directory: ui
+        env:
+          WORKFLOWS_ENABLED: 'true'
+        run: |
+          npm run dev -- --port 3000 > /tmp/caipe-ui-dev.log 2>&1 &
+          echo $! > /tmp/caipe-ui-dev.pid
+
+      - name: Wait for CAIPE UI
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:3000 >/dev/null; then
+              echo "CAIPE UI is up"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "CAIPE UI failed to start"
+          tail -n 200 /tmp/caipe-ui-dev.log || true
+          exit 1
+
+      - name: Run mocked RBAC Playwright regression
+        id: playwright
+        working-directory: ui
+        env:
+          RUN_RBAC_REGRESSION: '1'
+          CAIPE_UI_BASE_URL: http://localhost:3000
+          WORKFLOWS_ENABLED: 'true'
+        run: |
+          npx playwright test \
+            e2e/rbac/workflow-agent-access.spec.ts \
+            e2e/rbac/rbac-admin-regression.spec.ts \
+            e2e/rbac/mcp-openfga-tuples.spec.ts \
+            --config=playwright.rbac.config.ts
+
+      - name: Upload Playwright artifacts
+        if: failure() && steps.playwright.outcome == 'failure'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: playwright-rbac-regression
+          path: |
+            ui/test-results/
+            ui/playwright-report/
+          retention-days: 7
+
+      - name: Stop CAIPE UI dev server
+        if: always()
+        run: |
+          if [ -f /tmp/caipe-ui-dev.pid ]; then
+            kill "$(cat /tmp/caipe-ui-dev.pid)" 2>/dev/null || true
+          fi
+
+      - name: Fail if Playwright tests failed
+        if: steps.playwright.outcome == 'failure'
+        run: |
+          echo "❌ Mocked RBAC Playwright regression failed. Review the errors above."
           exit 1
 
   lint:

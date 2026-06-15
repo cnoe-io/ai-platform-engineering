@@ -28,6 +28,7 @@ import {
   findRealmUserIdByAttribute,
   findUserIdByEmail,
   getRealmUserByIdOrNull,
+  getUserFederatedIdentities,
 } from "@/lib/rbac/keycloak-admin";
 import { requireResourcePermission } from "@/lib/rbac/resource-authz";
 
@@ -81,12 +82,19 @@ function normalizeAttributes(raw: unknown): Record<string, string[]> {
 // the `sub` (id), whether the account is `enabled` (the bot drops disabled
 // users), and the `attributes` bag (the bot reads specific values off it).
 function toResolvedUser(
-  user: Record<string, unknown>
-): { sub: string; enabled: boolean; attributes: Record<string, string[]> } {
+  user: Record<string, unknown>,
+  federatedIdentities: unknown[] = []
+): {
+  sub: string;
+  enabled: boolean;
+  attributes: Record<string, string[]>;
+  federatedIdentities: unknown[];
+} {
   return {
     sub: String(user.id ?? ""),
     enabled: user.enabled !== false,
     attributes: normalizeAttributes(user.attributes),
+    federatedIdentities,
   };
 }
 
@@ -155,5 +163,9 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     user = await getRealmUserByIdOrNull(userId);
   }
 
-  return successResponse(user ? toResolvedUser(user) : null);
+  const federatedIdentities = user
+    ? await getUserFederatedIdentities(String(user.id ?? ""))
+    : [];
+
+  return successResponse(user ? toResolvedUser(user, federatedIdentities) : null);
 });

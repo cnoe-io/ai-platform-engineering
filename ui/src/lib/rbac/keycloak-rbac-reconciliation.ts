@@ -1,3 +1,4 @@
+// assisted-by Codex Codex-sonnet-4-6
 import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
 import {
 ensureBotServiceAccountImpersonationRoles,
@@ -10,6 +11,8 @@ import type { BootstrapAdminReconciliationResult } from "@/lib/rbac/keycloak-boo
 import { reconcileBootstrapAdmins } from "@/lib/rbac/keycloak-bootstrap-admins";
 import type { MigrationApplyResult,MigrationDefinition,MigrationPlanResult } from "@/lib/rbac/migrations/types";
 import { ensureSuperAdminsTeam } from "@/lib/rbac/super-admins-team";
+import { ensureUnlinkedServiceAccount } from "@/lib/rbac/unlinked-service-account";
+import { reconcileSaConversationWriterGrants } from "@/lib/rbac/sa-conversation-reconcile";
 
 export const KEYCLOAK_RBAC_RECONCILIATION_MIGRATION_ID = "keycloak_rbac_mapping_reconciliation_v1";
 export const KEYCLOAK_RBAC_SCHEMA_AREA = "keycloak_rbac_mappings";
@@ -273,6 +276,8 @@ export async function runKeycloakRbacStartupMigration(input: {
     bootstrap_admin_placeholders_created: 0,
     bootstrap_admin_tuples_written: 0,
     bootstrap_admin_failures: 0,
+    sa_conversations_scanned: 0,
+    sa_conversation_grants_backfilled: 0,
   };
   let bootstrapAdmins: BootstrapAdminReconciliationResult | undefined;
 
@@ -307,7 +312,9 @@ export async function runKeycloakRbacStartupMigration(input: {
     counts.bot_service_accounts_reconciled = 2;
 
     await ensureCaipePlatformTokenExchangeDecisionStrategy("AFFIRMATIVE");
-    counts.token_exchange_permissions_reconciled = 1;
+    // 1 shared audience + 2 per-bot (Slack, Webex) — ensureBotOboPermissions
+    // now sets AFFIRMATIVE on the bot's own token-exchange permission as well.
+    counts.token_exchange_permissions_reconciled = 3;
 
     bootstrapAdmins = await reconcileBootstrapAdmins({ actor });
     counts.bootstrap_admins_resolved = bootstrapAdmins.resolved_count;
@@ -343,6 +350,31 @@ export async function runKeycloakRbacStartupMigration(input: {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       warnings.push(`super-admins team bootstrap failed: ${message}`);
+    }
+
+    // Idempotently ensure the platform-wide unlinked service account owned by
+    // the super-admins team (C2 contract — anonymous-and-obo-routing TASKS.md).
+    try {
+      const unlinkedSa = await ensureUnlinkedServiceAccount({ actor });
+      counts.unlinked_sa_status =
+        unlinkedSa.status === "created" ? 2 : unlinkedSa.status === "noop" ? 1 : 0;
+      warnings.push(...unlinkedSa.warnings);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      warnings.push(`unlinked SA bootstrap failed: ${message}`);
+    }
+
+    // Backfill any missing `service_account:<sub> writer conversation:<id>` tuples
+    // for conversations created by SAs (audit health-check / backstop for the
+    // best-effort auto-grant in conversations/route.ts).
+    try {
+      const saConvReconcile = await reconcileSaConversationWriterGrants({ actor });
+      counts.sa_conversations_scanned = saConvReconcile.scanned;
+      counts.sa_conversation_grants_backfilled = saConvReconcile.backfilled;
+      warnings.push(...saConvReconcile.warnings);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      warnings.push(`SA conversation writer grant reconcile failed: ${message}`);
     }
 
     await recordCompleted({ actor, now, counts, warnings, bootstrapAdmins });

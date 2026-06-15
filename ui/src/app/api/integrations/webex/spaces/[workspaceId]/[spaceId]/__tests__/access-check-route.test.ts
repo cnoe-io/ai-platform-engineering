@@ -18,6 +18,35 @@ jest.mock("@/lib/rbac/openfga", () => ({
     mockCheckUniversalRebacRelationship(...args),
 }));
 
+jest.mock("@/lib/rbac/resource-authz", () => ({
+  requireResourcePermission: async (
+    session: { sub?: string },
+    target: { type: string; id: string; action: string },
+    options?: { bypassForOrgAdmin?: boolean },
+  ) => {
+    if (options?.bypassForOrgAdmin) {
+      const org = await mockCheckOpenFgaTuple({
+        user: `user:${session.sub}`,
+        relation: "can_manage",
+        object: "organization:caipe",
+      });
+      if (org.allowed) return;
+    }
+    const result = await mockCheckOpenFgaTuple({
+      user: `user:${session.sub}`,
+      relation: `can_${target.action}`,
+      object: `${target.type}:${target.id}`,
+    });
+    if (!result.allowed) {
+      throw {
+        message: "You do not have permission to access this resource.",
+        statusCode: 403,
+        code: `${target.type}#${target.action}`,
+      };
+    }
+  },
+}));
+
 jest.mock("@/lib/jwt-validation", () => ({
   validateLocalSkillsJWT: jest.fn(async () => null),
   validateBearerJWT: jest.fn(async () => ({

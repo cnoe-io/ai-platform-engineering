@@ -12,6 +12,17 @@ export interface AgentUsePermissionInput {
   tenantId?: string;
   correlationId?: string;
   traceparent?: string;
+  /**
+   * Whether the caller is a Keycloak service account (client-credentials).
+   * When true the subject is graphed as `service_account:<sub>` rather than
+   * `user:<sub>` (canonical detection rule, spec 2026-06-05-service-accounts
+   * T002 — `preferred_username` starts `service-account-`). Service accounts
+   * are authorized ONLY by their own direct grants: the email-principal and
+   * team-union fallbacks (both human/user concepts) are skipped for them, so
+   * an SA's effective agent access is exactly what was granted at create/scope
+   * time (FR-020 static access). assisted-by Claude claude-opus-4-8
+   */
+  isServiceAccount?: boolean;
 }
 
 const OPENFGA_ID_PATTERN = /^[A-Za-z0-9._-]+$/;
@@ -46,6 +57,7 @@ export async function requireAgentUsePermission({
   tenantId = "default",
   correlationId,
   traceparent,
+  isServiceAccount = false,
 }: AgentUsePermissionInput): Promise<NextResponse | null> {
   if (!isValidOpenFgaId(subject)) {
     return authzResponse(
@@ -80,12 +92,29 @@ export async function requireAgentUsePermission({
       "authz.tenant_id": tenantId,
     },
     async () => {
+      // Namespace the OpenFGA subject. Service-account callers
+      // (client-credentials) are graphed as `service_account:<sub>` — their
+      // grants are written under that type, so checking `user:<sub>` would
+      // wrongly deny (same class of bug fixed in the DA backend WS-G and the
+      // bridge WS-F; this is the BFF agent-use layer). T002 canonical rule.
+      // Computed OUTSIDE the try so the PDP-error audit path below reuses the
+      // correctly-namespaced resourceRef (FR-027/SC-009 — an SA must not be
+      // mislabeled as user:<sub> in audit on a PDP error).
+      const namespacedSubject = isServiceAccount
+        ? `service_account:${subject}`
+        : `user:${subject}`;
+      const resourceRef = `${namespacedSubject} can_use agent:${agentId}`;
       try {
-        const resourceRef = `user:${subject} can_use agent:${agentId}`;
-        const userCandidates = [`user:${subject}`];
-        const emailPrincipal = normalizeOpenFgaEmailPrincipal(email);
-        if (emailPrincipal) {
-          userCandidates.push(`user:${emailPrincipal}`);
+        // Service accounts are authorized ONLY by their own direct grants. The
+        // email-principal alias and the team-union fallback are human/user
+        // concepts (an SA has no email identity and its access is static, not
+        // team-derived — FR-020), so they are skipped for SA subjects.
+        const userCandidates = [namespacedSubject];
+        if (!isServiceAccount) {
+          const emailPrincipal = normalizeOpenFgaEmailPrincipal(email);
+          if (emailPrincipal) {
+            userCandidates.push(`user:${emailPrincipal}`);
+          }
         }
         let allowed = false;
         let reasonCode: "ALLOW_DIRECT" | "ALLOW_TEAM_UNION" = "ALLOW_DIRECT";
@@ -108,8 +137,9 @@ export async function requireAgentUsePermission({
         // flow through the same code path the bots use via
         // evaluateAgentAccess(). We only run this when the cheap
         // direct paths have already failed so the common allow
-        // case is unchanged in latency.
-        if (!allowed) {
+        // case is unchanged in latency. Skipped for service accounts —
+        // their access is direct grants only, never team-mediated.
+        if (!allowed && !isServiceAccount) {
           const teamSlugs = await listUserTeamSlugs({ subject: String(subject) });
           for (const slug of teamSlugs) {
             const teamDecision = await checkOpenFgaTuple({
@@ -172,7 +202,7 @@ export async function requireAgentUsePermission({
           outcome: "deny",
           reasonCode: "DENY_PDP_UNAVAILABLE",
           pdp: "openfga",
-          resourceRef: `user:${subject} can_use agent:${agentId}`,
+          resourceRef,
           email,
           correlationId,
         });

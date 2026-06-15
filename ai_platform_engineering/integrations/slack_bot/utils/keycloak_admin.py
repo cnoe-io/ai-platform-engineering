@@ -21,9 +21,13 @@ realm-management credentials. The token does service-to-service auth; the
 OpenFGA grants are its RBAC.
 """
 
+# assisted-by Codex Codex-sonnet-4-6
+
 from __future__ import annotations
 
 import logging
+import os
+import time
 from typing import Any, Optional
 from urllib.parse import quote
 
@@ -196,7 +200,161 @@ _SLACK_JIT_SOURCE = "slack-bot:jit"
 _PROVISION_TIMEOUT_SECONDS = 15.0
 
 
-async def create_user_from_slack(slack_user_id: str, email: str) -> str:
+# --------------------------------------------------------------------------- #
+# IdP broker / federation helpers (anonymous-and-obo-routing)                #
+# --------------------------------------------------------------------------- #
+#
+# These are NEVER-THROW helpers: any HTTP, timeout, or parse error returns a
+# conservative (fail-closed) default value so the caller can make a safe
+# routing decision without crashing the middleware.
+
+# user_is_federated cache: {kc_user_id: (result: bool, cached_at: float)}
+_USER_FEDERATED_TTL: float = float(os.environ.get("KC_USER_FEDERATED_TTL_SECONDS", "60"))
+_user_federated_cache: dict[str, tuple[bool, float]] = {}
+
+# realm_has_enabled_idp_broker cache: (result: bool, cached_at: float)
+_BROKER_CACHE_TTL: float = float(os.environ.get("KC_BROKER_CACHE_TTL_SECONDS", "300"))
+_broker_cache: tuple[bool | None, float] = (None, 0.0)
+# Last-known-good broker result (SEC-2): on Keycloak transient errors we return
+# the last successful result instead of defaulting to False (fail-open).
+# Only falls back to False when we have NEVER successfully contacted Keycloak.
+_broker_last_known_good: bool | None = None
+
+
+def _bff_headers(json_body: bool = False) -> dict[str, str]:
+    return bff_headers(bearer_token=service_account_token(), json_body=json_body)
+
+
+def _invalidate_user_federated_cache(kc_user_id: str | None = None) -> None:
+    """Clear the user_is_federated cache.  Pass a kc_user_id to clear just
+    that entry, or ``None`` to clear all."""
+    if kc_user_id is None:
+        _user_federated_cache.clear()
+    else:
+        _user_federated_cache.pop(kc_user_id, None)
+
+
+def _invalidate_broker_cache() -> None:
+    """Force the next realm_has_enabled_idp_broker call to re-query Keycloak."""
+    global _broker_cache
+    _broker_cache = (None, 0.0)
+    # Note: _broker_last_known_good is intentionally NOT cleared here — it
+    # represents the last confirmed truth, not the cache TTL state.
+
+
+async def user_is_federated(
+    keycloak_user_id: str,
+) -> bool:
+    """Return ``True`` when the Keycloak user has at least one live IdP link.
+
+    Uses the BFF-backed ``GET /api/admin/users/resolve?id=...`` contract so
+    the Slack bot does not hold Keycloak Admin credentials.
+
+    Fail-closed: on ANY error (HTTP, timeout, parse) logs a warning and
+    returns ``False`` — a non-federated classification — so the caller
+    treats the user as anonymous when a broker is present.  This is the
+    safe direction: it's better to briefly over-route a federated user as
+    anonymous than to allow an unverified JIT shell to run as themselves.
+
+    Per-user-id TTL cache of 60 s (configurable via
+    ``KC_USER_FEDERATED_TTL_SECONDS``) mirrors the monotonic-time pattern
+    in :class:`~utils.service_account_resolver.ServiceAccountResolver`.
+    """
+    now = time.monotonic()
+    cached = _user_federated_cache.get(keycloak_user_id)
+    if cached is not None:
+        result, cached_at = cached
+        if now - cached_at < _USER_FEDERATED_TTL:
+            return result
+
+    try:
+        base_url = _require_bff_base_url("resolve Keycloak user federation")
+        url = f"{base_url}/api/admin/users/resolve"
+        async with httpx.AsyncClient(timeout=_BFF_TIMEOUT_SECONDS) as client:
+            resp = await client.get(
+                url,
+                params={"id": keycloak_user_id},
+                headers=_bff_headers(),
+            )
+            resp.raise_for_status()
+            body = resp.json()
+        data = body.get("data") if isinstance(body, dict) else None
+        identities = (
+            data.get("federatedIdentities")
+            if isinstance(data, dict)
+            else None
+        )
+        result = bool(identities)
+    except Exception as exc:
+        logger.warning(
+            "user_is_federated: BFF lookup failed for kc_id=%s "
+            "(fail-closed → False): %s",
+            keycloak_user_id,
+            exc,
+        )
+        result = False
+
+    _user_federated_cache[keycloak_user_id] = (result, now)
+    return result
+
+
+async def realm_has_enabled_idp_broker(
+) -> bool:
+    """Return ``True`` when the realm has at least one ENABLED IdP broker.
+
+    Uses the BFF-backed ``GET /api/admin/realm/identity-providers`` contract
+    so the Slack bot does not hold Keycloak Admin credentials.
+
+    On error: returns the last-known-good result if we have ever succeeded;
+    only falls back to ``False`` (no broker) when we have NEVER successfully
+    contacted Keycloak (SEC-2).  This prevents a transient Keycloak blip
+    from silently promoting JIT/unverified users to full user access.
+
+    Process-wide TTL cache of 300 s (configurable via
+    ``KC_BROKER_CACHE_TTL_SECONDS``) — broker configuration changes at
+    deploy time, not per request.
+    """
+    global _broker_cache, _broker_last_known_good
+    now = time.monotonic()
+    cached_result, cached_at = _broker_cache
+    if cached_result is not None and now - cached_at < _BROKER_CACHE_TTL:
+        return cached_result
+
+    try:
+        base_url = _require_bff_base_url("resolve Keycloak IdP broker state")
+        url = f"{base_url}/api/admin/realm/identity-providers"
+        async with httpx.AsyncClient(timeout=_BFF_TIMEOUT_SECONDS) as client:
+            resp = await client.get(url, headers=_bff_headers())
+            resp.raise_for_status()
+            body = resp.json()
+        data = body.get("data") if isinstance(body, dict) else None
+        result = bool(data.get("hasEnabledBroker")) if isinstance(data, dict) else False
+        _broker_last_known_good = result  # SEC-2: update last-known-good on success
+    except Exception as exc:
+        if _broker_last_known_good is not None:
+            logger.warning(
+                "realm_has_enabled_idp_broker: lookup failed — using last-known-good "
+                "result (%s) to prevent inadvertent access promotion: %s",
+                _broker_last_known_good,
+                exc,
+            )
+            result = _broker_last_known_good
+        else:
+            logger.warning(
+                "realm_has_enabled_idp_broker: lookup failed and no prior result "
+                "available — defaulting to False (no broker): %s",
+                exc,
+            )
+            result = False
+
+    _broker_cache = (result, now)
+    return result
+
+
+async def create_user_from_slack(
+    slack_user_id: str,
+    email: str,
+) -> str:
     """Create-or-resolve a federated-only Keycloak shell user for a Slack identity.
 
     Calls the first-party BFF endpoint ``POST /api/admin/users/provision-shell``

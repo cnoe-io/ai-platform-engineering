@@ -1,14 +1,21 @@
 import { test, expect } from "@playwright/test";
 import { rbacEnvOrSkip } from "./_env";
-import { signIn, expireSession } from "./_helpers";
+import { expectChatComposerReady, expireSession, installChatBootMocks, signIn } from "./_helpers";
 
 test.describe("RBAC e2e — expired session", () => {
   test("an expired session shows the auth error toast and not a 500", async ({
     page,
   }) => {
     const env = rbacEnvOrSkip();
+    test.skip(
+      !!env.user.sub && !!process.env.NEXTAUTH_SECRET && process.env.RBAC_E2E_INTERACTIVE_SESSION_EXPIRY !== "1",
+      "Synthetic RBAC sessions bypass the mounted NextAuth expiry path; set RBAC_E2E_INTERACTIVE_SESSION_EXPIRY=1 with direct Keycloak login to run this legacy scenario.",
+    );
+
+    await installChatBootMocks(page, env);
     await signIn(page, env);
     await page.goto("/chat");
+    await expectChatComposerReady(page);
 
     await expireSession(page);
 

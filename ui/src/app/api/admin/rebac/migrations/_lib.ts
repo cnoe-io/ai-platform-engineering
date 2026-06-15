@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 
-import { getAuthFromBearerOrSession,requireRbacPermission } from "@/lib/api-middleware";
+import { getAuthFromBearerOrSession, requireRbacPermission } from "@/lib/api-middleware";
 import { isBootstrapAdmin } from "@/lib/auth-config";
 
 export async function requireMigrationAdmin(request: NextRequest) {
@@ -14,8 +14,8 @@ export async function requireMigrationAdmin(request: NextRequest) {
 
 export async function requireMigrationSuperAdmin(request: NextRequest) {
   const auth = await requireMigrationAdmin(request);
-  if (!isBootstrapAdmin(auth.user.email)) {
-    const error = new Error("Bootstrap super-admin access required") as Error & {
+  if (auth.user.role !== "admin") {
+    const error = new Error("Admin access required") as Error & {
       statusCode?: number;
       code?: string;
     };

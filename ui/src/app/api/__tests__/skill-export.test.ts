@@ -54,6 +54,10 @@ jest.mock("@/lib/rbac/openfga", () => ({
   checkOpenFgaTuple: jest.fn().mockResolvedValue({ allowed: true }),
 }));
 
+jest.mock("@/lib/rbac/resource-authz", () => ({
+  requireSkillPermission: jest.fn().mockResolvedValue(undefined),
+}));
+
 function makeRequest(): NextRequest {
   return new NextRequest(
     new URL("/api/skills/configs/skill-1/export", "http://localhost:3000"),

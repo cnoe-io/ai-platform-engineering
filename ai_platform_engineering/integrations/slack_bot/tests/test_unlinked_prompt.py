@@ -21,6 +21,10 @@ import pathlib
 
 
 _APP_PY = pathlib.Path(__file__).resolve().parents[1] / "app.py"
+# The prompt copy was extracted to unlinked_fallback.py (PRC-3/TEST-5/6) so the
+# module under test for content assertions is now unlinked_fallback.py.  We
+# still read app.py for structural assertions (no dead-end copy).
+_ANON_FALLBACK_PY = pathlib.Path(__file__).resolve().parents[1] / "utils" / "unlinked_fallback.py"
 
 
 def test_dead_end_message_is_no_longer_the_default() -> None:
@@ -39,9 +43,17 @@ def test_unlinked_prompt_offers_actionable_link() -> None:
     """The new prompt MUST tell the user how to link, with a clickable
     URL pulled from generate_linking_url(). We smoke-check by looking
     for the literal "Click here to link your account" string, which is
-    pinned by FR-007."""
-    src = _APP_PY.read_text(encoding="utf-8")
-    assert "Click here to link your account" in src
+    pinned by FR-007.
+
+    The string now lives in anon_fallback.py (extracted in PRC-3/TEST-5/6)
+    rather than app.py directly. Both files are checked so refactoring that
+    moves the copy again fails fast.
+    """
+    combined = (
+        _APP_PY.read_text(encoding="utf-8")
+        + _ANON_FALLBACK_PY.read_text(encoding="utf-8")
+    )
+    assert "Click here to link your account" in combined
 
 
 def test_no_more_blanket_contact_admin_message_in_default_path() -> None:
@@ -50,7 +62,8 @@ def test_no_more_blanket_contact_admin_message_in_default_path() -> None:
     should only mention "contact your admin" as a last-resort branch
     (when no HMAC secret is configured), and that branch must be
     explicitly behind the ``if linking_url:`` guard."""
-    src = _APP_PY.read_text(encoding="utf-8")
+    # The prompt copy lives in unlinked_fallback.py after extraction.
+    src = _ANON_FALLBACK_PY.read_text(encoding="utf-8")
     # We expect "contact your admin" to appear at most once, inside the
     # last-resort else branch.
     occurrences = src.count("contact your admin")

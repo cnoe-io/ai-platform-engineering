@@ -10,8 +10,9 @@ import logging
 import shlex
 import socket
 import subprocess
+import time
 from datetime import datetime, timezone
-from typing import Literal
+from typing import Literal, Optional
 from urllib.parse import urljoin, urlparse
 
 import requests
@@ -887,9 +888,6 @@ def create_format_file_tool(store, namespace_factory):
 # ═══════════════════════════════════════════════════════════════════════════════
 # Workflow tools — list runs, get run status, start a workflow run
 # ═══════════════════════════════════════════════════════════════════════════════
-
-import time
-from typing import Optional
 
 
 class WorkflowApiClient:

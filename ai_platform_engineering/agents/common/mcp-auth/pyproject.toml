@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Shared authentication middleware for MCP servers"
 requires-python = ">=3.13"
 dependencies = [
-    "starlette==0.50.0",
+    "starlette==1.0.1",
     "pyjwt[crypto]==2.12.0",
     "requests==2.33.0",
     "python-dotenv==1.2.2",

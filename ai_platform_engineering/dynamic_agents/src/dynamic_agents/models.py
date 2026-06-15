@@ -625,6 +625,13 @@ class ChatRequest(BaseModel):
             "Ignored: ui, name, description, owner_id, visibility, enabled, is_system, config_driven."
         ),
     )
+    workflow_config_id: str | None = Field(
+        None,
+        description=(
+            "When set, agent use may be delegated from workflow execution: the caller "
+            "must be allowed to run this workflow and the agent must appear in its steps."
+        ),
+    )
 
 
 # =============================================================================

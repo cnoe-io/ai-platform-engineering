@@ -1,5 +1,5 @@
 import { type ClassValue,clsx } from "clsx";
-import { formatDistanceToNow } from "date-fns";
+import { formatDistanceToNow, isValid } from "date-fns";
 import { twMerge } from "tailwind-merge";
 
 // Default reload interval in seconds (24 hours) - matches backend DEFAULT_RELOAD_INTERVAL
@@ -93,6 +93,7 @@ export function formatRelativeTime(date: Date | string | number): string {
   } else {
     d = date;
   }
+  if (!isValid(d)) return "";
   return formatDistanceToNow(d, { addSuffix: true });
 }
 

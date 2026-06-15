@@ -68,6 +68,24 @@ jest.mock('@/lib/rbac/openfga', () => ({
   checkOpenFgaTuple: (...args: unknown[]) => mockCheckOpenFgaTuple(...args),
 }));
 
+jest.mock('@/lib/rbac/resource-authz', () => ({
+  filterResourcesByPermission: jest.fn(async (_session, resources: unknown[]) => resources),
+  requireResourcePermission: jest.fn(async (_session, target: { action: string; type: string }) => {
+    const relation = target.action === 'list' || target.action === 'discover'
+      ? 'can_discover'
+      : `can_${target.action.replace('-', '_')}`;
+    const result = await mockCheckOpenFgaTuple({ relation });
+    if (result.allowed === true) return;
+    const error = new Error('You do not have permission to access this resource.') as Error & {
+      statusCode: number;
+      code: string;
+    };
+    error.statusCode = 403;
+    error.code = `${target.type}#${target.action}`;
+    throw error;
+  }),
+}));
+
 jest.mock('uuid', () => ({
   v4: () => 'mock-uuid-1234',
 }));

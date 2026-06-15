@@ -409,6 +409,16 @@ def require_role(required_role: str):
 
   async def role_checker(user: UserContext = Depends(require_authenticated_user)) -> UserContext:
     if not has_permission(user.role, required_role):
+      # Human users are always assigned READONLY at auth time. For ADMIN-gated
+      # endpoints, check OpenFGA org-admin as a fallback before rejecting.
+      if required_role == Role.ADMIN and await _openfga_check_org_admin(user):
+        logger.debug(f"OpenFGA org-admin grant elevated {user.email} to admin for this request")
+        return UserContext(
+          subject=user.subject,
+          email=user.email,
+          role=Role.ADMIN,
+          is_authenticated=True,
+        )
       logger.warning(f"Access denied for {user.email}: required {required_role}, has {user.role}")
       raise HTTPException(status_code=403, detail=(f"Insufficient permissions. This operation requires '{required_role}' role, but you have '{user.role}' role. Please contact your administrator to request the appropriate access level."))
     return user
