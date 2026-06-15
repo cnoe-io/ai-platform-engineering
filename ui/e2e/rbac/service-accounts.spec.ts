@@ -11,7 +11,7 @@ import {
 } from "./_mocked-rbac";
 
 const adminSession = {
-  email: "sraradhy@cisco.com",
+  email: "rbac-admin@example.com",
   name: "Sri Aradhyula",
   role: "admin" as const,
   canViewAdmin: true,
