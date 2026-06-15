@@ -720,6 +720,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
     if (activeStep === "instructions" && review.isBlocking) {
       const ok = await review.ensurePassedOrRun();
       if (!ok) {
+        toast("AI Review failed — address the comments below before continuing.", "error");
         setError("AI Review failed — address comments before continuing.");
         return;
       }
@@ -876,7 +877,9 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
     if (review.isBlocking) {
       const ok = await review.ensurePassedOrRun();
       if (!ok) {
-        setError("AI Review failed — address comments before saving.");
+        if (activeStep !== "instructions") setActiveStep("instructions");
+        toast("AI Review failed — review the comments on the Instructions step before saving.", "error");
+        setError("AI Review failed — see the comments on the Instructions step before saving.");
         setLoading(false);
         return;
       }
