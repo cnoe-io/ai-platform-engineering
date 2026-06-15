@@ -42,7 +42,7 @@ dependencies = [
     # 098 RBAC additions
     "python-jose[cryptography]==3.5.0",
     "common",
-    "pypdf>=6.13.2",
+    "pypdf==6.13.2",
 ]
 
 [project.scripts]
