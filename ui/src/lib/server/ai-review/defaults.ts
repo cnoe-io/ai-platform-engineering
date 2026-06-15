@@ -15,9 +15,9 @@
 
 import { getCollection } from "@/lib/mongodb";
 import {
-  DEFAULT_GRADE_THRESHOLDS,
-  type ReviewConfig,
-  type ReviewCriterion,
+DEFAULT_GRADE_THRESHOLDS,
+type ReviewConfig,
+type ReviewCriterion,
 } from "@/types/ai-review";
 
 // ---------------------------------------------------------------------------

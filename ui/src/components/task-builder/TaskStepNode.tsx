@@ -1,11 +1,11 @@
 "use client";
 
-import React, { memo, useMemo } from "react";
-import { Handle, Position, type NodeProps } from "@xyflow/react";
-import { Trash2, FileInput, FileOutput } from "lucide-react";
-import { useTheme } from "next-themes";
 import { cn } from "@/lib/utils";
 import { extractFileIO } from "@/types/task-config";
+import { Handle,Position,type NodeProps } from "@xyflow/react";
+import { FileInput,FileOutput,Trash2 } from "lucide-react";
+import { useTheme } from "next-themes";
+import { memo,useMemo } from "react";
 
 export interface TaskStepNodeData {
   stepIndex: number;

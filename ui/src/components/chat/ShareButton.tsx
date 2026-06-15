@@ -1,15 +1,15 @@
 "use client";
 
-import React, { useState } from "react";
-import { Share2, Check, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ShareDialog } from "./ShareDialog";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
+Tooltip,
+TooltipContent,
+TooltipProvider,
+TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { Share2 } from "lucide-react";
+import React,{ useState } from "react";
+import { ShareDialog } from "./ShareDialog";
 
 interface ShareButtonProps {
   conversationId: string;

@@ -1,14 +1,14 @@
-import { NextRequest } from "next/server";
 import {
-  withAuth,
-  withErrorHandler,
-  successResponse,
+successResponse,
+withAuth,
+withErrorHandler,
 } from "@/lib/api-middleware";
 import {
-  listScanHistory,
-  type ScanHistoryQuery,
+listScanHistory,
+type ScanHistoryQuery,
 } from "@/lib/skill-scan-history";
 import type { ScanStatus } from "@/types/agent-skill";
+import { NextRequest } from "next/server";
 
 const VALID_STATUS: ScanStatus[] = ["passed", "flagged", "unscanned"];
 const VALID_TRIGGER = [

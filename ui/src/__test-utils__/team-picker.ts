@@ -24,7 +24,7 @@
 //   // the slug code (e.g. when `hideSlugSuffix` is set):
 //   pickTeamByName(screen, /Add team/i, "Platform Engineering");
 
-import { act, fireEvent, screen as defaultScreen, waitFor, within } from "@testing-library/react";
+import { act,screen as defaultScreen,fireEvent,waitFor,within } from "@testing-library/react";
 
 type ScreenLike = Pick<typeof defaultScreen, "getByLabelText" | "getByRole" | "getAllByRole" | "findByRole">;
 

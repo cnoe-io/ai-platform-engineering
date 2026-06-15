@@ -1,10 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
-import crypto from "crypto";
-import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth-config";
 import { getCollection } from "@/lib/mongodb";
 import { mergeUserAttributes } from "@/lib/rbac/keycloak-admin";
+import crypto from "crypto";
 import type { ObjectId } from "mongodb";
+import { getServerSession } from "next-auth";
+import { NextRequest,NextResponse } from "next/server";
 
 const NONCE_TTL_MS = 10 * 60 * 1000;
 const HMAC_TTL_SECONDS = 600; // 10 minutes

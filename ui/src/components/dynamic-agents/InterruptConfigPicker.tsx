@@ -1,11 +1,11 @@
 "use client";
 
-import React from "react";
 import { Button } from "@/components/ui/button";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Plus, Settings2, Trash2, AlertTriangle, Info } from "lucide-react";
+import { Tooltip,TooltipContent,TooltipProvider,TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import type { InterruptOn, InterruptToolConfig, DecisionType, BuiltinToolsConfig } from "@/types/dynamic-agent";
+import type { BuiltinToolsConfig,DecisionType,InterruptOn,InterruptToolConfig } from "@/types/dynamic-agent";
+import { AlertTriangle,Info,Plus,Settings2,Trash2 } from "lucide-react";
+import React from "react";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types

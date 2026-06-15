@@ -1,10 +1,10 @@
-import { ensureUserByEmail } from "@/lib/rbac/keycloak-admin";
-import { writeOpenFgaTuples, type OpenFgaTupleKey } from "@/lib/rbac/openfga";
 import {
-  baselineBootstrapTuples,
-  getBaselineFgaProfile,
-  type BaselineFgaProfile,
+baselineBootstrapTuples,
+getBaselineFgaProfile,
+type BaselineFgaProfile,
 } from "@/lib/rbac/baseline-access";
+import { ensureUserByEmail } from "@/lib/rbac/keycloak-admin";
+import { writeOpenFgaTuples,type OpenFgaTupleKey } from "@/lib/rbac/openfga";
 
 export type BootstrapAdminOutcomeStatus = "existing" | "created" | "failed";
 

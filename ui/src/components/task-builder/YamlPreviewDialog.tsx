@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useCallback, useState } from "react";
-import { X, Download, Copy, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Check,Copy,Download,X } from "lucide-react";
+import { useCallback,useState } from "react";
 
 interface YamlPreviewDialogProps {
   yaml: string;

@@ -1,9 +1,9 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { Widget,WidgetAction } from "@/types/a2a";
+import { AnimatePresence,motion } from "framer-motion";
+import { useEffect,useState } from "react";
 import { WidgetCatalog } from "./widgets";
-import { Widget, WidgetAction } from "@/types/a2a";
 
 // A2UI Protocol Types
 interface A2UISurfaceUpdate {
@@ -192,6 +192,7 @@ export function A2UIRenderer({ messages, onAction }: A2UIRendererProps) {
     for (const msg of messages) {
       if (msg.surfaceUpdate) {
         const { surfaceId, components } = msg.surfaceUpdate;
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: processes incoming A2UI messages and updates surfaces state accordingly
         setSurfaces((prev) => {
           const updated = new Map(prev);
           const existing = updated.get(surfaceId) || [];

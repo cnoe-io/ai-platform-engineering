@@ -165,6 +165,19 @@ class EmbeddingsFactory:
     return embeddings
 
   @staticmethod
+  def detect_dimensions(embeddings: Embeddings) -> int:
+    """Embed a single test string and return the actual vector length.
+
+    Use this where you need the true runtime dimension (e.g. Milvus schema
+    validation). Patch this method in tests to avoid a live network call:
+
+        with patch.object(EmbeddingsFactory, "detect_dimensions", return_value=1024):
+            ...
+    """
+    result = embeddings.embed_documents(["test"])
+    return len(result[0])
+
+  @staticmethod
   def get_embedding_dimensions() -> int:
     """
     Get the expected embedding dimensions for the configured model.
@@ -194,6 +207,15 @@ class EmbeddingsFactory:
       "sentence-transformers/all-MiniLM-L6-v2": 384,
       "sentence-transformers/all-mpnet-base-v2": 768,
       "sentence-transformers/all-MiniLM-L12-v2": 384,
+      # Ollama local models
+      "nomic-embed-text": 768,
+      "mxbai-embed-large": 1024,
+      "snowflake-arctic-embed2": 1024,
+      "bge-m3": 1024,
+      "qwen3-embedding:0.6b": 1024,
+      "qwen3-embedding:1.7b": 1536,
+      "qwen3-embedding:4b": 2560,
+      "qwen3-embedding:8b": 4096,
       # LiteLLM models (with provider prefix)
       "mistral/mistral-embed": 1024,
       "gemini/text-embedding-004": 768,

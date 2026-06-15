@@ -127,6 +127,35 @@ describe("Dynamic Agent chat Web UI backend routes", () => {
     );
   });
 
+  it("threads isServiceAccount into the conversation write check so SA callers graph as service_account:<sub>", async () => {
+    // Regression: requireConversationWriteAccess dropped isServiceAccount, so an
+    // SA-routed Slack request was graphed as user:<sub> and 403'd conversation#write
+    // even though the SA held the writer grant on the conversation it created.
+    mockAuthenticateRequest.mockResolvedValue({
+      subject: "sa-sub",
+      email: "service-account-anon@noreply",
+      tenantId: "default",
+      bearerToken: "token",
+      isServiceAccount: true,
+    });
+
+    const response = await startPost(
+      jsonRequest("/api/v1/chat/stream/start", {
+        message: "hi",
+        conversation_id: "conv-1",
+        agent_id: "agent-1",
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockRequireConversationResourcePermission).toHaveBeenCalledWith(
+      expect.objectContaining({ sub: "sa-sub", isServiceAccount: true }),
+      expect.anything(),
+      expect.objectContaining({ _id: "conv-1" }),
+      "write",
+    );
+  });
+
   it.each([
     ["start", startPost, "/api/v1/chat/stream/start", { message: "hi", conversation_id: "conv-1", agent_id: "agent-1" }],
     ["invoke", invokePost, "/api/v1/chat/invoke", { message: "hi", conversation_id: "conv-1", agent_id: "agent-1" }],

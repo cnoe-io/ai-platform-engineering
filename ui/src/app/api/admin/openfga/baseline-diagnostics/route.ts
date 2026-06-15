@@ -1,7 +1,7 @@
-import { NextRequest } from "next/server";
-import { ApiError, successResponse, withErrorHandler } from "@/lib/api-middleware";
+import { ApiError,successResponse,withErrorHandler } from "@/lib/api-middleware";
+import { baselineDiagnosticChecks,getBaselineFgaProfile } from "@/lib/rbac/baseline-access";
 import { checkOpenFgaTuple } from "@/lib/rbac/openfga";
-import { baselineDiagnosticChecks, getBaselineFgaProfile } from "@/lib/rbac/baseline-access";
+import { NextRequest } from "next/server";
 import { withOpenFgaViewAuth } from "../_lib";
 
 export const GET = withErrorHandler(async (request: NextRequest) =>

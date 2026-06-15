@@ -16,6 +16,7 @@ import { render, screen } from '@testing-library/react'
 
 jest.mock('framer-motion', () => ({
   motion: {
+    // eslint-disable-next-line react/display-name
     div: React.forwardRef(({ children, initial, animate, exit, transition, ...props }: any, ref: any) => (
       <div ref={ref} {...props}>{children}</div>
     )),
@@ -53,6 +54,7 @@ jest.mock('@/components/ui/badge', () => ({
 }))
 
 jest.mock('@/components/ui/button', () => ({
+  // eslint-disable-next-line react/display-name
   Button: React.forwardRef(({ children, ...props }: any, ref: any) => (
     <button ref={ref} {...props}>{children}</button>
   )),

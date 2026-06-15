@@ -5,14 +5,14 @@
  * via instrumentation.ts from config.yaml).
  */
 
-import { NextRequest } from "next/server";
-import { getCollection } from "@/lib/mongodb";
 import {
-  withErrorHandler,
-  successResponse,
-  getAuthFromBearerOrSession,
+getAuthFromBearerOrSession,
+successResponse,
+withErrorHandler,
 } from "@/lib/api-middleware";
+import { getCollection } from "@/lib/mongodb";
 import { filterResourcesByPermission } from "@/lib/rbac/resource-authz";
+import { NextRequest } from "next/server";
 
 /**
  * GET /api/dynamic-agents/models

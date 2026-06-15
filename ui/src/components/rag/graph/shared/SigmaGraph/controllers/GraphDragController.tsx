@@ -1,7 +1,7 @@
 "use client";
 
+import { useRegisterEvents,useSigma } from '@react-sigma/core';
 import { useEffect } from 'react';
-import { useSigma, useRegisterEvents } from '@react-sigma/core';
 
 interface GraphDragControllerProps {
     setIsDragging: (dragging: boolean) => void;

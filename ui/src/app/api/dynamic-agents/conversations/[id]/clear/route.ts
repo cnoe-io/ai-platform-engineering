@@ -7,12 +7,12 @@
  * checkpoint data while keeping conversation metadata for audit purposes.
  */
 
-import { NextRequest, NextResponse } from "next/server";
 import {
-  authenticateRequest,
-  getDynamicAgentsConfig,
-  proxyRequest,
+authenticateRequest,
+getDynamicAgentsConfig,
+proxyRequest,
 } from "@/lib/da-proxy";
+import { NextRequest,NextResponse } from "next/server";
 
 /**
  * POST /api/dynamic-agents/conversations/[id]/clear

@@ -1,12 +1,11 @@
 "use client";
 
-import React from "react";
-import { useRouter } from "next/navigation";
-import {
-  SkillsGallery,
-} from "@/components/skills";
 import { AuthGuard } from "@/components/auth-guard";
+import {
+SkillsGallery,
+} from "@/components/skills";
 import type { AgentSkill } from "@/types/agent-skill";
+import { useRouter } from "next/navigation";
 
 export default function SkillsPage() {
   const router = useRouter();

@@ -1,7 +1,7 @@
-import type { Collection, Document } from "mongodb";
+import type { Collection,Document } from "mongodb";
 
-import type { IdentityGroupSyncRule, IdentityProvider, TeamMembershipSource } from "@/types/identity-group-sync";
-import type { UniversalRebacRelationship, UniversalRebacResourceRef } from "@/types/rbac-universal";
+import type { IdentityGroupSyncRule,IdentityProvider,TeamMembershipSource } from "@/types/identity-group-sync";
+import type { UniversalRebacRelationship,UniversalRebacResourceRef } from "@/types/rbac-universal";
 
 export const RBAC_COLLECTION_NAMES = {
   identityProviders: "identity_providers",

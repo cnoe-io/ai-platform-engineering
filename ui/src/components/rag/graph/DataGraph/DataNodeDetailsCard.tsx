@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useState } from 'react';
 import { MultiDirectedGraph } from 'graphology';
-import { X, ChevronDown, ChevronRight } from 'lucide-react';
+import { ChevronDown,ChevronRight,X } from 'lucide-react';
+import { useState } from 'react';
 import { getColorForNode } from '../shared/graphStyles';
 
 interface DataNodeDetailsCardProps {

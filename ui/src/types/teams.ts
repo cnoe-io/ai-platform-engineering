@@ -52,7 +52,7 @@ export interface Team {
     knowledge_bases?: string[];
     skills?: string[];
     tasks?: string[];
-    tool_wildcard?: boolean;  // true -> grant all tools through OpenFGA wildcard
+    tool_wildcard?: boolean;  // true -> expand all registered MCP servers to tool:<server>/* grants
   };
   /**
    * Spec 098 US9 — Slack channels assigned to this team. Each row mirrors a

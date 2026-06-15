@@ -1,15 +1,15 @@
 import { NextRequest } from "next/server";
 
 import {
-  ApiError,
-  getAuthFromBearerOrSession,
-  requireRbacPermission,
-  successResponse,
-  withErrorHandler,
+ApiError,
+getAuthFromBearerOrSession,
+requireRbacPermission,
+successResponse,
+withErrorHandler,
 } from "@/lib/api-middleware";
 import { callSlackBotAdmin } from "@/lib/slack-bot-admin";
-import { getSlackEmojiDirectoryStatus, warmSlackEmojiDirectory } from "../../emoji/route";
-import { getSlackUsersDirectoryStatus, warmSlackUsersDirectory } from "../../users/lookup/route";
+import { getSlackEmojiDirectoryStatus,warmSlackEmojiDirectory } from "../../emoji/route";
+import { getSlackUsersDirectoryStatus,warmSlackUsersDirectory } from "../../users/lookup/route";
 
 async function slackBotAdminStatus(): Promise<{ reachable: boolean; error?: string }> {
   try {

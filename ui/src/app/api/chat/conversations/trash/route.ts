@@ -1,16 +1,16 @@
 // GET /api/chat/conversations/trash - List soft-deleted conversations (archive)
 // Also auto-purges conversations deleted more than 7 days ago
 
-import { NextRequest, NextResponse } from 'next/server';
-import { getCollection, isMongoDBConfigured } from '@/lib/mongodb';
 import {
-  withAuth,
-  withErrorHandler,
-  paginatedResponse,
-  getPaginationParams,
+getPaginationParams,
+paginatedResponse,
+withAuth,
+withErrorHandler,
 } from '@/lib/api-middleware';
+import { getCollection,isMongoDBConfigured } from '@/lib/mongodb';
 import { filterConversationsByImplicitOrExplicitPermission } from '@/lib/rbac/conversation-implicit-authz';
 import type { Conversation } from '@/types/mongodb';
+import { NextRequest,NextResponse } from 'next/server';
 
 const ARCHIVE_RETENTION_DAYS = 7;
 

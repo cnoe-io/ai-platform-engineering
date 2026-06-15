@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useEffect,useMemo,useState } from "react";
 import { DEFAULT_AGENTS } from "./CustomCallButtons";
 import type { SlashCommand } from "./SlashCommandMenu";
 
@@ -107,6 +107,7 @@ export function useSlashCommands(agentSkillIds?: string[]): SlashCommand[] {
   useEffect(() => {
     // Dynamic agent with no skills configured — show nothing
     if (agentSkillIds && agentSkillIds.length === 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: conditional state reset when agentSkillIds becomes empty
       setSkillCommands([]);
       return;
     }

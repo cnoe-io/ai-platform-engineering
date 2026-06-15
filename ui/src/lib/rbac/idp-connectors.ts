@@ -6,10 +6,10 @@
 
 import type { ExternalGroup } from "@/types/identity-group-sync";
 import {
-  checkOktaConnectorHealth,
-  fetchOktaExternalGroups,
-  isOktaConnectorConfigured,
-  type OktaConnectorHealth,
+checkOktaConnectorHealth,
+fetchOktaExternalGroups,
+isOktaConnectorConfigured,
+type OktaConnectorHealth,
 } from "./okta-directory-connector";
 
 export type IdpConnectorHealth =

@@ -1,17 +1,17 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useRef } from "react";
-import { createPortal } from "react-dom";
-import { motion, AnimatePresence } from "framer-motion";
-import { X, Type, Palette, Monitor, Check, Cloud, CloudOff, ChevronDown } from "lucide-react";
-import { useTheme } from "next-themes";
+import { DmAgentPreferencePanel } from "@/components/settings/DmAgentPreference/DmAgentPreferencePanel";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 import { apiClient } from "@/lib/api-client";
 import { getConfig } from "@/lib/config";
+import { gradientThemes,type GradientThemeId } from "@/lib/gradient-themes";
+import { cn } from "@/lib/utils";
 import { isFeatureEnabled } from "@/store/feature-flag-store";
-import { gradientThemes, type GradientThemeId } from "@/lib/gradient-themes";
-import { DmAgentPreferencePanel } from "@/components/settings/DmAgentPreference/DmAgentPreferencePanel";
+import { AnimatePresence,motion } from "framer-motion";
+import { Check,ChevronDown,Cloud,CloudOff,Monitor,Palette,Type,X } from "lucide-react";
+import { useTheme } from "next-themes";
+import { useCallback,useEffect,useRef,useState } from "react";
+import { createPortal } from "react-dom";
 
 // Font size options
 const fontSizes = [

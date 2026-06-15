@@ -11,7 +11,13 @@
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "init-credential-indexes": "ts-node --project tsconfig.json ../scripts/init-credential-mongo-indexes.ts",
-    "test:e2e:rbac": "playwright test --config=playwright.rbac.config.ts"
+    "test:e2e:rbac": "playwright test --config=playwright.rbac.config.ts",
+    "test:e2e:rbac-regression": "WORKFLOWS_ENABLED=true playwright test e2e/rbac/workflow-agent-access.spec.ts e2e/rbac/rbac-admin-regression.spec.ts e2e/rbac/mcp-openfga-tuples.spec.ts e2e/rbac/service-accounts.spec.ts e2e/rbac/slack-run-as.spec.ts --config=playwright.rbac.config.ts",
+    "test:e2e:rbac-live-mcp": "RUN_RBAC_E2E=1 playwright test e2e/rbac/mcp-server-create-live.spec.ts --config=playwright.rbac.config.ts",
+    "test:e2e:rbac-live-openfga": "RUN_RBAC_E2E=1 playwright test e2e/rbac/openfga-live.spec.ts --config=playwright.rbac.config.ts",
+    "test:e2e:rbac-live-slack-bff": "RUN_RBAC_E2E=1 playwright test e2e/rbac/slack-bff-user-directory-live.spec.ts --config=playwright.rbac.config.ts",
+    "test:e2e:rbac-live-resources": "RUN_RBAC_E2E=1 playwright test e2e/rbac/resource-lifecycle-live.spec.ts --config=playwright.rbac.config.ts",
+    "test:e2e:rbac-live-full": "RUN_RBAC_E2E=1 playwright test e2e/rbac/openfga-live.spec.ts e2e/rbac/mcp-server-create-live.spec.ts e2e/rbac/resource-lifecycle-live.spec.ts --config=playwright.rbac.config.ts"
   },
   "dependencies": {
     "@a2a-js/sdk": "0.3.13",

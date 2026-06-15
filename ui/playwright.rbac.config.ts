@@ -1,3 +1,4 @@
+// assisted-by Codex Codex-sonnet-4-6
 /**
  * Playwright config for the RBAC e2e harness (Spec 102 / US7).
  *
@@ -27,6 +28,39 @@
  */
 
 import { defineConfig, devices } from "@playwright/test";
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
+function unquoteEnvValue(value: string): string {
+  const trimmed = value.trim();
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1);
+  }
+  return trimmed;
+}
+
+const shellEnvKeys = new Set(Object.keys(process.env));
+
+function loadEnvFile(path: string): void {
+  if (!existsSync(path)) return;
+  for (const rawLine of readFileSync(path, "utf8").split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    const normalized = line.startsWith("export ") ? line.slice("export ".length).trim() : line;
+    const separator = normalized.indexOf("=");
+    if (separator <= 0) continue;
+    const key = normalized.slice(0, separator).trim();
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key) || shellEnvKeys.has(key)) continue;
+    process.env[key] = unquoteEnvValue(normalized.slice(separator + 1));
+  }
+}
+
+loadEnvFile(resolve(__dirname, "..", ".env"));
+loadEnvFile(resolve(__dirname, ".env"));
+loadEnvFile(resolve(__dirname, ".env.local"));
 
 export default defineConfig({
   testDir: "./e2e/rbac",

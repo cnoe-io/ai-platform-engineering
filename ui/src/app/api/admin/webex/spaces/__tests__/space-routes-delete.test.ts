@@ -21,6 +21,10 @@ jest.mock("@/lib/rbac/openfga", () => ({
   writeOpenFgaTuples: (...args: unknown[]) => mockWriteOpenFgaTuples(...args),
 }));
 
+jest.mock("@/lib/rbac/resource-authz", () => ({
+  requireResourcePermission: jest.fn(async () => undefined),
+}));
+
 jest.mock("@/lib/jwt-validation", () => ({
   validateLocalSkillsJWT: jest.fn(async () => null),
   validateBearerJWT: jest.fn(async () => ({

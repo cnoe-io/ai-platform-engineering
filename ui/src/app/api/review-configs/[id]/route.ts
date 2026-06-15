@@ -12,17 +12,17 @@
  * code-side registry (see `lib/server/ai-review/defaults.ts`).
  */
 
-import { NextRequest } from "next/server";
-import { getCollection } from "@/lib/mongodb";
 import {
-  withAuth,
-  withErrorHandler,
-  successResponse,
-  ApiError,
-  requireRbacPermission,
+ApiError,
+requireRbacPermission,
+successResponse,
+withAuth,
+withErrorHandler,
 } from "@/lib/api-middleware";
-import type { ReviewConfig, ReviewCriterion } from "@/types/ai-review";
-import { ensureConfig, getTargetMeta } from "@/lib/server/ai-review/defaults";
+import { getCollection } from "@/lib/mongodb";
+import { ensureConfig,getTargetMeta } from "@/lib/server/ai-review/defaults";
+import type { ReviewConfig,ReviewCriterion } from "@/types/ai-review";
+import { NextRequest } from "next/server";
 
 const COLLECTION_NAME = "review_configs";
 const SLUG_RE = /^[a-zA-Z0-9][a-zA-Z0-9._/-]*$/;

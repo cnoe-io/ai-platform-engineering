@@ -1,13 +1,13 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
-import { signOut, useSession } from "next-auth/react";
-import { useRouter } from "next/navigation";
-import { motion } from "framer-motion";
-import { LogOut, Loader2, CheckCircle2, ArrowRight } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { IntegrationOrbit } from "@/components/gallery/IntegrationOrbit";
-import { config, getLogoFilterClass } from "@/lib/config";
+import { Button } from "@/components/ui/button";
+import { config,getLogoFilterClass } from "@/lib/config";
+import { motion } from "framer-motion";
+import { ArrowRight,CheckCircle2,Loader2,LogOut } from "lucide-react";
+import { signOut,useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
+import { useEffect,useState } from "react";
 
 export default function LogoutPage() {
   const { status } = useSession();

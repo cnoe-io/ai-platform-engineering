@@ -1,11 +1,11 @@
-import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { ObjectId } from "mongodb";
-import { authOptions, isBootstrapAdmin } from "@/lib/auth-config";
-import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
-import { checkOpenFgaTuple, readOpenFgaTuples } from "@/lib/rbac/openfga";
+import { authOptions,isBootstrapAdmin } from "@/lib/auth-config";
+import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
+import { checkOpenFgaTuple,readOpenFgaTuples } from "@/lib/rbac/openfga";
 import { organizationObjectId } from "@/lib/rbac/organization";
 import { isUserInTeam } from "@/lib/rbac/team-membership-store";
+import { ObjectId } from "mongodb";
+import { getServerSession } from "next-auth";
+import { NextResponse } from "next/server";
 
 /**
  * GET /api/rbac/ingest-teams

@@ -1,11 +1,11 @@
 import type {
-  UniversalRebacRelationship,
-  UniversalRebacResourceAction,
-  UniversalRebacResourceRef,
-  UniversalRebacSubjectRef,
+UniversalRebacRelationship,
+UniversalRebacResourceAction,
+UniversalRebacResourceRef,
+UniversalRebacSubjectRef,
 } from "@/types/rbac-universal";
 
-import type { OpenFgaTupleKey, TeamResourceTupleDiff } from "./openfga";
+import type { OpenFgaTupleKey,TeamResourceTupleDiff } from "./openfga";
 import { openFgaResourceObject } from "./openfga-resource-ids";
 import { assertRelationshipValid } from "./relationship-validator";
 

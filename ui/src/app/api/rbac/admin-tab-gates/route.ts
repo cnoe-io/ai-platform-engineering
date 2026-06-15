@@ -1,22 +1,22 @@
-import { NextResponse } from "next/server";
-import type { NextRequest } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions, isBootstrapAdmin } from "@/lib/auth-config";
 import { ApiError } from "@/lib/api-middleware";
+import { authOptions,isBootstrapAdmin } from "@/lib/auth-config";
 import { getConfig } from "@/lib/config";
 import { getCollection } from "@/lib/mongodb";
 import { parseAdminSimulation } from "@/lib/rbac/admin-simulator";
-import { checkOpenFgaTuple, writeOpenFgaTuples } from "@/lib/rbac/openfga";
-import { organizationObjectId } from "@/lib/rbac/organization";
 import {
-  adminSurfaceObject,
-  baselineBootstrapTuples,
-  getBaselineFgaProfile,
-  BASELINE_ADMIN_SURFACES,
+adminSurfaceObject,
+BASELINE_ADMIN_SURFACES,
+baselineBootstrapTuples,
+getBaselineFgaProfile,
 } from "@/lib/rbac/baseline-access";
+import { checkOpenFgaTuple,listOpenFgaObjects,writeOpenFgaTuples } from "@/lib/rbac/openfga";
+import { organizationObjectId } from "@/lib/rbac/organization";
 import { slackChannelSubjectId } from "@/lib/rbac/slack-channel-grant-store";
+import type { AdminTabGatesMap,AdminTabKey } from "@/lib/rbac/types";
 import { webexSpaceSubjectId } from "@/lib/rbac/webex-space-grant-store";
-import type { AdminTabKey, AdminTabGatesMap } from "@/lib/rbac/types";
+import { getServerSession } from "next-auth";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 
 const ALL_TABS: AdminTabKey[] = [
   "users",
@@ -36,6 +36,7 @@ const ALL_TABS: AdminTabKey[] = [
   "action_audit",
   "openfga",
   "migrations",
+  "service_accounts",
 ];
 
 function decodeJwtPayload(token: string): Record<string, unknown> {
@@ -210,9 +211,29 @@ async function hasManageableWebexSpace(openfgaUser: string): Promise<boolean> {
   return false;
 }
 
+/**
+ * The Service Accounts tab is self-service for ANY team member (not admin-only)
+ * — see research.md R-7 (T001). Visibility keys on "belongs to ≥1 team", mirroring
+ * the non-admin, resource-scoped Slack/Webex gates. The real control is per-action
+ * owning-team authorization on every BFF route. Fail-closed on error.
+ */
+async function isMemberOfAnyTeam(openfgaUser: string): Promise<boolean> {
+  try {
+    const result = await listOpenFgaObjects({
+      user: openfgaUser,
+      relation: "member",
+      type: "team",
+    });
+    return result.objects.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 async function hasResourceScopedIntegrationAccess(openfgaUser: string, tab: AdminTabKey): Promise<boolean> {
   if (tab === "slack") return hasManageableSlackChannel(openfgaUser);
   if (tab === "webex") return hasManageableWebexSpace(openfgaUser);
+  if (tab === "service_accounts") return isMemberOfAnyTeam(openfgaUser);
   return false;
 }
 

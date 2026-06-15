@@ -19,29 +19,29 @@
  * write so we never need to paginate.
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  AlertCircle,
-  Eye,
-  FileCode,
-  History as HistoryIcon,
-  Loader2,
-  RefreshCcw,
-  RotateCcw,
-  ShieldCheck,
-  ShieldQuestion,
-  ShieldAlert,
+AlertCircle,
+Eye,
+FileCode,
+History as HistoryIcon,
+Loader2,
+RefreshCcw,
+RotateCcw,
+ShieldAlert,
+ShieldCheck,
+ShieldQuestion,
 } from "lucide-react";
+import { useCallback,useEffect,useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
+Dialog,
+DialogContent,
+DialogDescription,
+DialogFooter,
+DialogHeader,
+DialogTitle,
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/components/ui/toast";
@@ -515,6 +515,7 @@ function RevisionRow({
               className="ml-auto inline-flex items-center gap-1 text-[10px] text-muted-foreground"
               title={`Scan status at this revision: ${rev.scan_status}`}
             >
+              {/* eslint-disable-next-line react-hooks/static-components */}
               <ScanIcon className="h-3 w-3" />
               {rev.scan_status}
             </span>

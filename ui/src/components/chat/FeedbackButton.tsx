@@ -1,14 +1,14 @@
 "use client";
 
-import React, { useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { ThumbsUp, ThumbsDown, Loader2, AlertTriangle } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Dialog, DialogTrigger, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { cn } from "@/lib/utils";
-import { submitFeedback } from "@/lib/langfuse";
-import { getConfig } from "@/lib/config";
 import { ReportProblemDialog } from "@/components/ticket/ReportProblemDialog";
+import { Button } from "@/components/ui/button";
+import { Dialog,DialogContent,DialogTitle,DialogTrigger } from "@/components/ui/dialog";
+import { getConfig } from "@/lib/config";
+import { submitFeedback } from "@/lib/langfuse";
+import { cn } from "@/lib/utils";
+import { AnimatePresence,motion } from "framer-motion";
+import { AlertTriangle,Loader2,ThumbsDown,ThumbsUp } from "lucide-react";
+import React,{ useState } from "react";
 
 export type FeedbackType = "like" | "dislike" | null;
 

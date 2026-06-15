@@ -1,19 +1,19 @@
 "use client";
 
-import React, { useState, useCallback } from 'react';
+import { Permission,useRagPermissions } from '@/hooks/useRagPermissions';
 import { MultiDirectedGraph } from 'graphology';
-import { X, ChevronDown, ChevronRight, Settings2, Loader2, RefreshCw, Check, XIcon, RotateCcw, ArrowLeftRight } from 'lucide-react';
-import { getColorForNode } from '../shared/graphStyles';
-import { 
-    evaluateOntologyRelation, 
-    acceptOntologyRelation, 
-    rejectOntologyRelation, 
-    undoOntologyRelationEvaluation,
-    syncOntologyRelation,
-    getOntologyRelationHeuristicsBatch,
-    getOntologyRelationEvaluationsBatch
+import { ArrowLeftRight,Check,ChevronDown,ChevronRight,Loader2,RefreshCw,RotateCcw,Settings2,X,XIcon } from 'lucide-react';
+import { useCallback,useState } from 'react';
+import {
+acceptOntologyRelation,
+evaluateOntologyRelation,
+getOntologyRelationEvaluationsBatch,
+getOntologyRelationHeuristicsBatch,
+rejectOntologyRelation,
+syncOntologyRelation,
+undoOntologyRelationEvaluation
 } from '../../api';
-import { useRagPermissions, Permission } from '@/hooks/useRagPermissions';
+import { getColorForNode } from '../shared/graphStyles';
 
 interface OntologyNodeDetailsCardProps {
     nodeId: string;

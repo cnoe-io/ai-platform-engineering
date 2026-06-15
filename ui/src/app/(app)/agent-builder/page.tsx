@@ -1,14 +1,14 @@
 "use client";
 
-import React, { useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
 import {
-  AgentBuilderGallery,
-  AgentBuilderEditorDialog,
-  YamlImportDialog,
+AgentBuilderEditorDialog,
+AgentBuilderGallery,
+YamlImportDialog,
 } from "@/components/agent-builder";
 import { AuthGuard } from "@/components/auth-guard";
 import type { AgentSkill } from "@/types/agent-skill";
+import { AnimatePresence,motion } from "framer-motion";
+import { useState } from "react";
 
 export default function AgentBuilderPage() {
   const [editingConfig, setEditingConfig] = useState<AgentSkill | undefined>(undefined);

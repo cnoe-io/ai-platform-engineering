@@ -430,6 +430,68 @@ export class ProviderConnectionService {
     return toProviderConnectionMetadata(doc);
   }
 
+  /**
+   * Register a pasted static access token as a provider connection.
+   *
+   * This is the paste-token analogue of {@link completeConnection}: instead of
+   * exchanging an OAuth authorization code, the caller supplies a long-lived
+   * token (e.g. a GitLab project access token or a GitHub personal access token)
+   * that was obtained out-of-band. The resulting `ProviderConnectionDocument`
+   * has `status: "connected"`, no `refreshTokenRef` secret, and no `expiresAt` —
+   * matching the shape that {@link refreshConnection} already handles correctly
+   * for refresh-less connections (lines 496-499: reuse stored access token).
+   *
+   * The method is owner-agnostic: `input.owner.type` may be `"user"`,
+   * `"service_account"`, `"team"`, or `"organization"`.
+   */
+  async registerStaticToken(input: {
+    providerKey: string;
+    owner: CredentialOwnerRef;
+    accessToken: string;
+    requestedScopes?: string[];
+  }): Promise<ProviderConnectionMetadata> {
+    // A pasted token (PAT / project access token) does NOT require a registered
+    // OAuth connector — there is no authorization-code flow, no client app, and
+    // no client secret. Earlier this called findEnabledConnector, which 404'd
+    // ("OAuth connector was not found") for providers like GitLab where we have
+    // no OAuth app but DO support PATs. The connector was only used for two
+    // non-essential things: its id (stored, never used to resolve anything) and
+    // its scope list (to bound requestedScopes). We don't need either here:
+    //   - connectorId is synthesised as `static:<provider>` purely for display.
+    //   - the PAT carries its own scopes intrinsically, so we store the caller's
+    //     requestedScopes verbatim (informational) rather than bounding them.
+    const provider = nonEmpty(input.providerKey, "providerKey");
+    const requestedScopes =
+      input.requestedScopes && input.requestedScopes.length > 0
+        ? input.requestedScopes
+        : undefined;
+
+    const id = this.idGenerator();
+    const accessTokenRef = `provider_connection:${id}:access_token`;
+    await this.payloadStore.putSecret({
+      secretRefId: accessTokenRef,
+      plaintext: nonEmpty(input.accessToken, "accessToken"),
+    });
+
+    const now = this.now();
+    const doc: ProviderConnectionDocument = {
+      id,
+      connectorId: `static:${provider}`,
+      provider,
+      owner: input.owner,
+      status: "connected",
+      accessTokenRef,
+      // No refresh token — static tokens are long-lived and not rotated via
+      // an OAuth refresh grant. refreshConnection already handles this case.
+      refreshTokenRef: "",
+      // No expiresAt — caller manages token lifecycle out-of-band.
+      updatedAt: now,
+      ...(requestedScopes ? { requestedScopes } : {}),
+    };
+    await this.providerConnectionsCollection.insertOne(doc);
+    return toProviderConnectionMetadata(doc);
+  }
+
   async listConnections(owner: CredentialOwnerRef): Promise<ProviderConnectionMetadata[]> {
     if (!this.providerConnectionsCollection.find) {
       return [];
@@ -452,10 +514,6 @@ export class ProviderConnectionService {
     const connection = await this.providerConnectionsCollection.findOne({ id: connectionId });
     if (!connection) {
       throw new ApiError("Provider connection was not found", 404, "CREDENTIAL_NOT_FOUND");
-    }
-    const connector = await this.connectorsCollection.findOne({ id: connection.connectorId });
-    if (!connector) {
-      throw new ApiError("OAuth connector was not found", 404, "CREDENTIAL_NOT_FOUND");
     }
 
     // The stored access token is the source of truth. Long-lived tokens such as
@@ -492,6 +550,28 @@ export class ProviderConnectionService {
         : undefined;
       return { accessToken: storedAccessToken, expiresIn };
     };
+
+    // `connector` is intentionally null in two distinct cases, BOTH of which
+    // reuse the stored access token rather than attempting an OAuth refresh:
+    //
+    //   1. Static token: a pasted PAT / project access token has NO OAuth
+    //      connector — registerStaticToken stores connectorId as
+    //      `static:<provider>` and writes no refresh token. We skip the
+    //      connector lookup entirely. Looking one up would 404 ("OAuth
+    //      connector was not found") and break the exchange for every static
+    //      token (the symptom that blocked GitLab PAT passthrough for both
+    //      users and service accounts).
+    //   2. Deleted connector: an OAuth connection whose connector row was
+    //      removed after the connection was created. Rather than 404 the
+    //      exchange (the prior behavior), we gracefully degrade to the last
+    //      known-good stored access token; the caller can re-connect/rotate if
+    //      it has gone stale.
+    const connector = connection.connectorId.startsWith("static:")
+      ? null
+      : await this.connectorsCollection.findOne({ id: connection.connectorId });
+    if (!connector) {
+      return reuseStoredToken();
+    }
 
     // No usable refresh token (e.g. GitHub never issued one): reuse the stored
     // access token instead of attempting a doomed refresh grant.

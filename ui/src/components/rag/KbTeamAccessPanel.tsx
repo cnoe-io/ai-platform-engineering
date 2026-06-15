@@ -1,23 +1,23 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { TeamPicker, type TeamPickerOption } from "@/components/ui/team-picker";
+import { Button } from "@/components/ui/button";
 import {
-  Popover,
-  PopoverTrigger,
-  PopoverContent,
+Popover,
+PopoverContent,
+PopoverTrigger,
 } from "@/components/ui/popover";
-import {
-  Users,
-  Plus,
-  Trash2,
-  Loader2,
-  CheckCircle2,
-  AlertCircle,
-} from "lucide-react";
+import { TeamPicker,type TeamPickerOption } from "@/components/ui/team-picker";
 import type { KbPermission } from "@/lib/rbac/types";
+import {
+AlertCircle,
+CheckCircle2,
+Loader2,
+Plus,
+Trash2,
+Users,
+} from "lucide-react";
+import React,{ useCallback,useEffect,useState } from "react";
 
 interface TeamBasic {
   _id: string;

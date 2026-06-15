@@ -18,28 +18,28 @@
  * frontmatter).
  */
 
-import React, { useCallback, useMemo, useRef, useState } from "react";
 import {
-  Columns2,
-  Download,
-  Eye,
-  Pencil,
-  Redo2,
-  Undo2,
-  WrapText,
-} from "lucide-react";
-import {
-  RichCodeEditor,
-  cmRedo,
-  cmUndo,
-  type Diagnostic,
-  type ReactCodeMirrorRef,
+RichCodeEditor,
+cmRedo,
+cmUndo,
+type Diagnostic,
+type ReactCodeMirrorRef,
 } from "@/components/skills/workspace/RichCodeEditor";
 import { SkillMdPreview } from "@/components/skills/workspace/SkillMdPreview";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 import { parseSkillMd } from "@/lib/skill-md-parser";
+import { cn } from "@/lib/utils";
 import type { SkillInputVariable } from "@/types/agent-skill";
+import {
+Columns2,
+Download,
+Eye,
+Pencil,
+Redo2,
+Undo2,
+WrapText,
+} from "lucide-react";
+import { useCallback,useMemo,useRef,useState } from "react";
 
 /**
  * Three view modes match what the previous editor offered:

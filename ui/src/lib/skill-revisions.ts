@@ -29,15 +29,15 @@
  *     change who owns the skill or who can see it.
  */
 
-import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
+import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
 import type {
-  AgentSkill,
-  AgentSkillCategory,
-  AgentSkillMetadata,
-  AgentSkillTask,
-  WorkflowDifficulty,
-  WorkflowInputForm,
-  ScanStatus,
+AgentSkill,
+AgentSkillCategory,
+AgentSkillMetadata,
+AgentSkillTask,
+ScanStatus,
+WorkflowDifficulty,
+WorkflowInputForm,
 } from "@/types/agent-skill";
 
 /** Triggers that produce a new revision row. Mirrors `ScanTrigger` shape. */

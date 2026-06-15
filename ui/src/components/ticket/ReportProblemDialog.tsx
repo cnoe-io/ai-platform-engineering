@@ -1,40 +1,39 @@
 "use client";
 
-import React, { useState, useRef, useEffect, useCallback, useId } from "react";
-import { createPortal } from "react-dom";
-import { useSession } from "next-auth/react";
-import { usePathname } from "next/navigation";
-import { motion, AnimatePresence } from "framer-motion";
-import {
-  AlertCircle,
-  Camera,
-  CheckCircle2,
-  ChevronDown,
-  ChevronUp,
-  Copy,
-  ExternalLink,
-  Loader2,
-  Monitor,
-  RefreshCw,
-  Square,
-  Terminal,
-  Upload,
-  X,
-} from "lucide-react";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import {
+Dialog,
+DialogContent,
+DialogDescription,
+DialogHeader,
+DialogTitle,
+} from "@/components/ui/dialog";
 import { getConfig } from "@/lib/config";
 import {
-  createTicketViaAgent,
-  type FeedbackContext,
-  type TicketResult,
+createTicketViaAgent,
+type FeedbackContext,
+type TicketResult,
 } from "@/lib/ticket-client";
+import { AnimatePresence,motion } from "framer-motion";
+import {
+AlertCircle,
+CheckCircle2,
+ChevronDown,
+ChevronUp,
+Copy,
+ExternalLink,
+Loader2,
+Monitor,
+RefreshCw,
+Square,
+Terminal,
+Upload,
+X
+} from "lucide-react";
+import { useSession } from "next-auth/react";
+import { usePathname } from "next/navigation";
+import React,{ useCallback,useEffect,useId,useRef,useState } from "react";
+import { createPortal } from "react-dom";
 
 type DialogStatus = "idle" | "submitting" | "success" | "error";
 

@@ -7,7 +7,7 @@
  * All requests go through /api/rag/* which proxies to the RAG server.
  */
 
-import { DataSourceInfo, IngestorInfo, IngestionJob, QueryResult } from '../Models';
+import { DataSourceInfo,IngestionJob,IngestorInfo } from '../Models';
 
 // API configuration - uses Next.js API proxy
 const API_BASE = '/api/rag';
@@ -46,6 +46,19 @@ async function apiPost<T>(endpoint: string, data?: unknown, params?: Record<stri
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: data ? JSON.stringify(data) : undefined,
+    });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({ error: 'Request failed' }));
+        throw new Error(error.error || error.detail || `HTTP ${response.status}`);
+    }
+    if (response.status === 204) return {} as T;
+    return response.json();
+}
+
+async function apiPostForm<T>(endpoint: string, data: FormData): Promise<T> {
+    const response = await fetch(`${API_BASE}${endpoint}`, {
+        method: 'POST',
+        body: data,
     });
     if (!response.ok) {
         const error = await response.json().catch(() => ({ error: 'Request failed' }));
@@ -173,6 +186,22 @@ export const ingestUrl = async (params: {
             owner_team_slug: params.owner_team_slug || null
         });
     }
+};
+
+export const ingestLocalFile = async (params: {
+    files: File[];
+    description?: string;
+    owner_team_slug?: string;
+    chunk_size?: number;
+    chunk_overlap?: number;
+}): Promise<{ datasource_id: string | null; job_id: string | null; message: string }> => {
+    const form = new FormData();
+    params.files.forEach((file) => form.append('file', file));
+    if (params.description) form.append('description', params.description);
+    if (params.owner_team_slug) form.append('owner_team_slug', params.owner_team_slug);
+    if (params.chunk_size !== undefined) form.append('chunk_size', String(params.chunk_size));
+    if (params.chunk_overlap !== undefined) form.append('chunk_overlap', String(params.chunk_overlap));
+    return apiPostForm('/v1/ingest/local-file', form);
 };
 
 export const reloadDataSource = async (datasourceId: string): Promise<{ datasource_id: string; message: string }> => {

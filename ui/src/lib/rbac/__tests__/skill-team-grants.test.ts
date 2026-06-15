@@ -14,7 +14,7 @@ jest.mock("@/lib/rbac/openfga", () => ({
   writeOpenFgaTupleDiff: (...args: unknown[]) => mockWriteOpenFgaTupleDiff(...args),
 }));
 
-jest.mock("@/lib/rbac/openfga-owned-resources", () => ({
+jest.mock("@/lib/rbac/openfga-owned-resources-reconcile", () => ({
   reconcileShareableResource: (...args: unknown[]) => mockReconcileShareableResource(...args),
 }));
 

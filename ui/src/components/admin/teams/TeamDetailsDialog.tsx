@@ -1,47 +1,47 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useRef } from "react";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { IngestCapabilityToggle } from "@/components/admin/shared/IngestCapabilityToggle";
+import { SaveButton } from "@/components/admin/shared/SaveButton";
+import { SearchCapabilityToggle } from "@/components/admin/shared/SearchCapabilityToggle";
+import { TeamKbAssignmentPanel } from "@/components/admin/teams/TeamKbAssignmentPanel";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+Dialog,
+DialogContent,
+DialogDescription,
+DialogFooter,
+DialogHeader,
+DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import {
-  Loader2,
-  UserPlus,
-  Trash2,
-  Crown,
-  Shield,
-  User,
-  Pencil,
-  Check,
-  X,
-  Hash,
-  Lock,
-  RefreshCw,
-  Plus,
-  Search,
-  MessageSquare,
-  ShieldCheck,
-  ShieldAlert,
-  ShieldQuestion,
-  Clock3,
-} from "lucide-react";
-import type { Team, TeamMember } from "@/types/teams";
+import { Textarea } from "@/components/ui/textarea";
 import type { TeamMembershipSource } from "@/types/identity-group-sync";
-import { TeamKbAssignmentPanel } from "@/components/admin/teams/TeamKbAssignmentPanel";
-import { IngestCapabilityToggle } from "@/components/admin/IngestCapabilityToggle";
-import { SearchCapabilityToggle } from "@/components/admin/SearchCapabilityToggle";
-import { SaveButton } from "@/components/admin/SaveButton";
+import type { Team,TeamMember } from "@/types/teams";
+import {
+Check,
+Clock3,
+Crown,
+Hash,
+Loader2,
+Lock,
+MessageSquare,
+Pencil,
+Plus,
+RefreshCw,
+Search,
+Shield,
+ShieldAlert,
+ShieldCheck,
+ShieldQuestion,
+Trash2,
+User,
+UserPlus,
+X,
+} from "lucide-react";
+import React,{ useCallback,useEffect,useRef,useState } from "react";
 
 // Server response shape — mirrors TeamMembershipSyncReport in
 // @/lib/rbac/team-openfga-sync-status.ts (kept local to avoid forcing
@@ -533,7 +533,7 @@ export function TeamDetailsDialog({
       .then(async (res) => {
         const data = await res.json();
         if (!data.success) {
-          throw new Error(data.error || "Failed to load resources");
+          throw new Error(data.error || "Failed to load agents and MCP access");
         }
         if (!cancelled) {
           const payload = data.data as ResourcesPayload;
@@ -546,7 +546,7 @@ export function TeamDetailsDialog({
       })
       .catch((err: unknown) => {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Failed to load resources");
+          setError(err instanceof Error ? err.message : "Failed to load agents and MCP access");
         }
       })
       .finally(() => {
@@ -967,7 +967,7 @@ export function TeamDetailsDialog({
       });
       const data = await res.json();
       if (!data.success) {
-        throw new Error(data.error || "Failed to save resources");
+        throw new Error(data.error || "Failed to save agents and MCP access");
       }
       const skipped: string[] = data.data?.members_skipped ?? [];
       const updated: string[] = data.data?.members_updated ?? [];
@@ -978,7 +978,7 @@ export function TeamDetailsDialog({
       );
       onTeamUpdated();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save resources");
+      setError(err instanceof Error ? err.message : "Failed to save agents and MCP access");
     } finally {
       setResourcesSaving(false);
     }
@@ -1278,7 +1278,7 @@ export function TeamDetailsDialog({
             onClick={() => setActiveMode("resources")}
             className="text-xs"
           >
-            Resources
+            Agents & MCP
           </Button>
           <Button
             variant={activeMode === "kbs" ? "default" : "ghost"}
@@ -1806,13 +1806,14 @@ export function TeamDetailsDialog({
           </div>
         )}
 
-        {/* Resources Mode (Spec 104 — team-scoped RBAC) */}
+        {/* Agents & MCP access (Spec 104 — team-scoped RBAC) */}
         {activeMode === "resources" && (
           <div className="space-y-4 py-2 flex-1 min-h-0 flex flex-col">
             <p className="text-xs text-muted-foreground">
-              Grant this team access to agents and tools. Saving writes OpenFGA
-              relationships for this team; Keycloak no longer mirrors
-              per-resource realm roles.
+              Grant this team access to <span className="font-medium text-foreground">dynamic agents</span>{" "}
+              (who can chat with or manage each agent) and{" "}
+              <span className="font-medium text-foreground">MCP servers</span> (which tool integrations
+              appear in Dynamic Agents and skills). Saving writes OpenFGA relationships for this team.
             </p>
 
             {resourcesNotice && (
@@ -1853,7 +1854,7 @@ export function TeamDetailsDialog({
                 dirty
                 hideDirtyBadge
                 disabled={resourcesLoading || !resourcesData}
-                ariaLabel="Save resources"
+                ariaLabel="Save agents and MCP access"
               />
             </div>
           </div>
@@ -2041,11 +2042,16 @@ function AgentList({
 
   return (
     <div className="rounded-md border flex flex-col min-h-0">
-      <div className="px-3 py-2 border-b bg-muted/30 flex items-center justify-between">
-        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          Agents ({selectedUsers.size} / {options.length})
-        </p>
-        <div className="flex items-center gap-3 text-[10px] uppercase tracking-wide text-muted-foreground">
+      <div className="px-3 py-2 border-b bg-muted/30 flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Dynamic agents ({selectedUsers.size} / {options.length})
+          </p>
+          <p className="text-[10px] text-muted-foreground normal-case tracking-normal">
+            Chat access (Use) and editor access (Manage)
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-3 text-[10px] uppercase tracking-wide text-muted-foreground">
           <span>Use</span>
           <span>Manage</span>
         </div>
@@ -2133,12 +2139,15 @@ function ToolList({
     <div className="rounded-md border flex flex-col min-h-0">
       <div className="px-3 py-2 border-b bg-muted/30">
         <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          Tools ({selected.size} / {options.length})
+          MCP servers ({selected.size} / {options.length})
           {wildcard && (
             <Badge variant="secondary" className="ml-2 text-[10px]">
               wildcard
             </Badge>
           )}
+        </p>
+        <p className="text-[10px] text-muted-foreground normal-case tracking-normal mt-0.5">
+          Which MCP integrations team members can use in Dynamic Agents and skills
         </p>
       </div>
       <div className="px-3 py-2 border-b bg-amber-500/5">
@@ -2150,9 +2159,9 @@ function ToolList({
             onChange={(e) => onWildcardChange(e.target.checked)}
           />
           <span className="min-w-0 flex-1">
-            <span className="block text-sm font-medium">All tools (wildcard)</span>
+            <span className="block text-sm font-medium">All MCP servers (wildcard)</span>
             <span className="block text-xs text-muted-foreground">
-              Grant this team permission to invoke any MCP tool. Use sparingly.
+              Grant this team permission to use any MCP server. Use sparingly.
             </span>
           </span>
         </label>

@@ -6,15 +6,15 @@ import { getCollection } from "@/lib/mongodb";
 import { requireResourcePermission } from "@/lib/rbac/resource-authz";
 
 import { CREDENTIAL_COLLECTIONS } from "./collections";
-import { createAwsKmsKeyWrapper, createDevLocalKeyWrapper, createLocalCmkKeyWrapper } from "./key-wrapper";
+import { createAwsKmsKeyWrapper,createDevLocalKeyWrapper,createLocalCmkKeyWrapper } from "./key-wrapper";
 import { MongoEnvelopeCredentialStore } from "./mongo-envelope-store";
 import {
-  deleteAllSecretRefRelationships,
-  deleteSecretRefShare,
-  reconcileSecretRefOwnerRelationships,
-  reconcileSecretRefShare,
+deleteAllSecretRefRelationships,
+deleteSecretRefShare,
+reconcileSecretRefOwnerRelationships,
+reconcileSecretRefShare,
 } from "./secret-openfga";
-import { SecretService, type SecretRefDocument } from "./secret-service";
+import { SecretService,type SecretRefDocument } from "./secret-service";
 
 function createConfiguredKeyWrapper() {
   const keyProvider = process.env.CREDENTIAL_KEY_PROVIDER?.trim() || "local-cmk";

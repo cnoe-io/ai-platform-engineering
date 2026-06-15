@@ -6,13 +6,13 @@
 // (slack_victorops_escalation_agent_id) and read by the bot at runtime,
 // with SLACK_INTEGRATION_VICTOROPS_AGENT_ID as the env/YAML fallback.
 
-import React, { useEffect, useState } from "react";
-import { Loader2, Siren } from "lucide-react";
+import { Loader2,Siren } from "lucide-react";
+import { useEffect,useState } from "react";
 
+import { SaveButton } from "@/components/admin/shared/SaveButton";
+import { AgentPicker,type AgentPickerOption } from "@/components/ui/agent-picker";
 import { Label } from "@/components/ui/label";
-import { AgentPicker, type AgentPickerOption } from "@/components/ui/agent-picker";
 import { useToast } from "@/components/ui/toast";
-import { SaveButton } from "@/components/admin/SaveButton";
 
 interface DynamicAgentOption {
   _id: string;

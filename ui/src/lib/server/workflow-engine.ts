@@ -11,12 +11,36 @@
  */
 
 import { getCollection } from "@/lib/mongodb";
-import { consumeAgentStream, type ConsumeResult } from "@/lib/streaming/clients/server-agui-consumer";
 import { readEvents } from "@/lib/server/event-store";
+import { consumeAgentStream,type ConsumeResult } from "@/lib/streaming/clients/server-agui-consumer";
 import { isToolStartData } from "@/lib/streaming/types";
-import { renderPrompt, buildTemplateContext, type StepContext } from "./workflow-templating";
-import type { WorkflowConfig, WorkflowStep } from "@/types/workflow-config";
+import type { WorkflowConfig,WorkflowStep } from "@/types/workflow-config";
 import { flattenStepEntries } from "@/types/workflow-config";
+import { authorize, type Subject } from "@/lib/authz";
+import { buildTemplateContext,renderPrompt,type StepContext } from "./workflow-templating";
+
+/**
+ * Decode the run owner's subject from the forwarded Bearer token. Per-step
+ * agent-use is authorized in the UI server (this engine) via CAS — workflow
+ * RBAC is a UI-server concept (the engine invokes agents one step at a time),
+ * so DA no longer needs workflow_execution_authz. Returns null for system /
+ * config-driven runs with no user token (already authorized at run start).
+ */
+// Exported for unit testing — extracts the run owner's `sub` from the forwarded
+// Bearer so executeSteps can authorize per-step agent use against CAS.
+export function runOwnerSubject(authHeaders: Record<string, string>): string | null {
+  const auth = authHeaders["Authorization"] ?? authHeaders["authorization"];
+  if (!auth?.startsWith("Bearer ")) return null;
+  const parts = auth.slice(7).split(".");
+  if (parts.length < 2) return null;
+  try {
+    const json = Buffer.from(parts[1].replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8");
+    const sub = (JSON.parse(json) as { sub?: unknown }).sub;
+    return typeof sub === "string" && sub.trim() ? sub.trim() : null;
+  } catch {
+    return null;
+  }
+}
 
 // ═══════════════════════════════════════════════════════════════
 // Configuration
@@ -66,6 +90,7 @@ export interface WorkflowRunTriggerInfo {
 export interface WorkflowRunDocument {
   _id: string;
   workflow_config_id: string;
+  owner_subject?: Subject | null;
   status: WorkflowRunStatus;
   steps: WorkflowStepRun[];
   current_step_index: number;
@@ -98,9 +123,11 @@ export async function startWorkflowRun(
   userContext: string | null,
   authHeaders: Record<string, string>,
   triggerInfo?: WorkflowRunTriggerInfo | null,
+  ownerSubject?: Subject | null,
 ): Promise<string> {
   const runId = generateRunId();
   const flatSteps = flattenStepEntries(config.steps);
+  const runOwner = ownerSubject ?? ownerSubjectFromAuthHeaders(authHeaders);
 
   const stepRuns: WorkflowStepRun[] = flatSteps.map(({ index, step }) => ({
     type: "step",
@@ -120,6 +147,7 @@ export async function startWorkflowRun(
   const runDoc: WorkflowRunDocument = {
     _id: runId,
     workflow_config_id: config._id,
+    owner_subject: runOwner,
     status: "running",
     steps: stepRuns,
     current_step_index: 0,
@@ -134,7 +162,7 @@ export async function startWorkflowRun(
 
   // Fire-and-forget
   const flatWorkflowSteps = flatSteps.map(({ step }) => step);
-  executeSteps(runId, config._id, config.name, config.description, flatWorkflowSteps, userContext, authHeaders, 0).catch((err) => {
+  executeSteps(runId, config._id, config.name, config.description, flatWorkflowSteps, userContext, authHeaders, 0, runOwner).catch((err) => {
     console.error(`[WorkflowEngine] Unhandled error in run ${runId}:`, err);
   });
 
@@ -170,7 +198,7 @@ export async function resumeWorkflowRun(
   const flatSteps = flattenStepEntries(config.steps).map(({ step: s }) => s);
 
   // Fire-and-forget: resume current step then continue
-  resumeAndContinue(runId, run.workflow_config_id, config.name, config.description, stepIndex, resumeData, flatSteps, run.user_context, authHeaders).catch(
+  resumeAndContinue(runId, run.workflow_config_id, config.name, config.description, stepIndex, resumeData, flatSteps, run.user_context, authHeaders, run.owner_subject ?? null).catch(
     (err) => {
       console.error(`[WorkflowEngine] Resume error in run ${runId}:`, err);
     },
@@ -233,6 +261,7 @@ async function executeSteps(
   userContext: string | null,
   authHeaders: Record<string, string>,
   startFrom: number,
+  ownerSubject: Subject | null,
 ): Promise<void> {
   const col = await getCollection<WorkflowRunDocument>(RUNS_COLLECTION);
   const completedSteps: StepContext[] = [];
@@ -257,6 +286,31 @@ async function executeSteps(
 
   for (let i = startFrom; i < steps.length; i++) {
     const step = steps[i];
+
+    // Per-step authorization gate (CAS) — the @subbaksh fix: workflow agent-use
+    // is decided here in the UI server, not in DA. Org-admin bypass + standing
+    // team/global grants apply via CAS. System runs (no owner token) skip this.
+    //
+    // Per-step agent-use is authorized here in the UI server via CAS. Standing
+    // grants come from the share/agent-access modal (team→agent tuples) and
+    // global wildcards; org admins pass via the CAS bypass. Set
+    // WORKFLOW_CAS_STEP_GATE=false to fall back to DA-only gating.
+    if (ownerSubject && process.env.WORKFLOW_CAS_STEP_GATE !== "false") {
+      const decision = await authorize(
+        {
+          subject: ownerSubject,
+          resource: { type: "agent", id: step.agent_id },
+          action: "use",
+          trustedContext: { workflowRunId: runId },
+        },
+        { correlationId: runId },
+      );
+      if (decision.decision !== "ALLOW") {
+        await markStepFailed(col, runId, i, `Not authorized to use agent "${step.agent_id}" (${decision.reason})`);
+        await markRunFailed(col, runId);
+        return;
+      }
+    }
 
     // Mark step running
     await col.updateOne(
@@ -346,6 +400,7 @@ async function executeSteps(
           message: attemptPrompt,
           conversation_id: conversationId,
           agent_id: step.agent_id,
+          workflow_config_id: workflowConfigId,
           protocol: "agui",
           config_override: {
             backend: {
@@ -497,6 +552,7 @@ async function resumeAndContinue(
   steps: WorkflowStep[],
   userContext: string | null,
   authHeaders: Record<string, string>,
+  ownerSubject: Subject | null,
 ): Promise<void> {
   const col = await getCollection<WorkflowRunDocument>(RUNS_COLLECTION);
   const step = steps[stepIndex];
@@ -525,6 +581,7 @@ async function resumeAndContinue(
     body: {
       conversation_id: conversationId,
       agent_id: step.agent_id,
+      workflow_config_id: workflowConfigId,
       resume_data: resumeData,
       protocol: "agui",
       config_override: {
@@ -608,7 +665,12 @@ async function resumeAndContinue(
   }
 
   // Continue with remaining steps
-  await executeSteps(runId, workflowConfigId, workflowName, workflowDescription, steps, userContext, authHeaders, stepIndex + 1);
+  await executeSteps(runId, workflowConfigId, workflowName, workflowDescription, steps, userContext, authHeaders, stepIndex + 1, ownerSubject);
+}
+
+function ownerSubjectFromAuthHeaders(authHeaders: Record<string, string>): Subject | null {
+  const sub = runOwnerSubject(authHeaders);
+  return sub ? { type: "user", id: sub } : null;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -718,8 +780,9 @@ function buildWorkflowContextPrefix(
 
   // --- Critical: User interaction ---
   ctx += "## Critical: User Interaction\n";
-  ctx += "The user does NOT have access to this chat. All interaction with the user must happen through the `require_user_input` tool.\n";
-  ctx += "If that tool is not available and you cannot proceed without user input, state the reason and stop.\n\n";
+  ctx += "The user does NOT have access to this chat. All interaction with the user must happen through the `request_user_input` tool.\n";
+  ctx += "When a step must pass data to later steps, call `request_user_input` if needed, then persist outputs with `write_file` (for example `choices.txt` at the filesystem root).\n";
+  ctx += "If that tool is not available and you cannot proceed without user input, write the reason to error.txt and stop.\n\n";
 
   // --- Critical: Reporting failure ---
   ctx += "## Critical: Reporting Failure\n";

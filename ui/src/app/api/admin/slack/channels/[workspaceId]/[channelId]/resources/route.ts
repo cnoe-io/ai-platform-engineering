@@ -1,19 +1,19 @@
 import { NextRequest } from "next/server";
 
-import { ApiError, successResponse, withErrorHandler } from "@/lib/api-middleware";
-import { readOpenFgaTuples, writeOpenFgaTuples } from "@/lib/rbac/openfga";
+import { ApiError,successResponse,withErrorHandler } from "@/lib/api-middleware";
+import { readOpenFgaTuples,writeOpenFgaTuples } from "@/lib/rbac/openfga";
 import {
-  replaceSlackChannelGrants,
-  SLACK_CHANNEL_GRANT_RESOURCE_TYPES,
-  slackChannelSubjectId,
-  type SlackChannelGrantInput,
+replaceSlackChannelGrants,
+SLACK_CHANNEL_GRANT_RESOURCE_TYPES,
+slackChannelSubjectId,
+type SlackChannelGrantInput,
 } from "@/lib/rbac/slack-channel-grant-store";
 import { slackChannelGrantRelationship } from "@/lib/rbac/slack-channel-rebac";
 import { buildUniversalRebacTupleDiff } from "@/lib/rbac/tuple-builders";
 import type { UniversalRebacResourceAction } from "@/types/rbac-universal";
 import type { SlackChannelGrantResourceType } from "@/types/slack-rebac";
 
-import { withSlackChannelRebacManageAuth, withSlackChannelRebacViewAuth } from "../../../_lib";
+import { withSlackChannelRebacManageAuth,withSlackChannelRebacViewAuth } from "../../../_lib";
 
 interface RouteContext {
   params: Promise<{ workspaceId: string; channelId: string }>;

@@ -319,3 +319,268 @@ def test_tools_call_denies_when_agent_tool_grant_is_missing(monkeypatch: pytest.
 
     assert response.status.code == bridge.PERMISSION_DENIED
     assert "agent tool grant" in response.status.message
+
+
+def _tools_call_request(bridge, *, tool_name: str, agent_id: str = "agent-test-april-2025"):
+    """Build a signed tools/call CheckRequest for the caller-keyed tests."""
+    context_header, signature = bridge.build_agent_context_header(
+        agent_id,
+        secret="test-secret",
+    )
+    return bridge.build_check_request(
+        headers={
+            "authorization": "Bearer valid-token",
+            "x-caipe-agent-context": context_header,
+            "x-caipe-agent-context-signature": signature,
+        },
+        path="/mcp/jira",
+        method="POST",
+        body=f'{{"jsonrpc":"2.0","method":"tools/call","params":{{"name":"{tool_name}"}}}}',
+    )
+
+
+def test_caller_keyed_denies_user_with_agent_tool_but_no_caller_tool(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """S5b / FR-012a: the agent can call the tool and the user can use the agent,
+    but the user does NOT hold the tool directly → deny (closes the
+    confused-deputy escalation for human callers)."""
+    bridge = _load_bridge_module()
+    events: list[dict] = []
+
+    def _fake_check_openfga(user: str, relation: str, obj: str):
+        # Everything the AGENT-keyed path needs is granted; the only thing
+        # missing is the CALLER's own tool grant.
+        return (user, relation, obj) in {
+            ("user:user-sub-123", "can_call", "mcp_gateway:list"),
+            ("user:user-sub-123", "can_use", "agent:agent-test-april-2025"),
+            ("agent:agent-test-april-2025", "can_call", "tool:jira/search"),
+        }
+
+    monkeypatch.setattr(bridge, "_decode_verified_bearer_subject", lambda _auth_header: "user-sub-123")
+    monkeypatch.setattr(bridge, "_decode_verified_bearer_claims", lambda _auth_header: {"sub": "user-sub-123"})
+    monkeypatch.setattr(bridge, "_check_openfga", _fake_check_openfga)
+    monkeypatch.setattr(bridge, "log_authz_decision", lambda **event: events.append(event), raising=False)
+    monkeypatch.setattr(bridge, "BYPASS_SUBS", frozenset())
+    monkeypatch.setattr(bridge, "AGENT_CONTEXT_HMAC_SECRET", "test-secret")
+    monkeypatch.setattr(bridge, "CALLER_TOOL_CHECK_ENABLED", True)
+
+    request = _tools_call_request(bridge, tool_name="search")
+    response = bridge.OpenFgaAuthorizationService().Check(request, None)
+
+    assert response.status.code == bridge.PERMISSION_DENIED
+    assert "caller lacks tool grant" in response.status.message
+    assert events[-1]["outcome"] == "deny"
+    assert events[-1]["reason_code"] == "DENY_CALLER_TOOL"
+    assert events[-1]["resource_ref"] == "user:user-sub-123 can_call tool:jira/search"
+
+
+def test_caller_keyed_allows_service_account_with_both_grants(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """S5 / FR-012: a service-account caller with BOTH the agent-use+agent-tool
+    grants AND its own caller tool grant is allowed, and the allow is audited."""
+    bridge = _load_bridge_module()
+    events: list[dict] = []
+
+    def _fake_check_openfga(user: str, relation: str, obj: str):
+        return (user, relation, obj) in {
+            ("service_account:sa-sub", "can_call", "mcp_gateway:list"),
+            ("service_account:sa-sub", "can_use", "agent:agent-test-april-2025"),
+            ("agent:agent-test-april-2025", "can_call", "tool:jira/search"),
+            ("service_account:sa-sub", "can_call", "tool:jira/search"),
+        }
+
+    monkeypatch.setattr(bridge, "_decode_verified_bearer_subject", lambda _auth_header: "sa-sub")
+    monkeypatch.setattr(
+        bridge,
+        "_decode_verified_bearer_claims",
+        lambda _auth_header: {
+            "sub": "sa-sub",
+            "preferred_username": "service-account-caipe-sa-incident-bot-a1b2c3",
+        },
+    )
+    monkeypatch.setattr(bridge, "_check_openfga", _fake_check_openfga)
+    monkeypatch.setattr(bridge, "log_authz_decision", lambda **event: events.append(event), raising=False)
+    monkeypatch.setattr(bridge, "BYPASS_SUBS", frozenset())
+    monkeypatch.setattr(bridge, "AGENT_CONTEXT_HMAC_SECRET", "test-secret")
+    monkeypatch.setattr(bridge, "CALLER_TOOL_CHECK_ENABLED", True)
+
+    request = _tools_call_request(bridge, tool_name="search")
+    response = bridge.OpenFgaAuthorizationService().Check(request, None)
+
+    assert response.status.code == bridge.OK
+    # The caller-keyed allow is audited (FR-027/SC-009).
+    caller_tool_allow = [
+        e
+        for e in events
+        if e["reason_code"] == "OK_CALLER_TOOL"
+        and e["resource_ref"] == "service_account:sa-sub can_call tool:jira/search"
+    ]
+    assert len(caller_tool_allow) == 1
+    assert caller_tool_allow[0]["outcome"] == "allow"
+
+
+def test_caller_keyed_denies_service_account_without_caller_tool(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A service-account caller that can use the agent (and the agent can call the
+    tool) but lacks its OWN tool grant is denied."""
+    bridge = _load_bridge_module()
+
+    def _fake_check_openfga(user: str, relation: str, obj: str):
+        return (user, relation, obj) in {
+            ("service_account:sa-sub", "can_call", "mcp_gateway:list"),
+            ("service_account:sa-sub", "can_use", "agent:agent-test-april-2025"),
+            ("agent:agent-test-april-2025", "can_call", "tool:jira/search"),
+        }
+
+    monkeypatch.setattr(bridge, "_decode_verified_bearer_subject", lambda _auth_header: "sa-sub")
+    monkeypatch.setattr(
+        bridge,
+        "_decode_verified_bearer_claims",
+        lambda _auth_header: {
+            "sub": "sa-sub",
+            "preferred_username": "service-account-caipe-sa-incident-bot-a1b2c3",
+        },
+    )
+    monkeypatch.setattr(bridge, "_check_openfga", _fake_check_openfga)
+    monkeypatch.setattr(bridge, "log_authz_decision", lambda **_event: None, raising=False)
+    monkeypatch.setattr(bridge, "BYPASS_SUBS", frozenset())
+    monkeypatch.setattr(bridge, "AGENT_CONTEXT_HMAC_SECRET", "test-secret")
+    monkeypatch.setattr(bridge, "CALLER_TOOL_CHECK_ENABLED", True)
+
+    request = _tools_call_request(bridge, tool_name="search")
+    response = bridge.OpenFgaAuthorizationService().Check(request, None)
+
+    assert response.status.code == bridge.PERMISSION_DENIED
+    assert "caller lacks tool grant" in response.status.message
+
+
+def test_caller_keyed_check_disabled_keeps_legacy_agent_only_behavior(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Rollout safety (FR-012c): with the flag OFF, a caller who lacks the tool
+    directly is still allowed via the agent grant (legacy behavior preserved),
+    and NO caller-keyed check is performed."""
+    bridge = _load_bridge_module()
+    checks: list[tuple[str, str, str]] = []
+
+    def _fake_check_openfga(user: str, relation: str, obj: str):
+        checks.append((user, relation, obj))
+        return (user, relation, obj) in {
+            ("user:user-sub-123", "can_call", "mcp_gateway:list"),
+            ("user:user-sub-123", "can_use", "agent:agent-test-april-2025"),
+            ("agent:agent-test-april-2025", "can_call", "tool:jira/search"),
+        }
+
+    monkeypatch.setattr(bridge, "_decode_verified_bearer_subject", lambda _auth_header: "user-sub-123")
+    monkeypatch.setattr(bridge, "_decode_verified_bearer_claims", lambda _auth_header: {"sub": "user-sub-123"})
+    monkeypatch.setattr(bridge, "_check_openfga", _fake_check_openfga)
+    monkeypatch.setattr(bridge, "log_authz_decision", lambda **_event: None, raising=False)
+    monkeypatch.setattr(bridge, "BYPASS_SUBS", frozenset())
+    monkeypatch.setattr(bridge, "AGENT_CONTEXT_HMAC_SECRET", "test-secret")
+    monkeypatch.setattr(bridge, "CALLER_TOOL_CHECK_ENABLED", False)
+
+    request = _tools_call_request(bridge, tool_name="search")
+    response = bridge.OpenFgaAuthorizationService().Check(request, None)
+
+    assert response.status.code == bridge.OK
+    # No caller-keyed (user→tool) check was performed.
+    assert ("user:user-sub-123", "can_call", "tool:jira/search") not in checks
+
+
+def test_preferred_username_from_metadata_reads_caipe_auth() -> None:
+    # #49: the gateway passes preferred_username in caipe.auth metadata because it
+    # consumes the bearer and the bridge can't re-decode it.
+    bridge = _load_bridge_module()
+    request = bridge.build_check_request(
+        headers={},
+        metadata_subject="sa-sub",
+        metadata_preferred_username="service-account-caipe-sa-incident-bot-a1b2c3",
+    )
+    assert bridge._preferred_username_from_metadata(request) == (
+        "service-account-caipe-sa-incident-bot-a1b2c3"
+    )
+    # Absent → None
+    assert bridge._preferred_username_from_metadata(bridge.build_check_request(headers={})) is None
+
+
+def test_request_caller_is_service_account_prefers_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Metadata says SA; there is NO bearer (gateway consumed it). Must detect SA
+    # from metadata alone — the #49 production path.
+    bridge = _load_bridge_module()
+    sa_request = bridge.build_check_request(
+        headers={},
+        metadata_subject="sa-sub",
+        metadata_preferred_username="service-account-caipe-sa-bot-abc",
+    )
+    assert bridge.request_caller_is_service_account(sa_request, {}) is True
+
+    # Metadata present, human preferred_username → not an SA.
+    human_request = bridge.build_check_request(
+        headers={},
+        metadata_subject="kevin-sub",
+        metadata_preferred_username="kevin@example.com",
+    )
+    assert bridge.request_caller_is_service_account(human_request, {}) is False
+
+
+def test_request_caller_is_service_account_falls_back_to_bearer(monkeypatch: pytest.MonkeyPatch) -> None:
+    # No metadata preferred_username → fall back to decoding the bearer header
+    # (local diagnostics / metadata-less path).
+    bridge = _load_bridge_module()
+    monkeypatch.setattr(
+        bridge,
+        "_decode_verified_bearer_claims",
+        lambda auth: {"preferred_username": "service-account-x"} if auth == "Bearer t" else None,
+    )
+    no_meta = bridge.build_check_request(headers={"authorization": "Bearer t"})
+    assert bridge.request_caller_is_service_account(no_meta, {"authorization": "Bearer t"}) is True
+    assert bridge.request_caller_is_service_account(no_meta, {}) is False
+
+
+def test_check_namespaces_service_account_from_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
+    # End-to-end: an SA tools/call with NO bearer but SA metadata must graph as
+    # service_account:<sub> (the #49 fix). Pre-fix it graphed user:<sub>.
+    bridge = _load_bridge_module()
+    checks: list[tuple[str, str, str]] = []
+
+    def _fake_check_openfga(user: str, relation: str, obj: str):
+        checks.append((user, relation, obj))
+        return (user, relation, obj) in {
+            ("service_account:sa-sub", "can_call", "mcp_gateway:list"),
+            ("service_account:sa-sub", "can_use", "agent:agent-test-april-2025"),
+            ("agent:agent-test-april-2025", "can_call", "tool:jira/search"),
+            ("service_account:sa-sub", "can_call", "tool:jira/search"),
+        }
+
+    # Subject resolved from metadata (no bearer). preferred_username also in metadata.
+    monkeypatch.setattr(bridge, "_decode_verified_bearer_subject", lambda _auth: None)
+    monkeypatch.setattr(bridge, "_decode_verified_bearer_claims", lambda _auth: None)
+    monkeypatch.setattr(bridge, "_check_openfga", _fake_check_openfga)
+    monkeypatch.setattr(bridge, "log_authz_decision", lambda **_event: None, raising=False)
+    monkeypatch.setattr(bridge, "BYPASS_SUBS", frozenset())
+    monkeypatch.setattr(bridge, "AGENT_CONTEXT_HMAC_SECRET", "test-secret")
+    monkeypatch.setattr(bridge, "CALLER_TOOL_CHECK_ENABLED", True)
+
+    context_header, signature = bridge.build_agent_context_header(
+        "agent-test-april-2025", secret="test-secret"
+    )
+    request = bridge.build_check_request(
+        headers={
+            "x-caipe-agent-context": context_header,
+            "x-caipe-agent-context-signature": signature,
+        },
+        path="/mcp/jira",
+        method="POST",
+        body='{"jsonrpc":"2.0","method":"tools/call","params":{"name":"search"}}',
+        metadata_subject="sa-sub",
+        metadata_preferred_username="service-account-caipe-sa-incident-bot-a1b2c3",
+    )
+    response = bridge.OpenFgaAuthorizationService().Check(request, None)
+
+    assert response.status.code == bridge.OK
+    # The caller was graphed as service_account:, NOT user: — the #49 fix.
+    assert ("service_account:sa-sub", "can_call", "tool:jira/search") in checks
+    assert not any(u.startswith("user:sa-sub") for (u, _, _) in checks)

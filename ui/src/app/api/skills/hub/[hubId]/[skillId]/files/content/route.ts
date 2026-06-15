@@ -1,17 +1,17 @@
-import { NextRequest } from "next/server";
-import { isMongoDBConfigured } from "@/lib/mongodb";
 import {
-  withAuth,
-  withErrorHandler,
-  successResponse,
-  ApiError,
+resolveHubAndSkillDir,
+sanitizeRelPath,
+} from "@/app/api/skills/hub/[hubId]/[skillId]/files/route";
+import {
+ApiError,
+successResponse,
+withAuth,
+withErrorHandler,
 } from "@/lib/api-middleware";
 import { resolveHubToken } from "@/lib/hub-crawl";
-import {
-  resolveHubAndSkillDir,
-  sanitizeRelPath,
-} from "@/app/api/skills/hub/[hubId]/[skillId]/files/route";
+import { isMongoDBConfigured } from "@/lib/mongodb";
 import { requireResourcePermission } from "@/lib/rbac/resource-authz";
+import { NextRequest } from "next/server";
 
 const STORAGE_TYPE = isMongoDBConfigured ? "mongodb" : "none";
 const MAX_BYTES = 1_000_000; // 1 MB cap to keep responses small.

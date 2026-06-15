@@ -1,10 +1,10 @@
 "use client";
 
-import React from "react";
-import { FileText, GitBranch, Cloud, Zap, X } from "lucide-react";
-import { cn } from "@/lib/utils";
 import { labelFor } from "@/hooks/use-agent-tools";
-import type { TaskStep, TaskConfigCategory } from "@/types/task-config";
+import { cn } from "@/lib/utils";
+import type { TaskConfigCategory,TaskStep } from "@/types/task-config";
+import { Cloud,FileText,GitBranch,X,Zap } from "lucide-react";
+import React from "react";
 
 export interface WorkflowTemplate {
   id: string;

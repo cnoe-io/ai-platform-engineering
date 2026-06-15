@@ -1,7 +1,7 @@
 "use client";
 
 import { useRbacPermissions } from "@/hooks/useRbacPermissions";
-import type { RbacResource, RbacScope } from "@/lib/rbac/types";
+import type { RbacResource,RbacScope } from "@/lib/rbac/types";
 
 interface RbacGuardProps {
   /** Resource to check (e.g. "admin_ui", "rag") */

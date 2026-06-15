@@ -1,14 +1,13 @@
 // POST /api/admin/migrate-conversations - Migrate localStorage conversations to MongoDB
 
-import { NextRequest, NextResponse } from 'next/server';
-import { getCollection, isMongoDBConfigured } from '@/lib/mongodb';
 import {
-  getAuthFromBearerOrSession,
-  withErrorHandler,
-  successResponse,
-  requireRbacPermission,
-  ApiError,
+getAuthFromBearerOrSession,
+requireRbacPermission,
+successResponse,
+withErrorHandler
 } from '@/lib/api-middleware';
+import { getCollection,isMongoDBConfigured } from '@/lib/mongodb';
+import { NextRequest,NextResponse } from 'next/server';
 
 interface MigrateRequest {
   conversations: Array<{

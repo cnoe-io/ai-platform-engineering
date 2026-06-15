@@ -1,34 +1,34 @@
 // POST /api/admin/teams/[id]/members - Add members to a team
 // DELETE /api/admin/teams/[id]/members - Remove a member from a team
 
-import { NextRequest, NextResponse } from 'next/server';
-import { ObjectId } from 'mongodb';
-import { getCollection, isMongoDBConfigured } from '@/lib/mongodb';
 import {
-  getAuthFromBearerOrSession,
-  withErrorHandler,
-  successResponse,
-  ApiError,
-  validateEmail,
+ApiError,
+getAuthFromBearerOrSession,
+successResponse,
+validateEmail,
+withErrorHandler,
 } from '@/lib/api-middleware';
+import { getCollection,isMongoDBConfigured } from '@/lib/mongodb';
+import { writeOpenFgaTuples } from '@/lib/rbac/openfga';
 import { requireTeamMembershipManagementPermission } from '@/lib/rbac/team-admin-guards';
 import {
-  listActiveTeamMembershipSourcesForTeamUser,
-  markTeamMembershipSourceRemoved,
-  upsertTeamMembershipSource,
+listActiveTeamMembershipSourcesForTeamUser,
+markTeamMembershipSourceRemoved,
+upsertTeamMembershipSource,
 } from '@/lib/rbac/team-membership-source-store';
 import { findUserRoleInTeam } from '@/lib/rbac/team-membership-store';
 import {
-  buildTeamMembershipTuples,
-  mongoRoleToOpenFgaRelations,
-  resolveKeycloakUserSubject,
-  writeTeamMembershipTuples,
-  type TeamMemberRelation,
+buildTeamMembershipTuples,
+mongoRoleToOpenFgaRelations,
+resolveKeycloakUserSubject,
+writeTeamMembershipTuples,
+type TeamMemberRelation,
 } from '@/lib/rbac/team-membership-sync';
 import { readTeamOpenFgaTuples } from '@/lib/rbac/team-openfga-sync-status';
-import { writeOpenFgaTuples } from '@/lib/rbac/openfga';
 import type { TeamMembershipSource } from '@/types/identity-group-sync';
 import type { Team } from '@/types/teams';
+import { ObjectId } from 'mongodb';
+import { NextRequest,NextResponse } from 'next/server';
 
 type TeamDocument = Omit<Team, '_id'> & { _id: ObjectId };
 

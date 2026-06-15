@@ -17,12 +17,12 @@
  * legitimate denies.
  */
 
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest,NextResponse } from "next/server";
 
 import {
-  getAuthFromBearerOrSession,
-  successResponse,
-  withErrorHandler,
+getAuthFromBearerOrSession,
+successResponse,
+withErrorHandler,
 } from "@/lib/api-middleware";
 import { evaluateAgentAccess } from "@/lib/rbac/pdp-shared";
 

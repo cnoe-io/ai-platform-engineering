@@ -39,8 +39,8 @@
  * store.
  */
 
-import { create } from "zustand";
 import type { CrawlEvent } from "@/lib/crawl-events";
+import { create } from "zustand";
 
 // ---------------------------------------------------------------------------
 // Run model

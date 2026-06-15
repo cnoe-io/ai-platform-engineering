@@ -3,8 +3,8 @@
  * Mirrors dynamic_agents KeycloakSyncService resource registration via Admin REST API.
  */
 
-import { getKeycloakAdminToken } from "@/lib/rbac/keycloak-admin";
 import { listRebacEnforcementStatuses } from "@/lib/rbac/enforcement-status";
+import { getKeycloakAdminToken } from "@/lib/rbac/keycloak-admin";
 import type { UniversalRebacResourceType } from "@/types/rbac-universal";
 
 const TASK_SCOPES = ["view", "invoke", "configure", "delete"] as const;

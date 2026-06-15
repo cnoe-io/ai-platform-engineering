@@ -6,9 +6,13 @@
  * generate-versioned-docs.js, never committed.
  *
  * Retention policy:
- *   - Keep every patch of the current minor series.
+ *   - Keep the latest MAX_PATCHES patches of the current minor series.
  *   - Keep only the highest patch of each older minor series.
  *   - Keep at most MAX_MINORS minor series in total (newest first).
+ *
+ * MAX_PATCHES caps versioned-docs build size. Each additional version adds
+ * ~1-2 GB to the Docusaurus static-generation heap; 5 patches is the tested
+ * safe ceiling on the 8 GB CI runner.
  *
  * Usage:
  *   NEW_VERSION=0.5.3 node docs/scripts/update-published-versions.js
@@ -25,6 +29,7 @@ const DOCS_DIR = path.join(__dirname, '..');
 const PUBLISHED_JSON = path.join(DOCS_DIR, 'published-versions.json');
 
 const MAX_MINORS = 3;
+const MAX_PATCHES = 5; // keep last 5 patches of the current minor
 
 function compareVersionsDesc(a, b) {
   const pa = a.split('.').map(Number);
@@ -72,8 +77,8 @@ const keep = new Set();
 
 for (const minor of sortedMinors.slice(0, MAX_MINORS)) {
   if (minor === currentMinor) {
-    // Keep every patch of the current minor series.
-    byMinor[minor].forEach((v) => keep.add(v));
+    // Keep only the latest MAX_PATCHES patches of the current minor series.
+    byMinor[minor].slice(0, MAX_PATCHES).forEach((v) => keep.add(v));
   } else {
     // Keep only the highest patch of older minor series.
     keep.add(byMinor[minor][0]);

@@ -1,24 +1,25 @@
 // GET /api/chat/conversations - List user's conversations
 // POST /api/chat/conversations - Create new conversation (or return existing via upsert)
 
-import { NextRequest, NextResponse } from 'next/server';
-import { v4 as uuidv4 } from 'uuid';
-import { getCollection, isMongoDBConfigured } from '@/lib/mongodb';
 import {
-  getAuthFromBearerOrSession,
-  withErrorHandler,
-  successResponse,
-  paginatedResponse,
-  validateRequired,
-  getPaginationParams,
-  requireRbacPermission,
+getAuthFromBearerOrSession,
+getPaginationParams,
+paginatedResponse,
+requireRbacPermission,
+successResponse,
+validateRequired,
+withErrorHandler,
 } from '@/lib/api-middleware';
-import type { Conversation, CreateConversationRequest, ClientType } from '@/types/mongodb';
-import { VALID_CLIENT_TYPES } from '@/types/mongodb';
-import { buildParticipants } from '@/types/a2a';
-import packageJson from '../../../../../package.json';
+import { getCollection,isMongoDBConfigured } from '@/lib/mongodb';
 import { filterConversationsByImplicitOrExplicitPermission } from '@/lib/rbac/conversation-implicit-authz';
 import { requireAgentUsePermission } from '@/lib/rbac/openfga-agent-authz';
+import { writeOpenFgaTuples } from '@/lib/rbac/openfga';
+import { buildParticipants } from '@/types/a2a';
+import type { ClientType,Conversation,CreateConversationRequest } from '@/types/mongodb';
+import { VALID_CLIENT_TYPES } from '@/types/mongodb';
+import { NextRequest,NextResponse } from 'next/server';
+import { v4 as uuidv4 } from 'uuid';
+import packageJson from '../../../../../package.json';
 
 type ConversationWithAgentDisplay = Conversation & {
   agent_id?: string;
@@ -182,10 +183,13 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
 
   if (body.agent_id) {
     // Dynamic agent conversation — gate on agent-level can_use, not supervisor#invoke.
+    // Service-account callers are graphed as `service_account:<sub>` (their grants
+    // live under that type); see requireAgentUsePermission (spec 2026-06-05).
     const denial = await requireAgentUsePermission({
       subject: session.sub,
       agentId: body.agent_id,
       email: user.email,
+      isServiceAccount: session.isServiceAccount,
     });
     if (denial) {
       return denial;
@@ -203,6 +207,10 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   // permitted to set owner_id on behalf of users.
   const ownerId = body.owner_id || user.email;
 
+  // QUAL-8: extract once; reused in both idempotency and new-conversation paths.
+  const isSaCaller = session.isServiceAccount === true && typeof session.sub === 'string' && session.sub.trim() !== '';
+  const saSub = isSaCaller ? session.sub.trim() : undefined;
+
   // Idempotency: if an idempotency_key is provided, return the existing conversation
   // instead of creating a duplicate. This maintains a 1-1 mapping between integration-
   // specific identities (e.g. Slack thread_ts) and the conversation_id used by
@@ -212,6 +220,22 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       idempotency_key: body.idempotency_key,
     });
     if (existing) {
+      // If the returning caller is a service account, ensure the writer grant exists
+      // (write-if-missing). This heals conversations created before this fix was deployed.
+      if (saSub) {
+        try {
+          await writeOpenFgaTuples({
+            writes: [{
+              user: `service_account:${saSub}`,
+              relation: 'writer',
+              object: `conversation:${existing._id}`,
+            }],
+            deletes: [],
+          });
+        } catch (err) {
+          console.warn('[conversations/route] idempotency-hit SA writer grant failed (best-effort):', err);
+        }
+      }
       return successResponse({ conversation: existing, created: false }, 200);
     }
   }
@@ -236,6 +260,9 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       ? { owner_subject: session.sub.trim(), owner_identity_version: 2 }
       : {}),
     ...(body.idempotency_key && { idempotency_key: body.idempotency_key }),
+    // Provenance: stamp the SA sub so the audit/reconcile step can find SA-created
+    // conversations and verify/repair the writer grant. Only set for SA callers.
+    ...(saSub ? { created_by_service_account: saSub } : {}),
     participants: buildParticipants(body.agent_id, ownerId),
     created_at: now,
     updated_at: now,
@@ -252,6 +279,26 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   };
 
   await conversations.insertOne(newConversation);
+
+  // Auto-grant: when the creating caller is a service account, write an explicit
+  // OpenFGA writer tuple so the SA can act in this conversation (PATCH metadata,
+  // stream/start, etc.). The human's owner_id is kept unchanged for auditability.
+  // Best-effort: if the grant write fails we still return the conversation — the
+  // startup/audit reconciler is the backstop.
+  if (saSub) {
+    try {
+      await writeOpenFgaTuples({
+        writes: [{
+          user: `service_account:${saSub}`,
+          relation: 'writer',
+          object: `conversation:${newConversation._id}`,
+        }],
+        deletes: [],
+      });
+    } catch (err) {
+      console.warn('[conversations/route] SA writer grant failed (best-effort):', err);
+    }
+  }
 
   return successResponse({ conversation: newConversation, created: true }, 201);
 });

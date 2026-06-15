@@ -1,18 +1,18 @@
 "use client";
 
-import React from "react";
-import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { AuthGuard } from "@/components/auth-guard";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Bot, Server, Cpu, MessageSquare } from "lucide-react";
-import { DynamicAgentsTab } from "@/components/dynamic-agents/DynamicAgentsTab";
-import { MCPServersTab } from "@/components/dynamic-agents/MCPServersTab";
-import { LLMProvidersTab } from "@/components/dynamic-agents/LLMProvidersTab";
 import { ConversationsTab } from "@/components/dynamic-agents/ConversationsTab";
+import { DynamicAgentsTab } from "@/components/dynamic-agents/DynamicAgentsTab";
+import { LLMProvidersTab } from "@/components/dynamic-agents/LLMProvidersTab";
+import { MCPServersTab } from "@/components/dynamic-agents/MCPServersTab";
+import { UnsavedChangesDialog } from "@/components/task-builder/UnsavedChangesDialog";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tabs,TabsContent,TabsList,TabsTrigger } from "@/components/ui/tabs";
 import { useAdminTabGates } from "@/hooks/useAdminTabGates";
 import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
-import { UnsavedChangesDialog } from "@/components/task-builder/UnsavedChangesDialog";
+import { Bot,Cpu,MessageSquare,Server } from "lucide-react";
+import { usePathname,useRouter,useSearchParams } from "next/navigation";
+import React from "react";
 
 const BASE_VISIBLE_TABS = ["agents", "mcp-servers", "llm-models"] as const;
 

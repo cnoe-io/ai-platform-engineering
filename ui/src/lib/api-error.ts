@@ -18,7 +18,7 @@
  * file so existing route-handler imports (`import { ApiError } from
  * "@/lib/api-middleware"`) keep working unchanged.
  */
-import type { AuthFailureAction, AuthFailureReason } from "./auth-error";
+import type { AuthFailureAction,AuthFailureReason } from "./auth-error";
 
 export class ApiError extends Error {
   constructor(

@@ -1,8 +1,8 @@
-import { NextRequest } from "next/server";
-import { ApiError, getAuthFromBearerOrSession, requireRbacPermission, successResponse, withErrorHandler } from "@/lib/api-middleware";
-import { logOpenFgaRebacAuditEvent } from "@/lib/rbac/audit";
+import { ApiError,getAuthFromBearerOrSession,requireRbacPermission,successResponse,withErrorHandler } from "@/lib/api-middleware";
 import { explainAccess } from "@/lib/rbac/access-explainer";
+import { logOpenFgaRebacAuditEvent } from "@/lib/rbac/audit";
 import type { UniversalRebacRelationship } from "@/types/rbac-universal";
+import { NextRequest } from "next/server";
 
 export const POST = withErrorHandler(async (request: NextRequest) => {
   const { user, session } = await getAuthFromBearerOrSession(request);

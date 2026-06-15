@@ -112,7 +112,7 @@ beforeEach(() => {
   process.env.KEYCLOAK_REALM = "caipe";
   for (const key of Object.keys(collections)) delete collections[key];
   mockGetAuthFromBearerOrSession.mockResolvedValue({
-    user: { email: "admin@example.com", name: "Admin" },
+    user: { email: "admin@example.com", name: "Admin", role: "admin" },
     session: { sub: "admin-sub", role: "admin", user: { email: "admin@example.com" } },
   });
   mockRequireRbacPermission.mockResolvedValue(undefined);

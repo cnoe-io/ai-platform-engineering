@@ -7,21 +7,21 @@
  * Feeds StreamEvent[] into useAgentTimeline() → TimelineData → <AgentTimeline />.
  */
 
-import { useMemo, useCallback, useState } from "react";
-import { cn } from "@/lib/utils";
-import { useAgentTimeline } from "@/hooks/useDynamicAgentTimeline";
 import { AgentTimeline } from "@/components/chat/DynamicAgentTimeline";
-import { MetadataInputForm, type InputField } from "@/components/chat/MetadataInputForm";
+import { MetadataInputForm,type InputField } from "@/components/chat/MetadataInputForm";
 import { ToolApprovalCard } from "@/components/chat/ToolApprovalCard";
 import { AgentAvatar } from "@/components/dynamic-agents/AgentAvatar";
 import {
-  Tooltip,
-  TooltipTrigger,
-  TooltipContent,
+Tooltip,
+TooltipContent,
+TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useAgentTimeline } from "@/hooks/useDynamicAgentTimeline";
 import type { StreamEvent } from "@/lib/streaming/types";
+import { cn } from "@/lib/utils";
 import type { WfStepRun } from "@/store/workflow-exec-store";
 import type { StatusType } from "@/types/dynamic-agent-timeline";
+import { useCallback,useMemo,useState } from "react";
 
 // ═══════════════════════════════════════════════════════════════
 // Agent info lookup type
@@ -100,15 +100,17 @@ export function WorkflowStepTimeline({
   const isStreaming = step.status === "running" && isActive;
   const { data } = useAgentTimeline(events, isStreaming, turnStatus);
 
-  // Duration calculation
+  // Duration calculation — capture mount time via lazy useState initializer
+  // so the React compiler does not flag Date.now() as an impure call.
+  const [mountMs] = useState<number>(() => Date.now());
   const durationSec = useMemo(() => {
     if (!step.started_at) return undefined;
     const start = new Date(step.started_at).getTime();
     const end = step.completed_at
       ? new Date(step.completed_at).getTime()
-      : Date.now();
+      : mountMs;
     return Math.round((end - start) / 1000);
-  }, [step.started_at, step.completed_at]);
+  }, [step.started_at, step.completed_at, mountMs]);
 
   const hasRetries = (step.attempts || 1) > 1;
 

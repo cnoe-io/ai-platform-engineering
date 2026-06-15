@@ -1,11 +1,11 @@
 // Agentic Workflows Components
 // Barrel export for all Agentic Workflows related components
 
-export { AgentBuilderGallery } from "./AgentBuilderGallery";
 export {
-  AgentBuilderEditor,
-  AgentBuilderEditorDialog,
-  YamlImportDialog,
+AgentBuilderEditor,
+AgentBuilderEditorDialog,
+YamlImportDialog
 } from "./AgentBuilderEditor";
+export { AgentBuilderGallery } from "./AgentBuilderGallery";
 export { AgentBuilderRunner } from "./AgentBuilderRunner";
 export { WorkflowHistoryView } from "./WorkflowHistoryView";

@@ -1,3 +1,6 @@
+// assisted-by Codex Codex-sonnet-4-6
+import { randomBytes } from "crypto";
+
 export interface KeycloakRole {
   id: string;
   name: string;
@@ -11,6 +14,7 @@ export interface KeycloakIdpAlias {
   alias: string;
   displayName?: string;
   providerId: string;
+  enabled?: boolean;
 }
 
 export interface KeycloakIdpMapper {
@@ -314,6 +318,7 @@ export async function listIdpAliases(): Promise<KeycloakIdpAlias[]> {
     displayName:
       p.displayName !== undefined && p.displayName !== null ? String(p.displayName) : undefined,
     providerId: String(p.providerId ?? ""),
+    enabled: p.enabled !== false,
   }));
 }
 
@@ -435,6 +440,23 @@ export async function getRealmUserById(
   const enc = encodeURIComponent(userId);
   const response = await adminFetch(`/users/${enc}`, { method: "GET" });
   await assertOk(response, `getRealmUserById(${userId})`);
+  return (await response.json()) as Record<string, unknown>;
+}
+
+/**
+ * Like {@link getRealmUserById} but returns `null` on a Keycloak 404 instead
+ * of throwing. Used by the `/api/admin/users/resolve` BFF endpoint so a
+ * "no such user" lookup is a normal `data: null` result rather than a 500 —
+ * matching the "not found is a branch, not an error" contract its callers
+ * (the Slack bot's user-directory lookups) rely on.
+ */
+export async function getRealmUserByIdOrNull(
+  userId: string
+): Promise<Record<string, unknown> | null> {
+  const enc = encodeURIComponent(userId);
+  const response = await adminFetch(`/users/${enc}`, { method: "GET" });
+  if (response.status === 404) return null;
+  await assertOk(response, `getRealmUserByIdOrNull(${userId})`);
   return (await response.json()) as Record<string, unknown>;
 }
 
@@ -684,9 +706,9 @@ function parseUserIdFromLocation(location: string | null): string | null {
  * account (Keycloak matches by email). Idempotent: a 409 (already exists) falls
  * back to resolving the existing user by email.
  *
- * NOTE: the canonical JIT implementation will eventually live behind a shared
- * BFF endpoint that both this sync and the Slack bot call (tracked separately);
- * this is the in-process seed of that shared logic.
+ * Most callers should prefer {@link provisionShellUser}, which stamps the
+ * canonical `created_by` / `created_at` audit attributes; this lower-level
+ * helper is the create primitive it (and the bootstrap paths) build on.
  */
 export async function createFederatedShellUser(
   email: string,
@@ -731,6 +753,64 @@ export async function resolveOrProvisionUserSub(
   if (existing) return { sub: existing, created: false };
   const sub = await createFederatedShellUser(email, attributes);
   return { sub, created: true };
+}
+
+export interface ProvisionShellUserInput {
+  /** Email to resolve / provision. Lowercased before any Keycloak call. */
+  email: string;
+  /**
+   * Who is asking. Recorded verbatim as the `created_by` user attribute on a
+   * freshly-provisioned shell user so the origin of a JIT account is auditable
+   * (e.g. `slack-bot:jit`, `idp-sync:okta`). Ignored when the user already
+   * exists. Required so every provisioning surface is attributable.
+   */
+  source: string;
+  /**
+   * Extra user attributes to stamp on a newly-created shell user (e.g.
+   * `{ slack_user_id: ["U123"] }`). Merged with the canonical `created_by` /
+   * `created_at` attributes. Ignored when the user already exists.
+   */
+  attributes?: Record<string, string[]>;
+}
+
+export interface ProvisionShellUserResult {
+  sub: string;
+  created: boolean;
+}
+
+/**
+ * Canonical JIT "create-or-resolve a federated shell user" entry point
+ * (issue #1781). This is the single implementation every provisioning
+ * surface converges on:
+ *
+ * * the BFF endpoint `POST /api/admin/users/provision-shell` (called by the
+ *   Slack bot, and any future bot) is a thin wrapper over this function;
+ * * the in-process Okta / IdP directory sync calls it directly.
+ *
+ * It owns the spec-103 attribute contract: a newly-provisioned user is
+ * stamped with `created_by: [source]` and an RFC3339 `created_at`, plus any
+ * caller-supplied `attributes`. Resolution of an existing user never mutates
+ * attributes (idempotent). The federated-shell shape (no password, no required
+ * actions, `emailVerified: true`, 409 → re-query) is inherited from
+ * {@link createFederatedShellUser} via {@link resolveOrProvisionUserSub}.
+ */
+export async function provisionShellUser(
+  input: ProvisionShellUserInput
+): Promise<ProvisionShellUserResult> {
+  const email = input.email.trim().toLowerCase();
+  if (!email) {
+    throw new Error("provisionShellUser: email is required");
+  }
+  const source = input.source.trim();
+  if (!source) {
+    throw new Error("provisionShellUser: source is required");
+  }
+  const attributes: Record<string, string[]> = {
+    ...(input.attributes ?? {}),
+    created_by: [source],
+    created_at: [new Date().toISOString().replace(/\.\d{3}Z$/, "Z")],
+  };
+  return resolveOrProvisionUserSub(email, attributes);
 }
 
 function exactEmailUserId(email: string, users: Array<Record<string, unknown>>): string | null {
@@ -1316,6 +1396,16 @@ async function ensureBotOboPermissions(botClientId: string, policyName: string):
       oboAudienceTokenExchangePermissionId,
       policy.id
     ),
+    // Keycloak creates scope-permissions with UNANIMOUS by default. A single
+    // per-client policy under UNANIMOUS is functionally equivalent to
+    // AFFIRMATIVE, but the invariant checker flags UNANIMOUS to prevent a
+    // second policy being added later (e.g. during a future bot) from silently
+    // breaking OBO via cross-DENY. Set it here so it is never left as UNANIMOUS.
+    setScopePermissionDecisionStrategy(
+      realmManagementClient.id,
+      botTokenExchangePermissionId,
+      "AFFIRMATIVE"
+    ),
   ]);
 }
 
@@ -1652,4 +1742,203 @@ export async function findRealmUserIdByAttribute(
     }
   }
   return null;
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Service-account clients (spec 2026-06-05-service-accounts, WS-B / T008).
+//
+// Each service account is a dynamically-created Keycloak confidential client
+// with serviceAccountsEnabled — one client = one credential. The client's
+// service-account-user `sub` (UUID) becomes the OpenFGA subject id
+// (`service_account:<sub>`). These mirror the existing adminFetch/assertOk
+// helpers above; they add no new abstraction. assisted-by Claude claude-opus-4-8
+// ───────────────────────────────────────────────────────────────────────────
+
+/** The credential + identity read back after creating a service-account client. */
+export interface ServiceAccountClient {
+  /** Keycloak internal client UUID — used for secret/delete admin calls. */
+  clientUuid: string;
+  /** Keycloak clientId string, e.g. "caipe-sa-incident-bot-a1b2c3". */
+  clientId: string;
+  /** The generated client secret. Shown to the operator exactly once. */
+  clientSecret: string;
+  /** The service-account-user `sub` (UUID) — the OpenFGA subject id. */
+  saSub: string;
+}
+
+/**
+ * Turn a human-friendly name into a clientId-safe slug fragment: lowercase
+ * alphanumerics + hyphen, collapsed, trimmed, capped. Empty input (or a name
+ * with no usable characters) falls back to "sa" so the clientId is always
+ * well-formed.
+ */
+function slugifyServiceAccountName(name: string): string {
+  const slug = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 32)
+    .replace(/-+$/g, "");
+  return slug || "sa";
+}
+
+/**
+ * Parse the Keycloak client UUID out of the `Location` header returned by a
+ * `POST /clients` (201) — e.g. `…/admin/realms/caipe/clients/<uuid>`.
+ */
+function clientUuidFromLocation(location: string | null): string | null {
+  if (!location) return null;
+  const trimmed = location.replace(/\/$/, "");
+  const uuid = trimmed.slice(trimmed.lastIndexOf("/") + 1);
+  return uuid || null;
+}
+
+/**
+ * Create a confidential service-account client and read back its UUID, secret,
+ * and service-account-user `sub`.
+ *
+ * Shape mirrors the static `caipe-slack-bot` client (publicClient:false,
+ * serviceAccountsEnabled:true, standardFlowEnabled:false,
+ * directAccessGrantsEnabled:false). clientId = `caipe-sa-<slug>-<short-rand>`,
+ * where the random suffix guarantees uniqueness even when two teams reuse a
+ * display name (FR-002a allows that).
+ */
+export async function createServiceAccountClient(name: string): Promise<ServiceAccountClient> {
+  const slug = slugifyServiceAccountName(name);
+  const suffix = randomBytes(3).toString("hex"); // 6 hex chars
+  const clientId = `caipe-sa-${slug}-${suffix}`;
+
+  const createResponse = await adminFetch("/clients", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId,
+      name,
+      enabled: true,
+      publicClient: false,
+      bearerOnly: false,
+      standardFlowEnabled: false,
+      directAccessGrantsEnabled: false,
+      serviceAccountsEnabled: true,
+      authorizationServicesEnabled: false,
+      protocol: "openid-connect",
+    }),
+  });
+  await assertOk(createResponse, `createServiceAccountClient(${clientId})`);
+
+  let clientUuid = clientUuidFromLocation(createResponse.headers.get("Location"));
+  if (!clientUuid) {
+    const client = await getClientByClientId(clientId);
+    if (!client) {
+      throw new Error(
+        `Keycloak service-account client "${clientId}" was not found after create`,
+      );
+    }
+    clientUuid = client.id;
+  }
+  const encUuid = encodeURIComponent(clientUuid);
+
+  // Keycloak generates a secret on create; read it back explicitly.
+  const secretResponse = await adminFetch(`/clients/${encUuid}/client-secret`, {
+    method: "GET",
+  });
+  await assertOk(secretResponse, `getServiceAccountClientSecret(${clientId})`);
+  const secretBody = (await secretResponse.json()) as { value?: string };
+  if (!secretBody.value) {
+    throw new Error(`Keycloak service-account client "${clientId}" has no secret`);
+  }
+
+  const saUserResponse = await adminFetch(`/clients/${encUuid}/service-account-user`, {
+    method: "GET",
+  });
+  await assertOk(saUserResponse, `getServiceAccountUser(${clientId})`);
+  const saUser = (await saUserResponse.json()) as { id?: string };
+  if (!saUser.id) {
+    throw new Error(
+      `Keycloak service-account client "${clientId}" service account has no id`,
+    );
+  }
+
+  return {
+    clientUuid,
+    clientId,
+    clientSecret: secretBody.value,
+    saSub: saUser.id,
+  };
+}
+
+/**
+ * Rotate a service account's credential by regenerating its client secret.
+ * Returns the new secret (shown once). The old secret stops working
+ * immediately (FR-017).
+ */
+export async function regenerateClientSecret(clientUuid: string): Promise<string> {
+  const encUuid = encodeURIComponent(clientUuid);
+  const response = await adminFetch(`/clients/${encUuid}/client-secret`, {
+    method: "POST",
+  });
+  await assertOk(response, `regenerateClientSecret(${clientUuid})`);
+  const body = (await response.json()) as { value?: string };
+  if (!body.value) {
+    throw new Error(`Keycloak did not return a new secret for client ${clientUuid}`);
+  }
+  return body.value;
+}
+
+/**
+ * Delete a service-account client (revoke). After deletion the credential no
+ * longer authenticates (FR-018). A 404 is treated as already-gone (idempotent).
+ */
+export async function deleteServiceAccountClient(clientUuid: string): Promise<void> {
+  const encUuid = encodeURIComponent(clientUuid);
+  const response = await adminFetch(`/clients/${encUuid}`, { method: "DELETE" });
+  if (response.status === 404) {
+    return;
+  }
+  await assertOk(response, `deleteServiceAccountClient(${clientUuid})`);
+}
+
+/**
+ * The realm's client-credentials token endpoint — the URL an external service
+ * account POSTs to (with its client_id + client_secret) to obtain a JWT. Shown
+ * once alongside the credential on create/rotate (FR-005).
+ *
+ * MUST be HOST/EXTERNALLY reachable (#55). `KEYCLOAK_URL` is the Docker-INTERNAL
+ * hostname (e.g. `http://keycloak:7080`) used for server-side admin calls — it
+ * does NOT resolve from a user's host shell or an external SA caller, so echoing
+ * it here breaks the token-mint step. Instead derive from the browser/external-
+ * facing issuer:
+ *   - `KEYCLOAK_PUBLIC_URL` (explicit external Keycloak base), else
+ *   - `OIDC_ISSUER` (already the browser-facing realm URL, e.g.
+ *     `http://localhost:7080/realms/caipe`) → append the token path, else
+ *   - fall back to the internal `KEYCLOAK_URL` path (single-URL deployments).
+ * This mirrors the internal-vs-browser-facing split auth-config already uses
+ * (KEYCLOAK_URL/OIDC_DISCOVERY_URL for server-side vs OIDC_ISSUER for browser).
+ */
+export function getServiceAccountTokenUrl(): string {
+  const realm = getRealm();
+  const tokenPath = `/realms/${encodeURIComponent(realm)}/protocol/openid-connect/token`;
+
+  const publicBase = process.env.KEYCLOAK_PUBLIC_URL?.trim();
+  if (publicBase) {
+    return `${publicBase.replace(/\/$/, "")}${tokenPath}`;
+  }
+
+  const issuer = process.env.OIDC_ISSUER?.trim();
+  if (issuer) {
+    // OIDC_ISSUER is itself the realm URL (…/realms/<realm>). Preserve ITS realm
+    // rather than stripping + re-appending KEYCLOAK_REALM — if the two ever
+    // diverged, re-appending getRealm() would point the token URL at the wrong
+    // realm (reviewer-a nit). When the issuer already ends in /realms/<realm>,
+    // just append the protocol path to it directly; otherwise treat it as a
+    // bare base and append the full /realms/<realm> token path.
+    const trimmed = issuer.replace(/\/$/, "");
+    if (/\/realms\/[^/]+$/.test(trimmed)) {
+      return `${trimmed}/protocol/openid-connect/token`;
+    }
+    return `${trimmed}${tokenPath}`;
+  }
+
+  // Single-URL deployments: KEYCLOAK_URL is already host-reachable.
+  return getRealmTokenEndpoint();
 }

@@ -1,13 +1,23 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
-import {
-  X, Loader2, MessageSquare, ThumbsUp, ThumbsDown, ExternalLink,
-  User, Calendar, Clock, Shield, Hash, Globe, Mail,
-} from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card,CardContent } from "@/components/ui/card";
+import {
+Calendar,Clock,
+ExternalLink,
+Globe,
+Hash,
+Loader2,
+Mail,
+MessageSquare,
+Shield,
+ThumbsDown,
+ThumbsUp,
+User,
+X,
+} from "lucide-react";
+import React,{ useEffect,useRef,useState } from "react";
 
 interface UserProfile {
   email: string;
@@ -94,9 +104,11 @@ export function UserDetailPanel({ email, onClose }: UserDetailPanelProps) {
 
   useEffect(() => {
     if (!email) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: reset state when email prop becomes falsy
       setData(null);
       return;
     }
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: fetch user data when email changes and update loading/error/tab state
     setLoading(true);
     setError(null);
     setActiveTab("overview");

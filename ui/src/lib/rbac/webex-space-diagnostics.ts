@@ -1,17 +1,17 @@
 import {
-  listOpenFgaWebexSpaceAgentIds,
-  webexSpaceOpenFgaUser,
+type ConnectorDiagnostics,
+type ConnectorDiagnosticsAdapter,
+type ConnectorHealthSummary,
+type ConnectorRouteMetadata,
+type ConnectorRuntimeRouteDiagnostic,
+computeConnectorDiagnostics,
+computeConnectorHealthSummary,
+} from "@/lib/rbac/connector-diagnostics";
+import {
+listOpenFgaWebexSpaceAgentIds,
+webexSpaceOpenFgaUser,
 } from "@/lib/rbac/webex-space-openfga";
 import { listWebexSpaceAgentRoutes } from "@/lib/rbac/webex-space-route-store";
-import {
-  type ConnectorDiagnostics,
-  type ConnectorDiagnosticsAdapter,
-  type ConnectorHealthSummary,
-  type ConnectorRouteMetadata,
-  type ConnectorRuntimeRouteDiagnostic,
-  computeConnectorDiagnostics,
-  computeConnectorHealthSummary,
-} from "@/lib/rbac/connector-diagnostics";
 
 export type WebexRuntimeRouteDiagnostic = ConnectorRuntimeRouteDiagnostic;
 

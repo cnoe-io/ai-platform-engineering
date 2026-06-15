@@ -11,9 +11,9 @@
 import { NextRequest } from "next/server";
 
 import {
-  getAuthFromBearerOrSession,
-  successResponse,
-  withErrorHandler,
+getAuthFromBearerOrSession,
+successResponse,
+withErrorHandler,
 } from "@/lib/api-middleware";
 import { getCollection } from "@/lib/mongodb";
 import { filterResourcesByPermission } from "@/lib/rbac/resource-authz";

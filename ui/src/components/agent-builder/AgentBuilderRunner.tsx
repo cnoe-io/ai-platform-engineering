@@ -1,49 +1,47 @@
 "use client";
 
-import React, { useState, useCallback, useRef, useMemo, useEffect } from "react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { CAIPESpinner } from "@/components/ui/caipe-spinner";
+import { Input } from "@/components/ui/input";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { getConfig } from "@/lib/config";
+import { getMarkdownComponents } from "@/lib/markdown-components";
+import { SSEClient,type SSEEvent } from "@/lib/sse-streaming-client";
+import { cn } from "@/lib/utils";
+import { useWorkflowRunStore } from "@/store/workflow-run-store";
+import type { AgentSkill } from "@/types/agent-skill";
+import { AnimatePresence,motion } from "framer-motion";
+import {
+AlertCircle,
+ArrowLeft,
+Brain,
+Check,
+CheckCircle,
+ChevronDown,
+ChevronLeft,
+ChevronRight,
+ChevronUp,
+Clock,
+Copy,
+LayoutGrid,
+Loader2,
+Maximize2,
+MessageSquare,
+Minimize2,
+Play,
+RotateCcw,
+Send,
+Square,
+Wrench,
+XCircle
+} from "lucide-react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { motion, AnimatePresence } from "framer-motion";
-import {
-  Play,
-  RotateCcw,
-  CheckCircle,
-  XCircle,
-  Clock,
-  Loader2,
-  ChevronRight,
-  ChevronLeft,
-  ArrowLeft,
-  Square,
-  Wrench,
-  Brain,
-  MessageSquare,
-  ChevronDown,
-  ChevronUp,
-  Send,
-  AlertCircle,
-  History,
-  X,
-  LayoutGrid,
-  Maximize2,
-  Minimize2,
-  Copy,
-  Check,
-} from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Input } from "@/components/ui/input";
-import { CAIPESpinner } from "@/components/ui/caipe-spinner";
-import { cn } from "@/lib/utils";
-import { getConfig } from "@/lib/config";
-import type { AgentSkill } from "@/types/agent-skill";
-import { SSEClient, type SSEEvent } from "@/lib/sse-streaming-client";
+import React,{ useCallback,useEffect,useMemo,useRef,useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { useWorkflowRunStore } from "@/store/workflow-run-store";
 import { WorkflowHistoryView } from "./WorkflowHistoryView";
-import { getMarkdownComponents } from "@/lib/markdown-components";
 
 interface AgentBuilderRunnerProps {
   config: AgentSkill;
@@ -613,6 +611,13 @@ function ResultOrInputForm({
   isFullscreen: boolean;
   onExitFullscreen: () => void;
 }) {
+  // Fallback: Try to detect input fields from the content using regex
+  // (must be before any early returns to satisfy Rules of Hooks)
+  const detectedFields = useMemo(
+    () => (structuredFields && structuredFields.length > 0 ? null : parseInputFieldsFromText(content)),
+    [structuredFields, content],
+  );
+
   // Prioritize structured fields from backend (request_user_input tool)
   if (structuredFields && structuredFields.length > 0) {
     return (
@@ -631,9 +636,6 @@ function ResultOrInputForm({
       </motion.div>
     );
   }
-  
-  // Fallback: Try to detect input fields from the content using regex
-  const detectedFields = useMemo(() => parseInputFieldsFromText(content), [content]);
   
   if (detectedFields && detectedFields.length > 0) {
     return (
@@ -1579,7 +1581,7 @@ export function AgentBuilderRunner({
                 <div className="flex flex-col items-center justify-center py-8 text-center">
                   <Play className="h-10 w-10 text-muted-foreground/30 mb-3" />
                   <p className="text-sm text-muted-foreground">
-                    Click "Start Workflow" to begin
+                    Click &quot;Start Workflow&quot; to begin
                   </p>
                 </div>
               )}

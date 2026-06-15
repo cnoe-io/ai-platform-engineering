@@ -1,9 +1,9 @@
 import type {
-  UniversalRebacRelationship,
-  UniversalRebacResourceType,
+UniversalRebacRelationship,
+UniversalRebacResourceType,
 } from "@/types/rbac-universal";
 
-import { getResourceTypeDefinition, isSupportedResourceAction } from "./resource-model";
+import { getResourceTypeDefinition,isSupportedResourceAction } from "./resource-model";
 
 export type RelationshipValidationErrorCode =
   | "missing_subject"
