@@ -250,9 +250,11 @@ export function PlatformSettingsTab({ isAdmin }: PlatformSettingsTabProps) {
               Unlinked Access
             </CardTitle>
             <CardDescription>
-              Manage scopes for the platform unlinked service account — the identity used
-              for callers with no linked user (unlinked Slack users, Slack bots). These
-              scopes set the base access every unlinked caller receives.
+              Grant agents and tools to unlinked users — people who have messaged via Slack
+              or Webex but never signed in to the web UI, so the platform has no linked
+              account for them. Any platform admin can add agents or tools they own here, and
+              whatever you grant becomes the base access every unlinked Slack/Webex caller and
+              bot receives.
             </CardDescription>
           </CardHeader>
           <CardContent>

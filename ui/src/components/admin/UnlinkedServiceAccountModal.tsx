@@ -194,10 +194,11 @@ export function UnlinkedServiceAccountModal({
             Unlinked Access
           </DialogTitle>
           <DialogDescription>
-            Manage the scopes for the platform unlinked service account — the
-            identity used for callers with no linked user identity (unlinked Slack users,
-            Slack bots). These scopes define the base access every unlinked
-            caller receives.
+            Grant agents and tools to unlinked users — people who have messaged via Slack
+            or Webex but never signed in to the web UI, so the platform has no linked account
+            for them. Any platform admin can add agents or tools they own here, and whatever
+            you grant becomes the base access every unlinked Slack/Webex caller and bot
+            receives.
             {!isAdmin && (
               <span className="block mt-1 font-medium text-amber-600 dark:text-amber-400">
                 Read-only: platform admin access required to edit.
