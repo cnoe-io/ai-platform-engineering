@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import copy
 import importlib.util
+import io
+import json
 import stat
 import sys
 import urllib.error
@@ -112,6 +114,66 @@ def test_select_gateway_targets_uses_enabled_agentgateway_rows_only() -> None:
         ]
     )
 
+    assert targets == [
+        bridge.McpGatewayTarget(
+            id="knowledge-base",
+            upstream_url="http://rag-server:9446/mcp",
+            credential_sources=(
+                {
+                    "kind": "caller_token",
+                    "target": "header",
+                    "name": "X-CAIPE-Provider-Token",
+                },
+            ),
+        )
+    ]
+
+
+def test_load_targets_from_bff_fetches_internal_endpoint(monkeypatch) -> None:
+    monkeypatch.setenv("AGENTGATEWAY_TARGETS_URL", "http://caipe-ui:3000/api/internal/agentgateway/mcp-targets")
+    monkeypatch.setenv("AGENTGATEWAY_TARGETS_TOKEN", "bridge-token")
+    captured: dict[str, object] = {}
+
+    class Response(io.BytesIO):
+        def __enter__(self) -> "Response":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+    def fake_urlopen(request: urllib.request.Request, timeout: float) -> Response:
+        captured["url"] = request.full_url
+        captured["timeout"] = timeout
+        captured["authorization"] = request.get_header("Authorization")
+        return Response(
+            json.dumps(
+                {
+                    "targets": [
+                        {
+                            "id": "knowledge-base",
+                            "target_endpoint": "http://rag-server:9446/mcp",
+                            "credential_sources": [
+                                {
+                                    "kind": "caller_token",
+                                    "target": "header",
+                                    "name": "X-CAIPE-Provider-Token",
+                                }
+                            ],
+                        }
+                    ]
+                }
+            ).encode("utf-8")
+        )
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+
+    targets = bridge._load_targets_from_bff()
+
+    assert captured == {
+        "url": "http://caipe-ui:3000/api/internal/agentgateway/mcp-targets",
+        "timeout": 5.0,
+        "authorization": "Bearer bridge-token",
+    }
     assert targets == [
         bridge.McpGatewayTarget(
             id="knowledge-base",
@@ -530,7 +592,7 @@ def test_generated_config_forwards_request_body_on_every_builtin_route(config_pa
     builtins = bridge.load_builtin_mcp_routes(config_path)
     assert builtins, f"expected built-in MCP routes from {config_path.name}"
 
-    # No dynamic Mongo targets — exercises the builtin re-render path
+    # No dynamic BFF targets — exercises the builtin re-render path
     # (config_bridge deep-copies builtins verbatim from bootstrap, bypassing
     # DEFAULT_MCP_ROUTE_POLICIES), which is where the 5 bare routes were found in
     # the live (stale) container.
@@ -565,8 +627,8 @@ def test_generated_config_forwards_request_body_on_every_builtin_route(config_pa
         )
 
 
-def test_merge_preserves_builtin_routes_when_mongo_empty() -> None:
-    # Empty Mongo (no targets) must NOT wipe the shipped built-in routes — this is
+def test_merge_preserves_builtin_routes_when_dynamic_targets_empty() -> None:
+    # Empty dynamic targets must NOT wipe the shipped built-in routes — this is
     # the regression that left AgentGateway serving zero MCP routes.
     builtins = {
         "jira": _builtin_route("jira", "http://mcp-jira:8000/mcp"),
@@ -580,7 +642,7 @@ def test_merge_preserves_builtin_routes_when_mongo_empty() -> None:
     paths = {route["matches"][0]["path"]["pathPrefix"] for route in routes}
     assert "/mcp/jira" in paths
     assert "/mcp/github" in paths
-    assert "/mcp/rag" not in paths  # dynamic route absent from Mongo is still pruned
+    assert "/mcp/rag" not in paths  # dynamic route absent from the BFF payload is still pruned
 
 
 def test_merge_restores_builtin_even_when_baseline_lost_it() -> None:
@@ -598,7 +660,7 @@ def test_merge_restores_builtin_even_when_baseline_lost_it() -> None:
 
 
 def test_merge_dynamic_target_defers_to_builtin_definition() -> None:
-    # A Mongo row sharing an id with a built-in must not produce a duplicate route;
+    # A dynamic target sharing an id with a built-in must not produce a duplicate route;
     # the authoritative bootstrap definition wins.
     builtins = {"jira": _builtin_route("jira", "http://mcp-jira:8000/mcp")}
     baseline = _baseline_config()
@@ -626,7 +688,7 @@ def test_reconcile_keeps_existing_config_when_admin_config_is_unavailable(
     existing_config = '{"binds":[{"listeners":[{"routes":[{"matches":[{"path":{"pathPrefix":"/mcp/github"}}],"backends":[{"mcp":{"targets":[{"name":"github","policies":{"backendAuth":{"key":"$GITHUB_PERSONAL_ACCESS_TOKEN"}}}]}}]}]}]}]}\n'
     config_path.write_text(existing_config, encoding="utf-8")
 
-    monkeypatch.setattr(bridge, "_load_targets_from_mongo", lambda: [])
+    monkeypatch.setattr(bridge, "_load_targets", lambda: [])
 
     def fail_fetch(_admin_config_url: str) -> dict:
         raise urllib.error.URLError("agentgateway admin unavailable")
@@ -679,7 +741,7 @@ def test_reconcile_once_enforces_logging_level(tmp_path: Path, monkeypatch) -> N
     config_path.parent.mkdir()
     config_path.write_text("binds: []\n", encoding="utf-8")
 
-    monkeypatch.setattr(bridge, "_load_targets_from_mongo", lambda: [])
+    monkeypatch.setattr(bridge, "_load_targets", lambda: [])
     monkeypatch.setattr(
         bridge,
         "fetch_agentgateway_config",
