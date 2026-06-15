@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import configparser
 from dataclasses import dataclass
+from fnmatch import fnmatchcase
 import hashlib
 import os
 from pathlib import PurePosixPath
@@ -27,11 +28,11 @@ from langchain_core.document_loaders import BaseLoader
 from langchain_core.documents import Document
 
 
-DEFAULT_ALLOWED_EXTENSIONS = {".txt", ".md", ".rst", ".adoc", ".asciidoc"}
+DEFAULT_ALLOWED_FILE_PATTERNS = {"*.txt", "*.md", "*.rst", "*.adoc", "*.asciidoc"}
 DEFAULT_MAX_FILES_PER_BUCKET = 2000
 S3_BUCKETS = os.environ.get("S3_BUCKETS", "")
-S3_ALLOWED_EXTENSIONS = os.environ.get(
-    "S3_ALLOWED_EXTENSIONS", ",".join(sorted(DEFAULT_ALLOWED_EXTENSIONS)))
+S3_ALLOWED_FILES_AND_EXTENSIONS = os.environ.get(
+    "S3_ALLOWED_FILES_AND_EXTENSIONS", ",".join(sorted(DEFAULT_ALLOWED_FILE_PATTERNS)))
 S3_IGNORE_PREFIXES = os.environ.get("S3_IGNORE_PREFIXES", "")
 S3_IGNORE_REGEX = os.environ.get("S3_IGNORE_REGEX", "")
 S3_MAX_FILES_PER_BUCKET = os.environ.get(
@@ -47,11 +48,12 @@ logger = utils.get_logger(__name__)
 
 @dataclass(frozen=True)
 class BucketSpec:
-    """S3 bucket, optional source account, and prefix configured for ingestion."""
+    """S3 bucket ARN, optional source account, and prefix configured for ingestion."""
 
     bucket: str
     prefix: str
     account_name: str | None = None
+    bucket_arn: str | None = None
 
 
 @dataclass(frozen=True)
@@ -83,15 +85,60 @@ class S3ObjectInfo:
     return f"s3://{self.bucket}/{self.key}"
 
 
+def _parse_s3_bucket_arn(bucket_arn: str) -> str:
+    """Return the bucket name from an S3 bucket ARN."""
+    parts = bucket_arn.split(":", 5)
+    if len(parts) != 6 or parts[0] != "arn" or parts[2] != "s3":
+        raise ValueError(
+            "S3_BUCKETS entries must be S3 bucket ARNs like arn:aws:s3:::bucket-name"
+        )
+
+    _, _, _, region, account_id, resource = parts
+    if region or account_id:
+        raise ValueError(
+            f"S3_BUCKETS entry must be a bucket ARN with empty region and account fields: {bucket_arn}"
+        )
+
+    bucket = resource.strip()
+    if not bucket:
+        raise ValueError(f"S3_BUCKETS entry is missing a bucket name: {bucket_arn}")
+    if "/" in bucket:
+        raise ValueError(
+            f"S3_BUCKETS entries must be bucket ARNs, not object or prefix ARNs: {bucket_arn}"
+        )
+
+    return bucket
+
+
+def _split_account_qualified_bucket_arn(entry: str) -> tuple[str | None, str]:
+    """Split optional ``account_name:arn:aws:s3:::bucket`` entries."""
+    if entry.startswith("arn:"):
+        return None, entry
+
+    if ":arn:" not in entry:
+        raise ValueError(
+            "S3_BUCKETS entries must be S3 bucket ARNs, optionally account-qualified "
+            "as account_name:arn:aws:s3:::bucket-name"
+        )
+
+    account_name, arn_suffix = entry.split(":arn:", 1)
+    account_name = account_name.strip()
+    if not account_name:
+        raise ValueError(f"S3_BUCKETS entry is missing an account name: {entry}")
+
+    return account_name, f"arn:{arn_suffix.strip()}"
+
+
 def parse_bucket_specs(raw_specs: str) -> list[BucketSpec]:
-    """Parse S3_BUCKETS as comma-separated bucket names.
+    """Parse S3_BUCKETS as comma-separated S3 bucket ARNs.
 
     Prefix selection is intentionally out of scope for the MVP. Every configured
     bucket is scanned from the root and filtered by extension/ignore rules.
 
-    Entries may optionally be account-qualified as ``account_name:bucket``. The
-    account name must match an ``AWS_ACCOUNT_LIST`` entry so the ingestor can use
-    the same cross-account assume-role profile behavior as the AWS ingestor.
+    Entries may optionally be account-qualified as
+    ``account_name:arn:aws:s3:::bucket``. The account name must match an
+    ``AWS_ACCOUNT_LIST`` entry so the ingestor can use the same cross-account
+    assume-role profile behavior as the AWS ingestor.
     """
     specs: list[BucketSpec] = []
 
@@ -99,31 +146,22 @@ def parse_bucket_specs(raw_specs: str) -> list[BucketSpec]:
         entry = raw_entry.strip()
         if not entry:
             continue
-        account_name: str | None = None
-        if ":" in entry:
-            account_part, bucket_part = entry.split(":", 1)
-            account_name = account_part.strip()
-            bucket = bucket_part.strip()
-            if not account_name:
-                raise ValueError(f"S3_BUCKETS entry is missing an account name: {entry}")
-            if "/" in bucket:
-                raise ValueError(
-                    f"S3_BUCKETS entries must not include prefixes or object keys: {entry}")
-        else:
-            bucket = entry
 
+        account_name, bucket_arn = _split_account_qualified_bucket_arn(entry)
+        bucket = _parse_s3_bucket_arn(bucket_arn)
         prefix = ""
-        if not bucket:
-            raise ValueError("S3_BUCKETS entry is missing a bucket name")
-        if "/" in bucket:
-            raise ValueError(
-                f"S3_BUCKETS entries must not include prefixes or object keys: {entry}")
-
-        specs.append(BucketSpec(bucket=bucket, prefix=prefix, account_name=account_name))
+        specs.append(
+            BucketSpec(
+                bucket=bucket,
+                prefix=prefix,
+                account_name=account_name,
+                bucket_arn=bucket_arn,
+            )
+        )
 
     if not specs:
         raise ValueError(
-            "S3_BUCKETS must include at least one bucket entry")
+            "S3_BUCKETS must include at least one S3 bucket ARN")
 
     return specs
 
@@ -218,25 +256,56 @@ def validate_bucket_account_specs(
     )
 
 
-def _normalize_extension(extension: str) -> str:
-    extension = extension.strip().lower()
-    if not extension:
+def _normalize_allowed_file_pattern(pattern: str) -> str:
+    """Normalize extension shortcuts while leaving glob and regex patterns intact."""
+    pattern = pattern.strip()
+    if not pattern:
         return ""
-    if not extension.startswith("."):
-        extension = f".{extension}"
-    return extension
+    if pattern.startswith("re:"):
+        return pattern
+    if pattern.startswith(".") and not any(char in pattern for char in "*?[]/"):
+        return f"*{pattern.lower()}"
+    return pattern
 
 
-def get_allowed_extensions() -> set[str]:
-    """Return the configured file extension allowlist."""
-    extensions = {_normalize_extension(ext)
-                  for ext in S3_ALLOWED_EXTENSIONS.split(",")}
-    extensions.discard("")
-    if not extensions:
+def get_allowed_file_patterns() -> list[str]:
+    """Return configured glob and regex file allowlist patterns."""
+    patterns = [
+        _normalize_allowed_file_pattern(pattern)
+        for pattern in S3_ALLOWED_FILES_AND_EXTENSIONS.split(",")
+    ]
+    patterns = [pattern for pattern in patterns if pattern]
+    if not patterns:
         raise ValueError(
-            "S3_ALLOWED_EXTENSIONS must include at least one extension")
+            "S3_ALLOWED_FILES_AND_EXTENSIONS must include at least one glob or regex pattern"
+        )
 
-    return extensions
+    for pattern in patterns:
+        if not pattern.startswith("re:"):
+            continue
+        regex = pattern[3:]
+        if not regex:
+            raise ValueError("S3_ALLOWED_FILES_AND_EXTENSIONS includes an empty regex")
+        try:
+            re.compile(regex)
+        except re.error as exc:
+            raise ValueError(
+                f"S3_ALLOWED_FILES_AND_EXTENSIONS includes an invalid regex: {exc}"
+            ) from exc
+
+    return patterns
+
+
+def _matches_allowed_file_pattern(relative_key: str, pattern: str) -> bool:
+    if pattern.startswith("re:"):
+        return re.search(pattern[3:], relative_key) is not None
+
+    path = PurePosixPath(relative_key)
+    return (
+        path.match(pattern)
+        or fnmatchcase(relative_key, pattern)
+        or fnmatchcase(path.name, pattern)
+    )
 
 
 def get_ignore_prefixes() -> list[str]:
@@ -287,7 +356,7 @@ def should_ingest_key(
     key: str,
     *,
     source_prefix: str,
-    allowed_extensions: Iterable[str],
+    allowed_file_patterns: Iterable[str],
     ignore_prefixes: Iterable[str] | None = None,
     ignore_regex: Pattern[str] | None = None,
 ) -> bool:
@@ -300,9 +369,10 @@ def should_ingest_key(
     if key.endswith("/"):
         return False
 
-    normalized_extensions = {_normalize_extension(
-        ext) for ext in allowed_extensions}
-    if PurePosixPath(key).suffix.lower() not in normalized_extensions:
+    if not any(
+        _matches_allowed_file_pattern(relative_key, pattern)
+        for pattern in allowed_file_patterns
+    ):
         return False
 
     for ignore_prefix in ignore_prefixes or []:
@@ -376,9 +446,10 @@ def build_datasource_info(client: Client, bucket_spec: BucketSpec) -> DataSource
     reload_interval=SYNC_INTERVAL,
     metadata={
       "account_name": bucket_spec.account_name,
+      "bucket_arn": bucket_spec.bucket_arn,
       "bucket": bucket_spec.bucket,
       "prefix": bucket_spec.prefix,
-      "allowed_extensions": sorted(get_allowed_extensions()),
+      "allowed_file_patterns": get_allowed_file_patterns(),
       "ignore_prefixes": get_ignore_prefixes(),
       "ignore_regex": S3_IGNORE_REGEX,
       "max_files_per_bucket": get_max_files_per_bucket(),
@@ -397,7 +468,7 @@ class S3DocumentLoader(BaseLoader):
     datasource_id: str,
     ingestor_id: str,
     fresh_until: int,
-    allowed_extensions: Iterable[str],
+    allowed_file_patterns: Iterable[str],
     ignore_prefixes: Iterable[str] | None = None,
     ignore_regex: Pattern[str] | None = None,
     max_files_per_bucket: int | None = None,
@@ -407,7 +478,7 @@ class S3DocumentLoader(BaseLoader):
     self.datasource_id = datasource_id
     self.ingestor_id = ingestor_id
     self.fresh_until = fresh_until
-    self.allowed_extensions = set(allowed_extensions)
+    self.allowed_file_patterns = list(allowed_file_patterns)
     self.ignore_prefixes = list(ignore_prefixes or [])
     self.ignore_regex = ignore_regex
     self.max_files_per_bucket = max_files_per_bucket if max_files_per_bucket is not None else get_max_files_per_bucket()
@@ -423,7 +494,7 @@ class S3DocumentLoader(BaseLoader):
         if not should_ingest_key(
           key,
           source_prefix=self.bucket_spec.prefix,
-          allowed_extensions=self.allowed_extensions,
+          allowed_file_patterns=self.allowed_file_patterns,
           ignore_prefixes=self.ignore_prefixes,
           ignore_regex=self.ignore_regex,
         ):
@@ -493,7 +564,7 @@ async def sync_s3_buckets(client: Client) -> None:
   accounts = parse_account_list()
   validate_bucket_account_specs(bucket_specs, accounts)
   setup_aws_profiles(accounts)
-  allowed_extensions = get_allowed_extensions()
+  allowed_file_patterns = get_allowed_file_patterns()
   ignore_prefixes = get_ignore_prefixes()
   ignore_regex = compile_ignore_regex()
   max_files_per_bucket = get_max_files_per_bucket()
@@ -513,7 +584,7 @@ async def sync_s3_buckets(client: Client) -> None:
       datasource_id=datasource_info.datasource_id,
       ingestor_id=client.ingestor_id or "",
       fresh_until=fresh_until,
-      allowed_extensions=allowed_extensions,
+      allowed_file_patterns=allowed_file_patterns,
       ignore_prefixes=ignore_prefixes,
       ignore_regex=ignore_regex,
       max_files_per_bucket=max_files_per_bucket,
@@ -571,7 +642,7 @@ if __name__ == "__main__":
             {
                 "bucket_specs": [spec.__dict__ for spec in bucket_specs],
                 "accounts": accounts,
-                "allowed_extensions": sorted(get_allowed_extensions()),
+                "allowed_file_patterns": get_allowed_file_patterns(),
                 "max_files_per_bucket": get_max_files_per_bucket(),
                 "sync_interval": SYNC_INTERVAL,
             }

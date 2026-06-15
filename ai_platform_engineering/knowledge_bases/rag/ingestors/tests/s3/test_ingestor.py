@@ -1,9 +1,9 @@
 """Unit tests for the S3 ingestor.
 
 Initial coverage focuses on the source-selection safety rules:
-  - S3_BUCKETS env parsing as CSV bucket names
-  - .txt/.md/.rst/.adoc/.asciidoc extension allowlist defaults
-  - configured extension normalization
+  - S3_BUCKETS env parsing as CSV S3 bucket ARNs
+  - S3_ALLOWED_FILES_AND_EXTENSIONS glob and regex allowlist defaults
+  - configured extension shortcut normalization
   - ignore prefix filtering
   - ignore regex filtering
   - strict max files per bucket validation
@@ -25,7 +25,7 @@ import pytest
 
 
 BASE_ENV = {
-  "S3_BUCKETS": "docs-bucket,shared-docs",
+  "S3_BUCKETS": "arn:aws:s3:::docs-bucket,arn:aws:s3:::shared-docs",
   "AWS_REGION": "us-east-2",
 }
 
@@ -40,31 +40,37 @@ def _load_ingestor(env: dict[str, str] | None = None):
 
 
 class TestBucketConfigParsing:
-  def test_parse_bucket_specs_supports_bucket_name_csv(self):
+  def test_parse_bucket_specs_supports_bucket_arn_csv(self):
     mod = _load_ingestor()
 
-    configs = mod.parse_bucket_specs("docs-bucket,shared-docs")
+    configs = mod.parse_bucket_specs("arn:aws:s3:::docs-bucket,arn:aws:s3:::shared-docs")
 
     assert [(c.bucket, c.prefix) for c in configs] == [
       ("docs-bucket", ""),
       ("shared-docs", ""),
     ]
     assert [c.account_name for c in configs] == [None, None]
+    assert [c.bucket_arn for c in configs] == [
+      "arn:aws:s3:::docs-bucket",
+      "arn:aws:s3:::shared-docs",
+    ]
 
-  def test_parse_bucket_specs_supports_account_qualified_buckets(self):
+  def test_parse_bucket_specs_supports_account_qualified_bucket_arns(self):
     mod = _load_ingestor()
 
-    configs = mod.parse_bucket_specs("dev:docs-bucket,prod:shared-docs")
+    configs = mod.parse_bucket_specs(
+      "dev:arn:aws:s3:::docs-bucket,prod:arn:aws:s3:::shared-docs"
+    )
 
-    assert [(c.account_name, c.bucket, c.prefix) for c in configs] == [
-      ("dev", "docs-bucket", ""),
-      ("prod", "shared-docs", ""),
+    assert [(c.account_name, c.bucket, c.prefix, c.bucket_arn) for c in configs] == [
+      ("dev", "docs-bucket", "", "arn:aws:s3:::docs-bucket"),
+      ("prod", "shared-docs", "", "arn:aws:s3:::shared-docs"),
     ]
 
   def test_parse_bucket_specs_trims_whitespace(self):
     mod = _load_ingestor()
 
-    configs = mod.parse_bucket_specs(" docs-bucket , shared-docs ")
+    configs = mod.parse_bucket_specs(" arn:aws:s3:::docs-bucket , arn:aws:s3:::shared-docs ")
 
     assert [(c.bucket, c.prefix) for c in configs] == [
       ("docs-bucket", ""),
@@ -77,17 +83,29 @@ class TestBucketConfigParsing:
     with pytest.raises(ValueError, match="bucket"):
       mod.parse_bucket_specs(" , ")
 
-  def test_parse_bucket_specs_rejects_prefixes_for_mvp(self):
+  def test_parse_bucket_specs_rejects_bucket_names(self):
     mod = _load_ingestor()
 
-    with pytest.raises(ValueError, match="prefix"):
-      mod.parse_bucket_specs("docs-bucket:runbooks/")
+    with pytest.raises(ValueError, match="bucket ARNs"):
+      mod.parse_bucket_specs("docs-bucket")
 
-  def test_parse_bucket_specs_rejects_object_keys_for_mvp(self):
+  def test_parse_bucket_specs_rejects_old_account_qualified_bucket_names(self):
     mod = _load_ingestor()
 
-    with pytest.raises(ValueError, match="prefixes or object keys"):
-      mod.parse_bucket_specs("docs-bucket/runbooks/service.md")
+    with pytest.raises(ValueError, match="bucket ARNs"):
+      mod.parse_bucket_specs("dev:docs-bucket")
+
+  def test_parse_bucket_specs_rejects_object_arns_for_mvp(self):
+    mod = _load_ingestor()
+
+    with pytest.raises(ValueError, match="object or prefix ARNs"):
+      mod.parse_bucket_specs("arn:aws:s3:::docs-bucket/runbooks/service.md")
+
+  def test_parse_bucket_specs_rejects_non_s3_arns(self):
+    mod = _load_ingestor()
+
+    with pytest.raises(ValueError, match="S3 bucket ARNs"):
+      mod.parse_bucket_specs("arn:aws:iam::111111111111:role/caipe-read-only")
 
 
 class TestAccountConfig:
@@ -147,51 +165,70 @@ class TestAccountConfig:
     assert client == session.client.return_value
 
 
-class TestExtensionConfig:
-  def test_module_default_allowed_extensions_env_string_matches_defaults(self):
+class TestFilePatternConfig:
+  def test_module_default_allowed_file_patterns_env_string_matches_defaults(self):
     mod = _load_ingestor()
 
-    assert mod.S3_ALLOWED_EXTENSIONS == ",".join(sorted(mod.DEFAULT_ALLOWED_EXTENSIONS))
+    assert mod.S3_ALLOWED_FILES_AND_EXTENSIONS == ",".join(
+      sorted(mod.DEFAULT_ALLOWED_FILE_PATTERNS)
+    )
 
-  def test_module_allowed_extensions_uses_env_override(self):
-    mod = _load_ingestor({"S3_ALLOWED_EXTENSIONS": "txt,.md"})
+  def test_module_allowed_file_patterns_uses_env_override(self):
+    mod = _load_ingestor({"S3_ALLOWED_FILES_AND_EXTENSIONS": "*.md,re:^runbooks/.*\\.txt$"})
 
-    assert mod.S3_ALLOWED_EXTENSIONS == "txt,.md"
+    assert mod.S3_ALLOWED_FILES_AND_EXTENSIONS == "*.md,re:^runbooks/.*\\.txt$"
 
-  def test_default_allowed_extensions_are_txt_and_md(self):
+  def test_default_allowed_file_patterns_cover_documentation_extensions(self):
     mod = _load_ingestor()
 
-    assert mod.get_allowed_extensions() == {".txt", ".md", ".rst", ".adoc", ".asciidoc"}
+    assert mod.get_allowed_file_patterns() == ["*.adoc", "*.asciidoc", "*.md", "*.rst", "*.txt"]
 
-  def test_allowed_extensions_are_normalized(self):
-    mod = _load_ingestor({"S3_ALLOWED_EXTENSIONS": "txt, .MD"})
+  def test_allowed_file_patterns_normalize_extension_shortcuts(self):
+    mod = _load_ingestor({"S3_ALLOWED_FILES_AND_EXTENSIONS": ".txt, .MD"})
 
-    assert mod.get_allowed_extensions() == {".txt", ".md"}
+    assert mod.get_allowed_file_patterns() == ["*.txt", "*.md"]
 
-  def test_empty_allowed_extensions_rejected(self):
-    mod = _load_ingestor({"S3_ALLOWED_EXTENSIONS": " , "})
+  def test_allowed_file_patterns_accept_globs_and_regexes(self):
+    mod = _load_ingestor({
+      "S3_ALLOWED_FILES_AND_EXTENSIONS": "README.md,runbooks/**/*.md,re:^adr/[0-9]+-.+\\.rst$"
+    })
 
-    with pytest.raises(ValueError, match="S3_ALLOWED_EXTENSIONS"):
-      mod.get_allowed_extensions()
+    assert mod.get_allowed_file_patterns() == [
+      "README.md",
+      "runbooks/**/*.md",
+      "re:^adr/[0-9]+-.+\\.rst$",
+    ]
+
+  def test_empty_allowed_file_patterns_rejected(self):
+    mod = _load_ingestor({"S3_ALLOWED_FILES_AND_EXTENSIONS": " , "})
+
+    with pytest.raises(ValueError, match="S3_ALLOWED_FILES_AND_EXTENSIONS"):
+      mod.get_allowed_file_patterns()
+
+  def test_invalid_allowed_file_regex_rejected(self):
+    mod = _load_ingestor({"S3_ALLOWED_FILES_AND_EXTENSIONS": "re:["})
+
+    with pytest.raises(ValueError, match="invalid regex"):
+      mod.get_allowed_file_patterns()
 
 
 class TestObjectFiltering:
   def test_should_ingest_key_accepts_documentation_extensions_under_source_prefix(self):
     mod = _load_ingestor()
-    allowed = {".txt", ".md", ".rst", ".adoc", ".asciidoc"}
+    allowed = ["*.txt", "*.md", "*.rst", "*.adoc", "*.asciidoc"]
 
-    assert mod.should_ingest_key("runbooks/service-a.md", source_prefix="runbooks/", allowed_extensions=allowed)
-    assert mod.should_ingest_key("runbooks/service-b.txt", source_prefix="runbooks/", allowed_extensions=allowed)
-    assert mod.should_ingest_key("runbooks/service-c.rst", source_prefix="runbooks/", allowed_extensions=allowed)
-    assert mod.should_ingest_key("runbooks/service-d.adoc", source_prefix="runbooks/", allowed_extensions=allowed)
-    assert mod.should_ingest_key("runbooks/service-e.asciidoc", source_prefix="runbooks/", allowed_extensions=allowed)
+    assert mod.should_ingest_key("runbooks/service-a.md", source_prefix="runbooks/", allowed_file_patterns=allowed)
+    assert mod.should_ingest_key("runbooks/service-b.txt", source_prefix="runbooks/", allowed_file_patterns=allowed)
+    assert mod.should_ingest_key("runbooks/service-c.rst", source_prefix="runbooks/", allowed_file_patterns=allowed)
+    assert mod.should_ingest_key("runbooks/service-d.adoc", source_prefix="runbooks/", allowed_file_patterns=allowed)
+    assert mod.should_ingest_key("runbooks/service-e.asciidoc", source_prefix="runbooks/", allowed_file_patterns=allowed)
 
   def test_should_ingest_key_rejects_unsupported_extensions(self):
     mod = _load_ingestor()
-    allowed = {".txt", ".md"}
+    allowed = ["*.txt", "*.md"]
 
-    assert not mod.should_ingest_key("runbooks/service-a.pdf", source_prefix="runbooks/", allowed_extensions=allowed)
-    assert not mod.should_ingest_key("runbooks/service-a.json", source_prefix="runbooks/", allowed_extensions=allowed)
+    assert not mod.should_ingest_key("runbooks/service-a.pdf", source_prefix="runbooks/", allowed_file_patterns=allowed)
+    assert not mod.should_ingest_key("runbooks/service-a.json", source_prefix="runbooks/", allowed_file_patterns=allowed)
 
   def test_should_ingest_key_rejects_yaml_and_logs_for_sensitivity(self):
     """YAML and log files are intentionally out of scope for v1.
@@ -200,16 +237,50 @@ class TestObjectFiltering:
     tokens, credentials, request logs, or other noisy operational data.
     """
     mod = _load_ingestor()
-    allowed = {".txt", ".md", ".rst", ".adoc", ".asciidoc"}
+    allowed = ["*.txt", "*.md", "*.rst", "*.adoc", "*.asciidoc"]
 
-    assert not mod.should_ingest_key("runbooks/values.yaml", source_prefix="runbooks/", allowed_extensions=allowed)
-    assert not mod.should_ingest_key("runbooks/config.yml", source_prefix="runbooks/", allowed_extensions=allowed)
-    assert not mod.should_ingest_key("runbooks/debug.log", source_prefix="runbooks/", allowed_extensions=allowed)
+    assert not mod.should_ingest_key("runbooks/values.yaml", source_prefix="runbooks/", allowed_file_patterns=allowed)
+    assert not mod.should_ingest_key("runbooks/config.yml", source_prefix="runbooks/", allowed_file_patterns=allowed)
+    assert not mod.should_ingest_key("runbooks/debug.log", source_prefix="runbooks/", allowed_file_patterns=allowed)
+
+  def test_should_ingest_key_accepts_configured_path_globs(self):
+    mod = _load_ingestor()
+    allowed = ["runbooks/**/*.md"]
+
+    assert mod.should_ingest_key(
+      "runbooks/services/service-a.md",
+      source_prefix="",
+      allowed_file_patterns=allowed,
+    )
+    assert not mod.should_ingest_key(
+      "notes/service-a.md",
+      source_prefix="",
+      allowed_file_patterns=allowed,
+    )
+
+  def test_should_ingest_key_accepts_configured_regexes(self):
+    mod = _load_ingestor()
+    allowed = [r"re:^adr/[0-9]+-.+\.rst$"]
+
+    assert mod.should_ingest_key(
+      "adr/001-s3-ingestor.rst",
+      source_prefix="",
+      allowed_file_patterns=allowed,
+    )
+    assert not mod.should_ingest_key(
+      "adr/s3-ingestor.rst",
+      source_prefix="",
+      allowed_file_patterns=allowed,
+    )
 
   def test_should_ingest_key_rejects_keys_outside_source_prefix(self):
     mod = _load_ingestor()
 
-    assert not mod.should_ingest_key("other/service-a.md", source_prefix="runbooks/", allowed_extensions={".md"})
+    assert not mod.should_ingest_key(
+      "other/service-a.md",
+      source_prefix="runbooks/",
+      allowed_file_patterns=["*.md"],
+    )
 
   def test_should_ingest_key_applies_ignore_prefixes_after_source_prefix(self):
     mod = _load_ingestor()
@@ -217,13 +288,13 @@ class TestObjectFiltering:
     assert not mod.should_ingest_key(
       "runbooks/archive/old-service.md",
       source_prefix="runbooks/",
-      allowed_extensions={".md"},
+      allowed_file_patterns=["*.md"],
       ignore_prefixes=["archive/"],
     )
     assert mod.should_ingest_key(
       "runbooks/current/service.md",
       source_prefix="runbooks/",
-      allowed_extensions={".md"},
+      allowed_file_patterns=["*.md"],
       ignore_prefixes=["archive/"],
     )
 
@@ -234,19 +305,19 @@ class TestObjectFiltering:
     assert not mod.should_ingest_key(
       "runbooks/drafts/service.md",
       source_prefix="runbooks/",
-      allowed_extensions={".md"},
+      allowed_file_patterns=["*.md"],
       ignore_regex=ignore_regex,
     )
     assert not mod.should_ingest_key(
       "runbooks/service.md.bak",
       source_prefix="runbooks/",
-      allowed_extensions={".md"},
+      allowed_file_patterns=["*.md"],
       ignore_regex=ignore_regex,
     )
     assert mod.should_ingest_key(
       "runbooks/service.md",
       source_prefix="runbooks/",
-      allowed_extensions={".md"},
+      allowed_file_patterns=["*.md"],
       ignore_regex=ignore_regex,
     )
 
@@ -304,7 +375,7 @@ class TestS3DocumentLoader:
       datasource_id="s3-docs-bucket",
       ingestor_id="s3:test",
       fresh_until=1234567890,
-      allowed_extensions={".md", ".rst"},
+      allowed_file_patterns=["*.md", "*.rst"],
     )
 
     documents = list(loader.lazy_load())
@@ -348,7 +419,7 @@ class TestS3DocumentLoader:
       datasource_id="s3-docs-bucket-runbooks",
       ingestor_id="s3:test",
       fresh_until=1234567890,
-      allowed_extensions={".md"},
+      allowed_file_patterns=["*.md"],
       ignore_prefixes=["archive/"],
       ignore_regex=mod.compile_ignore_regex(r"(^|/)drafts/"),
     )
@@ -374,7 +445,7 @@ class TestS3DocumentLoader:
       datasource_id="s3-docs-bucket-runbooks",
       ingestor_id="s3:test",
       fresh_until=1234567890,
-      allowed_extensions={".md"},
+      allowed_file_patterns=["*.md"],
       max_files_per_bucket=2,
     )
 
@@ -393,7 +464,7 @@ class TestS3DocumentLoader:
       datasource_id="s3-docs-bucket-runbooks",
       ingestor_id="s3:test",
       fresh_until=1234567890,
-      allowed_extensions={".md"},
+      allowed_file_patterns=["*.md"],
     )
 
     with pytest.raises(UnicodeDecodeError):
@@ -422,7 +493,7 @@ class TestSyncS3Buckets:
 
   @pytest.mark.asyncio
   async def test_sync_s3_buckets_creates_datasource_job_and_ingests_documents(self):
-    mod = _load_ingestor({"S3_BUCKETS": "docs-bucket"})
+    mod = _load_ingestor({"S3_BUCKETS": "arn:aws:s3:::docs-bucket"})
     last_modified = datetime(2026, 6, 5, 12, 0, tzinfo=timezone.utc)
     s3_client = self._make_s3_client(
       objects=[{"Key": "runbooks/service-a.md", "ETag": '"etag-a"', "LastModified": last_modified, "Size": 12}],
@@ -439,6 +510,7 @@ class TestSyncS3Buckets:
     assert datasource.source_type == "s3"
     assert datasource.default_chunk_size == 1000
     assert datasource.default_chunk_overlap == 200
+    assert datasource.metadata["bucket_arn"] == "arn:aws:s3:::docs-bucket"
 
     client.create_job.assert_called_once()
     assert client.create_job.call_args.kwargs["datasource_id"] == "s3-docs-bucket"
@@ -458,7 +530,7 @@ class TestSyncS3Buckets:
   @pytest.mark.asyncio
   async def test_sync_s3_buckets_uses_account_specific_s3_clients(self):
     mod = _load_ingestor({
-      "S3_BUCKETS": "dev:docs-bucket,prod:shared-docs",
+      "S3_BUCKETS": "dev:arn:aws:s3:::docs-bucket,prod:arn:aws:s3:::shared-docs",
       "AWS_ACCOUNT_LIST": "dev:111111111111,prod:222222222222",
     })
     dev_s3_client = self._make_s3_client(
@@ -490,7 +562,7 @@ class TestSyncS3Buckets:
 
   @pytest.mark.asyncio
   async def test_sync_s3_buckets_completes_when_no_documents_match(self):
-    mod = _load_ingestor({"S3_BUCKETS": "docs-bucket"})
+    mod = _load_ingestor({"S3_BUCKETS": "arn:aws:s3:::docs-bucket"})
     s3_client = self._make_s3_client(
       objects=[{"Key": "runbooks/values.yaml", "Size": 12}],
       bodies={},
@@ -506,7 +578,10 @@ class TestSyncS3Buckets:
 
   @pytest.mark.asyncio
   async def test_sync_s3_buckets_marks_job_failed_on_loader_error(self):
-    mod = _load_ingestor({"S3_BUCKETS": "docs-bucket", "S3_MAX_FILES_PER_BUCKET": "1"})
+    mod = _load_ingestor({
+      "S3_BUCKETS": "arn:aws:s3:::docs-bucket",
+      "S3_MAX_FILES_PER_BUCKET": "1",
+    })
     s3_client = self._make_s3_client(
       objects=[
         {"Key": "runbooks/a.md", "Size": 10},
