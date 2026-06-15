@@ -222,20 +222,21 @@ global:
       pathPrefix: /mcp/knowledge-base
     # GitHub MCP server — official GitHub MCP server container.
     # Routes /mcp/github-mcp-server -> the in-cluster Deployment.
-    # The Deployment is enabled by this same section; set enabled: false to
-    # skip both the Deployment/Service and the agentgateway route.
-    # GITHUB_PERSONAL_ACCESS_TOKEN is read from agentgateway.extraEnv (via
-    # secretKeyRef) and injected into the github-mcp-server container.
+    # The Deployment is enabled by this same section; keep it opt-in because
+    # the official GitHub MCP server needs a GitHub PAT secret at startup.
+    # When enabled, GITHUB_PERSONAL_ACCESS_TOKEN is injected from
+    # existingSecret; Helm fails early if the secret name is omitted.
+    # assisted-by Codex Codex-sonnet-4-6
     githubMcpServer:
-      enabled: true
+      enabled: false
       image:
         repository: ghcr.io/github/github-mcp-server
-        tag: latest
+        # Multi-arch index digest inspected from ghcr.io/github/github-mcp-server:latest.
+        tag: latest@sha256:5c83359327a0bacc3d34db730bea6557d39d341cee0bf6c58c9a896e33150e80
         pullPolicy: IfNotPresent
       port: 8082
       pathPrefix: /mcp/github-mcp-server
       # Secret containing GITHUB_PERSONAL_ACCESS_TOKEN.
-      # Leave name empty to fall back to agentgateway.extraEnv entries.
       existingSecret:
         name: ""   # e.g. "github-mcp-secret"
         key: GITHUB_PERSONAL_ACCESS_TOKEN

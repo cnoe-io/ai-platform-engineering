@@ -200,9 +200,11 @@ transformation rewrites it into Authorization: Bearer. */ -}}
 {{- end -}}
 {{- /* GitHub MCP server — official GitHub MCP server container (mcp-servers profile).
 Routes /mcp/github-mcp-server to the in-cluster Deployment rendered by
-github-mcp-server.yaml when global.agentgateway.githubMcpServer.enabled is true. */ -}}
+github-mcp-server.yaml when global.agentgateway.githubMcpServer.enabled is true.
+assisted-by Codex Codex-sonnet-4-6 */ -}}
 {{- $ghMcp := $agw.githubMcpServer | default dict -}}
-{{- if or (not (hasKey $ghMcp "enabled")) $ghMcp.enabled -}}
+{{- if and (hasKey $ghMcp "enabled") $ghMcp.enabled -}}
+{{- $_ := required "global.agentgateway.githubMcpServer.existingSecret.name is required when githubMcpServer.enabled=true" (($ghMcp.existingSecret | default dict).name) -}}
 {{- $ghPort := $ghMcp.port | default 8082 -}}
 {{- $ghPath := $ghMcp.pathPrefix | default "/mcp/github-mcp-server" -}}
 {{- $ghHost := printf "%s-github-mcp-server.%s.svc.cluster.local" $root.Release.Name $ns -}}
@@ -301,4 +303,3 @@ Explicit non-CAIPE repositories are left unchanged.
 {{- $repository -}}
 {{- end -}}
 {{- end -}}
-
