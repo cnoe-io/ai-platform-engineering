@@ -1,3 +1,78 @@
+## 0.5.12-dev.9 (2026-06-15)
+
+### Feat
+
+- **service-accounts**: add credential passthrough for service accounts
+
+### Fix
+
+- **ui**: refresh mcp server list
+- **service-accounts**: address PR review findings
+- **credentials,slack**: static-token exchange + OpenFGA read filters
+- **service-accounts**: token-provider gating, surface flags, PAT fix, dropdown dedup
+- **service-accounts**: address review findings for credential passthrough
+- **ui**: prevent unlinked access modal control bleed
+
+### Refactor
+
+- **slack**: route all Slack-bot Keycloak access through the BFF; drop direct admin creds (#1800)
+
+## 0.5.12-dev.8 (2026-06-15)
+
+### Feat
+
+- **slack**: Run As identity (user / service account) + unlinked-user fallback for Slack routing (#1784)
+
+## 0.5.12-dev.7 (2026-06-15)
+
+### Feat
+
+- **rbac**: combine AD group admins with super-admins team access (#1792)
+
+### Fix
+
+- **dynamic-agents**: bump vulnerable dependencies (#1841)
+
+## 0.5.12-dev.5 (2026-06-15)
+
+## 0.5.12-dev.4 (2026-06-15)
+
+### Fix
+
+- **ui**: keep service account team picker searchable
+
+## 0.5.12-dev.3 (2026-06-15)
+
+### Feat
+
+- **rbac**: Service Accounts — team-owned bot identities + caller-keyed tool authz (#1780)
+- **agentgateway**: enable agentgateway and github-mcp-server by default in 0.5.x
+
+### Fix
+
+- **chart**: make github mcp opt-in and pinned
+
+## 0.5.12-dev.2 (2026-06-15)
+
+### Fix
+
+- **webex**: replace static agent route mappings (#1820)
+
+## 0.5.12-dev.1 (2026-06-15)
+
+### Feat
+
+- **rag**: add local file upload ingestion
+
+### Fix
+
+- **rag**: pin pypdf dependency
+- **rag**: harden local file uploads
+- **rbac**: repair MCP tuple drift and gateway credentials
+- **docs**: repair MDX breakage in FGA module-api contract page (#1837)
+
+## 0.5.12 (2026-06-14)
+
 ## 0.5.11-dev.5 (2026-06-14)
 
 ### Feat
@@ -75,6 +150,7 @@
 
 ### Fix
 
+- **rbac**: set AFFIRMATIVE on bot's own token-exchange permission during reconciliation
 - **setup-caipe**: complete Ollama k8s deployment fixes (#1786)
 - **setup-caipe**: Ollama as a K8s deployment (#1695)
 
