@@ -250,6 +250,14 @@ class ScheduleOneOffCreate(BaseModel):
         max_length=200,
         description="Optional short reason such as transcript_not_ready.",
     )
+    metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        description=(
+            "Optional small JSON object carried into the one-off runner metadata. "
+            "Use for domain context such as target_meeting_start, target_meeting_end, "
+            "moved_from, or moved_meeting_reason."
+        ),
+    )
     retry_num: int | None = Field(
         default=None,
         ge=0,
@@ -280,6 +288,7 @@ class ScheduleOneOffRun(BaseModel):
     status: OneOffRunStatus = "pending"
     message_template: str | None = None
     reason: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
     retry_num: int | None = None
     retry_limit: int | None = None
     job_name: str | None = None

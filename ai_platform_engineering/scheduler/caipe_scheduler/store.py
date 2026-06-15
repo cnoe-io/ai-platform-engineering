@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -51,7 +52,9 @@ class ScheduleStore:
         if owner_user_id:
             query["owner_user_id"] = owner_user_id
         if pod_id:
-            query["pod_id"] = pod_id
+            stripped_pod_id = pod_id.strip()
+            if stripped_pod_id:
+                query["pod_id"] = _case_insensitive_exact_match(stripped_pod_id)
         if agent_id:
             query["agent_id"] = agent_id
         return list(self._col.find(query).sort("created_at", -1))
@@ -306,3 +309,7 @@ class ScheduleStore:
 
     def delete(self, schedule_id: str) -> int:
         return self._col.delete_one({"schedule_id": schedule_id}).deleted_count
+
+
+def _case_insensitive_exact_match(value: str) -> dict[str, str]:
+    return {"$regex": f"^{re.escape(value)}$", "$options": "i"}

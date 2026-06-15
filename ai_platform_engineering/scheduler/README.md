@@ -3,7 +3,8 @@
 Cron schedule registry + Kubernetes `CronJob` orchestrator. Receives schedule
 requests from `dynamic-agents` (e.g. Pam's `schedule_prep` tool), validates
 them, persists to Mongo, and creates per-schedule `CronJob`s from a hard-coded
-podTemplate. It also dispatches delayed one-off `Job`s for retry-style fires.
+podTemplate. It also dispatches delayed one-off `Job`s from those CronJob
+templates for retries and explicit schedule exceptions.
 
 ## Trust model
 
@@ -43,15 +44,19 @@ All but `/healthz` require header `X-Scheduler-Token: <SCHEDULER_SERVICE_TOKEN>`
 setting Mongo `enabled=false` and Kubernetes `CronJob.spec.suspend=true`.
 `{"enabled": true}` resumes future fires with `spec.suspend=false`. The
 cron-runner also checks `enabled` after fetching the schedule and exits without
-posting chat if the schedule is disabled, which protects against manual k8s/Mongo
-drift. Pausing does not kill a Job that is already running.
+posting chat for recurring fires if the schedule is disabled, which protects
+against manual k8s/Mongo drift. Pausing does not kill a Job that is already
+running.
 
 `POST /v1/schedules/{id}/one-off-runs` stores a UTC `run_at` (or
 `delay_minutes`) in Mongo. The scheduler pod wakes near the due time, claims
 pending one-offs atomically, and creates a normal Kubernetes `Job` by copying
-the parent CronJob's `jobTemplate`. This is meant for domain retries like
-"transcript not ready; try again in 10 minutes" and does not modify the
-recurring schedule.
+the parent CronJob's `jobTemplate`. One-off Jobs are independent of the parent
+schedule's `enabled` state: they still dispatch and run when the recurring
+CronJob is paused, as long as the parent schedule and CronJob template still
+exist. One-offs may carry an optional small `metadata` object into
+`SCHEDULED_RUN_METADATA` and the chat `client_context`; this is used for domain
+retries like "transcript not ready" and moved-meeting prep/writeup replacements.
 
 `POST /v1/admin/reconcile-cronjobs` is an explicit admin/operator action used
 after changing `CRON_RUNNER_IMAGE`. It checks existing schedule CronJobs and can

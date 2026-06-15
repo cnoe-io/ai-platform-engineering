@@ -9,6 +9,7 @@ privileges via this path.
 from __future__ import annotations
 
 import copy
+import json
 import logging
 import re
 from typing import Any
@@ -174,6 +175,7 @@ class CronJobOps:
         retry_num: int | None = None,
         retry_limit: int | None = None,
         retry_reason: str | None = None,
+        metadata: dict[str, Any] | None = None,
         message_template_override: str | None = None,
     ) -> str:
         """Create a normal Job by copying an existing CronJob's jobTemplate."""
@@ -205,6 +207,12 @@ class CronJobOps:
             self._set_env(runner, "RETRY_LIMIT", str(retry_limit))
         if retry_reason:
             self._set_env(runner, "RETRY_REASON", retry_reason)
+        if metadata:
+            self._set_env(
+                runner,
+                "ONE_OFF_METADATA_JSON",
+                json.dumps(metadata, sort_keys=True, separators=(",", ":")),
+            )
         if message_template_override:
             self._set_env(
                 runner,

@@ -1,11 +1,11 @@
 # mcp_webex_meetings
 
 Local MCP server that exposes the Webex Meetings / Transcripts / Recordings REST
-API as MCP tools. Designed as a **drop-in replacement** for Cisco's official
-Webex Meetings MCP (`https://mcp.webexapis.com/mcp/webex-meeting`) — same tool
-names, same arguments — so the day Cisco enables agentic apps in the cisco.com
-Control Hub, this server can be deleted and the dynamic-agent's MCP URL pointed
-at the official endpoint with no other code changes.
+API as MCP tools. Mostly mirrors Cisco's official Webex Meetings MCP
+(`https://mcp.webexapis.com/mcp/webex-meeting`), with two local fallback helpers
+for stale/expired-series debugging. If Cisco enables agentic apps in the
+cisco.com Control Hub, the official-compatible tools can be pointed at Cisco's
+endpoint and the local fallback tools can be kept or removed deliberately.
 
 ## Authentication
 
@@ -22,9 +22,11 @@ storage, no Mongo access, no refresh logic — that's all handled by the runtime
 
 ## Tools
 
-Mirrors Cisco's official Meetings MCP tool surface:
+Mirrors Cisco's official Meetings MCP tool surface, plus local fallback helpers:
 
 - `webex_list_meetings` — list/search meetings with date filters
+- `webex_userhub_calendar` — best-effort User Hub calendar read for upcoming external-calendar occurrences
+- `webex_resolve_meeting_link` — resolve a Webex join/calendar link through `/v1/meetings` with secrets removed
 - `webex_get_meeting_status` — get a meeting + optional participants
 - `webex_create_meeting` — schedule a meeting
 - `webex_update_meeting` — patch a meeting
@@ -32,6 +34,13 @@ Mirrors Cisco's official Meetings MCP tool surface:
 - `webex_list_recordings` — list recordings
 - `webex_list_transcripts` — list transcripts (and optionally inline-download VTT)
 - `webex_get_meeting_summary` — Webex AI–generated summary (best-effort)
+
+`webex_userhub_calendar` intentionally uses the same per-user OAuth token against
+the Webex User Hub calendar feed, for example
+`https://cisco.webex.com/webappng/api/v1/mymeetings/calendarView`. Treat it as a
+best-effort fallback when public `/v1/meetings` rows look stale or expired: it can
+surface Office365/Google-backed future occurrences that the public Webex schedule
+API does not expose as `scheduledMeeting` rows.
 
 ## Run locally
 
