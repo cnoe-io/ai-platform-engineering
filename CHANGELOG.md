@@ -29,6 +29,7 @@
 ### Feat
 
 - **service-accounts**: add credential passthrough for service accounts
+- **agentgateway**: make provider-token passthrough declarative for MCP routes (#1857)
 
 ### Fix
 
@@ -42,6 +43,10 @@
 ### Refactor
 
 - **slack**: route all Slack-bot Keycloak access through the BFF; drop direct admin creds (#1800)
+
+### Breaking / Upgrade Notes
+
+- **agentgateway**: provider-token passthrough is now controlled by `mcp.agentgateway.providerTokenAuth`, `global.agentgateway.extraMcpTargets[].providerTokenAuth`, or a header-targeted `credential_sources` entry with `kind: provider_connection` / `kind: caller_token`. GitHub/GitLab defaults include the flag, but custom values that replace their `mcp.agentgateway` block must keep `providerTokenAuth: true` or declare equivalent credential sources to keep rewriting `X-CAIPE-Provider-Token` into `Authorization: Bearer`.
 
 ## 0.5.12-dev.8 (2026-06-15)
 
