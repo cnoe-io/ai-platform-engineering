@@ -26,7 +26,6 @@
  * its UI (SC-006). RAG/MCP editors simply omit them.
  */
 
-import { AlertCircle } from "lucide-react";
 import * as React from "react";
 
 import { Button } from "@/components/ui/button";
@@ -36,7 +35,6 @@ TeamMultiPicker,
 TeamPicker,
 type TeamPickerOption,
 } from "@/components/ui/team-picker";
-import { cn } from "@/lib/utils";
 
 export interface TeamOwnershipFieldsProps {
   // ---- current values --------------------------------------------------
@@ -138,9 +136,6 @@ export function TeamOwnershipFields(props: TeamOwnershipFieldsProps) {
   // Transfer mode: only meaningful on edit when transfers are allowed. While
   // active, the owner picker is re-enabled so a new destination can be chosen.
   const [transferring, setTransferring] = React.useState(false);
-  // Missing-treatment (asterisk, "Required" badge, inline error, aria-invalid)
-  // is a create-flow concern: on edit the owner is fixed and the picker is
-  // disabled, so it can never be missing-and-fixable.
   const ownerMissing = ownerRequired && !isEditing && !ownerTeamSlug?.trim();
   const ownerPickerDisabled = disabled || (isEditing && !transferring);
 
@@ -182,12 +177,7 @@ export function TeamOwnershipFields(props: TeamOwnershipFieldsProps) {
   return (
     <div className="space-y-4">
       {/* Owner team ------------------------------------------------------ */}
-      <div
-        className={cn(
-          "space-y-2 rounded-lg transition-colors",
-          ownerMissing && "border border-destructive/40 bg-destructive/5 p-3",
-        )}
-      >
+      <div className="space-y-2 rounded-lg">
         <div className="flex items-center justify-between gap-2">
           <Label htmlFor="ownerTeam">
             {ownerLabel}{" "}
@@ -195,11 +185,6 @@ export function TeamOwnershipFields(props: TeamOwnershipFieldsProps) {
               <span className="text-destructive">*</span>
             )}
           </Label>
-          {ownerMissing && (
-            <span className="rounded-full bg-destructive px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-destructive-foreground">
-              Required
-            </span>
-          )}
           {isEditing && allowTransfer && onTransfer && (
             <Button
               type="button"
@@ -218,15 +203,7 @@ export function TeamOwnershipFields(props: TeamOwnershipFieldsProps) {
           onChange={handleOwnerChange}
           disabled={ownerPickerDisabled}
           ariaInvalid={ownerMissing}
-          ariaDescribedBy={
-            ownerMissing
-              ? "owner-team-required-message owner-team-help"
-              : "owner-team-help"
-          }
-          triggerClassName={cn(
-            ownerMissing &&
-              "border-destructive/70 bg-destructive/5 ring-1 ring-destructive/30 focus:ring-destructive",
-          )}
+          ariaDescribedBy="owner-team-help"
           placeholder={`Select a team that will own this ${resourceNoun}`}
           searchPlaceholder="Search your teams..."
           emptyLabel={
@@ -236,19 +213,6 @@ export function TeamOwnershipFields(props: TeamOwnershipFieldsProps) {
           }
           options={ownerOptions}
         />
-        {ownerMissing && (
-          <p
-            id="owner-team-required-message"
-            role="alert"
-            className="flex items-start gap-1.5 rounded-md border border-destructive/30 bg-destructive/10 px-2.5 py-2 text-xs text-destructive"
-          >
-            <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            <span>
-              <span className="font-semibold">{ownerLabel} is required.</span>{" "}
-              Choose a team before creating this {resourceNoun}.
-            </span>
-          </p>
-        )}
         <p id="owner-team-help" className="text-xs text-muted-foreground">
           {ownerHelpText ?? (
             <>

@@ -1961,40 +1961,6 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
             </>
           )}
         </div>
-        {!readOnly && firstBlocker && !loading && (
-          // Inline blocker hint. Renders only when the submit button is
-          // disabled AND we're not mid-save. Includes a click-to-jump shortcut
-          // so the user can land on the offending step in one click without
-          // hunting through the wizard. Wrapped in flex so the label and the
-          // jump-to button sit on one line on wide screens and wrap on narrow.
-          <div
-            role="status"
-            aria-live="polite"
-            data-testid="create-agent-blocker-hint"
-            className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-destructive"
-          >
-            <span>
-              Required: <span className="font-medium">{firstBlocker.label}</span>
-              {blockerStepLabel ? (
-                <>
-                  {" "}<span className="text-muted-foreground">(on {blockerStepLabel} step)</span>
-                </>
-              ) : null}
-              {blockers.length > 1 ? (
-                <span className="text-muted-foreground"> · {blockers.length - 1} more</span>
-              ) : null}
-            </span>
-            {blockerStepLabel && firstBlocker.step !== activeStep ? (
-              <button
-                type="button"
-                onClick={() => setActiveStep(firstBlocker.step)}
-                className="underline underline-offset-2 hover:text-destructive/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive rounded-sm"
-              >
-                Go to {blockerStepLabel}
-              </button>
-            ) : null}
-          </div>
-        )}
         <Button type="button" variant="outline" onClick={onCancel} disabled={loading}>
           {readOnly ? "Close" : "Cancel"}
         </Button>
