@@ -364,6 +364,29 @@ def test_gh_cli_self_service_allows_previous_github_workflow_writes():
         tools.set_self_service_mode(False)
 
 
+def test_github_agent_tool_import_shares_self_service_state():
+    from ai_platform_engineering.agents.github.agent_github.protocol_bindings.a2a_server import (
+        agent as github_agent_module,
+    )
+
+    tool = github_agent_module.get_gh_cli_tool()
+
+    assert tool is not None
+    assert github_agent_module.get_gh_cli_tool is tools.get_gh_cli_tool
+
+    tools.set_self_service_mode(True)
+    try:
+        is_valid, error = tool._validate_command(
+            "api repos/cnoe-io/repo/git/refs --method POST "
+            "-f ref=refs/heads/test-branch -f sha=abc123def456"
+        )
+    finally:
+        tools.set_self_service_mode(False)
+
+    assert is_valid is True
+    assert error == ""
+
+
 def test_gh_cli_blocks_api_implicit_post_body_flags():
     tool = GHCLITool()
 

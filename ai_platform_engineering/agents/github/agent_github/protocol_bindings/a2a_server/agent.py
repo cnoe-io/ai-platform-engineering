@@ -16,11 +16,14 @@ from dotenv import load_dotenv
 from langgraph.prebuilt import create_react_agent
 from pydantic import BaseModel
 
+from ai_platform_engineering.agents.github.agent_github.tools import (
+    get_gh_cli_tool,
+    get_gh_file_contents_tool,
+)
 from ai_platform_engineering.utils.a2a_common.base_langgraph_agent import BaseLangGraphAgent, memory
 from ai_platform_engineering.utils.github_app_token_provider import is_github_app_mode
 from ai_platform_engineering.utils.subagent_prompts import load_subagent_prompt_config
 from ai_platform_engineering.utils.token_sanitizer import sanitize_output
-from agent_github.tools import get_gh_cli_tool, get_gh_file_contents_tool  # type: ignore[import-untyped]
 
 logger = logging.getLogger(__name__)
 
