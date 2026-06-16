@@ -42,4 +42,4 @@ target-version = ['py313']
 line-length = 100
 target-version = "py313"
 [tool.uv]
-constraint-dependencies = ["starlette>=1.0.1"]
+constraint-dependencies = ["starlette>=1.3.1"]

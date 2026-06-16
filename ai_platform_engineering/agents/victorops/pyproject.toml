@@ -63,7 +63,7 @@ markers = [
 
 [tool.uv]
 override-dependencies = ["protobuf==5.29.6"]
-constraint-dependencies = ["fastmcp==3.3.1", "pypdf==6.10.2"]
+constraint-dependencies = ["fastmcp==3.3.1", "pypdf==6.12.0"]
 
 [tool.uv.sources]
 ai-platform-engineering-utils = { path = "../../utils" }
