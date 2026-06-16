@@ -260,6 +260,7 @@ To run it:
 * `workflow-agent-access.spec.ts`
 * `rbac-admin-regression.spec.ts`
 * `mcp-openfga-tuples.spec.ts`
+* `admin-settings-regression.spec.ts`
 
 Local parity: `make caipe-ui-e2e-rbac` (with `npm run dev` already on
 `:3000`) or `RUN_RBAC_REGRESSION=1 npm run test:e2e:rbac-regression`.
