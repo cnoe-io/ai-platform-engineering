@@ -15,8 +15,14 @@ allow(Tool, Agent) :- tool_call(Tool, Agent), agent_type(Agent, subagent), Agent
 % write gating in the tool implementation.
 github_readonly(gh_cli_execute).
 github_readonly(get_file_contents).
+github_self_service_only(create_or_update_file).
 
 allow(Tool, Agent) :- tool_call(Tool, Agent), Agent = github, github_readonly(Tool).
+allow(Tool, Agent) :-
+    tool_call(Tool, Agent),
+    Agent = github,
+    github_self_service_only(Tool),
+    self_service_mode.
 
 % 4. Built-in tools – always allowed for any agent
 builtin_tool(write_todos).

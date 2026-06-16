@@ -73,7 +73,6 @@ def test_write_tools_denied_for_github():
             "add_issue_comment",
             "assign_copilot_to_issue",
             "create_branch",
-            "create_or_update_file",
             "create_pull_request",
             "create_repository",
             "issue_write",
@@ -113,7 +112,6 @@ def test_removed_mcp_tools_denied_without_self_service_mode():
             "create_repository",
             "create_pull_request",
             "create_branch",
-            "create_or_update_file",
             "push_files",
             "fork_repository",
         ]
@@ -122,6 +120,9 @@ def test_removed_mcp_tools_denied_without_self_service_mode():
             allowed = middleware._is_allowed(tool)
             print(f"  {tool}: {'❌ SHOULD BE DENIED but was allowed' if allowed else '✅ correctly denied'}")
             assert not allowed, f"Removed GitHub MCP tool '{tool}' should be DENIED without self-service mode"
+
+        allowed = middleware._is_allowed("create_or_update_file")
+        assert not allowed, "create_or_update_file should be DENIED without self-service mode"
 
         print("\n✅ Removed GitHub MCP tools correctly denied without self-service mode")
 
@@ -140,7 +141,7 @@ def test_gh_backed_tools_allowed_with_self_service_mode():
             policy_path=_GITHUB_SUBAGENT_POLICY_LP,
         )
     
-    gh_backed_tools = ["gh_cli_execute", "get_file_contents"]
+    gh_backed_tools = ["gh_cli_execute", "get_file_contents", "create_or_update_file"]
     
     # Set self-service mode
     token = self_service_mode_ctx.set(True)

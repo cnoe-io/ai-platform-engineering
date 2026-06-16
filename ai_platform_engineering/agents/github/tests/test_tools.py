@@ -6,7 +6,9 @@ import json
 from ai_platform_engineering.agents.github.agent_github import tools
 from ai_platform_engineering.agents.github.agent_github.tools import (
     GHCLITool,
+    GHCreateOrUpdateFileTool,
     GHGetFileContentsTool,
+    get_gh_create_or_update_file_tool,
     get_gh_file_contents_tool,
 )
 from ai_platform_engineering.utils import github_app_token_provider
@@ -344,6 +346,164 @@ def test_file_contents_tool_can_be_disabled(monkeypatch):
     monkeypatch.setenv("USE_GH_FILE_CONTENTS_TOOL", "false")
 
     assert get_gh_file_contents_tool() is None
+
+
+def test_create_or_update_file_has_no_internal_self_service_gate(monkeypatch):
+    calls = []
+
+    async def fake_create_subprocess_exec(*args, **kwargs):
+        calls.append((args, kwargs["env"]))
+        endpoint = args[2]
+        if endpoint.endswith("?ref=feature"):
+            return _FakeProcess(b"", b"Not Found", returncode=1)
+        if endpoint == "repos/cnoe-io/repo/contents/README.md":
+            payload = {"content": {"sha": "new-sha"}, "commit": {"sha": "commit-sha"}}
+            return _FakeProcess(json.dumps(payload).encode())
+        raise AssertionError(f"unexpected endpoint: {endpoint}")
+
+    monkeypatch.setattr(tools, "get_github_token", lambda: "token-value-1234567890")
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
+
+    result = asyncio.run(
+        GHCreateOrUpdateFileTool()._arun(
+            owner="cnoe-io",
+            repo="repo",
+            path="README.md",
+            content="hello\n",
+            message="Add README",
+            branch="feature",
+        )
+    )
+
+    summary = json.loads(result)
+    assert summary["operation"] == "created"
+    assert len(calls) == 2
+
+
+def test_create_or_update_file_creates_missing_file_on_branch(monkeypatch):
+    calls = []
+    content = 'resource "aws_instance" "example" {}\n'
+
+    async def fake_create_subprocess_exec(*args, **kwargs):
+        calls.append((args, kwargs["env"]))
+        endpoint = args[2]
+        if endpoint.endswith("?ref=ec2-adrozdov-test-7429"):
+            return _FakeProcess(b"", b"HTTP 404: Not Found", returncode=1)
+        if endpoint == "repos/cisco-eti/platform-terraform-infra/contents/generated_iac/ec2/adrozdov-test/ec2.tf":
+            payload = {
+                "content": {
+                    "sha": "new-file-sha",
+                    "html_url": "https://github.com/cisco-eti/platform-terraform-infra/blob/ec2-adrozdov-test-7429/generated_iac/ec2/adrozdov-test/ec2.tf",
+                },
+                "commit": {
+                    "sha": "commit-sha",
+                    "html_url": "https://github.com/cisco-eti/platform-terraform-infra/commit/commit-sha",
+                },
+            }
+            return _FakeProcess(json.dumps(payload).encode())
+        raise AssertionError(f"unexpected endpoint: {endpoint}")
+
+    monkeypatch.setattr(tools, "get_github_token", lambda: "token-value-1234567890")
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
+
+    tools.set_self_service_mode(True)
+    try:
+        result = asyncio.run(
+            GHCreateOrUpdateFileTool()._arun(
+                owner="cisco-eti",
+                repo="platform-terraform-infra",
+                path="/generated_iac/ec2/adrozdov-test/ec2.tf",
+                content=content,
+                message="[Jarvis] Add EC2 instance adrozdov-test",
+                branch="ec2-adrozdov-test-7429",
+            )
+        )
+    finally:
+        tools.set_self_service_mode(False)
+
+    summary = json.loads(result)
+    assert summary["operation"] == "created"
+    assert summary["path"] == "generated_iac/ec2/adrozdov-test/ec2.tf"
+    assert summary["branch"] == "ec2-adrozdov-test-7429"
+    assert summary["commit_sha"] == "commit-sha"
+    assert calls[0][0] == (
+        "gh",
+        "api",
+        "repos/cisco-eti/platform-terraform-infra/contents/generated_iac/ec2/adrozdov-test/ec2.tf?ref=ec2-adrozdov-test-7429",
+        "--method",
+        "GET",
+    )
+    put_args = calls[1][0]
+    raw_fields = [
+        put_args[index + 1]
+        for index, value in enumerate(put_args)
+        if value == "--raw-field"
+    ]
+    assert put_args[:5] == (
+        "gh",
+        "api",
+        "repos/cisco-eti/platform-terraform-infra/contents/generated_iac/ec2/adrozdov-test/ec2.tf",
+        "--method",
+        "PUT",
+    )
+    assert f"content={base64.b64encode(content.encode()).decode('ascii')}" in raw_fields
+    assert "branch=ec2-adrozdov-test-7429" in raw_fields
+    assert "message=[Jarvis] Add EC2 instance adrozdov-test" in raw_fields
+    assert not any(field.startswith("sha=") for field in raw_fields)
+
+
+def test_create_or_update_file_updates_existing_file_sha(monkeypatch):
+    calls = []
+
+    async def fake_create_subprocess_exec(*args, **kwargs):
+        calls.append((args, kwargs["env"]))
+        endpoint = args[2]
+        if endpoint.endswith("?ref=feature%2Fupdate"):
+            return _FakeProcess(
+                json.dumps({"type": "file", "sha": "existing-file-sha"}).encode()
+            )
+        if endpoint == "repos/cnoe-io/repo/contents/README.md":
+            payload = {
+                "content": {"sha": "updated-file-sha"},
+                "commit": {"sha": "updated-commit-sha"},
+            }
+            return _FakeProcess(json.dumps(payload).encode())
+        raise AssertionError(f"unexpected endpoint: {endpoint}")
+
+    monkeypatch.setattr(tools, "get_github_token", lambda: "token-value-1234567890")
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
+
+    tools.set_self_service_mode(True)
+    try:
+        result = asyncio.run(
+            GHCreateOrUpdateFileTool()._arun(
+                owner="cnoe-io",
+                repo="repo",
+                path="README.md",
+                content="updated\n",
+                message="Update README",
+                branch="feature/update",
+            )
+        )
+    finally:
+        tools.set_self_service_mode(False)
+
+    summary = json.loads(result)
+    assert summary["operation"] == "updated"
+    assert summary["commit_sha"] == "updated-commit-sha"
+    put_args = calls[1][0]
+    raw_fields = [
+        put_args[index + 1]
+        for index, value in enumerate(put_args)
+        if value == "--raw-field"
+    ]
+    assert "sha=existing-file-sha" in raw_fields
+
+
+def test_create_or_update_file_tool_can_be_disabled(monkeypatch):
+    monkeypatch.setenv("USE_GH_CREATE_OR_UPDATE_FILE_TOOL", "false")
+
+    assert get_gh_create_or_update_file_tool() is None
 
 
 def test_gh_cli_write_commands_require_self_service_mode():

@@ -242,6 +242,36 @@ class GHGetFileContentsInput(BaseModel):
     )
 
 
+class GHCreateOrUpdateFileInput(BaseModel):
+    """Input schema for creating or updating a repository file."""
+
+    owner: str = Field(
+        description="Repository owner or organization, for example 'cnoe-io'."
+    )
+    repo: str = Field(
+        description="Repository name, for example 'ai-platform-engineering'."
+    )
+    path: str = Field(
+        description="Path to the file to create or update, for example 'generated_iac/ec2/app/ec2.tf'."
+    )
+    content: str = Field(
+        description="Plain text file content to write. The tool base64-encodes it for the GitHub contents API."
+    )
+    message: str = Field(
+        description="Commit message to use for the file create or update commit."
+    )
+    branch: str = Field(
+        description="Branch name where the file should be created or updated."
+    )
+    sha: Optional[str] = Field(
+        default=None,
+        description=(
+            "Optional current file SHA for updates. If omitted, the tool looks up "
+            "the file on the target branch and creates it when it does not exist."
+        ),
+    )
+
+
 class GHCLITool(BaseTool):
     """
     Tool for executing gh CLI commands.
@@ -904,6 +934,223 @@ class GHGetFileContentsTool(BaseTool):
         return asyncio.run(self._arun(owner=owner, repo=repo, path=path, ref=ref, sha=sha))
 
 
+class GHCreateOrUpdateFileTool(GHGetFileContentsTool):
+    """
+    Create or update a single repository file using gh CLI.
+
+    The public tool name intentionally matches the previous GitHub MCP
+    create_or_update_file tool, but the implementation is gh CLI-backed.
+    """
+
+    name: str = "create_or_update_file"
+    description: str = (
+        "Create or update one file in a GitHub repository branch using gh CLI. "
+        "Use this when you need to commit generated files such as Terraform "
+        "config. Requires owner, repo, path, content, message, and branch."
+    )
+    args_schema: type[BaseModel] = GHCreateOrUpdateFileInput
+
+    def _validate_file_path(self, path: str) -> tuple[Optional[str], Optional[str]]:
+        clean_path = (path or "").strip().lstrip("/")
+        if not clean_path:
+            return None, "path cannot be empty"
+        if clean_path.endswith("/"):
+            return None, "path must point to a file, not a directory"
+        if "\x00" in clean_path:
+            return None, "path contains unsupported characters"
+        path_segments = clean_path.split("/")
+        if any(segment in {"", ".", ".."} for segment in path_segments):
+            return None, "path contains unsupported relative or empty segments"
+        return clean_path, None
+
+    def _is_not_found_response(self, stdout_text: str, stderr_text: str) -> bool:
+        combined = f"{stdout_text}\n{stderr_text}".lower()
+        return "not found" in combined or "404" in combined
+
+    def _extract_existing_sha(self, stdout_text: str, clean_path: str) -> tuple[Optional[str], Optional[str]]:
+        try:
+            payload = json.loads(stdout_text)
+        except json.JSONDecodeError as exc:
+            return None, f"GitHub API returned invalid JSON while checking existing file: {exc}"
+
+        if not isinstance(payload, dict):
+            return None, "GitHub API returned an unexpected response while checking existing file."
+        if payload.get("type") != "file":
+            file_type = payload.get("type", "unknown")
+            return None, f"path '{clean_path}' already exists as GitHub object type '{file_type}', not a file."
+
+        file_sha = payload.get("sha")
+        if not isinstance(file_sha, str) or not file_sha.strip():
+            return None, "GitHub API did not return the existing file SHA needed for update."
+        return file_sha.strip(), None
+
+    def _render_write_result(
+        self,
+        payload: Any,
+        operation: str,
+        clean_path: str,
+        branch: str,
+    ) -> str:
+        content_payload = payload.get("content") if isinstance(payload, dict) else {}
+        commit_payload = payload.get("commit") if isinstance(payload, dict) else {}
+        if not isinstance(content_payload, dict):
+            content_payload = {}
+        if not isinstance(commit_payload, dict):
+            commit_payload = {}
+
+        summary = {
+            "operation": operation,
+            "path": clean_path,
+            "branch": branch,
+            "content_sha": content_payload.get("sha"),
+            "content_html_url": content_payload.get("html_url"),
+            "commit_sha": commit_payload.get("sha"),
+            "commit_html_url": commit_payload.get("html_url"),
+        }
+        output = json.dumps(summary, indent=2, sort_keys=True)
+        return sanitize_output(self._truncate_output(output, "gh file write output"))
+
+    async def _arun(
+        self,
+        owner: str,
+        repo: str,
+        path: str,
+        content: str,
+        message: str,
+        branch: str,
+        sha: Optional[str] = None,
+    ) -> str:
+        for value, field_name in ((owner, "owner"), (repo, "repo")):
+            error = self._validate_identifier(value, field_name)
+            if error:
+                return f"❌ Error: {error}"
+
+        clean_path, path_error = self._validate_file_path(path)
+        if path_error:
+            return f"❌ Error: {path_error}"
+
+        clean_branch = (branch or "").strip()
+        if not clean_branch:
+            return "❌ Error: branch cannot be empty"
+
+        clean_message = (message or "").strip()
+        if not clean_message:
+            return "❌ Error: message cannot be empty"
+
+        github_token = get_github_token()
+        if not github_token:
+            return NO_GITHUB_AUTH_ERROR
+
+        owner_clean = owner.strip()
+        repo_clean = repo.strip()
+        file_sha = sha.strip() if sha and sha.strip() else None
+        operation = "updated" if file_sha else "created"
+
+        endpoint = self._build_endpoint(owner_clean, repo_clean, clean_path, None, None)
+        encoded_content = base64.b64encode(content.encode("utf-8")).decode("ascii")
+
+        async with _gh_cli_semaphore:
+            try:
+                if not file_sha:
+                    get_endpoint = self._build_endpoint(
+                        owner_clean,
+                        repo_clean,
+                        clean_path,
+                        clean_branch,
+                        None,
+                    )
+                    get_command_parts = ["gh", "api", get_endpoint, "--method", "GET"]
+                    returncode, stdout, stderr_text = await self._execute_gh_api(
+                        get_command_parts,
+                        github_token,
+                    )
+                    stdout_text = stdout.decode("utf-8", errors="replace") if stdout else ""
+
+                    if returncode == 0:
+                        operation = "updated"
+                        file_sha, sha_error = self._extract_existing_sha(stdout_text, clean_path)
+                        if sha_error:
+                            return sanitize_output(f"❌ Error: {sha_error}")
+                    elif not self._is_not_found_response(stdout_text, stderr_text):
+                        error_msg = stderr_text or stdout_text or "Unknown error"
+                        logger.warning(
+                            "gh existing file check failed (exit %s): %s",
+                            returncode,
+                            get_endpoint,
+                        )
+                        return sanitize_output(
+                            f"❌ Command failed while checking existing file (exit {returncode}): {error_msg}"
+                        )
+
+                command_parts = [
+                    "gh",
+                    "api",
+                    endpoint,
+                    "--method",
+                    "PUT",
+                    "--raw-field",
+                    f"message={clean_message}",
+                    "--raw-field",
+                    f"content={encoded_content}",
+                    "--raw-field",
+                    f"branch={clean_branch}",
+                ]
+                if file_sha:
+                    command_parts.extend(["--raw-field", f"sha={file_sha}"])
+
+                full_command = " ".join(shlex.quote(part) for part in command_parts[:5])
+                logger.info("Executing gh file write: %s ...", full_command)
+
+                returncode, stdout, stderr_text = await self._execute_gh_api(
+                    command_parts,
+                    github_token,
+                )
+                stdout_text = stdout.decode("utf-8", errors="replace") if stdout else ""
+
+                if returncode != 0:
+                    error_msg = stderr_text or stdout_text or "Unknown error"
+                    logger.warning("gh file write failed (exit %s): %s", returncode, endpoint)
+                    return sanitize_output(f"❌ Command failed (exit {returncode}): {error_msg}")
+
+                try:
+                    payload = json.loads(stdout_text) if stdout_text else {}
+                except json.JSONDecodeError as exc:
+                    return sanitize_output(f"❌ Error: GitHub API returned invalid JSON: {exc}")
+
+                return self._render_write_result(payload, operation, clean_path, clean_branch)
+
+            except TimeoutError as exc:
+                return sanitize_output(f"❌ {exc}")
+            except FileNotFoundError:
+                return "❌ Error: gh CLI not found. Please ensure it's installed in the container."
+            except Exception as exc:
+                logger.error("gh file write error: %s", str(exc), exc_info=True)
+                return sanitize_output(f"❌ Error executing gh file write: {str(exc)}")
+
+    def _run(
+        self,
+        owner: str,
+        repo: str,
+        path: str,
+        content: str,
+        message: str,
+        branch: str,
+        sha: Optional[str] = None,
+    ) -> str:
+        """Synchronous wrapper - not recommended, use _arun instead."""
+        return asyncio.run(
+            self._arun(
+                owner=owner,
+                repo=repo,
+                path=path,
+                content=content,
+                message=message,
+                branch=branch,
+                sha=sha,
+            )
+        )
+
+
 def get_gh_cli_tool() -> Optional[GHCLITool]:
     """
     Factory function to create gh CLI tool if enabled.
@@ -941,6 +1188,25 @@ def get_gh_file_contents_tool() -> Optional[GHGetFileContentsTool]:
     return GHGetFileContentsTool()
 
 
+def get_gh_create_or_update_file_tool() -> Optional[GHCreateOrUpdateFileTool]:
+    """
+    Factory function to create the gh-backed file write tool if enabled.
+
+    Returns:
+        GHCreateOrUpdateFileTool when USE_GH_CREATE_OR_UPDATE_FILE_TOOL is not false.
+    """
+    use_file_write_tool = os.getenv("USE_GH_CREATE_OR_UPDATE_FILE_TOOL", "true").lower() == "true"
+    if not use_file_write_tool:
+        logger.info(
+            "gh create_or_update_file tool is disabled "
+            "(USE_GH_CREATE_OR_UPDATE_FILE_TOOL=false)"
+        )
+        return None
+
+    logger.info("gh create_or_update_file tool enabled")
+    return GHCreateOrUpdateFileTool()
+
+
 # =============================================================================
 # Git Operations Tool (imported from utils/agent_tools/)
 # =============================================================================
@@ -966,8 +1232,10 @@ def get_gh_file_contents_tool() -> Optional[GHGetFileContentsTool]:
 __all__ = [
     'GHCLITool',
     'GHGetFileContentsTool',
+    'GHCreateOrUpdateFileTool',
     'get_gh_cli_tool',
     'get_gh_file_contents_tool',
+    'get_gh_create_or_update_file_tool',
     # Generic git tool (from utils)
     'git',
     # Self-service mode (used by DeterministicTaskMiddleware)

@@ -25,6 +25,7 @@
 - 🛡️ **Secure by Design:** Enforces GitHub API token-based authentication and supports external authentication for strong access control.
 - 🔌 **Integrated Communication:** Uses gh CLI for GitHub API operations, including workflow logs, pull requests, issues, and repository metadata.
 - 📄 **File Reads:** Provides `get_file_contents` as a gh-backed helper for reading a specific repository file without a GitHub MCP server.
+- 📝 **File Writes:** Provides `create_or_update_file` as a gh-backed helper for committing one generated file.
 
 ---
 

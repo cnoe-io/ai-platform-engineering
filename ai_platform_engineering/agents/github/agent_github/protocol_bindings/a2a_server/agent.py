@@ -18,6 +18,7 @@ from pydantic import BaseModel
 
 from ai_platform_engineering.agents.github.agent_github.tools import (
     get_gh_cli_tool,
+    get_gh_create_or_update_file_tool,
     get_gh_file_contents_tool,
 )
 from ai_platform_engineering.utils.a2a_common.base_langgraph_agent import BaseLangGraphAgent, memory
@@ -175,6 +176,10 @@ class GitHubAgent(BaseLangGraphAgent):
         if gh_file_tool:
             tools.append(gh_file_tool)
             logger.info("GitHub agent: Added gh file contents tool (get_file_contents)")
+        gh_file_write_tool = get_gh_create_or_update_file_tool()
+        if gh_file_write_tool:
+            tools.append(gh_file_write_tool)
+            logger.info("GitHub agent: Added gh file write tool (create_or_update_file)")
         return tools
 
     def _parse_tool_error(self, error: Exception, tool_name: str) -> str:
