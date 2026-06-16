@@ -59,7 +59,7 @@ test.describe("mocked admin settings browser regression", () => {
     await expect(dialog).toBeVisible();
     await expect(dialog.getByText("Grant agents and tools to unlinked users")).toBeVisible();
     await expect(
-      dialog.getByText(/Any platform admin can add agents or tools they own/),
+      dialog.getByText(/Any platform admin can add enabled agents or tools here/),
     ).toBeVisible();
   });
 });

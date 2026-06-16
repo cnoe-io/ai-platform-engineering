@@ -615,4 +615,114 @@ test.describe("mocked service accounts browser regression", () => {
     await expect(manageDialog.getByText("Add a token", { exact: true })).toHaveCount(0);
     await expect(manageDialog.getByLabel("Access token")).toHaveCount(0);
   });
+
+  test("grants full-catalog tool scopes to the unlinked service account", async ({ page }) => {
+    const requests: Array<{ method: string; path: string; search: string; body: unknown }> = [];
+    const scopes: ScopeRef[] = [];
+
+    const unlinkedHandler: MockRouteHandler = async ({ route, path, method, url }) => {
+      if (path === "/api/admin/platform-config" && method === "GET") {
+        await fulfillJson(route, {
+          data: {
+            default_agent_id: "incident-resolver",
+            release_notes: { enabled: false },
+          },
+        });
+        return true;
+      }
+
+      if (path === "/api/dynamic-agents" && method === "GET") {
+        await fulfillJson(route, {
+          data: [{ _id: "incident-resolver", name: "Incident Resolver", enabled: true }],
+        });
+        return true;
+      }
+
+      if (path === "/api/admin/service-accounts/unlinked" && method === "GET") {
+        await fulfillJson(route, {
+          success: true,
+          data: {
+            id: "sa-unlinked-platform",
+            name: "platform-unlinked",
+            scopes,
+          },
+        });
+        return true;
+      }
+
+      if (path === "/api/admin/service-accounts/grantable" && method === "GET") {
+        requests.push({ method, path, search: url.search, body: null });
+        await fulfillJson(route, {
+          success: true,
+          data: {
+            agents: [{ ref: "incident-resolver", name: "Incident Resolver" }],
+            tools: [
+              { ref: "jira/*", name: "jira: all tools" },
+              { ref: "github/*", name: "github: all tools" },
+            ],
+          },
+        });
+        return true;
+      }
+
+      if (path === "/api/admin/service-accounts/sa-unlinked-platform/scopes" && method === "POST") {
+        const body = (await postJson(route)) as ScopeRef;
+        requests.push({ method, path, search: url.search, body });
+        scopes.push(body);
+        await fulfillJson(route, { success: true, data: { added: body } });
+        return true;
+      }
+
+      return false;
+    };
+
+    await installMockedRbacApp(page, {
+      isAdmin: true,
+      session: adminSession,
+      handlers: [unlinkedHandler],
+    });
+
+    await page.goto("/admin?cat=settings&tab=settings", {
+      waitUntil: "domcontentloaded",
+    });
+
+    await page.getByRole("button", { name: "Manage Unlinked Access" }).click();
+    const dialog = page.getByRole("dialog", { name: "Unlinked Access" });
+    await expect(dialog).toBeVisible();
+
+    await dialog.getByLabel("Scope type").selectOption("tool");
+    await expect(dialog.getByLabel("Scope ref")).toContainText("jira: all tools");
+    await expect(dialog.getByTestId("unlinked-modal-grantable-empty-note")).toHaveCount(0);
+
+    await dialog.getByLabel("Scope ref").selectOption("jira/*");
+    await dialog.getByRole("button", { name: "Add" }).click();
+
+    await expect
+      .poll(() =>
+        requests.some(
+          (request) =>
+            request.method === "GET" &&
+            request.path === "/api/admin/service-accounts/grantable" &&
+            request.search === "?context=unlinked",
+        ),
+      )
+      .toBe(true);
+    await expect
+      .poll(() =>
+        requests.some(
+          (request) =>
+            request.method === "POST" &&
+            request.path === "/api/admin/service-accounts/sa-unlinked-platform/scopes",
+        ),
+      )
+      .toBe(true);
+    expect(
+      requests.find(
+        (request) =>
+          request.method === "POST" &&
+          request.path === "/api/admin/service-accounts/sa-unlinked-platform/scopes",
+      )?.body,
+    ).toEqual({ type: "tool", ref: "jira/*" });
+    await expect(dialog.getByText("tool/jira/*")).toBeVisible();
+  });
 });
