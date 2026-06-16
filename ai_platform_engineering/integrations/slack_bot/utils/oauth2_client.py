@@ -107,7 +107,6 @@ class OAuth2ClientCredentials:
         RuntimeError: If token fetch fails.
     """
     if self._cached_token and time.time() < (self._cached_token.expires_at - 60):
-      logger.debug("Using cached OAuth2 access token")
       return self._cached_token.access_token
 
     logger.info("Fetching new OAuth2 access token")
