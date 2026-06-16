@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       build_all:
-        description: 'Build all containers (skip change detection)'
+        description: 'Force a fresh build of all components (bypass change-detection/retag). Use for coordinated releases.'
         required: false
         default: false
         type: boolean
@@ -348,16 +348,28 @@ jobs:
           FULL_IMAGE="${REGISTRY}/${IMAGE_NAME}"
           echo "🏷️ Processing agent-${{ matrix.agent }}..."
 
-          # Determine source tag (previous version)
+          # Determine source tag (previous version). Walk back from N-1 to the
+          # latest rc/hotfix that actually has a published image, so a component
+          # that was skipped for an intermediate tag (e.g. rc.9 missing) still
+          # retags from the most recent real image (rc.8) instead of a phantom
+          # rc.9. Falls back to the base version, then to a fresh build.
           if [[ "$TAG_VERSION" =~ ^(.+)-(dev|rc|hotfix)\.([0-9]+)$ ]]; then
             BASE_VERSION="${BASH_REMATCH[1]}"
             SUFFIX_TYPE="${BASH_REMATCH[2]}"
             SUFFIX_NUM="${BASH_REMATCH[3]}"
 
+            SOURCE_TAG=""
             if [[ "$SUFFIX_NUM" -gt 1 ]]; then
-              PREV_NUM=$((SUFFIX_NUM - 1))
-              SOURCE_TAG="${BASE_VERSION}-${SUFFIX_TYPE}.${PREV_NUM}"
-            else
+              for ((p=SUFFIX_NUM-1; p>=1; p--)); do
+                CANDIDATE="${BASE_VERSION}-${SUFFIX_TYPE}.${p}"
+                if crane manifest "${FULL_IMAGE}:${CANDIDATE}" >/dev/null 2>&1; then
+                  SOURCE_TAG="$CANDIDATE"
+                  echo "  ↩️  Latest existing source: ${SOURCE_TAG}"
+                  break
+                fi
+              done
+            fi
+            if [[ -z "$SOURCE_TAG" ]]; then
               SOURCE_TAG="${BASE_VERSION}"
             fi
           else

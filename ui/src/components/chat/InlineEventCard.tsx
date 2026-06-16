@@ -1,9 +1,9 @@
 "use client";
 
-import React, { useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { Loader2, CheckCircle, Wrench, Bot, AlertTriangle, XCircle, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { AnimatePresence,motion } from "framer-motion";
+import { AlertTriangle,Bot,CheckCircle,ChevronRight,Loader2,Wrench,XCircle } from "lucide-react";
+import { useState } from "react";
 
 export interface InlineEventCardProps {
   type: "tool" | "subagent" | "warning" | "error";

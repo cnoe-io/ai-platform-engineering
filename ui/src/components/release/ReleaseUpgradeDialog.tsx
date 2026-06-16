@@ -1,19 +1,19 @@
 "use client";
 
-import { ArrowRight, CheckCircle2, Clock3, Sparkles } from "lucide-react";
+import { ArrowRight,CheckCircle2,Clock3,Sparkles } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { Button } from "@/components/ui/button";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
+Dialog,
+DialogContent,
+DialogDescription,
+DialogFooter,
+DialogHeader,
+DialogTitle,
 } from "@/components/ui/dialog";
-import type { ReleaseMarkdown, ReleaseNote } from "@/hooks/use-release-upgrade-prompt";
+import type { ReleaseMarkdown,ReleaseNote } from "@/hooks/use-release-upgrade-prompt";
 
 interface ReleaseUpgradeDialogProps {
   open: boolean;

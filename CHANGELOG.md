@@ -1,3 +1,276 @@
+## 0.5.13-dev.4 (2026-06-15)
+
+### Fix
+
+- **rag**: sync uv lock metadata
+
+## 0.5.13-dev.3 (2026-06-15)
+
+### Fix
+
+- **jira-mcp**: add assign_issue tool using dedicated assignee endpoint (#1846)
+
+## 0.5.13-dev.2 (2026-06-15)
+
+### Fix
+
+- **validate**: Remove weather-agent validation (#1790)
+
+## 0.5.13-dev.1 (2026-06-15)
+
+### Fix
+
+- **setup**: production-ready setup-caipe.sh — prereqs, domain/TLS, Keycloak, dynamic agents (#1823)
+
+## 0.5.13 (2026-06-15)
+
+## 0.5.12-dev.9 (2026-06-15)
+
+### Feat
+
+- **service-accounts**: add credential passthrough for service accounts
+- **agentgateway**: make provider-token passthrough declarative for MCP routes (#1857)
+
+### Fix
+
+- **ui**: refresh mcp server list
+- **service-accounts**: address PR review findings
+- **credentials,slack**: static-token exchange + OpenFGA read filters
+- **service-accounts**: token-provider gating, surface flags, PAT fix, dropdown dedup
+- **service-accounts**: address review findings for credential passthrough
+- **ui**: prevent unlinked access modal control bleed
+
+### Refactor
+
+- **slack**: route all Slack-bot Keycloak access through the BFF; drop direct admin creds (#1800)
+
+### Breaking / Upgrade Notes
+
+- **agentgateway**: provider-token passthrough is now controlled by `mcp.agentgateway.providerTokenAuth`, `global.agentgateway.extraMcpTargets[].providerTokenAuth`, or a header-targeted `credential_sources` entry with `kind: provider_connection` / `kind: caller_token`. GitHub/GitLab defaults include the flag, but custom values that replace their `mcp.agentgateway` block must keep `providerTokenAuth: true` or declare equivalent credential sources to keep rewriting `X-CAIPE-Provider-Token` into `Authorization: Bearer`.
+
+## 0.5.12-dev.8 (2026-06-15)
+
+### Feat
+
+- **slack**: Run As identity (user / service account) + unlinked-user fallback for Slack routing (#1784)
+
+## 0.5.12-dev.7 (2026-06-15)
+
+### Feat
+
+- **rbac**: combine AD group admins with super-admins team access (#1792)
+
+### Fix
+
+- **dynamic-agents**: bump vulnerable dependencies (#1841)
+
+## 0.5.12-dev.5 (2026-06-15)
+
+## 0.5.12-dev.4 (2026-06-15)
+
+### Fix
+
+- **ui**: keep service account team picker searchable
+
+## 0.5.12-dev.3 (2026-06-15)
+
+### Feat
+
+- **rbac**: Service Accounts — team-owned bot identities + caller-keyed tool authz (#1780)
+- **agentgateway**: enable agentgateway and github-mcp-server by default in 0.5.x
+
+### Fix
+
+- **chart**: make github mcp opt-in and pinned
+
+## 0.5.12-dev.2 (2026-06-15)
+
+### Fix
+
+- **webex**: replace static agent route mappings (#1820)
+
+## 0.5.12-dev.1 (2026-06-15)
+
+### Feat
+
+- **rag**: add local file upload ingestion
+
+### Fix
+
+- **rag**: pin pypdf dependency
+- **rag**: harden local file uploads
+- **rbac**: repair MCP tuple drift and gateway credentials
+- **docs**: repair MDX breakage in FGA module-api contract page (#1837)
+
+## 0.5.12 (2026-06-14)
+
+## 0.5.11-dev.5 (2026-06-14)
+
+### Feat
+
+- **ui**: add ephemeral file preview in agents and workflows
+
+### Fix
+
+- **ui**: MCP OpenFGA reconcile, CAS-backed authz, and team sharing (#1819)
+- **supervisor**: eager MCP init via A2A lifespan hook
+
+## 0.5.11-dev.4 (2026-06-12)
+
+### Fix
+
+- **dynamic-agents**: restore workflow settings dropped by 020dc937f
+
+## 0.5.11-dev.3 (2026-06-12)
+
+### Feat
+
+- **workflows**: workflow RBAC on CAS (re-implements #1751) (#1772)
+
+## 0.5.11-dev.2 (2026-06-12)
+
+### Feat
+
+- **authz**: centralized authorization service (CAS) — core, HTTP API, admin UI
+
+### Fix
+
+- **cas**: restore missing workflow modules and fix PR 1770 CI failures
+
+## 0.5.11-dev.1 (2026-06-11)
+
+### Fix
+
+- **setup**: auto-install kind during prerequisites check
+- **setup**: auto-install missing prereqs and gate sudo on user consent
+
+## 0.5.11 (2026-06-11)
+
+### Feat
+
+- **rbac**: combine AD group admins with super-admins team access
+
+### Fix
+
+- **test**: add role:'admin' to mock user so requireMigrationSuperAdmin passes
+- **rbac**: write org-admin connector tuple for super-admins team on bootstrap
+
+## 0.5.10-dev.3 (2026-06-11)
+
+### Feat
+
+- **setup-caipe**: prompt for LiteLLM proxy when Ollama is selected
+
+### Fix
+
+- **rag-rbac**: elevate OpenFGA org-admins to ADMIN role on ADMIN-gated endpoints
+- **setup-caipe**: restore /supervisor suffix in NEXT_PUBLIC_A2A_BASE_URL
+- **setup-caipe**: don't set NEXT_PUBLIC_A2A_BASE_URL to localhost when no domain
+- **setup-caipe**: remove prompts for AgentGateway and RBAC runtime
+- **rag**: wire OIDC providers and ingestor credentials into rag-server
+- **setup-caipe**: Ollama FQDN, RAG ingestor client, and dynamic-agents bearer auth
+- **openfga**: add organization#member to skill#reader and skill#user type restrictions (#1797)
+
+## 0.5.10-dev.2 (2026-06-09)
+
+### Feat
+
+- **slack**: consolidate JIT shell-user provisioning into shared BFF endpoint (#1788)
+
+## 0.5.10-dev.1 (2026-06-09)
+
+### Fix
+
+- **rbac**: set AFFIRMATIVE on bot's own token-exchange permission during reconciliation
+- **setup-caipe**: complete Ollama k8s deployment fixes (#1786)
+- **setup-caipe**: Ollama as a K8s deployment (#1695)
+
+### Refactor
+
+- **ui**: group flat admin components by domain + organize imports + fix all lint errors (#1791)
+
+## 0.5.10 (2026-06-08)
+
+### Feat
+
+- **slack**: derive slash-command prefix from APP_NAME, enforce DM-only on all commands (#1785)
+
+## 0.5.9-dev.4 (2026-06-08)
+
+### Feat
+
+- **rbac**: Okta directory sync (SDK) with JIT provisioning, IdP-sync admin UI, and admin RBAC fixes (#1783)
+
+## 0.5.9-dev.3 (2026-06-08)
+
+### Feat
+
+- **ui**: dynamic nav overflow, compact right cluster, screenshot in report dialog (#1777)
+
+## 0.5.9-dev.2 (2026-06-06)
+
+### Feat
+
+- **release**: add release-prerelease.yml for coordinated rc builds
+
+### Fix
+
+- **slack**: gate channel access on agent assignment, not team membership (#1761)
+- **release**: bump version files before tagging in release-prerelease.yml
+- **ci**: restore build_all input name in a2a/mcp sub-agent workflows
+- **docs**: escape MDX JSX in FGA module-api spec
+
+## 0.5.9-dev.1 (2026-06-05)
+
+### Feat
+
+- **ui**: make config-driven agent panels expandable for viewing
+
+## 0.5.9 (2026-06-05)
+
+## 0.5.8-dev.4 (2026-06-05)
+
+### Feat
+
+- **slack**: prefer config team in sync-from-config preview annotation
+- **slack**: import channel→team binding from an optional config team field
+
+### Fix
+
+- **local-dev**: seed agent team grants + update RBAC-deny test for log-not-post
+- **local-dev**: RBAC org-admin bypass, Slack channel admin visibility, agentgateway pin, slack-bot logging
+
+## 0.5.8-dev.3 (2026-06-05)
+
+### Feat
+
+- **slack**: add channel delete and editable agent swap in channel route editor (#1749)
+
+### Fix
+
+- **admin**: restore migration test mocks and fix build typing
+- **admin**: scope migration bootstrap alerts to manifest-backed areas
+- **setup-caipe**: preserve deployed RAG embeddings on non-interactive upgrade (#1717)
+
+## 0.5.8-dev.2 (2026-06-05)
+
+### Feat
+
+- **rbac**: unify ownership-transfer flow across agents, RAG KBs, and MCP tools (#1726)
+
+### Fix
+
+- **rbac**: reconcile skill team shares via shared shareable-resource module (#1729)
+- **skills**: resolve undefined skill id on create/clone redirect
+
+## 0.5.8-dev.1 (2026-06-04)
+
+### Fix
+
+- **agentgateway,keycloak**: remove unsupported extAuthz timeout field and add impersonation to caipe-platform desired roles (#1722)
+
+## 0.5.8 (2026-06-04)
+
 ## 0.5.7-dev.14 (2026-06-04)
 
 ### Feat
@@ -31,6 +304,7 @@
 ### Fix
 
 - **deps**: bump aiohttp to 3.14.0 and uv to 0.11.18 for security advisories
+- **setup-caipe**: wire OLLAMA_BASE_URL for in-cluster Ollama embeddings
 - **agentgateway**: protect built-in MCP routes from config-bridge pruning
 
 ## 0.5.7-dev.10 (2026-06-03)

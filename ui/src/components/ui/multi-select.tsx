@@ -1,10 +1,10 @@
 "use client";
 
-import * as React from "react";
-import { cn } from "@/lib/utils";
-import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { Badge } from "@/components/ui/badge";
-import { ChevronDown, X, Search, Plus } from "lucide-react";
+import { Popover,PopoverContent,PopoverTrigger } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
+import { ChevronDown,Plus,Search,X } from "lucide-react";
+import * as React from "react";
 
 interface MultiSelectProps {
   options: string[];

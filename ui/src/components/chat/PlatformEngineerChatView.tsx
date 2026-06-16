@@ -1,9 +1,8 @@
 "use client";
 
-import React from "react";
-import { motion } from "framer-motion";
 import { SupervisorChatPanel } from "@/components/chat/ChatPanel";
 import { useCAIPEHealth } from "@/hooks/use-caipe-health";
+import { motion } from "framer-motion";
 
 interface SupervisorChatViewProps {
   /** The Platform Engineer (supervisor) backend endpoint */

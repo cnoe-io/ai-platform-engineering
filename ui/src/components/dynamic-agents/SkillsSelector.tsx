@@ -1,23 +1,23 @@
 "use client";
 
-import React from "react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
-import {
-  Loader2,
-  AlertCircle,
-  Sparkles,
-  CheckSquare,
-  TriangleAlert,
-  X,
-  Plus,
-  Tag,
-  Lock,
-} from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { AgentSkill, ScanStatus } from "@/types/agent-skill";
+import type { AgentSkill,ScanStatus } from "@/types/agent-skill";
+import {
+AlertCircle,
+CheckSquare,
+Loader2,
+Lock,
+Plus,
+Sparkles,
+Tag,
+TriangleAlert,
+X,
+} from "lucide-react";
+import React from "react";
 
 /**
  * Mirrors ``isFlaggedSkill`` in ``components/skills/SkillsGallery.tsx``

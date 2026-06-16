@@ -1,9 +1,9 @@
 "use client";
 
-import React from "react";
-import { Bot, ChevronDown, Check, Loader2, Lock } from "lucide-react";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Tooltip,TooltipContent,TooltipProvider,TooltipTrigger } from "@/components/ui/tooltip";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
+import { Bot,Check,ChevronDown,Loader2,Lock } from "lucide-react";
+import React from "react";
 
 interface AgentSelectorProps {
   selectedAgentId?: string; // undefined = default supervisor

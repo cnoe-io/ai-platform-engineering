@@ -13,29 +13,34 @@
  * Ported from DA services/seed_config.py — DA no longer seeds configs.
  */
 
-import fs from "fs";
-import yaml from "js-yaml";
-import { getCollection } from "@/lib/mongodb";
-import { isMongoDBConfigured } from "@/lib/mongodb";
-import { writeOpenFgaTuples } from "@/lib/rbac/openfga";
-import { caipeOrgKey } from "@/lib/rbac/organization";
+import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
 import { BUILTIN_MCP_CREDENTIAL_SOURCES } from "@/lib/rbac/agentgateway-mcp-discovery";
+import { writeOpenFgaTuples } from "@/lib/rbac/openfga";
+import { reconcileAgentRelationships } from "@/lib/rbac/openfga-agent-tools";
 import {
-  reconcileConfigDrivenLlmModelRelationships,
-  reconcileConfigDrivenMcpServerRelationships,
-} from "@/lib/rbac/openfga-owned-resources";
+reconcileConfigDrivenLlmModelRelationships,
+reconcileConfigDrivenMcpServerRelationships,
+reconcileShareableResource,
+} from "@/lib/rbac/openfga-owned-resources-reconcile";
+import { caipeOrgKey } from "@/lib/rbac/organization";
+import {
+normalizeSharedWithTeamSlugs,
+repairWorkflowConfigTeamSlugRefs,
+} from "@/lib/rbac/workflow-config-rebac";
 import type {
-  DynamicAgentConfig,
-  MCPServerConfig,
-  SubAgentRef,
-  TransportType,
-  VisibilityType,
+DynamicAgentConfig,
+MCPServerConfig,
+SubAgentRef,
+TransportType,
+VisibilityType,
 } from "@/types/dynamic-agent";
 import type {
-  WorkflowConfig,
-  WorkflowConfigVisibility,
-  StepEntry,
+StepEntry,
+WorkflowConfig,
+WorkflowConfigVisibility,
 } from "@/types/workflow-config";
+import fs from "fs";
+import yaml from "js-yaml";
 
 // Pattern to match ${VAR_NAME} or ${VAR_NAME:-default}
 const ENV_VAR_PATTERN = /\$\{([^}:]+)(?::-([^}]*))?\}/g;
@@ -149,6 +154,49 @@ function loadSeedConfig(configPath: string): SeedConfig {
 // Seeding functions
 // ═══════════════════════════════════════════════════════════════
 
+type AgentAllowedTools = DynamicAgentConfig["allowed_tools"];
+
+function normalizeStringArray(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+}
+
+async function reconcileSeededAgentRelationships(input: {
+  agentId: string;
+  previousAllowedTools?: AgentAllowedTools | null;
+  nextAllowedTools?: AgentAllowedTools | null;
+  ownerTeamSlug?: string | null;
+  previousOwnerTeamSlug?: string | null;
+  nextSharedTeamSlugs?: string[];
+  previousSharedTeamSlugs?: string[];
+  globalUserAccess?: boolean;
+  previousGlobalUserAccess?: boolean;
+  logContext: string;
+}): Promise<void> {
+  try {
+    // assisted-by Codex Codex-sonnet-4-6
+    await reconcileAgentRelationships({
+      agentId: input.agentId,
+      previousAllowedTools: input.previousAllowedTools ?? {},
+      nextAllowedTools: input.nextAllowedTools ?? {},
+      ownerSubject: null,
+      organizationId: caipeOrgKey(),
+      ownerTeamSlug: input.ownerTeamSlug ?? null,
+      previousOwnerTeamSlug: input.previousOwnerTeamSlug ?? null,
+      nextSharedTeamSlugs: input.nextSharedTeamSlugs ?? [],
+      previousSharedTeamSlugs: input.previousSharedTeamSlugs ?? [],
+      globalUserAccess: input.globalUserAccess === true,
+      previousGlobalUserAccess: input.previousGlobalUserAccess === true,
+      failClosed: false,
+    });
+  } catch (error) {
+    console.warn(
+      `[seed-config] Failed to reconcile OpenFGA relationships for agent ${input.agentId} (${input.logContext}):`,
+      error,
+    );
+  }
+}
+
 async function seedAgents(
   agents: Record<string, unknown>[],
 ): Promise<number> {
@@ -173,6 +221,18 @@ async function seedAgents(
     const existing = await collection.findOne({ _id: agentId });
     const createdAt = existing?.created_at ?? now;
 
+    // Optional `owner_team` (slug) in the config makes the seeded agent owned by
+    // a team, which is what lets it be used in Slack channels mapped to that
+    // team — the bot's channel ReBAC check probes `team:<slug>#member can_use
+    // agent:<id>`, and only the OpenFGA reconcile below writes that tuple.
+    // `visibility: global` alone grants `user:*`, which does NOT satisfy a
+    // team-subject check.
+    const ownerTeamSlug =
+      (agentData.owner_team as string | undefined)?.trim() || null;
+    const sharedTeamSlugs = (
+      (agentData.shared_with_teams as string[] | undefined) ?? []
+    ).filter((slug) => slug && slug !== ownerTeamSlug);
+
     const doc = {
       _id: agentId,
       name: (agentData.name as string) ?? agentId,
@@ -189,7 +249,8 @@ async function seedAgents(
           },
       visibility: ((agentData.visibility as string) ?? "global") as VisibilityType,
       shared_with_teams:
-        (agentData.shared_with_teams as string[]) ?? undefined,
+        sharedTeamSlugs.length > 0 ? sharedTeamSlugs : undefined,
+      owner_team_slug: ownerTeamSlug ?? undefined,
       subagents: (agentData.subagents as SubAgentRef[]) ?? [],
       skills: (agentData.skills as string[]) ?? [],
       builtin_tools:
@@ -207,6 +268,22 @@ async function seedAgents(
     };
 
     await collection.replaceOne({ _id: agentId }, doc, { upsert: true });
+
+    // Write the OpenFGA ownership/share tuples so config-driven agents have
+    // the same PDP-visible policy as agents saved through the editor.
+    await reconcileSeededAgentRelationships({
+      agentId,
+      previousAllowedTools: existing?.allowed_tools,
+      nextAllowedTools: doc.allowed_tools,
+      ownerTeamSlug,
+      previousOwnerTeamSlug: existing?.owner_team_slug ?? null,
+      nextSharedTeamSlugs: sharedTeamSlugs,
+      previousSharedTeamSlugs: normalizeStringArray(existing?.shared_with_teams),
+      globalUserAccess: doc.visibility === "global",
+      previousGlobalUserAccess: existing?.visibility === "global",
+      logContext: "config seed",
+    });
+
     console.log(`[seed-config] Seeded agent: ${agentId}`);
     count++;
   }
@@ -352,6 +429,11 @@ async function seedWorkflowConfigs(
 
     const visibility = ((cfgData.visibility as string) ?? "global") as WorkflowConfigVisibility;
     const steps = (cfgData.steps ?? []) as StepEntry[];
+    let sharedWithTeams =
+      visibility === "team" ? ((cfgData.shared_with_teams as string[]) ?? undefined) : undefined;
+    if (sharedWithTeams?.length) {
+      sharedWithTeams = await normalizeSharedWithTeamSlugs(sharedWithTeams);
+    }
 
     // Ensure each step has type: "step" (YAML may omit it)
     for (const step of steps) {
@@ -367,13 +449,30 @@ async function seedWorkflowConfigs(
       steps,
       owner_id: "system",
       visibility,
-      shared_with_teams: visibility === "team" ? (cfgData.shared_with_teams as string[]) : undefined,
+      shared_with_teams: sharedWithTeams,
       config_driven: true,
       created_at: createdAt,
       updated_at: now,
     };
 
     await collection.replaceOne({ _id: cfgId }, doc, { upsert: true });
+    try {
+      await reconcileShareableResource({
+        objectType: "task",
+        objectId: cfgId,
+        sharedWithOrg: visibility === "global",
+        previousSharedWithOrg: existing?.visibility === "global" && visibility !== "global",
+        memberRelations: ["reader", "user"],
+        nextSharedTeamSlugs: visibility === "team" ? (sharedWithTeams ?? []) : [],
+        previousSharedTeamSlugs:
+          existing?.visibility === "team" ? existing.shared_with_teams ?? [] : [],
+      });
+    } catch (err) {
+      console.warn(
+        `[seed-config] OpenFGA reconcile for workflow config ${cfgId} failed:`,
+        err,
+      );
+    }
     console.log(`[seed-config] Seeded workflow config: ${cfgId}`);
     count++;
   }
@@ -498,20 +597,28 @@ export async function cleanupStaleConfigDriven(
  * - `model: { id: "", provider: "" }` defers model selection to the
  *   dynamic-agents backend default. Hard-coding a model here would
  *   couple bootstrap behavior to a specific deployment.
- * - All four built-in tools enabled with conservative defaults
- *   (`fetch_url` allow-list `*`, `sleep.max_seconds: 60`). Lock-down
- *   environments can tighten these via the UI after first login.
+ * - Built-in tools enabled with conservative defaults (`fetch_url` allow-list
+ *   `*`, `sleep.max_seconds: 60`, `request_user_input` for workflow HITL).
+ *   Lock-down environments can tighten these via the UI after first login.
  */
 export const HELLO_WORLD_AGENT_ID = "hello-world";
 
-function buildHelloWorldAgentDoc(now: string): DynamicAgentConfig {
+/** Bump when bootstrap fields change so reconcile updates existing installs. */
+export const HELLO_WORLD_BOOTSTRAP_REVISION = 2;
+
+export function buildHelloWorldAgentDoc(now: string): DynamicAgentConfig {
   return {
     _id: HELLO_WORLD_AGENT_ID,
     name: "Hello World",
     description:
-      "Default starter agent provisioned automatically when no dynamic agents exist. Has all built-in tools enabled (fetch URL, current time, user info, sleep). Edit or delete via the Custom Agents UI.",
-    system_prompt:
-      "You are Hello World, a friendly default assistant for testing and validating CAIPE. You can fetch web content, tell the current time, look up the signed-in user, and pause briefly when asked. Be concise and helpful.",
+      "Default starter agent for testing CAIPE and demo workflows. Supports structured user input (forms), fetch URL, time, user info, and short waits. Edit or delete via the Custom Agents UI.",
+    system_prompt: `You are Hello World, a friendly default assistant for testing and validating CAIPE.
+
+When you need information from the user, always use the \`request_user_input\` tool with a clear prompt and structured fields. Do not ask questions in plain chat and wait for a reply — the user is not in the agent chat during workflow runs.
+
+When a workflow step asks you to save data for later steps, use \`write_file\` on the workflow filesystem (for example \`choices.txt\` or \`movie_title.txt\` at the root). After collecting input via \`request_user_input\`, write the answers into the required files before finishing the step.
+
+Be concise and helpful.`,
     allowed_tools: {},
     model: { id: "", provider: "" },
     visibility: "global",
@@ -522,7 +629,10 @@ function buildHelloWorldAgentDoc(now: string): DynamicAgentConfig {
       current_datetime: { enabled: true },
       user_info: { enabled: true },
       sleep: { enabled: true, max_seconds: 60 },
+      request_user_input: { enabled: true },
     },
+    interrupt_on: { builtin: { request_user_input: true } },
+    hello_world_bootstrap_revision: HELLO_WORLD_BOOTSTRAP_REVISION,
     enabled: true,
     owner_id: "system",
     is_system: false,
@@ -553,6 +663,18 @@ export async function bootstrapDefaultDynamicAgentIfEmpty(): Promise<boolean> {
   // key error would still be reported — that's the right signal.
   try {
     await collection.insertOne(doc);
+    await reconcileSeededAgentRelationships({
+      agentId: HELLO_WORLD_AGENT_ID,
+      previousAllowedTools: {},
+      nextAllowedTools: doc.allowed_tools,
+      ownerTeamSlug: null,
+      previousOwnerTeamSlug: null,
+      nextSharedTeamSlugs: [],
+      previousSharedTeamSlugs: [],
+      globalUserAccess: true,
+      previousGlobalUserAccess: false,
+      logContext: "bootstrap insert",
+    });
   } catch (err) {
     // Duplicate-key races are benign — another caller (or the YAML seed)
     // beat us to it. Anything else is worth surfacing.
@@ -569,6 +691,83 @@ export async function bootstrapDefaultDynamicAgentIfEmpty(): Promise<boolean> {
     `[seed-config] Provisioned default dynamic agent: ${HELLO_WORLD_AGENT_ID}`,
   );
   return true;
+}
+
+/**
+ * Refresh the bootstrap Hello World agent when it is still owned by `system`
+ * and its bootstrap revision is behind {@link HELLO_WORLD_BOOTSTRAP_REVISION}.
+ * Does not overwrite agents the operator re-owned or deleted.
+ */
+export async function reconcileHelloWorldBootstrapAgent(): Promise<boolean> {
+  if (!isMongoDBConfigured) return false;
+
+  const collection =
+    await getCollection<DynamicAgentConfig>("dynamic_agents");
+  const now = new Date().toISOString();
+  const doc = buildHelloWorldAgentDoc(now);
+
+  const result = await collection.updateOne(
+    {
+      _id: HELLO_WORLD_AGENT_ID,
+      owner_id: "system",
+      $or: [
+        { hello_world_bootstrap_revision: { $exists: false } },
+        {
+          hello_world_bootstrap_revision: {
+            $lt: HELLO_WORLD_BOOTSTRAP_REVISION,
+          },
+        },
+      ],
+    },
+    {
+      $set: {
+        description: doc.description,
+        system_prompt: doc.system_prompt,
+        builtin_tools: doc.builtin_tools,
+        interrupt_on: doc.interrupt_on,
+        hello_world_bootstrap_revision: HELLO_WORLD_BOOTSTRAP_REVISION,
+        updated_at: now,
+      },
+    },
+  );
+
+  if (result.modifiedCount > 0) {
+    await reconcileSeededAgentRelationships({
+      agentId: HELLO_WORLD_AGENT_ID,
+      previousAllowedTools: {},
+      nextAllowedTools: doc.allowed_tools,
+      ownerTeamSlug: null,
+      previousOwnerTeamSlug: null,
+      nextSharedTeamSlugs: [],
+      previousSharedTeamSlugs: [],
+      globalUserAccess: true,
+      previousGlobalUserAccess: false,
+      logContext: "bootstrap revision update",
+    });
+    console.log(
+      `[seed-config] Reconciled bootstrap agent ${HELLO_WORLD_AGENT_ID} to revision ${HELLO_WORLD_BOOTSTRAP_REVISION}`,
+    );
+    return true;
+  }
+  const existing = await collection.findOne({
+    _id: HELLO_WORLD_AGENT_ID,
+    owner_id: "system",
+  });
+  if (existing) {
+    await reconcileSeededAgentRelationships({
+      agentId: HELLO_WORLD_AGENT_ID,
+      previousAllowedTools: existing.allowed_tools,
+      nextAllowedTools: existing.allowed_tools ?? doc.allowed_tools,
+      ownerTeamSlug: existing.owner_team_slug ?? null,
+      previousOwnerTeamSlug: existing.owner_team_slug ?? null,
+      nextSharedTeamSlugs: normalizeStringArray(existing.shared_with_teams),
+      previousSharedTeamSlugs: normalizeStringArray(existing.shared_with_teams),
+      globalUserAccess: existing.visibility === "global",
+      previousGlobalUserAccess: existing.visibility === "global",
+      logContext: "bootstrap self-heal",
+    });
+  }
+  return false;
 }
 
 /**
@@ -603,8 +802,11 @@ const AUTO_CREATE_TEAMS_BOOTSTRAP_ACTOR =
 export function buildAutoCreateTeamsBootstrapRule(now: string) {
   return {
     id: AUTO_CREATE_TEAMS_BOOTSTRAP_RULE_ID,
-    provider_id: "oidc-claims",
-    name: "Auto-create teams from OIDC group claims (bootstrap)",
+    // Wildcard so the single catch-all applies to every IdP (login OIDC
+    // claims AND the background Okta directory sync). listIdentityGroupSyncRules
+    // returns "*" rules alongside any provider-scoped rules.
+    provider_id: "*",
+    name: "Auto-create teams from IdP group claims (bootstrap)",
     priority: 1000,
     enabled: true,
     review_status: "enabled" as const,
@@ -820,6 +1022,12 @@ export async function applySeedConfig(): Promise<void> {
       await seedAgentGatewayAdminAccess();
       const agentCount = await seedAgents(config.agents);
       const workflowCount = await seedWorkflowConfigs(config.workflow_configs);
+      const workflowTeamSlugRepairs = await repairWorkflowConfigTeamSlugRefs();
+      if (workflowTeamSlugRepairs > 0) {
+        console.log(
+          `[seed-config] Repaired shared_with_teams slugs on ${workflowTeamSlugRepairs} team workflow(s)`,
+        );
+      }
 
       // Cleanup stale config-driven entities
       await cleanupStaleConfigDriven(
@@ -875,6 +1083,14 @@ export async function applySeedConfig(): Promise<void> {
     } catch (err) {
       console.error(
         "[seed-config] default dynamic agent bootstrap threw:",
+        err,
+      );
+    }
+    try {
+      await reconcileHelloWorldBootstrapAgent();
+    } catch (err) {
+      console.error(
+        "[seed-config] Hello World bootstrap reconcile threw:",
         err,
       );
     }

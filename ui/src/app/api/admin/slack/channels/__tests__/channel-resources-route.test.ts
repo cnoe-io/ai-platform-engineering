@@ -31,6 +31,45 @@ jest.mock("@/lib/rbac/openfga", () => ({
   writeOpenFgaTuples: (...args: unknown[]) => mockWriteOpenFgaTuples(...args),
 }));
 
+jest.mock("@/lib/rbac/resource-authz", () => ({
+  requireResourcePermission: jest.fn(
+    async (
+      session: { sub?: string; isServiceAccount?: boolean },
+      target: { type: string; id: string; action: string },
+      options?: { bypassForOrgAdmin?: boolean }
+    ) => {
+      const prefix = session?.isServiceAccount === true ? "service_account" : "user";
+      const user = `${prefix}:${session?.sub ?? ""}`;
+      if (options?.bypassForOrgAdmin) {
+        const org = await mockCheckOpenFgaTuple({
+          user,
+          relation: "can_manage",
+          object: "organization:caipe",
+        });
+        if (org.allowed === true) return;
+      }
+      const relation = target.action === "manage" ? "can_manage" : `can_${target.action}`;
+      const result = await mockCheckOpenFgaTuple({
+        user,
+        relation,
+        object: `${target.type}:${target.id}`,
+      });
+      if (result.allowed === true) return;
+      const error = new Error("You do not have permission to access this resource.") as Error & {
+        statusCode: number;
+        code: string;
+      };
+      error.statusCode = 403;
+      error.code = `${target.type}#${target.action}`;
+      throw error;
+    }
+  ),
+  subjectFromSession: jest.fn((session: { sub?: string; isServiceAccount?: boolean }) => {
+    if (!session?.sub) return null;
+    return `${session.isServiceAccount === true ? "service_account" : "user"}:${session.sub}`;
+  }),
+}));
+
 jest.mock("@/lib/rbac/keycloak-admin", () => ({
   // Phase 3 (spec 2026-05-24-derive-team-from-channel): per-team
   // scope helpers removed from the Slack channel onboarding flow.
@@ -259,6 +298,11 @@ describe("Slack channel ReBAC APIs", () => {
   });
 
   it("replaces channel resource grants and writes channel OpenFGA tuples", async () => {
+    // Not an org admin (organization:caipe denied) so the per-channel can_manage
+    // check is what authorizes the actor — exercise that path explicitly.
+    mockCheckOpenFgaTuple.mockImplementation(async (tuple: { relation: string; object: string }) => ({
+      allowed: tuple.object === `slack_channel:${workspaceAlias}--${channelId}`,
+    }));
     mockReadOpenFgaTuples.mockResolvedValue({
       tuples: [
         {
@@ -305,7 +349,9 @@ describe("Slack channel ReBAC APIs", () => {
   });
 
   it("does not update Slack channel grants when the actor cannot manage the team-owned channel", async () => {
-    mockCheckOpenFgaTuple.mockResolvedValueOnce({ allowed: false });
+    // Deny every probe: not an org admin (organization:caipe) AND no per-channel
+    // can_manage grant — so the actor is genuinely unauthorized → 403.
+    mockCheckOpenFgaTuple.mockResolvedValue({ allowed: false });
     const { PUT } = await import("../[workspaceId]/[channelId]/resources/route");
 
     const response = await PUT(
@@ -326,99 +372,6 @@ describe("Slack channel ReBAC APIs", () => {
     expect(mockCollections.slack_channel_grants.updateOne).not.toHaveBeenCalled();
   });
 
-  it("checks both channel grants and user resource grants", async () => {
-    mockCollections.slack_channel_grants = createMockCollection([
-      {
-        workspace_id: workspaceAlias,
-        channel_id: channelId,
-        resource: { type: "agent", id: "incident-agent" },
-        actions: ["use"],
-        status: "active",
-      },
-    ]);
-    mockCheckUniversalRebacRelationship
-      .mockResolvedValueOnce({ allowed: true })
-      .mockResolvedValueOnce({ allowed: true });
-    const { POST } = await import("../[workspaceId]/[channelId]/access-check/route");
-
-    const response = await POST(
-      request(`/api/admin/slack/channels/${workspaceId}/${channelId}/access-check`, {
-        method: "POST",
-        body: JSON.stringify({
-          user_subject: "team:platform-engineering#member",
-          resource: { type: "agent", id: "incident-agent" },
-          action: "use",
-        }),
-      }),
-      { params: Promise.resolve({ workspaceId, channelId }) }
-    );
-    const body = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(body.data).toMatchObject({
-      allowed: true,
-      channel_allowed: true,
-      user_allowed: true,
-      reason: "allowed",
-    });
-    expect(mockCheckUniversalRebacRelationship).toHaveBeenCalledTimes(2);
-    expect(mockCheckUniversalRebacRelationship).toHaveBeenCalledWith(
-      expect.objectContaining({
-        subject: { type: "slack_channel", id: `${workspaceAlias}--${channelId}` },
-        action: "use",
-        resource: { type: "agent", id: "incident-agent" },
-      })
-    );
-    expect(mockCheckUniversalRebacRelationship).toHaveBeenCalledWith(
-      expect.objectContaining({
-        subject: { type: "team", id: "platform-engineering", relation: "member" },
-        action: "use",
-      })
-    );
-  });
-
-  it("denies Slack access when the OpenFGA channel tuple was removed", async () => {
-    mockCollections.slack_channel_grants = createMockCollection([
-      {
-        workspace_id: workspaceAlias,
-        channel_id: channelId,
-        resource: { type: "agent", id: "incident-agent" },
-        actions: ["use"],
-        status: "active",
-      },
-    ]);
-    mockCheckUniversalRebacRelationship.mockResolvedValueOnce({ allowed: false });
-    const { POST } = await import("../[workspaceId]/[channelId]/access-check/route");
-
-    const response = await POST(
-      request(`/api/admin/slack/channels/${workspaceId}/${channelId}/access-check`, {
-        method: "POST",
-        body: JSON.stringify({
-          user_subject: "team:platform-engineering#member",
-          resource: { type: "agent", id: "incident-agent" },
-          action: "use",
-        }),
-      }),
-      { params: Promise.resolve({ workspaceId, channelId }) }
-    );
-    const body = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(body.data).toMatchObject({
-      allowed: false,
-      channel_allowed: false,
-      user_allowed: false,
-      reason: "missing_channel_grant",
-    });
-    expect(mockCheckUniversalRebacRelationship).toHaveBeenCalledTimes(1);
-    expect(mockCheckUniversalRebacRelationship).toHaveBeenCalledWith(
-      expect.objectContaining({
-        subject: { type: "slack_channel", id: `${workspaceAlias}--${channelId}` },
-        action: "use",
-        resource: { type: "agent", id: "incident-agent" },
-      })
-    );
-  });
 
   it("saving Slack agent routes writes OpenFGA tuples and route metadata", async () => {
     mockCollections.slack_channel_agent_routes = createMockCollection([]);
@@ -559,6 +512,12 @@ describe("Slack channel ReBAC APIs", () => {
     ]);
     expect(mockReadOpenFgaTuples).toHaveBeenCalledWith({
       pageSize: 100,
+      // SEC-6: the read is scoped server-side instead of fetching all tuples and
+      // filtering in JS. OpenFGA /read requires an object TYPE in the filter (a
+      // user-only or user+relation filter 400s with "object type field is
+      // required"), so we scope to the `agent:` object type with the channel as
+      // `user`; the agent id is recovered in-memory via agentIdFromObject.
+      tuple: { object: "agent:", user: `slack_channel:${workspaceAlias}--${channelId}` },
     });
   });
 

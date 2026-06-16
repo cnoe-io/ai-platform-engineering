@@ -196,14 +196,14 @@ routes:
 
   # Spec 2026-05-11 identity-group ReBAC foundation entries. These routes are
   # added as pending until the corresponding user-story endpoints land.
-  - id: ui-bff-get-api-admin-identity-group-sync-providers
+  - id: ui-bff-get-api-admin-identity-group-sync-directory-sync-status
     surface: ui_bff
     method: GET
-    path: /api/admin/identity-group-sync/providers
+    path: /api/admin/identity-group-sync/directory-sync/status
     resource: admin_ui
     scope: view
     migration_status: migrated
-    notes: dual-auth admin_ui#view PDP gate for identity provider health/list.
+    notes: dual-auth admin_ui#view PDP gate for IdP connector status/health/run history.
     expectations:
       alice_admin:
         status: 200
@@ -222,14 +222,40 @@ routes:
       frank_service_account:
         status: 403
         reason: DENY_NO_CAPABILITY
-  - id: ui-bff-post-api-admin-identity-group-sync-apply
+  - id: ui-bff-put-api-admin-identity-group-sync-directory-sync-settings
     surface: ui_bff
-    method: POST
-    path: /api/admin/identity-group-sync/apply
+    method: PUT
+    path: /api/admin/identity-group-sync/directory-sync/settings
     resource: admin_ui
     scope: admin
     migration_status: migrated
-    notes: dual-auth admin_ui#admin PDP gate; dry-run/review gates are enforced by route logic.
+    notes: dual-auth admin_ui#admin PDP gate for IdP connector sync settings (schedule/filter).
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      carol_kb_ingestor:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      dave_no_role:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      eve_dynamic_agent_user:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+      frank_service_account:
+        status: 403
+        reason: DENY_NO_CAPABILITY
+  - id: ui-bff-post-api-admin-identity-group-sync-directory-sync-trigger
+    surface: ui_bff
+    method: POST
+    path: /api/admin/identity-group-sync/directory-sync/trigger
+    resource: admin_ui
+    scope: admin
+    migration_status: migrated
+    notes: dual-auth admin_ui#admin PDP gate to trigger a manual IdP directory sync.
     expectations:
       alice_admin:
         status: 200

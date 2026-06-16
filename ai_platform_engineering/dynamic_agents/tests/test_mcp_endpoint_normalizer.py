@@ -13,7 +13,6 @@ from dynamic_agents.services.mcp_endpoint_normalizer import (
     normalize_mcp_endpoint_for_server,
 )
 
-
 BASE = "http://agentgateway:4000"
 
 

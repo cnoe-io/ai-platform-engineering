@@ -36,3 +36,8 @@ indent-width = 2
 [tool.ruff.lint]
 select = ["E", "F"]
 ignore = ["F403"]
+
+[dependency-groups]
+dev = [
+    "pytest==9.1.0",
+]

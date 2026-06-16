@@ -8,7 +8,6 @@
  * just the letter pill so it can be reused next to inline buttons too.
  */
 
-import * as React from "react";
 import { cn } from "@/lib/utils";
 import type { ReviewGrade } from "@/types/ai-review";
 

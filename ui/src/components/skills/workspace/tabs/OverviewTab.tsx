@@ -9,15 +9,15 @@
  * or expandable accordions — every field is always visible.
  */
 
+import { Globe,Lock,Users as TeamsIcon } from "lucide-react";
 import React from "react";
-import { Globe, Lock, Users as TeamsIcon } from "lucide-react";
 
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import { cn } from "@/lib/utils";
 import { AiAssistButton } from "@/components/ai-assist";
-import { TeamMultiPicker, type TeamPickerOption } from "@/components/ui/team-picker";
 import type { UseSkillFormResult } from "@/components/skills/workspace/use-skill-form";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { TeamMultiPicker,type TeamPickerOption } from "@/components/ui/team-picker";
+import { cn } from "@/lib/utils";
 import type { SkillVisibility } from "@/types/agent-skill";
 
 export interface OverviewTabProps {

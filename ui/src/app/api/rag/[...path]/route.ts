@@ -1,28 +1,28 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth-config';
 import {
-  ApiError,
-  requireRbacPermission,
-  handleApiError,
+ApiError,
+handleApiError,
+requireRbacPermission,
 } from '@/lib/api-middleware';
-import type { RbacScope } from '@/lib/rbac/types';
+import { authOptions } from '@/lib/auth-config';
+import { getDevAnonymousSession,isDevAnonymousAuthEnabled } from '@/lib/auth/dev-auth-provider';
+import { checkOpenFgaTuple } from '@/lib/rbac/openfga';
 import {
-  filterResourcesByPermission,
-  requireResourcePermission,
-  type ResourceAuthzSession,
-  type ResourcePermissionAction,
+deleteAllMcpToolRelationshipTuples,
+reconcileDataSourceRelationships,
+reconcileKnowledgeBaseRelationships,
+reconcileMcpToolRelationships,
+} from '@/lib/rbac/openfga-owned-resources-reconcile';
+import { organizationObjectId } from '@/lib/rbac/organization';
+import {
+filterResourcesByPermission,
+requireResourcePermission,
+type ResourceAuthzSession,
+type ResourcePermissionAction,
 } from '@/lib/rbac/resource-authz';
 import { resolveShareableOwnershipWrite } from '@/lib/rbac/shareable-resource';
-import {
-  reconcileDataSourceRelationships,
-  reconcileKnowledgeBaseRelationships,
-  reconcileMcpToolRelationships,
-  deleteAllMcpToolRelationshipTuples,
-} from '@/lib/rbac/openfga-owned-resources';
-import { checkOpenFgaTuple } from '@/lib/rbac/openfga';
-import { organizationObjectId } from '@/lib/rbac/organization';
-import { getDevAnonymousSession, isDevAnonymousAuthEnabled } from '@/lib/auth/dev-auth-provider';
+import type { RbacScope } from '@/lib/rbac/types';
+import { getServerSession } from 'next-auth';
+import { NextRequest,NextResponse } from 'next/server';
 
 /**
  * RAG API Proxy with JWT Bearer Token Authentication
@@ -840,6 +840,8 @@ export async function POST(
     const ragServerUrl = getRagServerUrl();
     const targetPath = path.join('/');
     const targetUrl = `${ragServerUrl}/${targetPath}`;
+    const contentType = request.headers.get('content-type') ?? '';
+    const isMultipart = contentType.toLowerCase().includes('multipart/form-data');
 
     // Parse the JSON body when present. We attempt a parse whenever a
     // content-length is absent-but-nonempty OR positive, because the
@@ -850,7 +852,7 @@ export async function POST(
     let body: unknown = undefined;
     const contentLength = request.headers.get('content-length');
     const hasBody = contentLength === null || parseInt(contentLength) > 0;
-    if (hasBody) {
+    if (hasBody && !isMultipart) {
       try {
         body = await request.json();
       } catch {
@@ -911,7 +913,10 @@ export async function POST(
       headers,
     };
 
-    if (body !== undefined) {
+    if (isMultipart) {
+      delete headers['Content-Type'];
+      fetchOptions.body = await request.formData();
+    } else if (body !== undefined) {
       fetchOptions.body = JSON.stringify(body);
     }
 

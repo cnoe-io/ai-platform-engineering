@@ -21,10 +21,18 @@ binds:
         extAuthz:
           host: openfga-authz-bridge:9100
           failureMode: { denyWithStatus: 403 }
+          # Forward the HTTP request body so the bridge can parse the JSON-RPC
+          # `tools/call` method+name and run the caller-keyed per-tool check
+          # (FR-012/SC-010). Without this the bridge only sees gRPC metadata, so
+          # `tool_call` is always None and the caller-keyed block is skipped. See #36.
+          includeRequestBody:
+            maxRequestBytes: 65536      # MCP tools/call JSON-RPC bodies are small; 64KB is ample (default 8192)
+            allowPartialMessage: false  # need the COMPLETE body to json.loads the JSON-RPC envelope
+            packAsBytes: true           # fills CheckRequest.http.raw_body — the bridge reads raw_body first
           protocol:
             grpc:
               metadata:
-                caipe.auth: '{"sub": jwt.sub}'
+                caipe.auth: '{"sub": jwt.sub, "preferred_username": jwt.preferred_username}'
         authorization:
           rules:
           - allow: 'true'
@@ -59,10 +67,16 @@ binds:
         extAuthz:
           host: openfga-authz-bridge:9100
           failureMode: { denyWithStatus: 403 }
+          # Caller-keyed per-tool check needs the request body; keep in sync with
+          # the &mcpAuthzPolicy anchor and config_bridge.py. See #36.
+          includeRequestBody:
+            maxRequestBytes: 65536
+            allowPartialMessage: false
+            packAsBytes: true
           protocol:
             grpc:
               metadata:
-                caipe.auth: '{"sub": jwt.sub}'
+                caipe.auth: '{"sub": jwt.sub, "preferred_username": jwt.preferred_username}'
         authorization:
           rules:
           - allow: 'true'
@@ -80,10 +94,16 @@ binds:
         extAuthz:
           host: openfga-authz-bridge:9100
           failureMode: { denyWithStatus: 403 }
+          # Caller-keyed per-tool check needs the request body; keep in sync with
+          # the &mcpAuthzPolicy anchor and config_bridge.py. See #36.
+          includeRequestBody:
+            maxRequestBytes: 65536
+            allowPartialMessage: false
+            packAsBytes: true
           protocol:
             grpc:
               metadata:
-                caipe.auth: '{"sub": jwt.sub}'
+                caipe.auth: '{"sub": jwt.sub, "preferred_username": jwt.preferred_username}'
         authorization:
           rules:
           - allow: 'true'
@@ -136,10 +156,16 @@ binds:
         extAuthz:
           host: openfga-authz-bridge:9100
           failureMode: { denyWithStatus: 403 }
+          # Caller-keyed per-tool check needs the request body; keep in sync with
+          # the &mcpAuthzPolicy anchor and config_bridge.py. See #36.
+          includeRequestBody:
+            maxRequestBytes: 65536
+            allowPartialMessage: false
+            packAsBytes: true
           protocol:
             grpc:
               metadata:
-                caipe.auth: '{"sub": jwt.sub}'
+                caipe.auth: '{"sub": jwt.sub, "preferred_username": jwt.preferred_username}'
         authorization:
           rules:
           - allow: 'true'
@@ -184,5 +210,5 @@ binds:
 config:
   adminAddr: 0.0.0.0:15000
   logging:
-    level: debug
+    level: info
     format: json

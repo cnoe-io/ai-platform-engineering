@@ -17,6 +17,10 @@ jest.mock("@/lib/rbac/resource-authz", () => ({
   requireResourcePermission: jest.fn().mockResolvedValue(undefined),
 }));
 
+jest.mock("@/lib/rbac/openfga-owned-resources-reconcile", () => ({
+  reconcileShareableResource: jest.fn().mockResolvedValue({ enabled: true, writes: 0, deletes: 0 }),
+}));
+
 import { handleShareableResourceWrite } from "@/lib/rbac/shareable-resource";
 import { ApiError } from "@/lib/api-error";
 

@@ -1,11 +1,11 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { randomUUID } from "crypto";
+import { ApiError,handleApiError,requireRbacPermission } from "@/lib/api-middleware";
 import { authOptions } from "@/lib/auth-config";
 import { getCollection } from "@/lib/mongodb";
-import { requireRbacPermission, ApiError, handleApiError } from "@/lib/api-middleware";
 import { filterResourcesByPermission } from "@/lib/rbac/resource-authz";
 import { extractRealmRolesFromSession } from "@/lib/rbac/task-skill-realm-access";
+import { randomUUID } from "crypto";
+import { getServerSession } from "next-auth";
+import { NextRequest,NextResponse } from "next/server";
 
 /**
  * Team-scoped RAG tool management (098 Enterprise RBAC — FR-009).
@@ -100,7 +100,7 @@ export async function GET() {
       { sub: session.sub, role: session.role, user: session.user },
       results,
       { type: "tool", action: "read", id: (tool) => tool.tool_id },
-      { allowAdminBypass: true },
+      { bypassForOrgAdmin: true },
     );
 
     return NextResponse.json({ tools: visibleResults });

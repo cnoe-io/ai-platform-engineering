@@ -1,28 +1,28 @@
 "use client";
 
-import React from "react";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
-  Server,
-  Loader2,
-  Zap,
-  Check,
-  ChevronDown,
-  ChevronRight,
-  Search,
-  Info,
-  AlertTriangle,
-} from "lucide-react";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
+Tooltip,
+TooltipContent,
+TooltipProvider,
+TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import type { MCPServerConfig, MCPToolInfo } from "@/types/dynamic-agent";
+import type { MCPServerConfig,MCPToolInfo } from "@/types/dynamic-agent";
+import {
+AlertTriangle,
+Check,
+ChevronDown,
+ChevronRight,
+Info,
+Loader2,
+Search,
+Server,
+Zap,
+} from "lucide-react";
+import React from "react";
 
 interface AllowedToolsPickerProps {
   value: Record<string, string[] | boolean>; // server_id -> tool names, true=all, false=disabled
@@ -366,7 +366,7 @@ export function AllowedToolsPicker({ value, onChange, disabled }: AllowedToolsPi
                   variant="ghost"
                   size="sm"
                   onClick={() => handleProbe(server._id)}
-                  disabled={disabled || probe?.loading}
+                  disabled={probe?.loading}
                   className="h-7 px-2"
                 >
                   {probe?.loading ? (

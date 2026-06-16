@@ -1,15 +1,15 @@
 // GET /api/settings - Get all user settings
 // PUT /api/settings - Update all settings
 
-import { NextRequest } from 'next/server';
-import { getCollection } from '@/lib/mongodb';
 import {
-  withAuth,
-  withErrorHandler,
-  successResponse,
+successResponse,
+withAuth,
+withErrorHandler,
 } from '@/lib/api-middleware';
-import type { UserSettings, UpdateSettingsRequest } from '@/types/mongodb';
+import { getCollection } from '@/lib/mongodb';
+import type { UpdateSettingsRequest,UserSettings } from '@/types/mongodb';
 import { DEFAULT_USER_SETTINGS } from '@/types/mongodb';
+import { NextRequest } from 'next/server';
 
 // GET /api/settings
 export const GET = withErrorHandler(async (request: NextRequest) => {

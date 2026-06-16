@@ -1,9 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
 import {
-  withErrorHandler,
-  getAuthFromBearerOrSession,
-  requireRbacPermission,
+getAuthFromBearerOrSession,
+requireRbacPermission,
+withErrorHandler,
 } from "@/lib/api-middleware";
+import { NextRequest,NextResponse } from "next/server";
 
 /**
  * POST /api/skills/refresh — proxy to Python POST /skills/refresh.

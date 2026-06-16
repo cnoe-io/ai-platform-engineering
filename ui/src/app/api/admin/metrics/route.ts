@@ -1,11 +1,11 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { getServerOnlyConfig } from '@/lib/config';
 import {
-  withErrorHandler,
-  ApiError,
-  getAuthFromBearerOrSession,
+ApiError,
+getAuthFromBearerOrSession,
+withErrorHandler,
 } from '@/lib/api-middleware';
+import { getServerOnlyConfig } from '@/lib/config';
 import { requireBaselineAdminSurfaceRead } from '@/lib/rbac/require-openfga';
+import { NextRequest,NextResponse } from 'next/server';
 
 const PROM_QUERY_TIMEOUT_MS = 15_000;
 

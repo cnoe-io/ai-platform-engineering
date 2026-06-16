@@ -1,4 +1,4 @@
-import type { PermissionType, UserInfo } from '@/lib/rag-api';
+import type { PermissionType,UserInfo } from '@/lib/rag-api';
 import { Permission } from '@/lib/rag-api';
 import { useKbTabGates } from './use-kb-tab-gates';
 

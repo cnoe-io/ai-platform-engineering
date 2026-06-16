@@ -7,9 +7,9 @@
  * Key format: `{key_id}.{secret}`. Only HMAC-SHA256(pepper, secret) is stored.
  */
 
-import { createHmac, randomInt } from "crypto";
+import { createHmac,randomInt } from "crypto";
 
-import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
+import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
 
 const COLLECTION = "catalog_api_keys";
 const KEY_ID_PREFIX = "sk_";

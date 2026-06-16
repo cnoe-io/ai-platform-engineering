@@ -1,24 +1,24 @@
 "use client";
 
-import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import { useTheme } from "next-themes";
 import { SigmaContainer } from "@react-sigma/core";
 import { MultiDirectedGraph } from 'graphology';
 import forceAtlas2 from 'graphology-layout-forceatlas2';
-import { Loader2, RefreshCw } from 'lucide-react';
-import { exploreEntityNeighborhood, getEntityTypes, getDataGraphStats } from '../../api';
-import DataNodeHoverCard from './DataNodeHoverCard';
-import DataNodeDetailsCard from './DataNodeDetailsCard';
+import { Loader2 } from 'lucide-react';
+import { useTheme } from "next-themes";
+import { useCallback,useEffect,useMemo,useRef,useState } from 'react';
+import { exploreEntityNeighborhood } from '../../api';
 import { getColorForNode } from '../shared/graphStyles';
-import { generateNodeId, generateRelationId, extractRelationId, generateEdgeKey } from '../shared/graphUtils';
+import { extractRelationId,generateEdgeKey,generateNodeId } from '../shared/graphUtils';
 import '../shared/sigma-styles.css';
+import DataNodeDetailsCard from './DataNodeDetailsCard';
+import DataNodeHoverCard from './DataNodeHoverCard';
 
 // Import controllers
 import CameraController from '../shared/SigmaGraph/controllers/CameraController';
-import SigmaInstanceCapture from '../shared/SigmaGraph/controllers/SigmaInstanceCapture';
 import GraphDragController from '../shared/SigmaGraph/controllers/GraphDragController';
-import GraphSettingsController from '../shared/SigmaGraph/controllers/GraphSettingsController';
 import GraphEventsController from '../shared/SigmaGraph/controllers/GraphEventsController';
+import GraphSettingsController from '../shared/SigmaGraph/controllers/GraphSettingsController';
+import SigmaInstanceCapture from '../shared/SigmaGraph/controllers/SigmaInstanceCapture';
 
 interface DataGraphSigmaProps {
     exploreEntityData?: { entityType: string; primaryKey: string } | null;
@@ -132,6 +132,7 @@ export default function DataGraphSigma({ exploreEntityData, onExploreComplete }:
             }
 
             // Build the graph
+            // eslint-disable-next-line react-hooks/immutability
             await buildGraph(centerNodeId, relations || []);
             setExploredEntity(entity);
             setDataReady(true);
@@ -335,7 +336,7 @@ export default function DataGraphSigma({ exploreEntityData, onExploreComplete }:
                         <div className="text-6xl text-blue-500 mb-4">📊</div>
                         <h3 className="text-2xl font-bold text-foreground">Data Exploration</h3>
                         <p className="text-muted-foreground">
-                            Search for entities in the Search tab, then click "Explore" to visualize their relationships.
+                            Search for entities in the Search tab, then click &quot;Explore&quot; to visualize their relationships.
                         </p>
                     </div>
                 </div>

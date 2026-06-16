@@ -1,15 +1,15 @@
-import { NextRequest } from "next/server";
-import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import {
-  withAuth,
-  withErrorHandler,
-  successResponse,
-  ApiError,
+ApiError,
+successResponse,
+withAuth,
+withErrorHandler,
 } from "@/lib/api-middleware";
-import { scanSkillContent, isSkillScannerConfigured } from "@/lib/skill-scan";
-import { recordScanEvent } from "@/lib/skill-scan-history";
-import type { HubSkillDoc, SkillHubDoc } from "@/lib/hub-crawl";
+import type { HubSkillDoc,SkillHubDoc } from "@/lib/hub-crawl";
+import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
 import { requireResourcePermission } from "@/lib/rbac/resource-authz";
+import { isSkillScannerConfigured,scanSkillContent } from "@/lib/skill-scan";
+import { recordScanEvent } from "@/lib/skill-scan-history";
+import { NextRequest } from "next/server";
 
 const STORAGE_TYPE = isMongoDBConfigured ? "mongodb" : "none";
 

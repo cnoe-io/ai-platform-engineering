@@ -9,16 +9,16 @@
  * minus the Zustand state and UI rendering.
  */
 
+import { appendEvents } from "@/lib/server/event-store";
+import type { StreamCallbacks } from "../callbacks";
 import { parseSSEStream } from "../parse-sse";
 import {
-  createAGUIProtocolState,
-  resetProtocolState,
-  processAGUIEvent,
+createAGUIProtocolState,
+processAGUIEvent,
+resetProtocolState,
 } from "../protocols/agui";
-import { createStreamEvent } from "../types";
 import type { StreamEvent } from "../types";
-import type { StreamCallbacks } from "../callbacks";
-import { appendEvents } from "@/lib/server/event-store";
+import { createStreamEvent } from "../types";
 
 // ═══════════════════════════════════════════════════════════════
 // Types

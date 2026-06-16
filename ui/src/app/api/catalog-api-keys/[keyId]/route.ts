@@ -1,15 +1,15 @@
-import { NextRequest, NextResponse } from "next/server";
 import {
-  withAuth,
-  withErrorHandler,
-  ApiError,
+ApiError,
+withAuth,
+withErrorHandler,
 } from "@/lib/api-middleware";
 import {
-  getCatalogApiKeyOwnerIfActive,
-  resolveCatalogApiKeyOwnerId,
-  revokeCatalogApiKey,
+getCatalogApiKeyOwnerIfActive,
+resolveCatalogApiKeyOwnerId,
+revokeCatalogApiKey,
 } from "@/lib/catalog-api-keys";
 import { isMongoDBConfigured } from "@/lib/mongodb";
+import { NextRequest,NextResponse } from "next/server";
 
 /**
  * DELETE /api/catalog-api-keys/[keyId] — revoke a catalog API key (T051).

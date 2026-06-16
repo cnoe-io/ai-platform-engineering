@@ -1,18 +1,18 @@
 import { NextRequest } from "next/server";
 
 import {
-  ApiError,
-  getAuthFromBearerOrSession,
-  requireRbacPermission,
-  successResponse,
-  withErrorHandler,
+ApiError,
+getAuthFromBearerOrSession,
+requireRbacPermission,
+successResponse,
+withErrorHandler,
 } from "@/lib/api-middleware";
 import { compareRoleAndRebacEnforcement } from "@/lib/rbac/enforcement-comparison";
 import { listRebacEnforcementStatuses } from "@/lib/rbac/enforcement-status";
 import type {
-  UniversalRebacResourceAction,
-  UniversalRebacResourceRef,
-  UniversalRebacSubjectRef,
+UniversalRebacResourceAction,
+UniversalRebacResourceRef,
+UniversalRebacSubjectRef,
 } from "@/types/rbac-universal";
 
 function parseSubject(value: unknown): UniversalRebacSubjectRef {

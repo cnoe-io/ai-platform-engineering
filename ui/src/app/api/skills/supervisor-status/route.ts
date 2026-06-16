@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { withAuth, withErrorHandler } from "@/lib/api-middleware";
+import { withAuth,withErrorHandler } from "@/lib/api-middleware";
+import { NextRequest,NextResponse } from "next/server";
 
 /**
  * GET /api/skills/supervisor-status — proxy to Python GET /internal/supervisor/skills-status.

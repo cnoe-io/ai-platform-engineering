@@ -1,9 +1,9 @@
 import { NextRequest } from "next/server";
 
 import {
-  getAuthFromBearerOrSession,
-  successResponse,
-  withErrorHandler,
+getAuthFromBearerOrSession,
+successResponse,
+withErrorHandler,
 } from "@/lib/api-middleware";
 import { requireResourcePermission } from "@/lib/rbac/resource-authz";
 import { fetchAgentGatewayMcpDiscovery } from "../_lib";

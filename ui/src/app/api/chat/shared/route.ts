@@ -1,15 +1,15 @@
 // GET /api/chat/shared - Get conversations shared with current user
 
-import { NextRequest } from 'next/server';
-import { getCollection } from '@/lib/mongodb';
 import {
-  withAuth,
-  withErrorHandler,
-  paginatedResponse,
-  getPaginationParams,
+getPaginationParams,
+paginatedResponse,
+withAuth,
+withErrorHandler,
 } from '@/lib/api-middleware';
+import { getCollection } from '@/lib/mongodb';
 import { filterConversationsByImplicitOrExplicitPermission } from '@/lib/rbac/conversation-implicit-authz';
 import type { Conversation } from '@/types/mongodb';
+import { NextRequest } from 'next/server';
 
 // GET /api/chat/shared
 export const GET = withErrorHandler(async (request: NextRequest) => {

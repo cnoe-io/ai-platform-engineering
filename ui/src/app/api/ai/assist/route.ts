@@ -23,15 +23,15 @@
  * On rate-limit: HTTP 429 (no SSE body) with Retry-After header.
  */
 
-import { NextRequest } from "next/server";
 import { authenticateRequest } from "@/lib/da-proxy";
-import { fetchAssistantSuggest } from "@/lib/server/assistant-suggest-da";
-import {
-  getAiAssistTask,
-  type AiAssistContext,
-} from "@/lib/server/ai-assist-tasks";
-import { consume } from "@/lib/server/ai-assist-rate-limit";
 import { getCollection } from "@/lib/mongodb";
+import { consume } from "@/lib/server/ai-assist-rate-limit";
+import {
+getAiAssistTask,
+type AiAssistContext,
+} from "@/lib/server/ai-assist-tasks";
+import { fetchAssistantSuggest } from "@/lib/server/assistant-suggest-da";
+import { NextRequest } from "next/server";
 
 /**
  * Resolve a model the dynamic-agents service can actually serve. Tries the

@@ -1,5 +1,6 @@
 # Copyright 2025 CNOE Contributors
 # SPDX-License-Identifier: Apache-2.0
+# ruff: noqa: E402
 """
 CAIPE Slack Bot - Entry Point
 
@@ -7,6 +8,7 @@ A Slack bot that communicates with dynamic agents via AG-UI protocol.
 Supports @mention queries, Q&A mode, AI alert processing, HITL forms, and feedback.
 """
 
+import asyncio
 import os
 import re
 import sys
@@ -34,7 +36,7 @@ from utils import slack_formatter
 from utils.hitl_handler import HITLCallbackHandler
 from utils.chat_envelope import augment_slack_client_context  # noqa: E402
 
-from sse_client import SSEClient, set_obo_token
+from sse_client import AgentAccessDeniedError, SSEClient, set_obo_token
 from utils.session_manager import SessionManager
 from utils.scoring import submit_feedback_score
 from utils.config_models import ChannelConfig, get_escalation_config  # noqa: E402
@@ -47,10 +49,9 @@ from utils.slack_agent_routes import (  # noqa: E402
     slack_agent_route_mode,
     slack_workspace_ref,
 )
-from utils.slack_runtime_policy import (  # noqa: E402
-    should_post_route_miss_notice,
-    should_process_slack_payload,
-)
+from utils.slack_runtime_policy import should_post_route_miss_notice  # noqa: E402
+from utils.dispatch_identity import apply_execution_identity  # noqa: E402
+from utils.unlinked_fallback import apply_unlinked_fallback  # noqa: E402
 from utils.slack_admin_api import start_slack_admin_api_server  # noqa: E402
 
 app = App(token=os.environ.get("SLACK_INTEGRATION_BOT_TOKEN", os.environ.get("SLACK_BOT_TOKEN", "")))
@@ -67,7 +68,6 @@ def _msg_link(channel_id: str, ts: str) -> str:
 RBAC_ENABLED = os.environ.get("SLACK_RBAC_ENABLED", "false").lower() == "true"
 
 if RBAC_ENABLED:
-    import asyncio
     from utils.identity_linker import (
         resolve_slack_user,
         generate_linking_url,
@@ -81,15 +81,21 @@ if RBAC_ENABLED:
         is_dm_channel,
     )
     from utils.slack_channel_auto_assign import get_slack_channel_auto_assigner
-    from utils.obo_exchange import impersonate_user, OboExchangeError
+    from utils.obo_exchange import impersonate_user, impersonate_service_account, OboExchangeError
     from utils.slack_rebac import get_slack_channel_rebac_evaluator
-    from utils.rbac_middleware import format_slack_channel_rebac_denial
     from utils.user_messages import TEAM_SESSION_UNAVAILABLE_MESSAGE
+    from utils.service_account_resolver import get_unlinked_service_account_sub
+    from utils.keycloak_admin import user_is_federated, realm_has_enabled_idp_broker
 
     async def _rbac_enrich_context(body, slack_user_id, context, *, require_mapping: bool = True):
         """Resolve identity and enrich Bolt context.
 
         Returns 'unlinked', ('deny', message), or 'ok'.
+        - 'unlinked': no Keycloak user could be resolved (JIT off/failed/no email),
+          OR user resolved but has no live IdP link AND the realm has an enabled
+          broker → route as the unlinked SA.
+        - ('deny', message): channel has no team mapping (hard reject).
+        - 'ok': fully linked user; OBO token minted and stored in context.
         Stores team/workspace context for downstream OpenFGA channel checks.
         Channel→agent routing is now relationship-based: the selected Slack
         agent is authorized later against the channel's ReBAC grants.
@@ -132,7 +138,7 @@ if RBAC_ENABLED:
                 channel_id, keycloak_user_id,
             )
         else:
-            team_resolution = await resolve_channel_team(channel_id, keycloak_user_id)
+            team_resolution = await resolve_channel_team(channel_id)
             if not team_resolution.team_slug:
                 auto_assign = await asyncio.to_thread(
                     get_slack_channel_auto_assigner().assign_channel,
@@ -144,7 +150,7 @@ if RBAC_ENABLED:
                     get_slack_agent_route_resolver().invalidate(
                         context["slack_workspace_id"], channel_id
                     )
-                    team_resolution = await resolve_channel_team(channel_id, keycloak_user_id)
+                    team_resolution = await resolve_channel_team(channel_id)
                 elif auto_assign.reason not in {"disabled", "existing_mapping"}:
                     logger.warning(
                         "Slack channel auto-assignment skipped channel={} reason={}",
@@ -158,8 +164,8 @@ if RBAC_ENABLED:
                     # surfaces (commands return ephemeral replies). We
                     # mark the surface so downstream handlers can
                     # decide whether the body of the command requires
-                    # a channel mapping (it never does for /caipe-help
-                    # or /caipe-list).
+                    # a channel mapping (it never does for /{cmd}-help
+                    # or /{cmd}-list).
                     context["surface_kind"] = "dm"
                     logger.info(
                         "Channel={} has no team mapping; allowing surface_kind=dm "
@@ -185,6 +191,19 @@ if RBAC_ENABLED:
                     channel_id, team_resolution.team_name, team_resolution.team_slug, keycloak_user_id,
                 )
 
+        # Unlinked-fallback gate (anonymous-and-obo-routing):
+        # A JIT-from-Slack user (empty federatedIdentities) should run as the
+        # unlinked SA when the realm has an enabled IdP broker — broker
+        # presence means "real users authenticate through SSO; JIT shells are
+        # unverified placeholders until they link".  When there is NO broker,
+        # JIT-via-Slack IS the legitimate user base and they run as themselves.
+        if await realm_has_enabled_idp_broker() and not await user_is_federated(keycloak_user_id):
+            logger.info(
+                "User %s not IdP-linked (broker active) — routing as unlinked",
+                keycloak_user_id,
+            )
+            return "unlinked"
+
         try:
             obo = await impersonate_user(keycloak_user_id)
             context["obo_token"] = obo.access_token
@@ -203,17 +222,48 @@ if RBAC_ENABLED:
 
         return "ok"
 
+    async def _mint_unlinked_obo_token() -> str | None:
+        """Mint an OBO token for the platform unlinked SA.
+
+        Returns the access token string, or ``None`` if:
+        - The unlinked SA hasn't been bootstrapped yet (resolver returns None).
+        - The token exchange fails.
+
+        Callers must handle ``None`` by degrading gracefully (nudge + stop).
+        """
+        unlinked_sub = await asyncio.to_thread(get_unlinked_service_account_sub)
+        if unlinked_sub is None:
+            logger.warning(
+                "_mint_unlinked_obo_token: unlinked SA not found in MongoDB "
+                "(is_platform_unlinked=True, status=active) — cannot fall back"
+            )
+            return None
+        try:
+            obo = await impersonate_service_account(unlinked_sub)
+            return obo.access_token
+        except OboExchangeError as exc:
+            logger.warning(
+                "_mint_unlinked_obo_token: impersonation failed for unlinked SA sub=%s: %s",
+                unlinked_sub,
+                exc,
+            )
+            return None
+
     logger.info("Enterprise RBAC enforcement enabled for Slack bot")
 else:
     logger.info("Slack RBAC enforcement disabled (set SLACK_RBAC_ENABLED=true to enable)")
 
 
-def _slack_agent_rebac_denial(context, channel_id: str | None, agent_id: str | None) -> str | None:
-    """Return a denial message when channel ReBAC does not allow this agent."""
+def _slack_agent_channel_grant_check(context, channel_id: str | None, agent_id: str | None) -> str | None:
+    """Return a denial message when the channel does not have this agent assigned.
+
+    Only checks the channel→agent grant. User-level ``can_use`` is enforced
+    by the API when the conversation is created, so we don't duplicate it here.
+    Returns None when the channel grant is present (or RBAC is disabled / DM).
+    """
     if not RBAC_ENABLED or context is None or not channel_id or not agent_id:
         return None
     try:
-        team_slug = context.get("team_slug")
         if is_dm_channel(channel_id):
             return None
         workspace_id = context.get("slack_workspace_id") or slack_workspace_ref()
@@ -221,25 +271,79 @@ def _slack_agent_rebac_denial(context, channel_id: str | None, agent_id: str | N
     except AttributeError:
         return None
 
-    decision = get_slack_channel_rebac_evaluator().check_agent_access(
+    decision = get_slack_channel_rebac_evaluator().check_channel_grant(
         workspace_id=str(workspace_id),
         channel_id=str(channel_id),
         agent_id=str(agent_id),
-        team_slug=str(team_slug or ""),
         obo_token=obo_token if isinstance(obo_token, str) else None,
     )
-    if decision.allowed:
+    if decision.channel_allowed:
         return None
 
     logger.info(
-        "Slack ReBAC denied channel=%s agent=%s reason=%s channel_allowed=%s user_allowed=%s",
+        "Slack channel grant denied channel=%s agent=%s reason=%s",
         channel_id,
         agent_id,
         decision.reason,
-        decision.channel_allowed,
-        decision.user_allowed,
     )
-    return format_slack_channel_rebac_denial()
+    return f"Agent *{agent_id}* is not assigned to this channel. Ask an admin to add it in the {APP_NAME} Admin panel."
+
+
+def _post_ephemeral_for_event(client, event, channel_id, user_id, text) -> None:
+    """Post an ephemeral reply placed where the user is looking.
+
+    If the triggering message is a thread reply, place the ephemeral in that
+    thread; if it's a top-level message, post it at the channel root. Passing a
+    top-level message's own `ts` as `thread_ts` would bury the ephemeral in a
+    not-yet-open thread the user has to "know" to click into.
+
+    A message is a genuine thread reply only when `thread_ts` is present AND
+    differs from `ts` — a thread's ROOT message also carries `thread_ts` (equal
+    to its own `ts`) once it has replies, so presence alone is not reliable.
+    """
+    thread_ts = event.get("thread_ts") if isinstance(event, dict) else None
+    ts = event.get("ts") if isinstance(event, dict) else None
+    is_thread_reply = bool(thread_ts) and thread_ts != ts
+    kwargs = {"channel": channel_id, "user": user_id, "text": text}
+    if is_thread_reply:
+        kwargs["thread_ts"] = thread_ts
+    client.chat_postEphemeral(**kwargs)
+
+
+def _agent_access_denied_text(agent_id: str, context, agent_match=None) -> str:
+    """Build the 'no access to agent' message.
+
+    Distinguishes the acting identity: when the route runs as a service account
+    the denial is about that SA, not the human ("You"). Includes the owning
+    team name (when known) so the user knows who to ask for a grant.
+    """
+    # QUAL-2: getattr(obj, attr, default) never raises AttributeError, so
+    # the previous except AttributeError blocks were dead code — removed.
+    exec_id = getattr(agent_match, "execution_identity", None)
+    sa_name: str | None = None
+    if exec_id is not None and getattr(exec_id, "mode", None) == "service_account":
+        raw_name = getattr(exec_id, "service_account_name", None)
+        sa_name = raw_name if raw_name else None  # keep None; handled below (UX-4)
+
+    if sa_name is not None:
+        # Named SA: bold the name.
+        subject = f"The service account *{sa_name}*"
+        verb = "doesn't"
+    elif exec_id is not None and getattr(exec_id, "mode", None) == "service_account":
+        # SA route but no name stored — UX-4: don't produce "*the configured service account*".
+        subject = "The configured service account"
+        verb = "doesn't"
+    else:
+        subject = "You"
+        verb = "don't"
+
+    team_name = context.get("team_name") if context is not None else None
+
+    who = f"an admin on the *{team_name}* team" if team_name else "an admin"
+    return (
+        f"{subject} {verb} have access to agent *{agent_id}*. "
+        f"Ask {who} to grant access in the {APP_NAME} Admin panel."
+    )
 
 
 def _obo_token_from_context(context):
@@ -451,11 +555,6 @@ def _match_channel_agents(
   return config_matches
 
 
-def _slack_responses_suppressed() -> bool:
-  """Return whether setup mode should suppress user-visible Slack responses."""
-  return not should_process_slack_payload(silence_env=bool(getattr(config, "silence_env", False)))
-
-
 def _post_route_miss_notice(
   client,
   channel_id: str,
@@ -467,14 +566,7 @@ def _post_route_miss_notice(
   """Tell the sender why Slack routing did not dispatch an agent."""
   if not channel_id or not text:
     return
-  silence_env = bool(getattr(config, "silence_env", False))
-  if silence_env:
-    logger.info("Suppressing Slack route miss notice because setup silence mode is enabled")
-    return
-  if not should_post_route_miss_notice(
-    silence_env=silence_env,
-    explicit_invocation=explicit_invocation,
-  ):
+  if not should_post_route_miss_notice(explicit_invocation=explicit_invocation):
     logger.debug("Suppressing Slack route miss notice for ambient channel message")
     return
   try:
@@ -642,97 +734,111 @@ def _ack_ephemeral(ack, result: SlashCommandResult) -> None:
     logger.warning("Failed to ack slash command (code={}): {}", result.code, exc)
 
 
-@app.command("/caipe-help")
-def slash_caipe_help(ack, body, context=None):
-  """``/caipe-help`` — list available commands (FR-030)."""
-  user_id = body.get("user_id") or ""
-  result = handle_help_command(
-      user_key=user_id,
-      rate_limiter=_command_rate_limiter(),
-  )
-  _ack_ephemeral(ack, result)
+def _register_slash_commands() -> None:
+  """Register /{cmd}-help, /{cmd}-list, /{cmd}-use with the Bolt app.
 
+  The command prefix is derived from APP_NAME at startup time so that
+  ``APP_NAME=Forge`` registers ``/forge-help`` etc.
+  """
+  from utils.slash_commands import _cmd_prefix  # local import to avoid circular refs
+  cmd = _cmd_prefix()
 
-@app.command("/caipe-list")
-def slash_caipe_list(ack, body, context=None):
-  """``/caipe-list`` — show user's accessible agents (FR-028, FR-036)."""
-  user_id = body.get("user_id") or ""
-  bearer_token = _obo_token_from_context(context) or ""
-  if not bearer_token:
-    _ack_ephemeral(
-        ack,
-        SlashCommandResult(
-            text=(
-                "I couldn't verify your identity for this command. "
-                "Please re-link your account and try again."
-            ),
-            code="no_bearer",
-        ),
+  @app.command(f"/{cmd}-help")
+  def slash_help(ack, body, context=None):
+    channel_id = body.get("channel_id") or ""
+    is_dm = bool(channel_id) and channel_id.startswith("D")
+    user_id = body.get("user_id") or ""
+    result = handle_help_command(
+        user_key=user_id,
+        is_dm=is_dm,
+        rate_limiter=_command_rate_limiter(),
     )
-    return
-  result = handle_list_command(
-      user_key=user_id,
-      bearer_token=bearer_token,
-      accessible_agents_client=_accessible_agents_client(),
-      rate_limiter=_command_rate_limiter(),
-  )
-  _ack_ephemeral(ack, result)
+    _ack_ephemeral(ack, result)
 
-
-@app.command("/caipe-use")
-def slash_caipe_use(ack, body, context=None):
-  """``/caipe-use <agent>|default`` — set DM thread override or clear preferences."""
-  user_id = body.get("user_id") or ""
-  bearer_token = _obo_token_from_context(context) or ""
-  if not bearer_token:
-    _ack_ephemeral(
-        ack,
-        SlashCommandResult(
-            text=(
-                "I couldn't verify your identity for this command. "
-                "Please re-link your account and try again."
-            ),
-            code="no_bearer",
-        ),
-    )
-    return
-
-  raw_text = body.get("text") or ""
-  channel_id = body.get("channel_id") or ""
-  workspace_id = (context or {}).get("slack_workspace_id") or body.get("team_id") or ""
-  # Slack slash commands fire against a single channel; for DM threads
-  # the "thread" identity is the channel itself (Slack DMs don't carry
-  # a thread_ts in the command body). This matches the override key the
-  # DM message handler builds below for root messages.
-  thread_ts = channel_id  # one thread-key per DM channel for command-level overrides
-
-  # Slack DM channel ids start with "D" — this is a stable Slack
-  # convention, so it works regardless of whether RBAC enrichment ran.
-  is_dm = bool(channel_id) and channel_id.startswith("D")
-  override_key = (
-      _override_key_for_dm(
-          workspace_id=workspace_id,
-          channel_id=channel_id,
-          user_id=user_id,
-          thread_ts=thread_ts,
+  @app.command(f"/{cmd}-list")
+  def slash_list(ack, body, context=None):
+    channel_id = body.get("channel_id") or ""
+    is_dm = bool(channel_id) and channel_id.startswith("D")
+    user_id = body.get("user_id") or ""
+    bearer_token = _obo_token_from_context(context) or ""
+    if not bearer_token:
+      _ack_ephemeral(
+          ack,
+          SlashCommandResult(
+              text=(
+                  "I couldn't verify your identity for this command. "
+                  "Please re-link your account and try again."
+              ),
+              code="no_bearer",
+          ),
       )
-      if is_dm
-      else None
-  )
+      return
+    result = handle_list_command(
+        user_key=user_id,
+        bearer_token=bearer_token,
+        accessible_agents_client=_accessible_agents_client(),
+        is_dm=is_dm,
+        rate_limiter=_command_rate_limiter(),
+    )
+    _ack_ephemeral(ack, result)
 
-  result = handle_use_command(
-      user_key=user_id,
-      raw_text=raw_text,
-      bearer_token=bearer_token,
-      is_dm=is_dm,
-      override_key=override_key,
-      override_store=get_default_override_store(),
-      dm_authz_client=_dm_authz_client(),
-      user_preferences_client=_user_preferences_client(),
-      accessible_agents_client=_accessible_agents_client(),
-      rate_limiter=_command_rate_limiter(),
-  )
-  _ack_ephemeral(ack, result)
+
+  @app.command(f"/{cmd}-use")
+  def slash_use(ack, body, context=None):
+    user_id = body.get("user_id") or ""
+    bearer_token = _obo_token_from_context(context) or ""
+    if not bearer_token:
+      _ack_ephemeral(
+          ack,
+          SlashCommandResult(
+              text=(
+                  "I couldn't verify your identity for this command. "
+                  "Please re-link your account and try again."
+              ),
+              code="no_bearer",
+          ),
+      )
+      return
+
+    raw_text = body.get("text") or ""
+    channel_id = body.get("channel_id") or ""
+    workspace_id = (context or {}).get("slack_workspace_id") or body.get("team_id") or ""
+    # Slack slash commands fire against a single channel; for DM threads
+    # the "thread" identity is the channel itself (Slack DMs don't carry
+    # a thread_ts in the command body). This matches the override key the
+    # DM message handler builds below for root messages.
+    thread_ts = channel_id  # one thread-key per DM channel for command-level overrides
+
+    # Slack DM channel ids start with "D" — this is a stable Slack
+    # convention, so it works regardless of whether RBAC enrichment ran.
+    is_dm = bool(channel_id) and channel_id.startswith("D")
+    override_key = (
+        _override_key_for_dm(
+            workspace_id=workspace_id,
+            channel_id=channel_id,
+            user_id=user_id,
+            thread_ts=thread_ts,
+        )
+        if is_dm
+        else None
+    )
+
+    result = handle_use_command(
+        user_key=user_id,
+        raw_text=raw_text,
+        bearer_token=bearer_token,
+        is_dm=is_dm,
+        override_key=override_key,
+        override_store=get_default_override_store(),
+        dm_authz_client=_dm_authz_client(),
+        user_preferences_client=_user_preferences_client(),
+        accessible_agents_client=_accessible_agents_client(),
+        rate_limiter=_command_rate_limiter(),
+    )
+    _ack_ephemeral(ack, result)
+
+
+_register_slash_commands()
 
 
 def _resolve_conversation_id(thread_ts: str, channel_id: str, agent_id: str = "", owner_id: str = "") -> str:
@@ -896,12 +1002,9 @@ def rbac_global_middleware(body, context, next, logger):
         for k in stale:
             _seen_events.pop(k, None)
         if event_id in _seen_events:
-            logger.debug("Ignoring duplicate event_id={}", event_id)
+            logger.debug("Ignoring duplicate event_id=%s", event_id)
             return _HANDLED_200
         _seen_events[event_id] = now
-    if _slack_responses_suppressed():
-        logger.info("Ignoring Slack payload while SLACK_INTEGRATION_SILENCE_ENV=true")
-        return _HANDLED_200
     """Enterprise RBAC enforcement checkpoint (098).
 
     When SLACK_RBAC_ENABLED=true:
@@ -946,10 +1049,11 @@ def rbac_global_middleware(body, context, next, logger):
     # run regardless of channel mapping — the command itself decides whether
     # its semantics require DM context. So we treat both like mentions for the
     # mapping requirement and the command handlers enforce DM-only semantics
-    # for `/caipe-use <agent>` themselves.
+    # for `/{cmd}-use <agent>` themselves.
     is_mention = event.get("type") == "app_mention"
     is_command = bool(body.get("command"))
 
+    loop = None
     try:
         loop = asyncio.new_event_loop()
         rbac_status = loop.run_until_complete(
@@ -961,7 +1065,7 @@ def rbac_global_middleware(body, context, next, logger):
             )
         )
     except Exception as exc:
-        logger.error("Failed to resolve Slack user {} — denying request: {}", slack_user_id, exc)
+        logger.error("Failed to resolve Slack user %s — denying request: %s", slack_user_id, exc)
         channel = (
             body.get("event", {}).get("channel")
             or body.get("channel", {}).get("id")
@@ -975,10 +1079,11 @@ def rbac_global_middleware(body, context, next, logger):
                     text="Identity verification is temporarily unavailable. Please try again later.",
                 )
             except Exception:
-                logger.warning("Could not send RBAC error message to {}", slack_user_id)
+                logger.warning("Could not send RBAC error message to %s", slack_user_id)
         return _HANDLED_200
     finally:
-        loop.close()
+        if loop is not None:
+            loop.close()
 
     channel = (
         body.get("event", {}).get("channel")
@@ -990,72 +1095,72 @@ def rbac_global_middleware(body, context, next, logger):
         import time as _time
         now = _time.time()
         last_sent = _linking_prompt_sent.get(slack_user_id, 0)
-        if now - last_sent < _LINKING_PROMPT_COOLDOWN:
-            logger.debug("Suppressing linking prompt for {} (cooldown)", slack_user_id)
-            return _HANDLED_200
-        if channel:
-            try:
-                # Spec 103 FR-007: replace the previous dead-end message
-                # with an actionable HMAC-signed linking URL whenever the
-                # auto-link path returns "unlinked" — regardless of whether
-                # JIT was disabled, the email domain was not allow-listed,
-                # JIT failed (e.g. Keycloak 5xx), or the operator has
-                # SLACK_FORCE_LINK enabled. The user always gets a path
-                # forward; the previous text told them to "contact your
-                # admin" which is not a path the user can self-serve.
-                try:
-                    linking_url = asyncio.run(generate_linking_url(slack_user_id))
-                except Exception:
-                    linking_url = None
 
-                if linking_url:
-                    text = (
-                        "Your Slack account is not linked to an enterprise identity. "
-                        f"<{linking_url}|Click here to link your account> "
-                        "before using this feature."
-                    )
-                else:
-                    # Last-resort: no HMAC secret configured, so we cannot
-                    # mint a link. Keep the old dead-end message but make
-                    # it accurate (it really is a config issue at this point).
-                    text = (
-                        "Your Slack account could not be linked because the bot is "
-                        "not configured to mint linking URLs. Please contact your admin."
-                    )
-                context["client"].chat_postEphemeral(
-                    channel=channel,
-                    user=slack_user_id,
-                    text=text,
-                )
-                _linking_prompt_sent[slack_user_id] = now
+        # Decision 5 (anonymous-and-obo-routing): instead of dropping the
+        # request, fall back to the platform unlinked SA so the user still
+        # gets a baseline response. Logic extracted to apply_unlinked_fallback
+        # (unlinked_fallback.py) so it can be unit-tested without importing slack_bolt
+        # (TEST-5/6).
+
+        async def _mint_wrapper() -> str | None:
+            return await _mint_unlinked_obo_token()
+
+        async def _linking_url_wrapper(uid: str) -> str | None:
+            try:
+                return await generate_linking_url(uid)
             except Exception:
-                logger.warning("Could not send linking prompt to {}", slack_user_id)
-        return _HANDLED_200
+                return None
+
+        fallback_loop = None
+        try:
+            fallback_loop = asyncio.new_event_loop()
+            should_proceed = fallback_loop.run_until_complete(
+                apply_unlinked_fallback(
+                    rbac_status=rbac_status,
+                    slack_user_id=slack_user_id,
+                    channel=channel,
+                    context=context,
+                    mint_fn=_mint_wrapper,
+                    linking_url_fn=_linking_url_wrapper,
+                    last_sent=last_sent,
+                    linking_prompt_cooldown=_LINKING_PROMPT_COOLDOWN,
+                    is_dm_channel_fn=is_dm_channel,
+                )
+            )
+        except Exception as exc:
+            logger.warning(
+                "rbac_global_middleware: apply_unlinked_fallback raised for user=%s: %s",
+                slack_user_id,
+                exc,
+            )
+            should_proceed = False
+        finally:
+            if fallback_loop is not None:
+                fallback_loop.close()
+
+        if context.get("unlinked_fallback"):
+            _linking_prompt_sent[slack_user_id] = now
+        elif not should_proceed and now - last_sent >= _LINKING_PROMPT_COOLDOWN:
+            _linking_prompt_sent[slack_user_id] = now
+
+        if not should_proceed:
+            return _HANDLED_200
 
     if isinstance(rbac_status, tuple) and rbac_status[0] == "deny":
         msg = rbac_status[1]
-        # INFO-level log so denials are visible in slackbot logs. Without this
-        # the previous code returned silently and the only visible artifact was
-        # bolt-python's generic "middleware skipped calling next()" warning,
-        # which is useless for debugging "why didn't my user get a response?".
-        logger.info(
-            "RBAC denied request for slack_user={} channel={}: {}",
+        # WARNING-level log instead of posting the denial back to Slack. We
+        # deliberately do NOT notify the user in-channel: posting (even
+        # ephemerally) is noisy and leaks RBAC config details, so the denial is
+        # surfaced only in the slackbot logs for operators to debug "why didn't
+        # my user get a response?".
+        #
+        # NOTE: `logger` here is Bolt's injected stdlib logging.Logger (a
+        # function param), NOT the module-level loguru logger — so it uses
+        # %-style formatting, not {}. Using {} here raises TypeError at emit.
+        logger.warning(
+            "RBAC denied request for slack_user=%s channel=%s: %s",
             slack_user_id, channel, msg,
         )
-        if channel:
-            try:
-                # chat_postEphemeral keeps the denial visible only to the
-                # requesting user. The previous chat_postMessage broadcasted
-                # the denial (and the channel name suffix) to the entire
-                # channel, which is a UX/privacy regression — other channel
-                # members do not need to see that someone else was denied.
-                context["client"].chat_postEphemeral(
-                    channel=channel,
-                    user=slack_user_id,
-                    text=msg,
-                )
-            except Exception:
-                logger.warning("Could not send RBAC denial to {} in {}", slack_user_id, channel)
         # Return BoltResponse(200) so Slack does not retry the event 3 more
         # times — without this the same denial fires up to 4× and Bolt logs
         # the "middleware skipped calling next()" warning on every retry.
@@ -1073,7 +1178,10 @@ def handle_mention(event, say, client, context=None):
   try:
     # Wall-clock start for `_track_interaction(response_time_ms=...)` below.
     t0 = time.monotonic()
-    _bind_obo_for_handler(context)
+    # SEC-3: do NOT bind OBO here — _bind_obo_for_handler is called below
+    # AFTER apply_execution_identity so the correct token (user or SA) is
+    # bound once. Mirroring _route_to_agent which also binds only once, after
+    # the identity decision.
     if event.get("edited") or event.get("subtype") == "message_changed":
       logger.debug("Skipping edited @mention message")
       return
@@ -1118,18 +1226,71 @@ def handle_mention(event, say, client, context=None):
     agent_match = matches[0] if matches else None
     agent_id = agent_match.agent_id if agent_match else (resolve_default_agent_id(config.defaults.default_agent_id) or "")
 
-    conv_result = sse_client.create_conversation(
-      title=message_text[:50].strip() or "Slack Thread",
-      agent_id=agent_id,
-      owner_id=user_email or user_id,
-      idempotency_key=thread_ts,
-      metadata={
-        "thread_ts": thread_ts,
-        "channel_id": channel_id,
-        "channel_name": channel_config.name,
-        **({"workspace_url": SLACK_WORKSPACE_URL} if SLACK_WORKSPACE_URL else {}),
-      },
-    )
+    # Channel grant check uses the initial agent_id. Thread-ownership may
+    # override it below, but ownership only applies to replies on threads
+    # already established — the grant on the initial agent is sufficient.
+    denial = _slack_agent_channel_grant_check(context, channel_id, agent_id)
+    if denial:
+      _post_ephemeral_for_event(client, event, channel_id, user_id, denial)
+      return
+
+    # Apply the route's execution identity BEFORE create_conversation — the
+    # conversation's `can_use agent` check runs against whatever token is bound
+    # here. For service_account routes this mints the SA token and overwrites
+    # context["obo_token"]; obo_user routes keep the user/anon token already set
+    # by the middleware. Mirrors the same block in _route_to_agent (FR: routing
+    # identity must apply to @mentions, not just ambient messages).
+    if RBAC_ENABLED and context is not None and agent_match is not None:
+      try:
+        exec_id = agent_match.execution_identity
+        should_proceed = apply_execution_identity(
+          run_as_mode=exec_id.mode,
+          sa_sub=exec_id.service_account_sub,
+          agent_id=agent_id,
+          context=context,
+          event=event,
+          client=client,
+          say=say,
+          is_bot=False,
+          impersonate_fn=impersonate_service_account,
+        )
+        if not should_proceed:
+          return
+      except AttributeError as exc:
+        # assisted-by Codex codex-gpt-5-5
+        # Older route records may not carry execution_identity yet; keep using
+        # the request-bound identity instead of failing the mention handler.
+        logger.debug(
+          "Slack mention route has no execution_identity for agent_id={}: {}",
+          agent_id,
+          exc,
+        )
+    # SEC-3: bind OBO ONCE here (after the identity decision), unconditionally.
+    # When RBAC is disabled or no agent_match, context["obo_token"] is absent
+    # and _bind_obo_for_handler is a no-op; when RBAC enabled the SA token (if
+    # any) was just written into context["obo_token"] above.
+    _bind_obo_for_handler(context)
+
+    try:
+      conv_result = sse_client.create_conversation(
+        title=message_text[:50].strip() or "Slack Thread",
+        agent_id=agent_id,
+        owner_id=user_email or user_id,
+        idempotency_key=thread_ts,
+        metadata={
+          "thread_ts": thread_ts,
+          "channel_id": channel_id,
+          "channel_name": channel_config.name,
+          **({"workspace_url": SLACK_WORKSPACE_URL} if SLACK_WORKSPACE_URL else {}),
+        },
+      )
+    except AgentAccessDeniedError as e:
+      _post_ephemeral_for_event(
+        client, event, channel_id, user_id,
+        _agent_access_denied_text(e.agent_id, context, agent_match),
+      )
+      return
+
     conversation_id = conv_result["conversation_id"]
     conv_created = conv_result["created"]
     conv_metadata = conv_result.get("metadata", {})
@@ -1145,11 +1306,6 @@ def handle_mention(event, say, client, context=None):
         logger.info(f"[{thread_ts}] Thread owned by agent={owner_id}, bypassing match{_msg_link(channel_id, thread_ts)}")
         agent_match = next((a for a in channel_config.agents if a.agent_id == owner_id), None)
         agent_id = owner_id
-
-    denial = _slack_agent_rebac_denial(context, channel_id, agent_id)
-    if denial:
-      say(text=denial, thread_ts=thread_ts)
-      return
 
     overthink = agent_match.users.overthink if agent_match and agent_match.users else None
 
@@ -1292,6 +1448,41 @@ def _route_to_agent(event, say, client, channel_config, agent_match, is_bot, bot
   """
   try:
     t0 = time.monotonic()
+
+    # Decision 3 (anonymous-and-obo-routing): honor per-route execution identity
+    # BEFORE binding the OBO token onto the SSE ContextVar.
+    #
+    # Decision table:
+    #   route mode        | user linked? | token used
+    #   ------------------|--------------|----------------------------------
+    #   obo_user          | yes          | user OBO (set by _rbac_enrich_context — unchanged)
+    #   obo_user          | no           | anon SA (set by unlinked fallback in middleware)
+    #   service_account   | yes or no    | named SA (minted here, overrides context["obo_token"])
+    #
+    # For service_account routes: mint the SA token synchronously (new event
+    # loop, matching the pattern used by _rbac_enrich_context in the middleware)
+    # and overwrite context["obo_token"] so _bind_obo_for_handler carries it.
+    if RBAC_ENABLED and context is not None:
+        try:
+            exec_id = agent_match.execution_identity
+            should_proceed = apply_execution_identity(
+                run_as_mode=exec_id.mode,
+                sa_sub=exec_id.service_account_sub,
+                agent_id=agent_match.agent_id,
+                context=context,
+                event=event,
+                client=client,
+                say=say,
+                is_bot=is_bot,
+                impersonate_fn=impersonate_service_account,
+            )
+            if not should_proceed:
+                return
+        except AttributeError:
+            # agent_match has no execution_identity (shouldn't happen with the default
+            # factory, but defensive guard).
+            pass
+
     _bind_obo_for_handler(context)
     channel_id = event.get("channel")
     thread_ts = event.get("ts")
@@ -1321,9 +1512,13 @@ def _route_to_agent(event, say, client, channel_config, agent_match, is_bot, bot
 
     agent_id = agent_match.agent_id
 
-    denial = _slack_agent_rebac_denial(context, channel_id, agent_id)
+    denial = _slack_agent_channel_grant_check(context, channel_id, agent_id)
     if denial:
-      say(text=denial, thread_ts=thread_ts)
+      logger.warning(
+        "Slack channel grant denied for ambient message channel=%s agent=%s — silently dropping",
+        channel_id,
+        agent_id,
+      )
       return
 
     conv_result = sse_client.create_conversation(
@@ -1430,6 +1625,11 @@ def _route_to_agent(event, say, client, channel_config, agent_match, is_bot, bot
       thread_owner_agent_id=agent_id,
     )
 
+  except AgentAccessDeniedError as e:
+    logger.warning(
+      "Agent access denied for ambient message channel=%s agent=%s user=%s — silently dropping",
+      channel_id, e.agent_id, user_id,
+    )
   except Exception as e:
     logger.exception(f"Error handling {sender_label} message: {e}")
     try:
@@ -1554,7 +1754,7 @@ def handle_dm_message(event, say, client, context=None):
         say(
             text=(
                 "You don't have access to any agents that can answer this "
-                "DM. Use `/caipe-list` to see what's available, or ask "
+                f"DM. Use `/{APP_NAME.lower()}-list` to see what's available, or ask "
                 "your admin for a grant."
             ),
             thread_ts=thread_ts,
@@ -1594,18 +1794,26 @@ def handle_dm_message(event, say, client, context=None):
     # Create or retrieve conversation via shared API (server owns ID generation).
     # Must happen BEFORE context building so we can use `created` to decide
     # full vs delta thread context.
-    conv_result = sse_client.create_conversation(
-      title=message_text[:50].strip() or "Slack DM",
-      agent_id=agent_id,
-      owner_id=user_email or user_id,
-      idempotency_key=thread_ts,
-      metadata={
-        "thread_ts": thread_ts,
-        "channel_id": channel_id,
-        "channel_type": "dm",
-        **({"workspace_url": SLACK_WORKSPACE_URL} if SLACK_WORKSPACE_URL else {}),
-      },
-    )
+    try:
+      conv_result = sse_client.create_conversation(
+        title=message_text[:50].strip() or "Slack DM",
+        agent_id=agent_id,
+        owner_id=user_email or user_id,
+        idempotency_key=thread_ts,
+        metadata={
+          "thread_ts": thread_ts,
+          "channel_id": channel_id,
+          "channel_type": "dm",
+          **({"workspace_url": SLACK_WORKSPACE_URL} if SLACK_WORKSPACE_URL else {}),
+        },
+      )
+    except AgentAccessDeniedError as e:
+      # DMs always act as the user (no per-route service-account identity).
+      _post_ephemeral_for_event(
+        client, event, channel_id, user_id,
+        _agent_access_denied_text(e.agent_id, context, None),
+      )
+      return
     conversation_id = conv_result["conversation_id"]
     conv_created = conv_result["created"]
     conv_metadata = conv_result.get("metadata", {})

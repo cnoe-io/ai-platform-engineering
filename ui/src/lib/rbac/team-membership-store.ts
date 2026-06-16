@@ -27,8 +27,8 @@
  */
 
 import type {
-  TeamMembershipSource,
-  TeamRelationshipRole,
+TeamMembershipSource,
+TeamRelationshipRole,
 } from "@/types/identity-group-sync";
 
 import { getRbacCollection } from "./mongo-collections";
@@ -283,6 +283,39 @@ export async function loadTeamMemberCounts(
     if (typeof doc._id === "string") counts.set(doc._id, doc.count);
   }
   return counts;
+}
+
+/**
+ * For each team slug, the distinct IdP-derived membership source types present
+ * (e.g. "okta", "oidc_claim", "active_directory"). Manual memberships are
+ * excluded, so a team only appears with a source type if it was populated by a
+ * directory/login sync. Used by the Admin Teams UI to badge synced teams.
+ */
+export async function loadTeamIdpSourceTypes(
+  teamSlugs: string[],
+  opts?: QueryOptions,
+): Promise<Map<string, string[]>> {
+  const result = new Map<string, string[]>();
+  if (teamSlugs.length === 0) return result;
+
+  const collection = await getRbacCollection<TeamMembershipSource>("teamMembershipSources");
+  const docs = await collection
+    .aggregate<{ _id: string; sourceTypes: string[] }>([
+      {
+        $match: {
+          team_slug: { $in: teamSlugs },
+          source_type: { $ne: "manual" },
+          ...buildStatusFilter(opts),
+        },
+      },
+      { $group: { _id: "$team_slug", sourceTypes: { $addToSet: "$source_type" } } },
+    ])
+    .toArray();
+
+  for (const doc of docs) {
+    if (typeof doc._id === "string") result.set(doc._id, doc.sourceTypes ?? []);
+  }
+  return result;
 }
 
 /**

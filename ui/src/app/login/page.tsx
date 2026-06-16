@@ -1,14 +1,14 @@
 "use client";
 
-import React, { Suspense, useEffect, useState } from "react";
-import { signIn, useSession } from "next-auth/react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { motion } from "framer-motion";
-import { LogIn, Loader2, AlertCircle } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { LoadingScreen } from "@/components/loading-screen";
 import { IntegrationOrbit } from "@/components/gallery/IntegrationOrbit";
-import { config, getLogoFilterClass } from "@/lib/config";
+import { LoadingScreen } from "@/components/loading-screen";
+import { Button } from "@/components/ui/button";
+import { config,getLogoFilterClass } from "@/lib/config";
+import { motion } from "framer-motion";
+import { AlertCircle,Loader2,LogIn } from "lucide-react";
+import { signIn,useSession } from "next-auth/react";
+import { useRouter,useSearchParams } from "next/navigation";
+import { Suspense,useEffect,useState } from "react";
 
 // Circuit breaker: detect redirect loops via sessionStorage counter.
 // If we've been redirected to /login more than 3 times within 10 seconds,

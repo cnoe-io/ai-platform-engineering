@@ -130,5 +130,17 @@ describe("Keycloak admin user helpers", () => {
       "http://keycloak/admin/realms/caipe/users-management-permissions",
       expect.objectContaining({ method: "GET" })
     );
+    const botTokenExchangePermissionUpdate = (global.fetch as jest.Mock).mock.calls.find(
+      ([input, init]: [string | URL, RequestInit | undefined]) =>
+        String(input).endsWith(
+          "/clients/realm-management-uuid/authz/resource-server/permission/scope/bot-token-perm"
+        ) && init?.method === "PUT"
+    );
+    expect(botTokenExchangePermissionUpdate).toBeDefined();
+    expect(JSON.parse(botTokenExchangePermissionUpdate![1]!.body as string)).toEqual(
+      expect.objectContaining({
+        decisionStrategy: "AFFIRMATIVE",
+      })
+    );
   });
 });

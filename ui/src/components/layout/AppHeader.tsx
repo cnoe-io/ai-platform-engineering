@@ -1,49 +1,50 @@
 "use client";
 
-import React from "react";
-import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import { useSession } from "next-auth/react";
-import { useAdminRole } from "@/hooks/use-admin-role";
-import {
-  BookOpen,
-  Zap,
-  Loader2,
-  Database,
-  Shield,
-  FileText,
-  Workflow,
-  Home,
-  Bot,
-  AlertTriangle,
-  KeyRound,
-  ChevronDown,
-  ChevronRight,
-} from "lucide-react";
-import { GithubIcon as Github } from "@/components/ui/icons";
-import { UserMenu } from "@/components/user-menu";
-import { SettingsPanel } from "@/components/settings-panel";
-import { Button } from "@/components/ui/button";
-import { cn, formatRelativeTime } from "@/lib/utils";
-import { config, getLogoFilterClass } from "@/lib/config";
-import { useChatStore } from "@/store/chat-store";
-import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
-import { UnsavedChangesDialog } from "@/components/task-builder/UnsavedChangesDialog";
-import { useCAIPEHealth } from "@/hooks/use-caipe-health";
-import { useRAGHealth } from "@/hooks/use-rag-health";
-import { useAgentRuntimeHealth } from "@/hooks/use-agent-runtime-health";
-import { useVersion } from "@/hooks/use-version";
-import { useReleaseUpgradePrompt } from "@/hooks/use-release-upgrade-prompt";
-import { useMigrationStatus } from "@/hooks/use-migration-status";
-import { useKeycloakHealthSummary } from "@/hooks/use-keycloak-health-summary";
 import { ReleaseUpgradeDialog } from "@/components/release/ReleaseUpgradeDialog";
+import { SettingsPanel } from "@/components/settings-panel";
+import { UnsavedChangesDialog } from "@/components/task-builder/UnsavedChangesDialog";
 import { ReportProblemDialog } from "@/components/ticket/ReportProblemDialog";
+import { Button } from "@/components/ui/button";
+import { GithubIcon as Github } from "@/components/ui/icons";
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
+Popover,
+PopoverContent,
+PopoverTrigger,
 } from "@/components/ui/popover";
 import { useToast } from "@/components/ui/toast";
+import { UserMenu } from "@/components/user-menu";
+import { useAdminRole } from "@/hooks/use-admin-role";
+import { useAgentRuntimeHealth } from "@/hooks/use-agent-runtime-health";
+import { useCAIPEHealth } from "@/hooks/use-caipe-health";
+import { useKeycloakHealthSummary } from "@/hooks/use-keycloak-health-summary";
+import { useMigrationStatus } from "@/hooks/use-migration-status";
+import { useRAGHealth } from "@/hooks/use-rag-health";
+import { useReleaseUpgradePrompt } from "@/hooks/use-release-upgrade-prompt";
+import { useVersion } from "@/hooks/use-version";
+import { config,getLogoFilterClass } from "@/lib/config";
+import { cn,formatRelativeTime } from "@/lib/utils";
+import { useChatStore } from "@/store/chat-store";
+import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
+import { AnimatePresence,motion } from "framer-motion";
+import {
+AlertTriangle,
+BookOpen,
+Bot,
+ChevronDown,
+ChevronRight,
+Database,
+FileText,
+Home,
+KeyRound,
+Loader2,
+Shield,
+Workflow,
+Zap,
+} from "lucide-react";
+import { useSession } from "next-auth/react";
+import Link from "next/link";
+import { usePathname,useRouter } from "next/navigation";
+import React from "react";
 
 /** Format seconds into a human-readable interval (e.g., "3h", "30m", "45s") */
 function formatInterval(seconds: number): string {
@@ -89,7 +90,6 @@ const EDITOR_ROUTES_WITH_OWN_DISCARD_DIALOG = [
  */
 const EDITOR_ROUTES_WITH_HEADER_DIALOG = [
   "/task-builder",
-  "/workflows",
   "/dynamic-agents",
 ];
 
@@ -148,46 +148,7 @@ function GuardedLink({
   );
 }
 
-// Baseline breakpoint: collapse the inline nav (Home/Chat/Skills/...) into
-// the "More" popover. Tuned so 8 primary nav pills + standard right-side
-// cluster (status pill + settings + user menu) still fit on a typical
-// laptop without overlap.
-const HEADER_NAV_COLLAPSE_QUERY = "(max-width: 1180px)";
-// Wider breakpoint used when an admin-only banner is showing on the right
-// (`migrationStatus.is_blocking` / `needs_version_bootstrap` /
-// `override_active`, or the Keycloak invariant alert chip). Each banner
-// pill adds ~140-200px of labelled width, and combined with the
-// full-text "Report a Problem" button can push the right cluster into
-// the inline nav — which then silently clips the last secondary item
-// (Admin) due to `overflow-hidden` on the left flex region. Collapsing
-// earlier in that case prevents the overlap that hides the Admin tab on
-// 1180-1500px viewports. Empirical: at 1440px with the Version metadata
-// chip showing, the inline nav was clipping Admin off-screen; 1500 is
-// the smallest breakpoint that gives reliable headroom for the wider
-// right cluster on every layout we've reproduced.
-const HEADER_NAV_COLLAPSE_QUERY_WITH_BANNER = "(max-width: 1500px)";
-
-function useHeaderNavCollapsed(earlyCollapse: boolean = false): boolean {
-  const query = earlyCollapse
-    ? HEADER_NAV_COLLAPSE_QUERY_WITH_BANNER
-    : HEADER_NAV_COLLAPSE_QUERY;
-
-  const [collapsed, setCollapsed] = React.useState(() => {
-    if (typeof window === "undefined" || !window.matchMedia) return false;
-    return window.matchMedia(query).matches;
-  });
-
-  React.useEffect(() => {
-    if (typeof window === "undefined" || !window.matchMedia) return;
-    const media = window.matchMedia(query);
-    const handleChange = () => setCollapsed(media.matches);
-    handleChange();
-    media.addEventListener?.("change", handleChange);
-    return () => media.removeEventListener?.("change", handleChange);
-  }, [query]);
-
-  return collapsed;
-}
+// Nav overflow is handled dynamically via ResizeObserver — no fixed breakpoints.
 
 export function AppHeader() {
   const pathname = usePathname();
@@ -412,13 +373,6 @@ export function AppHeader() {
           : null,
       ].filter(Boolean) as AdminAlertSource[])
     : [];
-  // The early-collapse signal for the inline nav: any time the admin
-  // alert pill is showing it adds ~140-200px of width to the right
-  // cluster, which can push the inline nav (including the Admin tab)
-  // into overflow. Keep the existing breakpoint behavior by treating
-  // the unified pill the same as the old per-source banners.
-  const hasMigrationBanner = adminAlerts.length > 0;
-  const headerNavCollapsed = useHeaderNavCollapsed(hasMigrationBanner);
   const secondaryNavItems = [
     config.taskBuilderEnabled && {
       key: "task-builder",
@@ -448,7 +402,7 @@ export function AppHeader() {
       Icon: Bot,
       activeClassName: "bg-purple-500 text-white shadow-sm",
     },
-    storageMode === "mongodb" && config.credentialsEnabled && {
+    storageMode === "mongodb" && config.userConnectionsEnabled && {
       key: "credentials",
       href: "/credentials",
       label: "Connections",
@@ -474,6 +428,76 @@ export function AppHeader() {
     activeClassName: string;
     disabled?: boolean;
   }>;
+
+  // All nav items in order — primary first, then secondary.
+  type NavItem = {
+    key: string;
+    href: string;
+    label: string;
+    Icon: React.ComponentType<{ className?: string }>;
+    activeClassName: string;
+    disabled?: boolean;
+  };
+  const allNavItems: NavItem[] = [
+    { key: "home", href: "/", label: "Home", Icon: Home, activeClassName: "gradient-primary text-white shadow-sm" },
+    { key: "chat", href: "/chat", label: "Chat", Icon: ({ className }: { className?: string }) => <span className={className}>💬</span>, activeClassName: "bg-primary text-primary-foreground shadow-sm" },
+    { key: "skills", href: "/skills", label: "Skills", Icon: Zap, activeClassName: "gradient-primary text-white shadow-sm" },
+    ...secondaryNavItems,
+  ];
+
+  const [visibleCount, setVisibleCount] = React.useState<number>(allNavItems.length);
+  const navStripRef = React.useRef<HTMLDivElement>(null);
+  const leftContainerRef = React.useRef<HTMLDivElement>(null);
+  const logoRef = React.useRef<HTMLDivElement>(null);
+  // Cached per-item widths — read once when all items are rendered, never again.
+  const cachedWidthsRef = React.useRef<number[] | null>(null);
+  const MORE_WIDTH = 88;
+
+  // Phase 1: when item count changes, reset cache and show everything so we can measure.
+  React.useLayoutEffect(() => {
+    cachedWidthsRef.current = null;
+    setVisibleCount(allNavItems.length);
+  }, [allNavItems.length]);
+
+  // Phase 2: after full render, cache widths; on every container resize recompute
+  // using ONLY stable measurements (container width, logo width, cached item widths).
+  // Never reads strip.offsetWidth or strip children — that would create a feedback loop.
+  React.useLayoutEffect(() => {
+    const strip = navStripRef.current;
+    const container = leftContainerRef.current;
+    const logo = logoRef.current;
+    if (!strip || !container || !logo) return;
+
+    const recompute = () => {
+      if (!cachedWidthsRef.current) {
+        // Read item widths now, while visibleCount === allNavItems.length
+        cachedWidthsRef.current = (Array.from(strip.children) as HTMLElement[])
+          .filter((c) => !c.dataset.moreBtn)
+          .map((c) => c.getBoundingClientRect().width);
+      }
+      const widths = cachedWidthsRef.current;
+      // Available width = container minus logo minus the gap between them (16px).
+      const available = container.offsetWidth - logo.offsetWidth - 16;
+      let used = 0;
+      let count = 0;
+      for (let i = 0; i < widths.length; i++) {
+        const wouldNeedMore = i < widths.length - 1;
+        if (used + widths[i] + (wouldNeedMore ? MORE_WIDTH : 0) > available) break;
+        used += widths[i];
+        count++;
+      }
+      setVisibleCount(Math.max(count, 1));
+    };
+
+    const ro = new ResizeObserver(recompute);
+    ro.observe(container);
+    recompute();
+    return () => ro.disconnect();
+   
+  }, [allNavItems.length]);
+
+  const overflowItems = allNavItems.slice(visibleCount);
+  const visibleItems = allNavItems.slice(0, visibleCount);
 
   const renderSecondaryNavItem = (
     item: (typeof secondaryNavItems)[number],
@@ -525,99 +549,83 @@ export function AppHeader() {
 
   return (
     <>
-    <header className="h-14 overflow-hidden border-b border-border/50 bg-card/50 backdrop-blur-xl flex items-center justify-between gap-2 px-3 sm:px-4 shrink-0 z-50">
-      <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-4 overflow-hidden">
-        {/* Logo - clickable to home */}
-        <GuardedLink
-          href="/"
-          className="flex items-center gap-2.5 cursor-pointer hover:opacity-80 transition-opacity shrink-0"
-        >
-          <img
-            src={config.logoUrl}
-            alt={`${config.appName} Logo`}
-            className={`h-8 w-auto ${getLogoFilterClass(config.logoStyle)}`}
-          />
-          <span className="hidden sm:inline font-bold text-base gradient-text">{config.appName}</span>
-          {config.envBadge && (
-            <span className="hidden md:inline-flex px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider bg-amber-500/20 text-amber-500 border border-amber-500/30 rounded">
-              {config.envBadge}
-            </span>
-          )}
-        </GuardedLink>
-
-        {/* Navigation Pills */}
-        <div className="flex items-center flex-nowrap min-w-0 bg-muted/50 rounded-full p-1">
+    <header className="h-14 border-b border-border/50 bg-card/50 backdrop-blur-xl flex items-center justify-between gap-2 px-3 sm:px-4 shrink-0 z-50 relative">
+      <div ref={leftContainerRef} className="flex min-w-0 flex-1 items-center gap-2 sm:gap-4 overflow-hidden">
+        {/* Logo - clickable to home. Wrapped in div so logoRef gives a stable offsetWidth. */}
+        <div ref={logoRef} className="shrink-0">
           <GuardedLink
             href="/"
-            prefetch={true}
-            className={cn(
-              "flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all",
-              activeTab === "home"
-                ? "gradient-primary text-white shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            )}
+            className="flex items-center gap-2.5 cursor-pointer hover:opacity-80 transition-opacity"
           >
-            <Home className="h-3.5 w-3.5 shrink-0" />
-            Home
-          </GuardedLink>
-          <GuardedLink
-            href="/chat"
-            prefetch={true}
-            className={cn(
-              "relative flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all",
-              activeTab === "chat"
-                ? "bg-primary text-primary-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            💬 Chat
-            {streamingConversations.size > 0 && (
-              <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                <span className="relative inline-flex items-center justify-center rounded-full h-4 w-4 bg-emerald-500 text-[9px] font-bold text-white">
-                  {streamingConversations.size}
-                </span>
-              </span>
-            )}
-            {streamingConversations.size === 0 && inputRequiredConversations.size > 0 && (
-              <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
-                <span className="relative inline-flex items-center justify-center rounded-full h-4 w-4 bg-amber-500 text-[9px] font-bold text-white">
-                  {inputRequiredConversations.size}
-                </span>
-              </span>
-            )}
-            {streamingConversations.size === 0 && inputRequiredConversations.size === 0 && unviewedConversations.size > 0 && (
-              <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center">
-                <span className="relative inline-flex items-center justify-center rounded-full h-4 w-4 bg-blue-500 text-[9px] font-bold text-white">
-                  {unviewedConversations.size}
-                </span>
+            <img
+              src={config.logoUrl}
+              alt={`${config.appName} Logo`}
+              className={`h-8 w-auto ${getLogoFilterClass(config.logoStyle)}`}
+            />
+            <span className="hidden sm:inline font-bold text-base gradient-text">{config.appName}</span>
+            {config.envBadge && (
+              <span className="hidden md:inline-flex px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider bg-amber-500/20 text-amber-500 border border-amber-500/30 rounded">
+                {config.envBadge}
               </span>
             )}
           </GuardedLink>
-          <GuardedLink
-            href="/skills"
-            prefetch={true}
-            className={cn(
-              "flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all",
-              activeTab === "skills"
-                ? "gradient-primary text-white shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            <Zap className="h-3.5 w-3.5 shrink-0" />
-            Skills
-          </GuardedLink>
-          {!headerNavCollapsed && secondaryNavItems.map((item) => renderSecondaryNavItem(item, "inline"))}
-          {headerNavCollapsed && secondaryNavItems.length > 0 && (
+        </div>
+
+        {/* Navigation Pills — overflow-aware: items that don't fit move to More */}
+        <div ref={navStripRef} className="flex items-center flex-nowrap min-w-0 bg-muted/50 rounded-full p-1">
+          {visibleItems.map((item) => {
+            if (item.key === "chat") {
+              return (
+                <GuardedLink
+                  key="chat"
+                  href="/chat"
+                  prefetch={true}
+                  className={cn(
+                    "relative flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all",
+                    activeTab === "chat"
+                      ? "bg-primary text-primary-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  💬 Chat
+                  {streamingConversations.size > 0 && (
+                    <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                      <span className="relative inline-flex items-center justify-center rounded-full h-4 w-4 bg-emerald-500 text-[9px] font-bold text-white">
+                        {streamingConversations.size}
+                      </span>
+                    </span>
+                  )}
+                  {streamingConversations.size === 0 && inputRequiredConversations.size > 0 && (
+                    <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
+                      <span className="relative inline-flex items-center justify-center rounded-full h-4 w-4 bg-amber-500 text-[9px] font-bold text-white">
+                        {inputRequiredConversations.size}
+                      </span>
+                    </span>
+                  )}
+                  {streamingConversations.size === 0 && inputRequiredConversations.size === 0 && unviewedConversations.size > 0 && (
+                    <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center">
+                      <span className="relative inline-flex items-center justify-center rounded-full h-4 w-4 bg-blue-500 text-[9px] font-bold text-white">
+                        {unviewedConversations.size}
+                      </span>
+                    </span>
+                  )}
+                </GuardedLink>
+              );
+            }
+            return renderSecondaryNavItem(item, "inline");
+          })}
+          {overflowItems.length > 0 && (
             <Popover>
               <PopoverTrigger asChild>
                 <button
                   type="button"
+                  data-more-btn="1"
                   aria-label="More navigation"
                   className={cn(
                     "flex h-8 items-center justify-center gap-1.5 rounded-full px-3 text-[13px] font-medium whitespace-nowrap transition-all",
-                    secondaryNavItems.some((item) => activeTab === item.key)
+                    overflowItems.some((item) => activeTab === item.key)
                       ? "bg-primary text-primary-foreground shadow-sm"
                       : "text-muted-foreground hover:text-foreground",
                   )}
@@ -628,7 +636,7 @@ export function AppHeader() {
               </PopoverTrigger>
               <PopoverContent side="bottom" align="start" className="w-56 p-2">
                 <div className="space-y-1">
-                  {secondaryNavItems.map((item) => renderSecondaryNavItem(item, "menu"))}
+                  {overflowItems.map((item) => renderSecondaryNavItem(item, "menu"))}
                 </div>
               </PopoverContent>
             </Popover>
@@ -637,17 +645,19 @@ export function AppHeader() {
       </div>
 
       {/* Status & Actions */}
-      <div className={cn("flex shrink-0 items-center", headerNavCollapsed ? "gap-1.5" : "gap-3")}>
+      <div className="flex shrink-0 items-center gap-1.5">
         {/* Combined Connection Status */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           <Popover>
             <PopoverTrigger asChild>
               <button
                 aria-label={`System status: ${combinedStatusLabel}`}
                 className={cn(
-                  "flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium cursor-pointer transition-all hover:scale-105",
-                  headerNavCollapsed && "h-8 w-8 justify-center px-0",
-                  combinedStatus === "connected" && "bg-green-500/15 text-green-400 border border-green-500/30 hover:bg-green-500/20",
+                  "flex items-center gap-1.5 rounded-full text-xs font-medium cursor-pointer transition-all hover:scale-105",
+                  // When connected: fixed square so the lone dot stays a perfect circle
+                  combinedStatus === "connected"
+                    ? "h-8 w-8 justify-center bg-green-500/15 text-green-400 border border-green-500/30 hover:bg-green-500/20"
+                    : "px-2.5 py-1",
                   combinedStatus === "checking" && "bg-amber-500/15 text-amber-400 border border-amber-500/30 hover:bg-amber-500/20",
                   combinedStatus === "rag-disconnected" && "bg-amber-500/15 text-amber-400 border border-amber-500/30 hover:bg-amber-500/20",
                   combinedStatus === "disconnected" && "bg-red-500/15 text-red-400 border border-red-500/30 hover:bg-red-500/20"
@@ -657,14 +667,27 @@ export function AppHeader() {
                   <Loader2 className="h-3 w-3 animate-spin" />
                 ) : (
                   <div className={cn(
-                    "h-2 w-2 rounded-full",
-                    combinedStatus === "connected" && "bg-green-400",
+                    "h-2 w-2 rounded-full shrink-0",
+                    combinedStatus === "connected" && "bg-green-400 animate-pulse",
                     combinedStatus === "rag-disconnected" && "bg-amber-400",
                     combinedStatus === "disconnected" && "bg-red-400",
-                    isStreaming && "animate-pulse"
                   )} />
                 )}
-                <span className={headerNavCollapsed ? "sr-only" : ""}>{combinedStatusLabel}</span>
+                {/* Label animates in only when not "connected" */}
+                <AnimatePresence initial={false}>
+                  {combinedStatus !== "connected" && (
+                    <motion.span
+                      key={combinedStatusLabel}
+                      initial={{ opacity: 0, width: 0 }}
+                      animate={{ opacity: 1, width: "auto" }}
+                      exit={{ opacity: 0, width: 0 }}
+                      transition={{ duration: 0.2 }}
+                      className="overflow-hidden whitespace-nowrap"
+                    >
+                      {combinedStatusLabel}
+                    </motion.span>
+                  )}
+                </AnimatePresence>
               </button>
             </PopoverTrigger>
             <PopoverContent side="bottom" align="end" className="w-[600px] max-w-[calc(100vw-1rem)] p-0 overflow-hidden border-2">
@@ -966,13 +989,10 @@ export function AppHeader() {
               <PopoverTrigger asChild>
                 <button
                   aria-label="No auth configured"
-                  className={cn(
-                    "flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-amber-500/30 bg-amber-500/15 text-xs font-medium text-amber-500 transition-all hover:bg-amber-500/20 hover:scale-105",
-                    headerNavCollapsed && "h-8 w-8 justify-center px-0",
-                  )}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-amber-500/30 bg-amber-500/15 text-xs font-medium text-amber-500 transition-all hover:bg-amber-500/20 hover:scale-105"
                 >
                   <AlertTriangle className="h-3 w-3" />
-                  <span className={headerNavCollapsed ? "sr-only" : ""}>No Auth</span>
+                  <span>No Auth</span>
                 </button>
               </PopoverTrigger>
               <PopoverContent side="bottom" align="end" className="w-80 p-3">
@@ -1120,56 +1140,46 @@ export function AppHeader() {
         </div>
 
         {/* Personalization, Links & User */}
-        <div className={cn("flex items-center gap-1 border-l border-border", headerNavCollapsed ? "pl-1.5" : "pl-3")}>
+        <div className="flex items-center gap-1 border-l border-border pl-1.5">
           {config.reportProblemEnabled && (
             <>
-              <Button
-                variant="ghost"
-                size={headerNavCollapsed ? "icon" : "sm"}
+              <button
                 aria-label="Report a Problem"
                 title="Report a Problem"
-                className={cn(
-                  "h-8 text-xs text-muted-foreground hover:text-foreground",
-                  headerNavCollapsed ? "w-8" : "gap-1.5",
-                )}
+                className="flex items-center gap-1.5 h-8 px-2 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
                 onClick={() => setReportDialogOpen(true)}
               >
-                <AlertTriangle className="h-3.5 w-3.5" />
-                {!headerNavCollapsed && "Report a Problem"}
-              </Button>
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                <motion.span
+                  initial={false}
+                  animate={{ opacity: 1, width: "auto" }}
+                  className="overflow-hidden whitespace-nowrap hidden sm:block"
+                >
+                  Report a Problem
+                </motion.span>
+              </button>
               <ReportProblemDialog
                 open={reportDialogOpen}
                 onOpenChange={setReportDialogOpen}
               />
             </>
           )}
-          <SettingsPanel compact={headerNavCollapsed} />
+          <SettingsPanel />
           {config.docsUrl && (
             <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
-              <a
-                href={config.docsUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                title="Documentation"
-              >
+              <a href={config.docsUrl} target="_blank" rel="noopener noreferrer" title="Documentation">
                 <BookOpen className="h-4 w-4" />
               </a>
             </Button>
           )}
           {config.sourceUrl && (
             <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
-              <a
-                href={config.sourceUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                title="Source Code"
-              >
+              <a href={config.sourceUrl} target="_blank" rel="noopener noreferrer" title="Source Code">
                 <Github className="h-4 w-4" />
               </a>
             </Button>
           )}
-          {/* User Menu - Only shown when SSO is enabled */}
-          <UserMenu compact={headerNavCollapsed} />
+          <UserMenu />
         </div>
       </div>
     </header>

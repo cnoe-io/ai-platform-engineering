@@ -136,16 +136,15 @@ describe("DynamicAgentEditor — platform default grant preview", () => {
     jest.restoreAllMocks();
   });
 
-  it("shows user:* platform-default grant in Share with Teams preview", async () => {
+  it("shows the platform-default visibility note when the agent is the platform default", async () => {
     mockFetch("hello-world");
     render(<DynamicAgentEditor agent={editAgent} onCancel={jest.fn()} onSave={jest.fn()} />);
     await flushAsync();
 
+    // The shared TeamOwnershipFields "Effective access summary" grant preview
+    // (including its user:* platform-default line) was intentionally removed;
+    // the platform-default note remains the user-facing signal here.
     expect(await screen.findByTestId("platform-default-visibility-note")).toBeInTheDocument();
-    const note = screen.getByRole("note", { name: /Effective access summary/i });
-    expect(note).toHaveTextContent("user:*");
-    expect(note).toHaveTextContent("platform default");
-    expect(note).toHaveTextContent("team:platform#member");
   });
 
   it("shows user:* global visibility grant when visibility is global", async () => {

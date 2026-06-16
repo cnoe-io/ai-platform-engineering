@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest,NextResponse } from "next/server";
 
+import { ApiError,getAuthFromBearerOrSession,withErrorHandler } from "@/lib/api-middleware";
 import { getCredentialDependencyHealth } from "@/lib/credentials/health";
-import { ApiError, getAuthFromBearerOrSession, withErrorHandler } from "@/lib/api-middleware";
 import { getCredentialFeatureConfig } from "@/lib/feature-flags/credentials";
 import { connectToDatabase } from "@/lib/mongodb";
 import { isOpenFgaConfigured } from "@/lib/rbac/openfga";

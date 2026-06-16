@@ -5,6 +5,14 @@ jest.mock("@/components/ui/toast", () => ({
   useToast: () => ({ toast: mockToast }),
 }));
 
+const replaceMock = jest.fn();
+let currentSearchParams = new URLSearchParams();
+jest.mock("next/navigation", () => ({
+  usePathname: () => "/admin",
+  useRouter: () => ({ replace: replaceMock }),
+  useSearchParams: () => currentSearchParams,
+}));
+
 import { SlackChannelRebacPanel } from "../SlackChannelRebacPanel";
 import { pickTeam } from "@/__test-utils__/team-picker";
 import { pickAgent } from "@/__test-utils__/agent-picker";
@@ -13,6 +21,8 @@ const fetchMock = jest.fn();
 
 beforeEach(() => {
   mockToast.mockClear();
+  replaceMock.mockReset();
+  currentSearchParams = new URLSearchParams();
   fetchMock.mockReset();
   global.fetch = fetchMock as unknown as typeof fetch;
   fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
@@ -820,6 +830,30 @@ it("organizes Slack admin into Configured / Onboard / Advanced tabs", async () =
     await screen.findByRole("region", { name: "Advanced Setup - Import/Sync with Slackbot" }),
   ).toBeInTheDocument();
   expect(screen.queryByRole("region", { name: "Default team and agent for new channels" })).not.toBeInTheDocument();
+});
+
+it("writes the active sub-tab to the subtab URL param", async () => {
+  render(<SlackChannelRebacPanel />);
+  await screen.findByRole("tab", { name: "Configured channels" });
+
+  await switchToTab("Advanced");
+  expect(replaceMock).toHaveBeenLastCalledWith("/admin?subtab=advanced", { scroll: false });
+
+  await switchToTab("Onboard channels");
+  expect(replaceMock).toHaveBeenLastCalledWith("/admin?subtab=onboard", { scroll: false });
+
+  await switchToTab("Configured channels");
+  expect(replaceMock).toHaveBeenLastCalledWith("/admin?subtab=channels", { scroll: false });
+});
+
+it("opens the sub-tab named by the subtab URL param on load", async () => {
+  currentSearchParams = new URLSearchParams("subtab=advanced");
+  render(<SlackChannelRebacPanel />);
+
+  expect(await screen.findByRole("tab", { name: "Advanced" })).toHaveAttribute("aria-selected", "true");
+  expect(
+    await screen.findByRole("region", { name: "Advanced Setup - Import/Sync with Slackbot" }),
+  ).toBeInTheDocument();
 });
 
 it("shows Slack bot runtime sync status and triggers reload/config sync", async () => {

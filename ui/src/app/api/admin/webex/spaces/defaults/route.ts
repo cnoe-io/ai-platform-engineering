@@ -1,27 +1,27 @@
-import { NextRequest } from "next/server";
 import type { Document } from "mongodb";
+import { NextRequest } from "next/server";
 
 import {
-  ApiError,
-  getAuthFromBearerOrSession,
-  successResponse,
-  withErrorHandler,
+ApiError,
+getAuthFromBearerOrSession,
+successResponse,
+withErrorHandler,
 } from "@/lib/api-middleware";
 import { getRbacCollection } from "@/lib/rbac/mongo-collections";
 import {
-  OnboardingDefaultsValidationError,
-  readOnboardingDefaults,
-  writeOnboardingDefaults,
+OnboardingDefaultsValidationError,
+readOnboardingDefaults,
+writeOnboardingDefaults,
 } from "@/lib/rbac/onboarding-defaults";
-import {
-  canonicalizeWebexSpaceId,
-  onboardWebexSpace,
-  type WebexSpaceOnboardingResult,
-} from "@/lib/rbac/webex-space-onboarding";
 import { webexWorkspaceRef } from "@/lib/rbac/webex-space-grant-store";
+import {
+canonicalizeWebexSpaceId,
+onboardWebexSpace,
+type WebexSpaceOnboardingResult,
+} from "@/lib/rbac/webex-space-onboarding";
 import { callWebexBotAdmin } from "@/lib/webex-bot-admin";
 
-import { withWebexSpaceRebacManageAuth, withWebexSpaceRebacViewAuth } from "../_lib";
+import { withWebexSpaceRebacManageAuth,withWebexSpaceRebacViewAuth } from "../_lib";
 
 interface WebexMigrationDefaultsRequest {
   team_slug?: unknown;

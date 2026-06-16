@@ -1,9 +1,9 @@
-import type { RebacEnforcementStatusRecord } from "./enforcement-status";
 import type {
-  UniversalRebacResourceAction,
-  UniversalRebacResourceRef,
-  UniversalRebacResourceType,
+UniversalRebacResourceAction,
+UniversalRebacResourceRef,
+UniversalRebacResourceType,
 } from "@/types/rbac-universal";
+import type { RebacEnforcementStatusRecord } from "./enforcement-status";
 
 export type RealmRoleKind = "bootstrap" | "system" | "team" | "resource" | "unknown";
 export type RealmRoleTransitionState = "permanent" | "system" | "transitional";

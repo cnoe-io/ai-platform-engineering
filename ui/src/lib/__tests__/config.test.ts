@@ -141,7 +141,7 @@ describe('getServerConfig', () => {
       const expectedKeys: (keyof Config)[] = [
         'agentProtocol',
         'caipeUrl', 'ragUrl', 'isDev', 'isProd', 'ssoEnabled',
-        'ragEnabled', 'mongodbEnabled', 'credentialsEnabled',
+        'ragEnabled', 'mongodbEnabled', 'credentialsEnabled', 'userConnectionsEnabled',
         'tagline', 'description', 'appName', 'logoUrl', 'envBadge',
         'gradientFrom', 'gradientTo', 'logoStyle', 'spinnerColor',
         'showPoweredBy', 'supportEmail', 'allowDevAdminWhenSsoDisabled', 'unsafeRbacBypassEnabled',
@@ -158,6 +158,7 @@ describe('getServerConfig', () => {
         'ticketEnabled', 'ticketProvider',
         'userInfoToolEnabled',
         'oidcRequiredGroup',
+        'oktaSyncEnabled',
       ];
       expect(Object.keys(cfg).sort()).toEqual(expectedKeys.sort());
     });
@@ -937,7 +938,7 @@ describe('getClientConfigScript (XSS safety)', () => {
     const expectedKeys: (keyof Config)[] = [
       'agentProtocol',
       'caipeUrl', 'ragUrl', 'isDev', 'isProd', 'ssoEnabled',
-      'ragEnabled', 'mongodbEnabled', 'credentialsEnabled',
+      'ragEnabled', 'mongodbEnabled', 'credentialsEnabled', 'userConnectionsEnabled',
       'tagline', 'description', 'appName', 'logoUrl', 'envBadge',
       'gradientFrom', 'gradientTo', 'logoStyle', 'spinnerColor',
       'showPoweredBy', 'supportEmail', 'allowDevAdminWhenSsoDisabled', 'unsafeRbacBypassEnabled',
@@ -954,6 +955,7 @@ describe('getClientConfigScript (XSS safety)', () => {
       'ticketEnabled', 'ticketProvider',
       'userInfoToolEnabled',
       'oidcRequiredGroup',
+      'oktaSyncEnabled',
     ];
     expect(Object.keys(parsed).sort()).toEqual(expectedKeys.sort());
   });

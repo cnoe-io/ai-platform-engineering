@@ -45,7 +45,14 @@ export async function readSharedTeamSlugsFromOpenFga(
 **Behavior**:
 
 - If `!isOpenFgaReconciliationEnabled()` → `[]`.
-- Paginate `readOpenFgaTuples({ tuple: { object: `${objectType}:${objectId}` } })`.
+- Paginate FGA tuples for the resource object:
+
+```ts
+readOpenFgaTuples({
+  tuple: { object: objectType + ':' + objectId },
+})
+```
+
 - Collect slugs via `extractTeamSlugsFromTuples`.
 - Sort/dedupe stable for tests.
 
@@ -90,8 +97,24 @@ export async function reconcileProjectedTeamShares(
 2. If `visibility` present:
    - `next !== "team"` → `nextTeamRefs` treated as `[]` for team shares.
    - `sharedWithOrg` / `previousSharedWithOrg` from `global` visibility (same as `reconcileSkillTeamShares` today).
-3. Call `reconcileShareableResource({ objectType, objectId, creatorSubject: ownerSubject, ownerSubject, ownerTeamSlug, previousOwnerTeamSlug, nextSharedTeamSlugs, previousSharedTeamSlugs, memberRelations: descriptor.memberRelations, sharedWithOrg, previousSharedWithOrg })`.
+3. Call `reconcileShareableResource` with the descriptor fields (example below).
 4. Never persist to Mongo.
+
+```ts
+reconcileShareableResource({
+  objectType: descriptor.objectType,
+  objectId,
+  creatorSubject: ownerSubject,
+  ownerSubject,
+  ownerTeamSlug,
+  previousOwnerTeamSlug,
+  nextSharedTeamSlugs,
+  previousSharedTeamSlugs,
+  memberRelations: descriptor.memberRelations,
+  sharedWithOrg,
+  previousSharedWithOrg,
+})
+```
 
 ## P4. Mongo hygiene
 

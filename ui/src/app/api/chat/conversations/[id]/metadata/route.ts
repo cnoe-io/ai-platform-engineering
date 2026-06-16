@@ -7,17 +7,17 @@
  * Supports Bearer JWT (Slack bot service account) and session cookies.
  */
 
-import { NextRequest, NextResponse } from 'next/server';
-import { getCollection, isMongoDBConfigured } from '@/lib/mongodb';
 import {
-  getAuthFromBearerOrSession,
-  withErrorHandler,
-  successResponse,
-  ApiError,
-  validateUUID,
+ApiError,
+getAuthFromBearerOrSession,
+successResponse,
+validateUUID,
+withErrorHandler,
 } from '@/lib/api-middleware';
+import { getCollection,isMongoDBConfigured } from '@/lib/mongodb';
 import { requireConversationResourcePermission } from '@/lib/rbac/conversation-implicit-authz';
-import type { Conversation, PatchConversationMetadataRequest } from '@/types/mongodb';
+import type { Conversation,PatchConversationMetadataRequest } from '@/types/mongodb';
+import { NextRequest,NextResponse } from 'next/server';
 
 export const PATCH = withErrorHandler(async (
   request: NextRequest,

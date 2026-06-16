@@ -1,29 +1,29 @@
 // Client-side API SDK for calling MongoDB backend APIs
 
-import type { AuthFailureAction, AuthFailureReason } from "./auth-error";
 import type {
-  Conversation,
-  ClientType,
-  Message,
-  Turn,
-  User,
-  UserSettings,
-  CreateConversationRequest,
-  CreateConversationResponse,
-  UpdateConversationRequest,
-  ShareConversationRequest,
-  AddMessageRequest,
-  UpdateMessageRequest,
-  UpsertTurnRequest,
-  CreateBookmarkRequest,
-  UpdateUserRequest,
-  UpdateSettingsRequest,
-  ApiResponse,
-  PaginatedResponse,
-  UserStats,
-  ConversationBookmark,
-  UserPublicInfo,
+AddMessageRequest,
+ApiResponse,
+ClientType,
+Conversation,
+ConversationBookmark,
+CreateBookmarkRequest,
+CreateConversationRequest,
+CreateConversationResponse,
+Message,
+PaginatedResponse,
+ShareConversationRequest,
+Turn,
+UpdateConversationRequest,
+UpdateMessageRequest,
+UpdateSettingsRequest,
+UpdateUserRequest,
+UpsertTurnRequest,
+User,
+UserPublicInfo,
+UserSettings,
+UserStats,
 } from '@/types/mongodb';
+import type { AuthFailureAction,AuthFailureReason } from "./auth-error";
 
 /**
  * Thrown by {@link APIClient.request} for any non-OK response. Carries the

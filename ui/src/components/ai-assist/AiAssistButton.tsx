@@ -24,26 +24,26 @@
  * existing positioning/click-outside logic just works.
  */
 
-import React, { useCallback, useMemo, useState } from "react";
-import {
-  Sparkles,
-  Loader2,
-  X,
-  Check,
-  RotateCw,
-  AlertTriangle,
-  Wand2,
-} from "lucide-react";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
-import { useAiAssist, type AiAssistContext } from "./use-ai-assist";
-import { diffLines, type DiffLine } from "./diff-lines";
+import {
+Popover,
+PopoverContent,
+PopoverTrigger,
+} from "@/components/ui/popover";
 import type { AiAssistTaskId } from "@/lib/server/ai-assist-tasks";
+import { cn } from "@/lib/utils";
+import {
+AlertTriangle,
+Check,
+Loader2,
+RotateCw,
+Sparkles,
+Wand2,
+X,
+} from "lucide-react";
+import { useCallback,useMemo,useState } from "react";
+import { diffLines,type DiffLine } from "./diff-lines";
+import { useAiAssist,type AiAssistContext } from "./use-ai-assist";
 
 export interface AiAssistButtonProps {
   /**

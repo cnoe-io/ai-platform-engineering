@@ -1,7 +1,7 @@
-import { NextRequest } from "next/server";
-import { getAuthFromBearerOrSession, requireRbacPermission, successResponse, withErrorHandler } from "@/lib/api-middleware";
+import { getAuthFromBearerOrSession,requireRbacPermission,successResponse,withErrorHandler } from "@/lib/api-middleware";
 import { logGraphQueryAuditEvent } from "@/lib/rbac/audit";
 import { queryRebacGraph } from "@/lib/rbac/rebac-graph";
+import { NextRequest } from "next/server";
 
 function numberParam(value: string | null, fallback: number): number {
   const parsed = value ? Number.parseInt(value, 10) : fallback;

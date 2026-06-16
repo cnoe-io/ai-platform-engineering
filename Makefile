@@ -29,7 +29,7 @@ DOCKER_COMPOSE_BUILD_ENV := DOCKER_BUILDKIT=1 COMPOSE_PARALLEL_LIMIT=$(COMPOSE_P
 	test-slack-stream test-slack-conformance \
 	test-rag-unit test-rag-coverage test-rag-memory test-rag-scale validate lock-all help \
 	beads-gh-issues-sync beads-gh-issues-sync-run beads-list beads-ready beads-sync \
-	caipe-ui caipe-ui-install caipe-ui-build caipe-ui-dev caipe-ui-tests \
+	caipe-ui caipe-ui-install caipe-ui-build caipe-ui-dev caipe-ui-tests caipe-ui-e2e-rbac \
 	build-caipe-ui run-caipe-ui-docker caipe-ui-docker-compose \
 	caipe-ui-hot caipe-ui-prod \
 	docs docs-install docs-build docs-dev docs-start docs-serve \
@@ -188,6 +188,16 @@ caipe-ui-dev: ## Run CAIPE UI in development mode
 caipe-ui-tests: ## Run CAIPE UI Jest tests
 	@echo "Running CAIPE UI tests..."
 	@cd ui && npm test
+
+caipe-ui-e2e-rbac: ## Run mocked RBAC Playwright regression (dev server on :3000)
+	@echo "Running mocked RBAC Playwright regression..."
+	@cd ui && RUN_RBAC_REGRESSION=1 CAIPE_UI_BASE_URL=http://localhost:3000 WORKFLOWS_ENABLED=true \
+		npx playwright test \
+			e2e/rbac/workflow-agent-access.spec.ts \
+			e2e/rbac/rbac-admin-regression.spec.ts \
+			e2e/rbac/mcp-openfga-tuples.spec.ts \
+			e2e/rbac/admin-settings-regression.spec.ts \
+			--config=playwright.rbac.config.ts
 
 migrate-canonical-team-membership: ## Backfill team_membership_sources from legacy teams.members[] and $$unset the field. Dry-run by default; APPLY=1 to apply.
 	@# One-shot migration for spec 2026-05-26-canonical-team-membership.

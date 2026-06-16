@@ -1,9 +1,8 @@
 "use client";
 
-import React from "react";
-import { Shield, Info, Loader2, RefreshCw } from "lucide-react";
-import { cn } from "@/lib/utils";
 import { useAgentTools } from "@/hooks/use-agent-tools";
+import { cn } from "@/lib/utils";
+import { Info,Loader2,RefreshCw,Shield } from "lucide-react";
 
 interface PolicyPanelProps {
   isSystemWorkflow: boolean;

@@ -1,28 +1,32 @@
 "use client";
 
-import React from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import {
-  Server,
-  Plus,
-  Trash2,
-  Loader2,
-  ToggleLeft,
-  ToggleRight,
-  RefreshCw,
-  Zap,
-  Terminal,
-  Radio,
-  Globe,
-  AlertCircle,
-  CheckCircle2,
-  Download,
-} from "lucide-react";
-import type { MCPServerConfig, MCPToolInfo } from "@/types/dynamic-agent";
-import { MCPServerEditor } from "./MCPServerEditor";
+import { Button } from "@/components/ui/button";
+import { Card,CardContent,CardDescription,CardHeader,CardTitle } from "@/components/ui/card";
 import { toYaml } from "@/lib/yaml-serializer";
+import type { MCPServerConfig,MCPToolInfo } from "@/types/dynamic-agent";
+import {
+AlertCircle,
+CheckCircle2,
+Download,
+Globe,
+Loader2,
+Plus,
+Radio,
+RefreshCw,
+Server,
+Terminal,
+ToggleLeft,
+ToggleRight,
+Trash2,
+Zap,
+} from "lucide-react";
+import React from "react";
+import { MCPServerEditor } from "./MCPServerEditor";
+
+// assisted-by Codex Codex-sonnet-4-6
+export const MCP_SERVERS_REFRESH_INTERVAL_MS = 10_000;
+const MCP_SERVERS_LIST_URL = "/api/mcp-servers?page_size=100";
 
 interface ProbeResult {
   server_id: string;
@@ -39,6 +43,15 @@ interface AgentGatewayMigrationWarning {
   message: string;
 }
 
+interface FetchServersOptions {
+  showLoading?: boolean;
+  preserveListOnError?: boolean;
+}
+
+function errorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message ? error.message : fallback;
+}
+
 export function MCPServersTab() {
   const [servers, setServers] = React.useState<MCPServerConfig[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -53,26 +66,63 @@ export function MCPServersTab() {
   const [agentGatewayMessage, setAgentGatewayMessage] = React.useState<string | null>(null);
   const [agentGatewayError, setAgentGatewayError] = React.useState<string | null>(null);
 
-  const fetchServers = React.useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  const fetchServers = React.useCallback(async ({
+    showLoading = true,
+    preserveListOnError = false,
+  }: FetchServersOptions = {}) => {
+    if (showLoading) {
+      setLoading(true);
+    }
+    if (!preserveListOnError) {
+      setError(null);
+    }
     try {
-      const response = await fetch("/api/mcp-servers?page_size=100");
+      const response = await fetch(MCP_SERVERS_LIST_URL, { cache: "no-store" });
       const data = await response.json();
       if (data.success) {
         setServers(data.data.items || []);
+        setError(null);
       } else {
-        setError(data.error || "Failed to fetch servers");
+        if (!preserveListOnError) {
+          setError(data.error || "Failed to fetch servers");
+        }
       }
-    } catch (err: any) {
-      setError(err.message || "Failed to fetch servers");
+    } catch (err: unknown) {
+      if (!preserveListOnError) {
+        setError(errorMessage(err, "Failed to fetch servers"));
+      }
     } finally {
-      setLoading(false);
+      if (showLoading) {
+        setLoading(false);
+      }
     }
   }, []);
 
   React.useEffect(() => {
     fetchServers();
+  }, [fetchServers]);
+
+  React.useEffect(() => {
+    const refreshFromBackend = () => {
+      void fetchServers({ showLoading: false, preserveListOnError: true });
+    };
+
+    const intervalId = window.setInterval(refreshFromBackend, MCP_SERVERS_REFRESH_INTERVAL_MS);
+
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") {
+        refreshFromBackend();
+      }
+    };
+
+    window.addEventListener("focus", refreshFromBackend);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", refreshFromBackend);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
   }, [fetchServers]);
 
   const handleDelete = async (serverId: string) => {
@@ -88,8 +138,8 @@ export function MCPServersTab() {
       } else {
         alert(data.error || "Failed to delete server");
       }
-    } catch (err: any) {
-      alert(err.message || "Failed to delete server");
+    } catch (err: unknown) {
+      alert(errorMessage(err, "Failed to delete server"));
     }
   };
 
@@ -106,8 +156,8 @@ export function MCPServersTab() {
       } else {
         alert(data.error || "Failed to update server");
       }
-    } catch (err: any) {
-      alert(err.message || "Failed to update server");
+    } catch (err: unknown) {
+      alert(errorMessage(err, "Failed to update server"));
     }
   };
 
@@ -159,13 +209,13 @@ export function MCPServersTab() {
           },
         }));
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       setProbeResults((prev) => ({
         ...prev,
         [serverId]: {
           server_id: serverId,
           loading: false,
-          error: err.message || "Probe failed",
+          error: errorMessage(err, "Probe failed"),
         },
       }));
     }
@@ -196,8 +246,8 @@ export function MCPServersTab() {
       );
       setAgentGatewayMigrationWarnings(data.data.migration_warnings || []);
       await fetchServers();
-    } catch (err: any) {
-      setAgentGatewayError(err.message || "Failed to sync AgentGateway MCP servers");
+    } catch (err: unknown) {
+      setAgentGatewayError(errorMessage(err, "Failed to sync AgentGateway MCP servers"));
     } finally {
       setAgentGatewaySyncing(false);
     }
@@ -299,7 +349,7 @@ export function MCPServersTab() {
               )}
               Sync with AgentGateway
             </Button>
-            <Button variant="outline" size="sm" onClick={fetchServers} disabled={loading}>
+            <Button variant="outline" size="sm" onClick={() => fetchServers()} disabled={loading}>
               <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
               Refresh
             </Button>
@@ -368,7 +418,7 @@ export function MCPServersTab() {
         ) : error ? (
           <div className="text-center py-12">
             <p className="text-destructive">{error}</p>
-            <Button variant="outline" className="mt-4" onClick={fetchServers}>
+            <Button variant="outline" className="mt-4" onClick={() => fetchServers()}>
               Retry
             </Button>
           </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useCallback,useEffect,useRef,useState } from "react";
 
 export type AgentRuntimeStatus = "checking" | "connected" | "disconnected";
 
@@ -50,7 +50,8 @@ export function useAgentRuntimeHealth(): UseAgentRuntimeHealthResult {
   }, []);
 
   useEffect(() => {
-    checkHealth();
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- checkHealth is async; setState calls happen after awaited fetch
+    void checkHealth();
     const interval = setInterval(checkHealth, POLL_INTERVAL_MS);
     return () => clearInterval(interval);
   }, [checkHealth]);

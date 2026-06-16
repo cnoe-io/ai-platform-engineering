@@ -1,8 +1,8 @@
 import {
-  isOpenFgaReconciliationEnabled,
-  readOpenFgaTuples,
-  writeOpenFgaTupleDiff,
-  type OpenFgaTupleKey,
+isOpenFgaReconciliationEnabled,
+readOpenFgaTuples,
+writeOpenFgaTupleDiff,
+type OpenFgaTupleKey,
 } from "@/lib/rbac/openfga";
 import type { CredentialOwnerRef } from "./types";
 

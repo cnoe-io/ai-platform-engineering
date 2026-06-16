@@ -26,7 +26,16 @@ model
   schema 1.1
 
 type user
+# Service accounts are team-owned bot identities (spec 2026-06-05-service-accounts).
+# Historically subject-only (Slack/Webex bots); now self-service accounts add an
+# ownership relation so the owning team's members can manage them. This is purely
+# additive — `service_account` as a *subject* elsewhere (e.g. tool#caller,
+# agent#user) is unchanged. `owner_team` ties the SA to exactly one team; only that
+# team's members hold `can_manage`. assisted-by Claude claude-opus-4-8
 type service_account
+  relations
+    define owner_team: [team#member]
+    define can_manage: owner_team
 # Subject-only placeholder for unauthenticated callers. The AGW ext_authz bridge
 # uses the literal subject "anonymous" when no JWT is present; this empty type keeps
 # the authored model in parity with the deployed chart JSON (no relations → grants
@@ -191,9 +200,14 @@ type llm_model
     define can_manage: manager or owner
     define can_audit: auditor or can_manage
 
+# Coarse AgentGateway gate. `caller` now also lists `service_account` so
+# user-minted service accounts (spec 2026-06-05-service-accounts) can be granted
+# the baseline `can_call mcp_gateway:list` tuple and pass the coarse ext_authz
+# gate — humans receive this baseline via baseline-access.ts; SAs receive it at
+# create time. Additive change. assisted-by Claude claude-opus-4-8
 type mcp_gateway
   relations
-    define caller: [user]
+    define caller: [user, service_account]
     define can_call: caller
 
 type tool
@@ -341,8 +355,8 @@ type skill
 type task
   relations
     define owner: [user, service_account]
-    define reader: [user, service_account, team#member, team#admin, external_group#member]
-    define user: [user, service_account, team#member, team#admin, external_group#member]
+    define reader: [user, service_account, team#member, team#admin, external_group#member, organization#member]
+    define user: [user, service_account, team#member, team#admin, external_group#member, organization#member]
     define writer: [user, service_account, team#member, team#admin]
     define manager: [user, service_account, team#admin]
     define auditor: [user, service_account, team#admin]

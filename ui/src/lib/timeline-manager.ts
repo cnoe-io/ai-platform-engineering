@@ -6,10 +6,10 @@
  * with a class that owns the segments + tracking state.
  */
 
-import type { SupervisorTimelineSegment, PlanStep } from "@/types/a2a";
-import { parsePlanStepsFromData, parsePlanStepsFromTodos } from "./timeline-parsers";
+import type { PlanStep,SupervisorTimelineSegment } from "@/types/a2a";
+import type { BaseEvent,StateDeltaEvent,StateSnapshotEvent,TextMessageContentEvent,ToolCallEndEvent,ToolCallStartEvent } from "@ag-ui/core";
 import { EventType } from "@ag-ui/core";
-import type { BaseEvent, TextMessageContentEvent, ToolCallStartEvent, ToolCallEndEvent, StateDeltaEvent, StateSnapshotEvent } from "@ag-ui/core";
+import { parsePlanStepsFromData,parsePlanStepsFromTodos } from "./timeline-parsers";
 
 export class SupervisorTimelineManager {
   private segments: SupervisorTimelineSegment[] = [];

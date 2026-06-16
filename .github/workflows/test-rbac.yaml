@@ -108,14 +108,23 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Install uv
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b  # v6.7.1
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39  # v6.7.1
 
       - name: Install Python deps
         run: uv sync --group unittest
 
       - name: Install ui/ npm deps
         working-directory: ui
-        run: npm ci --no-audit --no-fund
+        run: |
+          # assisted-by Codex Codex-sonnet-4-6
+          for attempt in 1 2 3; do
+            npm ci --no-audit --no-fund && break
+            status=$?
+            if [ "$attempt" -eq 3 ]; then
+              exit "$status"
+            fi
+            sleep $((attempt * 10))
+          done
 
       - name: ▶ make test-rbac-lint  (matrix linter + realm validator + requireAdmin guard)
         run: |
@@ -210,19 +219,36 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Install uv
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b  # v6.7.1
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39  # v6.7.1
 
       - name: Install Python deps
         run: uv sync --group unittest
 
       - name: Install ui/ npm deps
         working-directory: ui
-        run: npm ci --no-audit --no-fund
+        run: |
+          # assisted-by Codex Codex-sonnet-4-6
+          for attempt in 1 2 3; do
+            npm ci --no-audit --no-fund && break
+            status=$?
+            if [ "$attempt" -eq 3 ]; then
+              exit "$status"
+            fi
+            sleep $((attempt * 10))
+          done
 
       - name: Install Playwright browsers
         working-directory: tests/rbac/e2e
         run: |
-          npm install --no-audit --no-fund
+          # assisted-by Codex Codex-sonnet-4-6
+          for attempt in 1 2 3; do
+            npm install --no-audit --no-fund && break
+            status=$?
+            if [ "$attempt" -eq 3 ]; then
+              exit "$status"
+            fi
+            sleep $((attempt * 10))
+          done
           npx playwright install --with-deps chromium
 
       - name: Pull docker images for the stack (warm cache)

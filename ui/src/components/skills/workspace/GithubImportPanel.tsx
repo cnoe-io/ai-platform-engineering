@@ -10,6 +10,6 @@
  */
 
 export {
-  RepoImportPanel as GithubImportPanel,
-  type RepoImportPanelProps as GithubImportPanelProps,
+RepoImportPanel as GithubImportPanel,
+type RepoImportPanelProps as GithubImportPanelProps
 } from "./RepoImportPanel";

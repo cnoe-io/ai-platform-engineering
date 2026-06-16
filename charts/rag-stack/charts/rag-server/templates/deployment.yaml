@@ -55,6 +55,9 @@ spec:
             - secretRef:
                 name: {{ $llmSecretName }}
             {{- end }}
+            {{- with .Values.envFrom }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
           env:
             # Computed connection settings (from global values)
             - name: REDIS_URL

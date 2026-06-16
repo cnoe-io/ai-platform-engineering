@@ -1,11 +1,11 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
-import { ChevronDown, ChevronLeft, ChevronRight, GripVertical, Loader2, Search } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { getStepTemplates } from "./step-templates";
 import { useAgentTools } from "@/hooks/use-agent-tools";
+import { cn } from "@/lib/utils";
 import type { StepTemplate } from "@/types/task-config";
+import { ChevronDown,ChevronLeft,ChevronRight,GripVertical,Loader2,Search } from "lucide-react";
+import React,{ useMemo,useState } from "react";
+import { getStepTemplates } from "./step-templates";
 
 const SUBAGENT_COLORS: Record<string, string> = {
   caipe: "border-l-yellow-500",

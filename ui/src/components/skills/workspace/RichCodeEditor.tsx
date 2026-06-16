@@ -19,43 +19,42 @@
  * (Workspace's Files tab) and the SkillFolderViewer's editor pane.
  */
 
-import React, {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
-import CodeMirror, {
-  type ReactCodeMirrorRef,
-  type Extension,
-} from "@uiw/react-codemirror";
-import { EditorView, keymap, lineNumbers } from "@codemirror/view";
-import { EditorState } from "@codemirror/state";
-import { indentWithTab, history, undo, redo } from "@codemirror/commands";
 import {
-  bracketMatching,
-  foldGutter,
-  foldKeymap,
-  indentOnInput,
-  syntaxHighlighting,
-  defaultHighlightStyle,
-  LanguageDescription,
-  type LanguageSupport,
+autocompletion,
+closeBrackets,
+closeBracketsKeymap,
+completionKeymap,
+type CompletionSource,
+} from "@codemirror/autocomplete";
+import { history,indentWithTab,redo,undo } from "@codemirror/commands";
+import {
+bracketMatching,
+defaultHighlightStyle,
+foldGutter,
+foldKeymap,
+indentOnInput,
+LanguageDescription,
+syntaxHighlighting,
+type LanguageSupport,
 } from "@codemirror/language";
 import { languages as cmLanguageData } from "@codemirror/language-data";
-import { searchKeymap, highlightSelectionMatches } from "@codemirror/search";
-import {
-  autocompletion,
-  closeBrackets,
-  closeBracketsKeymap,
-  completionKeymap,
-  type CompletionSource,
-} from "@codemirror/autocomplete";
-import { lintGutter, type Diagnostic } from "@codemirror/lint";
-import { linter as cmLinter } from "@codemirror/lint";
+import { linter as cmLinter,lintGutter,type Diagnostic } from "@codemirror/lint";
+import { highlightSelectionMatches,searchKeymap } from "@codemirror/search";
+import { EditorState } from "@codemirror/state";
 import { oneDark } from "@codemirror/theme-one-dark";
+import { EditorView,keymap,lineNumbers } from "@codemirror/view";
+import CodeMirror,{
+type Extension,
+type ReactCodeMirrorRef,
+} from "@uiw/react-codemirror";
 import { useTheme } from "next-themes";
+import React,{
+useCallback,
+useEffect,
+useMemo,
+useRef,
+useState,
+} from "react";
 
 import { cn } from "@/lib/utils";
 
@@ -270,6 +269,7 @@ export function RichCodeEditor({
       indentOnInput(),
       highlightSelectionMatches(),
       syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+      /* eslint-disable react-hooks/refs -- completionSourceRef.current intentionally read in useMemo to avoid rebuilding CodeMirror extensions on every render */
       autocompletion({
         override: completionSourceRef.current
           ? [
@@ -280,6 +280,7 @@ export function RichCodeEditor({
             ]
           : undefined,
       }),
+      /* eslint-enable react-hooks/refs */
       keymap.of([
         ...closeBracketsKeymap,
         ...searchKeymap,
@@ -300,6 +301,7 @@ export function RichCodeEditor({
     // Always include the lint gutter + a linter that consults the latest
     // ref. Empty array when no source is supplied.
     exts.push(lintGutter());
+    /* eslint-disable react-hooks/refs -- lintSourceRef.current intentionally read inside useMemo callback to avoid rebuilding CodeMirror extensions */
     exts.push(
       cmLinter(async (view) => {
         const src = lintSourceRef.current;
@@ -312,6 +314,7 @@ export function RichCodeEditor({
         }
       }),
     );
+    /* eslint-enable react-hooks/refs */
 
     return exts;
     // We intentionally do NOT depend on `completionSource`/`lintSource`
@@ -358,5 +361,5 @@ export function RichCodeEditor({
  * can wire toolbar buttons (Undo/Redo) without importing CodeMirror
  * internals directly.
  */
-export { undo as cmUndo, redo as cmRedo };
-export type { Diagnostic, ReactCodeMirrorRef };
+export { redo as cmRedo,undo as cmUndo };
+export type { Diagnostic,ReactCodeMirrorRef };

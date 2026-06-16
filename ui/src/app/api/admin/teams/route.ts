@@ -1,24 +1,24 @@
 // GET /api/admin/teams - List all teams
 // POST /api/admin/teams - Create a new team
 
-import { NextRequest, NextResponse } from 'next/server';
-import { getCollection, isMongoDBConfigured } from '@/lib/mongodb';
 import {
-  getAuthFromBearerOrSession,
-  withErrorHandler,
-  successResponse,
-  ApiError,
+ApiError,
+getAuthFromBearerOrSession,
+successResponse,
+withErrorHandler,
 } from '@/lib/api-middleware';
-import { requireAdminSurfaceManage, requireBaselineAdminSurfaceRead } from '@/lib/rbac/require-openfga';
+import { getCollection,isMongoDBConfigured } from '@/lib/mongodb';
 import { isValidTeamSlug } from '@/lib/rbac/keycloak-admin';
+import { requireAdminSurfaceManage,requireBaselineAdminSurfaceRead } from '@/lib/rbac/require-openfga';
 import { upsertTeamMembershipSource } from '@/lib/rbac/team-membership-source-store';
+import { loadTeamIdpSourceTypes,loadTeamMemberCounts } from '@/lib/rbac/team-membership-store';
 import {
-  mongoRoleToOpenFgaRelations,
-  resolveKeycloakUserSubject,
-  writeTeamMembershipTuples,
+mongoRoleToOpenFgaRelations,
+resolveKeycloakUserSubject,
+writeTeamMembershipTuples,
 } from '@/lib/rbac/team-membership-sync';
-import { loadTeamMemberCounts } from '@/lib/rbac/team-membership-store';
 import type { TeamMembershipSource } from '@/types/identity-group-sync';
+import { NextRequest,NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
 
@@ -80,6 +80,9 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     .map((team) => (typeof team.slug === 'string' ? team.slug : ''))
     .filter((slug): slug is string => slug.length > 0);
   const memberCounts = slugs.length > 0 ? await loadTeamMemberCounts(slugs) : new Map<string, number>();
+  // Distinct IdP source types per team (okta/oidc_claim/...), for the
+  // "synced from <IdP>" badge on the Admin team cards.
+  const idpSourceTypes = slugs.length > 0 ? await loadTeamIdpSourceTypes(slugs) : new Map<string, string[]>();
 
   // Decorate each team with `kb_count`. The canonical store for team KB
   // assignments is the `team_kb_ownership` collection (keyed by the team's
@@ -113,6 +116,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       ...team,
       member_count: slug ? memberCounts.get(slug) ?? 0 : 0,
       kb_count: kbCounts.get(idStr) ?? legacyKbCount,
+      idp_source_types: slug ? idpSourceTypes.get(slug) ?? [] : [],
     };
   });
 

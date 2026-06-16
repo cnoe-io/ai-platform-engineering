@@ -1,9 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
+import { ApiError,handleApiError,requireRbacPermission } from "@/lib/api-middleware";
 import { authOptions } from "@/lib/auth-config";
 import { getCollection } from "@/lib/mongodb";
-import { requireRbacPermission, ApiError, handleApiError } from "@/lib/api-middleware";
 import { requireResourcePermission } from "@/lib/rbac/resource-authz";
+import { getServerSession } from "next-auth";
+import { NextRequest,NextResponse } from "next/server";
 
 /**
  * Single team-scoped RAG tool operations (098 Enterprise RBAC — FR-009).
@@ -61,7 +61,7 @@ export async function GET(
     await requireResourcePermission(
       { sub: session.sub, role: session.role, user: session.user },
       { type: "tool", id: toolId, action: "read" },
-      { allowAdminBypass: true },
+      { bypassForOrgAdmin: true },
     );
 
     return NextResponse.json({ tool });
@@ -96,7 +96,7 @@ export async function PUT(
     await requireResourcePermission(
       { sub: session.sub, role: session.role, user: session.user },
       { type: "tool", id: toolId, action: "write" },
-      { allowAdminBypass: true },
+      { bypassForOrgAdmin: true },
     );
 
     const body = await request.json();
@@ -165,7 +165,7 @@ export async function DELETE(
     await requireResourcePermission(
       { sub: session.sub, role: session.role, user: session.user },
       { type: "tool", id: toolId, action: "delete" },
-      { allowAdminBypass: true },
+      { bypassForOrgAdmin: true },
     );
 
     await tools.updateOne(

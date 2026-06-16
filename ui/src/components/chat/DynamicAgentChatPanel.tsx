@@ -1,36 +1,36 @@
 "use client";
 
-import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { useSession } from "next-auth/react";
-import { motion, AnimatePresence } from "framer-motion";
-import { Send, Square, User, Bot, Sparkles, Copy, Check, Loader2, ChevronDown, ChevronUp, ArrowDown, ArrowLeft, RotateCcw, Activity, ShieldCheck } from "lucide-react";
-import TextareaAutosize from "react-textarea-autosize";
-import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { useChatStore } from "@/store/chat-store";
-import { useToast } from "@/components/ui/toast";
-import { createStreamAdapter, StreamError, type StreamCallbacks } from "@/lib/streaming";
-import { authErrorToastTitle, type AuthError } from "@/lib/auth-error";
-import { APIClientError } from "@/lib/api-client";
-import { signIn } from "next-auth/react";
-import { type StreamEvent, createStreamEvent, FILE_TOOL_NAMES, TODO_TOOL_NAME } from "@/lib/streaming/types";
-import { useFeatureFlagStore } from "@/store/feature-flag-store";
-import { cn, deduplicateByKey } from "@/lib/utils";
-import { ChatMessage as ChatMessageType, TurnStatus, Conversation } from "@/types/a2a";
-import { getConfig } from "@/lib/config";
-import { FeedbackButton, Feedback } from "./FeedbackButton";
-import { DEFAULT_AGENTS } from "./CustomCallButtons";
-import { MetadataInputForm, type UserInputMetadata, type InputField } from "./MetadataInputForm";
-import { ToolApprovalCard } from "./ToolApprovalCard";
-import { SlashCommandMenu, getFilteredCommands, type SlashCommand } from "./SlashCommandMenu";
-import { useSlashCommands } from "./useSlashCommands";
 import { AgentAvatar } from "@/components/dynamic-agents/AgentAvatar";
-import { AgentTimeline, type SubagentLookupInfo } from "./DynamicAgentTimeline";
-import { useAgentTimeline } from "@/hooks/useDynamicAgentTimeline";
 import type { TaskItem } from "@/components/shared/timeline";
 import { MarkdownRenderer } from "@/components/shared/timeline";
+import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { useToast } from "@/components/ui/toast";
+import { Tooltip,TooltipContent,TooltipProvider,TooltipTrigger } from "@/components/ui/tooltip";
+import { useAgentTimeline } from "@/hooks/useDynamicAgentTimeline";
+import { APIClientError } from "@/lib/api-client";
+import { authErrorToastTitle,type AuthError } from "@/lib/auth-error";
+import { getConfig } from "@/lib/config";
+import { fetchEphemeralFileContent } from "@/lib/ephemeral-files";
+import { createStreamAdapter,StreamError,type StreamCallbacks } from "@/lib/streaming";
+import { createStreamEvent,FILE_TOOL_NAMES,TODO_TOOL_NAME,type StreamEvent } from "@/lib/streaming/types";
+import { cn,deduplicateByKey } from "@/lib/utils";
+import { useChatStore } from "@/store/chat-store";
+import { useFeatureFlagStore } from "@/store/feature-flag-store";
+import { ChatMessage as ChatMessageType,Conversation,TurnStatus } from "@/types/a2a";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
+import { AnimatePresence,motion } from "framer-motion";
+import { Activity,ArrowDown,ArrowLeft,Check,ChevronUp,Copy,Loader2,RotateCcw,Send,ShieldCheck,Sparkles,Square,User } from "lucide-react";
+import { signIn,useSession } from "next-auth/react";
+import React,{ useCallback,useEffect,useMemo,useRef,useState } from "react";
+import TextareaAutosize from "react-textarea-autosize";
+import { DEFAULT_AGENTS } from "./CustomCallButtons";
+import { AgentTimeline,type SubagentLookupInfo } from "./DynamicAgentTimeline";
+import { Feedback,FeedbackButton } from "./FeedbackButton";
+import { MetadataInputForm,type InputField,type UserInputMetadata } from "./MetadataInputForm";
+import { getFilteredCommands,SlashCommandMenu,type SlashCommand } from "./SlashCommandMenu";
+import { ToolApprovalCard } from "./ToolApprovalCard";
+import { useSlashCommands } from "./useSlashCommands";
 
 type ReadOnlyReason = 'admin_audit' | 'shared_readonly' | 'agent_deleted' | 'agent_disabled';
 
@@ -527,6 +527,15 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       }
     },
     [conversationId, agentId, isDownloadingFile]
+  );
+
+  const handleGetFileContent = useCallback(
+    async (path: string): Promise<string | null> => {
+      if (!conversationId || !agentId) return null;
+      const fsNamespace = JSON.stringify([agentId, conversationId, "filesystem"]);
+      return fetchEphemeralFileContent(fsNamespace, path);
+    },
+    [conversationId, agentId],
   );
 
   // Handle file delete
@@ -1681,6 +1690,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
                           timelineFiles={timelineFiles}
                           timelineTasks={timelineTasks}
                           onFileDownload={handleTimelineFileDownload}
+                          getFileContent={handleGetFileContent}
                           onFileDelete={handleTimelineFileDelete}
                           isDownloadingFile={isDownloadingFile}
                           downloadingFilePath={downloadingFilePath}
@@ -2068,6 +2078,7 @@ interface ChatMessageProps {
   timelineFiles?: string[];
   timelineTasks?: TaskItem[];
   onFileDownload?: (path: string) => void;
+  getFileContent?: (path: string) => Promise<string | null>;
   onFileDelete?: (path: string) => void;
   isDownloadingFile?: boolean;
   downloadingFilePath?: string;
@@ -2100,6 +2111,7 @@ const ChatMessage = React.memo(function ChatMessage({
   timelineFiles = [],
   timelineTasks = [],
   onFileDownload,
+  getFileContent,
   onFileDelete,
   isDownloadingFile,
   downloadingFilePath,
@@ -2315,6 +2327,7 @@ const ChatMessage = React.memo(function ChatMessage({
                 tasks={isLatestAnswer ? timelineTasks : []}
                 isLatestMessage={isLatestAnswer}
                 onFileDownload={onFileDownload}
+                getFileContent={getFileContent}
                 onFileDelete={onFileDelete}
                 isDownloadingFile={isDownloadingFile}
                 downloadingFilePath={downloadingFilePath}

@@ -1,12 +1,12 @@
 import { NextRequest } from "next/server";
 
 import {
-  ApiError,
-  getAuthFromBearerOrSession,
-  withErrorHandler,
+ApiError,
+getAuthFromBearerOrSession,
+withErrorHandler,
 } from "@/lib/api-middleware";
-import { oauthStateCookieName, parseOAuthStateCookie } from "@/lib/credentials/oauth-state";
 import { getProviderConnectionService } from "@/lib/credentials/oauth-service-factory";
+import { oauthStateCookieName,parseOAuthStateCookie } from "@/lib/credentials/oauth-state";
 import { getCredentialFeatureConfig } from "@/lib/feature-flags/credentials";
 
 function assertFeatureEnabled(): void {

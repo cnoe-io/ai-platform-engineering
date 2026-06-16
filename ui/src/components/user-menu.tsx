@@ -1,23 +1,29 @@
 "use client";
 
-import React, { useState, useRef, useEffect, useCallback } from "react";
-import { useSession, signIn, signOut } from "next-auth/react";
-import { motion, AnimatePresence } from "framer-motion";
-import { LogIn, LogOut, ChevronDown, Shield, Users, Hash, Code, ChevronRight, Layers, ExternalLink, Clock, RefreshCw, Bug, Settings, Copy, Check, KeyRound, Lightbulb, FileText, Tag, Wrench, Sparkles, ChevronUp, Search, X, SlidersHorizontal } from "lucide-react";
-import { useFeatureFlagStore } from "@/store/feature-flag-store";
-import { PreferencesModal } from "@/components/preferences-modal";
+import type { ChangelogRelease } from "@/app/api/changelog/route";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
-import { config } from "@/lib/config";
-import type { ChangelogRelease, ChangelogItem } from "@/app/api/changelog/route";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
+Dialog,
+DialogContent,
+DialogDescription,
+DialogHeader,
+DialogTitle,
 } from "@/components/ui/dialog";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs,TabsContent,TabsList,TabsTrigger } from "@/components/ui/tabs";
+import { config } from "@/lib/config";
+import { cn } from "@/lib/utils";
+import {
+CATEGORY_LABELS,
+FEATURE_FLAGS,
+useFeatureFlagStore,
+type FeatureFlag,
+type FeatureFlagCategory,
+type FeatureFlagIcon,
+} from "@/store/feature-flag-store";
+import { AnimatePresence,motion } from "framer-motion";
+import { ArrowDownToLine,Brain,Bug,Check,ChevronDown,ChevronRight,ChevronUp,Clock,Code,Copy,ExternalLink,Eye,FileText,Hash,Info,KeyRound,Layers,Lightbulb,LogIn,LogOut,RefreshCw,Search,Settings,Shield,SlidersHorizontal,Sparkles,Tag,Users,Wrench,X } from "lucide-react";
+import { signIn,signOut,useSession } from "next-auth/react";
+import React,{ useCallback,useEffect,useRef,useState } from "react";
 
 // Tech Stack Data
 interface TechItem {
@@ -272,13 +278,93 @@ function ChangelogSection({ release, defaultOpen, onScopeClick }: {
   );
 }
 
-export function UserMenu({ compact = false }: { compact?: boolean } = {}) {
+const FLAG_ICONS: Record<FeatureFlagIcon, React.ReactNode> = {
+  Brain: <Brain className="h-4 w-4" />,
+  Bug: <Bug className="h-4 w-4" />,
+  Eye: <Eye className="h-4 w-4" />,
+  ArrowDownToLine: <ArrowDownToLine className="h-4 w-4" />,
+  Clock: <Clock className="h-4 w-4" />,
+};
+
+const CATEGORY_ORDER: FeatureFlagCategory[] = ["ai", "chat", "developer"];
+
+function FlagRow({ flag }: { flag: FeatureFlag }) {
+  const { flags, toggle } = useFeatureFlagStore();
+  const [showInfo, setShowInfo] = useState(false);
+  const enabled = flags[flag.id] ?? flag.defaultValue;
+
+  return (
+    <div className="rounded-lg border border-border hover:border-border/80 transition-colors">
+      <div className="flex items-center gap-3 px-4 py-3">
+        <span className={cn(
+          "shrink-0 p-1.5 rounded-lg transition-colors",
+          enabled ? "text-primary bg-primary/10" : "text-muted-foreground bg-muted/50"
+        )}>
+          {FLAG_ICONS[flag.icon]}
+        </span>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5">
+            <span className="text-sm font-medium">{flag.label}</span>
+            <button
+              onClick={() => setShowInfo(!showInfo)}
+              className={cn(
+                "p-0.5 rounded transition-colors",
+                showInfo ? "text-primary" : "text-muted-foreground/40 hover:text-muted-foreground"
+              )}
+              aria-label={`Info about ${flag.label}`}
+            >
+              <Info className="h-3 w-3" />
+            </button>
+          </div>
+          <span className="text-xs text-muted-foreground">{flag.description}</span>
+        </div>
+        <button
+          onClick={() => toggle(flag.id)}
+          className="shrink-0"
+          role="switch"
+          aria-checked={enabled}
+          aria-label={`Toggle ${flag.label}`}
+        >
+          <div className={cn(
+            "relative w-10 h-6 rounded-full transition-colors",
+            enabled ? "bg-primary" : "bg-muted-foreground/30"
+          )}>
+            <div className={cn(
+              "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
+              enabled ? "translate-x-[18px]" : "translate-x-0.5"
+            )} />
+          </div>
+        </button>
+      </div>
+      {showInfo && (
+        <div className="px-4 pb-3">
+          <div className="p-2.5 rounded-lg bg-muted/40 border border-border/50 text-xs text-muted-foreground leading-relaxed">
+            {flag.detail}
+            {flag.docsUrl && (
+              <a
+                href={flag.docsUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1 mt-1.5 text-primary hover:underline font-medium"
+              >
+                Learn more
+                <ExternalLink className="h-2.5 w-2.5" />
+              </a>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function UserMenu() {
   const { data: session, status, update } = useSession();
   const { initialize } = useFeatureFlagStore();
   const [open, setOpen] = useState(false);
-  const [prefsOpen, setPrefsOpen] = useState(false);
   const [systemOpen, setSystemOpen] = useState(false);
-  const [systemTab, setSystemTab] = useState("oidc");
+  const [systemTab, setSystemTab] = useState("preferences");
+  const [aboutOpen, setAboutOpen] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshResult, setRefreshResult] = useState<'success' | 'error' | null>(null);
   const [tokenCopied, setTokenCopied] = useState(false);
@@ -354,8 +440,7 @@ export function UserMenu({ compact = false }: { compact?: boolean } = {}) {
 
   useEffect(() => {
     function handleOpenChangelog() {
-      setSystemTab("changelog");
-      setSystemOpen(true);
+      setAboutOpen(true);
       setOpen(false);
       fetchChangelog();
     }
@@ -466,33 +551,20 @@ export function UserMenu({ compact = false }: { compact?: boolean } = {}) {
     <div className="relative" ref={menuRef}>
       <button
         onClick={() => setOpen(!open)}
-        aria-label={compact ? `User menu for ${displayName}` : undefined}
+        aria-label={`User menu for ${displayName}`}
         className={cn(
-          "flex items-center gap-2 px-2 py-1 rounded-full transition-colors",
-          compact && "px-1.5",
-          open
-            ? "bg-primary/10"
-            : "hover:bg-muted"
+          "flex items-center gap-1.5 px-1.5 py-1 rounded-full transition-colors",
+          open ? "bg-primary/10" : "hover:bg-muted"
         )}
       >
         {session?.user?.image ? (
-          <img
-            src={session.user.image}
-            alt={displayName}
-            className="h-6 w-6 rounded-full"
-          />
+          <img src={session.user.image} alt={displayName} className="h-6 w-6 rounded-full" />
         ) : (
           <div className="h-6 w-6 rounded-full gradient-primary-br flex items-center justify-center">
             <span className="text-[10px] font-medium text-white">{userInitials}</span>
           </div>
         )}
-        {!compact && <span className="text-xs font-medium max-w-[100px] truncate">{firstName}</span>}
-        {!compact && (
-          <ChevronDown className={cn(
-            "h-3 w-3 text-muted-foreground transition-transform",
-            open && "rotate-180"
-          )} />
-        )}
+        <ChevronDown className={cn("h-3 w-3 text-muted-foreground transition-transform duration-200", open && "rotate-180")} />
       </button>
 
       <AnimatePresence>
@@ -555,18 +627,19 @@ export function UserMenu({ compact = false }: { compact?: boolean } = {}) {
               </div>
             </div>
 
-            {/* System Section — single menu item for all system info */}
+            {/* Settings — single entry for all settings + system info */}
             <div className="border-b border-border">
               <button
                 onClick={() => {
                   setSystemOpen(true);
+                  setSystemTab("preferences");
                   setOpen(false);
                 }}
                 className="w-full flex items-center justify-between px-4 py-2 text-xs font-medium hover:bg-muted/50 transition-colors"
               >
                 <div className="flex items-center gap-2">
                   <Settings className="h-3.5 w-3.5" />
-                  <span>System</span>
+                  <span>Settings</span>
                 </div>
                 <ChevronRight className="h-3.5 w-3.5" />
               </button>
@@ -589,18 +662,19 @@ export function UserMenu({ compact = false }: { compact?: boolean } = {}) {
               </div>
             )}
 
-            {/* Preferences */}
+            {/* About */}
             <div className="border-b border-border">
               <button
                 onClick={() => {
-                  setPrefsOpen(true);
+                  setAboutOpen(true);
                   setOpen(false);
+                  fetchChangelog();
                 }}
                 className="w-full flex items-center justify-between px-4 py-2 text-xs font-medium hover:bg-muted/50 transition-colors"
               >
                 <div className="flex items-center gap-2">
-                  <SlidersHorizontal className="h-3.5 w-3.5" />
-                  <span>Preferences</span>
+                  <Info className="h-3.5 w-3.5" />
+                  <span>About</span>
                 </div>
                 <ChevronRight className="h-3.5 w-3.5" />
               </button>
@@ -623,11 +697,8 @@ export function UserMenu({ compact = false }: { compact?: boolean } = {}) {
         )}
       </AnimatePresence>
 
-      {/* Preferences Modal */}
-      <PreferencesModal open={prefsOpen} onOpenChange={setPrefsOpen} />
-
-      {/* System Dialog — tabbed: OIDC Token, Debug, Built With */}
-      <Dialog open={systemOpen} onOpenChange={(open) => { setSystemOpen(open); if (!open) setSystemTab("oidc"); }}>
+      {/* Settings Dialog — tabbed: Preferences, My RBAC, OIDC Token, Debug, About */}
+      <Dialog open={systemOpen} onOpenChange={(open) => { setSystemOpen(open); if (!open) setSystemTab("preferences"); }}>
         <DialogContent className="max-w-4xl max-h-[85vh] p-0">
           <DialogHeader className="p-6 pb-4 border-b border-border">
             <div className="flex items-center gap-3">
@@ -635,7 +706,7 @@ export function UserMenu({ compact = false }: { compact?: boolean } = {}) {
                 <Settings className="h-5 w-5 text-white" />
               </div>
               <div>
-                <DialogTitle>System — {config.appName}</DialogTitle>
+                <DialogTitle>Settings — {config.appName}</DialogTitle>
                 <DialogDescription>
                   {config.tagline}
                 </DialogDescription>
@@ -643,9 +714,16 @@ export function UserMenu({ compact = false }: { compact?: boolean } = {}) {
             </div>
           </DialogHeader>
 
-          <Tabs value={systemTab} className="w-full" onValueChange={(val) => { setSystemTab(val); if (val === "changelog") fetchChangelog(); if (val === "rbac") fetchRbacPosture(); }}>
+          <Tabs value={systemTab} className="w-full" onValueChange={(val) => { setSystemTab(val); if (val === "rbac") fetchRbacPosture(); }}>
             <div className="px-6 pt-2 border-b border-border">
               <TabsList className="bg-transparent h-auto p-0 gap-4">
+                <TabsTrigger
+                  value="preferences"
+                  className="px-1 pb-2 pt-1 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none text-xs font-medium"
+                >
+                  <SlidersHorizontal className="h-3.5 w-3.5 mr-1.5" />
+                  Preferences
+                </TabsTrigger>
                 <TabsTrigger
                   value="rbac"
                   className="px-1 pb-2 pt-1 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none text-xs font-medium"
@@ -667,22 +745,38 @@ export function UserMenu({ compact = false }: { compact?: boolean } = {}) {
                   <Bug className="h-3.5 w-3.5 mr-1.5" />
                   Debug
                 </TabsTrigger>
-                <TabsTrigger
-                  value="built-with"
-                  className="px-1 pb-2 pt-1 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none text-xs font-medium"
-                >
-                  <Layers className="h-3.5 w-3.5 mr-1.5" />
-                  Built With
-                </TabsTrigger>
-                <TabsTrigger
-                  value="changelog"
-                  className="px-1 pb-2 pt-1 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none text-xs font-medium"
-                >
-                  <FileText className="h-3.5 w-3.5 mr-1.5" />
-                  Changelog
-                </TabsTrigger>
               </TabsList>
             </div>
+
+            {/* Preferences Tab */}
+            <TabsContent value="preferences" className="mt-0">
+              <div className="p-6 overflow-y-auto max-h-[50vh] space-y-6">
+                {CATEGORY_ORDER
+                  .map((cat) => ({
+                    category: cat as FeatureFlagCategory,
+                    label: CATEGORY_LABELS[cat as FeatureFlagCategory],
+                    flags: FEATURE_FLAGS.filter((f) => f.category === cat),
+                  }))
+                  .filter((g) => g.flags.length > 0)
+                  .map(({ category, label, flags }) => (
+                    <div key={category}>
+                      <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+                        {label}
+                      </h3>
+                      <div className="space-y-2">
+                        {flags.map((flag) => (
+                          <FlagRow key={flag.id} flag={flag} />
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+              </div>
+              <div className="p-4 border-t border-border bg-muted/20">
+                <p className="text-[11px] text-center text-muted-foreground">
+                  These preferences apply to your account only and sync across devices.
+                </p>
+              </div>
+            </TabsContent>
 
             {/* My RBAC Tab */}
             <TabsContent value="rbac" className="mt-0">
@@ -1117,13 +1211,65 @@ export function UserMenu({ compact = false }: { compact?: boolean } = {}) {
               </div>
             </TabsContent>
 
-            {/* Built With Tab */}
+          </Tabs>
+
+          <div className="p-4 border-t border-border bg-muted/20">
+            <p className="text-xs text-center text-muted-foreground">
+              Built with ❤️ by the{" "}
+              <a
+                href="https://caipe.io/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary hover:underline"
+              >
+                caipe.io
+              </a>{" "}
+              OSS community
+            </p>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* About Dialog — Built With + Changelog */}
+      <Dialog open={aboutOpen} onOpenChange={setAboutOpen}>
+        <DialogContent className="max-w-3xl max-h-[85vh] p-0">
+          <DialogHeader className="p-6 pb-4 border-b border-border">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-xl gradient-primary-br">
+                <Info className="h-5 w-5 text-white" />
+              </div>
+              <div>
+                <DialogTitle>About — {config.appName}</DialogTitle>
+                <DialogDescription>{config.tagline}</DialogDescription>
+              </div>
+            </div>
+          </DialogHeader>
+
+          <Tabs defaultValue="built-with" className="w-full">
+            <div className="px-6 pt-2 border-b border-border">
+              <TabsList className="bg-transparent h-auto p-0 gap-4">
+                <TabsTrigger
+                  value="built-with"
+                  className="px-1 pb-2 pt-1 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none text-xs font-medium"
+                >
+                  <Layers className="h-3.5 w-3.5 mr-1.5" />
+                  Built With
+                </TabsTrigger>
+                <TabsTrigger
+                  value="changelog"
+                  className="px-1 pb-2 pt-1 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none text-xs font-medium"
+                >
+                  <FileText className="h-3.5 w-3.5 mr-1.5" />
+                  Changelog
+                </TabsTrigger>
+              </TabsList>
+            </div>
+
             <TabsContent value="built-with" className="mt-0">
               <div className="p-6 overflow-y-auto max-h-[50vh]">
                 {(["platform", "protocol", "frontend", "backend", "community"] as const).map((category) => {
                   const items = techStack.filter(item => item.category === category);
                   if (items.length === 0) return null;
-
                   return (
                     <div key={category} className="mb-6 last:mb-0">
                       <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
@@ -1164,7 +1310,6 @@ export function UserMenu({ compact = false }: { compact?: boolean } = {}) {
               </div>
             </TabsContent>
 
-            {/* Changelog Tab */}
             <TabsContent value="changelog" className="mt-0">
               <div className="flex flex-col max-h-[60vh]">
                 {changelogLoading && (
@@ -1175,7 +1320,6 @@ export function UserMenu({ compact = false }: { compact?: boolean } = {}) {
                     </div>
                   </div>
                 )}
-
                 {changelogError && (
                   <div className="flex flex-col items-center gap-3 py-12 px-6">
                     <p className="text-sm text-muted-foreground">{changelogError}</p>
@@ -1187,16 +1331,13 @@ export function UserMenu({ compact = false }: { compact?: boolean } = {}) {
                     </button>
                   </div>
                 )}
-
                 {!changelogLoading && !changelogError && changelogReleases.length === 0 && (
                   <div className="flex items-center justify-center py-12 px-6">
                     <span className="text-xs text-muted-foreground">No releases found</span>
                   </div>
                 )}
-
                 {!changelogLoading && !changelogError && changelogReleases.length > 0 && (
                   <>
-                    {/* Sticky scope filter bar */}
                     <div className="px-6 pt-4 pb-3 border-b border-border bg-card sticky top-0 z-10 space-y-2.5">
                       <div className="flex items-center justify-between">
                         <p className="text-xs text-muted-foreground">
@@ -1212,9 +1353,7 @@ export function UserMenu({ compact = false }: { compact?: boolean } = {}) {
                               </button>
                             </>
                           ) : (
-                            <>
-                              {changelogReleases.length} stable release{changelogReleases.length !== 1 ? "s" : ""}
-                            </>
+                            <>{changelogReleases.length} stable release{changelogReleases.length !== 1 ? "s" : ""}</>
                           )}
                         </p>
                         <a
@@ -1284,14 +1423,11 @@ export function UserMenu({ compact = false }: { compact?: boolean } = {}) {
                         </div>
                       )}
                     </div>
-
-                    {/* Scrollable release list */}
                     <div className="p-6 overflow-y-auto flex-1 space-y-3">
                       {(() => {
                         const filtered = changelogReleases
                           .map((r) => filterReleaseByScope(r, changelogScopeFilter))
                           .filter((r): r is ChangelogRelease => r !== null);
-
                         if (filtered.length === 0) {
                           return (
                             <div className="flex flex-col items-center gap-2 py-12">
@@ -1307,7 +1443,6 @@ export function UserMenu({ compact = false }: { compact?: boolean } = {}) {
                             </div>
                           );
                         }
-
                         return filtered.map((release, idx) => (
                           <ChangelogSection
                             key={release.version}

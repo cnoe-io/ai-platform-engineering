@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 from typing import Annotated, Optional, List, Dict, Any
 
 from pydantic import Field
@@ -524,6 +525,61 @@ async def update_issue(
         return json.dumps(response, indent=2, ensure_ascii=False)
 
 
+async def assign_issue(
+    issue_key: Annotated[str, Field(description="Jira issue key (e.g., 'PROJ-123')")],
+    account_id: Annotated[
+        str,
+        Field(
+            description=(
+                "The accountId of the user to assign. "
+                "Pass null or empty string to unassign the issue."
+            )
+        ),
+    ] = "",
+) -> str:
+    """Assign a Jira issue to a user via the dedicated assignee endpoint.
+
+    Uses PUT /rest/api/3/issue/{key}/assignee, which only requires the
+    'Assign Issues' permission and bypasses screen field restrictions.
+    Prefer this over update_issue for assignee changes on JSM/FAST projects.
+
+    Args:
+        issue_key: The issue key to assign
+        account_id: The accountId of the assignee, or empty string to unassign
+
+    Returns:
+        JSON string indicating success or error details
+    """
+    if MCP_JIRA_READ_ONLY:
+        return json.dumps({
+            "success": False,
+            "error": "Jira MCP is in read-only mode. Write operations are disabled."
+        }, indent=2, ensure_ascii=False)
+
+    payload = {"accountId": account_id if account_id else None}
+
+    success, response = await make_api_request(
+        path=f"rest/api/3/issue/{issue_key}/assignee",
+        method="PUT",
+        data=payload,
+    )
+
+    if success:
+        # assisted-by Codex Codex-sonnet-4-6
+        base_url = os.getenv("ATLASSIAN_API_URL", "").rstrip("/")
+        result: Dict[str, Any] = {
+            "message": f"✅ Successfully assigned issue {issue_key}" if account_id
+                       else f"✅ Successfully unassigned issue {issue_key}",
+        }
+        if base_url:
+            result["browse_url"] = f"{base_url}/browse/{issue_key}"
+        logger.info(result["message"])
+        return json.dumps(result, indent=2, ensure_ascii=False)
+    else:
+        logger.error(f"❌ Failed to assign issue {issue_key}: {response}")
+        return json.dumps(response, indent=2, ensure_ascii=False)
+
+
 async def create_issue_link(
     link_type: Annotated[
         str,
@@ -777,5 +833,4 @@ async def delete_issue(
 
     logger.error(f"Failed to delete Jira issue {issue_key}: {error_details}")
     return {"error": error_details}
-
 
