@@ -49,10 +49,7 @@ from utils.slack_agent_routes import (  # noqa: E402
     slack_agent_route_mode,
     slack_workspace_ref,
 )
-from utils.slack_runtime_policy import (  # noqa: E402
-    should_post_route_miss_notice,
-    should_process_slack_payload,
-)
+from utils.slack_runtime_policy import should_post_route_miss_notice  # noqa: E402
 from utils.dispatch_identity import apply_execution_identity  # noqa: E402
 from utils.unlinked_fallback import apply_unlinked_fallback  # noqa: E402
 from utils.slack_admin_api import start_slack_admin_api_server  # noqa: E402
@@ -558,11 +555,6 @@ def _match_channel_agents(
   return config_matches
 
 
-def _slack_responses_suppressed() -> bool:
-  """Return whether setup mode should suppress user-visible Slack responses."""
-  return not should_process_slack_payload(silence_env=bool(getattr(config, "silence_env", False)))
-
-
 def _post_route_miss_notice(
   client,
   channel_id: str,
@@ -574,14 +566,7 @@ def _post_route_miss_notice(
   """Tell the sender why Slack routing did not dispatch an agent."""
   if not channel_id or not text:
     return
-  silence_env = bool(getattr(config, "silence_env", False))
-  if silence_env:
-    logger.info("Suppressing Slack route miss notice because setup silence mode is enabled")
-    return
-  if not should_post_route_miss_notice(
-    silence_env=silence_env,
-    explicit_invocation=explicit_invocation,
-  ):
+  if not should_post_route_miss_notice(explicit_invocation=explicit_invocation):
     logger.debug("Suppressing Slack route miss notice for ambient channel message")
     return
   try:
@@ -1020,9 +1005,6 @@ def rbac_global_middleware(body, context, next, logger):
             logger.debug("Ignoring duplicate event_id=%s", event_id)
             return _HANDLED_200
         _seen_events[event_id] = now
-    if _slack_responses_suppressed():
-        logger.info("Ignoring Slack payload while SLACK_INTEGRATION_SILENCE_ENV=true")
-        return _HANDLED_200
     """Enterprise RBAC enforcement checkpoint (098).
 
     When SLACK_RBAC_ENABLED=true:

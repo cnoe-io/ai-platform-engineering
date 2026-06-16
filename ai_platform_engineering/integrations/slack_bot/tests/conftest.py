@@ -21,4 +21,3 @@ C123:
         overthink:
           enabled: false
 """
-os.environ["SLACK_INTEGRATION_SILENCE_ENV"] = "false"
