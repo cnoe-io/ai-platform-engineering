@@ -26,14 +26,40 @@ jest.mock("@/lib/rbac/resource-catalog", () => ({
   listRebacCatalog: (...args: unknown[]) => mockListRebacCatalog(...args),
 }));
 
+const mockHasOrganizationAdmin = jest.fn();
+jest.mock("@/lib/rbac/platform-admin", () => ({
+  hasOrganizationAdmin: (...args: unknown[]) => mockHasOrganizationAdmin(...args),
+}));
+
+const mockGetCollection = jest.fn();
+jest.mock("@/lib/mongodb", () => ({
+  getCollection: (...args: unknown[]) => mockGetCollection(...args),
+  isMongoDBConfigured: true,
+}));
+
 import { GET } from "../grantable/route";
 
 const SESSION = { sub: "caller-sub", user: { email: "caller@example.com" } };
 
+function request(path: string): Request {
+  return new Request(`http://localhost:3000${path}`);
+}
+
+function collectionReturning(rows: unknown[]) {
+  return {
+    find: jest.fn().mockReturnValue({
+      sort: jest.fn().mockReturnValue({
+        toArray: jest.fn().mockResolvedValue(rows),
+      }),
+    }),
+  };
+}
+
 beforeEach(() => {
-  jest.clearAllMocks();
+  jest.resetAllMocks();
   mockGetServerSession.mockResolvedValue(SESSION);
   mockListRebacCatalog.mockResolvedValue({ resources: [] });
+  mockHasOrganizationAdmin.mockResolvedValue(false);
 });
 
 describe("GET /api/admin/service-accounts/grantable", () => {
@@ -99,5 +125,51 @@ describe("GET /api/admin/service-accounts/grantable", () => {
     mockListOpenFgaObjects.mockRejectedValue(new Error("openfga down"));
     const res = await GET();
     expect(res.status).toBe(503);
+  });
+
+  it("returns the full platform catalog for the unlinked context when caller is a platform admin", async () => {
+    mockHasOrganizationAdmin.mockResolvedValue(true);
+    mockGetCollection.mockImplementation((name: string) => {
+      if (name === "dynamic_agents") {
+        return Promise.resolve(
+          collectionReturning([
+            { _id: "incident-resolver", name: "Incident Resolver", description: "" },
+            { _id: "runbook-agent", name: "Runbook Agent", description: "" },
+          ]),
+        );
+      }
+      if (name === "mcp_servers") {
+        return Promise.resolve(
+          collectionReturning([
+            { _id: "jira", name: "Jira", description: "" },
+            { _id: "github", name: "GitHub", description: "" },
+          ]),
+        );
+      }
+      throw new Error(`unexpected collection ${name}`);
+    });
+
+    const res = await GET(request("/api/admin/service-accounts/grantable?context=unlinked"));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+
+    expect(mockListOpenFgaObjects).not.toHaveBeenCalled();
+    expect(body.data.agents).toEqual([
+      { ref: "incident-resolver", name: "Incident Resolver" },
+      { ref: "runbook-agent", name: "Runbook Agent" },
+    ]);
+    expect(body.data.tools).toEqual([
+      { ref: "github/*", name: "github: all tools" },
+      { ref: "jira/*", name: "jira: all tools" },
+    ]);
+  });
+
+  it("403s the unlinked full-catalog context when the caller is not a platform admin", async () => {
+    mockHasOrganizationAdmin.mockResolvedValue(false);
+
+    const res = await GET(request("/api/admin/service-accounts/grantable?context=unlinked"));
+    expect(res.status).toBe(403);
+    expect(mockGetCollection).not.toHaveBeenCalled();
+    expect(mockListOpenFgaObjects).not.toHaveBeenCalled();
   });
 });
