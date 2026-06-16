@@ -1,6 +1,6 @@
 apiVersion: v2
 name: webex-bot
 description: Webex bot integration for AI Platform Engineering using A2A protocol
-version: 0.6.0-rc.16-chart.1
-appVersion: 0.6.0-rc.16
+version: 0.6.0-rc.18
+appVersion: 0.6.0-rc.18
 type: application
