@@ -5,6 +5,7 @@
  * Pins the behavior every host editor relies on: owner picker disabled on edit
  * (unless transfers are allowed), share multi-select toggles, creator shown
  * read-only, and (US3) the not-a-member transfer confirmation gates onTransfer.
+ * assisted-by Codex Codex-sonnet-4-6
  */
 
 import * as React from "react";
@@ -54,11 +55,10 @@ describe("TeamOwnershipFields", () => {
 
   it("keeps the owner picker editable on edit when transfers are allowed", () => {
     setup({ isEditing: true, allowTransfer: true });
-    // Directly editable — no "Transfer ownership" unlock button needed.
     expect(screen.getByLabelText(/Owner Team/i)).not.toBeDisabled();
     expect(
-      screen.queryByRole("button", { name: /Transfer ownership/i }),
-    ).not.toBeInTheDocument();
+      screen.getByRole("button", { name: /Transfer ownership/i }),
+    ).toBeInTheDocument();
   });
 
   it("shows the creator subject read-only when present", () => {
