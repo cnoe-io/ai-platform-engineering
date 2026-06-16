@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import contextvars
 import json
 
 from ai_platform_engineering.agents.github.agent_github import tools
@@ -108,6 +109,46 @@ def test_get_file_contents_targets_configured_github_enterprise_host(monkeypatch
     )
     assert captured["env"]["GH_HOST"] == "github.example.com"
     assert captured["env"]["GH_ENTERPRISE_TOKEN"] == "enterprise-token"
+
+
+def test_get_file_contents_falls_back_from_main_to_default_branch(monkeypatch):
+    calls = []
+    content = "default branch content\n"
+
+    async def fake_create_subprocess_exec(*args, **kwargs):
+        calls.append((args, kwargs["env"]))
+        endpoint = args[2]
+        if endpoint == "repos/cnoe-io/repo/contents/README.md?ref=main":
+            return _FakeProcess(b"", b"Not Found", returncode=1)
+        if endpoint == "repos/cnoe-io/repo":
+            return _FakeProcess(json.dumps({"default_branch": "trunk"}).encode())
+        if endpoint == "repos/cnoe-io/repo/contents/README.md?ref=trunk":
+            payload = {
+                "type": "file",
+                "encoding": "base64",
+                "content": base64.b64encode(content.encode()).decode(),
+            }
+            return _FakeProcess(json.dumps(payload).encode())
+        raise AssertionError(f"unexpected endpoint: {endpoint}")
+
+    monkeypatch.setattr(tools, "get_github_token", lambda: "token-value-1234567890")
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
+
+    result = asyncio.run(
+        GHGetFileContentsTool()._arun(
+            owner="cnoe-io",
+            repo="repo",
+            path="README.md",
+            ref="main",
+        )
+    )
+
+    assert result == content
+    assert [call[0][2] for call in calls] == [
+        "repos/cnoe-io/repo/contents/README.md?ref=main",
+        "repos/cnoe-io/repo",
+        "repos/cnoe-io/repo/contents/README.md?ref=trunk",
+    ]
 
 
 def test_get_file_contents_returns_directory_response(monkeypatch):
@@ -345,6 +386,22 @@ def test_gh_cli_blocks_high_risk_writes_even_in_self_service_mode():
         tools.set_self_service_mode(False)
 
 
+def test_self_service_mode_does_not_leak_to_fresh_context():
+    tool = GHCLITool()
+
+    tools.set_self_service_mode(True)
+    try:
+        is_valid, error = contextvars.Context().run(
+            tool._validate_command,
+            "pr merge 12 --squash --repo cnoe-io/repo",
+        )
+    finally:
+        tools.set_self_service_mode(False)
+
+    assert is_valid is False
+    assert "self-service" in error
+
+
 def test_gh_cli_self_service_allows_previous_github_workflow_writes():
     tool = GHCLITool()
 
@@ -448,6 +505,51 @@ def test_gh_cli_blocks_pr_review_and_branch_updates_outside_self_service():
     ]:
         is_valid, error = tool._validate_command(command)
         assert is_valid is False
+        assert "self-service" in error
+
+
+def test_gh_cli_write_gate_uses_parsed_tokens():
+    tool = GHCLITool()
+
+    for command in [
+        'pr "review" 12 --approve --repo cnoe-io/repo',
+        'repo "delete" cnoe-io/repo --yes',
+    ]:
+        is_valid, error = tool._validate_command(command)
+        assert is_valid is False, command
+        assert "self-service" in error
+
+
+def test_gh_cli_blocks_extension_and_alias_execution_paths():
+    tool = GHCLITool()
+
+    for command in [
+        "extension install owner/gh-danger",
+        "extension exec danger --help",
+        "alias set danger '!rm -rf /tmp/example'",
+        "danger --help",
+    ]:
+        is_valid, error = tool._validate_command(command)
+        assert is_valid is False, command
+        assert "Blocked" in error
+
+
+def test_gh_cli_classifies_additional_mutating_subcommands_as_writes():
+    tool = GHCLITool()
+
+    for command in [
+        "release delete-asset v1 asset.zip --repo cnoe-io/repo --yes",
+        "discussion create --repo cnoe-io/repo --title t --body b",
+        "discussion comment 1 --repo cnoe-io/repo --body b",
+        "project close 1 --owner cnoe-io",
+        "project copy 1 --owner cnoe-io --title copy",
+        "project link 1 --owner cnoe-io --repo cnoe-io/repo",
+        "project mark-template 1 --owner cnoe-io",
+        "project unlink 1 --owner cnoe-io --repo cnoe-io/repo",
+        "cs ssh -c codespace-name -- whoami",
+    ]:
+        is_valid, error = tool._validate_command(command)
+        assert is_valid is False, command
         assert "self-service" in error
 
 

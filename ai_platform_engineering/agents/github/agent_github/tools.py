@@ -37,19 +37,13 @@ _thread_local = threading.local()
 
 
 def set_self_service_mode(value: bool) -> None:
-    """Set self-service mode flag for current thread/context."""
+    """Set self-service mode flag for the current request context."""
     self_service_mode_ctx.set(value)
-    _thread_local.self_service_mode = value
 
 
 def is_self_service_mode() -> bool:
     """Check if we're running in self-service mode."""
-    try:
-        if self_service_mode_ctx.get():
-            return True
-    except LookupError:
-        pass
-    return getattr(_thread_local, 'self_service_mode', False)
+    return self_service_mode_ctx.get()
 
 
 # ---------------------------------------------------------------------------
@@ -83,7 +77,44 @@ ABSOLUTELY_BLOCKED_COMMAND_PATTERNS = [
     # SECURITY: block commands that expose or persist credentials
     r"(^|\s)auth\s+token(\s|$)",       # gh auth token prints raw token to stdout
     r"(^|\s)auth\s+setup-git(\s|$)",   # gh auth setup-git modifies git credential config
+    # SECURITY: extensions and aliases can execute arbitrary local code under the
+    # configured GitHub token. Alias invocation is also blocked by the known
+    # top-level command allowlist below.
+    r"(^|\s)extension\s+(create|exec|install|remove|upgrade)(\s|$)",
+    r"(^|\s)alias\s+(delete|import|set)(\s|$)",
 ]
+
+KNOWN_GH_TOP_LEVEL_COMMANDS = {
+    "alias",
+    "api",
+    "attestation",
+    "auth",
+    "browse",
+    "cache",
+    "codespace",
+    "completion",
+    "config",
+    "cs",
+    "discussion",
+    "extension",
+    "gist",
+    "gpg-key",
+    "help",
+    "issue",
+    "label",
+    "pr",
+    "project",
+    "release",
+    "repo",
+    "ruleset",
+    "run",
+    "search",
+    "secret",
+    "ssh-key",
+    "status",
+    "variable",
+    "workflow",
+}
 
 # GitHub write commands are allowed only for deterministic self-service tasks or
 # when a caller explicitly constructs GHCLITool(allow_write_operations=True).
@@ -103,13 +134,15 @@ WRITE_COMMAND_PATTERNS = [
     r"(^|\s)attestation\s+trusted-root(\s|$)",
     r"(^|\s)cache\s+delete(\s|$)",
     r"(^|\s)codespace\s+(create|delete|edit|jupyter|logs|ports|rebuild|ssh|stop)(\s|$)",
+    r"(^|\s)cs\s+(code|cp|create|delete|edit|jupyter|logs|ports|rebuild|ssh|stop)(\s|$)",
+    r"(^|\s)discussion\s+(answer|close|comment|create|delete|edit|lock|pin|reopen|transfer|unlock|unpin)(\s|$)",
     r"(^|\s)gist\s+(create|delete|edit|rename)(\s|$)",
     r"(^|\s)gpg-key\s+(add|delete)(\s|$)",
     r"(^|\s)issue\s+(close|comment|create|delete|develop|edit|lock|pin|reopen|transfer|unlock|unpin)(\s|$)",
     r"(^|\s)label\s+(clone|create|delete|edit)(\s|$)",
     r"(^|\s)pr\s+(checkout|close|comment|create|edit|lock|merge|ready|reopen|revert|review|unlock|update-branch)(\s|$)",
-    r"(^|\s)project\s+.*(create|delete|edit|item-add|item-archive|item-create|item-delete|item-edit)(\s|$)",
-    r"(^|\s)release\s+(create|delete|edit|upload)(\s|$)",
+    r"(^|\s)project\s+.*(close|copy|create|delete|edit|item-add|item-archive|item-create|item-delete|item-edit|link|mark-template|unlink)(\s|$)",
+    r"(^|\s)release\s+(create|delete|delete-asset|edit|upload)(\s|$)",
     r"(^|\s)repo\s+(archive|create|delete|deploy-key|edit|fork|rename|sync|unarchive)(\s|$)",
     r"(^|\s)ruleset\s+(check|create|delete|edit)(\s|$)",
     r"(^|\s)secret\s+(delete|set)(\s|$)",
@@ -262,6 +295,10 @@ class GHCLITool(BaseTool):
         return any(re.search(pattern, command_lower) for pattern in patterns)
 
     @staticmethod
+    def _normalized_command_from_parts(parts: list[str]) -> str:
+        return " ".join(part.lower() for part in parts)
+
+    @staticmethod
     def _gh_api_uses_implicit_write(parts: list[str]) -> bool:
         if not parts or parts[0] != "api":
             return False
@@ -406,16 +443,22 @@ class GHCLITool(BaseTool):
         if not command_stripped:
             return False, "Command cannot be empty"
 
-        command_lower = command_stripped.lower()
-
         try:
             command_parts = shlex.split(command_stripped)
         except ValueError as exc:
             return False, f"Invalid gh CLI command syntax: {exc}"
 
+        command_lower = self._normalized_command_from_parts(command_parts)
+
+        if command_parts[0].lower() not in KNOWN_GH_TOP_LEVEL_COMMANDS:
+            return False, (
+                "Blocked: unknown gh top-level commands, extensions, and aliases "
+                "are not allowed through this wrapper."
+            )
+
         for pattern in ABSOLUTELY_BLOCKED_COMMAND_PATTERNS:
             if re.search(pattern, command_lower):
-                return False, f"Blocked: Command contains unsafe credential operation '{pattern}'"
+                return False, f"Blocked: Command contains unsafe gh operation '{pattern}'"
 
         writes_allowed = self.allow_write_operations or is_self_service_mode()
         is_trusted_write = self.allow_trusted_write_operations and self._command_matches(
@@ -576,6 +619,37 @@ class GHGetFileContentsTool(BaseTool):
             endpoint = f"{endpoint}?ref={quote(clean_ref, safe='')}"
         return endpoint
 
+    def _is_main_ref(self, ref: Optional[str]) -> bool:
+        if not ref:
+            return False
+        return ref.strip() in {"main", "refs/heads/main"}
+
+    async def _get_default_branch(
+        self,
+        owner: str,
+        repo: str,
+        github_token: str,
+    ) -> Optional[str]:
+        command_parts = ["gh", "api", f"repos/{owner}/{repo}", "--method", "GET"]
+        returncode, stdout, stderr_text = await self._execute_gh_api(command_parts, github_token)
+        if returncode != 0:
+            logger.warning(
+                "gh repository metadata fetch failed while resolving default branch "
+                "(exit %s): %s",
+                returncode,
+                stderr_text or stdout.decode("utf-8", errors="replace") or "Unknown error",
+            )
+            return None
+
+        try:
+            payload = json.loads(stdout.decode("utf-8", errors="replace") if stdout else "")
+        except json.JSONDecodeError as exc:
+            logger.warning("GitHub API returned invalid repo metadata JSON: %s", exc)
+            return None
+
+        default_branch = payload.get("default_branch") if isinstance(payload, dict) else None
+        return default_branch.strip() if isinstance(default_branch, str) and default_branch.strip() else None
+
     async def _execute_gh_api(
         self,
         command_parts: list[str],
@@ -722,6 +796,32 @@ class GHGetFileContentsTool(BaseTool):
         async with _gh_cli_semaphore:
             try:
                 returncode, stdout, stderr_text = await self._execute_gh_api(command_parts, github_token)
+                if returncode != 0 and not sha and self._is_main_ref(ref):
+                    default_branch = await self._get_default_branch(
+                        owner.strip(),
+                        repo.strip(),
+                        github_token,
+                    )
+                    if default_branch and default_branch != "main":
+                        endpoint = self._build_endpoint(
+                            owner.strip(),
+                            repo.strip(),
+                            clean_path,
+                            default_branch,
+                            None,
+                        )
+                        command_parts = ["gh", "api", endpoint, "--method", "GET"]
+                        full_command = " ".join(shlex.quote(part) for part in command_parts)
+                        logger.info(
+                            "Retrying gh file fetch with repository default branch %s: %s",
+                            default_branch,
+                            full_command,
+                        )
+                        returncode, stdout, stderr_text = await self._execute_gh_api(
+                            command_parts,
+                            github_token,
+                        )
+
                 stdout_text = stdout.decode("utf-8", errors="replace") if stdout else ""
 
                 if returncode != 0:
