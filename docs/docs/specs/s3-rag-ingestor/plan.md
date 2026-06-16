@@ -1,6 +1,6 @@
 # S3 RAG Ingestor Plan
 
-**Branch**: `prebuild/feat/s3-rag-ingestor` | **Date**: 2026-06-12  
+**Branch**: `prebuild/feat/s3-rag-ingestor` | **Date**: 2026-06-12
 **Worktree**: `/Users/daboucha/ciscocodebase/opensource/caipe-s3-rag-ingestor`
 
 ## Summary

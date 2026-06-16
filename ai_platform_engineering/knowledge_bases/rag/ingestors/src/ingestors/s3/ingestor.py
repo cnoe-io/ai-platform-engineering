@@ -652,4 +652,3 @@ if __name__ == "__main__":
     except Exception as exc:
         logger.error(f"S3 ingestor failed: {exc}", exc_info=True)
         raise
- 
