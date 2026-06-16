@@ -19,7 +19,7 @@ COPY common /app/common
 RUN rm -rf /app/common/.venv
 
 WORKDIR /app/ingestors
-# COPY (not bind-mount) keeps dependency layers cached and works with Podman builds.
+# COPY keeps dependency layers cached and independent of host mount behavior.
 COPY ingestors/pyproject.toml ingestors/uv.lock ./
 # Install dependencies based on variant
 # Default includes Playwright for JS rendering; slim variant excludes it for smaller image

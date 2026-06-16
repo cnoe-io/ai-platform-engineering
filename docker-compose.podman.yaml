@@ -1,7 +1,0 @@
-# Podman on macOS cannot resolve Docker's host-gateway magic value.
-# Compose merges list fields (extra_hosts is appended, not replaced), so use !reset.
-# Gateway IP from: podman run --rm alpine ip route show default  → 10.88.0.1
-services:
-  rag-server:
-    extra_hosts: !reset
-      - "localhost:10.88.0.1"

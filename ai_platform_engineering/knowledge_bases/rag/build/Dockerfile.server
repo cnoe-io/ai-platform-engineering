@@ -18,7 +18,7 @@ ARG VARIANT=default
 COPY common /app/common
 
 WORKDIR /app/server
-# COPY (not bind-mount) keeps dependency layers cached and works with Podman builds.
+# COPY keeps dependency layers cached and independent of host mount behavior.
 COPY server/pyproject.toml server/uv.lock ./
 # Increase timeout for large packages (e.g., pyarrow 39MB)
 # Install dependencies - conditionally include huggingface extra

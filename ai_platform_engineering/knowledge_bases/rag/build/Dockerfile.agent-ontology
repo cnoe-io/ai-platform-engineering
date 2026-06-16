@@ -13,7 +13,7 @@ ENV UV_PYTHON_DOWNLOADS=0
 COPY common /app/common
 
 WORKDIR /app/agent_ontology
-# COPY (not bind-mount) keeps dependency layers cached and works with Podman builds.
+# COPY keeps dependency layers cached and independent of host mount behavior.
 COPY agent_ontology/pyproject.toml agent_ontology/uv.lock ./
 # Increase timeout for large packages (e.g., pyarrow 39MB)
 RUN --mount=type=cache,target=/root/.cache/uv \

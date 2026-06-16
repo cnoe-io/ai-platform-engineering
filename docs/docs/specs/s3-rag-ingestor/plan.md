@@ -5,7 +5,7 @@
 
 ## Summary
 
-Add an S3 document ingestor that lists objects from configured S3 buckets, filters by allowlisted file patterns, and ingests UTF-8 text documents into the RAG server (Milvus + Redis metadata). Production auth uses IRSA on Kubernetes; local development uses IAM user/profile credentials and Podman Compose.
+Add an S3 document ingestor that lists objects from configured S3 buckets, filters by allowlisted file patterns, and ingests UTF-8 text documents into the RAG server (Milvus + Redis metadata). Production auth uses IRSA on Kubernetes; local development uses IAM user/profile credentials and Docker Compose.
 
 The ingestor follows the same `IngestorBuilder` / `Client` pattern as GitHub, Confluence, and Slack ingestors.
 
@@ -35,13 +35,12 @@ sequenceDiagram
 - [x] `S3_BUCKETS` accepts **bucket ARNs** (`arn:aws:s3:::bucket-name`), optional `account:arn` for cross-account
 - [x] `S3_ALLOWED_FILES_AND_EXTENSIONS` — glob + regex patterns (replaces extension-only allowlist)
 - [x] Unit tests: `ingestors/tests/s3/test_ingestor.py` (**40 tests**, all passing)
-- [x] Podman build fix: replace BuildKit bind-mounts with `COPY` in RAG Dockerfiles (`Dockerfile.server`, `Dockerfile.ingestors`, `Dockerfile.agent-ontology`)
-- [x] Podman compose overlay: `docker-compose.podman.yaml` (`extra_hosts: !reset` with gateway `10.88.0.1`)
-- [x] Local RAG stack validated with Podman Compose (`--profile rag`) + Azure OpenAI embeddings
+- [x] Docker build dependency layers use `COPY` for package manifests (`Dockerfile.server`, `Dockerfile.ingestors`, `Dockerfile.agent-ontology`)
+- [x] Local RAG stack validated with Docker Compose (`--profile rag`) + Azure OpenAI embeddings
 
 ### Remaining
 
-- [ ] `s3_ingestor` service in `docker-compose.dev.yaml` (or overlay)
+- [x] `s3_ingestor` service in `docker-compose.dev.yaml` and `docker-compose.yaml`
 - [ ] `S3_ENDPOINT_URL` support in `create_s3_client()` for LocalStack
 - [ ] LocalStack + seed container for offline S3 emulation
 - [ ] Helm / K8s chart wiring (`rag-ingestors`) with IRSA (not long-lived IAM keys)
@@ -102,13 +101,13 @@ uv run pytest tests/s3/test_ingestor.py -v
 
 ---
 
-### Phase 1 — RAG stack locally (Podman)
+### Phase 1 — RAG stack locally (Docker)
 
 **Purpose**: Prove RAG server, Milvus, Redis, and embeddings work before adding S3.
 
 **Prerequisites**
 
-- Podman machine running (increase memory to ≥4 GiB recommended for builds)
+- Docker engine running (increase memory to ≥4 GiB recommended for builds)
 - `touch .env` at repo root
 - Azure OpenAI (or other embedding provider) configured
 
@@ -129,17 +128,14 @@ EMBEDDINGS_MODEL=text-embedding-3-large
 ```bash
 cd /Users/daboucha/ciscocodebase/opensource/caipe-s3-rag-ingestor
 
-podman compose \
+docker compose \
   -f docker-compose.dev.yaml \
-  -f docker-compose.podman.yaml \
   --profile rag up -d
 ```
 
-**Podman notes**
+**Build notes**
 
-- Bind-mount fix: RAG Dockerfiles use `COPY` for `pyproject.toml` / `uv.lock` (bind-mounts fail on Podman with permission denied)
-- `docker-compose.podman.yaml` replaces `localhost:host-gateway` with `localhost:10.88.0.1` using `!reset` (empty `extra_hosts: []` does not override — Compose merges lists)
-- Gateway IP: `podman run --rm alpine ip route show default` → typically `10.88.0.1`
+- RAG Dockerfiles use `COPY` for `pyproject.toml` / `uv.lock` so dependency layers are cacheable and independent of host mount behavior.
 
 **Verify**
 
@@ -172,9 +168,8 @@ IAM needs: `s3:ListBucket`, `s3:GetObject` on the bucket/prefix.
 #### Step 2 — Start Keycloak (token issuance only)
 
 ```bash
-podman compose \
+docker compose \
   -f docker-compose.dev.yaml \
-  -f docker-compose.podman.yaml \
   --profile rbac up -d keycloak-postgres keycloak
 ```
 
@@ -199,9 +194,9 @@ LOG_LEVEL=INFO
 
 AWS creds via mounted `~/.aws` (same pattern as `aws_ingestor`).
 
-#### Step 4 — Add and run `s3_ingestor` compose service
+#### Step 4 — Run `s3_ingestor` compose service
 
-Add service (not yet in tree) mirroring `github_ingestor`:
+The compose service mirrors the other RAG ingestors:
 
 - `INGESTOR_TYPE=s3`
 - Build: `Dockerfile.ingestors`
@@ -211,9 +206,8 @@ Add service (not yet in tree) mirroring `github_ingestor`:
 - `restart: "no"` when using `EXIT_AFTER_FIRST_SYNC=true`
 
 ```bash
-podman compose \
+docker compose \
   -f docker-compose.dev.yaml \
-  -f docker-compose.podman.yaml \
   --profile rag \
   --profile rbac \
   --profile s3-ingestor \
@@ -331,8 +325,7 @@ curl -s -X POST http://localhost:9446/v1/query \
 
 | Symptom | Likely cause |
 |---------|----------------|
-| `Permission denied` on `pyproject.toml` during build | Podman + BuildKit bind-mounts — use updated Dockerfiles with `COPY` |
-| `host-gateway` / empty internal IP | Use `docker-compose.podman.yaml` with `!reset` and `10.88.0.1` |
+| `Permission denied` on `pyproject.toml` during build | Use the updated Dockerfiles with `COPY` for dependency manifests |
 | `OAuth2 client credentials are required` | Missing `INGESTOR_OIDC_*` in `.env` |
 | Token fetch fails | Keycloak not running; use `keycloak:7080` not `localhost:7080` from containers |
 | S3 `AccessDenied` | IAM lacks List/Get; wrong profile |
@@ -359,7 +352,7 @@ curl -s -X POST http://localhost:9446/v1/query \
 | `ingestors/tests/s3/test_ingestor.py` | Unit tests |
 | `ingestors/src/common/ingestor.py` | Shared RAG client + OIDC |
 | `docker-compose.dev.yaml` | RAG + ingestor services |
-| `docker-compose.podman.yaml` | Podman-specific overrides |
+| `docker-compose.yaml` | Published-image compose service |
 | `build/Dockerfile.ingestors` | Ingestor container image |
 | `charts/rag-stack/charts/rag-ingestors/` | K8s deployment (S3 TBD) |
 
@@ -369,10 +362,9 @@ curl -s -X POST http://localhost:9446/v1/query \
 
 - [x] Implement S3 ingestor core + unit tests
 - [x] Bucket ARN config + file pattern allowlist
-- [x] Podman-compatible Docker builds
-- [x] Podman compose overlay for `extra_hosts`
+- [x] Docker build dependency layer cleanup
 - [x] Local RAG stack smoke test
-- [ ] Add `s3_ingestor` compose service + profile
+- [x] Add `s3_ingestor` compose service + profile
 - [ ] Document S3 ingestor in ingestors README
 - [ ] Phase 2 E2E: real bucket + Keycloak + verify search
 - [ ] `S3_ENDPOINT_URL` + LocalStack compose stack
