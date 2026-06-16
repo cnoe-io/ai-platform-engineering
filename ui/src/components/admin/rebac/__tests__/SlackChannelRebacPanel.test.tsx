@@ -532,7 +532,7 @@ it("edits and deletes Slack channel-agent associations with metadata warning", a
   fireEvent.click(deleteButton);
   expect(confirmSpy).not.toHaveBeenCalled();
   expect(await screen.findByRole("dialog", { name: "Remove agent from channel?" })).toBeInTheDocument();
-  expect(screen.getByText(/saved Mongo route metadata/i)).toBeInTheDocument();
+  expect(screen.getByText(/removes agent:incident-agent from the selected Slack channel/i)).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Remove agent" }));
 
   await waitFor(() =>
