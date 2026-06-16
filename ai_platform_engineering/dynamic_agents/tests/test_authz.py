@@ -128,8 +128,8 @@ async def test_denies_when_cas_denies(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_fails_closed_on_non_200(monkeypatch):
-    """Any non-200 from CAS (e.g. 503) denies via 503 — fail closed."""
+async def test_fails_closed_on_5xx(monkeypatch):
+    """A transient 5xx from CAS denies via 503/retry — fail closed."""
     from dynamic_agents.auth import authz
 
     monkeypatch.setenv("AUTHZ_SERVICE_URL", "http://cas")
@@ -144,6 +144,27 @@ async def test_fails_closed_on_non_200(monkeypatch):
 
     assert exc.value.status_code == 503
     assert exc.value.detail["reason"] == "pdp_unavailable"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cas_status", [400, 401, 403])
+async def test_cas_4xx_surfaces_as_same_status_not_503(monkeypatch, cas_status):
+    """A definitive 4xx from CAS (e.g. 403 subject-binding) is not transient, so
+    it surfaces as the same status with a non-retriable reason — not 503/retry."""
+    from dynamic_agents.auth import authz
+
+    monkeypatch.setenv("AUTHZ_SERVICE_URL", "http://cas")
+    monkeypatch.setattr(authz.httpx, "AsyncClient", _client([], _Resp(cas_status)))
+
+    token_ref = current_user_token.set(_fake_jwt({"sub": "alice-sub"}))
+    try:
+        with pytest.raises(HTTPException) as exc:
+            await authz.require_agent_use_permission("agent-1")
+    finally:
+        current_user_token.reset(token_ref)
+
+    assert exc.value.status_code == cas_status
+    assert exc.value.detail["reason"] == "pdp_rejected"
 
 
 @pytest.mark.asyncio
