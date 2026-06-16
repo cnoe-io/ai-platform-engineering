@@ -49,9 +49,16 @@ def _is_valid_id(value: str | None) -> bool:
     return bool(value and _ID_PATTERN.fullmatch(value))
 
 
-def _subject_from_token(token: str) -> str | None:
-    """Read `sub` from an already-validated bearer. The JWT signature is verified
-    upstream (gateway / middleware); here we only decode the claim."""
+def _subject_from_token(token: str) -> tuple[str, str] | None:
+    """Read `(subject_type, sub)` from an already-validated bearer. The JWT
+    signature is verified upstream (gateway / middleware); here we only decode the
+    claims.
+
+    A token is a service account iff its `preferred_username` starts with
+    `service-account-`. This MUST match the BFF (`jwt-validation.ts`), the bridge,
+    and `openfga_authz.py` so the subject is namespaced consistently — CAS's
+    subject-binding compares this against its own caller resolution, so sending
+    `user` for a service-account token fails the bind and 403s."""
     parts = token.split(".")
     if len(parts) < 2:
         return None
@@ -61,8 +68,14 @@ def _subject_from_token(token: str) -> str | None:
         body = json.loads(base64.urlsafe_b64decode(f"{payload}{padding}").decode("utf-8"))
     except (ValueError, json.JSONDecodeError):
         return None
-    sub = body.get("sub") if isinstance(body, dict) else None
-    return sub if isinstance(sub, str) and sub.strip() else None
+    if not isinstance(body, dict):
+        return None
+    sub = body.get("sub")
+    if not (isinstance(sub, str) and sub.strip()):
+        return None
+    preferred = body.get("preferred_username")
+    is_sa = isinstance(preferred, str) and preferred.startswith("service-account-")
+    return ("service_account" if is_sa else "user", sub)
 
 
 def _authz_service_url() -> str | None:
@@ -71,7 +84,7 @@ def _authz_service_url() -> str | None:
     return url or None
 
 
-async def _decide_agent_use(subject: str, agent_id: str, bearer: str) -> bool:
+async def _decide_agent_use(subject_type: str, subject: str, agent_id: str, bearer: str) -> bool:
     """Ask CAS whether `subject` may use `agent_id`.
 
     Forwards the caller's bearer (OBO) so CAS's subject-binding (caller == subject)
@@ -86,7 +99,7 @@ async def _decide_agent_use(subject: str, agent_id: str, bearer: str) -> bool:
     if traceparent:
         headers["traceparent"] = traceparent
     body = {
-        "subject": {"type": "user", "id": subject},
+        "subject": {"type": subject_type, "id": subject},
         "resource": {"type": "agent", "id": agent_id},
         "action": "use",
     }
@@ -109,12 +122,13 @@ async def require_agent_use_permission(agent_id: str) -> None:
     if not token:
         _raise_authz(401, "Bearer token is required", "missing_bearer", "not_signed_in", "sign_in")
 
-    subject = _subject_from_token(token)
-    if not _is_valid_id(subject):
+    decoded = _subject_from_token(token)
+    if not decoded or not _is_valid_id(decoded[1]):
         _raise_authz(401, "Bearer token subject could not be verified", "bearer_invalid", "bearer_invalid", "sign_in")
+    subject_type, subject = decoded
 
     try:
-        allowed = await _decide_agent_use(subject, agent_id, token)
+        allowed = await _decide_agent_use(subject_type, subject, agent_id, token)
     except Exception as exc:  # noqa: BLE001 — any failure to get a decision fails closed
         logger.warning("CAS agent-use decision unavailable for agent=%s: %s", agent_id, exc)
         _raise_authz(

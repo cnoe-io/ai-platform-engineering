@@ -70,6 +70,29 @@ async def test_allows_when_cas_allows(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_service_account_token_sends_service_account_subject(monkeypatch):
+    """A service-account OBO token (preferred_username starting with
+    `service-account-`) must be sent to CAS as a `service_account` subject so its
+    subject-binding (caller == subject) holds; sending `user` 403s the call."""
+    from dynamic_agents.auth import authz
+
+    monkeypatch.setenv("AUTHZ_SERVICE_URL", "http://caipe-ui:3000")
+    posts: list = []
+    monkeypatch.setattr(authz.httpx, "AsyncClient", _client(posts, _Resp(200, {"decision": "ALLOW"})))
+
+    token = _fake_jwt({"sub": "sa-sub", "preferred_username": "service-account-caipe-sa-gitlab"})
+    token_ref = current_user_token.set(token)
+    try:
+        await authz.require_agent_use_permission("agent-1")
+    finally:
+        current_user_token.reset(token_ref)
+
+    assert posts
+    _url, _headers, body = posts[-1]
+    assert body["subject"] == {"type": "service_account", "id": "sa-sub"}
+
+
+@pytest.mark.asyncio
 async def test_strips_trailing_slash_from_service_url(monkeypatch):
     from dynamic_agents.auth import authz
 
