@@ -48,18 +48,18 @@
  * assisted-by Cursor Composer-Sonnet-4.7
  */
 
-import { NextRequest, NextResponse } from "next/server";
 import {
-  getAuthFromBearerOrSession,
-  withErrorHandler,
-  successResponse,
-  requireRbacPermission,
-  ApiError,
+ApiError,
+getAuthFromBearerOrSession,
+requireRbacPermission,
+successResponse,
+withErrorHandler,
 } from "@/lib/api-middleware";
-import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
-import { recordScanOverrideEvent } from "@/lib/skill-scan-override-history";
-import type { AgentSkill, ScanOverride } from "@/types/agent-skill";
+import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
 import { requireResourcePermission } from "@/lib/rbac/resource-authz";
+import { recordScanOverrideEvent } from "@/lib/skill-scan-override-history";
+import type { AgentSkill,ScanOverride } from "@/types/agent-skill";
+import { NextRequest,NextResponse } from "next/server";
 
 const SUPERVISOR_URL = process.env.NEXT_PUBLIC_A2A_BASE_URL || "";
 

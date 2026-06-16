@@ -1,18 +1,16 @@
 "use client";
 
-import React, { useState } from "react";
-import {
-  Loader2,
-  WifiOff,
-  RefreshCw,
-  Database,
-} from "lucide-react";
+import { AuthGuard } from "@/components/auth-guard";
+import { KnowledgeSidebar } from "@/components/rag/KnowledgeSidebar";
 import { Button } from "@/components/ui/button";
 import { CAIPESpinner } from "@/components/ui/caipe-spinner";
-import { config } from "@/lib/config";
 import { useRAGHealth } from "@/hooks/use-rag-health";
-import { KnowledgeSidebar } from "@/components/rag/KnowledgeSidebar";
-import { AuthGuard } from "@/components/auth-guard";
+import { config } from "@/lib/config";
+import {
+RefreshCw,
+WifiOff
+} from "lucide-react";
+import React,{ useState } from "react";
 
 function KnowledgeBasesLayoutContent({
   children,

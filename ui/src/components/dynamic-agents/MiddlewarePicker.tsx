@@ -1,30 +1,30 @@
 "use client";
 
-import React from "react";
-import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
-  ChevronDown,
-  ChevronRight,
-  Plus,
-  Trash2,
-  GripVertical,
-  Info,
-  Loader2,
-} from "lucide-react";
-import { cn } from "@/lib/utils";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
+Tooltip,
+TooltipContent,
+TooltipProvider,
+TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 import type {
-  MiddlewareEntry,
-  FeaturesConfig,
-  MiddlewareDefinition,
+FeaturesConfig,
+MiddlewareDefinition,
+MiddlewareEntry,
 } from "@/types/dynamic-agent";
+import {
+ChevronDown,
+ChevronRight,
+GripVertical,
+Info,
+Loader2,
+Plus,
+Trash2,
+} from "lucide-react";
+import React from "react";
 
 // ---------------------------------------------------------------------------
 // Props

@@ -1,13 +1,12 @@
 "use client";
 
-import React, { useEffect, useRef } from "react";
-import { useRouter } from "next/navigation";
-import { useSession } from "next-auth/react";
-import { useChatStore } from "@/store/chat-store";
-import { getLastActiveConversationId } from "@/store/chat-store";
-import { getStorageMode } from "@/lib/storage-config";
 import { AuthGuard } from "@/components/auth-guard";
 import { CAIPESpinner } from "@/components/ui/caipe-spinner";
+import { getStorageMode } from "@/lib/storage-config";
+import { getLastActiveConversationId,useChatStore } from "@/store/chat-store";
+import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
+import { useEffect,useRef } from "react";
 
 async function resolveDefaultAgentId(): Promise<string | undefined> {
   try {

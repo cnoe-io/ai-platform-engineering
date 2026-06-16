@@ -5,7 +5,7 @@
  * Parses structured DataPart plans emitted by the backend.
  */
 
-import type { PlanStep, Artifact } from "@/types/a2a";
+import type { Artifact,PlanStep } from "@/types/a2a";
 
 // ─── Plan Step Parsing ───────────────────────────────────────────────────────
 

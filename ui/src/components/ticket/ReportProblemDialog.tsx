@@ -1,35 +1,39 @@
 "use client";
 
-import React, { useState, useRef, useEffect, useCallback } from "react";
-import { useSession } from "next-auth/react";
-import { usePathname } from "next/navigation";
-import { motion, AnimatePresence } from "framer-motion";
-import {
-  AlertCircle,
-  CheckCircle2,
-  ChevronDown,
-  ChevronUp,
-  Copy,
-  ExternalLink,
-  Loader2,
-  RefreshCw,
-  Square,
-  Terminal,
-} from "lucide-react";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import {
+Dialog,
+DialogContent,
+DialogDescription,
+DialogHeader,
+DialogTitle,
+} from "@/components/ui/dialog";
 import { getConfig } from "@/lib/config";
 import {
-  createTicketViaAgent,
-  type FeedbackContext,
-  type TicketResult,
+createTicketViaAgent,
+type FeedbackContext,
+type TicketResult,
 } from "@/lib/ticket-client";
+import { AnimatePresence,motion } from "framer-motion";
+import {
+AlertCircle,
+CheckCircle2,
+ChevronDown,
+ChevronUp,
+Copy,
+ExternalLink,
+Loader2,
+Monitor,
+RefreshCw,
+Square,
+Terminal,
+Upload,
+X
+} from "lucide-react";
+import { useSession } from "next-auth/react";
+import { usePathname } from "next/navigation";
+import React,{ useCallback,useEffect,useId,useRef,useState } from "react";
+import { createPortal } from "react-dom";
 
 type DialogStatus = "idle" | "submitting" | "success" | "error";
 
@@ -54,9 +58,14 @@ export function ReportProblemDialog({
   const [errorMessage, setErrorMessage] = useState("");
   const [debugLog, setDebugLog] = useState<string[]>([]);
   const [showDebug, setShowDebug] = useState(false);
+  const [screenshotDataUrl, setScreenshotDataUrl] = useState<string | null>(null);
+  const [isCapturing, setIsCapturing] = useState(false);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
 
   const abortControllerRef = useRef<AbortController | null>(null);
   const debugEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const fileInputId = useId();
 
   const provider = getConfig("ticketProvider");
   const providerLabel = provider === "jira" ? "Jira" : provider === "github" ? "GitHub" : "";
@@ -79,7 +88,74 @@ export function ReportProblemDialog({
     setErrorMessage("");
     setDebugLog([]);
     setShowDebug(false);
+    setScreenshotDataUrl(null);
+    setIsCapturing(false);
+    setLightboxOpen(false);
     abortControllerRef.current = null;
+  }, []);
+
+  // Capture the tab using getDisplayMedia (browser screen share picker),
+  // then grab one video frame into a canvas and convert to a data URL.
+  const handleCaptureScreenshot = useCallback(async () => {
+    setIsCapturing(true);
+    let stream: MediaStream | null = null;
+    try {
+      stream = await navigator.mediaDevices.getDisplayMedia({
+        video: { displaySurface: "browser" } as MediaTrackConstraints,
+        audio: false,
+      });
+      const track = stream.getVideoTracks()[0];
+      // ImageCapture gives a clean single frame without needing a <video> element.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const IC = (window as any).ImageCapture;
+      if (IC) {
+        const capture = new IC(track);
+        const bitmap = await capture.grabFrame();
+        const canvas = document.createElement("canvas");
+        canvas.width = bitmap.width;
+        canvas.height = bitmap.height;
+        canvas.getContext("2d")!.drawImage(bitmap, 0, 0);
+        setScreenshotDataUrl(canvas.toDataURL("image/png"));
+      } else {
+        // Fallback: render into a hidden <video> and snapshot one frame.
+        await new Promise<void>((resolve, reject) => {
+          const video = document.createElement("video");
+          video.srcObject = stream;
+          video.muted = true;
+          video.onloadedmetadata = () => {
+            video.play().then(() => {
+              const canvas = document.createElement("canvas");
+              canvas.width = video.videoWidth;
+              canvas.height = video.videoHeight;
+              canvas.getContext("2d")!.drawImage(video, 0, 0);
+              setScreenshotDataUrl(canvas.toDataURL("image/png"));
+              video.srcObject = null;
+              resolve();
+            }).catch(reject);
+          };
+          video.onerror = reject;
+        });
+      }
+    } catch (err: unknown) {
+      // User cancelled the picker — not an error worth logging loudly.
+      const name = (err as { name?: string })?.name;
+      if (name !== "NotAllowedError" && name !== "AbortError") {
+        console.error("[ReportProblem] Screen capture failed:", err);
+      }
+    } finally {
+      stream?.getTracks().forEach((t) => t.stop());
+      setIsCapturing(false);
+    }
+  }, []);
+
+  const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => setScreenshotDataUrl(reader.result as string);
+    reader.readAsDataURL(file);
+    // Reset so selecting the same file again fires onChange
+    e.target.value = "";
   }, []);
 
   const handleOpenChange = useCallback(
@@ -128,6 +204,7 @@ export function ReportProblemDialog({
           userEmail,
           contextUrl,
           feedbackContext,
+          screenshotDataUrl: screenshotDataUrl ?? undefined,
         },
         accessToken: (session as any)?.accessToken,
         signal: controller.signal,
@@ -164,6 +241,7 @@ export function ReportProblemDialog({
     session,
     contextUrl,
     providerLabel,
+    screenshotDataUrl,
     appendLog,
     resetState,
   ]);
@@ -181,6 +259,7 @@ export function ReportProblemDialog({
   }, [description, feedbackContext]);
 
   return (
+    <>
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="max-w-md overflow-hidden">
         <DialogHeader>
@@ -225,6 +304,66 @@ export function ReportProblemDialog({
               className="w-full h-24 px-3 py-2 text-sm bg-muted/50 border border-border rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-primary/50"
               autoFocus
             />
+
+            {/* Screenshot attachment */}
+            {screenshotDataUrl ? (
+              <div className="relative rounded-lg overflow-hidden border border-border group cursor-zoom-in"
+                onClick={() => setLightboxOpen(true)}
+              >
+                <img
+                  src={screenshotDataUrl}
+                  alt="Screenshot preview"
+                  className="w-full h-32 object-cover object-top"
+                />
+                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
+                  <span className="opacity-0 group-hover:opacity-100 transition-opacity text-white text-xs font-medium bg-black/60 px-2 py-1 rounded">
+                    Click to view
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); setScreenshotDataUrl(null); }}
+                  className="absolute top-1.5 right-1.5 h-6 w-6 rounded-full bg-black/60 hover:bg-black/80 flex items-center justify-center transition-colors"
+                  aria-label="Remove screenshot"
+                >
+                  <X className="h-3.5 w-3.5 text-white" />
+                </button>
+                <div className="absolute bottom-1.5 left-1.5 px-1.5 py-0.5 rounded bg-black/60 text-[10px] text-white font-medium">
+                  Screenshot attached
+                </div>
+              </div>
+            ) : (
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={handleCaptureScreenshot}
+                  disabled={isCapturing}
+                  className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-dashed border-border text-xs text-muted-foreground hover:border-primary/50 hover:text-foreground hover:bg-muted/30 transition-all disabled:opacity-50"
+                >
+                  {isCapturing ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Monitor className="h-3.5 w-3.5" />
+                  )}
+                  {isCapturing ? "Starting capture..." : "Auto-capture screen"}
+                </button>
+                <label
+                  htmlFor={fileInputId}
+                  className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-dashed border-border text-xs text-muted-foreground hover:border-primary/50 hover:text-foreground hover:bg-muted/30 transition-all cursor-pointer"
+                >
+                  <Upload className="h-3.5 w-3.5" />
+                  Upload image
+                </label>
+                <input
+                  id={fileInputId}
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="sr-only"
+                  onChange={handleFileUpload}
+                />
+              </div>
+            )}
 
             <p className="text-[10px] text-muted-foreground/60 text-center break-words">
               The current page URL and your email will be included in the ticket.
@@ -418,5 +557,44 @@ export function ReportProblemDialog({
         )}
       </DialogContent>
     </Dialog>
+
+    {/* Lightbox portal — renders outside the Dialog so it isn't clipped */}
+    {typeof document !== "undefined" && screenshotDataUrl && lightboxOpen && createPortal(
+      <AnimatePresence>
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.15 }}
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+          onClick={() => setLightboxOpen(false)}
+        >
+          <motion.div
+            initial={{ scale: 0.92, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.92, opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="relative max-w-5xl max-h-[90vh] w-full"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <img
+              src={screenshotDataUrl}
+              alt="Screenshot full view"
+              className="w-full h-auto max-h-[90vh] object-contain rounded-lg shadow-2xl"
+            />
+            <button
+              type="button"
+              onClick={() => setLightboxOpen(false)}
+              className="absolute top-2 right-2 h-8 w-8 rounded-full bg-black/60 hover:bg-black/80 flex items-center justify-center transition-colors"
+              aria-label="Close"
+            >
+              <X className="h-4 w-4 text-white" />
+            </button>
+          </motion.div>
+        </motion.div>
+      </AnimatePresence>,
+      document.body
+    )}
+    </>
   );
 }

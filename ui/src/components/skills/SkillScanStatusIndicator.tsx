@@ -1,32 +1,32 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
-import {
-  ShieldCheck,
-  ShieldAlert,
-  Shield,
-  Loader2,
-  Info,
-  ShieldOff,
-} from "lucide-react";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import {
+Dialog,
+DialogContent,
+DialogHeader,
+DialogTitle,
+} from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/toast";
+import {
+Tooltip,
+TooltipContent,
+TooltipProvider,
+TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useAdminRole } from "@/hooks/use-admin-role";
 import { cn } from "@/lib/utils";
-import type { AgentSkill, ScanOverride, ScanStatus } from "@/types/agent-skill";
+import type { AgentSkill,ScanOverride,ScanStatus } from "@/types/agent-skill";
+import {
+Info,
+Loader2,
+Shield,
+ShieldAlert,
+ShieldCheck,
+ShieldOff,
+} from "lucide-react";
+import { useMemo,useState } from "react";
 
 /**
  * The status the *UI* displays — distinct from the persisted
@@ -161,15 +161,7 @@ export function SkillScanStatusIndicator({
   onScanComplete,
   allowManualScan,
 }: SkillScanStatusIndicatorProps) {
-  // Defensive: callers (e.g. transient gallery rows mid-render, or "new"
-  // skill workspace) can still pass `config={undefined}` despite the prop
-  // type — short-circuit instead of crashing on `config.id`. Computing
-  // `allowManualScan` from `config.id` in the parameter default itself
-  // throws when `config` is undefined, which is what triggered the runtime
-  // TypeError in production. Resolve it inside the body where we can guard.
-  if (!config) return null;
-  const effectiveAllowManualScan =
-    allowManualScan ?? defaultAllowManualScan();
+  // All hooks must be called before any early returns (Rules of Hooks).
   const { toast } = useToast();
   const { isAdmin } = useAdminRole();
   const [reportOpen, setReportOpen] = useState(false);
@@ -195,15 +187,25 @@ export function SkillScanStatusIndicator({
     scan_override?: ScanOverride | null;
   } | null>(null);
 
+  const effectiveAllowManualScan =
+    allowManualScan ?? defaultAllowManualScan();
+
   const merged = useMemo(() => {
     // localScan can explicitly null-out scan_override (clear path);
     // we honour that by stripping the field rather than just merging.
+    if (!config) return null;
     const base = { ...config, ...localScan };
     if (localScan?.scan_override === null) {
       delete (base as { scan_override?: unknown }).scan_override;
     }
     return base;
   }, [config, localScan]);
+
+  // Defensive: callers (e.g. transient gallery rows mid-render, or "new"
+  // skill workspace) can still pass `config={undefined}` despite the prop
+  // type — short-circuit instead of crashing on `config.id`. All hooks
+  // are called above before this early return to satisfy Rules of Hooks.
+  if (!config || !merged) return null;
 
   const status = resolveStatus(merged);
   const copy = STATUS_COPY[status];
@@ -394,7 +396,7 @@ export function SkillScanStatusIndicator({
           `built-in/default templates aren't overridable yet`,
       );
     }
-    // eslint-disable-next-line no-console
+
     console.info(
       "[SkillScanStatusIndicator] override button hidden:",
       reasons.join("; "),

@@ -1,10 +1,10 @@
 "use client";
 
-import React from "react";
-import { type TeamPickerOption } from "@/components/ui/team-picker";
-import { Button } from "@/components/ui/button";
-import { ShieldCheck, Users } from "lucide-react";
 import { TeamOwnershipFields } from "@/components/rbac/TeamOwnershipFields";
+import { Button } from "@/components/ui/button";
+import { type TeamPickerOption } from "@/components/ui/team-picker";
+import { ShieldCheck,Users } from "lucide-react";
+import React from "react";
 
 interface KbSharingPanelProps {
   knowledgeBaseId: string;

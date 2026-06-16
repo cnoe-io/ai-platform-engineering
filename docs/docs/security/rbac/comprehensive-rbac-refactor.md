@@ -133,16 +133,17 @@ user:<sub> can_call mcp_gateway:list
 user:<sub> member team:<slug>
 team:<slug>#member can_use agent:<agent_id>
 team:<slug>#member can_manage agent:<agent_id>
-team:<slug>#member can_call tool:<server>_*
-team:<slug>#member can_call tool:*
+team:<slug>#member can_call tool:<server>/*
+agent:<agent_id> can_call tool:<server>/*
 
 team:<slug>#member can_read knowledge_base:<id>
 team:<slug>#member can_ingest knowledge_base:<id>
 team:<slug>#member can_admin knowledge_base:<id>
 ```
 
-Important nuance: AgentGateway currently checks OpenFGA for the coarse
-`mcp_gateway:list` object on browse/list/init traffic. The richer `team`, `agent`, `tool`, and `knowledge_base`
+Important nuance: AgentGateway checks `tool:<server>/<tool>` and `tool:<server>/*`
+for per-agent runtime tool calls. Team Resources expands "all MCP servers" selections
+into concrete per-server wildcard tuples when MCP servers are reconciled. The richer `team`, `agent`, `tool`, and `knowledge_base`
 tuples are written now so the relationship graph is ready for full per-resource
 PDP enforcement once MCP tool context is passed into OpenFGA checks.
 

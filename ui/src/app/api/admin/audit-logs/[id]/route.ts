@@ -3,17 +3,17 @@
  * DELETE permanently removes conversation + messages + checkpoints + GridFS files.
  */
 
-import { NextRequest, NextResponse } from 'next/server';
 import {
-  withErrorHandler,
-  ApiError,
-  successResponse,
-  getAuthFromBearerOrSession,
-  requireRbacPermission,
+ApiError,
+getAuthFromBearerOrSession,
+requireRbacPermission,
+successResponse,
+withErrorHandler,
 } from '@/lib/api-middleware';
-import { getCollection, isMongoDBConfigured } from '@/lib/mongodb';
 import { getServerConfig } from '@/lib/config';
+import { getCollection,isMongoDBConfigured } from '@/lib/mongodb';
 import type { Conversation } from '@/types/mongodb';
+import { NextRequest,NextResponse } from 'next/server';
 
 export const DELETE = withErrorHandler(
   async (request: NextRequest, { params }: { params: Promise<{ id: string }> }) => {

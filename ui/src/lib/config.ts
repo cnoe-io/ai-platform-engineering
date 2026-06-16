@@ -46,8 +46,10 @@ export interface Config {
   ragEnabled: boolean;
   /** Whether MongoDB persistence is enabled */
   mongodbEnabled: boolean;
-  /** Whether Connections & Secrets credential management is enabled */
+  /** Whether the credential subsystem (master switch) is enabled */
   credentialsEnabled: boolean;
+  /** Whether the user-facing Connections & Secrets surface (nav + /credentials page) is enabled */
+  userConnectionsEnabled: boolean;
   /** Main tagline displayed throughout the UI */
   tagline: string;
   /** Description text displayed throughout the UI */
@@ -200,6 +202,14 @@ export interface Config {
   userInfoToolEnabled: boolean;
   /** OIDC group required for UI access (injected server-side so the unauthorized page shows the real group) */
   oidcRequiredGroup: string;
+  /**
+   * Whether Okta background sync is enabled.
+   * Derived server-side: true when IDENTITY_SYNC_OKTA_ORG_URL is set AND either
+   * an SSWS API token (IDENTITY_SYNC_OKTA_API_TOKEN) or OAuth2 private-key JWT
+   * credentials (IDENTITY_SYNC_OKTA_OAUTH_CLIENT_ID + _PRIVATE_KEY) are present.
+   * Controls the Identity Sync tab in Admin > Teams & Users.
+   */
+  oktaSyncEnabled: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -233,6 +243,7 @@ const DEFAULT_CONFIG: Config = {
   ragEnabled: true,
   mongodbEnabled: false,
   credentialsEnabled: false,
+  userConnectionsEnabled: false,
   tagline: DEFAULT_TAGLINE,
   description: DEFAULT_DESCRIPTION,
   appName: DEFAULT_APP_NAME,
@@ -280,6 +291,7 @@ const DEFAULT_CONFIG: Config = {
   ticketProvider: null,
   userInfoToolEnabled: false,
   oidcRequiredGroup: '',
+  oktaSyncEnabled: false,
 };
 
 // ---------------------------------------------------------------------------
@@ -393,7 +405,28 @@ export function getServerConfig(): Config {
   const scheduleEditorAgentId =
     env('SCHEDULE_EDITOR_AGENT_ID')?.trim() || defaultNewChatAgentId;
   const credentialsEnabled = env('CAIPE_CREDENTIALS_ENABLED') === 'true';
+  // The user-facing Connections surface is gated independently of the SA token
+  // surface. It defaults to the master flag (backward-compatible) and can be
+  // explicitly turned off with CAIPE_USER_CONNECTIONS_ENABLED=false. Mirrors
+  // subFeatureEnabled() in feature-flags/credentials.ts (kept inline here so
+  // config.ts stays free of server-only imports for the client bundle).
+  // Match subFeatureEnabled's parsing exactly — trim + lowercase, so a value
+  // like " true" doesn't diverge between the two sources of truth.
+  const userConnectionsRaw = env('CAIPE_USER_CONNECTIONS_ENABLED')?.trim().toLowerCase();
+  const userConnectionsEnabled =
+    credentialsEnabled &&
+    (userConnectionsRaw === undefined ? true : userConnectionsRaw === 'true');
   const userInfoToolEnabled = env('ENABLE_USER_INFO_TOOL') === 'true';
+
+  // Enabled when an org URL is set AND we have credentials in EITHER mode:
+  // SSWS API token, or OAuth2 private-key JWT (client id + private key). Kept
+  // in sync with isOktaConnectorConfigured() in okta-directory-connector.ts.
+  const oktaSyncEnabled = !!(
+    process.env.IDENTITY_SYNC_OKTA_ORG_URL?.trim() &&
+    (process.env.IDENTITY_SYNC_OKTA_API_TOKEN?.trim() ||
+      (process.env.IDENTITY_SYNC_OKTA_OAUTH_CLIENT_ID?.trim() &&
+        process.env.IDENTITY_SYNC_OKTA_OAUTH_PRIVATE_KEY?.trim()))
+  );
 
   const dynamicAgentsUrl = env('DYNAMIC_AGENTS_URL')
     || (isProduction ? 'http://dynamic-agents:8100' : 'http://localhost:8100');
@@ -426,6 +459,7 @@ export function getServerConfig(): Config {
     ragEnabled,
     mongodbEnabled,
     credentialsEnabled,
+    userConnectionsEnabled,
     tagline: env('TAGLINE') || DEFAULT_TAGLINE,
     description: env('DESCRIPTION') || DEFAULT_DESCRIPTION,
     appName: env('APP_NAME') || DEFAULT_APP_NAME,
@@ -473,6 +507,7 @@ export function getServerConfig(): Config {
     ticketProvider,
     userInfoToolEnabled,
     oidcRequiredGroup: process.env.OIDC_REQUIRED_GROUP ?? DEFAULT_CONFIG.oidcRequiredGroup,
+    oktaSyncEnabled,
   };
 }
 

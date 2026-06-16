@@ -1,13 +1,12 @@
 "use client";
 
-import React from "react";
 import { ConnectorAdminPanel } from "./ConnectorAdminPanel";
 import type {
-  ConnectorAdminAdapter,
-  DiagnosticRoute,
-  ItemAgentRoute,
-  ItemDiagnostics,
-  ItemSummary,
+ConnectorAdminAdapter,
+DiagnosticRoute,
+ItemAgentRoute,
+ItemDiagnostics,
+ItemSummary,
 } from "./connector-admin-adapter";
 
 function apiData<T>(payload: { data?: T } & T): T {

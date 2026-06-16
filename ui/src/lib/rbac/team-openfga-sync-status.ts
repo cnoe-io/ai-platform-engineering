@@ -34,13 +34,13 @@
  * is responsible for actually reading from Mongo / OpenFGA.
  */
 
-import type { TeamMembershipSource } from "@/types/identity-group-sync";
 import {
-  type OpenFgaTupleKey,
-  isOpenFgaConfigured,
-  readOpenFgaTuples,
+type OpenFgaTupleKey,
+isOpenFgaConfigured,
+readOpenFgaTuples,
 } from "@/lib/rbac/openfga";
 import type { TeamMemberRelation } from "@/lib/rbac/team-membership-sync";
+import type { TeamMembershipSource } from "@/types/identity-group-sync";
 
 export type TeamMembershipSyncState =
   | "synced"
@@ -247,7 +247,7 @@ export async function readTeamOpenFgaTuples(
     // (10 pages * 100 = 1000 tuples) to avoid runaway reads for a single
     // pathological team. In practice a team has tens of tuples at most.
     for (let i = 0; i < 10; i += 1) {
-      // eslint-disable-next-line no-await-in-loop -- pagination is sequential by nature
+
       const page = await readOpenFgaTuples({
         tuple: { object },
         pageSize: 100,

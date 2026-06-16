@@ -1,16 +1,16 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
-import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { SubagentSelector } from "./SubagentSelector";
+import { cn } from "@/lib/utils";
+import { extractFileIO,type TaskStep } from "@/types/task-config";
+import { FileInput,FileOutput } from "lucide-react";
+import React,{ useState } from "react";
 import { CaipeFormBuilder } from "./CaipeFormBuilder";
 import { EnvVarsPanel } from "./EnvVarsPanel";
 import { PolicyPanel } from "./PolicyPanel";
-import { FileInput, FileOutput } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { extractFileIO, type TaskStep } from "@/types/task-config";
+import { SubagentSelector } from "./SubagentSelector";
 
 type SidebarTab = "properties" | "files" | "envvars" | "policy";
 

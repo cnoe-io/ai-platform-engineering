@@ -1,6 +1,6 @@
 import type { UniversalRebacRelationship } from "@/types/rbac-universal";
 
-import { getRbacCollection, type RebacRelationshipDocument } from "./mongo-collections";
+import { getRbacCollection,type RebacRelationshipDocument } from "./mongo-collections";
 import { checkUniversalRebacRelationship } from "./openfga";
 import { buildOpenFgaTuple } from "./tuple-builders";
 

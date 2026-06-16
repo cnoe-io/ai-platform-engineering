@@ -1,23 +1,22 @@
 "use client";
 
-import React from "react";
-import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { motion } from "framer-motion";
-import {
-  Database,
-  Search,
-  GitFork,
-  ChevronLeft,
-  ChevronRight,
-  BookOpen,
-  Wrench,
-} from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 import { RagAuthIndicator } from "@/components/rag/RagAuthBanner";
+import { Button } from "@/components/ui/button";
 import { useKbTabGates } from "@/hooks/use-kb-tab-gates";
 import type { KbTabKey } from "@/lib/rbac/types";
+import { cn } from "@/lib/utils";
+import { motion } from "framer-motion";
+import {
+BookOpen,
+ChevronLeft,
+ChevronRight,
+Database,
+GitFork,
+Search,
+Wrench,
+} from "lucide-react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 
 interface KnowledgeSidebarProps {
   collapsed: boolean;

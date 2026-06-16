@@ -1,14 +1,13 @@
 "use client";
 
-import React from "react";
-import { motion } from "framer-motion";
-import { Check, ChevronDown, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Card,CardContent,CardHeader,CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Widget, WidgetAction } from "@/types/a2a";
 import { cn } from "@/lib/utils";
+import { Widget,WidgetAction } from "@/types/a2a";
+import { motion } from "framer-motion";
+import { Check,ChevronDown,Loader2 } from "lucide-react";
+import React from "react";
 
 // Widget Registry - maps widget types to React components
 const widgetRegistry: Record<string, React.ComponentType<WidgetProps>> = {
@@ -413,12 +412,6 @@ function InputWidget({ widget, onAction }: WidgetProps) {
 }
 
 export {
-  ButtonWidget,
-  FormWidget,
-  CardWidget,
-  ListWidget,
-  TableWidget,
-  ProgressWidget,
-  SelectWidget,
-  InputWidget,
+ButtonWidget,CardWidget,FormWidget,InputWidget,ListWidget,ProgressWidget,
+SelectWidget,TableWidget
 };

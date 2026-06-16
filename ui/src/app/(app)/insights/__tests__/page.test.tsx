@@ -44,6 +44,7 @@ jest.mock('next-auth/react', () => ({
 // Mock framer-motion to simplify testing
 jest.mock('framer-motion', () => ({
   motion: {
+    // eslint-disable-next-line react/display-name
     div: React.forwardRef(({ children, initial, animate, exit, transition, className, onClick, ...props }: any, ref: any) => (
       <div ref={ref} className={className} onClick={onClick} {...props}>{children}</div>
     )),
@@ -69,7 +70,7 @@ jest.mock('@/components/ui/scroll-area', () => ({
   ScrollArea: ({ children, ...props }: any) => <div data-testid="scroll-area" {...props}>{children}</div>,
 }))
 
-jest.mock('@/components/admin/SimpleLineChart', () => ({
+jest.mock('@/components/admin/shared/SimpleLineChart', () => ({
   SimpleLineChart: ({ data, height, color }: any) => (
     <div data-testid="line-chart" data-height={height} data-color={color}>
       {data?.length} data points
@@ -77,7 +78,7 @@ jest.mock('@/components/admin/SimpleLineChart', () => ({
   ),
 }))
 
-jest.mock('@/components/admin/SkillMetricsCards', () => ({
+jest.mock('@/components/admin/insights/SkillMetricsCards', () => ({
   VisibilityBreakdown: () => <div data-testid="visibility-breakdown" />,
   CategoryBreakdown: () => <div data-testid="category-breakdown" />,
   RunStatsTable: () => <div data-testid="run-stats-table" />,

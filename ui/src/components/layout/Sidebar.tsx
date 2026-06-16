@@ -1,31 +1,9 @@
 "use client";
 
-import React, { useState, useEffect, useTransition } from "react";
-import { useRouter } from "next/navigation";
-import { motion, AnimatePresence } from "framer-motion";
-import {
-  MessageSquare,
-  MessageCircleQuestion,
-  Radio,
-  History,
-  Plus,
-  Archive,
-  ArchiveRestore,
-  ChevronLeft,
-  ChevronRight,
-  Sparkles,
-  Zap,
-  Database,
-  HardDrive,
-  Users2,
-  Shield,
-  Users,
-  TrendingUp,
-  RefreshCw,
-  Globe,
-  Pencil,
-  Loader2
-} from "lucide-react";
+import { NewChatButton } from "@/components/chat/NewChatButton";
+import { RecycleBinDialog } from "@/components/chat/RecycleBinDialog";
+import { ShareButton } from "@/components/chat/ShareButton";
+import { UseCaseBuilderDialog } from "@/components/gallery/UseCaseBuilder";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -38,18 +16,39 @@ import {
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { useChatStore } from "@/store/chat-store";
-import { cn, formatDate, truncateText } from "@/lib/utils";
-import { UseCaseBuilderDialog } from "@/components/gallery/UseCaseBuilder";
-import { RecycleBinDialog } from "@/components/chat/RecycleBinDialog";
-import { ShareButton } from "@/components/chat/ShareButton";
-import { NewChatButton } from "@/components/chat/NewChatButton";
 import { useToast } from "@/components/ui/toast";
-import { useSession } from "next-auth/react";
-import { getStorageMode, getStorageModeDisplay } from "@/lib/storage-config";
 import { resolveNewConversationAgentId, type NewConversationAgentSelection } from "@/lib/new-chat-agent";
+import { getStorageMode } from "@/lib/storage-config";
+import { cn, formatDate, truncateText } from "@/lib/utils";
+import { useChatStore } from "@/store/chat-store";
 import type { Conversation } from "@/types/a2a";
-import { getAgentId, isDynamicAgentConversation, buildParticipants } from "@/types/a2a";
+import { getAgentId, isDynamicAgentConversation } from "@/types/a2a";
+import { AnimatePresence, motion } from "framer-motion";
+import {
+Archive,
+ArchiveRestore,
+ChevronLeft,
+ChevronRight,
+Database,
+Globe,
+HardDrive,
+History,
+Loader2,
+MessageCircleQuestion,
+MessageSquare,
+Pencil,
+Plus,
+Radio,
+RefreshCw,
+Shield,
+Sparkles,
+TrendingUp,
+Users,
+Users2
+} from "lucide-react";
+import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
+import React, { useEffect, useState, useTransition } from "react";
 
 interface SidebarProps {
   activeTab: "chat" | "gallery" | "knowledge" | "admin";

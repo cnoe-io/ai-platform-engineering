@@ -198,6 +198,18 @@ service token (non-user contexts) on X-CAIPE-Provider-Token, and a route-level
 transformation rewrites it into Authorization: Bearer. */ -}}
 {{- $targets = append $targets (dict "id" "knowledge-base" "pathPrefix" ($kb.pathPrefix | default "/mcp/knowledge-base") "host" (tpl $kbHost $root) "port" $kbPort "protocol" ($kb.protocol | default "StreamableHTTP") "providerTokenAuth" true) -}}
 {{- end -}}
+{{- /* GitHub MCP server — official GitHub MCP server container (mcp-servers profile).
+Routes /mcp/github-mcp-server to the in-cluster Deployment rendered by
+github-mcp-server.yaml when global.agentgateway.githubMcpServer.enabled is true.
+assisted-by Codex Codex-sonnet-4-6 */ -}}
+{{- $ghMcp := $agw.githubMcpServer | default dict -}}
+{{- if and (hasKey $ghMcp "enabled") $ghMcp.enabled -}}
+{{- $_ := required "global.agentgateway.githubMcpServer.existingSecret.name is required when githubMcpServer.enabled=true" (($ghMcp.existingSecret | default dict).name) -}}
+{{- $ghPort := $ghMcp.port | default 8082 -}}
+{{- $ghPath := $ghMcp.pathPrefix | default "/mcp/github-mcp-server" -}}
+{{- $ghHost := printf "%s-github-mcp-server.%s.svc.cluster.local" $root.Release.Name $ns -}}
+{{- $targets = append $targets (dict "id" "github-mcp-server" "pathPrefix" $ghPath "host" $ghHost "port" $ghPort "protocol" "StreamableHTTP" "backendAuthKey" "$GITHUB_PERSONAL_ACCESS_TOKEN") -}}
+{{- end -}}
 {{- range $target := ($agw.extraMcpTargets | default list) -}}
 {{- if or (not (hasKey $target "enabled")) $target.enabled -}}
 {{- $id := required "global.agentgateway.extraMcpTargets[].id is required" $target.id -}}
@@ -291,4 +303,3 @@ Explicit non-CAIPE repositories are left unchanged.
 {{- $repository -}}
 {{- end -}}
 {{- end -}}
-

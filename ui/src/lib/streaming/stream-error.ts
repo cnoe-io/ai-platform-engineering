@@ -12,7 +12,7 @@
  * lives in `DynamicAgentChatPanel.submitMessage`.
  */
 
-import type { AuthFailureAction, AuthFailureReason } from "../auth-error";
+import type { AuthFailureAction,AuthFailureReason } from "../auth-error";
 
 export class StreamError extends Error {
   constructor(

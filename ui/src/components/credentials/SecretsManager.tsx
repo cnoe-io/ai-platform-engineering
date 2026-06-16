@@ -1,7 +1,7 @@
 "use client";
 
+import { Share2,Trash2,X } from "lucide-react";
 import React from "react";
-import { Share2, Trash2, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 

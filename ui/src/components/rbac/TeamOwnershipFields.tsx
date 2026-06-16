@@ -26,16 +26,16 @@
  * its UI (SC-006). RAG/MCP editors simply omit them.
  */
 
-import * as React from "react";
 import { AlertCircle } from "lucide-react";
+import * as React from "react";
 
+import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import {
-  TeamPicker,
-  TeamMultiPicker,
-  type TeamPickerOption,
+TeamMultiPicker,
+TeamPicker,
+type TeamPickerOption,
 } from "@/components/ui/team-picker";
-import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 export interface TeamOwnershipFieldsProps {

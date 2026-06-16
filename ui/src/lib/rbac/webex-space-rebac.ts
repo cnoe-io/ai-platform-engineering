@@ -1,19 +1,19 @@
 import type {
-  WebexSpaceAccessCheckResult,
-  WebexSpaceGrantResourceType,
-} from "@/types/webex-rebac";
-import type {
-  UniversalRebacRelationship,
-  UniversalRebacResourceAction,
-  UniversalRebacResourceRef,
-  UniversalRebacSubjectRef,
-  UniversalRebacSubjectType,
+UniversalRebacRelationship,
+UniversalRebacResourceAction,
+UniversalRebacResourceRef,
+UniversalRebacSubjectRef,
+UniversalRebacSubjectType,
 } from "@/types/rbac-universal";
+import type {
+WebexSpaceAccessCheckResult,
+WebexSpaceGrantResourceType,
+} from "@/types/webex-rebac";
 
 import { checkUniversalRebacRelationship } from "./openfga";
 import {
-  WEBEX_SPACE_GRANT_RESOURCE_TYPES,
-  webexSpaceSubjectId,
+WEBEX_SPACE_GRANT_RESOURCE_TYPES,
+webexSpaceSubjectId,
 } from "./webex-space-grant-store";
 
 const VALID_WEBEX_GRANT_SUBJECT_TYPES = new Set<UniversalRebacSubjectType>([

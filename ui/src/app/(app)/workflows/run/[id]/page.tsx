@@ -1,20 +1,15 @@
 "use client";
 
-import React, { useEffect, useRef, useCallback, useState } from "react";
-import { useParams } from "next/navigation";
-import { CheckCircle2, XCircle, Loader2, Clock, MessageSquare, FolderOpen, Info, Ban } from "lucide-react";
-import { cn, formatRelativeTime } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { WorkflowRunTimeline } from "@/components/workflows/WorkflowRunTimeline";
 import { WorkflowProgressMap } from "@/components/workflows/WorkflowProgressMap";
-import { useWorkflowExecStore } from "@/store/workflow-exec-store";
+import { WorkflowRunTimeline } from "@/components/workflows/WorkflowRunTimeline";
+import { cn,formatRelativeTime } from "@/lib/utils";
+import { fetchEphemeralFileContent } from "@/lib/ephemeral-files";
 import type { WfRunStatus } from "@/store/workflow-exec-store";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { useWorkflowExecStore } from "@/store/workflow-exec-store";
+import { Ban,CheckCircle2,Clock,FolderOpen,Info,Loader2,MessageSquare,XCircle } from "lucide-react";
+import { useParams } from "next/navigation";
+import React,{ useCallback,useEffect,useRef,useState } from "react";
 
 const RUN_STATUS_CONFIG: Record<WfRunStatus, { label: string; color: string; icon: React.ReactNode }> = {
   pending: { label: "Pending", color: "text-muted-foreground bg-muted/50", icon: <Clock className="h-4 w-4" /> },
@@ -96,6 +91,12 @@ export default function WorkflowRunPage() {
     } catch {
       // ignore
     }
+  }, [run, runId]);
+
+  const handleGetFileContent = useCallback(async (path: string): Promise<string | null> => {
+    if (!run || !runId) return null;
+    const fsNamespace = JSON.stringify([run.workflow_config_id, runId, "filesystem"]);
+    return fetchEphemeralFileContent(fsNamespace, path);
   }, [run, runId]);
 
   const handleResume = async (stepIndex: number, data: string) => {
@@ -189,6 +190,7 @@ export default function WorkflowRunPage() {
               stepEvents={stepEvents}
               workflowFiles={showFiles ? workflowFiles : undefined}
               onFileDownload={handleFileDownload}
+              getFileContent={handleGetFileContent}
               onResume={run.status !== "failed" && run.status !== "cancelled" ? handleResume : undefined}
             />
           )}

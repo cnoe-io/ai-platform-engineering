@@ -1,11 +1,11 @@
 "use client";
 
-import { useSession, signOut } from "next-auth/react";
-import { useRouter, usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
-import { getConfig } from "@/lib/config";
 import { LoadingScreen } from "@/components/loading-screen";
 import { isTokenExpired } from "@/lib/auth-utils";
+import { getConfig } from "@/lib/config";
+import { signOut,useSession } from "next-auth/react";
+import { usePathname,useRouter } from "next/navigation";
+import { useEffect,useState } from "react";
 
 interface AuthGuardProps {
   children: React.ReactNode;

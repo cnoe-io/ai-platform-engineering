@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useState } from "react";
 import { AuthGuard } from "@/components/auth-guard";
 import { WorkflowSidebar } from "@/components/workflows/WorkflowSidebar";
+import React,{ useState } from "react";
 
 /**
  * Client-side workflows layout — manages sidebar collapse state.

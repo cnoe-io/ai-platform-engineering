@@ -7,12 +7,12 @@
  * Proxies to Dynamic Agents service: /api/v1/files/content
  */
 
-import { NextRequest, NextResponse } from "next/server";
 import {
-  authenticateRequest,
-  getDynamicAgentsConfig,
-  proxyRequest,
+authenticateRequest,
+getDynamicAgentsConfig,
+proxyRequest,
 } from "@/lib/da-proxy";
+import { NextRequest,NextResponse } from "next/server";
 
 function buildFileNamespace(agentId: string, conversationId: string): string {
   return JSON.stringify([agentId, conversationId, "filesystem"]);

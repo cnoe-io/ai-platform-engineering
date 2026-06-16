@@ -1,15 +1,14 @@
 "use client";
 
-import React from "react";
+import type {
+ConnectorAdminAdapter,
+DiagnosticRoute,
+ItemSummary,
+RuntimeSyncSummary,
+} from "./connector-admin-adapter";
 import { ConnectorAdminPanel } from "./ConnectorAdminPanel";
 import { SlackConfiguredChannelDetail } from "./slack/SlackConfiguredChannelDetail";
 import { SlackVictoropsAgentSetting } from "./SlackVictoropsAgentSetting";
-import type {
-  ConnectorAdminAdapter,
-  DiagnosticRoute,
-  ItemSummary,
-  RuntimeSyncSummary,
-} from "./connector-admin-adapter";
 
 function apiData<T>(payload: { data?: T } & T): T {
   return (payload.data ?? payload) as T;

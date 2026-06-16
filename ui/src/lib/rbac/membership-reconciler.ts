@@ -6,6 +6,15 @@ export interface ReconcileTeamMembershipSourcesInput {
   existingSources: TeamMembershipSource[];
   desiredSources: TeamMembershipSource[];
   now: string;
+  /**
+   * External group ids actually observed in this sync. When provided, removals
+   * are limited to existing memberships whose `external_group_id` is in this
+   * set — so a FILTERED or otherwise partial fetch can add/update within the
+   * groups it saw but never removes memberships for groups it didn't fetch.
+   * When undefined, the fetch is treated as the complete directory snapshot and
+   * any managed membership not in `desiredSources` is removed (full reconcile).
+   */
+  observedGroupIds?: Set<string>;
 }
 
 export interface ReconcileTeamMembershipSourcesResult {
@@ -63,6 +72,17 @@ export function reconcileTeamMembershipSources(
   const sourcesToAdd = input.desiredSources.filter((source) => !existingBySource.has(sourceKey(source)));
   const sourcesToRemove = existingActive
     .filter((source) => source.managed && !desiredBySource.has(sourceKey(source)))
+    // Scope guard: when the caller observed only a subset of groups (e.g. a
+    // group filter), never remove memberships for groups outside that subset —
+    // their absence from `desiredSources` just means we didn't look, not that
+    // the membership is gone. Rows with no external_group_id (defensive) are
+    // only removable in a full reconcile.
+    .filter((source) => {
+      if (!input.observedGroupIds) return true; // full snapshot: remove freely
+      return source.external_group_id
+        ? input.observedGroupIds.has(source.external_group_id)
+        : false;
+    })
     .map((source) => ({ ...source, status: "removed" as const, removed_at: input.now }));
 
   const remainingAccess = new Set(

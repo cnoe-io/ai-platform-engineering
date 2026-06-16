@@ -20,7 +20,7 @@ All workflows live in `.github/workflows/`. The table below is the quick referen
 | `ci-mcp-sub-agent.yml` | PR / push to `main` | Tests MCP server agents |
 | `ci-dynamic-agents.yml` | PR / push to `main` | Tests the dynamic-agents Helm chart and operator |
 | `ci-caipe-ui.yml` | PR / push to `main` | Builds and lints the CAIPE web UI |
-| `caipe-ui-tests.yml` | PR / push to `main` | Jest unit tests for the UI |
+| `caipe-ui-tests.yml` | PR / push to `main` | Jest unit tests and mocked RBAC Playwright regression for the UI |
 | `ci-helm.yml` | PR / push to `main` | Helm chart lint and template validation |
 | `helm-chart-test.yml` | PR / push to `main` | Full Helm chart install test on a Kind cluster |
 | `ci-skill-scanner.yml` | PR / push to `main` | Security scan of `.claude/skills/` content |

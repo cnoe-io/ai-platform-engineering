@@ -1,16 +1,16 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import {
-  withErrorHandler,
-  ApiError,
-  validateCredentialsRef,
-  getAuthFromBearerOrSession,
+ApiError,
+getAuthFromBearerOrSession,
+validateCredentialsRef,
+withErrorHandler,
 } from "@/lib/api-middleware";
+import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
 import { requireAdminSurfaceManage } from "@/lib/rbac/require-openfga";
+import { NextRequest,NextResponse } from "next/server";
 import {
-  normalizeHubLocation,
-  validateIncludePaths,
-  validateMaxTreePages,
+normalizeHubLocation,
+validateIncludePaths,
+validateMaxTreePages,
 } from "../_lib/normalize";
 
 /**

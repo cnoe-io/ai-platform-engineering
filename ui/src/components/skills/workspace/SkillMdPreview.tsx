@@ -17,7 +17,7 @@
  * pulled in by `SkillFolderViewer`, so we don't add to the bundle.
  */
 
-import React, { useMemo } from "react";
+import React,{ useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 

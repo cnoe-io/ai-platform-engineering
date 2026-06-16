@@ -9,15 +9,15 @@
  * <AgentTimeline data={data} ... />
  */
 
-import { useMemo, useRef } from "react";
-import { TimelineManager, createTimelineManager } from "@/lib/da-timeline-manager";
-import type { TimelineData, StatusType } from "@/types/dynamic-agent-timeline";
+import { TimelineManager,createTimelineManager } from "@/lib/da-timeline-manager";
 import type {
-  StreamEvent,
-  ToolStartEventData,
-  ToolEndEventData,
+StreamEvent,
+ToolEndEventData,
+ToolStartEventData,
 } from "@/lib/streaming/types";
 import { isToolStartData } from "@/lib/streaming/types";
+import type { StatusType,TimelineData } from "@/types/dynamic-agent-timeline";
+import { useEffect,useRef,useState } from "react";
 
 // ═══════════════════════════════════════════════════════════════
 // Types
@@ -61,18 +61,22 @@ export function useAgentTimeline(
   const managerRef = useRef<TimelineManager | null>(null);
   const prevEventsRef = useRef<StreamEvent[]>([]);
 
-  // Process events and generate interleaved data
-  const data = useMemo(() => {
+  // Store computed timeline data in state so refs are only accessed inside useEffect (not during render)
+  const [data, setData] = useState<TimelineData>(() => ({ ...EMPTY_DATA, isStreaming }));
+
+  useEffect(() => {
     // If no events, return empty data with streaming flag
     if (events.length === 0) {
-      return { ...EMPTY_DATA, isStreaming };
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: update timeline data state from events in effect
+      setData({ ...EMPTY_DATA, isStreaming });
+      return;
     }
 
     // Check if we need to reset the manager (new events array)
     // Compare by first event id to detect new turn
     const prevFirst = prevEventsRef.current[0]?.id;
     const currFirst = events[0]?.id;
-    
+
     if (prevFirst !== currFirst) {
       // New turn - create fresh manager
       managerRef.current = createTimelineManager();
@@ -138,7 +142,7 @@ export function useAgentTimeline(
     // Update prev events ref
     prevEventsRef.current = events;
 
-    return manager.getGroupedData();
+    setData(manager.getGroupedData());
   }, [events, isStreaming, turnStatus]);
 
   return { data };

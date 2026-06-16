@@ -34,6 +34,12 @@ jest.mock('@/lib/mongodb', () => ({
 jest.mock('@/lib/rbac/openfga', () => ({
   checkOpenFgaTuple: jest.fn().mockResolvedValue({ allowed: true }),
 }));
+
+jest.mock('@/lib/rbac/resource-authz', () => ({
+  requireResourcePermission: jest.fn().mockResolvedValue(undefined),
+  filterResourcesByPermission: jest.fn(async (_session, resources: unknown[]) => resources),
+}));
+
 jest.spyOn(console, 'error').mockImplementation(() => {});
 jest.spyOn(console, 'log').mockImplementation(() => {});
 jest.spyOn(console, 'warn').mockImplementation(() => {});

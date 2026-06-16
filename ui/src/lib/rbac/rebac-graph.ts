@@ -1,10 +1,10 @@
-import { getRbacCollection, type RebacRelationshipDocument } from "./mongo-collections";
-import { readOpenFgaTuples, type OpenFgaTuple } from "./openfga";
+import type { UniversalRebacResourceAction } from "@/types/rbac-universal";
+import { getRbacCollection,type RebacRelationshipDocument } from "./mongo-collections";
+import { readOpenFgaTuples,type OpenFgaTuple } from "./openfga";
 import { listResourceTypeDefinitions } from "./resource-model";
 import { slackWorkspaceRef } from "./slack-channel-grant-store";
-import { openFgaCheckRelation, openFgaRelation } from "./tuple-builders";
+import { openFgaCheckRelation,openFgaRelation } from "./tuple-builders";
 import { webexWorkspaceRef } from "./webex-space-grant-store";
-import type { UniversalRebacResourceAction } from "@/types/rbac-universal";
 
 export type RebacGraphLayer = "all" | "tuples" | "effective" | "model";
 

@@ -60,7 +60,7 @@ jest.mock("@/lib/rbac/organization", () => ({
   organizationObjectId: () => "organization:caipe",
 }));
 
-jest.mock("@/lib/rbac/openfga-owned-resources", () => ({
+jest.mock("@/lib/rbac/openfga-owned-resources-reconcile", () => ({
   reconcileKnowledgeBaseRelationships: jest.fn(),
   reconcileDataSourceRelationships: jest.fn(),
   reconcileMcpToolRelationships: (...args: unknown[]) => mockReconcileMcpToolRelationships(...args),

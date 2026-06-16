@@ -1,5 +1,5 @@
 import { createHash } from "crypto";
-import type { RbacCheckRequest, RbacCheckResult, KeycloakAuthzConfig } from "./types";
+import type { KeycloakAuthzConfig,RbacCheckRequest,RbacCheckResult } from "./types";
 
 const parsedCacheTtlSec = parseInt(
   process.env.RBAC_CACHE_TTL_SECONDS || "60",

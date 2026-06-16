@@ -1,9 +1,9 @@
 import type { Document } from "mongodb";
 
 import type {
-  WebexRouteEscalationConfig,
-  WebexRouteSideConfig,
-  WebexSpaceAgentRoute,
+WebexRouteEscalationConfig,
+WebexRouteSideConfig,
+WebexSpaceAgentRoute,
 } from "@/types/webex-rebac";
 
 import { getRbacCollection } from "./mongo-collections";

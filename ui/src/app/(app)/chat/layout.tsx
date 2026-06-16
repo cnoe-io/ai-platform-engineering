@@ -1,10 +1,10 @@
 "use client";
 
-import React, { useState } from "react";
-import { useRouter, useParams } from "next/navigation";
-import { Sidebar } from "@/components/layout/Sidebar";
-import { ChatContainer } from "@/components/chat/ChatContainer";
 import { AuthGuard } from "@/components/auth-guard";
+import { ChatContainer } from "@/components/chat/ChatContainer";
+import { Sidebar } from "@/components/layout/Sidebar";
+import { useParams,useRouter } from "next/navigation";
+import React,{ useState } from "react";
 
 /**
  * Chat layout — renders the Sidebar and ChatContainer once and persists them

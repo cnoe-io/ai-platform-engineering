@@ -1,7 +1,7 @@
-import { getRbacCollection } from "./mongo-collections";
-import { listResourceTypeDefinitions } from "./resource-model";
-import type { RebacEnforcementStatus } from "./resource-catalog";
 import type { UniversalRebacResourceType } from "@/types/rbac-universal";
+import { getRbacCollection } from "./mongo-collections";
+import type { RebacEnforcementStatus } from "./resource-catalog";
+import { listResourceTypeDefinitions } from "./resource-model";
 
 export interface RebacEnforcementStatusRecord {
   resource_type: UniversalRebacResourceType;

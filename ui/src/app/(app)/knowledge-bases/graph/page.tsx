@@ -1,11 +1,10 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
-import { motion } from "framer-motion";
-import { useSearchParams, useRouter } from "next/navigation";
 import { AuthGuard } from "@/components/auth-guard";
 import GraphView from "@/components/rag/GraphView";
 import { useKbTabGates } from "@/hooks/use-kb-tab-gates";
+import { motion } from "framer-motion";
+import { useRouter,useSearchParams } from "next/navigation";
 
 /**
  * The ontology graph is currently a global Neo4j store keyed by
@@ -39,22 +38,14 @@ function GraphInfoBanner({ kbCount }: { kbCount: number }) {
 function GraphPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const [exploreData, setExploreData] = useState<{ entityType: string; primaryKey: string } | null>(null);
   const { gates, orgAdminBypass } = useKbTabGates();
 
-  useEffect(() => {
-    const entityType = searchParams?.get('entityType');
-    const primaryKey = searchParams?.get('primaryKey');
-
-    if (entityType && primaryKey) {
-      setExploreData({ entityType, primaryKey });
-    } else {
-      setExploreData(null);
-    }
-  }, [searchParams]);
+  // Derive exploreData directly from URL search params — no useState/useEffect needed.
+  const entityType = searchParams?.get('entityType');
+  const primaryKey = searchParams?.get('primaryKey');
+  const exploreData = entityType && primaryKey ? { entityType, primaryKey } : null;
 
   const handleExploreComplete = () => {
-    setExploreData(null);
     router.replace('/knowledge-bases/graph');
   };
 

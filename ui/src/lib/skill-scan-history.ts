@@ -6,7 +6,7 @@
  * Designed to never block scans: write failures are logged and swallowed.
  */
 
-import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
+import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
 import type { ScanStatus } from "@/types/agent-skill";
 
 export type ScanTrigger =

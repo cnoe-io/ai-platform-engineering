@@ -1,28 +1,28 @@
 import { NextRequest } from "next/server";
 
-import { ApiError, successResponse, withErrorHandler } from "@/lib/api-middleware";
+import { ApiError,successResponse,withErrorHandler } from "@/lib/api-middleware";
 import { writeOpenFgaTuples } from "@/lib/rbac/openfga";
+import { buildUniversalRebacTupleDiff } from "@/lib/rbac/tuple-builders";
 import { ensureRouteOwnedAgentGrants } from "@/lib/rbac/webex-space-grant-store";
 import {
-  listOpenFgaWebexSpaceAgentIds,
-  parseWebexSpaceRouteParams,
+listOpenFgaWebexSpaceAgentIds,
+parseWebexSpaceRouteParams,
 } from "@/lib/rbac/webex-space-openfga";
-import {
-  deleteWebexSpaceAgentRoute,
-  listWebexSpaceAgentRoutes,
-  replaceWebexSpaceAgentRoutes,
-  type WebexSpaceAgentRouteInput,
-} from "@/lib/rbac/webex-space-route-store";
 import { webexSpaceGrantRelationship } from "@/lib/rbac/webex-space-rebac";
-import { buildUniversalRebacTupleDiff } from "@/lib/rbac/tuple-builders";
+import {
+deleteWebexSpaceAgentRoute,
+listWebexSpaceAgentRoutes,
+replaceWebexSpaceAgentRoutes,
+type WebexSpaceAgentRouteInput,
+} from "@/lib/rbac/webex-space-route-store";
 import type { UniversalRebacRelationship } from "@/types/rbac-universal";
 import type {
-  WebexRouteEscalationConfig,
-  WebexRouteSideConfig,
-  WebexSpaceAgentRoute,
+WebexRouteEscalationConfig,
+WebexRouteSideConfig,
+WebexSpaceAgentRoute,
 } from "@/types/webex-rebac";
 
-import { withWebexSpaceRebacManageAuth, withWebexSpaceRebacViewAuth } from "../../../_lib";
+import { withWebexSpaceRebacManageAuth,withWebexSpaceRebacViewAuth } from "../../../_lib";
 
 interface RouteContext {
   params: Promise<{ workspaceId: string; spaceId: string }>;

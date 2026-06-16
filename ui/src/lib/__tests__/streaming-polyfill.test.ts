@@ -61,6 +61,7 @@ describe("streaming-polyfill", () => {
     it("should return false in jsdom (not Safari)", () => {
       // jsdom's navigator.userAgent does not include "Safari"
       // Re-import to reset cached state
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { isSafariBrowser: freshDetect } = require("../streaming-polyfill");
       expect(freshDetect()).toBe(false);
     });
@@ -75,6 +76,7 @@ describe("streaming-polyfill", () => {
         configurable: true,
       });
 
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { isSafariBrowser: freshDetect } = require("../streaming-polyfill");
       expect(freshDetect()).toBe(true);
     });
@@ -89,6 +91,7 @@ describe("streaming-polyfill", () => {
         configurable: true,
       });
 
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { isSafariBrowser: freshDetect } = require("../streaming-polyfill");
       expect(freshDetect()).toBe(false);
     });
@@ -103,6 +106,7 @@ describe("streaming-polyfill", () => {
         configurable: true,
       });
 
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { isSafariBrowser: freshDetect } = require("../streaming-polyfill");
       expect(freshDetect()).toBe(false);
     });
@@ -117,6 +121,7 @@ describe("streaming-polyfill", () => {
         configurable: true,
       });
 
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { isSafariBrowser: freshDetect } = require("../streaming-polyfill");
       expect(freshDetect()).toBe(true);
     });
@@ -128,6 +133,7 @@ describe("streaming-polyfill", () => {
         configurable: true,
       });
 
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { isSafariBrowser: freshDetect } = require("../streaming-polyfill");
       expect(freshDetect()).toBe(false);
     });
@@ -142,6 +148,7 @@ describe("streaming-polyfill", () => {
         configurable: true,
       });
 
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { isSafariBrowser: freshDetect } = require("../streaming-polyfill");
       const first = freshDetect();
       expect(first).toBe(true);

@@ -1,10 +1,10 @@
 import type { Document } from "mongodb";
 
+import type { UniversalRebacResourceAction,UniversalRebacResourceRef } from "@/types/rbac-universal";
 import type {
-  SlackChannelGrantResourceType,
-  SlackChannelResourceGrant,
+SlackChannelGrantResourceType,
+SlackChannelResourceGrant,
 } from "@/types/slack-rebac";
-import type { UniversalRebacResourceAction, UniversalRebacResourceRef } from "@/types/rbac-universal";
 
 import { getRbacCollection } from "./mongo-collections";
 

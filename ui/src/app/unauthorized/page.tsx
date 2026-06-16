@@ -1,11 +1,10 @@
 "use client";
 
-import React from "react";
-import { signOut } from "next-auth/react";
-import { motion } from "framer-motion";
-import { ShieldX, LogOut, Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { config } from "@/lib/config";
+import { motion } from "framer-motion";
+import { LogOut,Mail,ShieldX } from "lucide-react";
+import { signOut } from "next-auth/react";
 
 export default function UnauthorizedPage() {
   const requiredGroup = config.oidcRequiredGroup;

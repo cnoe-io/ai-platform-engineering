@@ -1507,6 +1507,12 @@ services:
       # for a team to actually be created (defense in depth — see
       # ui/src/lib/rbac/identity-group-sync-planner.ts).
       - IDENTITY_SYNC_LOGIN_AUTO_CREATE_TEAMS=${IDENTITY_SYNC_LOGIN_AUTO_CREATE_TEAMS:-false}
+      - IDENTITY_SYNC_OKTA_ORG_URL=${IDENTITY_SYNC_OKTA_ORG_URL:-}
+      - IDENTITY_SYNC_OKTA_API_TOKEN=${IDENTITY_SYNC_OKTA_API_TOKEN:-}
+      # OAuth2 private-key JWT alternative to the SSWS token (takes precedence when set).
+      - IDENTITY_SYNC_OKTA_OAUTH_CLIENT_ID=${IDENTITY_SYNC_OKTA_OAUTH_CLIENT_ID:-}
+      - IDENTITY_SYNC_OKTA_OAUTH_KEY_ID=${IDENTITY_SYNC_OKTA_OAUTH_KEY_ID:-}
+      - IDENTITY_SYNC_OKTA_OAUTH_PRIVATE_KEY=${IDENTITY_SYNC_OKTA_OAUTH_PRIVATE_KEY:-}
       - CAIPE_ORG_KEY=${CAIPE_ORG_KEY:-caipe}
       - CAIPE_ORG_DISPLAY_NAME=${CAIPE_ORG_DISPLAY_NAME:-CAIPE}
       - OIDC_ENABLE_REFRESH_TOKEN=${OIDC_ENABLE_REFRESH_TOKEN:-true}
@@ -1545,6 +1551,7 @@ services:
       # (changeme default is for local dev only; for production use Helm chart and External Secrets)
       - MONGODB_URI=${MONGODB_URI:-mongodb://admin:changeme@caipe-mongodb:27017/caipe?authSource=admin}
       - MONGODB_DATABASE=${MONGODB_DATABASE:-caipe}
+      - AGENTGATEWAY_TARGETS_TOKEN=${AGENTGATEWAY_TARGETS_TOKEN:-agentgateway-config-bridge-dev-token}
       # Connections & Secrets. Local OAuth connector bootstrap reads these
       # values from .env; Kubernetes deployments use ESO to inject the same
       # variable names into caipe-ui.
@@ -1727,6 +1734,12 @@ services:
       - BOOTSTRAP_ADMIN_EMAILS=${BOOTSTRAP_ADMIN_EMAILS:-}
       - IDENTITY_SYNC_LOGIN_CLAIMS_ENABLED=${IDENTITY_SYNC_LOGIN_CLAIMS_ENABLED:-true}
       - IDENTITY_SYNC_LOGIN_AUTO_CREATE_TEAMS=${IDENTITY_SYNC_LOGIN_AUTO_CREATE_TEAMS:-false}
+      - IDENTITY_SYNC_OKTA_ORG_URL=${IDENTITY_SYNC_OKTA_ORG_URL:-}
+      - IDENTITY_SYNC_OKTA_API_TOKEN=${IDENTITY_SYNC_OKTA_API_TOKEN:-}
+      # OAuth2 private-key JWT alternative to the SSWS token (takes precedence when set).
+      - IDENTITY_SYNC_OKTA_OAUTH_CLIENT_ID=${IDENTITY_SYNC_OKTA_OAUTH_CLIENT_ID:-}
+      - IDENTITY_SYNC_OKTA_OAUTH_KEY_ID=${IDENTITY_SYNC_OKTA_OAUTH_KEY_ID:-}
+      - IDENTITY_SYNC_OKTA_OAUTH_PRIVATE_KEY=${IDENTITY_SYNC_OKTA_OAUTH_PRIVATE_KEY:-}
       - CAIPE_ORG_KEY=${CAIPE_ORG_KEY:-caipe}
       - CAIPE_ORG_DISPLAY_NAME=${CAIPE_ORG_DISPLAY_NAME:-CAIPE}
       - OIDC_ENABLE_REFRESH_TOKEN=${OIDC_ENABLE_REFRESH_TOKEN:-true}
@@ -1747,6 +1760,7 @@ services:
       - GITHUB_TOKEN=${GITHUB_TOKEN:-${GITHUB_PERSONAL_ACCESS_TOKEN:-}}
       - MONGODB_URI=${MONGODB_URI:-mongodb://admin:changeme@caipe-mongodb:27017/caipe?authSource=admin}
       - MONGODB_DATABASE=${MONGODB_DATABASE:-caipe}
+      - AGENTGATEWAY_TARGETS_TOKEN=${AGENTGATEWAY_TARGETS_TOKEN:-agentgateway-config-bridge-dev-token}
       - CAIPE_CREDENTIALS_ENABLED=${CAIPE_CREDENTIALS_ENABLED:-false}
       - CREDENTIAL_STORE_BACKEND=${CREDENTIAL_STORE_BACKEND:-mongodb-envelope}
       - CREDENTIAL_KEY_PROVIDER=${CREDENTIAL_KEY_PROVIDER:-local-cmk}
@@ -1861,6 +1875,10 @@ services:
       - OIDC_DISCOVERY_URL=${OIDC_DISCOVERY_URL:-}
       - OIDC_GROUP_CLAIM=${OIDC_GROUP_CLAIM:-}
       - OIDC_REQUIRED_ADMIN_GROUP=${OIDC_REQUIRED_ADMIN_GROUP:-}
+      # Centralized Authorization Service — DA delegates agent-use decisions to the
+      # BFF's /api/authz/v1/decisions (forwards the caller's bearer / OBO). DA fails
+      # closed if unset or unreachable. Point at whichever UI service is running.
+      - AUTHZ_SERVICE_URL=${AUTHZ_SERVICE_URL:-http://caipe-ui-prod:3000}
       # Tracing (Langfuse)
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
@@ -1894,6 +1912,8 @@ services:
       # server-to-server credential API instead of browser/session cookies.
       - CAIPE_CREDENTIALS_ENABLED=${CAIPE_CREDENTIALS_ENABLED:-false}
       - CREDENTIAL_API_URL=${CREDENTIAL_API_URL:-http://caipe-ui:3000/api/credentials}
+      # assisted-by Codex Codex-sonnet-4-6
+      - CAIPE_API_URL=${CAIPE_API_URL:-http://caipe-ui:3000}
       - CREDENTIAL_SERVICE_AUDIENCE=${CREDENTIAL_SERVICE_AUDIENCE:-caipe-credential-service}
       - USE_IMPERSONATION_TOKENS=${USE_IMPERSONATION_TOKENS:-false}
       # Static service-account fallback for shared-token MCP servers (GitHub/GitLab).
@@ -2730,15 +2750,6 @@ services:
       - OPENFGA_STORE_ID=${OPENFGA_STORE_ID:-}
       - KEYCLOAK_URL=${KEYCLOAK_URL:-http://keycloak:7080}
       - KEYCLOAK_REALM=${KEYCLOAK_REALM:-caipe}
-      # Slack bot's Admin REST API credentials (user lookup by slack_user_id).
-      # Distinct from the UI BFF's KEYCLOAK_ADMIN_* vars on purpose — sharing
-      # those names caused a 401 collision (see ADR / architecture.md §auth).
-      # The KEYCLOAK_SLACK_BOT_ADMIN_* prefix is also surface-specific so future
-      # surfaces (Webex, Teams, …) get their own KEYCLOAK_<surface>_BOT_ADMIN_*.
-      # Must point to a confidential client with view-users + query-users on
-      # realm-management. The realm seeder grants those to caipe-platform.
-      - KEYCLOAK_SLACK_BOT_ADMIN_CLIENT_ID=${KEYCLOAK_SLACK_BOT_ADMIN_CLIENT_ID:-caipe-platform}
-      - KEYCLOAK_SLACK_BOT_ADMIN_CLIENT_SECRET=${KEYCLOAK_SLACK_BOT_ADMIN_CLIENT_SECRET:-caipe-platform-dev-secret}
       # Slack bot's OBO (token-exchange) credentials — separate flow, separate client.
       - KEYCLOAK_BOT_CLIENT_ID=${KEYCLOAK_BOT_CLIENT_ID:-caipe-slack-bot}
       - KEYCLOAK_BOT_CLIENT_SECRET=${KEYCLOAK_BOT_CLIENT_SECRET:-caipe-slack-bot-dev-secret}
@@ -2748,8 +2759,8 @@ services:
       # first-time Slack DMs work without an admin handshake. Set to "false"
       # in production to require explicit web-UI onboarding before Slack use,
       # in which case the bot falls back to sending an HMAC-signed linking
-      # URL. Reuses the KEYCLOAK_SLACK_BOT_ADMIN_* credentials above; no new
-      # secret to wire (see plan.md R-8 for the accepted trade-off).
+      # URL. Provisioning flows through the CAIPE UI BFF using the bot's own
+      # service account — no Keycloak Admin credential needed on the bot.
       - SLACK_JIT_CREATE_USER=${SLACK_JIT_CREATE_USER:-true}
       # Optional comma-separated allowlist of email domains eligible for JIT.
       # Empty/unset => any domain. Recommended for prod when the federated
@@ -3139,7 +3150,22 @@ services:
       OPENFGA_RELATION: can_call
       OPENFGA_OBJECT: mcp_gateway:list
       OPENFGA_BYPASS_SUBS: ${OPENFGA_BYPASS_SUBS:-}
+      # JWT validation config so the bridge can DECODE the caller's bearer and
+      # detect service accounts (preferred_username starts "service-account-", T002)
+      # → namespace service_account:<sub> vs user:<sub>. Without these,
+      # _decode_verified_bearer_claims returns None, SA detection is always False,
+      # and SA tool calls are mis-graphed as user:<sub> → DENY_NO_CAPABILITY (#46).
+      # Values match the AgentGateway listener jwtAuth + every other service's OIDC
+      # config so the iss/aud claims validate identically.
+      JWT_JWKS_URL: ${BRIDGE_JWT_JWKS_URL:-http://keycloak:7080/realms/caipe/protocol/openid-connect/certs}
+      JWT_ISSUER: ${BRIDGE_JWT_ISSUER:-http://localhost:7080/realms/caipe}
+      JWT_AUDIENCES: ${BRIDGE_JWT_AUDIENCES:-caipe-platform,agentgateway}
       CAIPE_AGENT_CONTEXT_HMAC_SECRET: ${CAIPE_AGENT_CONTEXT_HMAC_SECRET:-}
+      # Caller-keyed tool-authorization rollout flag (FR-012c). Default-off so
+      # prod/compose without the var keeps legacy agent-only tool enforcement;
+      # set CAIPE_CALLER_TOOL_CHECK_ENABLED=true (in .env) to enforce the dual
+      # agent+caller tool check for E2E.
+      CAIPE_CALLER_TOOL_CHECK_ENABLED: ${CAIPE_CALLER_TOOL_CHECK_ENABLED:-false}
       MONGODB_URI: ${MONGODB_URI:-mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin}
       MONGODB_DATABASE: ${MONGODB_DATABASE:-caipe}
       TENANT_ID: ${TENANT_ID:-default}
@@ -3165,7 +3191,7 @@ services:
     build:
       context: ./deploy/agentgateway
       dockerfile: Dockerfile.config-bridge
-    image: ghcr.io/cnoe-io/caipe-agentgateway-config-bridge:${IMAGE_TAG:-localtag}
+    image: ghcr.io/cnoe-io/agentgateway-config-bridge:${IMAGE_TAG:-localtag}
     container_name: agentgateway-config-bridge
     restart: unless-stopped
     read_only: true
@@ -3174,12 +3200,13 @@ services:
     profiles:
       - rbac
     environment:
-      MONGODB_URI: ${MONGODB_URI:-mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin}
-      MONGODB_DATABASE: ${MONGODB_DATABASE:-caipe}
+      AGENTGATEWAY_TARGETS_URL: ${AGENTGATEWAY_TARGETS_URL:-http://caipe-ui:3000/api/internal/agentgateway/mcp-targets}
+      AGENTGATEWAY_TARGETS_TOKEN: ${AGENTGATEWAY_TARGETS_TOKEN:-agentgateway-config-bridge-dev-token}
       AGENTGATEWAY_CONFIG_PATH: /generated/config.yaml
       AGENTGATEWAY_BOOTSTRAP_CONFIG_PATH: /bootstrap/config.yaml
       AGENTGATEWAY_ADMIN_CONFIG_URL: http://agentgateway:15000/config
       AGENTGATEWAY_CONFIG_BRIDGE_POLL_SECONDS: ${AGENTGATEWAY_CONFIG_BRIDGE_POLL_SECONDS:-5}
+      AGENTGATEWAY_LOG_LEVEL: ${AGENTGATEWAY_LOG_LEVEL:-info}
       LOG_LEVEL: ${AGENTGATEWAY_CONFIG_BRIDGE_LOG_LEVEL:-INFO}
     volumes:
       - agentgateway_config:/generated
@@ -3191,14 +3218,35 @@ services:
         - CMD
         - python
         - -c
-        - "from pathlib import Path; import sys; sys.exit(0 if Path('/generated/config.yaml').is_file() and Path('/generated/config.yaml').stat().st_size > 0 else 1)"
+        - |
+          from pathlib import Path
+          import json
+          import sys
+          import yaml
+
+          config_path = Path("/generated/config.yaml")
+          marker_path = Path("/generated/.reconcile_ok")
+          if not config_path.is_file() or config_path.stat().st_size <= 0 or not marker_path.is_file():
+              sys.exit(1)
+          text = config_path.read_text(encoding="utf-8")
+          try:
+              json.loads(text)
+          except json.JSONDecodeError:
+              try:
+                  parsed = yaml.safe_load(text)
+              except yaml.YAMLError:
+                  sys.exit(1)
+              if not isinstance(parsed, dict):
+                  sys.exit(1)
+          sys.exit(0)
       interval: 5s
       timeout: 3s
       retries: 12
       start_period: 5s
     depends_on:
-      caipe-mongodb:
-        condition: service_healthy
+      caipe-ui:
+        condition: service_started
+        required: false
 
   agentgateway:
     image: ghcr.io/agentgateway/agentgateway:v1.1.0
@@ -3221,15 +3269,7 @@ services:
       # `compose up` can race the seed and 403 a user who SHOULD have roles.
       keycloak-init:
         condition: service_completed_successfully
-      # Token-exchange grants must exist before the Slack bot's first OBO
-      # call, but AG itself doesn't need it. Listed here so that bringing
-      # up AG implicitly brings up the full KC initialization chain — saves
-      # operators from having to remember `--profile rbac` orders things
-      # correctly. Marked optional via `restart: on-failure` on the init
-      # container so a failure here doesn't block AG from coming up if the
-      # token-exchange config is intentionally absent in dev.
-      keycloak-init-token-exchange:
-        condition: service_completed_successfully
+      # Token-exchange is for Slack bot OBO, not AgentGateway — do not block AG on it.
       openfga-authz-bridge:
         condition: service_healthy
       agentgateway-config-bridge:

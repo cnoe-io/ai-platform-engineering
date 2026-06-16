@@ -1,12 +1,12 @@
-import { NextRequest, NextResponse } from "next/server";
 import {
-  getAuthFromBearerOrSession,
-  withErrorHandler,
+getAuthFromBearerOrSession,
+withErrorHandler,
 } from "@/lib/api-middleware";
-import { applySkillsCatalogQueryToBackendUrl } from "@/lib/skills-catalog-query";
 import type { SkillHubDoc } from "@/lib/hub-crawl";
-import { checkOpenFgaTuple, type OpenFgaCheckResult, type OpenFgaTupleKey } from "@/lib/rbac/openfga";
+import { checkOpenFgaTuple,type OpenFgaCheckResult,type OpenFgaTupleKey } from "@/lib/rbac/openfga";
 import { organizationObjectId } from "@/lib/rbac/organization";
+import { applySkillsCatalogQueryToBackendUrl } from "@/lib/skills-catalog-query";
+import { NextRequest,NextResponse } from "next/server";
 
 /**
  * Skills Catalog API — Single source of truth for UI and assistant (FR-001).

@@ -1,37 +1,34 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { useVirtualizer } from "@tanstack/react-virtual";
-import {
-  Layers,
-  Radio,
-  Activity,
-  Wrench,
-  CheckSquare,
-  FileText,
-  CheckCircle,
-  AlertCircle,
-  Box,
-  ListTodo,
-  CircleDot,
-  MessageSquare,
-  Filter,
-  Trash2,
-  ChevronDown,
-  Copy,
-  Check,
-  Download,
-  Clock,
-} from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { cn,formatTimestamp,truncateText } from "@/lib/utils";
 import { useChatStore } from "@/store/chat-store";
 import { A2AEvent } from "@/types/a2a";
-import { cn, formatTimestamp, truncateText } from "@/lib/utils";
-import { A2ATimelineModal } from "./A2ATimelineModal";
+import { useVirtualizer } from "@tanstack/react-virtual";
+import { AnimatePresence,motion } from "framer-motion";
+import {
+Activity,
+AlertCircle,
+Box,
+Check,
+CheckCircle,
+CheckSquare,
+ChevronDown,
+CircleDot,
+Clock,
+Copy,
+Download,
+FileText,
+Layers,
+ListTodo,
+MessageSquare,
+Radio,
+Trash2,
+Wrench
+} from "lucide-react";
+import React,{ useEffect,useMemo,useRef,useState } from "react";
 import { useShallow } from "zustand/react/shallow";
+import { A2ATimelineModal } from "./A2ATimelineModal";
 
 // Stable empty array to avoid infinite re-render loops in selectors
 const EMPTY_EVENTS: A2AEvent[] = [];

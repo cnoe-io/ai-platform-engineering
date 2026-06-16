@@ -1,10 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getInternalA2AUrl } from "@/lib/config";
 import {
-  getAuthFromBearerOrSession,
-  requireRbacPermission,
-  withErrorHandler,
+getAuthFromBearerOrSession,
+requireRbacPermission,
+withErrorHandler,
 } from "@/lib/api-middleware";
+import { getInternalA2AUrl } from "@/lib/config";
+import { NextRequest,NextResponse } from "next/server";
 
 /**
  * GET /api/agents/tools

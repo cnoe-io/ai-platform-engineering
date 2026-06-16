@@ -351,6 +351,9 @@ def _planned_agent_detail(agent: AgentBinding, index: int) -> dict[str, Any]:
     detail: dict[str, Any] = {
         "agent_id": agent.agent_id,
         "priority": (index + 1) * 100,
+        # Mirror what the import will persist so the preview shows the right
+        # "Run as" value (defaults to User for legacy configs).
+        "execution_identity": _import_execution_identity(agent),
     }
     if agent.users is not None:
         detail["users"] = agent.users.model_dump(exclude_none=True)
@@ -373,6 +376,11 @@ def _route_from_agent_binding(
         "agent_id": agent.agent_id,
         "enabled": True,
         "priority": (index + 1) * 100,
+        # Always persist execution_identity explicitly so imported routes are
+        # never ambiguous. The static slack-bot YAML config predates this field,
+        # so legacy imports must default to "User" (obo_user) — only carry a
+        # service_account when the config explicitly named one with a valid sub.
+        "execution_identity": _import_execution_identity(agent),
     }
     if agent.users is not None:
         route["users"] = agent.users.model_dump(exclude_none=True)
@@ -381,6 +389,27 @@ def _route_from_agent_binding(
     if agent.escalation is not None:
         route["escalation"] = agent.escalation.model_dump(exclude_none=True)
     return route
+
+
+def _import_execution_identity(agent: AgentBinding) -> dict[str, Any]:
+    """Execution identity to persist for an imported route.
+
+    Defaults to ``obo_user`` (the static YAML config never had this field, so a
+    plain import must not produce service-account routes). Only emits a
+    ``service_account`` identity when the config explicitly set that mode AND a
+    non-empty ``service_account_sub`` — otherwise falls back to ``obo_user`` to
+    avoid corrupted entries on import.
+    """
+    exec_id = agent.execution_identity
+    if exec_id.mode == "service_account" and (exec_id.service_account_sub or "").strip():
+        identity: dict[str, Any] = {
+            "mode": "service_account",
+            "service_account_sub": exec_id.service_account_sub,
+        }
+        if exec_id.service_account_name:
+            identity["service_account_name"] = exec_id.service_account_name
+        return identity
+    return {"mode": "obo_user"}
 
 
 def _openfga_store_id(base_url: str) -> str:

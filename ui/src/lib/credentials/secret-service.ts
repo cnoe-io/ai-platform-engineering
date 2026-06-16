@@ -3,7 +3,7 @@ import type { ResourceAuthzSession } from "@/lib/rbac/resource-authz";
 
 import { writeCredentialAuditEvent } from "./audit";
 import { maskCredentialValue } from "./masking";
-import type { CredentialOwnerRef, CredentialSecretType } from "./types";
+import type { CredentialOwnerRef,CredentialSecretType } from "./types";
 
 export interface SecretRefDocument {
   id: string;

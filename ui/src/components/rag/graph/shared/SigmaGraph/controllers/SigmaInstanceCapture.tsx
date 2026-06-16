@@ -1,7 +1,7 @@
 "use client";
 
 import { useSigma } from "@react-sigma/core";
-import { FC, PropsWithChildren, useEffect } from "react";
+import { FC,PropsWithChildren,useEffect } from "react";
 
 interface SigmaInstanceCaptureProps {
     onSigmaReady: (sigma: any) => void;

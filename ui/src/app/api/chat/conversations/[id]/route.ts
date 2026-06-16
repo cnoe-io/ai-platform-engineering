@@ -2,18 +2,18 @@
 // PUT /api/chat/conversations/[id] - Update conversation
 // DELETE /api/chat/conversations/[id] - Delete conversation
 
-import { NextRequest, NextResponse } from 'next/server';
-import { getCollection, isMongoDBConfigured } from '@/lib/mongodb';
 import {
-  withAuth,
-  withErrorHandler,
-  successResponse,
-  ApiError,
-  requireConversationAccess,
-  validateUUID,
+ApiError,
+requireConversationAccess,
+successResponse,
+validateUUID,
+withAuth,
+withErrorHandler,
 } from '@/lib/api-middleware';
+import { getCollection,isMongoDBConfigured } from '@/lib/mongodb';
 import { requireConversationResourcePermission } from '@/lib/rbac/conversation-implicit-authz';
-import type { Conversation, UpdateConversationRequest } from '@/types/mongodb';
+import type { Conversation,UpdateConversationRequest } from '@/types/mongodb';
+import { NextRequest,NextResponse } from 'next/server';
 
 // GET /api/chat/conversations/[id]
 export const GET = withErrorHandler(async (

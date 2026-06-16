@@ -1,12 +1,12 @@
-import { NextRequest } from "next/server";
 import {
-  withErrorHandler,
-  successResponse,
-  ApiError,
-  getAuthFromBearerOrSession,
-  requireRbacPermission,
+ApiError,
+getAuthFromBearerOrSession,
+requireRbacPermission,
+successResponse,
+withErrorHandler,
 } from "@/lib/api-middleware";
 import { deleteIdpMapper } from "@/lib/rbac/keycloak-admin";
+import { NextRequest } from "next/server";
 
 export const DELETE = withErrorHandler(
   async (request: NextRequest, context: { params: Promise<{ id: string }> }) => {

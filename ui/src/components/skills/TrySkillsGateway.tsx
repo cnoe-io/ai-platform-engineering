@@ -1,34 +1,34 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
-import {
-  Terminal,
-  Loader2,
-  AlertCircle,
-  CheckCircle2,
-  Search,
-  Copy,
-  Check,
-  ChevronRight,
-  Zap,
-  Eye,
-  EyeOff,
-} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
+Card,
+CardContent,
+CardDescription,
+CardHeader,
+CardTitle,
 } from "@/components/ui/card";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
+Dialog,
+DialogContent,
+DialogDescription,
+DialogHeader,
+DialogTitle,
 } from "@/components/ui/dialog";
+import {
+AlertCircle,
+Check,
+CheckCircle2,
+ChevronRight,
+Copy,
+Eye,
+EyeOff,
+Loader2,
+Search,
+Terminal,
+Zap,
+} from "lucide-react";
+import { useCallback,useEffect,useState } from "react";
 
 const DEFAULT_SKILL_COMMAND_NAME = "caipe-skills";
 

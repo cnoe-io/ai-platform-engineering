@@ -35,6 +35,7 @@ jest.mock('next/navigation', () => ({
 
 jest.mock('framer-motion', () => ({
   motion: {
+    // eslint-disable-next-line react/display-name
     div: React.forwardRef(({ children, initial, animate, exit, transition, ...props }: any, ref: any) => (
       <div ref={ref} {...props}>{children}</div>
     )),

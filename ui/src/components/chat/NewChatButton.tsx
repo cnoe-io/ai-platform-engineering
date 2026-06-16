@@ -1,12 +1,12 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
-import { Plus, ChevronDown, Bot, Loader2, Search, Check } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
-import { getConfig } from "@/lib/config";
 import { AgentAvatar } from "@/components/dynamic-agents/AgentAvatar";
+import { Button } from "@/components/ui/button";
+import { getConfig } from "@/lib/config";
+import { cn } from "@/lib/utils";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
+import { Bot,Check,ChevronDown,Loader2,Plus,Search } from "lucide-react";
+import React,{ useEffect,useRef,useState } from "react";
 
 interface NewChatButtonProps {
   collapsed: boolean;

@@ -1,16 +1,16 @@
-import { NextRequest } from "next/server";
 import {
-  withErrorHandler,
-  successResponse,
-  ApiError,
-  getAuthFromBearerOrSession,
-  requireRbacPermission,
+ApiError,
+getAuthFromBearerOrSession,
+requireRbacPermission,
+successResponse,
+withErrorHandler,
 } from "@/lib/api-middleware";
 import {
-  listIdpAliases,
-  listIdpMappers,
-  createGroupRoleMapper,
+createGroupRoleMapper,
+listIdpAliases,
+listIdpMappers,
 } from "@/lib/rbac/keycloak-admin";
+import { NextRequest } from "next/server";
 
 export const GET = withErrorHandler(async (request: NextRequest) => {
   const { user, session } = await getAuthFromBearerOrSession(request);

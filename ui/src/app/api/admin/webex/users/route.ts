@@ -1,13 +1,13 @@
-import { NextRequest } from "next/server";
 import {
-  withErrorHandler,
-  getPaginationParams,
-  paginatedResponse,
-  getAuthFromBearerOrSession,
-  requireRbacPermission,
+getAuthFromBearerOrSession,
+getPaginationParams,
+paginatedResponse,
+requireRbacPermission,
+withErrorHandler,
 } from "@/lib/api-middleware";
 import { getCollection } from "@/lib/mongodb";
 import { listRealmUsersPage } from "@/lib/rbac/keycloak-admin";
+import { NextRequest } from "next/server";
 
 type WebexUserMetrics = {
   webex_user_id: string;

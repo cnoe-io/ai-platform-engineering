@@ -1,9 +1,9 @@
-import { create } from "zustand";
 import type {
-  WorkflowRun,
-  CreateWorkflowRunInput,
-  UpdateWorkflowRunInput,
+CreateWorkflowRunInput,
+UpdateWorkflowRunInput,
+WorkflowRun,
 } from "@/types/workflow-run";
+import { create } from "zustand";
 
 interface WorkflowRunStore {
   // State

@@ -10,9 +10,9 @@
  * admin action. Editing is done per-target via PUT.
  */
 
-import { NextRequest } from "next/server";
-import { withAuth, withErrorHandler, successResponse } from "@/lib/api-middleware";
+import { successResponse,withAuth,withErrorHandler } from "@/lib/api-middleware";
 import { REVIEW_TARGETS } from "@/lib/server/ai-review/defaults";
+import { NextRequest } from "next/server";
 
 export const GET = withErrorHandler(async (request: NextRequest) => {
   return await withAuth(request, async () => {

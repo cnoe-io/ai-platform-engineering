@@ -1,9 +1,9 @@
 "use client";
 
-import { useSession } from "next-auth/react";
-import { useCallback, useEffect, useRef, useState } from "react";
 import { isDevAnonymousAuthEnabled } from "@/lib/auth/dev-auth-provider";
-import type { KbTabGatesMap, KbTabKey } from "@/lib/rbac/types";
+import type { KbTabGatesMap,KbTabKey } from "@/lib/rbac/types";
+import { useSession } from "next-auth/react";
+import { useCallback,useEffect,useRef,useState } from "react";
 
 const EMPTY_GATES: KbTabGatesMap = {
   search: false,

@@ -50,6 +50,13 @@ export interface AuthResult {
   bearerToken?: string;
   /** W3C trace context propagated from the Web UI backend authz span. */
   traceparent?: string;
+  /**
+   * Whether the caller authenticated as a Keycloak service account
+   * (client-credentials). Propagated so OpenFGA checks graph the caller as
+   * `service_account:<sub>` rather than `user:<sub>` (spec
+   * 2026-06-05-service-accounts). assisted-by Claude claude-opus-4-8
+   */
+  isServiceAccount?: boolean;
 }
 
 export interface ProxyRbacPermission {
@@ -182,7 +189,8 @@ export async function authenticateRequest(
     const bearerToken = (s?.accessToken as string | undefined) || undefined;
     const subject = (s?.sub as string | undefined) || user.email;
     const tenantId = (s?.org as string | undefined) || "default";
-    return { subject, email: user.email, role: user.role, tenantId, userContextHeader: encoded, bearerToken };
+    const isServiceAccount = (s?.isServiceAccount as boolean | undefined) === true;
+    return { subject, email: user.email, role: user.role, tenantId, userContextHeader: encoded, bearerToken, isServiceAccount };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
 

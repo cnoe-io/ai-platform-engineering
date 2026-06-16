@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 
-import { successResponse, withErrorHandler } from "@/lib/api-middleware";
+import { successResponse,withErrorHandler } from "@/lib/api-middleware";
 import { computeSlackChannelDiagnostics } from "@/lib/rbac/slack-channel-diagnostics";
 
 import { withSlackChannelRebacViewAuth } from "../../../_lib";

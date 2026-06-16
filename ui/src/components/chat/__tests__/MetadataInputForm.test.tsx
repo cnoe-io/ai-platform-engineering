@@ -16,6 +16,7 @@ import { MetadataInputForm, parseUserInputRequest, type InputField } from "../Me
 
 jest.mock("framer-motion", () => ({
   motion: {
+    // eslint-disable-next-line react/display-name
     div: React.forwardRef(
       ({ children, ...props }: { children?: React.ReactNode } & Record<string, unknown>, ref: React.Ref<HTMLDivElement>) => (
         <div ref={ref} {...props}>{children}</div>
@@ -32,6 +33,7 @@ jest.mock("lucide-react", () => ({
 }));
 
 jest.mock("@/components/ui/button", () => ({
+  // eslint-disable-next-line react/display-name
   Button: React.forwardRef(
     (
       { children, onClick, type, disabled, ...props }: { children?: React.ReactNode; onClick?: () => void; type?: string; disabled?: boolean } & Record<string, unknown>,

@@ -50,7 +50,7 @@ jest.mock("@/lib/rbac/openfga", () => ({
 }));
 
 const mockReconcileDataSourceRelationships = jest.fn();
-jest.mock("@/lib/rbac/openfga-owned-resources", () => ({
+jest.mock("@/lib/rbac/openfga-owned-resources-reconcile", () => ({
   reconcileDataSourceRelationships: (...args: unknown[]) =>
     mockReconcileDataSourceRelationships(...args),
 }));

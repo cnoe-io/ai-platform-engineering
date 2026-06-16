@@ -1,5 +1,5 @@
-import type { Document } from "mongodb";
 import type { UniversalRebacRelationship } from "@/types/rbac-universal";
+import type { Document } from "mongodb";
 
 import { getRbacCollection } from "./mongo-collections";
 

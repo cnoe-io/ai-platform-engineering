@@ -1,10 +1,10 @@
 "use client";
 
-import React, { useRef, useEffect } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { Terminal, Bot, Zap } from "lucide-react";
-import { cn } from "@/lib/utils";
 import { AGENT_LOGOS } from "@/components/shared/AgentLogos";
+import { cn } from "@/lib/utils";
+import { AnimatePresence,motion } from "framer-motion";
+import { Bot,Terminal,Zap } from "lucide-react";
+import React,{ useEffect,useRef } from "react";
 
 export interface SlashCommand {
   id: string;

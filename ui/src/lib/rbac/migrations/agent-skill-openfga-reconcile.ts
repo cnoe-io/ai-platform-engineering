@@ -1,15 +1,15 @@
 import { getCollection } from "@/lib/mongodb";
 import {
-  deriveAgentSkillOpenFgaReconcilePlan,
-  groupSkillTuplesById,
-  type AgentSkillReconcileDoc,
+deriveAgentSkillOpenFgaReconcilePlan,
+groupSkillTuplesById,
+type AgentSkillReconcileDoc,
 } from "@/lib/rbac/agent-skill-openfga-reconcile";
-import { readOpenFgaTuples, writeOpenFgaTupleDiff } from "@/lib/rbac/openfga";
 import type {
-  MigrationApplyResult,
-  MigrationPlanResult,
-  MigrationSampleDiff,
+MigrationApplyResult,
+MigrationPlanResult,
+MigrationSampleDiff,
 } from "@/lib/rbac/migrations/types";
+import { readOpenFgaTuples,writeOpenFgaTupleDiff } from "@/lib/rbac/openfga";
 
 export const AGENT_SKILL_OPENFGA_RECONCILE_MIGRATION_ID = "agent_skill_openfga_reconcile_v1";
 const RELEASE_058 = "0.5.8";

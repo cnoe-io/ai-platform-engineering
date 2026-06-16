@@ -1,28 +1,28 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
-import {
-  ChevronRight,
-  Eye,
-  FileCode,
-  ExternalLink,
-  FileText,
-  Folder,
-  FolderOpen,
-  Image as ImageIcon,
-  Loader2,
-  Pencil,
-  X,
-} from "lucide-react";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
+import {
+Dialog,
+DialogContent,
+DialogHeader,
+DialogTitle,
+} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import {
+ChevronRight,
+ExternalLink,
+Eye,
+FileCode,
+FileText,
+Folder,
+FolderOpen,
+Image as ImageIcon,
+Loader2,
+Pencil,
+X,
+} from "lucide-react";
+import Link from "next/link";
+import React,{ useCallback,useEffect,useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -221,7 +221,7 @@ export function SkillFolderViewer({
         // Best-effort surface — this dialog is read-only and a folder
         // listing failure is rarely actionable. Log to console and
         // leave the row collapsed.
-        // eslint-disable-next-line no-console
+
         console.warn("SkillFolderViewer: failed to list folder", err);
       }
     },

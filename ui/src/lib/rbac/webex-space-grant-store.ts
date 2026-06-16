@@ -1,10 +1,10 @@
 import type { Document } from "mongodb";
 
+import type { UniversalRebacResourceAction,UniversalRebacResourceRef } from "@/types/rbac-universal";
 import type {
-  WebexSpaceGrantResourceType,
-  WebexSpaceResourceGrant,
+WebexSpaceGrantResourceType,
+WebexSpaceResourceGrant,
 } from "@/types/webex-rebac";
-import type { UniversalRebacResourceAction, UniversalRebacResourceRef } from "@/types/rbac-universal";
 
 import { getRbacCollection } from "./mongo-collections";
 

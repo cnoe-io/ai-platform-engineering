@@ -1,8 +1,8 @@
-import { NextRequest } from "next/server";
-import { ApiError, successResponse, withErrorHandler } from "@/lib/api-middleware";
+import { ApiError,successResponse,withErrorHandler } from "@/lib/api-middleware";
 import { logOpenFgaRebacAuditEvent } from "@/lib/rbac/audit";
-import { writeOpenFgaTuples, type OpenFgaTupleKey } from "@/lib/rbac/openfga";
-import { validateTupleKey, withOpenFgaAdminAuth } from "../_lib";
+import { writeOpenFgaTuples,type OpenFgaTupleKey } from "@/lib/rbac/openfga";
+import { NextRequest } from "next/server";
+import { validateTupleKey,withOpenFgaAdminAuth } from "../_lib";
 
 type ResourceType = "agent" | "tool" | "knowledge_base" | "admin_surface";
 type Operation = "grant" | "revoke";

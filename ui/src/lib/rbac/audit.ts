@@ -1,19 +1,19 @@
-import { createHash, randomUUID } from "crypto";
-import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
-import type {
-  AuditEvent,
-  AuditEventSource,
-  AuditEventType,
-  AuditOutcome,
-  AuditPdp,
-  AuditReasonCode,
-  RbacResource,
-} from "./types";
+import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
+import { createHash,randomUUID } from "crypto";
 import {
-  createAuthzTraceContext,
-  emitAuthzSpan,
-  getCurrentAuthzTraceContext,
+createAuthzTraceContext,
+emitAuthzSpan,
+getCurrentAuthzTraceContext,
 } from "./authz-tracing";
+import type {
+AuditEvent,
+AuditEventSource,
+AuditEventType,
+AuditOutcome,
+AuditPdp,
+AuditReasonCode,
+RbacResource,
+} from "./types";
 
 const SUBJECT_SALT = process.env.AUDIT_SUBJECT_SALT || "caipe-098-audit";
 

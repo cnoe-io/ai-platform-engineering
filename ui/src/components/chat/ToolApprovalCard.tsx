@@ -1,14 +1,14 @@
 "use client";
 
-import React, { useState, useCallback } from "react";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Check, X, Pencil } from "lucide-react";
-import CodeMirror from "@uiw/react-codemirror";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { json } from "@codemirror/lang-json";
 import { oneDark } from "@codemirror/theme-one-dark";
+import CodeMirror from "@uiw/react-codemirror";
+import { Check,Pencil,X } from "lucide-react";
 import { useTheme } from "next-themes";
-import { cn } from "@/lib/utils";
+import { useCallback,useState } from "react";
 
 interface ToolApprovalCardProps {
   toolName: string;

@@ -202,7 +202,7 @@ function setupFeedbackCollection(docs: any[], totalCount: number) {
 // intentionally do NOT call jest.resetModules() in beforeEach because that
 // detaches our mock instance and triggers `Cannot read properties of undefined
 // (reading 'allowed')` from requireRbacPermission's response unwrap.
-// eslint-disable-next-line import/first
+
 import { GET } from '../admin/feedback/route';
 
 describe('GET /api/admin/feedback', () => {

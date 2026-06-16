@@ -1,9 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
+import { ApiError,handleApiError,requireRbacPermission } from "@/lib/api-middleware";
 import { authOptions } from "@/lib/auth-config";
 import { getCollection } from "@/lib/mongodb";
-import { requireRbacPermission, ApiError, handleApiError } from "@/lib/api-middleware";
 import { requireResourcePermission } from "@/lib/rbac/resource-authz";
+import { getServerSession } from "next-auth";
+import { NextRequest,NextResponse } from "next/server";
 
 /**
  * Single team-scoped RAG tool operations (098 Enterprise RBAC — FR-009).

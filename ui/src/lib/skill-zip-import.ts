@@ -36,10 +36,10 @@
  */
 
 import type {
-  ImportConflictAction,
-  ImportConflictDecision,
+ImportConflictAction,
+ImportConflictDecision,
 } from "@/lib/skill-import-helpers";
-import { parseSkillMd, type ParsedSkillMd } from "@/lib/skill-md-parser";
+import { parseSkillMd,type ParsedSkillMd } from "@/lib/skill-md-parser";
 
 // --- Caps ------------------------------------------------------------------
 

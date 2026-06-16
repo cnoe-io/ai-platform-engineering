@@ -1,34 +1,34 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
-import {
-  ArchiveRestore,
-  RotateCcw,
-  Clock,
-  AlertTriangle,
-  Loader2,
-  MessageSquare,
-} from "lucide-react";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
+Dialog,
+DialogContent,
+DialogDescription,
+DialogHeader,
+DialogTitle,
+} from "@/components/ui/dialog";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+Tooltip,
+TooltipContent,
+TooltipProvider,
+TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { apiClient } from "@/lib/api-client";
+import { cn,truncateText } from "@/lib/utils";
 import { useChatStore } from "@/store/chat-store";
-import { cn, truncateText } from "@/lib/utils";
 import type { Conversation } from "@/types/mongodb";
+import {
+AlertTriangle,
+ArchiveRestore,
+Clock,
+Loader2,
+MessageSquare,
+RotateCcw,
+} from "lucide-react";
+import { useCallback,useEffect,useState } from "react";
 
 const RETENTION_DAYS = 7;
 
