@@ -39,11 +39,8 @@ Each component has its own environment variables - see `env.example` in `ui/` an
 AI agents operating in this repository **must** follow these rules on every commit:
 
 1. **No AI sign-off** - `Signed-off-by` is a human DCO certification. AI agents must never invent, assume, or add this trailer on their own.
-2. **Use Sri's DCO on every commit** - Every commit must include:
- ```
- Signed-off-by: Sri Aradhyula <sraradhy@cisco.com>
- ```
-3. **Do not invent identities** - Use only the DCO identity above unless Sri explicitly provides a different one.
+2. **Use an explicit human DCO on every commit** - Every commit must include the `Signed-off-by` trailer that the human contributor explicitly provided.
+3. **Do not invent identities** - Use only a DCO identity explicitly provided by the human contributor.
 
 ## Git Guidelines
 
