@@ -263,6 +263,51 @@ describe("GET /api/rbac/admin-tab-gates", () => {
     });
   });
 
+  it("shows Slack tab when a non-admin can read a team-shared Slack channel", async () => {
+    mockGetServerSession.mockResolvedValue({
+      role: "user",
+      sub: "user-sub",
+      user: { email: "user@example.com" },
+    });
+    mockGetCollection.mockImplementation((name: string) => {
+      if (name === "channel_team_mappings") {
+        return {
+          find: jest.fn().mockReturnValue({
+            limit: jest.fn().mockReturnThis(),
+            toArray: jest.fn().mockResolvedValue([
+              { slack_workspace_id: "T123", slack_channel_id: "C123", active: true },
+            ]),
+          }),
+        };
+      }
+      if (name === "webex_space_team_mappings") {
+        return {
+          find: jest.fn().mockReturnValue({
+            limit: jest.fn().mockReturnThis(),
+            toArray: jest.fn().mockResolvedValue([]),
+          }),
+        };
+      }
+      throw new Error(`unexpected collection ${name}`);
+    });
+    mockCheckOpenFgaTuple.mockImplementation(async (tuple: { user: string; relation: string; object: string }) => ({
+      allowed:
+        tuple.user === "user:user-sub" &&
+        tuple.relation === "can_read" &&
+        tuple.object === "slack_channel:T123--C123",
+    }));
+
+    const res = await GET();
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.gates).toMatchObject({
+      slack: true,
+      webex: false,
+      openfga: false,
+    });
+  });
+
   it("can simulate admin tab gates for a real team userset", async () => {
     mockGetServerSession.mockResolvedValue({
       role: "admin",

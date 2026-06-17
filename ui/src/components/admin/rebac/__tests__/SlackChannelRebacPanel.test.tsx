@@ -817,9 +817,13 @@ it("organizes Slack admin into Configured / Onboard / Advanced tabs", async () =
   // Onboard tab swaps in discovery wizard, hides the configured table.
   await switchToTab("Onboard channels");
   expect(screen.getByRole("button", { name: "Find channels" })).toBeInTheDocument();
-  expect(screen.getByText(/Sharing model:/i)).toBeInTheDocument();
-  expect(screen.getByText(/user:\* can_use agent/i)).toBeInTheDocument();
-  expect(screen.getByText(/platform default/i)).toBeInTheDocument();
+  // assisted-by Codex Codex-sonnet-4-6
+  expect(
+    screen.getByText(/Members of the assigned team can update this Slack channel's bot routing/i),
+  ).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Slack access details" })).toBeInTheDocument();
+  expect(screen.queryByText(/user:\* can_use agent/i)).not.toBeInTheDocument();
+  expect(screen.queryByText(/Sharing model:/i)).not.toBeInTheDocument();
   expect(
     screen.queryByRole("region", { name: "Configured Slack channels" }),
   ).not.toBeInTheDocument();
@@ -935,4 +939,3 @@ it("opens a runtime sync modal with preview progress and apply results", async (
   expect(screen.getByText("1 route upserted")).toBeInTheDocument();
   expect(screen.getByText("1 OpenFGA tuple written")).toBeInTheDocument();
 });
-

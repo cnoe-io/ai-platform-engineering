@@ -135,6 +135,48 @@ describe("MCP OpenFGA tuple contract", () => {
       expect(diff.writes).not.toEqual(
         expect.arrayContaining([
           { user: "agent:agent-a", relation: "caller", object: "tool:*" },
+          { user: `team:${TEAM}#member`, relation: "caller", object: "tool:*" },
+        ]),
+      );
+    });
+
+    it("accepts slash-form MCP server selections from the team resources picker", () => {
+      const diff = buildTeamResourceTupleDiff({
+        teamSlug: TEAM,
+        memberUserIds: [],
+        agents: { added: ["agent-platform-helper"], removed: [] },
+        agentAdmins: { added: [], removed: [] },
+        tools: { added: ["mcp-confluence-mcp/*"], removed: [] },
+        toolWildcard: { added: false, removed: false },
+      });
+
+      expect(diff.writes).toEqual(
+        expect.arrayContaining([
+          {
+            user: `team:${TEAM}#member`,
+            relation: "reader",
+            object: "mcp_server:mcp-confluence-mcp",
+          },
+          {
+            user: `team:${TEAM}#member`,
+            relation: "caller",
+            object: "tool:mcp-confluence-mcp/*",
+          },
+          {
+            user: "agent:agent-platform-helper",
+            relation: "caller",
+            object: "tool:mcp-confluence-mcp/*",
+          },
+        ]),
+      );
+      expect(diff.writes).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ object: "mcp_tool:mcp-confluence-mcp_*" }),
+        ]),
+      );
+      expect(diff.writes).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ object: "tool:mcp-confluence-mcp_*" }),
         ]),
       );
     });
@@ -154,6 +196,10 @@ describe("MCP OpenFGA tuple contract", () => {
         expect.arrayContaining([
           { user: "agent:agent-drop", relation: "caller", object: "tool:mcp-jira/*" },
           { user: "agent:agent-drop", relation: "caller", object: "tool:mcp-rag/*" },
+        ]),
+      );
+      expect(diff.deletes).not.toEqual(
+        expect.arrayContaining([
           { user: "agent:agent-drop", relation: "caller", object: "tool:*" },
         ]),
       );
