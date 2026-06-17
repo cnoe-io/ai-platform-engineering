@@ -244,10 +244,14 @@ export function WorkflowSidebar({
 
   const switchTab = useCallback(
     (tab: SidebarTab) => {
-      if (tab === activeTab) return;
+      if (tab === activeTab && !activeRunId) return;
       const doSwitch = () => {
         setTabDirection(tab === "runs" ? 1 : -1);
         setActiveTab(tab);
+        // When switching to workflows from the run detail page, navigate back
+        if (tab === "workflows" && activeRunId) {
+          router.push("/workflows");
+        }
       };
       if (editMode) {
         requestDeferredAction(doSwitch);
@@ -255,7 +259,7 @@ export function WorkflowSidebar({
       }
       doSwitch();
     },
-    [activeTab, editMode, requestDeferredAction],
+    [activeTab, activeRunId, editMode, requestDeferredAction, router],
   );
 
   const handleRefresh = useCallback(async () => {
