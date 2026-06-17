@@ -844,7 +844,7 @@ export async function bootstrapDefaultIdentityGroupSyncRuleIfEmpty(): Promise<bo
   }
   if (!isMongoDBConfigured) return false;
 
-  const collection = await getCollection<{ id: string }>(
+  const collection = await getCollection<{ id: string; provider_id?: string; name?: string }>(
     "identity_group_sync_rules",
   );
 
