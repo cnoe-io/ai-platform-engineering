@@ -57,7 +57,10 @@ describe("TeamOwnershipFields", () => {
     setup({ isEditing: true, allowTransfer: true });
     expect(screen.getByLabelText(/Owner Team/i)).not.toBeDisabled();
     expect(
-      screen.getByRole("button", { name: /Transfer ownership/i }),
+      screen.queryByRole("button", { name: /Transfer ownership/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/Changing the owner team will transfer ownership when you save/i),
     ).toBeInTheDocument();
   });
 
