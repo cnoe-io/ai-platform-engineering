@@ -41,8 +41,8 @@ export function KbSharingPanel({ knowledgeBaseId }: KbSharingPanelProps) {
   const [ownerTeamSlug, setOwnerTeamSlug] = React.useState<string | null>(null);
   const [originalOwner, setOriginalOwner] = React.useState<string | null>(null);
   const [creatorSubject, setCreatorSubject] = React.useState<string | null>(null);
-  // Ownership transfer (US3): on edit the owner picker is read-only until the
-  // user invokes the transfer affordance; these track the pending transfer.
+  // Ownership transfer (US3): on edit, changing the owner picker marks a
+  // pending transfer.
   const [transferRequested, setTransferRequested] = React.useState(false);
   const [transferConfirmedNotMember, setTransferConfirmedNotMember] = React.useState(false);
   const [loading, setLoading] = React.useState(true);
@@ -96,9 +96,9 @@ export function KbSharingPanel({ knowledgeBaseId }: KbSharingPanelProps) {
     setError(null);
     setInfo(null);
     try {
-      // Send owner_team_slug + confirm_not_member only when the user invoked
-      // the transfer affordance, so a share-only save never trips the BFF's
-      // not-a-member transfer gate.
+      // Send owner_team_slug + confirm_not_member only when the owner picker
+      // changed, so a share-only save never trips the BFF's not-a-member
+      // transfer gate.
       const res = await fetch(`/api/rag/kbs/${encodeURIComponent(knowledgeBaseId)}/sharing`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -132,8 +132,8 @@ export function KbSharingPanel({ knowledgeBaseId }: KbSharingPanelProps) {
   }, [knowledgeBaseId, selected, transferRequested, transferConfirmedNotMember, ownerTeamSlug]);
 
   const isDirty = React.useMemo(() => {
-    // A pending ownership transfer (owner changed via the transfer affordance)
-    // makes the form dirty even when the shared set is unchanged.
+    // A pending ownership transfer makes the form dirty even when the shared
+    // set is unchanged.
     if (transferRequested && ownerTeamSlug !== originalOwner) return true;
     if (originalShared.length !== selected.length) return true;
     const a = new Set(originalShared);
@@ -160,9 +160,9 @@ export function KbSharingPanel({ knowledgeBaseId }: KbSharingPanelProps) {
       </div>
 
       {/* Shared <TeamOwnershipFields> (spec 2026-06-03, US1/US5). The KB
-          already exists, so the owner team is read-only until the user invokes
-          the transfer affordance (US3). The component renders the owner team,
-          the share multi-select, and the effective-access preview. */}
+          already exists, so owner team changes are treated as ownership
+          transfers (US3). The component renders the owner team, the share
+          multi-select, and the effective-access preview. */}
       <TeamOwnershipFields
         ownerTeamSlug={ownerTeamSlug ?? ""}
         sharedTeamSlugs={selected}

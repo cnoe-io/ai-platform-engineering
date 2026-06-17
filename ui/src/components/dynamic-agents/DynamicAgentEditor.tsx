@@ -365,9 +365,9 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
     source?.shared_with_teams || []
   );
   const [ownerTeamSlug, setOwnerTeamSlug] = React.useState(source?.owner_team_slug || "");
-  // Ownership transfer (spec 2026-06-03, US3). On edit, the owner picker is
-  // read-only until the user invokes the transfer affordance; these track the
-  // pending transfer so the PUT can send owner_team_slug + confirm_not_member.
+  // Ownership transfer (spec 2026-06-03, US3). On edit, changing the owner
+  // picker marks a pending transfer so the PUT can send owner_team_slug +
+  // confirm_not_member.
   const [transferRequested, setTransferRequested] = React.useState(false);
   const [transferConfirmedNotMember, setTransferConfirmedNotMember] = React.useState(false);
   const [allowedTools, setAllowedTools] = React.useState<Record<string, string[] | boolean>>(
@@ -943,8 +943,8 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
           features: features,
           interrupt_on: interruptOn,
           // Ownership transfer (US3): only send owner_team_slug when the user
-          // actually invoked the transfer affordance, so a normal edit never
-          // trips the route's transfer guard.
+          // changed the owner picker, so a normal edit never trips the route's
+          // transfer guard.
           ...(transferRequested
             ? {
                 owner_team_slug: ownerTeamSlug,
