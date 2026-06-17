@@ -238,9 +238,9 @@ describe("bootstrapDefaultIdentityGroupSyncRuleIfEmpty", () => {
     }
   });
 
-  it("provisions the bootstrap rule when env var is true and rules collection is empty", async () => {
+  it("provisions the bootstrap rule when it does not exist", async () => {
     process.env.IDENTITY_SYNC_LOGIN_AUTO_CREATE_TEAMS = "true";
-    mockCollection.countDocuments.mockResolvedValue(0);
+    mockCollection.findOne.mockResolvedValue(null);
     mockCollection.insertOne.mockResolvedValue({
       insertedId: AUTO_CREATE_TEAMS_BOOTSTRAP_RULE_ID,
     });
@@ -251,44 +251,76 @@ describe("bootstrapDefaultIdentityGroupSyncRuleIfEmpty", () => {
     expect(mockCollection.insertOne).toHaveBeenCalledTimes(1);
     const inserted = mockCollection.insertOne.mock.calls[0][0];
     expect(inserted.id).toBe(AUTO_CREATE_TEAMS_BOOTSTRAP_RULE_ID);
+    expect(inserted.provider_id).toBe("*");
     expect(inserted.auto_create_team).toBe(true);
     expect(inserted.enabled).toBe(true);
   });
 
   it("is a no-op when the env var is unset", async () => {
     delete process.env.IDENTITY_SYNC_LOGIN_AUTO_CREATE_TEAMS;
-    mockCollection.countDocuments.mockResolvedValue(0);
 
     const created = await bootstrapDefaultIdentityGroupSyncRuleIfEmpty();
 
     expect(created).toBe(false);
-    expect(mockCollection.countDocuments).not.toHaveBeenCalled();
+    expect(mockCollection.findOne).not.toHaveBeenCalled();
     expect(mockCollection.insertOne).not.toHaveBeenCalled();
   });
 
   it("is a no-op when the env var is any non-true value", async () => {
     process.env.IDENTITY_SYNC_LOGIN_AUTO_CREATE_TEAMS = "1";
-    mockCollection.countDocuments.mockResolvedValue(0);
 
     const created = await bootstrapDefaultIdentityGroupSyncRuleIfEmpty();
 
     expect(created).toBe(false);
-    expect(mockCollection.countDocuments).not.toHaveBeenCalled();
+    expect(mockCollection.findOne).not.toHaveBeenCalled();
   });
 
-  it("is a no-op when any rule already exists (admin-managed policy wins)", async () => {
+  it("updates a stale bootstrap rule with old provider_id", async () => {
     process.env.IDENTITY_SYNC_LOGIN_AUTO_CREATE_TEAMS = "true";
-    mockCollection.countDocuments.mockResolvedValue(3);
+    mockCollection.findOne.mockResolvedValue({
+      id: AUTO_CREATE_TEAMS_BOOTSTRAP_RULE_ID,
+      provider_id: "oidc-claims",
+      name: "Auto-create teams from OIDC group claims (bootstrap)",
+    });
+    mockCollection.updateOne.mockResolvedValue({ modifiedCount: 1 });
+
+    const created = await bootstrapDefaultIdentityGroupSyncRuleIfEmpty();
+
+    expect(created).toBe(true);
+    expect(mockCollection.insertOne).not.toHaveBeenCalled();
+    expect(mockCollection.updateOne).toHaveBeenCalledTimes(1);
+    const update = mockCollection.updateOne.mock.calls[0][1];
+    expect(update.$set.provider_id).toBe("*");
+  });
+
+  it("is a no-op when the bootstrap rule is already up to date", async () => {
+    process.env.IDENTITY_SYNC_LOGIN_AUTO_CREATE_TEAMS = "true";
+    const rule = buildAutoCreateTeamsBootstrapRule("2026-01-01T00:00:00.000Z");
+    mockCollection.findOne.mockResolvedValue(rule);
 
     const created = await bootstrapDefaultIdentityGroupSyncRuleIfEmpty();
 
     expect(created).toBe(false);
     expect(mockCollection.insertOne).not.toHaveBeenCalled();
+    expect(mockCollection.updateOne).not.toHaveBeenCalled();
+  });
+
+  it("is a no-op when admin-curated rules exist but bootstrap rule is absent", async () => {
+    // Admin-curated rules with different IDs are not touched; the bootstrap
+    // rule itself is simply inserted since findOne returns null for its ID.
+    process.env.IDENTITY_SYNC_LOGIN_AUTO_CREATE_TEAMS = "true";
+    mockCollection.findOne.mockResolvedValue(null);
+    mockCollection.insertOne.mockResolvedValue({ insertedId: "new-id" });
+
+    const created = await bootstrapDefaultIdentityGroupSyncRuleIfEmpty();
+
+    expect(created).toBe(true);
+    expect(mockCollection.insertOne).toHaveBeenCalledTimes(1);
   });
 
   it("treats a duplicate-key race as benign", async () => {
     process.env.IDENTITY_SYNC_LOGIN_AUTO_CREATE_TEAMS = "true";
-    mockCollection.countDocuments.mockResolvedValue(0);
+    mockCollection.findOne.mockResolvedValue(null);
     const dupErr = Object.assign(new Error("E11000"), { code: 11000 });
     mockCollection.insertOne.mockRejectedValue(dupErr);
 
@@ -299,7 +331,7 @@ describe("bootstrapDefaultIdentityGroupSyncRuleIfEmpty", () => {
 
   it("re-throws non-duplicate-key errors", async () => {
     process.env.IDENTITY_SYNC_LOGIN_AUTO_CREATE_TEAMS = "true";
-    mockCollection.countDocuments.mockResolvedValue(0);
+    mockCollection.findOne.mockResolvedValue(null);
     mockCollection.insertOne.mockRejectedValue(new Error("connection lost"));
 
     await expect(bootstrapDefaultIdentityGroupSyncRuleIfEmpty()).rejects.toThrow(
