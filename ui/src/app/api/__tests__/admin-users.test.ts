@@ -64,6 +64,7 @@ const mockListRealmRoleMappingsForUser = jest.fn();
 const mockGetUserFederatedIdentities = jest.fn();
 const mockGetRealmUserById = jest.fn();
 const mockIsValidTeamSlug = jest.fn();
+const mockFindRealmUsersByExactEmail = jest.fn();
 
 jest.mock('@/lib/rbac/keycloak-admin', () => ({
   searchRealmUsers: (...args: unknown[]) => mockSearchRealmUsers(...args),
@@ -75,6 +76,8 @@ jest.mock('@/lib/rbac/keycloak-admin', () => ({
     mockGetUserFederatedIdentities(...args),
   getRealmUserById: (...args: unknown[]) => mockGetRealmUserById(...args),
   isValidTeamSlug: (...args: unknown[]) => mockIsValidTeamSlug(...args),
+  findRealmUsersByExactEmail: (...args: unknown[]) =>
+    mockFindRealmUsersByExactEmail(...args),
 }));
 
 function makeRequest(url: string): NextRequest {
@@ -120,6 +123,8 @@ function resetMocks() {
   mockGetUserFederatedIdentities.mockReset();
   mockGetRealmUserById.mockReset();
   mockIsValidTeamSlug.mockReset();
+  mockFindRealmUsersByExactEmail.mockReset();
+  mockFindRealmUsersByExactEmail.mockResolvedValue([]);
   mockCheckPermission.mockReset();
   mockCheckOpenFgaTuple.mockReset();
   mockListOpenFgaObjects.mockReset();
@@ -366,21 +371,27 @@ describe("GET /api/admin/users — non-admin team-scoped view", () => {
     );
   }
 
-  function setMembershipDocs(docs: Array<{ user_email: string; status: string }>) {
-    const sortChain = { toArray: jest.fn().mockResolvedValue(docs) };
-    const findChain = { sort: jest.fn().mockReturnValue(sortChain) };
+  // Membership is resolved via `listActiveTeamMembershipSourcesBySlug`, which
+  // queries `team_membership_sources` by { team_slug, status: 'active' } — NOT
+  // by team_id. Keying these mocks by slug guards the prod bug where the slug
+  // from OpenFGA was passed to a team_id-keyed lookup and matched nobody.
+  function setMembershipBySlug(
+    bySlug: Record<string, string[]>
+  ) {
     mockGetCollection.mockImplementation((name: string) => {
       if (name === 'team_membership_sources') {
         return Promise.resolve({
-          find: jest.fn().mockReturnValue(findChain),
+          find: jest.fn().mockImplementation((filter: { team_slug?: string }) => {
+            const emails = bySlug[filter?.team_slug ?? ''] ?? [];
+            const docs = emails.map((user_email) => ({ user_email, status: 'active' }));
+            return { sort: jest.fn().mockReturnValue({ toArray: jest.fn().mockResolvedValue(docs) }) };
+          }),
         });
       }
       return Promise.resolve({
         find: jest.fn().mockReturnValue({
           toArray: jest.fn().mockResolvedValue([]),
-          project: jest.fn().mockReturnValue({
-            toArray: jest.fn().mockResolvedValue([]),
-          }),
+          project: jest.fn().mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) }),
         }),
         findOne: jest.fn().mockResolvedValue(null),
         updateOne: jest.fn().mockResolvedValue({ modifiedCount: 0 }),
@@ -388,32 +399,12 @@ describe("GET /api/admin/users — non-admin team-scoped view", () => {
     });
   }
 
-  function setMembershipDocsByTeam(
-    byTeam: Record<string, Array<{ user_email: string; status: string }>>
-  ) {
-    mockGetCollection.mockImplementation((name: string) => {
-      if (name === 'team_membership_sources') {
-        return Promise.resolve({
-          find: jest.fn().mockImplementation((filter: { team_id?: string }) => {
-            const docs = byTeam[filter?.team_id ?? ''] ?? [];
-            return {
-              sort: jest.fn().mockReturnValue({
-                toArray: jest.fn().mockResolvedValue(docs),
-              }),
-            };
-          }),
-        });
-      }
-      return Promise.resolve({
-        find: jest.fn().mockReturnValue({
-          toArray: jest.fn().mockResolvedValue([]),
-          project: jest.fn().mockReturnValue({
-            toArray: jest.fn().mockResolvedValue([]),
-          }),
-        }),
-        findOne: jest.fn().mockResolvedValue(null),
-        updateOne: jest.fn().mockResolvedValue({ modifiedCount: 0 }),
-      });
+  // Resolve each member email to a realm user via the indexed exact-email
+  // lookup (mirrors prod, where we no longer scan the whole realm).
+  function resolveUsersByEmail(byEmail: Record<string, { id: string }>) {
+    mockFindRealmUsersByExactEmail.mockImplementation(async (email: string) => {
+      const u = byEmail[email];
+      return u ? [{ id: u.id, username: email.split('@')[0], email, attributes: {} }] : [];
     });
   }
 
@@ -423,19 +414,15 @@ describe("GET /api/admin/users — non-admin team-scoped view", () => {
     mockNonAdminAuth();
   });
 
-  it("returns scoped:'team' and team members when non-admin belongs to a team", async () => {
+  it("returns scoped:'team' with the members of the user's team", async () => {
     mockListOpenFgaObjects.mockResolvedValue({ objects: ['team:platform-eng'] });
-    setMembershipDocs([
-      { user_email: 'alice@example.com', status: 'active' },
-      { user_email: 'bob@example.com', status: 'active' },
-    ]);
-    mockSearchRealmUsers
-      .mockResolvedValueOnce([
-        { id: 'u-alice', username: 'alice', email: 'alice@example.com', attributes: {} },
-        { id: 'u-bob', username: 'bob', email: 'bob@example.com', attributes: {} },
-        { id: 'u-carol', username: 'carol', email: 'carol@example.com', attributes: {} },
-      ])
-      .mockResolvedValueOnce([]);
+    setMembershipBySlug({
+      'platform-eng': ['alice@example.com', 'bob@example.com'],
+    });
+    resolveUsersByEmail({
+      'alice@example.com': { id: 'u-alice' },
+      'bob@example.com': { id: 'u-bob' },
+    });
 
     const res = await GET(makeRequest('/api/admin/users'));
     expect(res.status).toBe(200);
@@ -444,6 +431,10 @@ describe("GET /api/admin/users — non-admin team-scoped view", () => {
     const emails = body.users.map((u: { email: string }) => u.email).sort();
     expect(emails).toEqual(['alice@example.com', 'bob@example.com']);
     expect(body.total).toBe(2);
+    // Perf contract: members are resolved by exact email, never by a full
+    // realm scan.
+    expect(mockFindRealmUsersByExactEmail).toHaveBeenCalledWith('alice@example.com');
+    expect(mockSearchRealmUsers).not.toHaveBeenCalled();
   });
 
   it("returns scoped:'self' for non-admin with no team memberships", async () => {
@@ -466,34 +457,48 @@ describe("GET /api/admin/users — non-admin team-scoped view", () => {
     expect(mockSearchRealmUsers).not.toHaveBeenCalled();
   });
 
-  it("returns union of members across multiple teams", async () => {
+  it("returns scoped:'self' when team memberships resolve to zero members", async () => {
+    // OpenFGA reports a team, but the canonical store has no active members for
+    // its slug (e.g. the slug→id keying bug, or all members deactivated). The
+    // route must fall back to self rather than return an empty list.
+    mockListOpenFgaObjects.mockResolvedValue({ objects: ['team:ghost-team'] });
+    setMembershipBySlug({});
+    mockGetRealmUserById.mockResolvedValue({
+      id: 'user-sub',
+      email: 'user@example.com',
+      username: 'user',
+      enabled: true,
+      attributes: {},
+    });
+
+    const res = await GET(makeRequest('/api/admin/users'));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.scoped).toBe('self');
+    expect(body.users.map((u: { email: string }) => u.email)).toEqual(['user@example.com']);
+  });
+
+  it("unions members across teams and de-duplicates users in multiple teams", async () => {
     mockListOpenFgaObjects.mockResolvedValue({
       objects: ['team:team-a', 'team:team-b'],
     });
-    setMembershipDocsByTeam({
-      'team-a': [
-        { user_email: 'alice@example.com', status: 'active' },
-        { user_email: 'dave@example.com', status: 'active' },
-      ],
-      'team-b': [
-        { user_email: 'alice@example.com', status: 'active' },
-        { user_email: 'dave@example.com', status: 'active' },
-      ],
+    setMembershipBySlug({
+      'team-a': ['alice@example.com', 'dave@example.com'],
+      'team-b': ['alice@example.com', 'erin@example.com'],
     });
-    mockSearchRealmUsers
-      .mockResolvedValueOnce([
-        { id: 'u-alice', username: 'alice', email: 'alice@example.com', attributes: {} },
-        { id: 'u-dave', username: 'dave', email: 'dave@example.com', attributes: {} },
-        { id: 'u-eve', username: 'eve', email: 'eve@example.com', attributes: {} },
-      ])
-      .mockResolvedValueOnce([]);
+    resolveUsersByEmail({
+      'alice@example.com': { id: 'u-alice' },
+      'dave@example.com': { id: 'u-dave' },
+      'erin@example.com': { id: 'u-erin' },
+    });
 
     const res = await GET(makeRequest('/api/admin/users'));
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.scoped).toBe('team');
     const emails = body.users.map((u: { email: string }) => u.email).sort();
-    expect(emails).toEqual(['alice@example.com', 'dave@example.com']);
-    expect(body.total).toBe(2);
+    // alice is in both teams but appears once.
+    expect(emails).toEqual(['alice@example.com', 'dave@example.com', 'erin@example.com']);
+    expect(body.total).toBe(3);
   });
 });

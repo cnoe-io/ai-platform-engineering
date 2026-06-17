@@ -128,7 +128,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
           entries: [],
           channels: [],
           users: [],
-          pagination: { page: 1, limit: 50, total: 0, total_pages: 0 },
+          pagination: { page, limit, total: 0, total_pages: 0 },
         });
       }
       if (filter.$or) {

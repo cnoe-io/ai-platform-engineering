@@ -247,9 +247,9 @@ describe('GET /api/admin/feedback', () => {
     expect(res.status).toBe(401);
   });
 
-  // Non-admin users no longer get a hard 403; instead, the route returns
-  // feedback scoped to (a) Slack channels they can_read and (b) their own
-  // web feedback (matched by user_email).
+  // Non-admins are scoped, not denied — but a non-admin with no `sub` claim
+  // can't be scoped (no OpenFGA subject), so the route must 401 rather than
+  // fall through to an unscoped query.
   it('returns 401 for non-admin users with no sub claim', async () => {
     mockGetServerSession.mockResolvedValue(userSessionNoSub());
     mockCheckPermission.mockResolvedValue({

@@ -49,18 +49,16 @@ jest.mock('@/lib/rbac/audit', () => ({
   logAuthzDecision: jest.fn(),
 }));
 
-// Admin route handlers were retrofitted with the OpenFGA-backed
-// `requireAdminSurfaceManage`/`requireBaselineAdminSurfaceRead` gates from
-// `@/lib/rbac/require-openfga`, which calls `checkOpenFgaTuple` and rejects
-// any session without `sub`. Mock it so tests can drive allow/deny per
+// The OpenFGA gate (`requireAdminSurfaceManage`) calls `checkOpenFgaTuple` and
+// rejects any session without `sub`. Mock it so tests can drive allow/deny per
 // `tuple.user`.
 const mockCheckOpenFgaTuple = jest.fn();
 jest.mock('@/lib/rbac/openfga', () => ({
   checkOpenFgaTuple: (...args: unknown[]) => mockCheckOpenFgaTuple(...args),
 }));
 
-// Stats route now scopes non-admins via getReadableSlackChannelNames; mock so
-// tests can drive which Slack channels a non-admin can see.
+// Non-admins are scoped via getReadableSlackChannelNames; mock so tests can
+// drive which Slack channels a non-admin can see.
 const mockGetReadableSlackChannelNames = jest.fn<Promise<string[]>, [string]>();
 jest.mock('@/lib/rbac/user-insights-scope', () => ({
   getReadableSlackChannelNames: (...args: unknown[]) =>
@@ -257,11 +255,10 @@ describe('GET /api/admin/stats — Authentication & Authorization', () => {
     expect(res.status).toBe(401);
   });
 
-  it('returns 200 with scoped data for non-admins (optimistic auth — no 403)', async () => {
-    // Stats is now optimistic: non-admins (no admin_surface:stats#can_manage)
-    // see only their own readable Slack channels and own web conversations.
-    // With no readable channels and the user's email present, the route still
-    // returns 200 — scoped to that user's email.
+  it('non-admins are scoped, not denied — returns 200 even with no readable channels', async () => {
+    // A non-admin (no admin_surface:stats#can_manage) is scoped rather than
+    // 403'd. With no readable Slack channels but a session email present, the
+    // view is scoped to that user's own web conversations.
     mockGetServerSession.mockResolvedValue(userSession());
     mockGetReadableSlackChannelNames.mockResolvedValue([]);
 
@@ -275,14 +272,10 @@ describe('GET /api/admin/stats — Authentication & Authorization', () => {
   });
 
   // ────────────────────────────────────────────────────────────────────────
-  // RBAC contract: full admin access still requires OpenFGA admin_surface:stats
-  // #can_manage. Non-admins are NOT denied — they get a scoped view limited
-  // to (a) Slack channels they can_read in OpenFGA and (b) their own web
-  // conversations (matched by owner_id == session email).
-  //
-  // The two assertions below pin that contract. Side-channels like
-  // `session.canViewAdmin` or the MongoDB `metadata.role: 'admin'` fallback
-  // do NOT grant admin scope; they only ever produce a non-admin scoped view.
+  // RBAC contract: full admin scope requires OpenFGA admin_surface:stats
+  // #can_manage. Side-channels (`session.canViewAdmin`, the MongoDB
+  // `metadata.role: 'admin'` fallback) must NOT grant admin scope — they only
+  // ever yield the non-admin scoped view. The two tests below pin that.
   // ────────────────────────────────────────────────────────────────────────
 
   it('viewer-only OIDC session (canViewAdmin) gets scoped view — NOT full admin', async () => {
@@ -896,7 +889,7 @@ describe('GET /api/admin/stats — Source & User Filters', () => {
 });
 
 // ============================================================================
-// Tests: Non-admin Scoping (optimistic auth + visibility boundary)
+// Tests: Non-admin Scoping (visibility boundary)
 // ============================================================================
 
 describe('GET /api/admin/stats — non-admin scoping', () => {
@@ -980,5 +973,113 @@ describe('GET /api/admin/stats — non-admin scoping', () => {
       return inspect.includes('admin@example.com');
     });
     expect(hasUserEmailScope).toBe(false);
+  });
+
+  // ──────────────────────────────────────────────────────────────────────
+  // Leak boundary: every aggregate in the payload must respect the scope, not
+  // just the conversation counts. Each test below pins one query family that
+  // would otherwise return platform-wide data to a non-admin.
+  // ──────────────────────────────────────────────────────────────────────
+
+  it('does not count platform-wide users — total_users derives from scoped conversations', async () => {
+    mockGetServerSession.mockResolvedValue(userSession());
+    mockGetReadableSlackChannelNames.mockResolvedValue([]);
+    const { usersCol } = setupNonAdminCollections();
+    // If the route read the users collection for total_users it would report 999.
+    usersCol.countDocuments.mockResolvedValue(999);
+
+    const req = makeRequest('/api/admin/stats');
+    const res = await GET(req);
+    const body = await res.json();
+    // Scoped conversations are empty in this fixture → 0, never the global 999.
+    expect(body.data.overview.total_users).toBe(0);
+    // The unscoped `users.countDocuments({})` headcount must not be used.
+    expect(usersCol.countDocuments).not.toHaveBeenCalledWith({});
+  });
+
+  it('scopes slack message counts by owner_id (messages carry no channel_name)', async () => {
+    mockGetServerSession.mockResolvedValue(userSession());
+    mockGetReadableSlackChannelNames.mockResolvedValue(['ops-help']);
+    const { msgCol } = setupNonAdminCollections();
+
+    const req = makeRequest('/api/admin/stats');
+    await GET(req);
+
+    // Every slack-message query must carry the owner scope; none may run a bare
+    // { 'metadata.source': 'slack' } across the whole platform.
+    const slackMsgCalls = msgCol.countDocuments.mock.calls.filter(
+      (call: any[]) => call[0]?.['metadata.source'] === 'slack'
+    );
+    expect(slackMsgCalls.length).toBeGreaterThan(0);
+    for (const call of slackMsgCalls) {
+      expect(JSON.stringify(call[0])).toContain('user@example.com');
+    }
+  });
+
+  it('scopes the feedback summary to readable channels OR own email', async () => {
+    mockGetServerSession.mockResolvedValue(userSession());
+    mockGetReadableSlackChannelNames.mockResolvedValue(['ops-help']);
+    const { feedbackCol } = setupNonAdminCollections();
+
+    const req = makeRequest('/api/admin/stats');
+    await GET(req);
+
+    // The feedback aggregations $match must embed the scope, not run globally.
+    const fbAggCalls = feedbackCol.aggregate.mock.calls;
+    expect(fbAggCalls.length).toBeGreaterThan(0);
+    const matchStage = fbAggCalls[0][0].find((s: any) => s.$match);
+    const inspect = JSON.stringify(matchStage);
+    expect(inspect).toContain('ops-help');
+    expect(inspect).toContain('user@example.com');
+  });
+
+  it('available_channels exposes only the readable set, never a platform-wide distinct', async () => {
+    mockGetServerSession.mockResolvedValue(userSession());
+    mockGetReadableSlackChannelNames.mockResolvedValue(['ops-help', 'ai-support']);
+    const { convCol } = setupNonAdminCollections();
+
+    const req = makeRequest('/api/admin/stats');
+    const res = await GET(req);
+    const body = await res.json();
+
+    expect(body.data.available_channels.sort()).toEqual(['ai-support', 'ops-help']);
+    // No distinct over the channel name fields (which would enumerate every
+    // channel on the platform).
+    const distinctFields = convCol.distinct.mock.calls.map((c: any[]) => c[0]);
+    expect(distinctFields).not.toContain('slack_meta.channel_name');
+    expect(distinctFields).not.toContain('metadata.channel_name');
+  });
+
+  it('skips the Slack-block probe query when a non-admin has no readable channels', async () => {
+    // The Slack block is gated by a `countDocuments(SLACK_CONV_MATCH, {limit:1})`
+    // probe. A channel-less non-admin can see no Slack data, so that probe (and
+    // the whole block) must be skipped — never run platform-wide.
+    mockGetServerSession.mockResolvedValue(userSession());
+    mockGetReadableSlackChannelNames.mockResolvedValue([]);
+    const { convCol } = setupNonAdminCollections();
+
+    await GET(makeRequest('/api/admin/stats'));
+
+    // The probe is the only countDocuments call that passes an options object
+    // ({ limit: 1 }) as its second argument.
+    const probeCalls = convCol.countDocuments.mock.calls.filter(
+      (call: any[]) => call[1]?.limit === 1
+    );
+    expect(probeCalls).toHaveLength(0);
+  });
+
+  it('runs the Slack-block probe when a non-admin has readable channels', async () => {
+    // Positive control for the test above — with at least one readable channel
+    // the probe must run (bounded, via slackChannelScope downstream).
+    mockGetServerSession.mockResolvedValue(userSession());
+    mockGetReadableSlackChannelNames.mockResolvedValue(['ops-help']);
+    const { convCol } = setupNonAdminCollections();
+
+    await GET(makeRequest('/api/admin/stats'));
+
+    const probeCalls = convCol.countDocuments.mock.calls.filter(
+      (call: any[]) => call[1]?.limit === 1
+    );
+    expect(probeCalls.length).toBeGreaterThan(0);
   });
 });
