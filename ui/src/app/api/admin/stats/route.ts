@@ -257,79 +257,200 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     const messagesToday = webMessagesToday + slackMessagesToday;
 
     // ═══════════════════════════════════════════════════════════════
-    // DAILY ACTIVITY — single aggregation per collection instead of
-    // 30 sequential countDocuments queries (90 round-trips → 3)
+    // PARALLEL BATCH — all independent aggregations in one shot
     // ═══════════════════════════════════════════════════════════════
-    // When filters are active, derive active users from conversations instead of users collection
-    const dailyUserActivity = hasFilters
-      ? await conversations.aggregate([
-          { $match: { updated_at: { $gte: rangeStart }, ...convSourceFilter } },
-          {
-            $group: {
-              _id: {
-                date: { $dateToString: { format: '%Y-%m-%d', date: '$updated_at' } },
-                user: '$owner_id',
-              },
-            },
-          },
-          { $group: { _id: '$_id.date', active_users: { $sum: 1 } } },
-        ]).toArray()
-      : await users.aggregate([
-          { $match: { last_login: { $gte: rangeStart } } },
-          {
-            $group: {
-              _id: { $dateToString: { format: '%Y-%m-%d', date: '$last_login' } },
-              active_users: { $sum: 1 },
-            },
-          },
-        ]).toArray();
+    const feedbackColl = await getCollection('feedback');
 
-    const dailyConvActivity = await conversations.aggregate([
-      { $match: { created_at: { $gte: rangeStart }, ...convSourceFilter } },
-      {
-        $group: {
-          _id: { $dateToString: { format: '%Y-%m-%d', date: '$created_at' } },
-          conversations: { $sum: 1 },
-        },
-      },
-    ]).toArray();
+    const fbFilter: Record<string, any> = { created_at: { $gte: rangeStart } };
+    if (sourceFilter === 'web') fbFilter.source = 'web';
+    else if (sourceFilter === 'slack') {
+      fbFilter.source = 'slack';
+      if (channelNames.length === 1) {
+        fbFilter.channel_name = channelNames[0];
+      } else if (channelNames.length > 1) {
+        fbFilter.channel_name = { $in: channelNames };
+      }
+    }
+    if (userEmails.length === 1) fbFilter.user_email = userEmails[0];
+    else if (userEmails.length > 1) fbFilter.user_email = { $in: userEmails };
 
-    // Web messages (from messages collection) + Slack messages (message_count on conversations)
-    const [dailyWebMsgActivity, dailySlackMsgActivity] = await Promise.all([
+    const [
+      dailyUserActivity,
+      dailyConvActivity,
+      dailyWebMsgActivity,
+      dailySlackMsgActivity,
+      rawTopByConvs,
+      rawTopByMsgs,
+      topAgents,
+      fbOverall,
+      fbBySource,
+      fbCategories,
+      fbDaily,
+      latencyAgg,
+      completedWorkflows,
+      completedToday,
+      conversationsWithAssistant,
+      hourlyWebActivity,
+      hourlySlackActivity,
+      availableChannelsResult,
+      webAgentMsgCount,
+    ] = await Promise.all([
+      // Daily active users
+      hasFilters
+        ? conversations.aggregate([
+            { $match: { updated_at: { $gte: rangeStart }, ...convSourceFilter } },
+            { $group: { _id: { date: { $dateToString: { format: '%Y-%m-%d', date: '$updated_at' } }, user: '$owner_id' } } },
+            { $group: { _id: '$_id.date', active_users: { $sum: 1 } } },
+          ]).toArray()
+        : users.aggregate([
+            { $match: { last_login: { $gte: rangeStart } } },
+            { $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: '$last_login' } }, active_users: { $sum: 1 } } },
+          ]).toArray(),
+
+      // Daily conversations
+      conversations.aggregate([
+        { $match: { created_at: { $gte: rangeStart }, ...convSourceFilter } },
+        { $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: '$created_at' } }, conversations: { $sum: 1 } } },
+      ]).toArray(),
+
+      // Daily web messages
       sourceFilter !== 'slack'
         ? messages.aggregate([
             { $match: { 'metadata.source': 'web', created_at: { $gte: rangeStart }, ...msgOwnerFilter } },
-            {
-              $group: {
-                _id: { $dateToString: { format: '%Y-%m-%d', date: '$created_at' } },
-                messages: { $sum: 1 },
-              },
-            },
+            { $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: '$created_at' } }, messages: { $sum: 1 } } },
           ]).toArray()
         : Promise.resolve([]),
+
+      // Daily slack messages
       sourceFilter !== 'web'
         ? messages.aggregate([
             { $match: { 'metadata.source': 'slack', created_at: { $gte: rangeStart } } },
-            {
-              $group: {
-                _id: { $dateToString: { format: '%Y-%m-%d', date: '$created_at' } },
-                messages: { $sum: 1 },
-              },
-            },
+            { $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: '$created_at' } }, messages: { $sum: 1 } } },
           ]).toArray()
         : Promise.resolve([]),
+
+      // Top users by conversations
+      conversations.aggregate([
+        { $match: { created_at: { $gte: rangeStart }, ...convSourceFilter } },
+        { $group: { _id: '$owner_id', count: { $sum: 1 } } },
+        { $sort: { count: -1 } },
+        { $limit: 10 },
+      ]).toArray(),
+
+      // Top users by messages ($lookup for legacy owner_id)
+      messages.aggregate([
+        { $match: { created_at: { $gte: rangeStart }, ...msgOwnerFilter } },
+        { $lookup: { from: 'conversations', localField: 'conversation_id', foreignField: '_id', as: '_conv' } },
+        { $addFields: { _owner: { $ifNull: ['$owner_id', { $arrayElemAt: ['$_conv.owner_id', 0] }] } } },
+        { $match: { _owner: { $ne: null } } },
+        { $group: { _id: '$_owner', count: { $sum: 1 } } },
+        { $sort: { count: -1 } },
+        { $limit: 10 },
+      ]).toArray(),
+
+      // Top agents
+      messages.aggregate([
+        { $match: { role: 'assistant', 'metadata.agent_name': { $exists: true, $ne: null }, created_at: { $gte: rangeStart }, ...msgOwnerFilter } },
+        { $group: { _id: '$metadata.agent_name', count: { $sum: 1 } } },
+        { $sort: { count: -1 } },
+        { $limit: 10 },
+      ]).toArray(),
+
+      // Feedback: overall counts
+      feedbackColl.aggregate([
+        { $match: fbFilter },
+        { $group: { _id: '$rating', count: { $sum: 1 } } },
+      ]).toArray(),
+
+      // Feedback: by source
+      feedbackColl.aggregate([
+        { $match: fbFilter },
+        { $group: { _id: { source: '$source', rating: '$rating' }, count: { $sum: 1 } } },
+      ]).toArray(),
+
+      // Feedback: negative categories
+      feedbackColl.aggregate([
+        { $match: { ...fbFilter, rating: 'negative', value: { $nin: ['thumbs_down'] } } },
+        { $group: { _id: '$value', count: { $sum: 1 } } },
+        { $sort: { count: -1 } },
+      ]).toArray(),
+
+      // Feedback: daily trend
+      feedbackColl.aggregate([
+        { $match: fbFilter },
+        { $group: { _id: { date: { $dateToString: { format: '%Y-%m-%d', date: '$created_at' } }, rating: '$rating' }, count: { $sum: 1 } } },
+      ]).toArray(),
+
+      // Response latency
+      messages.aggregate([
+        { $match: { role: 'assistant', 'metadata.latency_ms': { $exists: true, $gt: 0 }, created_at: { $gte: rangeStart }, ...msgOwnerFilter } },
+        { $group: { _id: null, avg_latency: { $avg: '$metadata.latency_ms' }, min_latency: { $min: '$metadata.latency_ms' }, max_latency: { $max: '$metadata.latency_ms' }, count: { $sum: 1 } } },
+      ]).toArray(),
+
+      // Completed workflows (total)
+      messages.aggregate([
+        { $match: { role: 'assistant', 'metadata.is_final': true, created_at: { $gte: rangeStart }, ...msgOwnerFilter } },
+        { $group: { _id: '$conversation_id' } },
+        { $count: 'total' },
+      ]).toArray(),
+
+      // Completed workflows (today)
+      messages.aggregate([
+        { $match: { role: 'assistant', 'metadata.is_final': true, created_at: { $gte: today }, ...msgOwnerFilter } },
+        { $group: { _id: '$conversation_id' } },
+        { $count: 'total' },
+      ]).toArray(),
+
+      // All conversations with assistant messages (for interrupted count)
+      messages.aggregate([
+        { $match: { role: 'assistant', created_at: { $gte: rangeStart }, ...msgOwnerFilter } },
+        { $group: { _id: '$conversation_id', has_final: { $max: { $cond: [{ $eq: ['$metadata.is_final', true] }, 1, 0] } }, last_msg_at: { $max: '$created_at' }, msg_count: { $sum: 1 } } },
+        { $sort: { last_msg_at: -1 } },
+      ]).toArray(),
+
+      // Hourly heatmap: web
+      sourceFilter !== 'slack'
+        ? messages.aggregate([
+            { $match: { 'metadata.source': 'web', created_at: { $gte: rangeStart }, ...msgOwnerFilter } },
+            { $addFields: { _ts: { $toDate: '$created_at' } } },
+            { $group: { _id: { $hour: '$_ts' }, count: { $sum: 1 } } },
+          ]).toArray()
+        : Promise.resolve([]),
+
+      // Hourly heatmap: slack
+      sourceFilter !== 'web'
+        ? messages.aggregate([
+            { $match: { 'metadata.source': 'slack', created_at: { $gte: rangeStart } } },
+            { $addFields: { _ts: { $toDate: '$created_at' } } },
+            { $group: { _id: { $hour: '$_ts' }, count: { $sum: 1 } } },
+          ]).toArray()
+        : Promise.resolve([]),
+
+      // Available channel names (both schema variants)
+      Promise.all([
+        conversations.distinct('slack_meta.channel_name', { source: 'slack', 'slack_meta.channel_name': { $ne: null } }),
+        conversations.distinct('metadata.channel_name', { client_type: 'slack', 'metadata.channel_name': { $ne: null } }),
+      ]),
+
+      // Web agent message count for hours-automated estimate
+      sourceFilter !== 'slack'
+        ? messages.countDocuments({
+            role: 'assistant',
+            'metadata.agent_name': { $exists: true, $ne: null },
+            created_at: { $gte: rangeStart },
+            ...msgOwnerFilter,
+          })
+        : Promise.resolve(0),
     ]);
 
-    // Merge web + slack daily message counts
+    // ── Post-process daily activity ─────────────────────────────────
     const msgMap = new Map<string, number>();
     for (const d of dailyWebMsgActivity) msgMap.set(d._id, (msgMap.get(d._id) || 0) + d.messages);
     for (const d of dailySlackMsgActivity) msgMap.set(d._id, (msgMap.get(d._id) || 0) + d.messages);
 
-    // Build lookup maps
     const userMap = new Map(dailyUserActivity.map((d) => [d._id, d.active_users]));
     const convMap = new Map(dailyConvActivity.map((d) => [d._id, d.conversations]));
 
-    // Assemble N-day array
     const dailyActivity = [];
     for (let i = days - 1; i >= 0; i--) {
       const dayStart = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
@@ -343,45 +464,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       });
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    // TOP USERS
-    // ═══════════════════════════════════════════════════════════════
-
-    // Top users by conversation count (direct — conversations have owner_id)
-    const rawTopByConvs = await conversations.aggregate([
-      { $match: { created_at: { $gte: rangeStart }, ...convSourceFilter } },
-      { $group: { _id: '$owner_id', count: { $sum: 1 } } },
-      { $sort: { count: -1 } },
-      { $limit: 10 },
-    ]).toArray();
-
-    // Top users by message count — $lookup through conversations for old
-    // messages that lack owner_id, $coalesce with direct owner_id for new ones.
-    const rawTopByMsgs = await messages.aggregate([
-      { $match: { created_at: { $gte: rangeStart }, ...msgOwnerFilter } },
-      {
-        $lookup: {
-          from: 'conversations',
-          localField: 'conversation_id',
-          foreignField: '_id',
-          as: '_conv',
-        },
-      },
-      {
-        $addFields: {
-          _owner: {
-            $ifNull: ['$owner_id', { $arrayElemAt: ['$_conv.owner_id', 0] }],
-          },
-        },
-      },
-      { $match: { _owner: { $ne: null } } },
-      { $group: { _id: '$_owner', count: { $sum: 1 } } },
-      { $sort: { count: -1 } },
-      { $limit: 10 },
-    ]).toArray();
-
-    // Resolve display names for top user IDs — owner_id may be an email
-    // or a raw Slack/bot ID when email resolution failed at interaction time.
+    // ── Top users: resolve display names ───────────────────────────
     const topOwnerIds = [...new Set([
       ...rawTopByConvs.map((u) => u._id),
       ...rawTopByMsgs.map((u) => u._id),
@@ -401,87 +484,12 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     }
 
     const enrichTopUsers = (raw: typeof rawTopByConvs) =>
-      raw.map((u) => ({
-        _id: u._id,
-        count: u.count,
-        name: nameByOwner.get(u._id) || u._id,
-      }));
+      raw.map((u) => ({ _id: u._id, count: u.count, name: nameByOwner.get(u._id) || u._id }));
 
     const topUsersByConversations = enrichTopUsers(rawTopByConvs);
     const topUsersByMessages = enrichTopUsers(rawTopByMsgs);
 
-    // ═══════════════════════════════════════════════════════════════
-    // ENHANCED ANALYTICS
-    // ═══════════════════════════════════════════════════════════════
-
-    // Top agents by usage (from metadata.agent_name on assistant messages)
-    const topAgents = await messages.aggregate([
-      {
-        $match: {
-          role: 'assistant',
-          'metadata.agent_name': { $exists: true, $ne: null },
-          created_at: { $gte: rangeStart },
-          ...msgOwnerFilter,
-        },
-      },
-      { $group: { _id: '$metadata.agent_name', count: { $sum: 1 } } },
-      { $sort: { count: -1 } },
-      { $limit: 10 },
-    ]).toArray();
-
-    // ═══════════════════════════════════════════════════════════════
-    // FEEDBACK SUMMARY (from unified feedback collection)
-    // ═══════════════════════════════════════════════════════════════
-    const feedbackColl = await getCollection('feedback');
-
-    // Build feedback filter
-    const fbFilter: Record<string, any> = { created_at: { $gte: rangeStart } };
-    if (sourceFilter === 'web') fbFilter.source = 'web';
-    else if (sourceFilter === 'slack') {
-      fbFilter.source = 'slack';
-      if (channelNames.length === 1) {
-        fbFilter.channel_name = channelNames[0];
-      } else if (channelNames.length > 1) {
-        fbFilter.channel_name = { $in: channelNames };
-      }
-    }
-    if (userEmails.length === 1) fbFilter.user_email = userEmails[0];
-    else if (userEmails.length > 1) fbFilter.user_email = { $in: userEmails };
-
-    const [fbOverall, fbBySource, fbCategories, fbDaily] = await Promise.all([
-      // Overall counts
-      feedbackColl.aggregate([
-        { $match: fbFilter },
-        { $group: { _id: '$rating', count: { $sum: 1 } } },
-      ]).toArray(),
-      // By source
-      feedbackColl.aggregate([
-        { $match: fbFilter },
-        { $group: { _id: { source: '$source', rating: '$rating' }, count: { $sum: 1 } } },
-      ]).toArray(),
-      // Negative feedback category breakdown (exclude generic thumbs_down — it's the
-      // initial click, not a categorised reason; those users are still counted in the
-      // overall negative total)
-      feedbackColl.aggregate([
-        { $match: { ...fbFilter, rating: 'negative', value: { $nin: ['thumbs_down'] } } },
-        { $group: { _id: '$value', count: { $sum: 1 } } },
-        { $sort: { count: -1 } },
-      ]).toArray(),
-      // Daily feedback trend
-      feedbackColl.aggregate([
-        { $match: fbFilter },
-        {
-          $group: {
-            _id: {
-              date: { $dateToString: { format: '%Y-%m-%d', date: '$created_at' } },
-              rating: '$rating',
-            },
-            count: { $sum: 1 },
-          },
-        },
-      ]).toArray(),
-    ]);
-
+    // ── Post-process feedback ───────────────────────────────────────
     const fbMap = new Map(fbOverall.map((f) => [f._id, f.count]));
     const positive = fbMap.get('positive') || 0;
     const negative = fbMap.get('negative') || 0;
@@ -531,31 +539,10 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       daily: dailyFeedback,
     };
 
-    // Average messages per conversation
+    // ── Post-process latency / workflows / heatmap ─────────────────
     const avgMsgsPerConv = totalConversations > 0
       ? Math.round((totalMessages / totalConversations) * 10) / 10
       : 0;
-
-    // Average response time (from metadata.latency_ms on assistant messages)
-    const latencyAgg = await messages.aggregate([
-      {
-        $match: {
-          role: 'assistant',
-          'metadata.latency_ms': { $exists: true, $gt: 0 },
-          created_at: { $gte: rangeStart },
-          ...msgOwnerFilter,
-        },
-      },
-      {
-        $group: {
-          _id: null,
-          avg_latency: { $avg: '$metadata.latency_ms' },
-          min_latency: { $min: '$metadata.latency_ms' },
-          max_latency: { $max: '$metadata.latency_ms' },
-          count: { $sum: 1 },
-        },
-      },
-    ]).toArray();
 
     const responseTime = latencyAgg[0]
       ? {
@@ -566,47 +553,6 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         }
       : { avg_ms: 0, min_ms: 0, max_ms: 0, sample_count: 0 };
 
-    // Completed workflows — conversations with at least one is_final assistant msg
-    const completedWorkflows = await messages.aggregate([
-      {
-        $match: {
-          role: 'assistant',
-          'metadata.is_final': true,
-          created_at: { $gte: rangeStart },
-          ...msgOwnerFilter,
-        },
-      },
-      { $group: { _id: '$conversation_id' } },
-      { $count: 'total' },
-    ]).toArray();
-
-    const completedToday = await messages.aggregate([
-      {
-        $match: {
-          role: 'assistant',
-          'metadata.is_final': true,
-          created_at: { $gte: today },
-          ...msgOwnerFilter,
-        },
-      },
-      { $group: { _id: '$conversation_id' } },
-      { $count: 'total' },
-    ]).toArray();
-
-    // Interrupted/incomplete — conversations that have assistant messages but none with is_final
-    const conversationsWithAssistant = await messages.aggregate([
-      { $match: { role: 'assistant', created_at: { $gte: rangeStart }, ...msgOwnerFilter } },
-      {
-        $group: {
-          _id: '$conversation_id',
-          has_final: { $max: { $cond: [{ $eq: ['$metadata.is_final', true] }, 1, 0] } },
-          last_msg_at: { $max: '$created_at' },
-          msg_count: { $sum: 1 },
-        },
-      },
-      { $sort: { last_msg_at: -1 } },
-    ]).toArray();
-
     const completedCount = completedWorkflows[0]?.total || 0;
     const completedTodayCount = completedToday[0]?.total || 0;
     const totalWithAssistant = conversationsWithAssistant.length;
@@ -615,39 +561,10 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       ? Math.round((completedCount / totalWithAssistant) * 1000) / 10
       : 0;
 
-    // Average messages per completed workflow
-    const completedConvIds = conversationsWithAssistant
-      .filter((c) => c.has_final === 1)
-      .map((c) => c._id);
-    const avgMsgsCompleted = completedConvIds.length > 0
-      ? Math.round(
-          (conversationsWithAssistant
-            .filter((c) => c.has_final === 1)
-            .reduce((sum, c) => sum + c.msg_count, 0) /
-            completedConvIds.length) *
-            10
-        ) / 10
+    const completedConvs = conversationsWithAssistant.filter((c) => c.has_final === 1);
+    const avgMsgsCompleted = completedConvs.length > 0
+      ? Math.round((completedConvs.reduce((sum, c) => sum + c.msg_count, 0) / completedConvs.length) * 10) / 10
       : 0;
-
-    // Hourly activity heatmap (hour-of-day distribution over selected range)
-    // Combine web messages + Slack interactions
-    // Use $toDate to handle both Date objects and ISO string values for created_at
-    const [hourlyWebActivity, hourlySlackActivity] = await Promise.all([
-      sourceFilter !== 'slack'
-        ? messages.aggregate([
-            { $match: { 'metadata.source': 'web', created_at: { $gte: rangeStart }, ...msgOwnerFilter } },
-            { $addFields: { _ts: { $toDate: '$created_at' } } },
-            { $group: { _id: { $hour: '$_ts' }, count: { $sum: 1 } } },
-          ]).toArray()
-        : Promise.resolve([]),
-      sourceFilter !== 'web'
-        ? messages.aggregate([
-            { $match: { 'metadata.source': 'slack', created_at: { $gte: rangeStart } } },
-            { $addFields: { _ts: { $toDate: '$created_at' } } },
-            { $group: { _id: { $hour: '$_ts' }, count: { $sum: 1 } } },
-          ]).toArray()
-        : Promise.resolve([]),
-    ]);
 
     const hourlyMap = new Map<number, number>();
     for (const h of hourlyWebActivity) hourlyMap.set(h._id, (hourlyMap.get(h._id) || 0) + h.count);
@@ -864,33 +781,15 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     const includeWeb = sourceFilter !== 'slack';
     const includeSlack = sourceFilter !== 'web';
 
-    // Web agent usage: count of assistant messages with agent_name for hours estimation
-    const webAgentMessagesAgg = includeWeb
-      ? await messages.countDocuments({
-          role: 'assistant',
-          'metadata.agent_name': { $exists: true, $ne: null },
-          created_at: { $gte: rangeStart },
-          ...msgOwnerFilter,
-        })
-      : 0;
+    const webAgentMessagesAgg = includeWeb ? (webAgentMsgCount as number) : 0;
 
     const slackHoursSaved = includeSlack ? (slack?.resolution?.estimated_hours_saved || 0) : 0;
 
     // Hours automated: web agent usage (10 min each) + Slack resolved threads (4h each)
-    const webHoursAutomated = Math.round((webAgentMessagesAgg * 10) / 60 * 10) / 10; // 10 min per agent response
+    const webHoursAutomated = Math.round((webAgentMessagesAgg * 10) / 60 * 10) / 10;
     const totalHoursAutomated = Math.round((webHoursAutomated + slackHoursSaved) * 10) / 10;
 
-    // Collect available channel names from both old and new schema
-    const [oldChannels, newChannels] = await Promise.all([
-      conversations.distinct(
-        'slack_meta.channel_name',
-        { source: 'slack', 'slack_meta.channel_name': { $ne: null } },
-      ),
-      conversations.distinct(
-        'metadata.channel_name',
-        { client_type: 'slack', 'metadata.channel_name': { $ne: null } },
-      ),
-    ]);
+    const [oldChannels, newChannels] = availableChannelsResult;
     const availableChannels = [...new Set([...oldChannels, ...newChannels])];
 
     const platformSummary = {

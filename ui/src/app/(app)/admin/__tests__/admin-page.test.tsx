@@ -398,10 +398,12 @@ describe('Admin Dashboard Page', () => {
   });
 
   describe('Loading state', () => {
-    it('shows spinner while loading', () => {
+    it('renders the admin shell before lazy tab data loads', async () => {
       setupFetchMock();
       render(<AdminPage />);
-      expect(screen.getByTestId('spinner')).toBeInTheDocument();
+
+      expect(await screen.findByText('Admin Dashboard')).toBeInTheDocument();
+      expect(screen.queryByTestId('spinner')).not.toBeInTheDocument();
     });
 
     it('does not eagerly fetch /api/admin/users during loadAdminData', async () => {
@@ -431,6 +433,8 @@ describe('Admin Dashboard Page', () => {
 
   describe('Error state', () => {
     it('shows error message and retry button on fetch failure', async () => {
+      // Must be on a tab with a loader (stats) so a fetch is actually triggered.
+      currentSearchParams = new URLSearchParams('cat=insights&tab=stats');
       (global.fetch as jest.Mock) = jest.fn().mockRejectedValue(new Error('Network error'));
       render(<AdminPage />);
 
@@ -441,6 +445,8 @@ describe('Admin Dashboard Page', () => {
     });
 
     it('shows auth error on 401 response', async () => {
+      // Must be on a tab with a loader (stats) so a fetch is actually triggered.
+      currentSearchParams = new URLSearchParams('cat=insights&tab=stats');
       (global.fetch as jest.Mock) = jest.fn().mockResolvedValue({
         ok: false,
         status: 401,
@@ -756,6 +762,9 @@ describe('Admin Dashboard Page', () => {
       expect(screen.queryByRole('tab', { name: /rag team access/i })).not.toBeInTheDocument();
 
       fireEvent.click(screen.getByRole('button', { name: 'Insights' }));
+      await waitFor(() => {
+        expect(screen.queryByTestId('spinner')).not.toBeInTheDocument();
+      });
       expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
         'Statistics',
         'Feedback',
@@ -768,6 +777,10 @@ describe('Admin Dashboard Page', () => {
       expect(screen.queryByRole('tab', { name: /^Insights$/i })).not.toBeInTheDocument();
 
       fireEvent.click(screen.getByRole('button', { name: /metrics & health/i }));
+
+      await waitFor(() => {
+        expect(screen.queryByTestId('spinner')).not.toBeInTheDocument();
+      });
 
       expect(screen.getByRole('tab', { name: /metrics/i })).toBeInTheDocument();
       expect(screen.getByRole('tab', { name: /health/i })).toBeInTheDocument();
@@ -1240,6 +1253,10 @@ describe('Admin Dashboard Page', () => {
       const fetchMock = setupFetchMock();
 
       render(<AdminPage />);
+
+      // assisted-by Codex Codex-sonnet-4-6
+      // Stats are lazy-loaded when the Insights category is opened.
+      fireEvent.click(screen.getByRole('button', { name: 'Insights' }));
 
       await waitFor(() => {
         expect(fetchMock).toHaveBeenCalledWith(

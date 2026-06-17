@@ -1,8 +1,6 @@
 name: "[Release] Pre-release Build"
 description: "Create an rc/hotfix tag on a release/* branch and trigger a coordinated build of all containers and the Helm chart."
 
-# assisted-by claude code claude-sonnet-4-6
-
 # Usage:
 #   GitHub UI → Actions → "[Release] Pre-release Build" → Run workflow
 #   gh workflow run release-prerelease.yml -f release_branch=release/0.8.0
@@ -44,14 +42,15 @@ on:
         type: string
 
 permissions:
-  contents: write   # push commits + tags
-  packages: write
-  actions: write    # dispatch ci-helm.yml
+  contents: read
+  actions: read
 
 jobs:
   prepare:
     name: Bump versions, commit, create tags
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     outputs:
       rc_tag: ${{ steps.tag.outputs.rc_tag }}
       chart_tag: ${{ steps.tag.outputs.chart_tag }}
@@ -68,6 +67,7 @@ jobs:
         with:
           app-id: ${{ secrets.CI_RELEASE_APP_ID }}
           private-key: ${{ secrets.CI_RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
 
       # Check out the release branch so we can bump version files on it.
       # The workflow file itself comes from main (dispatch ref); code comes from
@@ -80,7 +80,11 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
 
       - name: 📋 List available release branches
+        env:
+          SELECTED_RELEASE_BRANCH: ${{ inputs.release_branch }}
         run: |
+          set -euo pipefail
+
           BRANCHES=$(git ls-remote --heads origin 'refs/heads/release/*' \
             | awk '{print $2}' | sed 's|refs/heads/||' | sort)
 
@@ -94,7 +98,7 @@ jobs:
             done <<< "$BRANCHES"
           fi
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "**Selected:** \`${{ inputs.release_branch }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Selected:** \`${SELECTED_RELEASE_BRANCH}\`" >> "$GITHUB_STEP_SUMMARY"
 
       - name: ✅ Validate branch and determine tags
         id: tag
@@ -123,7 +127,8 @@ jobs:
           # Determine rc/hotfix tag
           if [[ -n "$TAG_VERSION" ]]; then
             RC_TAG="$TAG_VERSION"
-            if ! [[ "$RC_TAG" =~ ^${BASE_VERSION}-(rc|hotfix)\.[0-9]+$ ]]; then
+            BASE_VERSION_RE="${BASE_VERSION//./\\.}"
+            if ! [[ "$RC_TAG" =~ ^${BASE_VERSION_RE}-(rc|hotfix)\.[0-9]+$ ]]; then
               echo "❌ tag_version '${RC_TAG}' does not match branch base version '${BASE_VERSION}'"
               exit 1
             fi
@@ -159,10 +164,16 @@ jobs:
         uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
 
       - name: ⚙️ Install yq
+        env:
+          YQ_VERSION: v4.53.3
+          YQ_SHA256: fa52a4e758c63d38299163fbdd1edfb4c4963247918bf9c1c5d31d84789eded4
         run: |
-          sudo wget -qO /usr/local/bin/yq \
-            https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
-          sudo chmod +x /usr/local/bin/yq
+          set -euo pipefail
+
+          curl -fsSL -o /tmp/yq \
+            "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
+          echo "${YQ_SHA256}  /tmp/yq" | sha256sum -c -
+          sudo install -m 0755 /tmp/yq /usr/local/bin/yq
           yq --version
 
       - name: 📝 Bump to rc version and create rc tag
@@ -267,6 +278,9 @@ jobs:
     name: Dispatch helm chart CI (force_build)
     runs-on: ubuntu-latest
     needs: prepare
+    permissions:
+      actions: write
+      contents: read
 
     steps:
       - name: 🔒 Harden runner
