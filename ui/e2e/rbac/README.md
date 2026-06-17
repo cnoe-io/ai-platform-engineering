@@ -21,10 +21,26 @@ CAIPE + Keycloak stack:
 | `openfga-live.spec.ts` | Live-stack OpenFGA/CAS regression for decisions, grants, revokes, delegation, explain, raw tuple admin APIs, and guardrails. |
 | `resource-lifecycle-live.spec.ts` | Live-stack resource lifecycle matrix for agents, skills, workflows, workflow runs, teams, KB/data-source sharing, credentials, MCP custom headers, and AgentGateway tool-call tuples. |
 
+## Commands
+
+Use these from `ui/`:
+
+| Command | Scope |
+|---------|-------|
+| `npm run test:e2e:all` | Full RBAC Playwright suite: mocked regressions plus live RBAC/OpenFGA specs. |
+| `npm run test:e2e:rbac-regression` | Fast mocked browser regression subset. |
+| `npm run test:e2e:rbac-live-resources` | Live resource lifecycle matrix only. |
+| `npm run test:e2e:rbac-live-full` | Live OpenFGA + MCP create + resource lifecycle target. |
+| `npm run test:e2e:rbac -- --list` | Raw discovery/debug command for every RBAC spec. |
+
+Use `npm run test:e2e:all -- --list` to see exactly what the full command will
+run without executing tests.
+
 ## Skip-by-default
 
-These specs **only run when `RUN_RBAC_E2E=1`**. With that env unset,
-each spec hits `test.skip()` immediately, so:
+The live specs only run when `RUN_RBAC_E2E=1`. The mocked browser regression
+specs run when `RUN_RBAC_REGRESSION=1`. With both env vars unset, gated specs
+hit `test.skip()` immediately, so:
 
 * day-to-day `npx playwright test` runs are no-ops on this dir, and
 * the harness can ship in `main` without breaking CI for devs who

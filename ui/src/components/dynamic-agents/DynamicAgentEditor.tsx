@@ -720,7 +720,11 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
     if (activeStep === "instructions" && review.isBlocking) {
       const ok = await review.ensurePassedOrRun();
       if (!ok) {
-        setError("AI Review failed — address comments before continuing.");
+        const message = "AI Review failed — address the comments below before continuing.";
+        // assisted-by Codex Codex-sonnet-4-6
+        // A blocking review should be visible even when the footer is below the fold.
+        toast(message, "error");
+        setError(message);
         return;
       }
     }
@@ -876,7 +880,12 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
     if (review.isBlocking) {
       const ok = await review.ensurePassedOrRun();
       if (!ok) {
-        setError("AI Review failed — address comments before saving.");
+        const message = "AI Review failed — address the comments in the Instructions step before saving.";
+        // assisted-by Codex Codex-sonnet-4-6
+        // Return to the reviewed content so the user can see and act on comments.
+        toast(message, "error");
+        setActiveStep("instructions");
+        setError(message);
         setLoading(false);
         return;
       }
@@ -1495,16 +1504,17 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                 shareHelpText={
                   <>
                     Select which teams can access this agent. Each selected
-                    team gets <code>can_use</code> on the agent in OpenFGA, so
-                    every member can DM it and use it in any Slack channel or
-                    Webex space mapped to that team.
+                    team gets <code>can_use</code> and <code>can_write</code> on
+                    the agent in OpenFGA, so every member can edit it, DM it,
+                    and use it in any Slack channel or Webex space mapped to
+                    that team.
                   </>
                 }
                 renderGrantDetail={(slug) => (
                   <>
-                    every member of <code>team:{slug}</code> can DM this agent
-                    in a 1:1 chat and use it in any Slack channel or Webex space
-                    that is mapped to <code>team:{slug}</code>.
+                    every member of <code>team:{slug}</code> can edit this
+                    agent, DM it in a 1:1 chat, and use it in any Slack channel
+                    or Webex space that is mapped to <code>team:{slug}</code>.
                   </>
                 )}
                 extraGrantPreviewItems={

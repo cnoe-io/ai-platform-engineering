@@ -29,10 +29,13 @@ describe("buildAgentRelationshipTupleDiff: shared_with_teams", () => {
     expect(diff.writes).toEqual(
       expect.arrayContaining([
         { user: "team:platform#member", relation: "user", object: "agent:agent-test" },
+        { user: "team:platform#member", relation: "writer", object: "agent:agent-test" },
         { user: "team:platform#admin", relation: "manager", object: "agent:agent-test" },
         { user: "team:sre#member", relation: "user", object: "agent:agent-test" },
+        { user: "team:sre#member", relation: "writer", object: "agent:agent-test" },
         { user: "team:sre#admin", relation: "manager", object: "agent:agent-test" },
         { user: "team:ops#member", relation: "user", object: "agent:agent-test" },
+        { user: "team:ops#member", relation: "writer", object: "agent:agent-test" },
         { user: "team:ops#admin", relation: "manager", object: "agent:agent-test" },
       ]),
     );
@@ -54,17 +57,17 @@ describe("buildAgentRelationshipTupleDiff: shared_with_teams", () => {
     const platformMemberWrites = diff.writes.filter(
       (t) => t.user === "team:platform#member" && t.object === "agent:agent-test",
     );
-    expect(platformMemberWrites).toHaveLength(1);
+    expect(platformMemberWrites.map((t) => t.relation).sort()).toEqual(["user", "writer"]);
     const sreMemberWrites = diff.writes.filter(
       (t) => t.user === "team:sre#member" && t.object === "agent:agent-test",
     );
-    expect(sreMemberWrites).toHaveLength(1);
+    expect(sreMemberWrites.map((t) => t.relation).sort()).toEqual(["user", "writer"]);
   });
 
   it("emits deletes for slugs removed from the shared set", () => {
     // Admin unchecks "ops" in the editor. The diff must include a
-    // delete for both the member and admin tuple so the team
-    // genuinely loses `can_use` / `can_manage` on the agent. Without
+    // delete for member/admin tuples so the team genuinely loses `can_use`,
+    // `can_write`, and `can_manage` on the agent. Without
     // this delete the team kept its grant forever (the original bug).
     const diff = buildAgentRelationshipTupleDiff({
       ...baseInput,
@@ -75,6 +78,7 @@ describe("buildAgentRelationshipTupleDiff: shared_with_teams", () => {
     expect(diff.deletes).toEqual(
       expect.arrayContaining([
         { user: "team:ops#member", relation: "user", object: "agent:agent-test" },
+        { user: "team:ops#member", relation: "writer", object: "agent:agent-test" },
         { user: "team:ops#admin", relation: "manager", object: "agent:agent-test" },
       ]),
     );
@@ -111,6 +115,7 @@ describe("buildAgentRelationshipTupleDiff: shared_with_teams", () => {
     expect(diff.deletes).toEqual(
       expect.arrayContaining([
         { user: "team:platform#member", relation: "user", object: "agent:agent-test" },
+        { user: "team:platform#member", relation: "writer", object: "agent:agent-test" },
         { user: "team:platform#admin", relation: "manager", object: "agent:agent-test" },
       ]),
     );
@@ -124,6 +129,7 @@ describe("buildAgentRelationshipTupleDiff: shared_with_teams", () => {
     expect(diff.writes).toEqual(
       expect.arrayContaining([
         { user: "team:sre#member", relation: "user", object: "agent:agent-test" },
+        { user: "team:sre#member", relation: "writer", object: "agent:agent-test" },
         { user: "team:sre#admin", relation: "manager", object: "agent:agent-test" },
       ]),
     );
@@ -176,7 +182,9 @@ describe("buildAgentRelationshipTupleDiff: shared_with_teams", () => {
     expect(diff.writes).toEqual(
       expect.arrayContaining([
         { user: "team:sre#member", relation: "user", object: "agent:agent-test" },
+        { user: "team:sre#member", relation: "writer", object: "agent:agent-test" },
         { user: "team:ops#member", relation: "user", object: "agent:agent-test" },
+        { user: "team:ops#member", relation: "writer", object: "agent:agent-test" },
       ]),
     );
   });
