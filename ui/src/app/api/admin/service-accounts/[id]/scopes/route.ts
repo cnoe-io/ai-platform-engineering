@@ -27,8 +27,11 @@ import { isPlatformAdmin } from "@/lib/rbac/unlinked-service-account";
  * caller to be able to MANAGE the SA (owning-team membership):
  *   check(user:<caller>, can_manage, service_account:<id>).
  *
- * POST  — add a scope (FR-015): the editor must ALSO hold the scope being
- *         granted (check(user:<editor>, <rel>, <object>) → 403 if unheld).
+ * POST  — add a scope (FR-015): non-admin editors must ALSO hold the scope
+ *         being granted (check(user:<editor>, <rel>, <object>) → 403 if
+ *         unheld). Platform admins can add any catalog scope to an SA they can
+ *         manage, even if their org-admin authority is not materialized as a
+ *         per-tool `can_call` tuple.
  * DELETE — remove a scope (FR-016): can_manage ONLY; the editor need NOT hold
  *         the scope.
  *
@@ -104,7 +107,8 @@ async function authorizeScopeMutation(
   });
   const targetDoc = await getBySub(id);
   const isUnlinkedSa = targetDoc?.is_platform_unlinked === true;
-  const unlinkedPlatformAdmin = isUnlinkedSa ? await isPlatformAdmin(session) : false;
+  const platformAdmin = await isPlatformAdmin(session);
+  const unlinkedPlatformAdmin = isUnlinkedSa && platformAdmin;
 
   if (!canManage.allowed) {
     // [unlinked-sa][TS-B1] Org-admin bypass for the unlinked SA.
@@ -126,7 +130,7 @@ async function authorizeScopeMutation(
   return {
     actor: { callerSub: session.sub, email: session.user.email ?? undefined },
     scope,
-    bypassHeldScopeCheck: unlinkedPlatformAdmin,
+    bypassHeldScopeCheck: platformAdmin,
   };
 }
 
@@ -178,9 +182,10 @@ export async function POST(request: Request, context: RouteContext) {
   const { actor, scope, bypassHeldScopeCheck } = pre;
 
   try {
-    // FR-015: normal SA editors must hold the scope they're granting. The
-    // platform unlinked SA is different: tools are granted to runtime callers,
-    // so human admins structurally cannot hold many grantable tool scopes.
+    // FR-015: normal non-admin editors must hold the scope they're granting.
+    // Platform admins are different: org-admin authority is administrative and
+    // often is not materialized as per-tool can_call tuples, but the picker now
+    // exposes the full platform MCP catalog for them.
     if (!bypassHeldScopeCheck) {
       const held = await checkOpenFgaTuple(scopeCheckTuple(scope, `user:${actor.callerSub}`));
       if (!held.allowed) {

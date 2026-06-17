@@ -37,7 +37,16 @@ jest.mock("@/lib/api-middleware", () => {
     getPaginationParams: () => ({ page: 1, pageSize: 20, skip: 0 }),
     getUserTeamIds: (...args: unknown[]) => mockGetUserTeamIds(...args),
     paginatedResponse: (items: unknown[], total: number, page: number, pageSize: number) =>
-      Response.json({ success: true, data: items, pagination: { total, page, pageSize } }),
+      Response.json({
+        success: true,
+        data: {
+          items,
+          total,
+          page,
+          page_size: pageSize,
+          has_more: page * pageSize < total,
+        },
+      }),
     requireRbacPermission: (...args: unknown[]) => mockRequireRbacPermission(...args),
     successResponse: (data: unknown, status = 200) => Response.json({ success: true, data }, { status }),
     withErrorHandler:
@@ -61,6 +70,13 @@ jest.mock("@/lib/api-middleware", () => {
 
 jest.mock("@/lib/mongodb", () => ({
   getCollection: (...args: unknown[]) => mockGetCollection(...args),
+  isMongoDBConfigured: true,
+}));
+
+jest.mock("@/lib/config", () => ({
+  getServerConfig: () => ({
+    dynamicAgentsEnabled: true,
+  }),
 }));
 
 jest.mock("@/lib/rbac/resource-authz", () => ({
@@ -149,8 +165,12 @@ describe("dynamic agents RBAC routes", () => {
     );
     expect(body).toMatchObject({
       success: true,
-      data: [{ _id: "agent-visible" }],
-      pagination: { total: 1, page: 1, pageSize: 20 },
+      data: {
+        items: [{ _id: "agent-visible" }],
+        total: 1,
+        page: 1,
+        page_size: 20,
+      },
     });
   });
 
@@ -173,6 +193,31 @@ describe("dynamic agents RBAC routes", () => {
       [{ _id: "agent-runtime", enabled: true }],
       { type: "agent", action: "use", id: expect.any(Function) },
     );
+  });
+
+  it("allows org-admin bypass for Dynamic Agent conversation audit listing", async () => {
+    const conversationCollection = {
+      countDocuments: jest.fn().mockResolvedValue(0),
+      aggregate: jest.fn().mockReturnValue({
+        toArray: jest.fn().mockResolvedValue([]),
+      }),
+    };
+    mockGetCollection.mockResolvedValue(conversationCollection);
+    const { GET } = await import("../conversations/route");
+
+    const response = await GET(request("/api/dynamic-agents/conversations"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(mockRequireResourcePermission).toHaveBeenCalledWith(
+      session,
+      { type: "audit_log", id: "dynamic_agent_conversations", action: "read" },
+      { bypassForOrgAdmin: true },
+    );
+    expect(body).toMatchObject({
+      success: true,
+      data: { items: [], total: 0, page: 1, page_size: 20 },
+    });
   });
 
   it("filters chat-available agents through OpenFGA can_use instead of legacy visibility", async () => {
