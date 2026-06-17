@@ -281,7 +281,7 @@ def _slack_agent_channel_grant_check(context, channel_id: str | None, agent_id: 
         return None
 
     logger.info(
-        "Slack channel grant denied channel=%s agent=%s reason=%s",
+        "Slack channel grant denied channel={} agent={} reason={}",
         channel_id,
         agent_id,
         decision.reason,
@@ -1515,7 +1515,7 @@ def _route_to_agent(event, say, client, channel_config, agent_match, is_bot, bot
     denial = _slack_agent_channel_grant_check(context, channel_id, agent_id)
     if denial:
       logger.warning(
-        "Slack channel grant denied for ambient message channel=%s agent=%s — silently dropping",
+        "Slack channel grant denied for ambient message channel={} agent={} — silently dropping",
         channel_id,
         agent_id,
       )

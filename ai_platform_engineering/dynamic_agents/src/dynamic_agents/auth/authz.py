@@ -84,13 +84,24 @@ def _authz_service_url() -> str | None:
     return url or None
 
 
+class _CasMetaError(Exception):
+    """A CAS non-200 response. Carries the upstream status so the caller can
+    distinguish a definitive 4xx (not-retriable — bad request / unauthorized /
+    forbidden binding) from a transient 5xx or network failure (retriable)."""
+
+    def __init__(self, status_code: int) -> None:
+        super().__init__(f"CAS decision endpoint returned HTTP {status_code}")
+        self.status_code = status_code
+
+
 async def _decide_agent_use(subject_type: str, subject: str, agent_id: str, bearer: str) -> bool:
     """Ask CAS whether `subject` may use `agent_id`.
 
     Forwards the caller's bearer (OBO) so CAS's subject-binding (caller == subject)
     is satisfied; CAS evaluates the capability and the org-admin bypass. A DENY is
-    a 200 with ``decision: DENY``; any non-200 — or missing config — raises so the
-    caller fails closed (treated as PDP-unavailable)."""
+    a 200 with ``decision: DENY``; any non-200 raises ``_CasMetaError`` (carrying
+    the upstream status) and missing config raises ``RuntimeError`` — either way
+    the caller fails closed."""
     base = _authz_service_url()
     if not base:
         raise RuntimeError("AUTHZ_SERVICE_URL is not configured")
@@ -106,7 +117,7 @@ async def _decide_agent_use(subject_type: str, subject: str, agent_id: str, bear
     async with httpx.AsyncClient(timeout=5.0) as client:
         response = await client.post(f"{base}{_DECISIONS_PATH}", headers=headers, json=body)
     if response.status_code != 200:
-        raise RuntimeError(f"CAS decision endpoint returned HTTP {response.status_code}")
+        raise _CasMetaError(response.status_code)
     return response.json().get("decision") == "ALLOW"
 
 
@@ -129,7 +140,29 @@ async def require_agent_use_permission(agent_id: str) -> None:
 
     try:
         allowed = await _decide_agent_use(subject_type, subject, agent_id, token)
-    except Exception as exc:  # noqa: BLE001 — any failure to get a decision fails closed
+    except _CasMetaError as exc:
+        # A definitive 4xx from CAS (e.g. 403 subject-binding, 400 bad request, 401)
+        # is not transient — surface it as the same status so the caller sees a
+        # real "denied / misconfigured" signal instead of a misleading
+        # "retry later". Transient 5xx (and anything else below) stays 503/retry.
+        if 400 <= exc.status_code < 500:
+            logger.warning("CAS agent-use rejected request for agent=%s: HTTP %s", agent_id, exc.status_code)
+            _raise_authz(
+                exc.status_code,
+                "Authorization was refused for this request.",
+                "CAS_REJECTED",
+                "pdp_rejected",
+                "contact_admin",
+            )
+        logger.warning("CAS agent-use decision unavailable for agent=%s: %s", agent_id, exc)
+        _raise_authz(
+            503,
+            "Authorization service is temporarily unavailable. Please try again in a moment.",
+            "PDP_UNAVAILABLE",
+            "pdp_unavailable",
+            "retry",
+        )
+    except Exception as exc:  # noqa: BLE001 — any other failure to get a decision fails closed
         logger.warning("CAS agent-use decision unavailable for agent=%s: %s", agent_id, exc)
         _raise_authz(
             503,

@@ -2119,8 +2119,8 @@ function AgentList({
 /**
  * Spec 104 — Tools picker. A single column of MCP-server prefixes plus a
  * single "All tools" wildcard checkbox at the top. Wildcard does not visually
- * un-tick the per-server boxes — they stay as a record of intent — but the
- * backend writes a single OpenFGA wildcard relationship.
+ * un-tick the per-server boxes — they stay as a record of intent — and the
+ * backend expands wildcard intent into concrete per-server OpenFGA tuples.
  */
 function ToolList({
   options,

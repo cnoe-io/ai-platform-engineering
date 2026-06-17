@@ -1,3 +1,4 @@
+// assisted-by Codex Codex-sonnet-4-6
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth-config";
@@ -58,7 +59,7 @@ async function authorizeScopeMutation(
   id: string,
 ): Promise<
   | { response: NextResponse }
-  | { actor: ResolvedActor; scope: ScopeRef }
+  | { actor: ResolvedActor; scope: ScopeRef; bypassHeldScopeCheck: boolean }
 > {
   const session = (await getServerSession(authOptions)) as {
     sub?: string;
@@ -101,26 +102,17 @@ async function authorizeScopeMutation(
     relation: "can_manage",
     object: `service_account:${id}`,
   });
+  const targetDoc = await getBySub(id);
+  const isUnlinkedSa = targetDoc?.is_platform_unlinked === true;
+  const unlinkedPlatformAdmin = isUnlinkedSa ? await isPlatformAdmin(session) : false;
+
   if (!canManage.allowed) {
     // [unlinked-sa][TS-B1] Org-admin bypass for the unlinked SA.
     // The unlinked SA is owned by super-admins, but its scopes are intended to be
     // managed by any platform/org-admin (mirrors the unlinked GET route's auth gate).
     // ADDITIVE: normal SAs still require owning-team can_manage; the bypass ONLY
     // fires for is_platform_unlinked===true docs when the caller is a platform admin.
-    const targetDoc = await getBySub(id);
-    const isUnlinkedSa = targetDoc?.is_platform_unlinked === true;
-    if (isUnlinkedSa) {
-      const admin = await isPlatformAdmin(session);
-      if (!admin) {
-        return {
-          response: NextResponse.json(
-            { success: false, error: "Service account not found" },
-            { status: 404 },
-          ),
-        };
-      }
-      // Org-admin managing the unlinked SA — allow.
-    } else {
+    if (!unlinkedPlatformAdmin) {
       return {
         response: NextResponse.json(
           { success: false, error: "Service account not found" },
@@ -128,9 +120,14 @@ async function authorizeScopeMutation(
         ),
       };
     }
+    // Org-admin managing the unlinked SA — allow.
   }
 
-  return { actor: { callerSub: session.sub, email: session.user.email ?? undefined }, scope };
+  return {
+    actor: { callerSub: session.sub, email: session.user.email ?? undefined },
+    scope,
+    bypassHeldScopeCheck: unlinkedPlatformAdmin,
+  };
 }
 
 /**
@@ -178,20 +175,24 @@ export async function POST(request: Request, context: RouteContext) {
   const { id } = await context.params;
   const pre = await authorizeScopeMutation(request, id);
   if ("response" in pre) return pre.response;
-  const { actor, scope } = pre;
+  const { actor, scope, bypassHeldScopeCheck } = pre;
 
   try {
-    // FR-015: the editor must hold the scope they're granting.
-    const held = await checkOpenFgaTuple(scopeCheckTuple(scope, `user:${actor.callerSub}`));
-    if (!held.allowed) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "You cannot grant a scope you do not hold",
-          data: { rejected_scope: scope },
-        },
-        { status: 403 },
-      );
+    // FR-015: normal SA editors must hold the scope they're granting. The
+    // platform unlinked SA is different: tools are granted to runtime callers,
+    // so human admins structurally cannot hold many grantable tool scopes.
+    if (!bypassHeldScopeCheck) {
+      const held = await checkOpenFgaTuple(scopeCheckTuple(scope, `user:${actor.callerSub}`));
+      if (!held.allowed) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: "You cannot grant a scope you do not hold",
+            data: { rejected_scope: scope },
+          },
+          { status: 403 },
+        );
+      }
     }
 
     const saSubject = `service_account:${id}`;

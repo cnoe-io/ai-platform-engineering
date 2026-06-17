@@ -13,14 +13,14 @@
  * Reuses:
  *  - GET /api/admin/service-accounts/unlinked  (our new resolver endpoint)
  *  - POST/DELETE /api/admin/service-accounts/[id]/scopes  (existing scope edit)
- *  - GET /api/admin/service-accounts/grantable   (existing scope picker)
+ *  - GET /api/admin/service-accounts/grantable?context=unlinked
  *
- * Note on grantable: the endpoint returns scopes the CALLING ADMIN holds.
- * For the unlinked SA the "correct" set is the full platform set. If the
- * admin doesn't hold all platform scopes, some options will not appear in the
- * picker. This is a known limitation tracked as a follow-up (see report).
+ * Note on grantable: unlinked access uses the full platform catalog, gated by
+ * the BFF to platform admins. Normal service-account pickers still use the
+ * caller-held grantable set.
  *
  * assisted-by Claude:claude-sonnet-4-6
+ * assisted-by Codex Codex-sonnet-4-6
  */
 
 import React, { useCallback, useEffect, useState } from "react";
@@ -92,7 +92,7 @@ export function UnlinkedServiceAccountModal({
         fetch("/api/admin/service-accounts/unlinked")
           .then((r) => r.json())
           .catch(() => ({ success: false, error: "Network error loading service account" })),
-        fetch("/api/admin/service-accounts/grantable")
+        fetch("/api/admin/service-accounts/grantable?context=unlinked")
           .then((r) => r.json())
           .catch(() => ({ success: false, error: "Network error loading grantable scopes" })),
       ]);
@@ -196,7 +196,7 @@ export function UnlinkedServiceAccountModal({
           <DialogDescription>
             Grant agents and tools to unlinked users — people who have messaged via Slack
             or Webex but never signed in to the web UI, so the platform has no linked account
-            for them. Any platform admin can add agents or tools they own here, and whatever
+            for them. Any platform admin can add enabled agents or tools here, and whatever
             you grant becomes the base access every unlinked Slack/Webex caller and bot
             receives.
             {!isAdmin && (
@@ -307,19 +307,17 @@ export function UnlinkedServiceAccountModal({
                   <div className="space-y-2 rounded-md border border-dashed border-input p-3">
                     <span className="text-sm font-medium">Add a scope</span>
                     <p className="text-xs text-muted-foreground">
-                      Only scopes you currently hold are shown. If a scope is missing, ensure
-                      your team has been granted it first.
+                      Platform catalog scopes are shown for unlinked callers.
                     </p>
-                    {/* TEST-11/UX-5: show platform-admin limitation when grantable loaded
+                    {/* TEST-11/UX-5: show an empty catalog note when grantable loaded
                         successfully but returned zero items for the selected type. */}
                     {!grantableError && grantable !== null && held.length === 0 && (
                       <p
                         className="text-xs text-amber-700 dark:text-amber-400"
                         data-testid="unlinked-modal-grantable-empty-note"
                       >
-                        No {addType}s available to grant. As a platform admin you can only
-                        grant scopes your account currently holds. Ensure your team has been
-                        granted the desired {addType} scope first.
+                        No {addType}s available to grant. Check that platform {addType} resources
+                        are enabled.
                       </p>
                     )}
                     <div
@@ -346,8 +344,8 @@ export function UnlinkedServiceAccountModal({
                       >
                         <option value="">
                           {addableOptions.length === 0
-                            ? `No more ${addType}s you can grant`
-                            : `Select a ${addType} you hold...`}
+                            ? `No more ${addType}s available`
+                            : `Select a ${addType}...`}
                         </option>
                         {addableOptions.map((item) => (
                           <option key={item.ref} value={item.ref}>
