@@ -297,6 +297,48 @@ describe("Slack channel ReBAC APIs", () => {
     ]);
   });
 
+  it("repairs stale team-shared Slack channel tuples so team members can edit routes", async () => {
+    // Old assignments may have a readable channel tuple but not the newer
+    // team-member manage tuple. Listing configured channels should converge
+    // that row to the central Slack team-assignment policy so the UI can enable
+    // Edit/Add Agent for team members.
+    // assisted-by Codex Codex-sonnet-4-6
+    mockCheckOpenFgaTuple.mockImplementation(async (tuple: { relation: string; object: string }) => {
+      if (tuple.object === "organization:caipe") return { allowed: false };
+      if (tuple.object !== `slack_channel:${workspaceAlias}--${channelId}`) return { allowed: false };
+      if (tuple.relation === "can_read") return { allowed: true };
+      if (tuple.relation === "can_manage") {
+        return { allowed: mockWriteOpenFgaTuples.mock.calls.length > 0 };
+      }
+      return { allowed: false };
+    });
+    const { GET } = await import("../route");
+
+    const response = await GET(request("/api/admin/slack/channels"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.channels).toEqual([
+      expect.objectContaining({
+        channel_id: channelId,
+        channel_name: "incidents",
+        team_slug: "platform-engineering",
+        can_manage: true,
+      }),
+    ]);
+    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith(
+      expect.objectContaining({
+        writes: expect.arrayContaining([
+          {
+            user: "team:platform-engineering#member",
+            relation: "manager",
+            object: `slack_channel:${workspaceAlias}--${channelId}`,
+          },
+        ]),
+      }),
+    );
+  });
+
   it("replaces channel resource grants and writes channel OpenFGA tuples", async () => {
     // Not an org admin (organization:caipe denied) so the per-channel can_manage
     // check is what authorizes the actor — exercise that path explicitly.
