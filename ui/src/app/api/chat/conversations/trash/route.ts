@@ -11,6 +11,7 @@ import { getCollection,isMongoDBConfigured } from '@/lib/mongodb';
 import { filterConversationsByImplicitOrExplicitPermission } from '@/lib/rbac/conversation-implicit-authz';
 import type { Conversation } from '@/types/mongodb';
 import { NextRequest,NextResponse } from 'next/server';
+import { deleteConversationsPermanently } from '../delete-permanently';
 
 const ARCHIVE_RETENTION_DAYS = 7;
 
@@ -43,29 +44,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     }).toArray();
 
     if (expired.length > 0) {
-      const expiredIds = expired.map(c => c._id);
-      await conversations.deleteMany({ _id: { $in: expiredIds } });
-
-      // Delete messages for purged Platform Engineer conversations
-      const messages = await getCollection('messages');
-      await messages.deleteMany({ conversation_id: { $in: expiredIds } });
-
-      // Delete checkpoint data for purged Dynamic Agent conversations
-      // Dynamic Agent conversations have an agent participant
-      const dynamicAgentIds = expired
-        .filter(c => c.participants?.some((p: { type: string }) => p.type === 'agent'))
-        .map(c => c._id);
-
-      if (dynamicAgentIds.length > 0) {
-        const checkpoints = await getCollection('checkpoints_conversation');
-        const checkpointWrites = await getCollection('checkpoint_writes_conversation');
-
-        await checkpoints.deleteMany({ thread_id: { $in: dynamicAgentIds } });
-        await checkpointWrites.deleteMany({ thread_id: { $in: dynamicAgentIds } });
-
-        console.log(`[Trash] Also purged checkpoint data for ${dynamicAgentIds.length} Dynamic Agent conversations`);
-      }
-
+      await deleteConversationsPermanently(expired);
       console.log(`[Trash] Auto-purged ${expired.length} conversations older than ${ARCHIVE_RETENTION_DAYS} days for ${user.email}`);
     }
 
