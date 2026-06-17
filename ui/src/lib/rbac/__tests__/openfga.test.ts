@@ -312,6 +312,10 @@ describe("OpenFGA team resource tuple reconciliation", () => {
         type: "team",
         relation: "admin",
       });
+      expect(directlyRelatedUserTypes(modelPath, "slack_channel", "manager")).toContainEqual({
+        type: "team",
+        relation: "member",
+      });
       expect(directlyRelatedUserTypes(modelPath, "mcp_server", "manager")).toContainEqual({
         type: "team",
         relation: "admin",
