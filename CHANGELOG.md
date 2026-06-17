@@ -1,3 +1,60 @@
+## 0.5.15-dev.8 (2026-06-17)
+
+### Fix
+
+- **agent-editor**: simplify owner team transfer (#1893)
+- **rbac**: treat team managers as owner-team members (#1895)
+
+## 0.5.15-dev.7 (2026-06-17)
+
+### Feat
+
+- **admin**: scope teams, users, stats, and feedback for non-admin users (#1894)
+- **rbac**: expose policy manifest downloads
+
+### Fix
+
+- **chat**: prevent auto-create on login race and unify permanent delete logic (#1896)
+- **ci**: harden release workflows and add actions scan (#1851)
+
+### Perf
+
+- **admin**: lazy-load tab data on first visit; parallelise stats queries (#1882)
+
+## 0.5.15-dev.5 (2026-06-17)
+
+### Fix
+
+- **rbac**: upsert bootstrap idp-sync rule by ID to fix stale provider_id (#1881)
+- **rbac**: expand MCP wildcard grants safely (#1889)
+
+## 0.5.15-dev.4 (2026-06-17)
+
+### Fix
+
+- **slack**: let team members manage shared integrations (#1883)
+
+## 0.5.15-dev.3 (2026-06-17)
+
+### Fix
+
+- unlinked service account catalog grants (#1870)
+
+## 0.5.15-dev.2 (2026-06-16)
+
+### Fix
+
+- **dynamic-agents**: surface CAS 4xx as its real status instead of collapsing to 503 (#1878)
+- **admin**: allow unlinked service account tool grants
+
+## 0.5.15-dev.1 (2026-06-16)
+
+### Fix
+
+- **slack**: fix loguru format strings and remove noisy oauth cache debug log (#1879)
+
+## 0.5.15 (2026-06-16)
+
 ## 0.5.14-dev.10 (2026-06-16)
 
 ### Fix
