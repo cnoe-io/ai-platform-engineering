@@ -339,6 +339,51 @@ describe("Slack channel ReBAC APIs", () => {
     );
   });
 
+  it("returns can_manage after a successful stale tuple repair even when OpenFGA read-after-write lags", async () => {
+    // Production OpenFGA can accept the new team-member manager tuple and still
+    // return the old check result for the immediate follow-up read. The list
+    // response should trust the successful repair write for this request so the
+    // configured channel UI does not keep Edit disabled until a later refresh.
+    // assisted-by Codex Codex-sonnet-4-6
+    mockCheckOpenFgaTuple.mockImplementation(async (tuple: { relation: string; object: string }) => {
+      if (tuple.object === "organization:caipe") return { allowed: false };
+      if (tuple.object !== `slack_channel:${workspaceAlias}--${channelId}`) return { allowed: false };
+      if (tuple.relation === "can_read") return { allowed: true };
+      if (tuple.relation === "can_manage") return { allowed: false };
+      return { allowed: false };
+    });
+    mockWriteOpenFgaTuples.mockResolvedValue({ enabled: true, writes: 1, deletes: 0 });
+    const { GET } = await import("../route");
+
+    const response = await GET(request("/api/admin/slack/channels"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.channels).toEqual([
+      expect.objectContaining({
+        channel_id: channelId,
+        team_slug: "platform-engineering",
+        can_manage: true,
+      }),
+    ]);
+    expect(mockCheckOpenFgaTuple).toHaveBeenCalledWith({
+      user: "user:alice-sub",
+      relation: "can_manage",
+      object: `slack_channel:${workspaceAlias}--${channelId}`,
+    });
+    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith(
+      expect.objectContaining({
+        writes: expect.arrayContaining([
+          {
+            user: "team:platform-engineering#member",
+            relation: "manager",
+            object: `slack_channel:${workspaceAlias}--${channelId}`,
+          },
+        ]),
+      }),
+    );
+  });
+
   it("replaces channel resource grants and writes channel OpenFGA tuples", async () => {
     // Not an org admin (organization:caipe denied) so the per-channel can_manage
     // check is what authorizes the actor — exercise that path explicitly.

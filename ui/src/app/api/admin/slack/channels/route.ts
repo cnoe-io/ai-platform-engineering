@@ -45,12 +45,13 @@ async function slackChannelAccess(
     checkOpenFgaTuple({ user: openfgaUser, relation: "can_manage", object }).catch(() => ({ allowed: false })),
   ]);
   let [read, manage] = await checkAccess();
+  let repairedManageGrant = false;
   if (read.allowed && !manage.allowed && teamSlug) {
     // assisted-by Codex Codex-sonnet-4-6
     // Older channel assignments may only have the team-member use tuple.
     // Re-materialize the central assignment policy so upgraded installs get
     // the new team-member manage tuple without a manual migration first.
-    await writeOpenFgaTuples(
+    const repair = await writeOpenFgaTuples(
       buildUniversalRebacTupleDiff({
         writes: slackChannelTeamVisibilityRelationships(workspaceId, channelId, teamSlug),
         deletes: [],
@@ -62,12 +63,14 @@ async function slackChannelAccess(
         teamSlug,
         error,
       });
+      return null;
     });
+    repairedManageGrant = Boolean(repair?.enabled && repair.writes > 0);
     [read, manage] = await checkAccess();
   }
   return {
-    canRead: read.allowed || manage.allowed,
-    canManage: manage.allowed,
+    canRead: read.allowed || manage.allowed || repairedManageGrant,
+    canManage: manage.allowed || repairedManageGrant,
   };
 }
 
