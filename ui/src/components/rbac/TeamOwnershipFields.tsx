@@ -200,8 +200,8 @@ export function TeamOwnershipFields(props: TeamOwnershipFieldsProps) {
         <p id="owner-team-help" className="text-xs text-muted-foreground">
           {ownerHelpText ?? (
             <>
-              Owner-team members can use the {resourceNoun}; owner-team admins
-              can manage it.
+              Owner-team members can use and edit the {resourceNoun};
+              owner-team admins can manage it.
             </>
           )}
         </p>

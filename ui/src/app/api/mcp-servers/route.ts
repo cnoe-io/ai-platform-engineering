@@ -47,6 +47,18 @@ const SERVER_MUTABLE_FIELDS = [
   "enabled",
 ] as const;
 
+async function requireOwnerTeamMembership(session: Parameters<typeof requireResourcePermission>[0], ownerTeamSlug: string): Promise<void> {
+  try {
+    await requireResourcePermission(session, { type: "team", id: ownerTeamSlug, action: "use" });
+    return;
+  } catch {
+    // assisted-by Codex Codex-sonnet-4-6
+    // A team admin/owner can manage the destination team even if older
+    // OpenFGA projections did not materialize the can_use edge.
+    await requireResourcePermission(session, { type: "team", id: ownerTeamSlug, action: "manage" });
+  }
+}
+
 function normalizeString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
@@ -200,7 +212,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     const serverId = body.id.startsWith("mcp-") ? body.id as string : `mcp-${body.id as string}`;
     const ownerTeamSlug = normalizeString(body.owner_team_slug);
     if (ownerTeamSlug) {
-      await requireResourcePermission(session, { type: "team", id: ownerTeamSlug, action: "use" });
+      await requireOwnerTeamMembership(session, ownerTeamSlug);
     }
 
     // Uniqueness check

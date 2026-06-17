@@ -684,6 +684,67 @@ describe("dynamic agents RBAC routes", () => {
     );
   });
 
+  it("treats destination team admins as members during ownership transfer", async () => {
+    // Some upgraded installs have team-admin manage tuples without a matching
+    // can_use projection. The transfer prompt must not block those users as
+    // "not a member" when they can manage the destination team.
+    // assisted-by Codex Codex-sonnet-4-6
+    const existingAgent = {
+      _id: "agent-xfer",
+      name: "Xfer Agent",
+      owner_team_slug: "platform",
+      owner_subject: "alice-sub",
+      shared_with_teams: [],
+      allowed_tools: {},
+      visibility: "team",
+    };
+    const dynamicAgents = {
+      findOne: jest.fn().mockResolvedValue(existingAgent),
+      findOneAndUpdate: jest.fn().mockResolvedValue({ ...existingAgent, owner_team_slug: "data-eng" }),
+    };
+    const teams = {
+      find: jest.fn().mockReturnValue({
+        project: jest.fn().mockReturnThis(),
+        toArray: jest.fn().mockResolvedValue([]),
+      }),
+      findOne: jest.fn().mockResolvedValue({ _id: "data-eng-id", slug: "data-eng" }),
+    };
+    mockGetCollection.mockImplementation(async (name: string) => {
+      if (name === "dynamic_agents") return dynamicAgents;
+      if (name === "teams") return teams;
+      throw new Error(`unexpected collection ${name}`);
+    });
+    mockCanTransferResourceOwnership.mockResolvedValue(true);
+    mockRequireResourcePermission.mockImplementation(async (_session, resource: { type?: string; action?: string }) => {
+      if (resource.type === "team" && resource.action === "use") {
+        throw Object.assign(new Error("not team member"), { statusCode: 403 });
+      }
+      return undefined;
+    });
+
+    const { PUT } = await import("../route");
+    const response = await PUT(
+      request("/api/dynamic-agents?id=agent-xfer", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ owner_team_slug: "data-eng" }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockRequireResourcePermission).toHaveBeenCalledWith(
+      session,
+      { type: "team", id: "data-eng", action: "manage" },
+    );
+    expect(mockReconcileAgentRelationships).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentId: "agent-xfer",
+        ownerTeamSlug: "data-eng",
+        previousOwnerTeamSlug: "platform",
+      }),
+    );
+  });
+
   it("denies an ownership transfer when the caller can neither manage nor admin (US3)", async () => {
     const existingAgent = {
       _id: "agent-xfer",
@@ -1033,6 +1094,72 @@ describe("dynamic agents RBAC routes", () => {
     expect(response.status).toBe(200);
     expect(mockRequireAgentPermission).toHaveBeenCalledWith(session, "agent-1", "write");
     expect(findOneAndUpdate).toHaveBeenCalled();
+  });
+
+  it("allows owner-team members to update legacy agents before writer tuples are repaired", async () => {
+    // Existing agents may only have team#member user tuples from older
+    // reconciliation. The PUT route should allow the edit based on FGA team
+    // membership, then reconcile the canonical writer tuple for future saves.
+    // assisted-by Codex Codex-sonnet-4-6
+    const authzError = Object.assign(new Error("missing agent write"), {
+      statusCode: 403,
+      code: "agent#write",
+    });
+    mockRequireAgentPermission.mockRejectedValue(authzError);
+    mockRequireResourcePermission.mockImplementation(async (_session, resource: { type?: string; action?: string }) => {
+      if (resource.type === "team" && resource.action === "use") return undefined;
+      throw Object.assign(new Error("denied"), { statusCode: 403 });
+    });
+
+    const existingAgent = {
+      _id: "agent-1",
+      name: "Original",
+      owner_team_slug: "platform",
+      shared_with_teams: [],
+      allowed_tools: {},
+      visibility: "team",
+    };
+    const findOneAndUpdate = jest.fn().mockResolvedValue({ ...existingAgent, name: "Renamed" });
+    mockGetCollection.mockImplementation(async (name: string) => {
+      if (name === "dynamic_agents") {
+        return {
+          findOne: jest.fn().mockResolvedValue(existingAgent),
+          findOneAndUpdate,
+        };
+      }
+      if (name === "teams") {
+        return {
+          find: jest.fn().mockReturnValue({
+            project: jest.fn().mockReturnThis(),
+            toArray: jest.fn().mockResolvedValue([]),
+          }),
+        };
+      }
+      throw new Error(`unexpected collection ${name}`);
+    });
+
+    const { PUT } = await import("../route");
+
+    const response = await PUT(
+      request("/api/dynamic-agents?id=agent-1", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "Renamed" }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockRequireResourcePermission).toHaveBeenCalledWith(
+      session,
+      { type: "team", id: "platform", action: "use" },
+    );
+    expect(findOneAndUpdate).toHaveBeenCalled();
+    expect(mockReconcileAgentRelationships).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentId: "agent-1",
+        ownerTeamSlug: "platform",
+      }),
+    );
   });
 
   it("requires agent delete access before deleting an agent document", async () => {
