@@ -467,14 +467,9 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       ? Math.round((completedCount / totalWithAssistant) * 1000) / 10
       : 0;
 
-    const avgMsgsCompleted = conversationsWithAssistant.filter((c) => c.has_final === 1).length > 0
-      ? Math.round(
-          (conversationsWithAssistant
-            .filter((c) => c.has_final === 1)
-            .reduce((sum, c) => sum + c.msg_count, 0) /
-            conversationsWithAssistant.filter((c) => c.has_final === 1).length) *
-            10
-        ) / 10
+    const completedConvs = conversationsWithAssistant.filter((c) => c.has_final === 1);
+    const avgMsgsCompleted = completedConvs.length > 0
+      ? Math.round((completedConvs.reduce((sum, c) => sum + c.msg_count, 0) / completedConvs.length) * 10) / 10
       : 0;
 
     const hourlyMap = new Map<number, number>();

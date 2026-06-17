@@ -509,7 +509,7 @@ function AdminPage() {
   const [teams, setTeams] = useState<Team[]>([]);
   const [teamSearch, setTeamSearch] = useState("");
   const [teamsRefreshing, setTeamsRefreshing] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedUserEmail, setSelectedUserEmail] = useState<string | null>(null);
   const [updatingRole, setUpdatingRole] = useState<string | null>(null);
@@ -1055,20 +1055,30 @@ function AdminPage() {
     if (visitedTabsRef.current.has(tab)) return;
     visitedTabsRef.current.add(tab);
 
-    // Teams data is needed by stats/feedback/slack as a filter option.
-    // Load it lazily the first time any of those tabs is visited.
+    // Teams data is shared across stats/slack/feedback filter dropdowns.
+    // Mark it with a separate key so teams isn't re-fetched when a second
+    // tab that needs it is visited.
     const loadTeamsIfNeeded = () => {
       if (visitedTabsRef.current.has('teams')) return Promise.resolve();
       visitedTabsRef.current.add('teams');
       return loadTeamsData();
     };
 
-    // Map of tab key → loader function. Tabs not listed here have no upfront data to load.
+    // Stats data is shared between the stats and slack tabs. Use a separate
+    // key so visiting one doesn't cause the other to re-fetch it.
+    const loadStatsIfNeeded = () => {
+      if (visitedTabsRef.current.has('_stats-loaded')) return Promise.resolve();
+      visitedTabsRef.current.add('_stats-loaded');
+      return loadStats();
+    };
+
+    // Map of tab key → loader. Tabs not listed here have no upfront data to
+    // load and should not block render (loading is initialized to false).
     const loaders: Record<string, () => Promise<void>> = {
-      stats: async () => { await Promise.all([loadStats(), loadTeamsIfNeeded()]); },
-      slack: async () => { await Promise.all([loadStats(), loadTeamsIfNeeded()]); },
-      teams: loadTeamsData,
-      'identity-sync': loadTeamsData,
+      stats: async () => { await Promise.all([loadStatsIfNeeded(), loadTeamsIfNeeded()]); },
+      slack: async () => { await Promise.all([loadStatsIfNeeded(), loadTeamsIfNeeded()]); },
+      teams: () => loadTeamsIfNeeded(),
+      'identity-sync': () => loadTeamsIfNeeded(),
       skills: loadSkillStats,
       feedback: async () => { await Promise.all([loadFeedbackOnce(), loadTeamsIfNeeded()]); },
       nps: loadNpsDataOnce,
