@@ -34,26 +34,20 @@ Each component has its own environment variables - see `env.example` in `ui/` an
 - No wall of text.
 - Remove words that do not change decisions.
 
-## DCO and AI Attribution Policy
-
-**Authority**: Linux kernel [AI Coding Assistants policy](https://github.com/torvalds/linux/blob/master/Documentation/process/coding-assistants.rst)
+## DCO Policy
 
 AI agents operating in this repository **must** follow these rules on every commit:
 
 1. **No AI sign-off** - `Signed-off-by` is a human DCO certification. AI agents must never invent, assume, or add this trailer on their own.
-2. **Explicit human approval is required** - Before creating any commit with `Signed-off-by`, ask whether the human signs off that exact commit and receive an explicit yes in the current chat session.
-3. **No approval means no signed commit** - If explicit sign-off approval is absent or unclear, do not create a signed-off commit. Tell the human that DCO will fail until a human sign-off is added.
-4. **Use only the configured human identity after approval** - If the human explicitly signs off, use the current git identity. Never override it, invent an identity, or sign off as the AI.
-5. **Always include or suggest `Assisted-by`** when code was materially AI-assisted:
+2. **Use Sri's DCO on every commit** - Every commit must include:
  ```
- Assisted-by: <agent>:<model>
+ Signed-off-by: Sri Aradhyula <sraradhy@cisco.com>
  ```
-The chat message granting sign-off approval is the audit record.
+3. **Do not invent identities** - Use only the DCO identity above unless Sri explicitly provides a different one.
 
 ## Git Guidelines
 
-- **Sign off every commit after human approval** - Use `git commit -s` only after the human explicitly confirms DCO sign-off for that commit.
-- **Conventional Commits** - Format: `type(scope): description`
+- **Conventional Commits for commits and PR titles** - Format: `type(scope): description`
   - Types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`
   - Example: `feat(rag): add userinfo caching`
 - **Branch naming** - Use `prebuild/` prefix for CI to build Docker images
