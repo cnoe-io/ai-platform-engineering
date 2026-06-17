@@ -77,11 +77,14 @@ async function listFullPlatformCatalog(): Promise<{ agents: GrantableItem[]; too
     ref: agent._id,
     name: agent.name ?? agent._id,
   }));
-  const cachedTools = await listCachedMcpTools(allServers.map((server) => server._id));
+  const cachedToolCatalog = await listCachedMcpTools(allServers.map((server) => server._id));
   const tools = allServers.flatMap((server) => {
-    const cached = cachedTools.get(server._id);
+    const cached = cachedToolCatalog.toolsByServer.get(server._id);
     if (cached && cached.length > 0) {
       return cached.map((tool) => ({ ref: tool.ref, name: tool.name }));
+    }
+    if (cachedToolCatalog.catalogedServerIds.has(server._id)) {
+      return [];
     }
     const ref = `${server._id}/*`;
     return [{ ref, name: humanizeToolRef(ref) }];
