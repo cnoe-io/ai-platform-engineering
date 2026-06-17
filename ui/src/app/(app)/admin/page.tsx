@@ -1002,10 +1002,13 @@ function AdminPage() {
   };
 
   const loadTeamsData = async () => {
+    setTeamsRefreshing(true);
     try {
       setTeams(await fetchTeamsFromDb());
     } catch (err: any) {
       console.error('[Admin] Failed to load teams:', err);
+    } finally {
+      setTeamsRefreshing(false);
     }
   };
 
@@ -1635,7 +1638,11 @@ function AdminPage() {
                     )}
                   </div>
                 </div>
-                {teams.length === 0 ? (
+                {teamsRefreshing && teams.length === 0 ? (
+                  <div className="flex justify-center py-12">
+                    <CAIPESpinner />
+                  </div>
+                ) : teams.length === 0 ? (
                   <div className="text-center py-12">
                     <UsersIcon className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
                     <h3 className="text-lg font-semibold mb-2">No Teams Yet</h3>
