@@ -1002,13 +1002,10 @@ function AdminPage() {
   };
 
   const loadTeamsData = async () => {
-    setTeamsRefreshing(true);
     try {
       setTeams(await fetchTeamsFromDb());
     } catch (err: any) {
       console.error('[Admin] Failed to load teams:', err);
-    } finally {
-      setTeamsRefreshing(false);
     }
   };
 

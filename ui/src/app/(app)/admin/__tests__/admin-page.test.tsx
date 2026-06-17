@@ -398,13 +398,12 @@ describe('Admin Dashboard Page', () => {
   });
 
   describe('Loading state', () => {
-    it('shows spinner while loading stats tab', () => {
-      // Stats tab triggers loadStats() which sets loading=true while in-flight.
-      // Settings tab (default) has no loader, so no spinner is shown there.
-      currentSearchParams = new URLSearchParams('cat=insights&tab=stats');
+    it('renders the admin shell before lazy tab data loads', async () => {
       setupFetchMock();
       render(<AdminPage />);
-      expect(screen.getByTestId('spinner')).toBeInTheDocument();
+
+      expect(await screen.findByText('Admin Dashboard')).toBeInTheDocument();
+      expect(screen.queryByTestId('spinner')).not.toBeInTheDocument();
     });
 
     it('does not eagerly fetch /api/admin/users during loadAdminData', async () => {
@@ -763,6 +762,9 @@ describe('Admin Dashboard Page', () => {
       expect(screen.queryByRole('tab', { name: /rag team access/i })).not.toBeInTheDocument();
 
       fireEvent.click(screen.getByRole('button', { name: 'Insights' }));
+      await waitFor(() => {
+        expect(screen.queryByTestId('spinner')).not.toBeInTheDocument();
+      });
       expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
         'Statistics',
         'Feedback',
@@ -775,6 +777,10 @@ describe('Admin Dashboard Page', () => {
       expect(screen.queryByRole('tab', { name: /^Insights$/i })).not.toBeInTheDocument();
 
       fireEvent.click(screen.getByRole('button', { name: /metrics & health/i }));
+
+      await waitFor(() => {
+        expect(screen.queryByTestId('spinner')).not.toBeInTheDocument();
+      });
 
       expect(screen.getByRole('tab', { name: /metrics/i })).toBeInTheDocument();
       expect(screen.getByRole('tab', { name: /health/i })).toBeInTheDocument();
@@ -1247,6 +1253,10 @@ describe('Admin Dashboard Page', () => {
       const fetchMock = setupFetchMock();
 
       render(<AdminPage />);
+
+      // assisted-by Codex Codex-sonnet-4-6
+      // Stats are lazy-loaded when the Insights category is opened.
+      fireEvent.click(screen.getByRole('button', { name: 'Insights' }));
 
       await waitFor(() => {
         expect(fetchMock).toHaveBeenCalledWith(
