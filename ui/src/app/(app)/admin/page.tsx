@@ -218,6 +218,11 @@ interface Team {
   // the team, server-decorated from team_membership_sources. Drives the
   // "synced from <IdP>" badge so synced teams are distinguishable from manual.
   idp_source_types?: string[];
+  // Per-row management gate, server-decorated from OpenFGA. True for org/super
+  // admins on every team and for team admins on the teams they own. Drives
+  // the "Manage team" vs "View team" affordance on the team card so that team
+  // admins (without admin_ui#view) still get the manage entry-point.
+  can_manage?: boolean;
   members?: Array<{
     user_id: string;
     role: string;
@@ -1717,14 +1722,12 @@ function AdminPage() {
                           <div className="mt-4">
                             <Button
                               size="sm"
-                              variant={isAdmin ? "default" : "outline"}
+                              variant={(isAdmin || team.can_manage) ? "default" : "outline"}
                               className="w-full gap-1.5"
-                              onClick={() =>
-                                openTeamDialog(team, isAdmin ? "details" : "details")
-                              }
+                              onClick={() => openTeamDialog(team, "details")}
                             >
                               <Settings className="h-3.5 w-3.5" />
-                              {isAdmin ? "Manage team" : "View team"}
+                              {(isAdmin || team.can_manage) ? "Manage team" : "View team"}
                             </Button>
                           </div>
                         </CardContent>

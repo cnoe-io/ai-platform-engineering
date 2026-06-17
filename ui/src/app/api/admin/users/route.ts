@@ -16,6 +16,7 @@ import {
 curateRealmRolesForUser,
 type RealmRoleClassification,
 } from "@/lib/rbac/keycloak-transition";
+import { listOpenFgaObjects } from "@/lib/rbac/openfga";
 import { requireBaselineAdminSurfaceRead } from "@/lib/rbac/require-openfga";
 import { listTeamMembershipSources } from "@/lib/rbac/team-membership-source-store";
 import { type NextRequest,NextResponse } from "next/server";
@@ -224,23 +225,101 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
   const includeRoles = includeRolesRaw === "true" || includeRolesRaw === "1";
 
   if (!hasAdminView) {
-    const subject = typeof session.sub === "string" ? session.sub : "";
+    const subject = typeof session.sub === "string" ? session.sub.trim() : "";
     if (!subject) {
       throw new ApiError("A stable user subject is required to load your user profile.", 401);
     }
     const pendingSlackIds = await loadPendingSlackIds();
-    // Self-scoped fallback always includes roles; cost is one user.
-    const self = await enrichListRow(
-      await getRealmUserById(subject),
-      pendingSlackIds,
-      true
+
+    let teamSlugs: string[] = [];
+    try {
+      const teamObjects = await listOpenFgaObjects({
+        user: `user:${subject}`,
+        relation: "member",
+        type: "team",
+      });
+      teamSlugs = teamObjects.objects
+        .map((obj) => {
+          const parts = obj.split(":");
+          return parts.length >= 2 ? parts.slice(1).join(":") : "";
+        })
+        .filter(Boolean);
+    } catch {
+      // fall through to self-only
+    }
+
+    if (teamSlugs.length === 0) {
+      const self = await enrichListRow(
+        await getRealmUserById(subject),
+        pendingSlackIds,
+        true
+      );
+      return NextResponse.json({
+        users: [self],
+        total: 1,
+        page: 1,
+        pageSize: 1,
+        scoped: "self",
+      });
+    }
+
+    const teamEmailUnion = new Set<string>();
+    await Promise.all(
+      teamSlugs.map(async (slug) => {
+        try {
+          const emails = await loadTeamMemberEmails(slug);
+          for (const email of emails) teamEmailUnion.add(email);
+        } catch {
+          // skip this team on error
+        }
+      })
     );
+
+    if (teamEmailUnion.size === 0) {
+      const self = await enrichListRow(
+        await getRealmUserById(subject),
+        pendingSlackIds,
+        true
+      );
+      return NextResponse.json({
+        users: [self],
+        total: 1,
+        page: 1,
+        pageSize: 1,
+        scoped: "self",
+      });
+    }
+
+    const filterOpts = {
+      roleIdSet: null,
+      teamEmailSet: teamEmailUnion,
+      slackStatus: null,
+      webexStatus: null,
+      pendingSlackIds,
+    };
+
+    const teamUsers: AdminUsersListItem[] = [];
+    let kcFirst = 0;
+    const batchSize = 100;
+    for (;;) {
+      const batch = await searchRealmUsers({ first: kcFirst, max: batchSize });
+      if (batch.length === 0) break;
+      for (const u of batch) {
+        if (!userMatchesFilters(u as Record<string, unknown>, filterOpts)) continue;
+        teamUsers.push(
+          await enrichListRow(u as Record<string, unknown>, pendingSlackIds, false)
+        );
+      }
+      if (batch.length < batchSize) break;
+      kcFirst += batch.length;
+    }
+
     return NextResponse.json({
-      users: [self],
-      total: 1,
+      users: teamUsers,
+      total: teamUsers.length,
       page: 1,
-      pageSize: 1,
-      scoped: "self",
+      pageSize: teamUsers.length,
+      scoped: "team",
     });
   }
 

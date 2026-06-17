@@ -28,8 +28,10 @@ jest.mock('@/lib/rbac/keycloak-authz', () => ({
 }));
 
 const mockCheckOpenFgaTuple = jest.fn();
+const mockListOpenFgaObjects = jest.fn();
 jest.mock('@/lib/rbac/openfga', () => ({
   checkOpenFgaTuple: (...args: unknown[]) => mockCheckOpenFgaTuple(...args),
+  listOpenFgaObjects: (...args: unknown[]) => mockListOpenFgaObjects(...args),
 }));
 
 jest.mock('@/lib/rbac/audit', () => ({
@@ -60,6 +62,8 @@ const mockCountRealmUsers = jest.fn();
 const mockListUsersWithRole = jest.fn();
 const mockListRealmRoleMappingsForUser = jest.fn();
 const mockGetUserFederatedIdentities = jest.fn();
+const mockGetRealmUserById = jest.fn();
+const mockIsValidTeamSlug = jest.fn();
 
 jest.mock('@/lib/rbac/keycloak-admin', () => ({
   searchRealmUsers: (...args: unknown[]) => mockSearchRealmUsers(...args),
@@ -69,6 +73,8 @@ jest.mock('@/lib/rbac/keycloak-admin', () => ({
     mockListRealmRoleMappingsForUser(...args),
   getUserFederatedIdentities: (...args: unknown[]) =>
     mockGetUserFederatedIdentities(...args),
+  getRealmUserById: (...args: unknown[]) => mockGetRealmUserById(...args),
+  isValidTeamSlug: (...args: unknown[]) => mockIsValidTeamSlug(...args),
 }));
 
 function makeRequest(url: string): NextRequest {
@@ -95,20 +101,34 @@ function userSession() {
 
 function resetMocks() {
   mockGetServerSession.mockReset();
-  mockGetCollection.mockClear();
+  mockGetCollection.mockReset();
   mockIsMongoDBConfigured = true;
   Object.keys(mockCollections).forEach((k) => delete mockCollections[k]);
+  mockGetCollection.mockImplementation((name: string) => {
+    if (!mockCollections[name]) {
+      mockCollections[name] = {
+        find: jest.fn().mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) }),
+        findOne: jest.fn().mockResolvedValue(null),
+      };
+    }
+    return Promise.resolve(mockCollections[name]);
+  });
   mockSearchRealmUsers.mockReset();
   mockCountRealmUsers.mockReset();
   mockListUsersWithRole.mockReset();
   mockListRealmRoleMappingsForUser.mockReset();
   mockGetUserFederatedIdentities.mockReset();
+  mockGetRealmUserById.mockReset();
+  mockIsValidTeamSlug.mockReset();
   mockCheckPermission.mockReset();
   mockCheckOpenFgaTuple.mockReset();
+  mockListOpenFgaObjects.mockReset();
   mockCheckPermission.mockResolvedValue({ allowed: true, reason: 'OK' });
   mockCheckOpenFgaTuple.mockResolvedValue({ allowed: true, reason: 'OK' });
+  mockListOpenFgaObjects.mockResolvedValue({ objects: [] });
   mockListRealmRoleMappingsForUser.mockResolvedValue([{ name: 'user' }]);
   mockGetUserFederatedIdentities.mockResolvedValue([]);
+  mockIsValidTeamSlug.mockReturnValue(true);
 }
 
 import { GET } from '../admin/users/route';
@@ -331,5 +351,149 @@ describe('GET /api/admin/users — Keycloak list', () => {
       webex_link_status: 'linked',
     });
     expect(body.total).toBe(1);
+  });
+});
+
+describe("GET /api/admin/users — non-admin team-scoped view", () => {
+  // Mock pattern: baseline `admin_surface:users#can_read` allows; the
+  // org-level `admin_ui#view` (relation `can_audit` on `organization:caipe`)
+  // denies — so the route enters the `!hasAdminView` branch.
+  function mockNonAdminAuth() {
+    mockCheckOpenFgaTuple.mockImplementation(
+      async (t: { user: string; relation: string; object: string }) => ({
+        allowed: t.relation === 'can_read' && t.object === 'admin_surface:users',
+      })
+    );
+  }
+
+  function setMembershipDocs(docs: Array<{ user_email: string; status: string }>) {
+    const sortChain = { toArray: jest.fn().mockResolvedValue(docs) };
+    const findChain = { sort: jest.fn().mockReturnValue(sortChain) };
+    mockGetCollection.mockImplementation((name: string) => {
+      if (name === 'team_membership_sources') {
+        return Promise.resolve({
+          find: jest.fn().mockReturnValue(findChain),
+        });
+      }
+      return Promise.resolve({
+        find: jest.fn().mockReturnValue({
+          toArray: jest.fn().mockResolvedValue([]),
+          project: jest.fn().mockReturnValue({
+            toArray: jest.fn().mockResolvedValue([]),
+          }),
+        }),
+        findOne: jest.fn().mockResolvedValue(null),
+        updateOne: jest.fn().mockResolvedValue({ modifiedCount: 0 }),
+      });
+    });
+  }
+
+  function setMembershipDocsByTeam(
+    byTeam: Record<string, Array<{ user_email: string; status: string }>>
+  ) {
+    mockGetCollection.mockImplementation((name: string) => {
+      if (name === 'team_membership_sources') {
+        return Promise.resolve({
+          find: jest.fn().mockImplementation((filter: { team_id?: string }) => {
+            const docs = byTeam[filter?.team_id ?? ''] ?? [];
+            return {
+              sort: jest.fn().mockReturnValue({
+                toArray: jest.fn().mockResolvedValue(docs),
+              }),
+            };
+          }),
+        });
+      }
+      return Promise.resolve({
+        find: jest.fn().mockReturnValue({
+          toArray: jest.fn().mockResolvedValue([]),
+          project: jest.fn().mockReturnValue({
+            toArray: jest.fn().mockResolvedValue([]),
+          }),
+        }),
+        findOne: jest.fn().mockResolvedValue(null),
+        updateOne: jest.fn().mockResolvedValue({ modifiedCount: 0 }),
+      });
+    });
+  }
+
+  beforeEach(() => {
+    resetMocks();
+    mockGetServerSession.mockResolvedValue(userSession());
+    mockNonAdminAuth();
+  });
+
+  it("returns scoped:'team' and team members when non-admin belongs to a team", async () => {
+    mockListOpenFgaObjects.mockResolvedValue({ objects: ['team:platform-eng'] });
+    setMembershipDocs([
+      { user_email: 'alice@example.com', status: 'active' },
+      { user_email: 'bob@example.com', status: 'active' },
+    ]);
+    mockSearchRealmUsers
+      .mockResolvedValueOnce([
+        { id: 'u-alice', username: 'alice', email: 'alice@example.com', attributes: {} },
+        { id: 'u-bob', username: 'bob', email: 'bob@example.com', attributes: {} },
+        { id: 'u-carol', username: 'carol', email: 'carol@example.com', attributes: {} },
+      ])
+      .mockResolvedValueOnce([]);
+
+    const res = await GET(makeRequest('/api/admin/users'));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.scoped).toBe('team');
+    const emails = body.users.map((u: { email: string }) => u.email).sort();
+    expect(emails).toEqual(['alice@example.com', 'bob@example.com']);
+    expect(body.total).toBe(2);
+  });
+
+  it("returns scoped:'self' for non-admin with no team memberships", async () => {
+    mockListOpenFgaObjects.mockResolvedValue({ objects: [] });
+    mockGetRealmUserById.mockResolvedValue({
+      id: 'user-sub',
+      email: 'user@example.com',
+      username: 'user',
+      enabled: true,
+      attributes: {},
+    });
+
+    const res = await GET(makeRequest('/api/admin/users'));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.scoped).toBe('self');
+    expect(body.total).toBe(1);
+    expect(body.users).toHaveLength(1);
+    expect(body.users[0].email).toBe('user@example.com');
+    expect(mockSearchRealmUsers).not.toHaveBeenCalled();
+  });
+
+  it("returns union of members across multiple teams", async () => {
+    mockListOpenFgaObjects.mockResolvedValue({
+      objects: ['team:team-a', 'team:team-b'],
+    });
+    setMembershipDocsByTeam({
+      'team-a': [
+        { user_email: 'alice@example.com', status: 'active' },
+        { user_email: 'dave@example.com', status: 'active' },
+      ],
+      'team-b': [
+        { user_email: 'alice@example.com', status: 'active' },
+        { user_email: 'dave@example.com', status: 'active' },
+      ],
+    });
+    mockSearchRealmUsers
+      .mockResolvedValueOnce([
+        { id: 'u-alice', username: 'alice', email: 'alice@example.com', attributes: {} },
+        { id: 'u-dave', username: 'dave', email: 'dave@example.com', attributes: {} },
+        { id: 'u-eve', username: 'eve', email: 'eve@example.com', attributes: {} },
+      ])
+      .mockResolvedValueOnce([]);
+
+    const res = await GET(makeRequest('/api/admin/users'));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.scoped).toBe('team');
+    const emails = body.users.map((u: { email: string }) => u.email).sort();
+    expect(emails).toEqual(['alice@example.com', 'dave@example.com']);
+    expect(body.total).toBe(2);
   });
 });

@@ -7,6 +7,7 @@ withErrorHandler,
 } from '@/lib/api-middleware';
 import { getCollection,isMongoDBConfigured } from '@/lib/mongodb';
 import { requireAdminSurfaceManage } from '@/lib/rbac/require-openfga';
+import { getReadableSlackChannelNames } from '@/lib/rbac/user-insights-scope';
 import { NextRequest,NextResponse } from 'next/server';
 
 /** Parse range params into a { rangeStart, days } pair. Supports preset strings and explicit from/to ISO dates. */
@@ -51,7 +52,22 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   }
 
   const { session } = await getAuthFromBearerOrSession(request);
-  await requireAdminSurfaceManage(session, 'stats');
+  const isFullAdmin = await requireAdminSurfaceManage(session, 'stats').then(() => true, () => false);
+
+  // Non-admin: scope to their readable Slack channels + their own web conversations.
+  let nonAdminScope: { channelNames: string[]; ownerEmail: string } | null = null;
+  if (!isFullAdmin) {
+    const sub = typeof session.sub === 'string' ? session.sub.trim() : '';
+    const email = typeof session.user?.email === 'string' ? session.user.email.trim() : '';
+    if (!sub && !email) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized', code: 'UNAUTHORIZED' },
+        { status: 401 }
+      );
+    }
+    const channelNames = sub ? await getReadableSlackChannelNames(`user:${sub}`) : [];
+    nonAdminScope = { channelNames, ownerEmail: email };
+  }
 
     const { searchParams } = new URL(request.url);
     const { rangeStart, days } = parseRange(searchParams);
@@ -94,6 +110,84 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     } else if (userEmails.length > 1) {
       convSourceFilter.owner_id = { $in: userEmails };
       msgOwnerFilter.owner_id = { $in: userEmails };
+    }
+
+    // Non-admin scope: restrict to their slack channels OR own web conversations.
+    if (nonAdminScope) {
+      const { channelNames: scopeChannelNames, ownerEmail } = nonAdminScope;
+      const scopeClauses: Record<string, unknown>[] = [];
+      if (scopeChannelNames.length > 0) {
+        const names = scopeChannelNames.length === 1 ? scopeChannelNames[0] : { $in: scopeChannelNames };
+        scopeClauses.push({
+          $and: [
+            { $or: [{ source: 'slack' }, { client_type: 'slack' }] },
+            { $or: [
+              { 'slack_meta.channel_name': names },
+              { 'metadata.channel_name': names },
+            ]},
+          ],
+        });
+      }
+      if (ownerEmail) scopeClauses.push({ owner_id: ownerEmail });
+
+      if (scopeClauses.length === 0) {
+        return successResponse({
+          range: searchParams.get('range') || '30d',
+          days,
+          platform_summary: { satisfaction_rate: 0, estimated_hours_automated: 0 },
+          overview: {
+            total_users: 0,
+            total_conversations: 0,
+            total_messages: 0,
+            shared_conversations: 0,
+            dau: 0,
+            mau: 0,
+            conversations_today: 0,
+            messages_today: 0,
+            avg_messages_per_conversation: 0,
+          },
+          daily_activity: [],
+          top_users: { by_conversations: [], by_messages: [] },
+          top_agents: [],
+          feedback_summary: {
+            positive: 0,
+            negative: 0,
+            total: 0,
+            satisfaction_rate: 0,
+            by_source: {},
+            categories: [],
+            daily: [],
+          },
+          response_time: { avg_ms: 0, min_ms: 0, max_ms: 0, sample_count: 0 },
+          hourly_heatmap: Array.from({ length: 24 }, (_, hour) => ({ hour, count: 0 })),
+          completed_workflows: {
+            total: 0,
+            today: 0,
+            interrupted: 0,
+            completion_rate: 0,
+            avg_messages_per_workflow: 0,
+          },
+          available_channels: [],
+        });
+      }
+
+      const scopeFilter = scopeClauses.length === 1 ? scopeClauses[0] : { $or: scopeClauses };
+      const existingConvKeys = Object.keys(convSourceFilter);
+      if (existingConvKeys.length > 0) {
+        const saved = { ...convSourceFilter };
+        for (const k of existingConvKeys) delete (convSourceFilter as Record<string, unknown>)[k];
+        (convSourceFilter as Record<string, unknown>).$and = [saved, scopeFilter];
+      } else {
+        Object.assign(convSourceFilter, scopeFilter);
+      }
+      const existingMsgKeys = Object.keys(msgOwnerFilter);
+      if (existingMsgKeys.length > 0) {
+        const saved = { ...msgOwnerFilter };
+        for (const k of existingMsgKeys) delete (msgOwnerFilter as Record<string, unknown>)[k];
+        (msgOwnerFilter as Record<string, unknown>).$and = [saved, scopeFilter];
+      } else {
+        Object.assign(msgOwnerFilter, scopeFilter);
+      }
     }
 
     const users = await getCollection('users');
