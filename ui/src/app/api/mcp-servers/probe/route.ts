@@ -14,6 +14,7 @@ withErrorHandler,
 } from "@/lib/api-middleware";
 import { authenticateRequest,buildBackendHeaders } from "@/lib/da-proxy";
 import { getCollection } from "@/lib/mongodb";
+import { cacheMcpToolCatalog } from "@/lib/rbac/mcp-tool-catalog";
 import { requireResourcePermission } from "@/lib/rbac/resource-authz";
 import type { MCPServerConfig } from "@/types/dynamic-agent";
 import { NextRequest,NextResponse } from "next/server";
@@ -99,6 +100,16 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
           error: probeResult.error || "Probe failed",
           tools: [],
         });
+      }
+
+      try {
+        await cacheMcpToolCatalog({
+          serverId: id,
+          tools: Array.isArray(probeResult.tools) ? probeResult.tools : [],
+          source: "probe",
+        });
+      } catch (cacheError) {
+        console.warn("[mcp-servers/probe] failed to cache tool catalog:", cacheError);
       }
 
       return successResponse({

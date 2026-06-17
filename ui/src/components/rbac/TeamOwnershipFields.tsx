@@ -4,6 +4,7 @@
  * <TeamOwnershipFields> — the canonical group-based access-control control
  * bundle (spec 2026-06-03-unified-shareable-resource-rbac, US1, contract
  * ui-component.md).
+ * assisted-by Codex Codex-sonnet-4-6
  *
  * Renders, for any shareable resource (agent, datasource, MCP tool, future
  * types):
@@ -26,6 +27,7 @@
 
 import * as React from "react";
 
+import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import {
 TeamMultiPicker,

@@ -187,16 +187,6 @@ test.describe("mocked service accounts browser regression", () => {
         return true;
       }
 
-      if (path === "/api/admin/service-accounts/sa-sub-playwright/credentials" && method === "GET") {
-        await fulfillJson(route, { success: true, data: [] });
-        return true;
-      }
-
-      if (path === "/api/admin/service-accounts/token-providers" && method === "GET") {
-        await fulfillJson(route, { success: false, code: "CREDENTIALS_DISABLED" }, 404);
-        return true;
-      }
-
       if (path === "/api/admin/service-accounts/sa-sub-playwright/scopes") {
         const body = (await postJson(route)) as ScopeRef;
         requests.push({ method, path, body });
@@ -614,5 +604,208 @@ test.describe("mocked service accounts browser regression", () => {
     await expect(manageDialog.getByText("Tokens", { exact: true })).toHaveCount(0);
     await expect(manageDialog.getByText("Add a token", { exact: true })).toHaveCount(0);
     await expect(manageDialog.getByLabel("Access token")).toHaveCount(0);
+  });
+
+  test("grants full-catalog tool scopes to the unlinked service account", async ({ page }) => {
+    const requests: Array<{ method: string; path: string; search: string; body: unknown }> = [];
+    const scopes: ScopeRef[] = [];
+
+    const unlinkedHandler: MockRouteHandler = async ({ route, path, method, url }) => {
+      if (path === "/api/admin/platform-config" && method === "GET") {
+        await fulfillJson(route, {
+          data: {
+            default_agent_id: "incident-resolver",
+            release_notes: { enabled: false },
+          },
+        });
+        return true;
+      }
+
+      if (path === "/api/dynamic-agents" && method === "GET") {
+        await fulfillJson(route, {
+          data: [{ _id: "incident-resolver", name: "Incident Resolver", enabled: true }],
+        });
+        return true;
+      }
+
+      if (path === "/api/admin/service-accounts/unlinked" && method === "GET") {
+        await fulfillJson(route, {
+          success: true,
+          data: {
+            id: "sa-unlinked-platform",
+            name: "platform-unlinked",
+            scopes,
+          },
+        });
+        return true;
+      }
+
+      if (path === "/api/admin/service-accounts/grantable" && method === "GET") {
+        requests.push({ method, path, search: url.search, body: null });
+        if (url.searchParams.get("context") === "unlinked") {
+          await fulfillJson(route, {
+            success: true,
+            data: {
+              agents: [{ ref: "incident-resolver", name: "Incident Resolver" }],
+              tools: [
+                { ref: "jira/search", name: "jira: search" },
+                { ref: "jira/create_issue", name: "jira: create issue" },
+                { ref: "github/*", name: "github: all tools" },
+              ],
+            },
+          });
+          return true;
+        }
+        await fulfillJson(route, { success: true, data: { agents: [], tools: [] } });
+        return true;
+      }
+
+      if (path === "/api/admin/service-accounts/sa-unlinked-platform/scopes" && method === "POST") {
+        const body = (await postJson(route)) as ScopeRef;
+        requests.push({ method, path, search: url.search, body });
+        scopes.push(body);
+        await fulfillJson(route, { success: true, data: { added: body } });
+        return true;
+      }
+
+      return false;
+    };
+
+    await installMockedRbacApp(page, {
+      isAdmin: true,
+      session: adminSession,
+      handlers: [unlinkedHandler],
+    });
+
+    await page.goto("/admin?cat=settings&tab=settings", {
+      waitUntil: "domcontentloaded",
+    });
+
+    await page.getByRole("button", { name: "Manage Unlinked Access" }).click();
+    const dialog = page.getByRole("dialog", { name: "Unlinked Access" });
+    await expect(dialog).toBeVisible();
+
+    await dialog.getByLabel("Scope type").selectOption("tool");
+    await expect(dialog.getByLabel("Scope ref")).toContainText("jira: search");
+    await expect(dialog.getByLabel("Scope ref")).toContainText("github: all tools");
+    await expect(dialog.getByTestId("unlinked-modal-grantable-empty-note")).toHaveCount(0);
+
+    await dialog.getByLabel("Scope ref").selectOption("jira/search");
+    await dialog.getByRole("button", { name: "Add" }).click();
+
+    await expect
+      .poll(() =>
+        requests.some(
+          (request) =>
+            request.method === "GET" &&
+            request.path === "/api/admin/service-accounts/grantable" &&
+            request.search === "?context=unlinked",
+        ),
+      )
+      .toBe(true);
+    await expect
+      .poll(() =>
+        requests.some(
+          (request) =>
+            request.method === "POST" &&
+            request.path === "/api/admin/service-accounts/sa-unlinked-platform/scopes",
+        ),
+      )
+      .toBe(true);
+    expect(
+      requests.find(
+        (request) =>
+          request.method === "POST" &&
+          request.path === "/api/admin/service-accounts/sa-unlinked-platform/scopes",
+      )?.body,
+    ).toEqual({ type: "tool", ref: "jira/search" });
+    await expect(dialog.getByText("tool/jira/search")).toBeVisible();
+  });
+
+  test("shows no tool choices for unlinked access when catalog discovery found no tools", async ({
+    page,
+  }) => {
+    const requests: Array<{ method: string; path: string; search: string; body: unknown }> = [];
+
+    const unlinkedEmptyToolsHandler: MockRouteHandler = async ({ route, path, method, url }) => {
+      if (path === "/api/admin/platform-config" && method === "GET") {
+        await fulfillJson(route, {
+          data: {
+            default_agent_id: "incident-resolver",
+            release_notes: { enabled: false },
+          },
+        });
+        return true;
+      }
+
+      if (path === "/api/dynamic-agents" && method === "GET") {
+        await fulfillJson(route, {
+          data: [{ _id: "incident-resolver", name: "Incident Resolver", enabled: true }],
+        });
+        return true;
+      }
+
+      if (path === "/api/admin/service-accounts/unlinked" && method === "GET") {
+        await fulfillJson(route, {
+          success: true,
+          data: {
+            id: "sa-unlinked-platform",
+            name: "platform-unlinked",
+            scopes: [],
+          },
+        });
+        return true;
+      }
+
+      if (path === "/api/admin/service-accounts/grantable" && method === "GET") {
+        requests.push({ method, path, search: url.search, body: null });
+        if (url.searchParams.get("context") === "unlinked") {
+          await fulfillJson(route, {
+            success: true,
+            data: {
+              agents: [{ ref: "incident-resolver", name: "Incident Resolver" }],
+              tools: [],
+            },
+          });
+          return true;
+        }
+        await fulfillJson(route, { success: true, data: { agents: [], tools: [] } });
+        return true;
+      }
+
+      return false;
+    };
+
+    await installMockedRbacApp(page, {
+      isAdmin: true,
+      session: adminSession,
+      handlers: [unlinkedEmptyToolsHandler],
+    });
+
+    await page.goto("/admin?cat=settings&tab=settings", {
+      waitUntil: "domcontentloaded",
+    });
+
+    await page.getByRole("button", { name: "Manage Unlinked Access" }).click();
+    const dialog = page.getByRole("dialog", { name: "Unlinked Access" });
+    await expect(dialog).toBeVisible();
+
+    await dialog.getByLabel("Scope type").selectOption("tool");
+    await expect(dialog.getByTestId("unlinked-modal-grantable-empty-note")).toHaveText(
+      /No tools available to grant/i,
+    );
+    await expect(dialog.getByLabel("Scope ref")).toContainText("No more tools available");
+    await expect(dialog.getByLabel("Scope ref")).not.toContainText("jira: all tools");
+    await expect(dialog.getByRole("button", { name: "Add" })).toBeDisabled();
+    await expect
+      .poll(() =>
+        requests.some(
+          (request) =>
+            request.method === "GET" &&
+            request.path === "/api/admin/service-accounts/grantable" &&
+            request.search === "?context=unlinked",
+        ),
+      )
+      .toBe(true);
   });
 });

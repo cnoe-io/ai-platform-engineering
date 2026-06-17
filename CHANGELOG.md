@@ -1,3 +1,66 @@
+## 0.5.14-dev.10 (2026-06-16)
+
+### Fix
+
+- **slack**: send service_account subject to CAS for SA-run channels; clarify route copy (#1877)
+
+## 0.5.14-dev.9 (2026-06-16)
+
+### Fix
+
+- **ui**: import Button in team ownership fields (#1876)
+
+## 0.5.14-dev.8 (2026-06-16)
+
+### Feat
+
+- **admin**: sync admin nested sub-tabs to the subtab URL param (#1867)
+
+## 0.5.14-dev.7 (2026-06-16)
+
+### Fix
+
+- **rbac**: simplify owner-team ownership UI and drop grant-preview copy (#1873)
+
+## 0.5.14-dev.6 (2026-06-16)
+
+### Fix
+
+- **ui**: soften required-field treatment on agent create form (#1865)
+
+## 0.5.14-dev.5 (2026-06-16)
+
+### Fix
+
+- make AgentGateway provider-token passthrough declarative (#1859)
+
+## 0.5.14-dev.4 (2026-06-15)
+
+## 0.5.14-dev.3 (2026-06-15)
+
+### Fix
+
+- **ui**: stabilize service account RBAC e2e (#1855)
+
+## 0.5.14-dev.2 (2026-06-15)
+
+### Feat
+
+- **e2e**: add Playwright tests for AI Review block UX (PR #1866)
+
+### Fix
+
+- **chart**:  duplicate app.kubernetes.io/name (#1845)
+- **admin**: clarify unlinked access description for admins (#1861)
+
+## 0.5.14-dev.1 (2026-06-15)
+
+### Fix
+
+- **admin**: default to Settings tab and rename Default Agent to General (#1862)
+
+## 0.5.14 (2026-06-15)
+
 ## 0.5.13-dev.4 (2026-06-15)
 
 ### Fix
@@ -29,7 +92,6 @@
 ### Feat
 
 - **service-accounts**: add credential passthrough for service accounts
-- **agentgateway**: make provider-token passthrough declarative for MCP routes (#1857)
 
 ### Fix
 
@@ -43,10 +105,6 @@
 ### Refactor
 
 - **slack**: route all Slack-bot Keycloak access through the BFF; drop direct admin creds (#1800)
-
-### Breaking / Upgrade Notes
-
-- **agentgateway**: provider-token passthrough is now controlled by `mcp.agentgateway.providerTokenAuth`, `global.agentgateway.extraMcpTargets[].providerTokenAuth`, or a header-targeted `credential_sources` entry with `kind: provider_connection` / `kind: caller_token`. GitHub/GitLab defaults include the flag, but custom values that replace their `mcp.agentgateway` block must keep `providerTokenAuth: true` or declare equivalent credential sources to keep rewriting `X-CAIPE-Provider-Token` into `Authorization: Bearer`.
 
 ## 0.5.12-dev.8 (2026-06-15)
 

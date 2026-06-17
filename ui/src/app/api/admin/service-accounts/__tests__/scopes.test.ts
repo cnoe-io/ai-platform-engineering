@@ -217,6 +217,37 @@ describe("org-admin bypass for the unlinked SA (TS-B1)", () => {
     expect(mockWriteOpenFgaTuples).toHaveBeenCalled();
   });
 
+  it("POST: org-admin can add an unheld tool scope to the unlinked SA", async () => {
+    mockCheckOpenFgaTuple.mockImplementation(
+      async (t: { relation: string; object: string }) => {
+        if (t.relation === "can_manage" && t.object.startsWith("service_account:")) {
+          return { allowed: false };
+        }
+        if (t.relation === "can_manage" && t.object.startsWith("organization:")) {
+          return { allowed: true };
+        }
+        if (t.relation === "can_call" && t.object === "tool:jira/*") {
+          return { allowed: false };
+        }
+        return { allowed: true };
+      },
+    );
+    mockGetBySub.mockResolvedValue({
+      sa_sub: SA_ID,
+      is_platform_unlinked: true,
+      scopes_snapshot: [],
+    });
+
+    const res = await POST(scopeRequest({ type: "tool", ref: "jira/*" }), ctx());
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.added).toEqual({ type: "tool", ref: "jira/*" });
+    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
+      writes: [{ user: `service_account:${SA_ID}`, relation: "caller", object: "tool:jira/*" }],
+      deletes: [],
+    });
+  });
+
   it("DELETE: org-admin can remove a scope from the unlinked SA", async () => {
     orgAdminNotInSuperAdmins();
     mockGetBySub.mockResolvedValue({

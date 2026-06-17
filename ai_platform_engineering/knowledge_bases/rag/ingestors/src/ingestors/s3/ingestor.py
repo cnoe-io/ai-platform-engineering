@@ -14,7 +14,6 @@ import hashlib
 import os
 from pathlib import PurePosixPath
 import re
-from re import Pattern
 import tempfile
 import time
 from typing import Any, Iterable, Iterator
@@ -313,7 +312,7 @@ def get_ignore_prefixes() -> list[str]:
     return [prefix.strip() for prefix in S3_IGNORE_PREFIXES.split(",") if prefix.strip()]
 
 
-def compile_ignore_regex(pattern: str | None = None) -> Pattern[str] | None:
+def compile_ignore_regex(pattern: str | None = None) -> re.Pattern[str] | None:
     """Compile the configured ignore regex, if any."""
     raw_pattern = pattern if pattern is not None else S3_IGNORE_REGEX
     raw_pattern = raw_pattern.strip()
@@ -358,7 +357,7 @@ def should_ingest_key(
     source_prefix: str,
     allowed_file_patterns: Iterable[str],
     ignore_prefixes: Iterable[str] | None = None,
-    ignore_regex: Pattern[str] | None = None,
+    ignore_regex: re.Pattern[str] | None = None,
 ) -> bool:
     """Return whether an S3 object key should be fetched and ingested."""
     relative_key = _relative_key(key, source_prefix)
@@ -470,7 +469,7 @@ class S3DocumentLoader(BaseLoader):
     fresh_until: int,
     allowed_file_patterns: Iterable[str],
     ignore_prefixes: Iterable[str] | None = None,
-    ignore_regex: Pattern[str] | None = None,
+    ignore_regex: re.Pattern[str] | None = None,
     max_files_per_bucket: int | None = None,
   ) -> None:
     self.s3_client = s3_client

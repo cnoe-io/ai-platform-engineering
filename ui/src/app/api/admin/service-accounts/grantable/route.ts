@@ -1,8 +1,12 @@
-import { NextResponse } from "next/server";
+// assisted-by Codex Codex-sonnet-4-6
+import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth-config";
 import { listOpenFgaObjects } from "@/lib/rbac/openfga";
 import { listRebacCatalog } from "@/lib/rbac/resource-catalog";
+import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
+import { hasOrganizationAdmin } from "@/lib/rbac/platform-admin";
+import { listCachedMcpTools } from "@/lib/rbac/mcp-tool-catalog";
 
 /**
  * GET /api/admin/service-accounts/grantable
@@ -24,6 +28,18 @@ interface GrantableItem {
   name: string;
 }
 
+interface DynamicAgentLite {
+  _id: string;
+  name?: string;
+  enabled?: boolean;
+}
+
+interface MCPServerLite {
+  _id: string;
+  name?: string;
+  enabled?: boolean;
+}
+
 /** Strip the OpenFGA `<type>:` prefix, returning the bare object id. */
 function stripType(object: string, type: string): string {
   const prefix = `${type}:`;
@@ -39,7 +55,47 @@ function humanizeToolRef(ref: string): string {
   return tool === "*" ? `${server}: all tools` : `${server}: ${tool}`;
 }
 
-export async function GET() {
+async function listFullPlatformCatalog(): Promise<{ agents: GrantableItem[]; tools: GrantableItem[] }> {
+  if (!isMongoDBConfigured) {
+    throw new Error("MongoDB not configured");
+  }
+
+  const agentsCol = await getCollection<DynamicAgentLite>("dynamic_agents");
+  const mcpCol = await getCollection<MCPServerLite>("mcp_servers");
+  const [allAgents, allServers] = await Promise.all([
+    agentsCol
+      .find({ enabled: { $ne: false } } as never, { projection: { _id: 1, name: 1 } })
+      .sort({ name: 1 })
+      .toArray(),
+    mcpCol
+      .find({ enabled: { $ne: false } } as never, { projection: { _id: 1, name: 1 } })
+      .sort({ name: 1 })
+      .toArray(),
+  ]);
+
+  const agents = allAgents.map((agent) => ({
+    ref: agent._id,
+    name: agent.name ?? agent._id,
+  }));
+  const cachedToolCatalog = await listCachedMcpTools(allServers.map((server) => server._id));
+  const tools = allServers.flatMap((server) => {
+    const cached = cachedToolCatalog.toolsByServer.get(server._id);
+    if (cached && cached.length > 0) {
+      return cached.map((tool) => ({ ref: tool.ref, name: tool.name }));
+    }
+    if (cachedToolCatalog.catalogedServerIds.has(server._id)) {
+      return [];
+    }
+    const ref = `${server._id}/*`;
+    return [{ ref, name: humanizeToolRef(ref) }];
+  });
+
+  agents.sort((a, b) => a.name.localeCompare(b.name));
+  tools.sort((a, b) => a.name.localeCompare(b.name));
+  return { agents, tools };
+}
+
+export async function GET(request?: NextRequest | Request) {
   const session = (await getServerSession(authOptions)) as {
     sub?: string;
     user?: { email?: string | null };
@@ -53,8 +109,23 @@ export async function GET() {
   }
 
   const caller = `user:${session.sub}`;
+  const url = request ? new URL(request.url) : null;
+  const isUnlinkedContext = url?.searchParams.get("context") === "unlinked";
 
   try {
+    if (isUnlinkedContext) {
+      const admin = await hasOrganizationAdmin(session);
+      if (!admin) {
+        return NextResponse.json(
+          { success: false, error: "Forbidden" },
+          { status: 403 },
+        );
+      }
+
+      const data = await listFullPlatformCatalog();
+      return NextResponse.json({ success: true, data });
+    }
+
     const [agentObjects, toolObjects] = await Promise.all([
       listOpenFgaObjects({ user: caller, relation: "can_use", type: "agent" }),
       listOpenFgaObjects({ user: caller, relation: "can_call", type: "tool" }),
