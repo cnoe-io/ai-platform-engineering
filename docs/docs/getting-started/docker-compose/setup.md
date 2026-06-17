@@ -23,11 +23,11 @@ Set up CAIPE on a laptop or VM (e.g. EC2) using Docker Compose.
 
    Edit `.env` with your LLM configuration. The checked-in example is an OSS
    all-in-one profile set that starts the supervisor, MCP servers, production UI,
-   local RBAC, MongoDB, RAG, web ingestion, and bot services:
+   dynamic agents, local Keycloak/RBAC, MongoDB, and RAG:
 
    ```bash
    IMAGE_TAG=0.5.14
-   COMPOSE_PROFILES=mcp-servers,caipe-ui-prod,rbac,caipe-supervisor,dynamic-agents,rag,caipe-mongodb,slack-bot,webex-bot,web_ingestor
+   COMPOSE_PROFILES=mcp-servers,caipe-ui-prod,rbac,caipe-supervisor,dynamic-agents,rag,caipe-mongodb
 
    # All-in-one mode: agents run in-process and use MCP server containers.
    DISTRIBUTED_AGENTS=
@@ -105,6 +105,9 @@ docker compose up
 
 Open the UI at **http://localhost:3000** and the supervisor API at **http://localhost:8000**.
 
+Add `web_ingestor` when you want the web ingestion worker. Add `slack-bot` or
+`webex-bot` only when you want those bot integrations.
+
 **Primary profiles:**
 
 | Profile | Description |
@@ -141,6 +144,9 @@ docker compose --profile tracing up
 
 # Add graph RAG
 docker compose --profile graph_rag up
+
+# Add the web ingestion worker
+docker compose --profile web_ingestor up
 
 # Build from source with the same profile set
 docker compose -f docker-compose.dev.yaml up --build

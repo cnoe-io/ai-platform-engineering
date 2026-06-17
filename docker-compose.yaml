@@ -633,8 +633,6 @@ services:
     restart: unless-stopped
     depends_on: [rag-server]
     profiles:
-      - rag
-      - graph_rag
       - web-ingestor
       - web_ingestor
 

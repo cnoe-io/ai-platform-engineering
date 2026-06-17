@@ -90,10 +90,12 @@ Access the UI at **http://localhost:3000** and the supervisor API at **http://lo
 The default `.env.example` uses image tag `0.5.14` and enables this profile set:
 
 ```bash
-COMPOSE_PROFILES=mcp-servers,caipe-ui-prod,rbac,caipe-supervisor,dynamic-agents,rag,caipe-mongodb,slack-bot,webex-bot,web_ingestor
+COMPOSE_PROFILES=mcp-servers,caipe-ui-prod,rbac,caipe-supervisor,dynamic-agents,rag,caipe-mongodb
 ```
 
-That starts the supervisor in all-in-one mode, the MCP server containers, production UI, local Keycloak/OpenFGA/AgentGateway RBAC, MongoDB, RAG, the web ingestor, and Slack/Webex bot services. Remote A2A sub-agent containers are not started by default.
+That starts the supervisor in all-in-one mode, the MCP server containers, production UI, dynamic agents, local Keycloak/OpenFGA/AgentGateway RBAC, MongoDB, and RAG. Remote A2A sub-agent containers are not started by default.
+
+Add `web_ingestor` when you want the web ingestion worker. Add `slack-bot` or `webex-bot` only when you want those bot integrations.
 
 ### Optional Profiles
 
@@ -105,6 +107,9 @@ docker compose --profile tracing up
 
 # With Graph RAG (adds Neo4j and ontology services)
 docker compose --profile graph_rag up
+
+# With web ingestion worker
+docker compose --profile web_ingestor up
 
 # Development mode (build from source)
 docker compose -f docker-compose.dev.yaml up --build
