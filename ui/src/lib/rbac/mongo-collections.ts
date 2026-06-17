@@ -81,6 +81,13 @@ export interface IdpSyncSettings extends Document {
   sync_cron?: string;
   updated_by: string;
   updated_at: string;
+  /**
+   * Scheduler bookkeeping (not user-editable). The UTC minute, as
+   * `YYYY-MM-DDTHH:mm`, that the background scheduler last fired a run for this
+   * connector. Claimed atomically (compare-and-set) so a given minute fires at
+   * most once even when multiple caipe-ui replicas tick concurrently.
+   */
+  last_fire_minute?: string;
 }
 
 // One run record per sync execution, tagged with the connector it ran for.

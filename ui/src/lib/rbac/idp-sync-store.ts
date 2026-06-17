@@ -31,6 +31,29 @@ export async function upsertIdpSyncSettings(
   );
 }
 
+/** All persisted settings docs. Used by the scheduler to discover what to tick. */
+export async function listIdpSyncSettings(): Promise<IdpSyncSettings[]> {
+  const col = await getRbacCollection<IdpSyncSettings>("idpSyncSettings");
+  return col.find({}).toArray();
+}
+
+/**
+ * Atomically claim a UTC minute for a connector's scheduled fire. Returns true
+ * only for the single caller that wins the compare-and-set; concurrent ticks
+ * (across replicas) for the same minute get false. This is the cross-replica
+ * dedupe guard: the matched document is updated only when its current
+ * `last_fire_minute` differs from `minuteKey`, so the second writer matches
+ * nothing.
+ */
+export async function claimScheduledFire(providerId: string, minuteKey: string): Promise<boolean> {
+  const col = await getRbacCollection<IdpSyncSettings>("idpSyncSettings");
+  const result = await col.updateOne(
+    { provider_id: providerId, last_fire_minute: { $ne: minuteKey } },
+    { $set: { last_fire_minute: minuteKey } }
+  );
+  return (result.modifiedCount ?? 0) > 0;
+}
+
 /** Recent runs for one connector, newest first. */
 export async function listIdpSyncRuns(providerId: string, limit = 20): Promise<IdpSyncRun[]> {
   const col = await getRbacCollection<IdpSyncRun>("idpSyncRuns");
