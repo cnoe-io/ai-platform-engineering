@@ -118,6 +118,23 @@ function policyManifestRecords() {
       description:
         "Assigning a Slack channel to a team lets team members use and manage the channel integration; team admins also manage it.",
       trigger: "admin assigns or reassigns a Slack channel to a team",
+      feature: {
+        name: "Slack integrations",
+        summary:
+          "Slack integrations let teams choose which bot routes and agents answer in their Slack channels.",
+        subfeatures: [
+          {
+            name: "Configured channels",
+            behavior: "Team members see the Slack channels shared with their team.",
+            authorization: "A shared channel gives that team's members access to view and update that channel's routing.",
+          },
+          {
+            name: "Channel routing",
+            behavior: "Team members can choose which agent answers in a shared channel.",
+            authorization: "The selected agent still needs to be usable by both the channel and the user's team.",
+          },
+        ],
+      },
       grants: [
         {
           subject: { type: "team", parameter: "teamSlug", relation: "admin" },
@@ -144,6 +161,18 @@ function policyManifestRecords() {
       description:
         "Assigning a Webex space to a team lets team members use the space integration; team admins manage it.",
       trigger: "admin assigns or reassigns a Webex space to a team",
+      feature: {
+        name: "Webex integrations",
+        summary:
+          "Webex integrations let teams connect spaces to CAIPE routing so messages can reach the right agents.",
+        subfeatures: [
+          {
+            name: "Configured spaces",
+            behavior: "Team members can use Webex spaces that are shared with their team.",
+            authorization: "The space assignment creates team access for that Webex space.",
+          },
+        ],
+      },
       grants: [
         {
           subject: { type: "team", parameter: "teamSlug", relation: "admin" },
@@ -389,23 +418,26 @@ test.describe("mocked RBAC admin browser regression", () => {
     });
 
     await expect(page.getByRole("tab", { name: "Policy Manifest" })).toHaveAttribute("aria-selected", "true");
-    await expect(page.getByRole("heading", { name: "Policy Manifest" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Sharing Rules" })).toBeVisible();
     await expect(page.getByTestId("policy-manifest-slack_channel_team_assignment_v1")).toContainText(
-      "Slack channel team assignment"
+      "When a Slack channel is assigned to a team"
     );
     await expect(page.getByTestId("policy-manifest-webex_space_team_assignment_v1")).toContainText(
-      "Webex space team assignment"
+      "When a Webex space is assigned to a team"
     );
     const slackPolicy = page.getByTestId("policy-manifest-slack_channel_team_assignment_v1");
-    await expect(slackPolicy.getByText("Team teamSlug member").first()).toBeVisible();
-    await expect(slackPolicy.getByText("Slack Channel slackChannelId").first()).toBeVisible();
+    await expect(slackPolicy.getByText("Slack integrations", { exact: true })).toBeVisible();
+    await expect(slackPolicy.getByText("Configured channels")).toBeVisible();
+    await expect(slackPolicy.getByText("Team members can choose which agent answers in a shared channel.")).toBeVisible();
+    await expect(slackPolicy.getByText("Team members can change settings for this Slack channel.")).toBeVisible();
+    await expect(slackPolicy.getByText("teamSlug").first()).toBeHidden();
     await expect(slackPolicy.getByText("team:{teamSlug}#member").first()).toBeHidden();
 
-    await page.getByLabel("Policy surface").selectOption("slack");
+    await page.getByLabel("Product").selectOption("slack");
     await expect(page.getByTestId("policy-manifest-slack_channel_team_assignment_v1")).toBeVisible();
     await expect(page.getByTestId("policy-manifest-webex_space_team_assignment_v1")).toHaveCount(0);
 
-    await slackPolicy.getByText("Technical details").click();
+    await slackPolicy.getByText("Show technical mapping").click();
     await expect(slackPolicy.getByText("team:{teamSlug}#member").first()).toBeVisible();
   });
 });

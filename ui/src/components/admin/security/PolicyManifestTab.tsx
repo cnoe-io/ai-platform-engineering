@@ -1,13 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { FileText, GitBranch, Loader2, RefreshCw, Search } from "lucide-react";
+import { FileText, Loader2, RefreshCw, Search } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import type { AuthorizationPolicyDefinition } from "@/lib/rbac/authorization-policy-catalog";
+
+// assisted-by Codex Codex-sonnet-4-6
 
 interface PolicyCatalogResponse {
   policies: AuthorizationPolicyDefinition[];
@@ -22,13 +24,59 @@ function humanize(value: string): string {
   return value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
-function subjectLabel(grant: AuthorizationPolicyDefinition["grants"][number]): string {
-  const relation = grant.subject.relation ? ` ${grant.subject.relation}` : "";
-  return `${humanize(grant.subject.type)} ${grant.subject.parameter}${relation}`;
+function plainSurface(surface: string): string {
+  if (surface === "slack") return "Slack";
+  if (surface === "webex") return "Webex";
+  return humanize(surface);
 }
 
-function resourceLabel(grant: AuthorizationPolicyDefinition["grants"][number]): string {
-  return `${humanize(grant.resource.type)} ${grant.resource.parameter}`;
+function plainSubject(grant: AuthorizationPolicyDefinition["grants"][number]): string {
+  if (grant.subject.type === "team" && grant.subject.relation === "member") return "Team members";
+  if (grant.subject.type === "team" && grant.subject.relation === "admin") return "Team admins";
+  if (grant.subject.type === "team") return "The assigned team";
+  return humanize(grant.subject.type);
+}
+
+function plainResource(grant: AuthorizationPolicyDefinition["grants"][number]): string {
+  if (grant.resource.type === "slack_channel") return "this Slack channel";
+  if (grant.resource.type === "webex_space") return "this Webex space";
+  return `this ${humanize(grant.resource.type).toLowerCase()}`;
+}
+
+function plainAction(grant: AuthorizationPolicyDefinition["grants"][number]): string {
+  if (grant.action === "manage") return "can change settings for";
+  if (grant.action === "use") return "can use";
+  if (grant.action === "read") return "can view";
+  if (grant.action === "call" || grant.action === "invoke") return "can call";
+  return `can ${humanize(grant.action).toLowerCase()}`;
+}
+
+function grantSentence(grant: AuthorizationPolicyDefinition["grants"][number]): string {
+  return `${plainSubject(grant)} ${plainAction(grant)} ${plainResource(grant)}.`;
+}
+
+function policyHeading(policy: AuthorizationPolicyDefinition): string {
+  if (policy.id === "slack_channel_team_assignment_v1") return "When a Slack channel is assigned to a team";
+  if (policy.id === "webex_space_team_assignment_v1") return "When a Webex space is assigned to a team";
+  return policy.title;
+}
+
+function policyOutcome(policy: AuthorizationPolicyDefinition): string {
+  if (policy.id === "slack_channel_team_assignment_v1") {
+    return "The team can use the Slack integration, and team members can update bot routing for that channel.";
+  }
+  if (policy.id === "webex_space_team_assignment_v1") {
+    return "The team can use the Webex integration, while team admins keep control of the space settings.";
+  }
+  return policy.description;
+}
+
+function featureName(policy: AuthorizationPolicyDefinition): string {
+  return policy.feature?.name ?? `${plainSurface(policy.surface)} feature`;
+}
+
+function featureSummary(policy: AuthorizationPolicyDefinition): string {
+  return policy.feature?.summary ?? policy.description;
 }
 
 function grantTemplate(grant: AuthorizationPolicyDefinition["grants"][number]): string {
@@ -44,7 +92,17 @@ function policyMatches(policy: AuthorizationPolicyDefinition, query: string): bo
     policy.title,
     policy.description,
     policy.trigger,
+    policyHeading(policy),
+    policyOutcome(policy),
+    policy.feature?.name ?? "",
+    policy.feature?.summary ?? "",
+    ...(policy.feature?.subfeatures.flatMap((subfeature) => [
+      subfeature.name,
+      subfeature.behavior,
+      subfeature.authorization,
+    ]) ?? []),
     ...policy.grants.flatMap((grant) => [
+      grantSentence(grant),
       grant.subject.type,
       grant.subject.parameter,
       grant.subject.relation ?? "",
@@ -110,10 +168,10 @@ export function PolicyManifestTab() {
         <div>
           <CardTitle role="heading" aria-level={2} className="flex items-center gap-2">
             <FileText className="h-5 w-5" />
-            Policy Manifest
+            Sharing Rules
           </CardTitle>
           <CardDescription>
-            Review the reusable authorization rules that product flows apply when teams share resources.
+            See what access people get when an admin shares a Slack channel, Webex space, or other resource with a team.
           </CardDescription>
         </div>
         <Button variant="outline" size="sm" className="gap-2 self-start" onClick={loadPolicies}>
@@ -128,15 +186,15 @@ export function PolicyManifestTab() {
             <Input
               aria-label="Search policy manifest"
               className="pl-9"
-              placeholder="Search policies, actions, or resources"
+              placeholder="Search sharing rules"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
             />
           </label>
           <label className="space-y-1 text-xs font-medium text-muted-foreground">
-            Surface
+            Product
             <select
-              aria-label="Policy surface"
+              aria-label="Product"
               className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground"
               value={surface}
               onChange={(event) => setSurface(event.target.value)}
@@ -149,9 +207,9 @@ export function PolicyManifestTab() {
             </select>
           </label>
           <label className="space-y-1 text-xs font-medium text-muted-foreground">
-            Policy family
+            Rule type
             <select
-              aria-label="Policy family"
+              aria-label="Rule type"
               className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground"
               value={family}
               onChange={(event) => setFamily(event.target.value)}
@@ -175,51 +233,87 @@ export function PolicyManifestTab() {
         {!loading && !error && (
           <div className="space-y-3" data-testid="policy-manifest-list">
             <div className="text-sm text-muted-foreground">
-              {filteredPolicies.length} of {policies.length} polic{policies.length === 1 ? "y" : "ies"} shown
+              {filteredPolicies.length} of {policies.length} sharing rule{policies.length === 1 ? "" : "s"} shown
             </div>
             {filteredPolicies.map((policy) => (
               <section key={policy.id} className="rounded-md border p-4" data-testid={`policy-manifest-${policy.id}`}>
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="space-y-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="text-base font-semibold">{policy.title}</h3>
-                      <Badge variant="outline">{humanize(policy.surface)}</Badge>
-                      <Badge variant="secondary">{humanize(policy.family)}</Badge>
+                      <h3 className="text-base font-semibold">{policyHeading(policy)}</h3>
+                      <Badge variant="outline">{plainSurface(policy.surface)}</Badge>
                     </div>
-                    <p className="text-sm text-muted-foreground">{policy.description}</p>
-                    <p className="text-xs text-muted-foreground">Runs when {policy.trigger}.</p>
+                    <p className="text-sm text-muted-foreground">{policyOutcome(policy)}</p>
                   </div>
-                  <Badge variant="outline">{policy.grants.length} grants</Badge>
+                  <Badge variant="secondary">{policy.grants.length} access changes</Badge>
                 </div>
 
-                <div className="mt-4 space-y-2">
+                <div className="mt-4 rounded-md border bg-background/50 p-3">
+                  <div className="text-xs font-medium uppercase text-muted-foreground">Feature</div>
+                  <div className="mt-1 text-sm font-medium">{featureName(policy)}</div>
+                  <p className="mt-1 text-sm text-muted-foreground">{featureSummary(policy)}</p>
+                  {policy.feature?.subfeatures.length ? (
+                    <div className="mt-3 grid gap-2 md:grid-cols-2">
+                      {policy.feature.subfeatures.map((subfeature) => (
+                        <div key={`${policy.id}-${subfeature.name}`} className="rounded-md bg-muted/30 p-3">
+                          <div className="text-sm font-medium">{subfeature.name}</div>
+                          <p className="mt-1 text-xs text-muted-foreground">{subfeature.behavior}</p>
+                          <p className="mt-2 text-xs text-muted-foreground">
+                            <span className="font-medium text-foreground">Authorization:</span>{" "}
+                            {subfeature.authorization}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="mt-3 rounded-md bg-muted/30 p-3">
+                  <div className="text-xs font-medium uppercase text-muted-foreground">What happens</div>
+                  <ul className="mt-2 space-y-2 text-sm">
+                    {policy.grants.map((grant, index) => (
+                      <li key={`${policy.id}-summary-${index}`} className="flex gap-2">
+                        <span aria-hidden="true" className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
+                        <span>{grantSentence(grant)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="mt-3 text-xs text-muted-foreground">
+                    This happens automatically when {policy.trigger}.
+                  </p>
+                </div>
+
+                <details className="mt-3 rounded-md border bg-background/60 p-3 text-xs">
+                  <summary className="cursor-pointer font-medium text-muted-foreground">Show technical mapping</summary>
+                  <div className="mt-3 space-y-3">
+                    <div>
+                      <span className="text-muted-foreground">Policy ID:</span>{" "}
+                      <code>{policy.id}</code>
+                    </div>
+                    <div className="space-y-2">
                   {policy.grants.map((grant, index) => (
                     <div
-                      key={`${policy.id}-${index}`}
+                      key={`${policy.id}-template-${index}`}
                       className="grid gap-2 rounded-md bg-muted/40 p-3 text-sm md:grid-cols-[1fr_auto_1fr]"
                     >
                       <div>
                         <div className="text-xs text-muted-foreground">Who</div>
-                        <div className="font-medium">{subjectLabel(grant)}</div>
+                        <div className="font-medium">
+                          {grant.subject.type}:{`{${grant.subject.parameter}}`}
+                          {grant.subject.relation ? `#${grant.subject.relation}` : ""}
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2 font-medium text-primary">
-                        <GitBranch className="h-4 w-4" />
-                        {humanize(grant.action)}
+                      <div className="font-medium text-primary">
+                        {grant.action}
                       </div>
                       <div>
                         <div className="text-xs text-muted-foreground">What</div>
-                        <div className="font-medium">{resourceLabel(grant)}</div>
+                        <div className="font-medium">
+                          {grant.resource.type}:{`{${grant.resource.parameter}}`}
+                        </div>
                       </div>
                     </div>
                   ))}
-                </div>
-
-                <details className="mt-3 rounded-md border bg-background/60 p-3 text-xs">
-                  <summary className="cursor-pointer font-medium text-muted-foreground">Technical details</summary>
-                  <div className="mt-3 space-y-2">
-                    <div>
-                      <span className="text-muted-foreground">Policy ID:</span>{" "}
-                      <code>{policy.id}</code>
                     </div>
                     <div className="space-y-1">
                       {policy.grants.map((grant, index) => (

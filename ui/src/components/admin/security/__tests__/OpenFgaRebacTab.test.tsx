@@ -350,7 +350,9 @@ it("deep-links to the policy manifest tab", async () => {
     "aria-selected",
     "true"
   );
-  expect(await screen.findByText("Slack channel team assignment")).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { name: "Sharing Rules" })).toBeInTheDocument();
+  expect(await screen.findByText("When a Slack channel is assigned to a team")).toBeInTheDocument();
+  expect(screen.getByText("Team members can change settings for this Slack channel.")).toBeInTheDocument();
 });
 
 it("falls back to tuples for integration-owned Slack/Webex query strings", async () => {
