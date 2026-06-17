@@ -1059,11 +1059,11 @@ function AdminPage() {
     visitedTabsRef.current.add(tab);
 
     // Teams data is shared across stats/slack/feedback filter dropdowns.
-    // Mark it with a separate key so teams isn't re-fetched when a second
-    // tab that needs it is visited.
+    // Use a data-level key (not the tab name) so it isn't confused with the
+    // tab-visit guard that loadTabData adds before invoking the loader.
     const loadTeamsIfNeeded = () => {
-      if (visitedTabsRef.current.has('teams')) return Promise.resolve();
-      visitedTabsRef.current.add('teams');
+      if (visitedTabsRef.current.has('_teams-loaded')) return Promise.resolve();
+      visitedTabsRef.current.add('_teams-loaded');
       return loadTeamsData();
     };
 
