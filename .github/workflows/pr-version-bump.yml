@@ -9,10 +9,9 @@ on:
     types: [opened, synchronize, reopened, labeled, unlabeled]
 
 permissions:
-  contents: write
-  issues: write
-  pull-requests: write
-  packages: write
+  contents: read
+  issues: read
+  pull-requests: read
   actions: read
 
 concurrency:
@@ -23,6 +22,9 @@ jobs:
   eligibility:
     name: Check PR eligibility
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
     outputs:
       should_run: ${{ steps.check.outputs.should_run }}
       reason: ${{ steps.check.outputs.reason }}
@@ -100,6 +102,11 @@ jobs:
     name: Bump version files on PR
     runs-on: ubuntu-latest
     needs: eligibility
+    permissions:
+      actions: read
+      contents: write
+      issues: write
+      pull-requests: write
     # Don't run on commits made by the bot (avoid infinite loop)
     if: needs.eligibility.outputs.should_run == 'true' && github.actor != 'github-actions[bot]' && github.actor != 'caipe-ci-release[bot]'
     outputs:
@@ -117,13 +124,14 @@ jobs:
         with:
           app-id: ${{ secrets.CI_BUILD_APP_ID }}
           private-key: ${{ secrets.CI_BUILD_APP_PRIVATE_KEY }}
+          permission-contents: write
 
       - name: 📥 Checkout PR branch
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
-          token: ${{ secrets.GH_PAT }}
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: 🔍 Check if PR branch is up to date
         id: branch-status
@@ -448,11 +456,16 @@ jobs:
       - name: ⚙️ Install yq for chart cleanup
         if: steps.helm-labels.outputs.undo_charts == 'true'
         shell: bash
+        env:
+          YQ_VERSION: v4.53.3
+          YQ_SHA256: fa52a4e758c63d38299163fbdd1edfb4c4963247918bf9c1c5d31d84789eded4
         run: |
-          if ! command -v yq &>/dev/null; then
-            sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
-            sudo chmod +x /usr/local/bin/yq
-          fi
+          set -euo pipefail
+
+          curl -fsSL -o /tmp/yq \
+            "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
+          echo "${YQ_SHA256}  /tmp/yq" | sha256sum -c -
+          sudo install -m 0755 /tmp/yq /usr/local/bin/yq
           yq --version
 
       - name: ↩️ Restore chart bump fields
@@ -605,6 +618,10 @@ jobs:
   prebuild-helm:
     name: Publish Prebuild Helm Charts
     needs: version-bump
+    permissions:
+      actions: read
+      contents: write
+      pull-requests: read
     if: |
       always() &&
       needs.version-bump.outputs.should_prebuild == 'true' &&
