@@ -433,6 +433,32 @@ test.describe("mocked RBAC admin browser regression", () => {
     await expect(slackPolicy.getByText("teamSlug").first()).toBeHidden();
     await expect(slackPolicy.getByText("team:{teamSlug}#member").first()).toBeHidden();
 
+    await slackPolicy.getByRole("button", { name: "View manifest" }).click();
+    const dialog = page.getByRole("dialog", { name: "Policy manifest" });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByText('id: "slack_channel_team_assignment_v1"')).toBeVisible();
+    await dialog.getByRole("tab", { name: "JSON" }).click();
+    await expect(dialog.getByText('"id": "slack_channel_team_assignment_v1"')).toBeVisible();
+
+    const yamlDownloadPromise = page.waitForEvent("download");
+    await dialog.getByRole("button", { name: "Download YAML" }).click();
+    const yamlDownload = await yamlDownloadPromise;
+    expect(yamlDownload.suggestedFilename()).toBe("slack_channel_team_assignment_v1.yaml");
+    const yamlPath = await yamlDownload.path();
+    expect(yamlPath).toBeTruthy();
+    expect(await readFile(yamlPath!, "utf8")).toContain('family: "messaging_team_assignment"');
+
+    const jsonDownloadPromise = page.waitForEvent("download");
+    await dialog.getByRole("button", { name: "Download JSON" }).click();
+    const jsonDownload = await jsonDownloadPromise;
+    expect(jsonDownload.suggestedFilename()).toBe("slack_channel_team_assignment_v1.json");
+    const jsonPath = await jsonDownload.path();
+    expect(jsonPath).toBeTruthy();
+    expect(JSON.parse(await readFile(jsonPath!, "utf8")).id).toBe("slack_channel_team_assignment_v1");
+
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
+
     await page.getByLabel("Product").selectOption("slack");
     await expect(page.getByTestId("policy-manifest-slack_channel_team_assignment_v1")).toBeVisible();
     await expect(page.getByTestId("policy-manifest-webex_space_team_assignment_v1")).toHaveCount(0);
