@@ -27,6 +27,7 @@ const mockRequireResourcePermission = jest.fn();
 const mockGetCollection = jest.fn();
 const mockAuthenticateRequest = jest.fn();
 const mockBuildBackendHeaders = jest.fn();
+const mockCacheMcpToolCatalog = jest.fn();
 
 jest.mock("@/lib/api-middleware", () => {
   class ApiError extends Error {
@@ -72,6 +73,10 @@ jest.mock("@/lib/da-proxy", () => ({
   buildBackendHeaders: (...args: unknown[]) => mockBuildBackendHeaders(...args),
 }));
 
+jest.mock("@/lib/rbac/mcp-tool-catalog", () => ({
+  cacheMcpToolCatalog: (...args: unknown[]) => mockCacheMcpToolCatalog(...args),
+}));
+
 function request(path: string, init?: RequestInit): NextRequest {
   return new NextRequest(new URL(path, "http://localhost:3000"), init);
 }
@@ -100,6 +105,7 @@ describe("POST /api/mcp-servers/probe", () => {
       "Content-Type": "application/json",
       Authorization: "Bearer token",
     });
+    mockCacheMcpToolCatalog.mockResolvedValue(1);
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ success: true, tools: [{ name: "ls", description: "list" }] }),
@@ -125,6 +131,21 @@ describe("POST /api/mcp-servers/probe", () => {
     for (const call of mockRequireResourcePermission.mock.calls) {
       expect(call[1]).not.toMatchObject({ action: "invoke" });
     }
+  });
+
+  it("caches discovered tools after a successful probe", async () => {
+    const { POST } = await import("../route");
+
+    const response = await POST(
+      request("/api/mcp-servers/probe?id=argocd", { method: "POST" }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockCacheMcpToolCatalog).toHaveBeenCalledWith({
+      serverId: "argocd",
+      source: "probe",
+      tools: [{ name: "ls", description: "list" }],
+    });
   });
 
   it("returns 403 when OpenFGA denies can_discover on the server", async () => {

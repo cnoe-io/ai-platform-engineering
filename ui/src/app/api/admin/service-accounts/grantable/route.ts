@@ -6,6 +6,7 @@ import { listOpenFgaObjects } from "@/lib/rbac/openfga";
 import { listRebacCatalog } from "@/lib/rbac/resource-catalog";
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import { hasOrganizationAdmin } from "@/lib/rbac/platform-admin";
+import { listCachedMcpTools } from "@/lib/rbac/mcp-tool-catalog";
 
 /**
  * GET /api/admin/service-accounts/grantable
@@ -76,9 +77,14 @@ async function listFullPlatformCatalog(): Promise<{ agents: GrantableItem[]; too
     ref: agent._id,
     name: agent.name ?? agent._id,
   }));
-  const tools = allServers.map((server) => {
+  const cachedTools = await listCachedMcpTools(allServers.map((server) => server._id));
+  const tools = allServers.flatMap((server) => {
+    const cached = cachedTools.get(server._id);
+    if (cached && cached.length > 0) {
+      return cached.map((tool) => ({ ref: tool.ref, name: tool.name }));
+    }
     const ref = `${server._id}/*`;
-    return { ref, name: humanizeToolRef(ref) };
+    return [{ ref, name: humanizeToolRef(ref) }];
   });
 
   agents.sort((a, b) => a.name.localeCompare(b.name));

@@ -648,7 +648,8 @@ test.describe("mocked service accounts browser regression", () => {
             data: {
               agents: [{ ref: "incident-resolver", name: "Incident Resolver" }],
               tools: [
-                { ref: "jira/*", name: "jira: all tools" },
+                { ref: "jira/search", name: "jira: search" },
+                { ref: "jira/create_issue", name: "jira: create issue" },
                 { ref: "github/*", name: "github: all tools" },
               ],
             },
@@ -685,10 +686,11 @@ test.describe("mocked service accounts browser regression", () => {
     await expect(dialog).toBeVisible();
 
     await dialog.getByLabel("Scope type").selectOption("tool");
-    await expect(dialog.getByLabel("Scope ref")).toContainText("jira: all tools");
+    await expect(dialog.getByLabel("Scope ref")).toContainText("jira: search");
+    await expect(dialog.getByLabel("Scope ref")).toContainText("github: all tools");
     await expect(dialog.getByTestId("unlinked-modal-grantable-empty-note")).toHaveCount(0);
 
-    await dialog.getByLabel("Scope ref").selectOption("jira/*");
+    await dialog.getByLabel("Scope ref").selectOption("jira/search");
     await dialog.getByRole("button", { name: "Add" }).click();
 
     await expect
@@ -716,7 +718,7 @@ test.describe("mocked service accounts browser regression", () => {
           request.method === "POST" &&
           request.path === "/api/admin/service-accounts/sa-unlinked-platform/scopes",
       )?.body,
-    ).toEqual({ type: "tool", ref: "jira/*" });
-    await expect(dialog.getByText("tool/jira/*")).toBeVisible();
+    ).toEqual({ type: "tool", ref: "jira/search" });
+    await expect(dialog.getByText("tool/jira/search")).toBeVisible();
   });
 });
