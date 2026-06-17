@@ -398,7 +398,10 @@ describe('Admin Dashboard Page', () => {
   });
 
   describe('Loading state', () => {
-    it('shows spinner while loading', () => {
+    it('shows spinner while loading stats tab', () => {
+      // Stats tab triggers loadStats() which sets loading=true while in-flight.
+      // Settings tab (default) has no loader, so no spinner is shown there.
+      currentSearchParams = new URLSearchParams('cat=insights&tab=stats');
       setupFetchMock();
       render(<AdminPage />);
       expect(screen.getByTestId('spinner')).toBeInTheDocument();
@@ -431,6 +434,8 @@ describe('Admin Dashboard Page', () => {
 
   describe('Error state', () => {
     it('shows error message and retry button on fetch failure', async () => {
+      // Must be on a tab with a loader (stats) so a fetch is actually triggered.
+      currentSearchParams = new URLSearchParams('cat=insights&tab=stats');
       (global.fetch as jest.Mock) = jest.fn().mockRejectedValue(new Error('Network error'));
       render(<AdminPage />);
 
@@ -441,6 +446,8 @@ describe('Admin Dashboard Page', () => {
     });
 
     it('shows auth error on 401 response', async () => {
+      // Must be on a tab with a loader (stats) so a fetch is actually triggered.
+      currentSearchParams = new URLSearchParams('cat=insights&tab=stats');
       (global.fetch as jest.Mock) = jest.fn().mockResolvedValue({
         ok: false,
         status: 401,
