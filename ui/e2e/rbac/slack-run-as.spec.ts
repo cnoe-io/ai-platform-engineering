@@ -305,6 +305,9 @@ test.describe("mocked Slack Run as browser regression", () => {
     await expect(page.getByRole("tab", { name: "Advanced" })).toHaveCount(0);
     await page.getByRole("button", { name: /#grid-test-4/ }).click();
     await expect(page.getByRole("button", { name: "Add Agent" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Add Agent" })).toBeEnabled();
+    await expect(page.getByRole("button", { name: "Edit" })).toBeEnabled();
+    await expect(page.getByRole("button", { name: "Delete agent:jenkins-agent" })).toBeEnabled();
     await page.getByRole("button", { name: "Edit" }).click();
 
     const dialog = page.getByRole("dialog", { name: /Edit agent:jenkins-agent/ });
@@ -322,5 +325,126 @@ test.describe("mocked Slack Run as browser regression", () => {
         },
       ],
     });
+  });
+
+  test("keeps team-member Slack route controls locked when channel manage is denied", async ({
+    page,
+  }) => {
+    const routeWrites: unknown[] = [];
+    const nonAdminSession = {
+      email: "generic-user@caipe.local",
+      name: "Generic User",
+      role: "user" as const,
+      canViewAdmin: true,
+    };
+
+    const slackHandler: MockRouteHandler = async ({ route, path, method }) => {
+      if (path === "/api/admin/slack/channels" && method === "GET") {
+        await fulfillJson(route, {
+          data: {
+            channels: [
+              {
+                workspace_id: "CAIPE",
+                channel_id: "C0LOCKED",
+                channel_name: "locked-shared-channel",
+                team_slug: "eti-sre-admin-jenkins",
+                active_grants: 1,
+                can_manage: false,
+              },
+            ],
+          },
+        });
+        return true;
+      }
+
+      if (path === "/api/dynamic-agents" && method === "GET") {
+        await fulfillJson(route, {
+          data: {
+            items: [
+              { _id: "jenkins-agent", name: "Jenkins Agent" },
+              { _id: "meriki-docs", name: "Meriki Docs" },
+            ],
+          },
+        });
+        return true;
+      }
+
+      if (path === "/api/admin/teams" && method === "GET") {
+        await fulfillJson(route, {
+          data: {
+            teams: [
+              { _id: "team-jenkins", slug: "eti-sre-admin-jenkins", name: "ETI SRE Admin Jenkins" },
+            ],
+          },
+        });
+        return true;
+      }
+
+      if (path === "/api/admin/slack/channels/CAIPE/C0LOCKED/routes" && method === "GET") {
+        await fulfillJson(route, {
+          data: {
+            routes: [
+              {
+                agent_id: "jenkins-agent",
+                enabled: true,
+                priority: 100,
+                users: { enabled: true, listen: "all" },
+              },
+            ],
+          },
+        });
+        return true;
+      }
+
+      if (path === "/api/admin/slack/channels/CAIPE/C0LOCKED/routes" && method === "PUT") {
+        routeWrites.push(await postJson(route));
+        await fulfillJson(route, { error: "forbidden" }, 403);
+        return true;
+      }
+
+      if (path === "/api/admin/slack/channels/CAIPE/C0LOCKED/diagnostics" && method === "GET") {
+        await fulfillJson(route, {
+          data: {
+            openfga: { reachable: true, tuple_count: 1 },
+            routes: [],
+            warnings: [],
+          },
+        });
+        return true;
+      }
+
+      return false;
+    };
+
+    await installMockedRbacApp(page, {
+      isAdmin: false,
+      session: nonAdminSession,
+      gates: {
+        settings: false,
+        teams: false,
+        users: false,
+        metrics: false,
+        health: false,
+        slack: true,
+      },
+      handlers: [slackHandler],
+    });
+
+    await page.goto("/admin?cat=integrations&tab=slack", {
+      waitUntil: "domcontentloaded",
+    });
+
+    // assisted-by Codex Codex-sonnet-4-6
+    // Visibility alone is not enough. If the channel row is returned without
+    // can_manage, non-admin users may inspect it but cannot mutate routes.
+    await expect(page.getByText("My Slack Channel Settings")).toBeVisible();
+    await expect(page.getByText("#locked-shared-channel")).toBeVisible();
+    await page.getByRole("button", { name: /#locked-shared-channel/ }).click();
+
+    await expect(page.getByRole("button", { name: "Add Agent" })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Edit" })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Delete agent:jenkins-agent" })).toBeDisabled();
+    await expect(page.getByRole("button", { name: /Delete channel/ })).toBeDisabled();
+    await expect.poll(() => routeWrites.length).toBe(0);
   });
 });
