@@ -146,6 +146,27 @@ describe("GET /api/admin/service-accounts/grantable", () => {
           ]),
         );
       }
+      if (name === "mcp_tool_catalog") {
+        return Promise.resolve(
+          collectionReturning([
+            {
+              server_id: "jira",
+              tool_id: "search",
+              ref: "jira/search",
+              display_name: "jira: search",
+              description: "Search Jira issues",
+              enabled: true,
+            },
+            {
+              server_id: "jira",
+              tool_id: "create_issue",
+              ref: "jira/create_issue",
+              display_name: "jira: create issue",
+              enabled: true,
+            },
+          ]),
+        );
+      }
       throw new Error(`unexpected collection ${name}`);
     });
 
@@ -160,8 +181,64 @@ describe("GET /api/admin/service-accounts/grantable", () => {
     ]);
     expect(body.data.tools).toEqual([
       { ref: "github/*", name: "github: all tools" },
-      { ref: "jira/*", name: "jira: all tools" },
+      { ref: "jira/create_issue", name: "jira: create issue" },
+      { ref: "jira/search", name: "jira: search" },
     ]);
+  });
+
+  it("falls back to server wildcards for unlinked tools when no cached individual tools exist", async () => {
+    mockHasOrganizationAdmin.mockResolvedValue(true);
+    mockGetCollection.mockImplementation((name: string) => {
+      if (name === "dynamic_agents") {
+        return Promise.resolve(collectionReturning([]));
+      }
+      if (name === "mcp_servers") {
+        return Promise.resolve(collectionReturning([{ _id: "jira", name: "Jira" }]));
+      }
+      if (name === "mcp_tool_catalog") {
+        return Promise.resolve(collectionReturning([]));
+      }
+      throw new Error(`unexpected collection ${name}`);
+    });
+
+    const res = await GET(request("/api/admin/service-accounts/grantable?context=unlinked"));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+
+    expect(body.data.tools).toEqual([{ ref: "jira/*", name: "jira: all tools" }]);
+  });
+
+  it("does not fall back to a wildcard when a server was cataloged with no tools", async () => {
+    mockHasOrganizationAdmin.mockResolvedValue(true);
+    mockGetCollection.mockImplementation((name: string) => {
+      if (name === "dynamic_agents") {
+        return Promise.resolve(collectionReturning([]));
+      }
+      if (name === "mcp_servers") {
+        return Promise.resolve(collectionReturning([{ _id: "jira", name: "Jira" }]));
+      }
+      if (name === "mcp_tool_catalog") {
+        return Promise.resolve(
+          collectionReturning([
+            {
+              server_id: "jira",
+              tool_id: "__catalog_marker__",
+              ref: "jira/__catalog_marker__",
+              display_name: "jira: catalog discovered",
+              enabled: false,
+              kind: "server_catalog",
+            },
+          ]),
+        );
+      }
+      throw new Error(`unexpected collection ${name}`);
+    });
+
+    const res = await GET(request("/api/admin/service-accounts/grantable?context=unlinked"));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+
+    expect(body.data.tools).toEqual([]);
   });
 
   it("403s the unlinked full-catalog context when the caller is not a platform admin", async () => {
