@@ -166,6 +166,126 @@ describe("PUT /api/admin/teams/[id]/resources — MCP OpenFGA tuple integration"
     expect(teamsCol.updateOne).toHaveBeenCalledTimes(1);
   });
 
+  it("reconciles slash-form MCP server selections from the picker", async () => {
+    const teamsCol = createMockCollection();
+    teamsCol.findOne.mockResolvedValue({
+      _id: TEAM_ID,
+      slug: "platform-engineering",
+      resources: { agents: [], tools: [], tool_wildcard: false },
+    });
+    mockCollections.teams = teamsCol;
+
+    const { PUT } = await import("@/app/api/admin/teams/[id]/resources/route");
+    const response = await PUT(
+      makeRequest(`/api/admin/teams/${TEAM_ID}/resources`, {
+        method: "PUT",
+        body: JSON.stringify({
+          agents: [],
+          tools: ["mcp-confluence-mcp/*"],
+          tool_wildcard: false,
+        }),
+      }),
+      { params: Promise.resolve({ id: TEAM_ID.toString() }) },
+    );
+
+    expect(response.status).toBe(200);
+    const [tupleDiff] = mockReconcileTupleDiff.mock.calls[0] as [
+      { writes: Array<{ user: string; relation: string; object: string }> },
+      unknown,
+    ];
+
+    expect(tupleDiff.writes).toEqual(
+      expect.arrayContaining([
+        {
+          user: "team:platform-engineering#member",
+          relation: "caller",
+          object: "tool:mcp-confluence-mcp/*",
+        },
+        {
+          user: "team:platform-engineering#member",
+          relation: "reader",
+          object: "mcp_server:mcp-confluence-mcp",
+        },
+      ]),
+    );
+    expect(tupleDiff.writes).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ object: "tool:mcp-confluence-mcp_*" }),
+      ]),
+    );
+    expect(tupleDiff.writes).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ object: "mcp_tool:mcp-confluence-mcp_*" }),
+      ]),
+    );
+  });
+
+  it("expands all-server MCP wildcard without writing invalid tool:* tuples", async () => {
+    const teamsCol = createMockCollection();
+    teamsCol.findOne.mockResolvedValue({
+      _id: TEAM_ID,
+      slug: "platform-engineering",
+      resources: { agents: ["agent-platform-helper"], tools: [], tool_wildcard: false },
+    });
+    mockCollections.teams = teamsCol;
+
+    const mcpCol = createMockCollection();
+    mcpCol.find = jest.fn().mockReturnValue({
+      toArray: jest.fn().mockResolvedValue([{ _id: "mcp-jira" }, { _id: "mcp-rag" }]),
+    });
+    mockCollections.mcp_servers = mcpCol;
+
+    const { PUT } = await import("@/app/api/admin/teams/[id]/resources/route");
+    const response = await PUT(
+      makeRequest(`/api/admin/teams/${TEAM_ID}/resources`, {
+        method: "PUT",
+        body: JSON.stringify({
+          agents: ["agent-platform-helper"],
+          tools: [],
+          tool_wildcard: true,
+        }),
+      }),
+      { params: Promise.resolve({ id: TEAM_ID.toString() }) },
+    );
+
+    expect(response.status).toBe(200);
+    const [tupleDiff] = mockReconcileTupleDiff.mock.calls[0] as [
+      { writes: Array<{ user: string; relation: string; object: string }> },
+      unknown,
+    ];
+
+    expect(tupleDiff.writes).toEqual(
+      expect.arrayContaining([
+        {
+          user: "team:platform-engineering#member",
+          relation: "caller",
+          object: "tool:mcp-jira/*",
+        },
+        {
+          user: "team:platform-engineering#member",
+          relation: "caller",
+          object: "tool:mcp-rag/*",
+        },
+        {
+          user: "agent:agent-platform-helper",
+          relation: "caller",
+          object: "tool:mcp-jira/*",
+        },
+        {
+          user: "agent:agent-platform-helper",
+          relation: "caller",
+          object: "tool:mcp-rag/*",
+        },
+      ]),
+    );
+    expect(tupleDiff.writes).not.toEqual(
+      expect.arrayContaining([
+        { user: "team:platform-engineering#member", relation: "caller", object: "tool:*" },
+        { user: "agent:agent-platform-helper", relation: "caller", object: "tool:*" },
+      ]),
+    );
+  });
+
   it("re-saves unchanged MCP selections to repair OpenFGA drift", async () => {
     const teamsCol = createMockCollection();
     teamsCol.findOne.mockResolvedValue({
