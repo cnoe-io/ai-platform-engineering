@@ -178,4 +178,149 @@ test.describe("mocked Slack Run as browser regression", () => {
     });
     await expect(page.getByText("sa:slack-runner")).toBeVisible();
   });
+
+  test("lets team-member non-admins manage team-shared Slack channel routing", async ({
+    page,
+  }) => {
+    const routeWrites: unknown[] = [];
+    let routes: unknown[] = [
+      {
+        agent_id: "jenkins-agent",
+        enabled: true,
+        priority: 100,
+        users: { enabled: true, listen: "all" },
+      },
+    ];
+    const nonAdminSession = {
+      email: "generic-user@caipe.local",
+      name: "Generic User",
+      role: "user" as const,
+      canViewAdmin: true,
+    };
+
+    const slackHandler: MockRouteHandler = async ({ route, path, method }) => {
+      if (path === "/api/admin/slack/channels" && method === "GET") {
+        await fulfillJson(route, {
+          data: {
+            channels: [
+              {
+                workspace_id: "CAIPE",
+                channel_id: "C0B4QFN4Q21",
+                channel_name: "grid-test-4",
+                team_slug: "eti-sre-admin-jenkins",
+                active_grants: 1,
+                can_manage: true,
+              },
+            ],
+          },
+        });
+        return true;
+      }
+
+      if (path === "/api/dynamic-agents" && method === "GET") {
+        await fulfillJson(route, {
+          data: {
+            items: [
+              { _id: "jenkins-agent", name: "Jenkins Agent" },
+              { _id: "meriki-docs", name: "Meriki Docs" },
+            ],
+          },
+        });
+        return true;
+      }
+
+      if (path === "/api/admin/teams" && method === "GET") {
+        await fulfillJson(route, {
+          data: {
+            teams: [
+              { _id: "team-jenkins", slug: "eti-sre-admin-jenkins", name: "ETI SRE Admin Jenkins" },
+            ],
+          },
+        });
+        return true;
+      }
+
+      if (path === "/api/admin/slack/channels/CAIPE/C0B4QFN4Q21/routes" && method === "GET") {
+        await fulfillJson(route, {
+          data: { routes },
+        });
+        return true;
+      }
+
+      if (path === "/api/admin/slack/channels/CAIPE/C0B4QFN4Q21/routes" && method === "PUT") {
+        const body = (await postJson(route)) as { routes?: unknown[] } | null;
+        routeWrites.push(body);
+        routes = Array.isArray(body?.routes) ? body.routes : [];
+        await fulfillJson(route, { data: { routes } });
+        return true;
+      }
+
+      if (path === "/api/admin/slack/channels/CAIPE/C0B4QFN4Q21/diagnostics" && method === "GET") {
+        await fulfillJson(route, {
+          data: {
+            openfga: { reachable: true, tuple_count: 3 },
+            routes: [],
+            warnings: [],
+          },
+        });
+        return true;
+      }
+
+      return false;
+    };
+
+    await installMockedRbacApp(page, {
+      isAdmin: false,
+      session: nonAdminSession,
+      gates: {
+        settings: false,
+        teams: false,
+        users: false,
+        metrics: false,
+        health: false,
+        slack: true,
+      },
+      handlers: [slackHandler],
+    });
+
+    await page.goto("/admin?cat=integrations&tab=slack", {
+      waitUntil: "domcontentloaded",
+    });
+
+    // assisted-by Codex Codex-sonnet-4-6
+    // A team-shared Slack channel should show the non-admin configured view and
+    // allow route edits when the selected team grants channel manage.
+    await expect(page.getByRole("button", { name: "Integrations" })).toBeVisible();
+    await expect(page.getByRole("tab", { name: "Slack" })).toBeVisible();
+    await expect(page.getByText("My Slack Channel Settings")).toBeVisible();
+    await expect(page.getByText("Manage Slack bot routing for channels shared with your team.")).toBeVisible();
+    await expect(page.getByText(/Members of the assigned team can update this Slack channel/)).toBeVisible();
+    await expect(page.getByText(/OpenFGA|can_use|team:<slug>/)).toHaveCount(0);
+    await page.getByLabel("Slack access details").focus();
+    await expect(page.getByText(/Technical details:/)).toBeVisible();
+    await expect(page.getByText("1 configured channels")).toBeVisible();
+    await expect(page.getByText("#grid-test-4")).toBeVisible();
+    await expect(page.getByText("team:eti-sre-admin-jenkins")).toBeVisible();
+    await expect(page.getByRole("tab", { name: "Onboard channels" })).toHaveCount(0);
+    await expect(page.getByRole("tab", { name: "Advanced" })).toHaveCount(0);
+    await page.getByRole("button", { name: /#grid-test-4/ }).click();
+    await expect(page.getByRole("button", { name: "Add Agent" })).toBeVisible();
+    await page.getByRole("button", { name: "Edit" }).click();
+
+    const dialog = page.getByRole("dialog", { name: /Edit agent:jenkins-agent/ });
+    await expect(dialog).toBeVisible();
+    await dialog.getByLabel("Dynamic Agent").click();
+    await page.getByRole("option", { name: /Meriki Docs/ }).click();
+    await dialog.getByRole("button", { name: "Update Agent" }).click();
+
+    await expect.poll(() => routeWrites.length).toBe(1);
+    expect(routeWrites[0]).toMatchObject({
+      routes: [
+        {
+          agent_id: "meriki-docs",
+          users: { enabled: true, listen: "all" },
+        },
+      ],
+    });
+  });
 });

@@ -796,6 +796,7 @@ describe("Slack channel ReBAC APIs", () => {
         { user: `slack_channel:${workspaceAlias}--${channelId}`, relation: "user", object: "agent:incident-agent" },
         { user: `slack_channel:${workspaceAlias}--C987654321`, relation: "user", object: "agent:incident-agent" },
         { user: "team:platform-engineering#member", relation: "user", object: "agent:incident-agent" },
+        { user: `team:platform-engineering#member`, relation: "manager", object: `slack_channel:${workspaceAlias}--${channelId}` },
       ]),
       deletes: [],
     });
@@ -914,6 +915,7 @@ describe("Slack channel ReBAC APIs", () => {
         { user: `slack_channel:${workspaceAlias}--CNEWCONFIG`, relation: "user", object: "agent:incident-agent" },
         { user: `slack_channel:${workspaceAlias}--CNEWMISSING`, relation: "user", object: "agent:incident-agent" },
         { user: "team:platform-engineering#member", relation: "user", object: "agent:incident-agent" },
+        { user: "team:platform-engineering#member", relation: "manager", object: `slack_channel:${workspaceAlias}--CNEWMISSING` },
       ]),
       deletes: [],
     });
@@ -1048,6 +1050,7 @@ describe("Slack channel ReBAC APIs", () => {
       writes: expect.arrayContaining([
         { user: `slack_channel:${workspaceAlias}--CNEWMISSING`, relation: "user", object: "agent:test-april-2025" },
         { user: "team:security#member", relation: "user", object: "agent:test-april-2025" },
+        { user: "team:security#member", relation: "manager", object: `slack_channel:${workspaceAlias}--CNEWMISSING` },
       ]),
       deletes: [],
     });
@@ -1149,6 +1152,7 @@ describe("Slack channel ReBAC APIs", () => {
       writes: expect.arrayContaining([
         { user: `slack_channel:${workspaceAlias}--CCHANGED`, relation: "user", object: "agent:foo-bar" },
         { user: "team:platform-engineering#member", relation: "user", object: "agent:foo-bar" },
+        { user: "team:platform-engineering#member", relation: "manager", object: `slack_channel:${workspaceAlias}--CCHANGED` },
       ]),
       deletes: [
         {

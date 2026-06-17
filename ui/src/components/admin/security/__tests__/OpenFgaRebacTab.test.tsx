@@ -215,6 +215,30 @@ beforeEach(() => {
         },
       });
     }
+    if (url === "/api/admin/rebac/policies/catalog") {
+      return jsonResponse({
+        data: {
+          policies: [
+            {
+              id: "slack_channel_team_assignment_v1",
+              family: "messaging_team_assignment",
+              surface: "slack",
+              title: "Slack channel team assignment",
+              description: "Team members can use and manage Slack channel routing.",
+              trigger: "admin assigns or reassigns a Slack channel to a team",
+              grants: [
+                {
+                  subject: { type: "team", parameter: "teamSlug", relation: "member" },
+                  action: "manage",
+                  resource: { type: "slack_channel", parameter: "slackChannelId" },
+                },
+              ],
+            },
+          ],
+          count: 1,
+        },
+      });
+    }
     if (url === "/api/admin/users?search=alice&pageSize=20") {
       return jsonResponse({
         users: [
@@ -306,6 +330,7 @@ it("orders OpenFGA tabs by operational flow and defaults to tuples", async () =>
   expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
     "OpenFGA Tuples",
     "Policy Graph",
+    "Policy Manifest",
     "Default FGA Grants",
   ]);
   expect(await screen.findByText("OpenFGA Tuple Store")).toBeInTheDocument();
@@ -313,6 +338,19 @@ it("orders OpenFGA tabs by operational flow and defaults to tuples", async () =>
   fireEvent.click(screen.getByRole("tab", { name: "Policy Graph" }));
 
   expect(replaceMock).toHaveBeenCalledWith("/admin?subtab=graph&openfgaTab=graph", { scroll: false });
+});
+
+it("deep-links to the policy manifest tab", async () => {
+  // assisted-by Codex Codex-sonnet-4-6
+  currentSearchParams = new URLSearchParams("subtab=manifest");
+
+  render(<OpenFgaRebacTab isAdmin />);
+
+  expect(await screen.findByRole("tab", { name: "Policy Manifest" })).toHaveAttribute(
+    "aria-selected",
+    "true"
+  );
+  expect(await screen.findByText("Slack channel team assignment")).toBeInTheDocument();
 });
 
 it("falls back to tuples for integration-owned Slack/Webex query strings", async () => {
@@ -661,4 +699,3 @@ it("shows the manual user subject controls inside the fullscreen graph", async (
     expect(fetchMock).toHaveBeenCalledWith("/api/admin/rebac/graph?subject=user%3A*&layer=tuples&limit=1000");
   });
 });
-

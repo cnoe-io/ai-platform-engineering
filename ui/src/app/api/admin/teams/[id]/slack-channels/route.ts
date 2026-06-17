@@ -28,7 +28,9 @@ withErrorHandler,
 import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
 import { writeOpenFgaTupleDiff } from "@/lib/rbac/openfga";
 import { requireResourcePermission } from "@/lib/rbac/resource-authz";
-import { slackChannelSubjectId,slackWorkspaceRef } from "@/lib/rbac/slack-channel-grant-store";
+import { slackWorkspaceRef } from "@/lib/rbac/slack-channel-grant-store";
+import { slackChannelTeamVisibilityRelationships } from "@/lib/rbac/slack-channel-rebac";
+import { buildUniversalRebacTupleDiff } from "@/lib/rbac/tuple-builders";
 import type { Team } from "@/types/teams";
 import { ObjectId } from "mongodb";
 import { NextRequest,NextResponse } from "next/server";
@@ -61,19 +63,21 @@ async function reconcileSlackChannelOwnership(
   removed: ChannelTeamMappingDoc[],
 ): Promise<void> {
   await writeOpenFgaTupleDiff({
-    writes: addedOrKept.flatMap((channel) => {
-      const object = `slack_channel:${slackChannelSubjectId(channel.slack_workspace_id ?? "", channel.slack_channel_id)}`;
-      return [
-        { user: `team:${slug}#member`, relation: "user", object },
-        { user: `team:${slug}#admin`, relation: "manager", object },
-      ];
-    }),
-    deletes: removed.flatMap((channel) => {
-      const object = `slack_channel:${slackChannelSubjectId(channel.slack_workspace_id ?? "", channel.slack_channel_id)}`;
-      return [
-        { user: `team:${slug}#member`, relation: "user", object },
-        { user: `team:${slug}#admin`, relation: "manager", object },
-      ];
+    ...buildUniversalRebacTupleDiff({
+      writes: addedOrKept.flatMap((channel) =>
+        slackChannelTeamVisibilityRelationships(
+          channel.slack_workspace_id ?? "",
+          channel.slack_channel_id,
+          slug,
+        )
+      ),
+      deletes: removed.flatMap((channel) =>
+        slackChannelTeamVisibilityRelationships(
+          channel.slack_workspace_id ?? "",
+          channel.slack_channel_id,
+          slug,
+        )
+      ),
     }),
   });
 }

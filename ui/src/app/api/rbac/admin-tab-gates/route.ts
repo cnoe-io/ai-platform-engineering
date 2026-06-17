@@ -163,7 +163,7 @@ async function repairCurrentUserBaseline(subject: string, isAdmin: boolean): Pro
   }
 }
 
-async function hasManageableSlackChannel(openfgaUser: string): Promise<boolean> {
+async function hasAccessibleSlackChannel(openfgaUser: string): Promise<boolean> {
   try {
     const mappings = await getCollection<SlackChannelMapping>("channel_team_mappings");
     const rows = await mappings
@@ -173,11 +173,15 @@ async function hasManageableSlackChannel(openfgaUser: string): Promise<boolean> 
 
     for (const row of rows) {
       if (!row.slack_channel_id) continue;
-      if (await checkTupleAllowed({
-        user: openfgaUser,
-        relation: "can_manage",
-        object: `slack_channel:${slackChannelSubjectId(row.slack_workspace_id ?? "", row.slack_channel_id)}`,
-      })) {
+      const object = `slack_channel:${slackChannelSubjectId(row.slack_workspace_id ?? "", row.slack_channel_id)}`;
+      // assisted-by Codex Codex-sonnet-4-6
+      // Team-shared Slack channels should reveal the self-service integration
+      // surface for readers too; row edit controls still depend on can_manage.
+      const [readable, manageable] = await Promise.all([
+        checkTupleAllowed({ user: openfgaUser, relation: "can_read", object }),
+        checkTupleAllowed({ user: openfgaUser, relation: "can_manage", object }),
+      ]);
+      if (readable || manageable) {
         return true;
       }
     }
@@ -187,7 +191,7 @@ async function hasManageableSlackChannel(openfgaUser: string): Promise<boolean> 
   return false;
 }
 
-async function hasManageableWebexSpace(openfgaUser: string): Promise<boolean> {
+async function hasAccessibleWebexSpace(openfgaUser: string): Promise<boolean> {
   try {
     const mappings = await getCollection<WebexSpaceMapping>("webex_space_team_mappings");
     const rows = await mappings
@@ -197,11 +201,12 @@ async function hasManageableWebexSpace(openfgaUser: string): Promise<boolean> {
 
     for (const row of rows) {
       if (!row.webex_space_id) continue;
-      if (await checkTupleAllowed({
-        user: openfgaUser,
-        relation: "can_manage",
-        object: `webex_space:${webexSpaceSubjectId(row.webex_workspace_id ?? "", row.webex_space_id)}`,
-      })) {
+      const object = `webex_space:${webexSpaceSubjectId(row.webex_workspace_id ?? "", row.webex_space_id)}`;
+      const [readable, manageable] = await Promise.all([
+        checkTupleAllowed({ user: openfgaUser, relation: "can_read", object }),
+        checkTupleAllowed({ user: openfgaUser, relation: "can_manage", object }),
+      ]);
+      if (readable || manageable) {
         return true;
       }
     }
@@ -231,8 +236,8 @@ async function isMemberOfAnyTeam(openfgaUser: string): Promise<boolean> {
 }
 
 async function hasResourceScopedIntegrationAccess(openfgaUser: string, tab: AdminTabKey): Promise<boolean> {
-  if (tab === "slack") return hasManageableSlackChannel(openfgaUser);
-  if (tab === "webex") return hasManageableWebexSpace(openfgaUser);
+  if (tab === "slack") return hasAccessibleSlackChannel(openfgaUser);
+  if (tab === "webex") return hasAccessibleWebexSpace(openfgaUser);
   if (tab === "service_accounts") return isMemberOfAnyTeam(openfgaUser);
   return false;
 }

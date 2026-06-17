@@ -50,6 +50,7 @@ import { cn } from "@/lib/utils";
 import { BaselineFgaProfilePanel } from "../rebac/BaselineFgaProfilePanel";
 import { PolicyChangeSetDiff } from "../rebac/PolicyChangeSetDiff";
 import { RebacGraphFilters, type RebacGraphUserOption } from "../rebac/RebacGraphFilters";
+import { PolicyManifestTab } from "./PolicyManifestTab";
 import type {
   UniversalRebacRelationship,
   UniversalRebacResourceAction,
@@ -130,7 +131,7 @@ interface GraphEdge {
 const ALL_RELATIONSHIPS_SCOPE = "__all_relationships__";
 const DEFAULT_GRAPH_LAYER: GraphLayer = "tuples";
 const DEFAULT_OPENFGA_TAB = "tuples";
-const OPENFGA_TABS = new Set(["tuples", "graph", "baseline"]);
+const OPENFGA_TABS = new Set(["tuples", "graph", "baseline", "manifest"]);
 const ACTION_TO_BASE_RELATION: Record<UniversalRebacResourceAction, string> = {
   discover: "reader",
   read: "reader",
@@ -682,8 +683,13 @@ export function OpenFgaRebacTab({ isAdmin }: { isAdmin: boolean }) {
         <TabsList>
           <TabsTrigger value="tuples" onClick={() => setActiveTab("tuples")}>OpenFGA Tuples</TabsTrigger>
           <TabsTrigger value="graph" onClick={() => setActiveTab("graph")}>Policy Graph</TabsTrigger>
+          <TabsTrigger value="manifest" onClick={() => setActiveTab("manifest")}>Policy Manifest</TabsTrigger>
           <TabsTrigger value="baseline" onClick={() => setActiveTab("baseline")}>Default FGA Grants</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="manifest">
+          <PolicyManifestTab />
+        </TabsContent>
 
         <TabsContent value="baseline">
           <BaselineFgaProfilePanel isAdmin={isAdmin} />
