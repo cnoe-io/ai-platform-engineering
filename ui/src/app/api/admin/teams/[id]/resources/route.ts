@@ -175,14 +175,12 @@ export const GET = withErrorHandler(
         ownershipCol.find({}).sort({}).toArray().catch(() => []),
       ]);
 
-      // We render tools by MCP server wildcard (e.g. `jira/*`) and persist those
-      // directly as OpenFGA tool objects. The slash form (`<server>/*`) is the
-      // ONLY wildcard the AgentGateway bridge enforces at runtime
-      // (deploy/openfga/bridge/main.py — caller-keyed check queries
-      // `tool:<server>/*`); the legacy underscore form (`<server>_*`) never
-      // matched and silently failed closed once the caller-keyed check went live
-      // (#43). Existing `<server>_*` grants are migrated to `<server>/*` by
-      // ui/src/lib/rbac/migrations (team-tool-wildcard-slash).
+      // We render tools by MCP server wildcard (e.g. `jira/*`) because the
+      // slash form (`<server>/*`) is the ONLY wildcard the AgentGateway bridge
+      // enforces at runtime. The tuple builder accepts this current slash form
+      // and the legacy underscore form (`<server>_*`) for old stored team docs,
+      // then materializes concrete `mcp_server:<server>` and `tool:<server>/*`
+      // OpenFGA tuples.
       const toolPrefixes = allServers.map((s) => `${s._id}/*`);
       const kbIds = new Set<string>();
       for (const row of ownership) {
