@@ -34,6 +34,7 @@ SubAgentRef,
 TransportType,
 VisibilityType,
 } from "@/types/dynamic-agent";
+import type { IdentityGroupSyncRule } from "@/types/identity-group-sync";
 import type {
 StepEntry,
 WorkflowConfig,
@@ -844,18 +845,18 @@ export async function bootstrapDefaultIdentityGroupSyncRuleIfEmpty(): Promise<bo
   }
   if (!isMongoDBConfigured) return false;
 
-  const collection = await getCollection<{ id: string; provider_id?: string; name?: string }>(
+  const collection = await getCollection<IdentityGroupSyncRule>(
     "identity_group_sync_rules",
   );
 
   const now = new Date().toISOString();
   const rule = buildAutoCreateTeamsBootstrapRule(now);
 
-  const existing = await collection.findOne({ id: AUTO_CREATE_TEAMS_BOOTSTRAP_RULE_ID } as { id: string });
+  const existing = await collection.findOne({ id: AUTO_CREATE_TEAMS_BOOTSTRAP_RULE_ID });
 
   if (!existing) {
     try {
-      await collection.insertOne(rule as { id: string });
+      await collection.insertOne(rule);
       console.log(
         `[seed-config] Provisioned identity-group-sync rule: ${AUTO_CREATE_TEAMS_BOOTSTRAP_RULE_ID} (auto-create teams from any IdP group claim, role=member)`,
       );
@@ -881,7 +882,7 @@ export async function bootstrapDefaultIdentityGroupSyncRuleIfEmpty(): Promise<bo
   if (!needsUpdate) return false;
 
   await collection.updateOne(
-    { id: AUTO_CREATE_TEAMS_BOOTSTRAP_RULE_ID } as { id: string },
+    { id: AUTO_CREATE_TEAMS_BOOTSTRAP_RULE_ID },
     { $set: { provider_id: rule.provider_id, name: rule.name, updated_at: now, updated_by: AUTO_CREATE_TEAMS_BOOTSTRAP_ACTOR } } as object,
   );
   console.log(
