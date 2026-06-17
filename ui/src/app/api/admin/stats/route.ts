@@ -7,6 +7,7 @@ withErrorHandler,
 } from '@/lib/api-middleware';
 import { getCollection,isMongoDBConfigured } from '@/lib/mongodb';
 import { requireAdminSurfaceManage } from '@/lib/rbac/require-openfga';
+import { getReadableSlackChannelNames } from '@/lib/rbac/user-insights-scope';
 import { NextRequest,NextResponse } from 'next/server';
 
 /** Parse range params into a { rangeStart, days } pair. Supports preset strings and explicit from/to ISO dates. */
@@ -37,6 +38,22 @@ function parseRange(searchParams: URLSearchParams): { rangeStart: Date; days: nu
   return { rangeStart: new Date(now.getTime() - ms), days: Math.max(1, Math.round(ms / (24 * 60 * 60 * 1000))) };
 }
 
+/**
+ * Merge `clause` into an existing Mongo filter without clobbering keys. When
+ * `target` already has conditions we wrap both in `$and` (rather than spreading,
+ * which would silently drop a duplicate key like `$or`). Mutates `target`.
+ */
+function andInto(target: Record<string, unknown>, clause: Record<string, unknown>): void {
+  const existingKeys = Object.keys(target);
+  if (existingKeys.length === 0) {
+    Object.assign(target, clause);
+    return;
+  }
+  const saved = { ...target };
+  for (const k of existingKeys) delete target[k];
+  target.$and = [saved, clause];
+}
+
 // GET /api/admin/stats
 export const GET = withErrorHandler(async (request: NextRequest) => {
   if (!isMongoDBConfigured) {
@@ -51,7 +68,22 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   }
 
   const { session } = await getAuthFromBearerOrSession(request);
-  await requireAdminSurfaceManage(session, 'stats');
+  const isFullAdmin = await requireAdminSurfaceManage(session, 'stats').then(() => true, () => false);
+
+  // Non-admin: scope to their readable Slack channels + their own web conversations.
+  let nonAdminScope: { channelNames: string[]; ownerEmail: string } | null = null;
+  if (!isFullAdmin) {
+    const sub = typeof session.sub === 'string' ? session.sub.trim() : '';
+    const email = typeof session.user?.email === 'string' ? session.user.email.trim() : '';
+    if (!sub && !email) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized', code: 'UNAUTHORIZED' },
+        { status: 401 }
+      );
+    }
+    const channelNames = sub ? await getReadableSlackChannelNames(`user:${sub}`) : [];
+    nonAdminScope = { channelNames, ownerEmail: email };
+  }
 
     const { searchParams } = new URL(request.url);
     const { rangeStart, days } = parseRange(searchParams);
@@ -67,7 +99,10 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     // Support both legacy (source/slack_meta) and new (client_type/metadata) schemas.
     const SLACK_CONV_MATCH = { $or: [{ source: 'slack' }, { client_type: 'slack' }] };
 
-    const hasFilters = !!sourceFilter || userEmails.length > 0;
+    // A non-admin view is always "filtered" — DAU/MAU and daily-user activity
+    // must derive from the scoped conversations, never from the platform-wide
+    // users collection (which would leak global active-user counts).
+    const hasFilters = !!sourceFilter || userEmails.length > 0 || !!nonAdminScope;
     const convSourceFilter: Record<string, any> = {};
     const msgOwnerFilter: Record<string, any> = {};
     if (sourceFilter === 'web') {
@@ -96,6 +131,79 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       msgOwnerFilter.owner_id = { $in: userEmails };
     }
 
+    // Non-admin scope, reused by every query below so the whole payload stays
+    // within the caller's visibility:
+    //   - `nonAdminScopeFilter` matches conversations/web-messages the user may
+    //     see (their readable Slack channels OR their own web conversations).
+    //   - `nonAdminChannelNames` bounds Slack-channel-keyed queries (feedback,
+    //     the Slack block, available_channels). Slack docs in the `messages`
+    //     collection carry no channel_name, so Slack message counts can only
+    //     be bounded by owner_id via the shared scope filter.
+    let nonAdminScopeFilter: Record<string, unknown> | null = null;
+    const nonAdminChannelNames = nonAdminScope?.channelNames ?? [];
+    if (nonAdminScope) {
+      const { channelNames: scopeChannelNames, ownerEmail } = nonAdminScope;
+      const scopeClauses: Record<string, unknown>[] = [];
+      if (scopeChannelNames.length > 0) {
+        const names = scopeChannelNames.length === 1 ? scopeChannelNames[0] : { $in: scopeChannelNames };
+        scopeClauses.push({
+          $and: [
+            { $or: [{ source: 'slack' }, { client_type: 'slack' }] },
+            { $or: [
+              { 'slack_meta.channel_name': names },
+              { 'metadata.channel_name': names },
+            ]},
+          ],
+        });
+      }
+      if (ownerEmail) scopeClauses.push({ owner_id: ownerEmail });
+
+      if (scopeClauses.length === 0) {
+        return successResponse({
+          range: searchParams.get('range') || '30d',
+          days,
+          platform_summary: { satisfaction_rate: 0, estimated_hours_automated: 0 },
+          overview: {
+            total_users: 0,
+            total_conversations: 0,
+            total_messages: 0,
+            shared_conversations: 0,
+            dau: 0,
+            mau: 0,
+            conversations_today: 0,
+            messages_today: 0,
+            avg_messages_per_conversation: 0,
+          },
+          daily_activity: [],
+          top_users: { by_conversations: [], by_messages: [] },
+          top_agents: [],
+          feedback_summary: {
+            positive: 0,
+            negative: 0,
+            total: 0,
+            satisfaction_rate: 0,
+            by_source: {},
+            categories: [],
+            daily: [],
+          },
+          response_time: { avg_ms: 0, min_ms: 0, max_ms: 0, sample_count: 0 },
+          hourly_heatmap: Array.from({ length: 24 }, (_, hour) => ({ hour, count: 0 })),
+          completed_workflows: {
+            total: 0,
+            today: 0,
+            interrupted: 0,
+            completion_rate: 0,
+            avg_messages_per_workflow: 0,
+          },
+          available_channels: [],
+        });
+      }
+
+      nonAdminScopeFilter = scopeClauses.length === 1 ? scopeClauses[0] : { $or: scopeClauses };
+      andInto(convSourceFilter, nonAdminScopeFilter);
+      andInto(msgOwnerFilter, nonAdminScopeFilter);
+    }
+
     const users = await getCollection('users');
     const conversations = await getCollection('conversations');
     const messages = await getCollection('messages');
@@ -119,13 +227,21 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       slackMessagesToday,
       sharedConversations,
     ] = await Promise.all([
-      users.countDocuments({}),
+      // Non-admins must not see platform-wide headcount — derive their
+      // total_users from distinct owners of the conversations they can see.
+      nonAdminScope
+        ? conversations.aggregate([
+            { $match: { ...convSourceFilter } },
+            { $group: { _id: '$owner_id' } },
+            { $count: 'total' },
+          ]).toArray().then((r) => r[0]?.total || 0)
+        : users.countDocuments({}),
       conversations.countDocuments({ ...convSourceFilter }),
       sourceFilter !== 'slack'
         ? messages.countDocuments({ 'metadata.source': 'web', ...msgOwnerFilter })
         : Promise.resolve(0),
       sourceFilter !== 'web'
-        ? messages.countDocuments({ 'metadata.source': 'slack' })
+        ? messages.countDocuments({ 'metadata.source': 'slack', ...msgOwnerFilter })
         : Promise.resolve(0),
       // DAU/MAU: derive from conversations when filters are applied, otherwise from users
       hasFilters
@@ -147,16 +263,24 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         ? messages.countDocuments({ 'metadata.source': 'web', created_at: { $gte: today }, ...msgOwnerFilter })
         : Promise.resolve(0),
       sourceFilter !== 'web'
-        ? messages.countDocuments({ 'metadata.source': 'slack', created_at: { $gte: today } })
+        ? messages.countDocuments({ 'metadata.source': 'slack', created_at: { $gte: today }, ...msgOwnerFilter })
         : Promise.resolve(0),
-      conversations.countDocuments({
-        ...convSourceFilter,
-        $or: [
-          { 'sharing.is_public': true },
-          { 'sharing.shared_with.0': { $exists: true } },
-          { 'sharing.share_link_enabled': true },
-        ],
-      }),
+      // `andInto` rather than spreading a literal `$or` — the non-admin scope
+      // can itself be an `$or`, which a spread would clobber (leaking shared
+      // conversation counts outside the caller's scope).
+      conversations.countDocuments(
+        (() => {
+          const sharedFilter: Record<string, unknown> = { ...convSourceFilter };
+          andInto(sharedFilter, {
+            $or: [
+              { 'sharing.is_public': true },
+              { 'sharing.shared_with.0': { $exists: true } },
+              { 'sharing.share_link_enabled': true },
+            ],
+          });
+          return sharedFilter;
+        })()
+      ),
     ]);
 
     const totalMessages = webTotalMessages + slackTotalMessages;
@@ -179,6 +303,22 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     }
     if (userEmails.length === 1) fbFilter.user_email = userEmails[0];
     else if (userEmails.length > 1) fbFilter.user_email = { $in: userEmails };
+
+    // Non-admin: feedback is keyed by channel_name (slack) / user_email (web),
+    // so scope it directly rather than via the conversation-shaped scope filter.
+    if (nonAdminScope) {
+      const fbScope: Record<string, unknown>[] = [];
+      if (nonAdminChannelNames.length > 0) {
+        fbScope.push({
+          source: 'slack',
+          channel_name: nonAdminChannelNames.length === 1
+            ? nonAdminChannelNames[0]
+            : { $in: nonAdminChannelNames },
+        });
+      }
+      if (nonAdminScope.ownerEmail) fbScope.push({ user_email: nonAdminScope.ownerEmail });
+      andInto(fbFilter, fbScope.length === 1 ? fbScope[0] : { $or: fbScope });
+    }
 
     const [
       dailyUserActivity,
@@ -230,7 +370,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       // Daily slack messages
       sourceFilter !== 'web'
         ? messages.aggregate([
-            { $match: { 'metadata.source': 'slack', created_at: { $gte: rangeStart } } },
+            { $match: { 'metadata.source': 'slack', created_at: { $gte: rangeStart }, ...msgOwnerFilter } },
             { $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: '$created_at' } }, messages: { $sum: 1 } } },
           ]).toArray()
         : Promise.resolve([]),
@@ -326,17 +466,21 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       // Hourly heatmap: slack
       sourceFilter !== 'web'
         ? messages.aggregate([
-            { $match: { 'metadata.source': 'slack', created_at: { $gte: rangeStart } } },
+            { $match: { 'metadata.source': 'slack', created_at: { $gte: rangeStart }, ...msgOwnerFilter } },
             { $addFields: { _ts: { $toDate: '$created_at' } } },
             { $group: { _id: { $hour: '$_ts' }, count: { $sum: 1 } } },
           ]).toArray()
         : Promise.resolve([]),
 
-      // Available channel names (both schema variants)
-      Promise.all([
-        conversations.distinct('slack_meta.channel_name', { source: 'slack', 'slack_meta.channel_name': { $ne: null } }),
-        conversations.distinct('metadata.channel_name', { client_type: 'slack', 'metadata.channel_name': { $ne: null } }),
-      ]),
+      // Available channel names (both schema variants). Non-admins get exactly
+      // their readable channels (resolved after this batch) — a platform-wide
+      // distinct would enumerate every channel name, so skip it for them.
+      nonAdminScope
+        ? Promise.resolve([[], []] as [string[], string[]])
+        : Promise.all([
+            conversations.distinct('slack_meta.channel_name', { source: 'slack', 'slack_meta.channel_name': { $ne: null } }),
+            conversations.distinct('metadata.channel_name', { client_type: 'slack', 'metadata.channel_name': { $ne: null } }),
+          ]),
 
       // Web agent message count for hours-automated estimate
       sourceFilter !== 'slack'
@@ -486,10 +630,17 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     // ═══════════════════════════════════════════════════════════════
     let slack: any = undefined;
 
+    // Slack block channel scope: admins use the `channel` query param; a
+    // non-admin is hard-bounded to their readable channels (their web
+    // conversations don't appear in this Slack-only section). A non-admin with
+    // no readable channels sees no Slack block at all.
+    const slackChannelScope = nonAdminScope ? nonAdminChannelNames : channelNames;
+    const skipSlackBlock = !!nonAdminScope && nonAdminChannelNames.length === 0;
+
     try {
       const slackFilter: Record<string, any> = { ...SLACK_CONV_MATCH, created_at: { $gte: rangeStart } };
-      if (channelNames.length > 0) {
-        const names = channelNames.length === 1 ? channelNames[0] : { $in: channelNames };
+      if (slackChannelScope.length > 0) {
+        const names = slackChannelScope.length === 1 ? slackChannelScope[0] : { $in: slackChannelScope };
         // Override $or with $and to combine slack match + channel match
         delete slackFilter.$or;
         slackFilter.$and = [
@@ -499,7 +650,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         ];
         delete slackFilter.created_at;
       }
-      const slackHasData = await conversations.countDocuments(SLACK_CONV_MATCH, { limit: 1 });
+      const slackHasData = skipSlackBlock ? 0 : await conversations.countDocuments(SLACK_CONV_MATCH, { limit: 1 });
 
       if (slackHasData > 0) {
         const platformConfig = await getCollection('platform_config');
@@ -590,10 +741,10 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
             {
               source: 'slack',
               created_at: { $gte: rangeStart },
-              ...(channelNames.length === 1
-                ? { channel_name: channelNames[0] }
-                : channelNames.length > 1
-                  ? { channel_name: { $in: channelNames } }
+              ...(slackChannelScope.length === 1
+                ? { channel_name: slackChannelScope[0] }
+                : slackChannelScope.length > 1
+                  ? { channel_name: { $in: slackChannelScope } }
                   : {}),
             },
             { projection: { conversation_id: 1, rating: 1, created_at: 1 } },
@@ -696,7 +847,9 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     const totalHoursAutomated = Math.round((webHoursAutomated + slackHoursSaved) * 10) / 10;
 
     const [oldChannels, newChannels] = availableChannelsResult;
-    const availableChannels = [...new Set([...oldChannels, ...newChannels])];
+    const availableChannels = nonAdminScope
+      ? [...new Set(nonAdminChannelNames)]
+      : [...new Set([...oldChannels, ...newChannels])];
 
     const platformSummary = {
       satisfaction_rate: feedbackSummary.satisfaction_rate || 0,

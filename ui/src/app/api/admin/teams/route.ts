@@ -4,11 +4,13 @@
 import {
 ApiError,
 getAuthFromBearerOrSession,
+requireRbacPermission,
 successResponse,
 withErrorHandler,
 } from '@/lib/api-middleware';
 import { getCollection,isMongoDBConfigured } from '@/lib/mongodb';
 import { isValidTeamSlug } from '@/lib/rbac/keycloak-admin';
+import { listOpenFgaObjects } from '@/lib/rbac/openfga';
 import { requireAdminSurfaceManage,requireBaselineAdminSurfaceRead } from '@/lib/rbac/require-openfga';
 import { upsertTeamMembershipSource } from '@/lib/rbac/team-membership-source-store';
 import { loadTeamIdpSourceTypes,loadTeamMemberCounts } from '@/lib/rbac/team-membership-store';
@@ -61,12 +63,51 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   const { session } = await getAuthFromBearerOrSession(request);
   await requireBaselineAdminSurfaceRead(session, 'teams');
 
+  // Mirror the per-row access pattern from PR #1883 (Slack channels). Org/super
+  // admins keep the unscoped view; everyone else only sees teams they're a
+  // member of, with `can_manage` flipped on for teams where they're a team
+  // admin. Failures resolving membership fail-closed so a transiently broken
+  // PDP can't accidentally leak the full team list to a regular user.
+  const hasAdminView = await requireRbacPermission(session, 'admin_ui', 'view').then(
+    () => true,
+    () => false
+  );
+
+  let memberSlugs = new Set<string>();
+  let adminSlugs = new Set<string>();
+  if (!hasAdminView) {
+    const sub = typeof session.sub === 'string' ? session.sub.trim() : '';
+    if (sub) {
+      try {
+        const [memberResult, adminResult] = await Promise.all([
+          listOpenFgaObjects({ user: `user:${sub}`, relation: 'member', type: 'team' }),
+          listOpenFgaObjects({ user: `user:${sub}`, relation: 'admin', type: 'team' }),
+        ]);
+        memberSlugs = new Set(
+          memberResult.objects.map((obj) => obj.split(':').slice(1).join(':')).filter(Boolean)
+        );
+        adminSlugs = new Set(
+          adminResult.objects.map((obj) => obj.split(':').slice(1).join(':')).filter(Boolean)
+        );
+      } catch {
+        // fail-closed: no teams visible
+      }
+    }
+  }
+
   const teams = await getCollection('teams');
 
   const allTeams = await teams
     .find({})
     .sort({ created_at: -1 })
     .toArray();
+
+  const visibleTeams = hasAdminView
+    ? allTeams
+    : allTeams.filter((team) => {
+        const slug = typeof team.slug === 'string' ? team.slug : '';
+        return slug ? memberSlugs.has(slug) : false;
+      });
 
   // Commit 4/8 of the canonical-team-membership refactor (spec
   // 2026-05-26-canonical-team-membership): instead of returning
@@ -76,7 +117,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   // query. This is a tracer-bullet step — the legacy team.members[]
   // payload is still emitted so older UI revisions and integration
   // tests keep working until commit 5/8 drops the embedded array.
-  const slugs = allTeams
+  const slugs = visibleTeams
     .map((team) => (typeof team.slug === 'string' ? team.slug : ''))
     .filter((slug): slug is string => slug.length > 0);
   const memberCounts = slugs.length > 0 ? await loadTeamMemberCounts(slugs) : new Map<string, number>();
@@ -92,7 +133,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   // has KBs assigned (issue #1642 follow-up). We count distinct kb_ids per
   // team in a single query, falling back to the legacy doc field when no
   // ownership row exists yet.
-  const teamIdStrings = allTeams.map((team) => team._id.toString());
+  const teamIdStrings = visibleTeams.map((team) => team._id.toString());
   const kbCounts = new Map<string, number>();
   if (teamIdStrings.length > 0) {
     const ownership = await getCollection<{ team_id?: string; kb_ids?: string[] }>('team_kb_ownership');
@@ -106,7 +147,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     }
   }
 
-  const teamsWithCounts = allTeams.map((team) => {
+  const teamsWithCounts = visibleTeams.map((team) => {
     const slug = typeof team.slug === 'string' ? team.slug : '';
     const idStr = team._id.toString();
     const legacyKbCount = Array.isArray(team.resources?.knowledge_bases)
@@ -117,6 +158,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       member_count: slug ? memberCounts.get(slug) ?? 0 : 0,
       kb_count: kbCounts.get(idStr) ?? legacyKbCount,
       idp_source_types: slug ? idpSourceTypes.get(slug) ?? [] : [],
+      can_manage: hasAdminView || (slug ? adminSlugs.has(slug) : false),
     };
   });
 

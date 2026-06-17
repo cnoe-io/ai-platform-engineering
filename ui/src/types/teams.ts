@@ -77,6 +77,14 @@ export interface Team {
     department?: string;
     tags?: string[];
   };
+  /**
+   * Per-row management gate decorated by GET /api/admin/teams. True for
+   * org/super admins on every team and for team admins on teams they own.
+   * Drives the "Manage team" vs "View team" affordance on the admin team
+   * card. Optional because callers may build Team objects locally before
+   * the server round-trip; a missing flag means "no edit privilege".
+   */
+  can_manage?: boolean;
 }
 
 export interface TeamMember {
