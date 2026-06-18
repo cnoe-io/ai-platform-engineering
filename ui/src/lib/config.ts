@@ -132,12 +132,6 @@ export interface Config {
    */
   allowBuiltinSkillMutation: boolean;
   /**
-   * Whether the NPS (Net Promoter Score) feature is enabled.
-   * When false (default), the NPS survey popup, admin NPS tab, and NPS API
-   * endpoints are all disabled. Set NPS_ENABLED=true to enable.
-   */
-  npsEnabled: boolean;
-  /**
    * Whether the admin audit logs feature is enabled.
    * When false (default), the Chat Audit tab is hidden and API routes return 403.
    * Set AUDIT_LOGS_ENABLED=true to enable.
@@ -258,7 +252,6 @@ const DEFAULT_CONFIG: Config = {
   taskBuilderEnabled: true,
   feedbackEnabled: true,
   allowBuiltinSkillMutation: false,
-  npsEnabled: false,
   auditLogsEnabled: false,
   actionAuditEnabled: true,
   defaultFontSize: DEFAULT_FONT_SIZE,
@@ -381,7 +374,6 @@ export function getServerConfig(): Config {
   // `lib/builtin-skill-policy.ts` so the UI never offers an action
   // the API will reject.
   const allowBuiltinSkillMutation = env('ALLOW_BUILTIN_SKILL_MUTATION') === 'true';
-  const npsEnabled = env('NPS_ENABLED') === 'true';
   const auditLogsEnabled = env('AUDIT_LOGS_ENABLED') === 'true';
   const actionAuditEnabled = env('ACTION_AUDIT_ENABLED') !== 'false';
   const dynamicAgentsEnabled = env('DYNAMIC_AGENTS_ENABLED') === 'true';
@@ -464,7 +456,6 @@ export function getServerConfig(): Config {
     taskBuilderEnabled,
     feedbackEnabled,
     allowBuiltinSkillMutation,
-    npsEnabled,
     auditLogsEnabled,
     actionAuditEnabled,
     defaultFontSize: validated(env('DEFAULT_FONT_SIZE'), VALID_FONT_SIZES, DEFAULT_FONT_SIZE),

@@ -16,7 +16,6 @@ const EMPTY_GATES: AdminTabGatesMap = {
   webex: false,
   skills: false,
   feedback: false,
-  nps: false,
   stats: false,
   metrics: false,
   health: false,

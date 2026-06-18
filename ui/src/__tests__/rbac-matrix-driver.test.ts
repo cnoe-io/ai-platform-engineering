@@ -121,7 +121,6 @@ jest.mock('@/lib/config', () => ({
     const enabledKeys = new Set([
       'ssoEnabled',
       'feedbackEnabled',
-      'npsEnabled',
       'ragEnabled',
       'auditEnabled',
     ]);

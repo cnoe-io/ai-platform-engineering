@@ -16,7 +16,7 @@ security:
   - SessionCookie: []
 tags:
   - name: admin
-    description: Admin and admin-view operations (users, teams, stats, audit, Slack admin, metrics, NPS admin)
+    description: Admin and admin-view operations (users, teams, stats, audit, Slack admin, metrics)
   - name: chat
     description: Conversations, messages, sharing, bookmarks, search
   - name: rbac
@@ -24,7 +24,7 @@ tags:
   - name: slack
     description: Slack linking and channel-to-team mappings
   - name: platform
-    description: Health, version, config, debug, feedback, NPS, changelog, workflow runs
+    description: Health, version, config, debug, feedback, changelog, workflow runs
   - name: dynamic-agents
     description: Proxy to Dynamic Agents service
   - name: rag
@@ -561,83 +561,6 @@ paths:
                 $ref: "#/components/schemas/SuccessAdminFeedback"
         "404": { $ref: "#/components/responses/FeatureDisabled" }
         "503": { $ref: "#/components/responses/ServiceUnavailableMongo" }
-
-  /admin/nps:
-    get:
-      operationId: adminGetNpsAnalytics
-      summary: NPS analytics
-      tags: [admin]
-      parameters:
-        - name: campaign_id
-          in: query
-          schema:
-            type: string
-      responses:
-        "200":
-          description: NPS data
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/SuccessGenericData"
-        "404": { $ref: "#/components/responses/NpsDisabled" }
-        "503": { $ref: "#/components/responses/ServiceUnavailableMongo" }
-
-  /admin/nps/campaigns:
-    get:
-      operationId: adminListNpsCampaigns
-      summary: List NPS campaigns
-      tags: [admin]
-      responses:
-        "200":
-          description: Campaigns
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/SuccessNpsCampaigns"
-        "404": { $ref: "#/components/responses/NpsDisabled" }
-        "503": { $ref: "#/components/responses/ServiceUnavailableMongo" }
-    post:
-      operationId: adminCreateNpsCampaign
-      summary: Create NPS campaign
-      tags: [admin]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/NpsCampaignCreate"
-      responses:
-        "201":
-          description: Created campaign
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/SuccessNpsCampaign"
-        "400": { $ref: "#/components/responses/BadRequest" }
-        "409": { $ref: "#/components/responses/Conflict" }
-    patch:
-      operationId: adminStopNpsCampaign
-      summary: End campaign early
-      tags: [admin]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [campaign_id]
-              properties:
-                campaign_id:
-                  type: string
-      responses:
-        "200":
-          description: Stopped
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/SuccessCampaignStopped"
-        "400": { $ref: "#/components/responses/BadRequest" }
-        "404": { $ref: "#/components/responses/NotFound" }
 
   /admin/audit-logs:
     get:
@@ -1925,41 +1848,6 @@ paths:
         "500":
           description: Server error
 
-  /nps:
-    post:
-      operationId: submitNps
-      summary: Store NPS response
-      tags: [platform]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/NpsSubmitBody"
-      responses:
-        "200":
-          description: Submitted
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/SuccessNpsSubmit"
-        "404": { $ref: "#/components/responses/NpsDisabled" }
-        "503": { $ref: "#/components/responses/ServiceUnavailableMongo" }
-
-  /nps/active:
-    get:
-      operationId: getActiveNpsCampaign
-      summary: Whether an NPS campaign is active for UI
-      tags: [platform]
-      responses:
-        "200":
-          description: Active campaign state
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/NpsActiveResponse"
-        "503": { $ref: "#/components/responses/ServiceUnavailableMongo" }
-
   /changelog:
     get:
       operationId: getChangelog
@@ -2405,12 +2293,6 @@ components:
             $ref: "#/components/schemas/ErrorPlain"
     FeatureDisabled:
       description: Feature disabled
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/ApiErrorEnvelope"
-    NpsDisabled:
-      description: NPS disabled
       content:
         application/json:
           schema:
@@ -2875,56 +2757,6 @@ components:
             pagination:
               type: object
               additionalProperties: true
-
-    SuccessNpsCampaigns:
-      type: object
-      required: [success, data]
-      properties:
-        success: { type: boolean, const: true }
-        data:
-          type: object
-          properties:
-            campaigns:
-              type: array
-              items:
-                $ref: "#/components/schemas/NpsCampaign"
-    NpsCampaign:
-      type: object
-      properties:
-        _id: { type: string }
-        name: { type: string }
-        starts_at: { type: string, format: date-time }
-        ends_at: { type: string, format: date-time }
-        created_by: { type: string }
-        created_at: { type: string, format: date-time }
-        response_count: { type: integer }
-        status:
-          type: string
-          enum: [active, ended, scheduled]
-    NpsCampaignCreate:
-      type: object
-      required: [name, starts_at, ends_at]
-      properties:
-        name: { type: string }
-        starts_at: { type: string, format: date-time }
-        ends_at: { type: string, format: date-time }
-    SuccessNpsCampaign:
-      type: object
-      required: [success, data]
-      properties:
-        success: { type: boolean, const: true }
-        data:
-          $ref: "#/components/schemas/NpsCampaign"
-    SuccessCampaignStopped:
-      type: object
-      required: [success, data]
-      properties:
-        success: { type: boolean, const: true }
-        data:
-          type: object
-          properties:
-            stopped: { type: boolean }
-            ended_at: { type: string, format: date-time }
 
     ConversationSharing:
       type: object
@@ -3769,39 +3601,6 @@ components:
         success: { type: boolean }
         message: { type: string }
         langfuseEnabled: { type: boolean }
-
-    NpsSubmitBody:
-      type: object
-      required: [score]
-      properties:
-        score: { type: integer, minimum: 0, maximum: 10 }
-        comment: { type: string }
-        campaign_id: { type: string }
-
-    SuccessNpsSubmit:
-      type: object
-      required: [success, data]
-      properties:
-        success: { type: boolean, const: true }
-        data:
-          type: object
-          properties:
-            submitted: { type: boolean }
-
-    NpsActiveResponse:
-      type: object
-      properties:
-        success: { type: boolean }
-        data:
-          type: object
-          properties:
-            active: { type: boolean }
-            campaign:
-              type: object
-              properties:
-                id: { type: string }
-                name: { type: string }
-                ends_at: { type: string, format: date-time }
 
     ChangelogItem:
       type: object

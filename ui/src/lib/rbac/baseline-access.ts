@@ -9,7 +9,6 @@ export const PRIVILEGED_ADMIN_SURFACES = [
   "slack",
   "webex",
   "feedback",
-  "nps",
   "stats",
   "audit_logs",
   "action_audit",

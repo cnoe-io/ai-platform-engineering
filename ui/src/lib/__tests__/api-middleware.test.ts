@@ -1022,7 +1022,6 @@ describe('withAuth', () => {
       ['/api/auth/slack-link', 'POST', 'can_manage_self'],
       ['/api/settings/preferences', 'GET', 'can_manage_self'],
       ['/api/settings/preferences', 'PATCH', 'can_manage_self'],
-      ['/api/nps/active', 'GET', 'can_submit_feedback'],
       ['/api/feedback', 'POST', 'can_submit_feedback'],
       ['/api/chat/conversations', 'GET', 'can_chat'],
       ['/api/a2a/tasks', 'POST', 'can_chat'],

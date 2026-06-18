@@ -40,7 +40,6 @@ jest.mock('@/lib/config', () => ({
     ({
       auditLogsEnabled: true,
       feedbackEnabled: true,
-      npsEnabled: true,
       ssoEnabled: false,
     })[key] ?? true,
 }));
@@ -253,21 +252,9 @@ const mockFeedbackResponse = {
   },
 };
 
-const mockNpsResponse = {
-  success: true,
-  data: {
-    nps_score: 0,
-    total_responses: 0,
-    breakdown: { promoters: 0, passives: 0, detractors: 0, promoter_pct: 0, passive_pct: 0, detractor_pct: 0 },
-    trend: [],
-    recent_responses: [],
-    campaigns: [],
-  },
-};
-
 const mockConfigResponse = {
   success: true,
-  data: { auditLogsEnabled: true, npsEnabled: true },
+  data: { auditLogsEnabled: true },
 };
 
 const allGatesOpen = {
@@ -278,7 +265,6 @@ const allGatesOpen = {
   webex: true,
   skills: true,
   feedback: true,
-  nps: true,
   stats: true,
   metrics: true,
   health: true,
@@ -356,13 +342,6 @@ function setupFetchMock(overrides: Record<string, any> = {}): jest.Mock {
         ok: true,
         status: 200,
         json: () => Promise.resolve(overrides.feedback || mockFeedbackResponse),
-      });
-    }
-    if (url.includes('/api/admin/nps')) {
-      return Promise.resolve({
-        ok: true,
-        status: 200,
-        json: () => Promise.resolve(overrides.nps || mockNpsResponse),
       });
     }
     if (url.includes('/api/config')) {
@@ -524,7 +503,6 @@ describe('Admin Dashboard Page', () => {
           ...allGatesOpen,
           roles: false,
           feedback: false,
-          nps: false,
           stats: false,
           audit_logs: false,
           action_audit: false,
@@ -768,7 +746,6 @@ describe('Admin Dashboard Page', () => {
       expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
         'Statistics',
         'Feedback',
-        'NPS',
       ]);
       expect(screen.getByRole('tab', { name: /^Statistics$/i })).toHaveAttribute(
         'aria-selected',
@@ -799,7 +776,6 @@ describe('Admin Dashboard Page', () => {
           webex: false,
           skills: false,
           feedback: false,
-          nps: false,
           stats: false,
           metrics: false,
           health: false,
@@ -864,7 +840,6 @@ describe('Admin Dashboard Page', () => {
       ['integrations', 'webex', /^Webex$/i],
       ['insights', 'stats', /^Statistics$/i],
       ['insights', 'feedback', /^Feedback$/i],
-      ['insights', 'nps', /^NPS$/i],
       ['platform', 'metrics', /^Metrics$/i],
       ['platform', 'health', /^Health$/i],
       ['security', 'openfga', /^OpenFGA ReBAC$/i],
@@ -1241,7 +1216,6 @@ describe('Admin Dashboard Page', () => {
       expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
         'Statistics',
         'Feedback',
-        'NPS',
       ]);
       expect(screen.getByRole('tab', { name: /^Statistics$/i })).toHaveAttribute(
         'aria-selected',
