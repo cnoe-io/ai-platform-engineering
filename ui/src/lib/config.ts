@@ -142,6 +142,18 @@ export interface Config {
    * Enabled by default. Set ACTION_AUDIT_ENABLED=false to disable.
    */
   actionAuditEnabled: boolean;
+  /** Audit log storage backend: "mongodb" (default), "local", or "s3". */
+  auditLogBackend: string;
+  /** Root directory for local-disk audit log files (AUDIT_LOG_BACKEND=local). */
+  auditLogLocalPath: string;
+  /** S3 bucket name for audit logs (AUDIT_LOG_BACKEND=s3). */
+  auditLogS3Bucket: string;
+  /** S3 key prefix for audit logs (AUDIT_LOG_BACKEND=s3). */
+  auditLogS3Prefix: string;
+  /** AWS region for S3 audit log backend. */
+  auditLogS3Region: string;
+  /** Custom S3 endpoint URL (MinIO / GCS S3-compat). */
+  auditLogS3EndpointUrl: string;
   /** Default font size for new users: "small" | "medium" | "large" | "x-large" */
   defaultFontSize: string;
   /** Default font family for new users: "inter" | "source-sans" | "ibm-plex" | "system" */
@@ -254,6 +266,12 @@ const DEFAULT_CONFIG: Config = {
   allowBuiltinSkillMutation: false,
   auditLogsEnabled: false,
   actionAuditEnabled: true,
+  auditLogBackend: 'mongodb',
+  auditLogLocalPath: './audit-logs',
+  auditLogS3Bucket: '',
+  auditLogS3Prefix: 'audit',
+  auditLogS3Region: 'us-east-1',
+  auditLogS3EndpointUrl: '',
   defaultFontSize: DEFAULT_FONT_SIZE,
   defaultFontFamily: DEFAULT_FONT_FAMILY,
   defaultTheme: DEFAULT_THEME,
@@ -376,6 +394,12 @@ export function getServerConfig(): Config {
   const allowBuiltinSkillMutation = env('ALLOW_BUILTIN_SKILL_MUTATION') === 'true';
   const auditLogsEnabled = env('AUDIT_LOGS_ENABLED') === 'true';
   const actionAuditEnabled = env('ACTION_AUDIT_ENABLED') !== 'false';
+  const auditLogBackend = env('AUDIT_LOG_BACKEND') || 'mongodb';
+  const auditLogLocalPath = env('AUDIT_LOG_LOCAL_PATH') || './audit-logs';
+  const auditLogS3Bucket = env('AUDIT_LOG_S3_BUCKET') || '';
+  const auditLogS3Prefix = env('AUDIT_LOG_S3_PREFIX') || 'audit';
+  const auditLogS3Region = env('AUDIT_LOG_S3_REGION') || 'us-east-1';
+  const auditLogS3EndpointUrl = env('AUDIT_LOG_S3_ENDPOINT_URL') || '';
   const dynamicAgentsEnabled = env('DYNAMIC_AGENTS_ENABLED') === 'true';
   const credentialsEnabled = env('CAIPE_CREDENTIALS_ENABLED') === 'true';
   // The user-facing Connections surface is gated independently of the SA token
@@ -458,6 +482,12 @@ export function getServerConfig(): Config {
     allowBuiltinSkillMutation,
     auditLogsEnabled,
     actionAuditEnabled,
+    auditLogBackend,
+    auditLogLocalPath,
+    auditLogS3Bucket,
+    auditLogS3Prefix,
+    auditLogS3Region,
+    auditLogS3EndpointUrl,
     defaultFontSize: validated(env('DEFAULT_FONT_SIZE'), VALID_FONT_SIZES, DEFAULT_FONT_SIZE),
     defaultFontFamily: validated(env('DEFAULT_FONT_FAMILY'), VALID_FONT_FAMILIES, DEFAULT_FONT_FAMILY),
     defaultTheme: validated(env('DEFAULT_THEME'), VALID_THEMES, DEFAULT_THEME),

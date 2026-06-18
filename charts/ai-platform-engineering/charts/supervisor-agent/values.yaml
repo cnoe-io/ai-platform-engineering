@@ -21,7 +21,11 @@ serviceAccount:
   create: true
   # -- Automount the service account API token
   automount: true
-  # -- Annotations to add to the service account
+  # -- Annotations to add to the service account.
+  # For IRSA on EKS, add:
+  #   eks.amazonaws.com/role-arn: "arn:aws:iam::<ACCOUNT_ID>:role/<ROLE_NAME>"
+  # The EKS pod identity webhook injects AWS_ROLE_ARN + AWS_WEB_IDENTITY_TOKEN_FILE
+  # automatically — no env var configuration needed for S3 audit log credentials.
   annotations: {}
   # -- Override the service account name. Generated from fullname template when empty
   name: ""
@@ -194,6 +198,18 @@ externalSecrets:
 # -- Non-sensitive environment variables injected into the supervisor container
 env:
   EXTERNAL_URL: "http://localhost:8000"
+  # -- Audit log storage backend: "mongodb" (default), "local", or "s3"
+  # AUDIT_LOG_BACKEND: "mongodb"
+  # -- Root path for local-disk audit files (AUDIT_LOG_BACKEND=local)
+  # AUDIT_LOG_LOCAL_PATH: "./audit-logs"
+  # -- S3 bucket name for audit logs (AUDIT_LOG_BACKEND=s3)
+  # AUDIT_LOG_S3_BUCKET: ""
+  # -- S3 key prefix (AUDIT_LOG_BACKEND=s3)
+  # AUDIT_LOG_S3_PREFIX: "audit"
+  # -- AWS region (AUDIT_LOG_BACKEND=s3)
+  # AUDIT_LOG_S3_REGION: "us-east-1"
+  # -- Custom S3 endpoint URL for MinIO / GCS S3-compat (optional)
+  # AUDIT_LOG_S3_ENDPOINT_URL: ""
   # -- Strip skill payloads (SKILL.md bodies, ancillary files,
   # skills_metadata channel) and task_config workflow prompts
   # (tasks/todos channels, get_workflow_definition output,

@@ -1,4 +1,6 @@
+// assisted-by claude code claude-sonnet-4-6
 import { redactCredentialDetails } from "./masking";
+import { getAuditBackend } from "@/lib/audit";
 
 export type CredentialAuditResult = "denied" | "failure" | "success";
 
@@ -21,21 +23,17 @@ export interface CredentialAuditEventInput {
   correlationId?: string;
 }
 
-interface AuditCollection {
-  insertOne(document: Record<string, unknown>): Promise<unknown>;
-}
-
-export async function writeCredentialAuditEvent(
-  collection: AuditCollection,
+export function writeCredentialAuditEvent(
   input: CredentialAuditEventInput,
-): Promise<void> {
-  await collection.insertOne({
+): void {
+  getAuditBackend().write({
+    type: "credential_action",
+    ts: new Date().toISOString(),
     action: input.action,
     actor: input.actor,
     resource: input.resource,
     result: input.result,
     correlationId: input.correlationId,
     details: input.details ? redactCredentialDetails(input.details) : {},
-    createdAt: new Date(),
   });
 }

@@ -1,5 +1,5 @@
-import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
 import { createHash,randomUUID } from "crypto";
+import { getAuditBackend } from "@/lib/audit";
 import {
 createAuthzTraceContext,
 emitAuthzSpan,
@@ -17,86 +17,7 @@ RbacResource,
 
 const SUBJECT_SALT = process.env.AUDIT_SUBJECT_SALT || "caipe-098-audit";
 
-const AUTHORIZATION_DECISION_RECORDS = "authorization_decision_records";
-const AUDIT_EVENTS = "audit_events";
 const WEBUI_BACKEND_SOURCE: AuditEventSource = "webui_backend";
-
-/**
- * Persist audit row shape for MongoDB (`ts` as BSON Date per data-model.md).
- */
-type AuthorizationDecisionDocument = Omit<AuditEvent, "ts"> & { ts: Date };
-
-function persistAuthzDecisionToMongo(event: AuditEvent): void {
-  if (!isMongoDBConfigured) {
-    return;
-  }
-
-  const doc: AuthorizationDecisionDocument = {
-    ...event,
-    ts: new Date(event.ts),
-  };
-
-  void (async () => {
-    try {
-      const coll = await getCollection<AuthorizationDecisionDocument>(
-        AUTHORIZATION_DECISION_RECORDS,
-      );
-      await coll.insertOne(doc);
-    } catch (err) {
-      console.warn(
-        "[rbac/audit] Failed to persist authorization_decision_record to MongoDB:",
-        err,
-      );
-    }
-  })();
-}
-
-/**
- * Dual-write: also persist to the unified ``audit_events`` collection (FR-037).
- */
-function persistToUnifiedAuditEvents(
-  event: AuditEvent,
-  email?: string,
-  type: AuditEventType = "auth",
-  source: AuditEventSource = WEBUI_BACKEND_SOURCE
-): void {
-  if (!isMongoDBConfigured) {
-    return;
-  }
-
-  const doc = {
-    ts: new Date(event.ts),
-    type,
-    tenant_id: event.tenant_id,
-    subject_hash: event.subject_hash,
-    action: event.capability,
-    outcome: event.outcome,
-    reason_code: event.reason_code,
-    correlation_id: event.correlation_id,
-    component: event.component,
-    resource_ref: event.resource_ref,
-    pdp: event.pdp,
-    source,
-    ...(event.audit_event_id ? { audit_event_id: event.audit_event_id } : {}),
-    ...(event.trace_id ? { trace_id: event.trace_id } : {}),
-    ...(event.span_id ? { span_id: event.span_id } : {}),
-    ...(event.trace_url ? { trace_url: event.trace_url } : {}),
-    ...(event.actor_hash ? { actor_hash: event.actor_hash } : {}),
-    ...(email ? { user_email: email } : {}),
-  };
-
-  void (async () => {
-    try {
-      const coll = await getCollection(AUDIT_EVENTS);
-      await coll.insertOne(doc);
-    } catch (err) {
-      console.warn(
-        "[rbac/audit] Failed to persist to audit_events:",
-        err,
-      );
-    }
-  })();
-}
 
 function hashSubject(sub: string): string {
   return `sha256:${createHash("sha256").update(`${SUBJECT_SALT}:${sub}`).digest("hex")}`;
@@ -163,8 +84,28 @@ export function logAuthzDecision(params: LogAuthzDecisionParams): AuditEvent {
       "authz.source": params.source ?? WEBUI_BACKEND_SOURCE,
     }, fallbackTrace);
   }
-  persistAuthzDecisionToMongo(event);
-  persistToUnifiedAuditEvents(event, params.email, params.auditType, params.source);
+  const auditType: AuditEventType = params.auditType ?? "auth";
+  const auditSource: AuditEventSource = params.source ?? WEBUI_BACKEND_SOURCE;
+  getAuditBackend().write({
+    ts: event.ts,
+    type: auditType,
+    tenant_id: event.tenant_id,
+    subject_hash: event.subject_hash,
+    action: event.capability,
+    outcome: event.outcome,
+    reason_code: event.reason_code,
+    correlation_id: event.correlation_id,
+    component: event.component,
+    resource_ref: event.resource_ref,
+    pdp: event.pdp,
+    source: auditSource,
+    ...(event.audit_event_id ? { audit_event_id: event.audit_event_id } : {}),
+    ...(event.trace_id ? { trace_id: event.trace_id } : {}),
+    ...(event.span_id ? { span_id: event.span_id } : {}),
+    ...(event.trace_url ? { trace_url: event.trace_url } : {}),
+    ...(event.actor_hash ? { actor_hash: event.actor_hash } : {}),
+    ...(params.email ? { user_email: params.email } : {}),
+  });
   return event;
 }
 

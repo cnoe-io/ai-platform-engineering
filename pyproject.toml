@@ -52,6 +52,8 @@ dependencies = [
     "langgraph-checkpoint-mongodb==0.3.1",
     # Async MongoDB driver for MongoDB store
     "motor==3.7.1",
+    # S3-compatible object storage client for audit log backend
+    "boto3>=1.34,<2",
 ]
 
 [tool.pytest.ini_options]
