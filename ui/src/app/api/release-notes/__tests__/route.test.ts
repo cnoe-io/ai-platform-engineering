@@ -91,11 +91,11 @@ describe("/api/release-notes", () => {
     expect(data.body).toContain("Run the migration runbook");
   });
 
-  it("falls back to the nearest lower release when the exact version is missing", async () => {
-    // 0.5.7 has no file; the newest at-or-below is 0.5.6.
+  it("does not fall back to an older release when the exact version is missing", async () => {
     const data = await callGet("0.5.7-dev.14");
-    expect(data.matchedVersion).toBe("0.5.6");
-    expect(data.body).toContain("Newest available notes.");
+    expect(data.matchedVersion).toBeNull();
+    expect(data.body).toBeNull();
+    expect(data.source).toBe("none");
   });
 
   it("returns 400 when no version is provided", async () => {
