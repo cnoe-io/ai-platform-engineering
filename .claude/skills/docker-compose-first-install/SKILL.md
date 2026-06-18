@@ -48,6 +48,8 @@ Required local Docker defaults:
 - `caipe-ui` in `docker-compose.yaml` uses the published release tag, without a local-only `-prod` suffix.
 - `caipe-ui` has `OPENFGA_HTTP=http://openfga:8080`.
 - `caipe-ui` has `OPENFGA_STORE_NAME=caipe-openfga`.
+- `dynamic-agents` has `AUTHZ_SERVICE_URL=http://caipe-ui:3000` so agent-use
+  decisions can reach the UI BFF/CAS.
 - `caipe-ui` has Keycloak admin-client values that match the local realm seed:
   - `KEYCLOAK_URL=http://keycloak:7080`
   - `KEYCLOAK_REALM=caipe`
@@ -85,6 +87,15 @@ docker compose --env-file .env.example -f docker-compose.yaml config --format js
       KEYCLOAK_ADMIN_CLIENT_ID,
       KEYCLOAK_ADMIN_CLIENT_SECRET
     }'
+```
+
+Inspect the rendered Dynamic Agents env:
+
+```bash
+COMPOSE_PROFILES="mcp-servers,caipe-ui-prod,rbac,caipe-supervisor,dynamic-agents,rag,caipe-mongodb" \
+NEXTAUTH_SECRET=test \
+docker compose --env-file .env.example -f docker-compose.yaml config --format json \
+| jq '.services["dynamic-agents"].environment | {AUTHZ_SERVICE_URL}'
 ```
 
 Inspect Keycloak init secrets:

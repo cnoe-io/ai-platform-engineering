@@ -186,6 +186,7 @@ KEYCLOAK_ADMIN_CLIENT_ID=caipe-platform
 KEYCLOAK_ADMIN_CLIENT_SECRET=caipe-platform-dev-secret
 OPENFGA_HTTP=http://openfga:8080
 OPENFGA_STORE_NAME=caipe-openfga
+AUTHZ_SERVICE_URL=http://caipe-ui:3000
 ```
 
 You can add any missing values without overwriting your existing `.env`:
@@ -195,13 +196,14 @@ grep -q '^KEYCLOAK_ADMIN_CLIENT_ID=' .env || echo 'KEYCLOAK_ADMIN_CLIENT_ID=caip
 grep -q '^KEYCLOAK_ADMIN_CLIENT_SECRET=' .env || echo 'KEYCLOAK_ADMIN_CLIENT_SECRET=caipe-platform-dev-secret' >> .env
 grep -q '^OPENFGA_HTTP=' .env || echo 'OPENFGA_HTTP=http://openfga:8080' >> .env
 grep -q '^OPENFGA_STORE_NAME=' .env || echo 'OPENFGA_STORE_NAME=caipe-openfga' >> .env
+grep -q '^AUTHZ_SERVICE_URL=' .env || echo 'AUTHZ_SERVICE_URL=http://caipe-ui:3000' >> .env
 ```
 
-Then rerun the UI and Keycloak seed job:
+Then rerun the UI, Dynamic Agents, and Keycloak seed job:
 
 ```bash
 COMPOSE_PROFILES="mcp-servers,caipe-ui-prod,rbac,caipe-supervisor,dynamic-agents,rag,caipe-mongodb" \
-docker compose --env-file .env -f docker-compose.yaml up -d --force-recreate caipe-ui keycloak-init
+docker compose --env-file .env -f docker-compose.yaml up -d --force-recreate caipe-ui dynamic-agents keycloak-init
 ```
 
 If Keycloak or OpenFGA were already initialized with bad settings, reset only
