@@ -314,7 +314,7 @@ function resolveLegacyWithAuthRbacPolicy(request: NextRequest): RouteRbacPolicy 
       ? { resource: 'user_settings', scope: 'read' }
       : { resource: 'user_settings', scope: 'write' };
   }
-  if (pathname.startsWith('/api/nps') || pathname.startsWith('/api/feedback')) {
+  if (pathname.startsWith('/api/feedback')) {
     return { resource: 'feedback', scope: 'submit' };
   }
   if (

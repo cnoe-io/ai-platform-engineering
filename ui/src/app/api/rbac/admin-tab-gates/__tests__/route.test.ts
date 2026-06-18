@@ -24,7 +24,6 @@ jest.mock("@/lib/mongodb", () => ({
 const mockGetConfig = jest.fn((key: string) =>
   ({
     feedbackEnabled: true,
-    npsEnabled: true,
     auditLogsEnabled: true,
     actionAuditEnabled: true,
     credentialsEnabled: true,
@@ -53,7 +52,6 @@ describe("GET /api/rbac/admin-tab-gates", () => {
     mockGetConfig.mockImplementation((key: string) =>
       ({
         feedbackEnabled: true,
-        npsEnabled: true,
         auditLogsEnabled: true,
         actionAuditEnabled: true,
         credentialsEnabled: true,
