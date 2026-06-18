@@ -192,16 +192,16 @@ def warn_if_agent_gateway_missing_hmac() -> None:
 
 
 def build_httpx_client_factory() -> Callable[..., httpx.AsyncClient]:
-    """Build an httpx.AsyncClient factory that injects the per-request user JWT.
+    """Build an httpx.AsyncClient factory that injects the per-request user JWT and team context.
 
     Spec 102 Phase 8 / T106. Mirror of the supervisor's
     ``base_langgraph_agent._build_httpx_client_factory``: each MCP HTTP
     connection opened by ``langchain-mcp-adapters`` calls this factory,
     which reads ``current_user_token`` (set by ``JwtAuthMiddleware``)
-    and forwards it as ``Authorization: Bearer <token>``. This is the
-    fix for the live HTTP 401 from agentgateway because the runtime no
-    longer relies on the (token-less) X-User-Context header for
-    outbound auth.
+    and forwards it as ``Authorization: Bearer <token>``. In addition, the
+    user's team identifier (if present in the JWT ``team_id`` claim) is
+    added via the ``X-Caipe-Team-Id`` header so that OpenFGA can evaluate
+    ``agent → team → workflow`` relationships for bot‑triggered flows.
 
     Honors ``CUSTOM_CA_BUNDLE`` / ``REQUESTS_CA_BUNDLE`` /
     ``SSL_CERT_FILE`` and ``SSL_VERIFY=false`` for parity with the
@@ -233,6 +233,19 @@ def build_httpx_client_factory() -> Callable[..., httpx.AsyncClient]:
         token = current_user_token.get()
         if token:
             merged["Authorization"] = f"Bearer {token}"
+            # Extract team identifier from JWT payload (second Base64URL part)
+            try:
+                payload_part = token.split(".")[1]
+                # Pad base64 string if necessary
+                padding = "=" * (-len(payload_part) % 4)
+                payload_bytes = base64.urlsafe_b64decode(payload_part + padding)
+                payload = json.loads(payload_bytes)
+                team_id = payload.get("team_id") or payload.get("team")
+                if team_id:
+                    merged["X-Caipe-Team-Id"] = str(team_id)
+            except Exception:
+                # If parsing fails, silently continue – team header is optional
+                logger.debug("Failed to parse team ID from JWT for X-Caipe-Team-Id header")
         return httpx.AsyncClient(
             headers=merged,
             timeout=timeout or httpx.Timeout(30.0),
