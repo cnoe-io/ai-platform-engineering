@@ -1,6 +1,5 @@
-// assisted-by Codex Codex-sonnet-4-6
 /**
- * Playwright config for the RBAC e2e harness (Spec 102 / US7).
+ * Playwright config for the RBAC e2e harness.
  *
  * Scope: this config is intentionally separate from any future
  * application-wide playwright config. It only runs the specs under

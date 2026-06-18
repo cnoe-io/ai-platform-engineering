@@ -637,7 +637,7 @@ scan-image: ## Scan a single image with grype (make scan-image IMG=ghcr.io/cnoe-
 	@[ -n "$(IMG)" ] || { echo "Usage: make scan-image IMG=<image:tag>"; exit 1; }
 	@grype "$(IMG)" --fail-on "$(GRYPE_SEVERITY)"
 
-## ========== Comprehensive RBAC tests (spec 102) ==========
+## ========== RBAC tests ==========
 # See docs/docs/specs/102-comprehensive-rbac-tests-and-completion/quickstart.md
 
 # Profile selection. Override with E2E_PROFILES=...
