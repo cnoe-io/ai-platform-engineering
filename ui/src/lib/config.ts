@@ -266,7 +266,7 @@ const DEFAULT_CONFIG: Config = {
   allowBuiltinSkillMutation: false,
   auditLogsEnabled: false,
   actionAuditEnabled: true,
-  auditLogBackend: 'mongodb',
+  auditLogBackend: 'local',
   auditLogLocalPath: './audit-logs',
   auditLogS3Bucket: '',
   auditLogS3Prefix: 'audit',
@@ -394,7 +394,7 @@ export function getServerConfig(): Config {
   const allowBuiltinSkillMutation = env('ALLOW_BUILTIN_SKILL_MUTATION') === 'true';
   const auditLogsEnabled = env('AUDIT_LOGS_ENABLED') === 'true';
   const actionAuditEnabled = env('ACTION_AUDIT_ENABLED') !== 'false';
-  const auditLogBackend = env('AUDIT_LOG_BACKEND') || 'mongodb';
+  const auditLogBackend = env('AUDIT_LOG_BACKEND') || 'local';
   const auditLogLocalPath = env('AUDIT_LOG_LOCAL_PATH') || './audit-logs';
   const auditLogS3Bucket = env('AUDIT_LOG_S3_BUCKET') || '';
   const auditLogS3Prefix = env('AUDIT_LOG_S3_PREFIX') || 'audit';

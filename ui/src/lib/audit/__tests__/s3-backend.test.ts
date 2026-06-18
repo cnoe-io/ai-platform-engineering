@@ -1,4 +1,3 @@
-// assisted-by claude code claude-sonnet-4-6
 import { S3Client } from "@aws-sdk/client-s3";
 
 jest.mock("@aws-sdk/client-s3", () => ({

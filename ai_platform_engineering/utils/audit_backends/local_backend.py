@@ -1,6 +1,5 @@
 # Copyright 2025 CNOE Contributors
 # SPDX-License-Identifier: Apache-2.0
-# assisted-by claude code claude-sonnet-4-6
 """Local-disk audit log backend.
 
 Writes one JSON event per line (NDJSON) to::

@@ -1,4 +1,3 @@
-// assisted-by claude code claude-sonnet-4-6
 import { redactCredentialDetails } from "./masking";
 import { getAuditBackend } from "@/lib/audit";
 

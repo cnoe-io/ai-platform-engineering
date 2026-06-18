@@ -1,12 +1,10 @@
-// assisted-by claude code claude-sonnet-4-6
 /**
  * Audit backend factory.
  *
  * Reads AUDIT_LOG_BACKEND once at first call and returns a module-level
  * singleton used by all audit write-paths. Supported values:
- *   - "mongodb"  (default) — writes to MongoDB audit_events collection
- *   - "local"    — writes NDJSON files to AUDIT_LOG_LOCAL_PATH
- *   - "s3"       — writes gzip-compressed NDJSON objects to S3
+ *   - "local"  (default) — writes NDJSON files to AUDIT_LOG_LOCAL_PATH
+ *   - "s3"     — writes gzip-compressed NDJSON objects to S3
  *
  * AuditBackend.write() must never throw; implementations log errors internally.
  */
@@ -25,13 +23,7 @@ export function getAuditBackend(): AuditBackend {
 }
 
 function createBackend(): AuditBackend {
-  const backendName = (process.env.AUDIT_LOG_BACKEND ?? "mongodb").trim().toLowerCase();
-
-  if (backendName === "mongodb") {
-    const { MongoBackend } = require("./backends/mongo-backend") as typeof import("./backends/mongo-backend");
-    console.info("[audit] backend=mongodb");
-    return new MongoBackend();
-  }
+  const backendName = (process.env.AUDIT_LOG_BACKEND ?? "local").trim().toLowerCase();
 
   if (backendName === "local") {
     const { LocalBackend } = require("./backends/local-backend") as typeof import("./backends/local-backend");
@@ -54,6 +46,6 @@ function createBackend(): AuditBackend {
   }
 
   throw new Error(
-    `Unknown AUDIT_LOG_BACKEND value: "${backendName}". Must be one of: mongodb, local, s3`
+    `Unknown AUDIT_LOG_BACKEND value: "${backendName}". Must be one of: local, s3`
   );
 }

@@ -1,4 +1,3 @@
-// assisted-by claude code claude-sonnet-4-6
 /**
  * S3-compatible audit log backend (TypeScript / Next.js).
  *

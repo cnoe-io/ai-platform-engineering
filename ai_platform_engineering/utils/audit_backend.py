@@ -1,15 +1,13 @@
 # Copyright 2025 CNOE Contributors
 # SPDX-License-Identifier: Apache-2.0
-# assisted-by claude code claude-sonnet-4-6
 """
 Audit backend factory.
 
 Reads ``AUDIT_LOG_BACKEND`` once at first call and returns a process-wide
 singleton that all audit write-paths use. Supported values:
 
-  - ``mongodb``  (default) — writes to MongoDB ``audit_events`` collection
-  - ``local``    — writes NDJSON files to ``AUDIT_LOG_LOCAL_PATH``
-  - ``s3``       — writes gzip-compressed NDJSON objects to S3
+  - ``local``  (default) — writes NDJSON files to ``AUDIT_LOG_LOCAL_PATH``
+  - ``s3``     — writes Parquet objects to S3
 
 The ``AuditBackend`` Protocol defines a single ``write(event)`` method.
 Implementations must never raise; they catch all errors and log them.
@@ -52,21 +50,12 @@ def get_audit_backend() -> "AuditBackend":
 
 def _create_backend() -> "AuditBackend":
     """Read ``AUDIT_LOG_BACKEND`` and instantiate the matching backend."""
-    backend_name = os.getenv("AUDIT_LOG_BACKEND", "mongodb").strip().lower()
+    backend_name = os.getenv("AUDIT_LOG_BACKEND", "local").strip().lower()
 
-    if backend_name == "mongodb":
-        from ai_platform_engineering.utils.audit_backends.mongo_backend import MongoBackend
-        instance: AuditBackend = MongoBackend()
-        logger.warning(
-            "[audit] backend=mongodb — audit writes are going to MongoDB. "
-            "This causes database contention under load. "
-            "Set AUDIT_LOG_BACKEND=local or =s3 to use a dedicated storage backend."
-        )
-
-    elif backend_name == "local":
+    if backend_name == "local":
         from ai_platform_engineering.utils.audit_backends.local_backend import LocalBackend
         path = os.getenv("AUDIT_LOG_LOCAL_PATH", "./audit-logs")
-        instance = LocalBackend(path=path)
+        instance: AuditBackend = LocalBackend(path=path)
         logger.info(f"[audit] backend=local path={path}")
 
     elif backend_name == "s3":
@@ -90,7 +79,7 @@ def _create_backend() -> "AuditBackend":
     else:
         raise ValueError(
             f"Unknown AUDIT_LOG_BACKEND value: {backend_name!r}. "
-            "Must be one of: mongodb, local, s3"
+            "Must be one of: local, s3"
         )
 
     return instance

@@ -1,6 +1,5 @@
 # Copyright 2025 CNOE Contributors
 # SPDX-License-Identifier: Apache-2.0
-# assisted-by claude code claude-sonnet-4-6
 """Unit tests for ai_platform_engineering.utils.audit_logger."""
 
 from __future__ import annotations

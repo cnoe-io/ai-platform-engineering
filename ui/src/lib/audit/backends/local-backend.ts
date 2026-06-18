@@ -1,4 +1,3 @@
-// assisted-by claude code claude-sonnet-4-6
 /**
  * Local-disk audit log backend.
  *

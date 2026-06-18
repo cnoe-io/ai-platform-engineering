@@ -1,6 +1,5 @@
 # Copyright 2025 CNOE Contributors
 # SPDX-License-Identifier: Apache-2.0
-# assisted-by claude code claude-sonnet-4-6
 """S3-compatible audit log backend.
 
 Buffers events in memory and flushes them as Parquet files to S3 on
