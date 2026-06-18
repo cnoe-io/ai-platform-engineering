@@ -374,6 +374,7 @@ export async function GET(): Promise<Response> {
   const keycloakRealm = env("KEYCLOAK_REALM") || "caipe";
   const openfgaUrl = trimTrailingSlash(env("OPENFGA_HTTP") || "http://openfga:8080");
   const ragServerUrl = trimTrailingSlash(env("RAG_SERVER_URL") || "http://rag-server:9446");
+  const dynamicAgentsUrl = trimTrailingSlash(env("DYNAMIC_AGENTS_URL") || env("DA_SERVER_BASE_URL") || "http://dynamic-agents:8001");
   const agentgatewayAdminUrl = trimTrailingSlash(
     env("AGENTGATEWAY_ADMIN_CONFIG_URL") || "http://agentgateway:15000/config",
   );
@@ -440,6 +441,17 @@ export async function GET(): Promise<Response> {
         label: "AgentGateway",
         href: "/skills/gateway",
         description: "Check AgentGateway admin API and compose service logs.",
+      },
+    }),
+    probeHttp({
+      id: "dynamic-agents",
+      label: "Dynamic Agents",
+      group: "core",
+      target: `${dynamicAgentsUrl}/health`,
+      remediation: {
+        label: "Dynamic Agents",
+        href: "/agents",
+        description: "Check dynamic agents service logs and dependencies.",
       },
     }),
     probeTcp({
@@ -515,8 +527,15 @@ export async function GET(): Promise<Response> {
     ),
   );
 
-  const down = probes.filter((probe) => probe.status === "down").length;
-  const warning = probes.filter((probe) => probe.status === "warning").length;
+  // RAG is optional infrastructure — unavailable RAG degrades the platform but
+  // does not take it down. Cap rag-group failures at "warning" so the overall
+  // status only goes "down" when a critical service (identity/core/storage) fails.
+  const normalizedProbes = probes.map((p) =>
+    p.group === "rag" && p.status === "down" ? { ...p, status: "warning" as ProbeStatus } : p,
+  );
+
+  const down = normalizedProbes.filter((p) => p.status === "down").length;
+  const warning = normalizedProbes.filter((p) => p.status === "warning").length;
   const status = down > 0 ? "down" : warning > 0 ? "degraded" : "healthy";
 
   return NextResponse.json(
@@ -524,12 +543,12 @@ export async function GET(): Promise<Response> {
       status,
       checked_at: new Date().toISOString(),
       summary: {
-        total: probes.length,
-        healthy: probes.length - down - warning,
+        total: normalizedProbes.length,
+        healthy: normalizedProbes.length - down - warning,
         warning,
         down,
       },
-      probes,
+      probes: normalizedProbes,
     },
     { status: down > 0 ? 503 : 200 },
   );
