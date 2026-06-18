@@ -102,6 +102,7 @@ import {
   findUserRoleInTeam,
   isUserInTeam,
   loadActiveTeamMembers,
+  loadActiveTeamMembersPage,
   loadTeamMemberCounts,
   loadTeamMembersForSlugs,
 } from "../team-membership-store";
@@ -365,6 +366,49 @@ describe("isUserInTeam", () => {
 
   it("returns false otherwise", async () => {
     expect(await isUserInTeam("platform", { user_subject: "kc-Z" })).toBe(false);
+  });
+});
+
+describe("loadActiveTeamMembersPage — DocumentDB compatibility", () => {
+  // Amazon DocumentDB (our deploy target) does NOT support the $facet
+  // aggregation stage; using it fails at runtime with
+  // "Aggregation stage not supported: '$facet'". The page+count must be
+  // computed as two pipelines sharing a prefix instead. These tests pin that.
+  it("issues two aggregations (count + page) and never uses $facet", async () => {
+    await loadActiveTeamMembersPage("platform", { page: 2, pageSize: 10 });
+
+    // Two separate aggregate calls — one to count, one to fetch the page.
+    expect(collectionStub.aggregate).toHaveBeenCalledTimes(2);
+
+    const pipelines = collectionStub.aggregate.mock.calls.map((call) => call[0]);
+    for (const pipeline of pipelines) {
+      expect(pipeline.find((s: Record<string, unknown>) => "$facet" in s)).toBeUndefined();
+    }
+
+    // Exactly one pipeline counts; exactly one pages with $skip/$limit.
+    const countPipeline = pipelines.find((p) =>
+      p.some((s: Record<string, unknown>) => "$count" in s),
+    );
+    const pagePipeline = pipelines.find((p) =>
+      p.some((s: Record<string, unknown>) => "$limit" in s),
+    );
+    expect(countPipeline).toBeDefined();
+    expect(pagePipeline).toBeDefined();
+
+    const skipStage = pagePipeline!.find((s: Record<string, unknown>) => "$skip" in s);
+    const limitStage = pagePipeline!.find((s: Record<string, unknown>) => "$limit" in s);
+    expect(skipStage.$skip).toBe(10); // (page 2 - 1) * pageSize 10
+    expect(limitStage.$limit).toBe(10);
+  });
+
+  it("clamps page_size to [1,100] before building the $limit stage", async () => {
+    await loadActiveTeamMembersPage("platform", { page: 1, pageSize: 9999 });
+    const pipelines = collectionStub.aggregate.mock.calls.map((call) => call[0]);
+    const pagePipeline = pipelines.find((p) =>
+      p.some((s: Record<string, unknown>) => "$limit" in s),
+    );
+    const limitStage = pagePipeline!.find((s: Record<string, unknown>) => "$limit" in s);
+    expect(limitStage.$limit).toBe(100);
   });
 });
 
