@@ -2,23 +2,33 @@
 
 import { useCallback,useEffect,useRef,useState } from "react";
 
-export type PlatformProbeStatus = "checking" | "healthy" | "down";
+export type PlatformProbeStatus = "checking" | "healthy" | "degraded" | "down";
+export type PlatformProbeGroup = "core" | "identity" | "storage" | "rag" | "bootstrap";
+
+export interface PlatformProbeRemediation {
+  label: string;
+  href: string;
+  description: string;
+}
 
 export interface PlatformHealthProbe {
   id: string;
   label: string;
-  status: "healthy" | "down";
+  group: PlatformProbeGroup;
+  status: "healthy" | "warning" | "down";
   detail: string;
   target: string;
   latency_ms: number | null;
+  remediation?: PlatformProbeRemediation;
 }
 
 interface PlatformHealthResponse {
-  status: "healthy" | "down";
+  status: "healthy" | "degraded" | "down";
   checked_at: string;
   summary: {
     total: number;
     healthy: number;
+    warning: number;
     down: number;
   };
   probes: PlatformHealthProbe[];
@@ -58,7 +68,7 @@ export function usePlatformHealthProbes(): UsePlatformHealthProbesResult {
       const body = (await response.json()) as PlatformHealthResponse;
       setProbes(Array.isArray(body.probes) ? body.probes : []);
       setSummary(body.summary ?? null);
-      setStatus(response.ok && body.status === "healthy" ? "healthy" : "down");
+      setStatus(response.ok && body.status === "healthy" ? "healthy" : body.status === "degraded" ? "degraded" : "down");
     } catch {
       setStatus("down");
       setSummary(null);

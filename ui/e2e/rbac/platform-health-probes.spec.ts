@@ -7,6 +7,7 @@ type ProbeStatus = "healthy" | "down";
 type Probe = {
   id: string;
   label: string;
+  group: "core" | "identity" | "storage" | "rag" | "bootstrap";
   status: ProbeStatus;
   detail: string;
   target: string;
@@ -21,6 +22,7 @@ function platformHealthPayload(probes: Probe[]) {
     summary: {
       total: probes.length,
       healthy: probes.length - down,
+      warning: 0,
       down,
     },
     probes,
@@ -31,6 +33,7 @@ const healthyProbes: Probe[] = [
   {
     id: "keycloak",
     label: "Keycloak",
+    group: "identity",
     status: "healthy",
     detail: "HTTP 200",
     target: "http://keycloak:7080/realms/caipe/protocol/openid-connect/certs",
@@ -39,6 +42,7 @@ const healthyProbes: Probe[] = [
   {
     id: "openfga",
     label: "OpenFGA",
+    group: "identity",
     status: "healthy",
     detail: "HTTP 200",
     target: "http://openfga:8080/healthz",
@@ -47,6 +51,7 @@ const healthyProbes: Probe[] = [
   {
     id: "openfga-authz-bridge",
     label: "OpenFGA Bridge",
+    group: "identity",
     status: "healthy",
     detail: "TCP connection accepted",
     target: "openfga-authz-bridge:9100",
@@ -55,6 +60,7 @@ const healthyProbes: Probe[] = [
   {
     id: "agentgateway-config-bridge",
     label: "AgentGateway Config Bridge",
+    group: "core",
     status: "healthy",
     detail: "HTTP 200",
     target: "http://caipe-ui:3000/api/internal/agentgateway/mcp-targets",
@@ -63,6 +69,7 @@ const healthyProbes: Probe[] = [
   {
     id: "agentgateway",
     label: "AgentGateway",
+    group: "core",
     status: "healthy",
     detail: "HTTP 200",
     target: "http://agentgateway:15000/config",
@@ -146,14 +153,12 @@ test.describe("platform health probes", () => {
     await expect(page.getByRole("button", { name: /system status: connected/i })).toBeVisible();
     await openSystemStatus(page);
 
-    await expect(page.getByText("Platform Probes")).toBeVisible();
+    await expect(page.getByText("Platform Health")).toBeVisible();
     await expect(page.getByText("Connected Integrations")).toHaveCount(0);
     await expect(page.getByText("5/5")).toBeVisible();
-
-    for (const probe of healthyProbes) {
-      await expect(page.getByText(probe.label, { exact: true })).toBeVisible();
-    }
-    await expect(page.getByText("OK")).toHaveCount(5);
+    await expect(page.getByText("Core Runtime", { exact: true })).toBeVisible();
+    await expect(page.getByText("Identity & Authz")).toBeVisible();
+    await expect(page.getByText("Core runtime, identity, storage, RAG, web ingestor queue readiness, and migrations look ready.")).toBeVisible();
   });
 
   test("a down platform dependency changes the header to issues detected", async ({ page }) => {
@@ -179,9 +184,10 @@ test.describe("platform health probes", () => {
 
     await expect(page.getByText("Issues Detected")).toBeVisible();
     await expect(page.getByText("4/5")).toBeVisible();
+    await expect(page.getByText("Action needed")).toBeVisible();
     await expect(page.getByText("OpenFGA", { exact: true })).toBeVisible();
-    await expect(page.getByText("HTTP 503 · 31ms")).toBeVisible();
-    await expect(page.getByText("DOWN")).toBeVisible();
+    await expect(page.getByText("HTTP 503")).toBeVisible();
+    await expect(page.getByText("DOWN").first()).toBeVisible();
     await expect(page.getByText("Check logs for details")).toBeVisible();
   });
 
@@ -207,7 +213,7 @@ test.describe("platform health probes", () => {
 
     await expect(page.getByRole("button", { name: /system status: checking/i })).toBeVisible();
     await openSystemStatus(page);
-    await expect(page.getByText("Checking Keycloak, OpenFGA, AgentGateway, and bridge health...")).toBeVisible();
+    await expect(page.getByText("Checking Keycloak, OpenFGA, AgentGateway, RAG, storage, web ingestor readiness, and migrations...")).toBeVisible();
 
     releasePlatformHealth();
     await expect(page.getByRole("button", { name: /system status: connected/i })).toBeVisible();

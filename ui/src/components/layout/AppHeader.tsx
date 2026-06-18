@@ -271,6 +271,7 @@ export function AppHeader() {
     if (platformProbeStatus === "checking") return "checking";
     if (caipeStatus === "disconnected") return "disconnected";
     if (platformProbeStatus === "down") return "disconnected";
+    if (platformProbeStatus === "degraded") return "degraded";
     if (ragEnabled && ragStatus === "disconnected") return "rag-disconnected";
     return "connected";
   };
@@ -279,8 +280,18 @@ export function AppHeader() {
   const combinedStatusLabel =
     combinedStatus === "connected" ? "Connected" :
     combinedStatus === "checking" ? "Checking" :
+    combinedStatus === "degraded" ? "Needs Attention" :
     combinedStatus === "rag-disconnected" ? "RAG Disconnected" :
     "Disconnected";
+  const platformProbeGroups = [
+    { id: "core", label: "Core Runtime" },
+    { id: "identity", label: "Identity & Authz" },
+    { id: "bootstrap", label: "Bootstrap & Migrations" },
+    { id: "storage", label: "Storage" },
+    { id: "rag", label: "RAG & Web Ingestor" },
+  ] as const;
+  const platformProbeIssues = platformProbes.filter((probe) => probe.status !== "healthy");
+  const platformProbeHealthyCount = platformProbes.filter((probe) => probe.status === "healthy").length;
 
   const getActiveTab = () => {
     if (pathname === "/") return "home";
@@ -667,6 +678,7 @@ export function AppHeader() {
                     ? "h-8 w-8 justify-center bg-green-500/15 text-green-400 border border-green-500/30 hover:bg-green-500/20"
                     : "px-2.5 py-1",
                   combinedStatus === "checking" && "bg-amber-500/15 text-amber-400 border border-amber-500/30 hover:bg-amber-500/20",
+                  combinedStatus === "degraded" && "bg-amber-500/15 text-amber-400 border border-amber-500/30 hover:bg-amber-500/20",
                   combinedStatus === "rag-disconnected" && "bg-amber-500/15 text-amber-400 border border-amber-500/30 hover:bg-amber-500/20",
                   combinedStatus === "disconnected" && "bg-red-500/15 text-red-400 border border-red-500/30 hover:bg-red-500/20"
                 )}
@@ -677,6 +689,7 @@ export function AppHeader() {
                   <div className={cn(
                     "h-2 w-2 rounded-full shrink-0",
                     combinedStatus === "connected" && "bg-green-400 animate-pulse",
+                    combinedStatus === "degraded" && "bg-amber-400",
                     combinedStatus === "rag-disconnected" && "bg-amber-400",
                     combinedStatus === "disconnected" && "bg-red-400",
                   )} />
@@ -712,11 +725,13 @@ export function AppHeader() {
                         "inline-block w-2 h-2 rounded-full",
                         combinedStatus === "connected" ? "bg-green-400 animate-pulse" :
                         combinedStatus === "checking" ? "bg-amber-400 animate-pulse" :
+                        combinedStatus === "degraded" ? "bg-amber-400" :
                         combinedStatus === "rag-disconnected" ? "bg-amber-400" : "bg-red-400"
                       )} />
                       <span className="text-xs font-medium text-white">
                         {combinedStatus === "connected" ? "All Systems Live" :
                          combinedStatus === "checking" ? "Checking" :
+                         combinedStatus === "degraded" ? "Action Needed" :
                          combinedStatus === "rag-disconnected" ? "RAG Offline" :
                          "Issues Detected"}
                       </span>
@@ -816,11 +831,12 @@ export function AppHeader() {
                     <div>
                       <div className="flex items-center justify-between mb-2">
                         <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                          Platform Probes
+                          Platform Health
                         </div>
                         <div className={cn(
                           "flex items-center gap-1.5 px-2 py-0.5 rounded-full border",
                           platformProbeStatus === "healthy" && "bg-green-500/10 border-green-500/20",
+                          platformProbeStatus === "degraded" && "bg-amber-500/10 border-amber-500/20",
                           platformProbeStatus === "down" && "bg-red-500/10 border-red-500/20",
                           platformProbeStatus === "checking" && "bg-muted/50 border-border"
                         )}>
@@ -830,12 +846,14 @@ export function AppHeader() {
                             <span className={cn(
                               "inline-block w-1.5 h-1.5 rounded-full",
                               platformProbeStatus === "healthy" && "bg-green-400",
+                              platformProbeStatus === "degraded" && "bg-amber-400",
                               platformProbeStatus === "down" && "bg-red-400"
                             )} />
                           )}
                           <span className={cn(
                             "text-[10px] font-bold",
                             platformProbeStatus === "healthy" && "text-green-600 dark:text-green-400",
+                            platformProbeStatus === "degraded" && "text-amber-600 dark:text-amber-400",
                             platformProbeStatus === "down" && "text-red-600 dark:text-red-400",
                             platformProbeStatus === "checking" && "text-muted-foreground"
                           )}>
@@ -845,37 +863,106 @@ export function AppHeader() {
                           </span>
                         </div>
                       </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                      <div className="space-y-2">
                         {platformProbes.length === 0 && (
                           <div className="text-xs text-muted-foreground bg-muted/20 rounded px-2 py-1.5">
-                            Checking Keycloak, OpenFGA, AgentGateway, and bridge health...
+                            Checking Keycloak, OpenFGA, AgentGateway, RAG, storage, web ingestor readiness, and migrations...
                           </div>
                         )}
-                        {platformProbes.map((probe) => (
-                          <div
-                            key={probe.id}
-                            title={`${probe.target} — ${probe.detail}`}
-                            className="flex items-center justify-between gap-2 bg-muted/20 rounded px-2 py-1.5"
-                          >
-                            <div className="min-w-0">
-                              <div className="truncate text-xs font-medium text-foreground">
-                                {probe.label}
+                        {platformProbes.length > 0 && (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                            {platformProbeGroups.map((group) => {
+                              const groupProbes = platformProbes.filter((probe) => probe.group === group.id);
+                              if (groupProbes.length === 0) return null;
+                              const downCount = groupProbes.filter((probe) => probe.status === "down").length;
+                              const warningCount = groupProbes.filter((probe) => probe.status === "warning").length;
+                              const groupStatus = downCount > 0 ? "down" : warningCount > 0 ? "warning" : "healthy";
+                              return (
+                                <div
+                                  key={group.id}
+                                  className="flex items-center justify-between gap-2 bg-muted/20 rounded px-2 py-1.5"
+                                >
+                                  <div className="min-w-0">
+                                    <div className="truncate text-xs font-medium text-foreground">
+                                      {group.label}
+                                    </div>
+                                    <div className="truncate text-[10px] text-muted-foreground">
+                                      {groupStatus === "healthy"
+                                        ? `${groupProbes.length} checks OK`
+                                        : `${downCount + warningCount} of ${groupProbes.length} need attention`}
+                                    </div>
+                                  </div>
+                                  <div className={cn(
+                                    "px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0 border",
+                                    groupStatus === "healthy" && "bg-green-500/15 text-green-400 border-green-500/30",
+                                    groupStatus === "warning" && "bg-amber-500/15 text-amber-400 border-amber-500/30",
+                                    groupStatus === "down" && "bg-red-500/15 text-red-400 border-red-500/30"
+                                  )}>
+                                    {groupStatus === "healthy" ? "OK" : groupStatus === "warning" ? "CHECK" : "DOWN"}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                        {platformProbeIssues.length > 0 ? (
+                          <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 p-2 space-y-2">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="text-xs font-semibold text-amber-700 dark:text-amber-300">
+                                Action needed
                               </div>
-                              <div className="truncate text-[10px] text-muted-foreground">
-                                {probe.detail}
-                                {probe.latency_ms !== null ? ` · ${probe.latency_ms}ms` : ""}
+                              <div className="text-[10px] text-amber-700/80 dark:text-amber-300/80">
+                                {platformProbeHealthyCount} healthy · {platformProbeIssues.length} attention
                               </div>
                             </div>
-                            <div className={cn(
-                              "px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0 border",
-                              probe.status === "healthy"
-                                ? "bg-green-500/15 text-green-400 border-green-500/30"
-                                : "bg-red-500/15 text-red-400 border-red-500/30"
-                            )}>
-                              {probe.status === "healthy" ? "OK" : "DOWN"}
+                            <div className="space-y-1.5">
+                              {platformProbeIssues.slice(0, 4).map((probe) => (
+                                <div
+                                  key={probe.id}
+                                  title={`${probe.target} — ${probe.detail}`}
+                                  className="flex items-center justify-between gap-2 rounded bg-background/60 px-2 py-1.5"
+                                >
+                                  <div className="min-w-0">
+                                    <div className="truncate text-xs font-medium text-foreground">
+                                      {probe.label}
+                                    </div>
+                                    <div className="truncate text-[10px] text-muted-foreground">
+                                      {probe.detail}
+                                    </div>
+                                  </div>
+                                  {probe.remediation ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => router.push(probe.remediation!.href)}
+                                      className="shrink-0 rounded-md border border-primary/30 bg-primary/10 px-2 py-1 text-[10px] font-semibold text-primary hover:bg-primary/15"
+                                      title={probe.remediation.description}
+                                    >
+                                      {probe.remediation.label}
+                                    </button>
+                                  ) : (
+                                    <div className={cn(
+                                      "px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0 border",
+                                      probe.status === "warning"
+                                        ? "bg-amber-500/15 text-amber-400 border-amber-500/30"
+                                        : "bg-red-500/15 text-red-400 border-red-500/30"
+                                    )}>
+                                      {probe.status === "warning" ? "CHECK" : "DOWN"}
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                              {platformProbeIssues.length > 4 && (
+                                <div className="text-[10px] text-muted-foreground">
+                                  {platformProbeIssues.length - 4} more checks need attention.
+                                </div>
+                              )}
                             </div>
                           </div>
-                        ))}
+                        ) : platformProbes.length > 0 ? (
+                          <div className="text-xs text-muted-foreground bg-green-500/10 border border-green-500/20 rounded px-2 py-1.5">
+                            Core runtime, identity, storage, RAG, web ingestor queue readiness, and migrations look ready.
+                          </div>
+                        ) : null}
                       </div>
                       <div className="mt-1.5 text-[10px] text-muted-foreground font-mono text-right">
                         Next probe: {platformProbeNextCheck}s
@@ -1003,6 +1090,7 @@ export function AppHeader() {
                     <div className="text-muted-foreground">
                       {combinedStatus === "connected" ? "All systems operational" :
                        combinedStatus === "checking" ? "Checking status..." :
+                       combinedStatus === "degraded" ? "Action available" :
                        combinedStatus === "rag-disconnected" ? "RAG server unavailable" :
                        "Check logs for details"}
                     </div>

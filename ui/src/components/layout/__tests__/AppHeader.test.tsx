@@ -105,19 +105,26 @@ jest.mock('@/hooks/use-rag-health', () => ({
   }),
 }))
 
-let mockPlatformProbeStatus: 'healthy' | 'down' | 'checking' = 'healthy'
+let mockPlatformProbeStatus: 'healthy' | 'degraded' | 'down' | 'checking' = 'healthy'
 type MockPlatformProbe = {
   id: string
   label: string
-  status: 'healthy' | 'down'
+  group: 'core' | 'identity' | 'storage' | 'rag' | 'bootstrap'
+  status: 'healthy' | 'warning' | 'down'
   detail: string
   target: string
   latency_ms: number
+  remediation?: {
+    label: string
+    href: string
+    description: string
+  }
 }
 let mockPlatformProbes: MockPlatformProbe[] = [
   {
     id: 'keycloak',
     label: 'Keycloak',
+    group: 'identity',
     status: 'healthy',
     detail: 'HTTP 200',
     target: 'http://keycloak:7080',
@@ -131,6 +138,7 @@ jest.mock('@/hooks/use-platform-health-probes', () => ({
     summary: {
       total: mockPlatformProbes.length,
       healthy: mockPlatformProbes.filter((p) => p.status === 'healthy').length,
+      warning: mockPlatformProbes.filter((p) => p.status === 'warning').length,
       down: mockPlatformProbes.filter((p) => p.status === 'down').length,
     },
     secondsUntilNextCheck: 30,
@@ -605,6 +613,7 @@ describe('AppHeader — connection status badge', () => {
       {
         id: 'keycloak',
         label: 'Keycloak',
+        group: 'identity',
         status: 'healthy',
         detail: 'HTTP 200',
         target: 'http://keycloak:7080',
@@ -634,8 +643,8 @@ describe('AppHeader — connection status badge', () => {
       // Popover content reflects healthy state
       expect(screen.getByText('All Systems Live')).toBeInTheDocument()
       expect(screen.getByText('All systems operational')).toBeInTheDocument()
-      expect(screen.getByText('Platform Probes')).toBeInTheDocument()
-      expect(screen.getByText('Keycloak')).toBeInTheDocument()
+      expect(screen.getByText('Platform Health')).toBeInTheDocument()
+      expect(screen.getByText('Identity & Authz')).toBeInTheDocument()
     })
   })
 
@@ -775,6 +784,7 @@ describe('AppHeader — connection status badge', () => {
         {
           id: 'openfga',
           label: 'OpenFGA',
+          group: 'identity',
           status: 'down',
           detail: 'HTTP 503',
           target: 'http://openfga:8080/healthz',
@@ -784,7 +794,7 @@ describe('AppHeader — connection status badge', () => {
       render(<AppHeader />)
       expect(screen.getByText('Disconnected')).toBeInTheDocument()
       expect(screen.getByText('OpenFGA')).toBeInTheDocument()
-      expect(screen.getByText('DOWN')).toBeInTheDocument()
+      expect(screen.getAllByText('DOWN').length).toBeGreaterThan(0)
     })
 
     it('Disconnected badge has red styling', () => {
