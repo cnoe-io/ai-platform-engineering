@@ -29,7 +29,6 @@ on:
 
 permissions:
   contents: read
-  packages: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -84,6 +83,7 @@ jobs:
           private-key: ${{ secrets.CI_A2A_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
+          permission-contents: read
 
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -214,15 +214,6 @@ jobs:
         with:
           egress-policy: audit
 
-      - name: 🔑 Generate GitHub App token
-        id: app-token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
-        with:
-          app-id: ${{ secrets.CI_A2A_APP_ID }}
-          private-key: ${{ secrets.CI_A2A_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-          repositories: ${{ github.event.repository.name }}
-
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Set up Docker Buildx
@@ -333,6 +324,7 @@ jobs:
           private-key: ${{ secrets.CI_A2A_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
+          permission-packages: write
 
       - name: 📦 Install crane
         run: |
@@ -343,8 +335,9 @@ jobs:
       - name: 🔐 Log in to registry
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GHCR_ACTOR: ${{ github.actor }}
         run: |
-          echo "$GH_TOKEN" | crane auth login ghcr.io -u ${{ github.actor }} --password-stdin
+          echo "$GH_TOKEN" | crane auth login ghcr.io -u "$GHCR_ACTOR" --password-stdin
 
       - name: 🔍 Check source image and retag or build
         id: retag-or-build
@@ -489,11 +482,13 @@ jobs:
           private-key: ${{ secrets.CI_A2A_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
+          permission-contents: write
 
       - name: 🔔 Notify release finalize
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           TAG_VERSION: ${{ needs.determine-agents.outputs.tag_version }}
+          WORKFLOW_NAME: ${{ github.workflow }}
         run: |
           # Determine overall conclusion
           BUILD_RESULT="${{ needs.build-and-push.result }}"
@@ -514,10 +509,10 @@ jobs:
           gh api --method POST /repos/${{ github.repository }}/dispatches --input - <<EOF
           {
             "event_type": "ci-completed",
-            "client_payload": {
-              "tag": "$TAG_VERSION",
-              "workflow": "${{ github.workflow }}",
-              "conclusion": "$CONCLUSION"
-            }
+              "client_payload": {
+                "tag": "$TAG_VERSION",
+                "workflow": "$WORKFLOW_NAME",
+                "conclusion": "$CONCLUSION"
+              }
           }
           EOF

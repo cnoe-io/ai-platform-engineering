@@ -35,10 +35,8 @@ on:
 
 permissions:
   actions: read
-  contents: write
-  issues: write
-  packages: write
-  pull-requests: write
+  contents: read
+  pull-requests: read
 
 jobs:
   resolve-pr:
@@ -191,6 +189,10 @@ jobs:
     name: MCP Agent Images
     needs: resolve-pr
     if: ${{ needs.resolve-pr.outputs.target == 'mcp-agent' || ((needs.resolve-pr.outputs.target == 'all' || needs.resolve-pr.outputs.target == 'docker') && needs.resolve-pr.outputs.mcp_agent_changed == 'true') }}
+    permissions:
+      contents: write
+      packages: write
+      pull-requests: write
     uses: ./.github/workflows/prebuild-mcp-agent.yml
     with:
       pr_number: ${{ fromJSON(needs.resolve-pr.outputs.pr_number) }}
@@ -204,6 +206,10 @@ jobs:
     name: A2A Sub-Agent Images
     needs: resolve-pr
     if: ${{ needs.resolve-pr.outputs.target == 'a2a-sub-agent' || (inputs.build_a2a_agents == true && (needs.resolve-pr.outputs.target == 'all' || needs.resolve-pr.outputs.target == 'docker') && needs.resolve-pr.outputs.a2a_sub_agent_changed == 'true') }}
+    permissions:
+      contents: write
+      packages: write
+      pull-requests: write
     uses: ./.github/workflows/prebuild-a2a-sub-agent.yml
     with:
       pr_number: ${{ fromJSON(needs.resolve-pr.outputs.pr_number) }}
@@ -218,6 +224,10 @@ jobs:
     name: Supervisor Agent Image
     needs: resolve-pr
     if: ${{ needs.resolve-pr.outputs.target == 'supervisor-agent' || ((needs.resolve-pr.outputs.target == 'all' || needs.resolve-pr.outputs.target == 'docker') && needs.resolve-pr.outputs.supervisor_agent_changed == 'true') }}
+    permissions:
+      contents: write
+      packages: write
+      pull-requests: write
     uses: ./.github/workflows/prebuild-supervisor-agent.yml
     with:
       pr_number: ${{ fromJSON(needs.resolve-pr.outputs.pr_number) }}
@@ -231,6 +241,10 @@ jobs:
     name: CAIPE UI Image
     needs: resolve-pr
     if: ${{ needs.resolve-pr.outputs.target == 'caipe-ui' || ((needs.resolve-pr.outputs.target == 'all' || needs.resolve-pr.outputs.target == 'docker') && needs.resolve-pr.outputs.caipe_ui_changed == 'true') }}
+    permissions:
+      contents: write
+      packages: write
+      pull-requests: write
     uses: ./.github/workflows/prebuild-caipe-ui.yml
     with:
       pr_number: ${{ fromJSON(needs.resolve-pr.outputs.pr_number) }}
@@ -244,6 +258,10 @@ jobs:
     name: Skill Scanner Image
     needs: resolve-pr
     if: ${{ needs.resolve-pr.outputs.target == 'skill-scanner' || ((needs.resolve-pr.outputs.target == 'all' || needs.resolve-pr.outputs.target == 'docker') && needs.resolve-pr.outputs.skill_scanner_changed == 'true') }}
+    permissions:
+      contents: write
+      packages: write
+      pull-requests: write
     uses: ./.github/workflows/prebuild-skill-scanner.yml
     with:
       pr_number: ${{ fromJSON(needs.resolve-pr.outputs.pr_number) }}
@@ -257,6 +275,10 @@ jobs:
     name: Dynamic Agents Image
     needs: resolve-pr
     if: ${{ needs.resolve-pr.outputs.target == 'dynamic-agents' || ((needs.resolve-pr.outputs.target == 'all' || needs.resolve-pr.outputs.target == 'docker') && needs.resolve-pr.outputs.dynamic_agents_changed == 'true') }}
+    permissions:
+      contents: write
+      packages: write
+      pull-requests: write
     uses: ./.github/workflows/prebuild-dynamic-agents.yml
     with:
       pr_number: ${{ fromJSON(needs.resolve-pr.outputs.pr_number) }}
@@ -270,6 +292,10 @@ jobs:
     name: Slack Bot Image
     needs: resolve-pr
     if: ${{ needs.resolve-pr.outputs.target == 'slack-bot' || ((needs.resolve-pr.outputs.target == 'all' || needs.resolve-pr.outputs.target == 'docker') && needs.resolve-pr.outputs.slack_bot_changed == 'true') }}
+    permissions:
+      contents: write
+      packages: write
+      pull-requests: write
     uses: ./.github/workflows/prebuild-slack-bot.yml
     with:
       pr_number: ${{ fromJSON(needs.resolve-pr.outputs.pr_number) }}
@@ -283,6 +309,10 @@ jobs:
     name: A2A RAG Images
     needs: resolve-pr
     if: ${{ needs.resolve-pr.outputs.target == 'a2a-rag' || ((needs.resolve-pr.outputs.target == 'all' || needs.resolve-pr.outputs.target == 'docker') && needs.resolve-pr.outputs.a2a_rag_changed == 'true') }}
+    permissions:
+      contents: write
+      packages: write
+      pull-requests: write
     uses: ./.github/workflows/prebuild-a2a-rag.yml
     with:
       pr_number: ${{ fromJSON(needs.resolve-pr.outputs.pr_number) }}
@@ -296,6 +326,10 @@ jobs:
     name: Helm Charts
     needs: resolve-pr
     if: ${{ needs.resolve-pr.outputs.target == 'helm' || (needs.resolve-pr.outputs.target == 'all' && needs.resolve-pr.outputs.helm_changed == 'true') }}
+    permissions:
+      contents: write
+      packages: write
+      pull-requests: write
     uses: ./.github/workflows/prebuild-helm.yml
     with:
       pr_number: ${{ fromJSON(needs.resolve-pr.outputs.pr_number) }}
