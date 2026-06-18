@@ -3087,6 +3087,24 @@ _ensure_compose_env_file() {
   log "Created ${env_file} from .env.example"
 }
 
+_compose_env_edit_target() {
+  local env_file="$1"
+  if [[ ! -L "$env_file" ]]; then
+    echo "$env_file"
+    return 0
+  fi
+
+  local target
+  target=$(readlink "$env_file")
+  if [[ "$target" != /* ]]; then
+    local env_dir
+    env_dir=$(cd "$(dirname "$env_file")" && pwd)
+    target="${env_dir}/${target}"
+  fi
+
+  echo "$target"
+}
+
 _update_compose_image_tag() {
   local env_file="$1"
   _ensure_compose_env_file "$env_file"
@@ -3104,13 +3122,31 @@ _update_compose_image_tag() {
     exit 1
   fi
 
-  if grep -q '^IMAGE_TAG=' "$env_file"; then
-    sed -i.bak "s/^IMAGE_TAG=.*/IMAGE_TAG=${latest}/" "$env_file"
-  else
-    cp "$env_file" "${env_file}.bak"
-    printf '\nIMAGE_TAG=%s\n' "$latest" >> "$env_file"
+  local edit_file
+  edit_file=$(_compose_env_edit_target "$env_file")
+  if [[ ! -f "$edit_file" ]]; then
+    err "Compose env file target is not a regular file: ${edit_file}"
+    exit 1
   fi
-  log "Updated IMAGE_TAG=${latest} in ${env_file} (backup: ${env_file}.bak)"
+
+  cp "$edit_file" "${env_file}.bak"
+  if grep -q '^IMAGE_TAG=' "$edit_file"; then
+    local tmp_file
+    tmp_file=$(mktemp "${edit_file}.XXXXXX")
+    awk -v latest="$latest" '
+      /^IMAGE_TAG=/ { print "IMAGE_TAG=" latest; next }
+      { print }
+    ' "$edit_file" > "$tmp_file"
+    mv "$tmp_file" "$edit_file"
+  else
+    printf '\nIMAGE_TAG=%s\n' "$latest" >> "$edit_file"
+  fi
+
+  if [[ "$edit_file" != "$env_file" ]]; then
+    log "Updated IMAGE_TAG=${latest} in ${env_file} -> ${edit_file} (backup: ${env_file}.bak)"
+  else
+    log "Updated IMAGE_TAG=${latest} in ${env_file} (backup: ${env_file}.bak)"
+  fi
 }
 
 # Create a Kubernetes generic secret from a list of key names sourced from a
