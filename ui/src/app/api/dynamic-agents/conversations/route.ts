@@ -34,7 +34,12 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   }
 
   const { session } = await getAuthFromBearerOrSession(request);
-  await requireResourcePermission(session, { type: "audit_log", id: "dynamic_agent_conversations", action: "read" });
+  // assisted-by Codex Codex-sonnet-4-6
+  await requireResourcePermission(
+    session,
+    { type: "audit_log", id: "dynamic_agent_conversations", action: "read" },
+    { bypassForOrgAdmin: true },
+  );
 
     const { page, pageSize, skip } = getPaginationParams(request);
     const url = new URL(request.url);

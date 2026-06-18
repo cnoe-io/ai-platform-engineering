@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import type { WorkflowConfigVisibility } from "@/types/workflow-config";
 import { ArrowLeft,Copy,Download,Globe,Lock,Play,Save,Trash2,Upload,Users } from "lucide-react";
 import React,{ useEffect,useMemo,useRef,useState } from "react";
+import { createPortal } from "react-dom";
 import YAML from "yaml";
 
 interface Team {
@@ -85,15 +86,33 @@ function VisibilityPopover({
   disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+  const [dropdownCoords, setDropdownCoords] = useState<{ top: number; left: number } | null>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Close on click outside
+  const updateCoords = () => {
+    if (buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect();
+      setDropdownCoords({ top: rect.bottom + 4, left: rect.left });
+    }
+  };
+
+  const handleOpen = () => {
+    if (disabled) return;
+    if (!open) updateCoords();
+    setOpen((prev) => !prev);
+  };
+
+  // Close on click outside (both button and portal dropdown)
   useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
+      const target = e.target as Node;
+      if (
+        buttonRef.current?.contains(target) ||
+        dropdownRef.current?.contains(target)
+      ) return;
+      setOpen(false);
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
@@ -113,11 +132,73 @@ function VisibilityPopover({
     [teams],
   );
 
+  const dropdown = open && dropdownCoords ? createPortal(
+    <div
+      ref={dropdownRef}
+      style={{ position: "fixed", top: dropdownCoords.top, left: dropdownCoords.left }}
+      className="z-[200] w-72 rounded-lg border border-border bg-card shadow-lg p-2"
+      onPointerDown={(e) => e.stopPropagation()}
+      onMouseDown={(e) => e.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}
+    >
+      {(["global", "team", "private"] as WorkflowConfigVisibility[]).map((v) => {
+        const opt = VISIBILITY_CONFIG[v];
+        return (
+          <button
+            key={v}
+            type="button"
+            onClick={() => {
+              onVisibilityChange(v);
+              if (v !== "team") setOpen(false);
+            }}
+            className={cn(
+              "w-full flex items-start gap-2.5 p-2 rounded-md text-left transition-colors",
+              visibility === v
+                ? "bg-primary/5 border border-primary/30"
+                : "hover:bg-muted/50 border border-transparent",
+            )}
+          >
+            <span className={cn("mt-0.5", VISIBILITY_CONFIG[v].color)}>{opt.icon}</span>
+            <div>
+              <div className="text-xs font-medium">{opt.label}</div>
+              <div className="text-[10px] text-muted-foreground">{opt.description}</div>
+            </div>
+          </button>
+        );
+      })}
+
+      {visibility === "team" && (
+        <div className="mt-2 pt-2 border-t border-border px-0.5">
+          {teamOptions.length === 0 ? (
+            <p className="text-[10px] text-muted-foreground italic px-1">
+              No teams available.
+            </p>
+          ) : (
+            <TeamMultiPicker
+              options={teamOptions}
+              selected={sharedWithTeams}
+              onChange={onSharedWithTeamsChange}
+              disabled={disabled}
+              ariaLabel="Share workflow with teams"
+              placeholder="Share with teams…"
+              searchPlaceholder="Search teams…"
+              emptyLabel="No teams match"
+              triggerChipCap={1}
+              contentClassName="z-[210]"
+            />
+          )}
+        </div>
+      )}
+    </div>,
+    document.body,
+  ) : null;
+
   return (
-    <div className="relative" ref={ref}>
+    <div className="relative">
       <button
+        ref={buttonRef}
         type="button"
-        onClick={() => !disabled && setOpen(!open)}
+        onClick={handleOpen}
         disabled={disabled}
         className={cn(
           "flex items-center gap-1.5 h-8 px-2.5 rounded-md border text-xs font-medium transition-colors",
@@ -131,63 +212,7 @@ function VisibilityPopover({
         <span className="hidden sm:inline">{config.label}</span>
       </button>
 
-      {open && (
-        <div
-          className="absolute top-full left-0 mt-1 z-[100] w-72 rounded-lg border border-border bg-card shadow-lg p-2"
-          onPointerDown={(e) => e.stopPropagation()}
-          onMouseDown={(e) => e.stopPropagation()}
-          onClick={(e) => e.stopPropagation()}
-        >
-          {(["global", "team", "private"] as WorkflowConfigVisibility[]).map((v) => {
-            const opt = VISIBILITY_CONFIG[v];
-            return (
-              <button
-                key={v}
-                type="button"
-                onClick={() => {
-                  onVisibilityChange(v);
-                  if (v !== "team") setOpen(false);
-                }}
-                className={cn(
-                  "w-full flex items-start gap-2.5 p-2 rounded-md text-left transition-colors",
-                  visibility === v
-                    ? "bg-primary/5 border border-primary/30"
-                    : "hover:bg-muted/50 border border-transparent",
-                )}
-              >
-                <span className={cn("mt-0.5", VISIBILITY_CONFIG[v].color)}>{opt.icon}</span>
-                <div>
-                  <div className="text-xs font-medium">{opt.label}</div>
-                  <div className="text-[10px] text-muted-foreground">{opt.description}</div>
-                </div>
-              </button>
-            );
-          })}
-
-          {visibility === "team" && (
-            <div className="mt-2 pt-2 border-t border-border px-0.5">
-              {teamOptions.length === 0 ? (
-                <p className="text-[10px] text-muted-foreground italic px-1">
-                  No teams available.
-                </p>
-              ) : (
-                <TeamMultiPicker
-                  options={teamOptions}
-                  selected={sharedWithTeams}
-                  onChange={onSharedWithTeamsChange}
-                  disabled={disabled}
-                  ariaLabel="Share workflow with teams"
-                  placeholder="Share with teams…"
-                  searchPlaceholder="Search teams…"
-                  emptyLabel="No teams match"
-                  triggerChipCap={1}
-                  contentClassName="z-[110]"
-                />
-              )}
-            </div>
-          )}
-        </div>
-      )}
+      {dropdown}
     </div>
   );
 }

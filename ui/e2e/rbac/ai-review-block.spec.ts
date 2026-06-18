@@ -38,15 +38,24 @@ const BLOCKING_REVIEW_CONFIG = {
 const FAILED_REVIEW_RESULT = {
   target: "agent-system-prompt",
   passed: false,
+  enforcement: "blocking",
   grade: "F",
   score: 0,
   hash: "abc123",
+  total: 1,
+  passed_count: 0,
+  model: { id: "claude-sonnet-4-6", provider: "anthropic" },
   criteria: [
     {
       id: "crit-1",
-      passed: false,
+      name: "No placeholder text",
+      severity: "error",
+      weight: 1,
+      pass: false,
       comment: "System prompt contains placeholder text.",
+      anchor: null,
       suggested_fix: null,
+      error: null,
     },
   ],
 };
@@ -63,6 +72,7 @@ async function installEditorMocks(page: Page): Promise<void> {
             data: [
               {
                 id: "claude-sonnet-4-6",
+                model_id: "claude-sonnet-4-6",
                 name: "Claude Sonnet 4.6",
                 provider: "anthropic",
                 available: true,
@@ -85,7 +95,24 @@ async function installEditorMocks(page: Page): Promise<void> {
         if (path === "/api/dynamic-agents/teams" && method === "GET") {
           await fulfillJson(route, {
             success: true,
-            data: [{ _id: "team-1", slug: "platform", name: "Platform Team" }],
+            data: [
+              {
+                _id: "team-1",
+                slug: "platform",
+                name: "Platform Team",
+                can_own_agents: true,
+                user_role: "admin",
+              },
+            ],
+          });
+          return true;
+        }
+
+        // MCP tool picker — the editor's Tools step expects a paginated list shape
+        if (path === "/api/mcp-servers" && method === "GET") {
+          await fulfillJson(route, {
+            success: true,
+            data: { items: [], total: 0, page: 1, page_size: 100, has_more: false },
           });
           return true;
         }
@@ -128,12 +155,34 @@ async function fillBasicInfoAndGoToInstructions(page: Page): Promise<void> {
 
   // Select model — click the combobox and pick the first option
   const modelSelect = page.getByRole("combobox").first();
-  await modelSelect.click();
-  await page.getByRole("option").first().click();
+  // assisted-by Codex Codex-sonnet-4-6
+  // The editor may render this as a native <select>; native <option> elements
+  // are not visible/clickable in Chromium, so use selectOption when possible.
+  if ((await modelSelect.evaluate((node) => node instanceof HTMLSelectElement))) {
+    await modelSelect.selectOption({ index: 0 });
+  } else {
+    await modelSelect.click();
+    await page.getByRole("option").first().click();
+  }
+
+  // Pick an ownable owner team through the real TeamPicker; new agents cannot
+  // be saved without this product-required ownership field.
+  await page.getByLabel(/owner team/i).click();
+  await page.getByRole("option", { name: /Platform Team.*team:platform/i }).click();
 
   // Click the Instructions step in the step indicator to jump directly
-  await page.getByRole("button", { name: /instructions/i }).click();
-  await expect(page.getByText(/step 2/i)).toBeVisible({ timeout: 5_000 });
+  await page.getByRole("button", { name: /^2\s+Instructions$/i }).click();
+  await expect(page.getByRole("heading", { name: /Step 2: Instructions/i })).toBeVisible({
+    timeout: 5_000,
+  });
+}
+
+async function fillSystemPrompt(page: Page, value: string): Promise<void> {
+  // CodeMirror exposes the editable surface as an unnamed contenteditable textbox.
+  const editor = page.locator(".cm-content[contenteditable='true']").first();
+  await expect(editor).toBeVisible({ timeout: 10_000 });
+  await editor.fill(value);
+  await expect(editor).toContainText(value);
 }
 
 // ---------------------------------------------------------------------------
@@ -156,10 +205,7 @@ test.describe("AI Review failure UX — blocking review (PR #1866)", () => {
     await fillBasicInfoAndGoToInstructions(page);
 
     // Type something in the system prompt so the review can run (non-empty content)
-    const promptArea = page.getByRole("textbox", { name: /system prompt/i });
-    if (await promptArea.isVisible()) {
-      await promptArea.fill("TODO: add real instructions here");
-    }
+    await fillSystemPrompt(page, "TODO: add real instructions here");
 
     // Click Next — this triggers `goToNextStep`, which calls `ensurePassedOrRun`
     await page.getByRole("button", { name: /^next$/i }).click();
@@ -169,12 +215,12 @@ test.describe("AI Review failure UX — blocking review (PR #1866)", () => {
     await expect(toast).toBeVisible({ timeout: 15_000 });
 
     // 2. The user must still be on the Instructions step (not Tools)
-    await expect(page.getByText(/step 2/i)).toBeVisible();
-    await expect(page.getByText(/step 3/i)).not.toBeVisible();
+    await expect(page.getByRole("heading", { name: /Step 2: Instructions/i })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Step 3: Tools/i })).not.toBeVisible();
 
     // 3. Inline error message visible in the editor
     await expect(
-      page.getByText(/address the comments below before continuing/i),
+      page.locator("form").getByText(/address the comments below before continuing/i),
     ).toBeVisible();
   });
 
@@ -185,11 +231,15 @@ test.describe("AI Review failure UX — blocking review (PR #1866)", () => {
     await openNewAgentEditor(page);
     await fillBasicInfoAndGoToInstructions(page);
 
+    await fillSystemPrompt(page, "TODO: add real instructions here");
+
     // Move past Instructions to Tools by clicking the step indicator directly
     // (bypassing the Next gate — simulating a user who pre-passed review then
     // moved on, or who navigated via the step pill after a prior pass)
-    await page.getByRole("button", { name: /tools/i }).click();
-    await expect(page.getByText(/step 3/i)).toBeVisible({ timeout: 5_000 });
+    await page.getByRole("button", { name: /^3\s+Tools$/i }).click();
+    await expect(page.getByRole("heading", { name: /Step 3: Tools/i })).toBeVisible({
+      timeout: 5_000,
+    });
 
     // Attempt Save from the Tools step
     const saveButton = page.getByRole("button", { name: /save changes|create agent/i });
@@ -200,12 +250,14 @@ test.describe("AI Review failure UX — blocking review (PR #1866)", () => {
     await expect(toast).toBeVisible({ timeout: 15_000 });
 
     // 2. Editor must have navigated back to the Instructions step
-    await expect(page.getByText(/step 2/i)).toBeVisible({ timeout: 5_000 });
-    await expect(page.getByText(/step 3/i)).not.toBeVisible();
+    await expect(page.getByRole("heading", { name: /Step 2: Instructions/i })).toBeVisible({
+      timeout: 5_000,
+    });
+    await expect(page.getByRole("heading", { name: /Step 3: Tools/i })).not.toBeVisible();
 
     // 3. Inline error message references the Instructions step
     await expect(
-      page.getByText(/instructions step before saving/i),
+      page.locator("form").getByText(/instructions step before saving/i),
     ).toBeVisible();
   });
 });

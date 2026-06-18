@@ -1,4 +1,4 @@
-# RBAC End-to-End Harness (Spec 102 / US7)
+# RBAC End-to-End Harness
 
 Playwright specs that exercise the BFF auth contract against a **live**
 CAIPE + Keycloak stack:
@@ -13,6 +13,7 @@ CAIPE + Keycloak stack:
 | `workflow-agent-access.spec.ts` | Mocked browser regression for workflow run access and denied agent-access grants. |
 | `rbac-admin-regression.spec.ts` | Mocked browser regression for the Permissions Tool and RBAC Audit export UX. |
 | `mcp-openfga-tuples.spec.ts` | Mocked browser regression for team MCP resource saves and MCP server list visibility. |
+| `identity-sync-regression.spec.ts` | Mocked browser regression for the Identity Sync admin tab and manual Okta sync trigger path. |
 | `service-accounts.spec.ts` | Mocked browser regression for Service Accounts create, see-once credential reveal, scope manage, rotate, and revoke UX. |
 | `slack-run-as.spec.ts` | Mocked browser regression for Slack route “Run as Service Account” selection and route-save payload. |
 | `slack-bff-user-directory-live.spec.ts` | Live-stack Slack bot service-account regression for BFF user-directory lookup, federation metadata, validation guardrails, and IdP broker summary. |
@@ -20,10 +21,26 @@ CAIPE + Keycloak stack:
 | `openfga-live.spec.ts` | Live-stack OpenFGA/CAS regression for decisions, grants, revokes, delegation, explain, raw tuple admin APIs, and guardrails. |
 | `resource-lifecycle-live.spec.ts` | Live-stack resource lifecycle matrix for agents, skills, workflows, workflow runs, teams, KB/data-source sharing, credentials, MCP custom headers, and AgentGateway tool-call tuples. |
 
+## Commands
+
+Use these from `ui/`:
+
+| Command | Scope |
+|---------|-------|
+| `npm run test:e2e:all` | Full RBAC Playwright suite: mocked regressions plus live RBAC/OpenFGA specs. |
+| `npm run test:e2e:rbac-regression` | Fast mocked browser regression subset. |
+| `npm run test:e2e:rbac-live-resources` | Live resource lifecycle matrix only. |
+| `npm run test:e2e:rbac-live-full` | Live OpenFGA + MCP create + resource lifecycle target. |
+| `npm run test:e2e:rbac -- --list` | Raw discovery/debug command for every RBAC spec. |
+
+Use `npm run test:e2e:all -- --list` to see exactly what the full command will
+run without executing tests.
+
 ## Skip-by-default
 
-These specs **only run when `RUN_RBAC_E2E=1`**. With that env unset,
-each spec hits `test.skip()` immediately, so:
+The live specs only run when `RUN_RBAC_E2E=1`. The mocked browser regression
+specs run when `RUN_RBAC_REGRESSION=1`. With both env vars unset, gated specs
+hit `test.skip()` immediately, so:
 
 * day-to-day `npx playwright test` runs are no-ops on this dir, and
 * the harness can ship in `main` without breaking CI for devs who
@@ -77,7 +94,7 @@ Keycloak/OpenFGA fixture data:
 
        RUN_RBAC_REGRESSION=1 \
        CAIPE_UI_BASE_URL=http://localhost:3000 \
-       npx playwright test e2e/rbac/workflow-agent-access.spec.ts e2e/rbac/rbac-admin-regression.spec.ts e2e/rbac/mcp-openfga-tuples.spec.ts e2e/rbac/service-accounts.spec.ts e2e/rbac/slack-run-as.spec.ts --config=playwright.rbac.config.ts
+       npx playwright test e2e/rbac/workflow-agent-access.spec.ts e2e/rbac/rbac-admin-regression.spec.ts e2e/rbac/mcp-openfga-tuples.spec.ts e2e/rbac/service-accounts.spec.ts e2e/rbac/admin-settings-regression.spec.ts e2e/rbac/identity-sync-regression.spec.ts e2e/rbac/slack-run-as.spec.ts --config=playwright.rbac.config.ts
 
 ## MCP OpenFGA tuple regression
 

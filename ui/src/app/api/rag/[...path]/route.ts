@@ -193,13 +193,21 @@ function normalizeSlugList(raw: unknown): string[] {
   return out;
 }
 
-/** Boolean membership check (`team:<slug>#can_use`) for the shared resolver. */
+/** Boolean membership check (`team:<slug>#can_use` or `#can_manage`) for owner writes. */
 async function canUseTeam(session: ResourceAuthzSession, slug: string): Promise<boolean> {
   try {
     await requireResourcePermission(session, { type: 'team', id: slug, action: 'use' });
     return true;
   } catch {
-    return false;
+    // assisted-by Codex Codex-sonnet-4-6
+    // Team admins/owners are valid destination members even when an older
+    // projection has manage but lacks the derived can_use edge.
+    try {
+      await requireResourcePermission(session, { type: 'team', id: slug, action: 'manage' });
+      return true;
+    } catch {
+      return false;
+    }
   }
 }
 
@@ -482,10 +490,13 @@ async function getAuthorizedRagContext(
   if (kbId && isDatasourceCreateRequest(method, pathSegments)) {
     const ownerTeamSlug = isRecord(body) ? normalizeString(body.owner_team_slug) : null;
     if (ownerTeamSlug) {
-      await requireResourcePermission(
+      const canUseOwnerTeam = await canUseTeam(
         { sub: session.sub, role: session.role, user: session.user },
-        { type: 'team', id: ownerTeamSlug, action: 'use' },
+        ownerTeamSlug,
       );
+      if (!canUseOwnerTeam) {
+        throw new ApiError('You must belong to the owner team to assign it.', 403, 'OWNER_TEAM_FORBIDDEN');
+      }
     }
     const ownerSubject = normalizeString(session.sub);
     if (!ownerSubject) {

@@ -366,6 +366,7 @@ jobs:
             e2e/rbac/rbac-admin-regression.spec.ts \
             e2e/rbac/mcp-openfga-tuples.spec.ts \
             e2e/rbac/admin-settings-regression.spec.ts \
+            e2e/rbac/identity-sync-regression.spec.ts \
             --config=playwright.rbac.config.ts
 
       - name: Upload Playwright artifacts

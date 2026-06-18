@@ -34,6 +34,7 @@ export const DEFAULT_ADMIN_GATES: Record<string, boolean> = {
   feedback: false,
   health: true,
   identity_group_sync: false,
+  dynamic_agent_conversations: true,
   metrics: true,
   migrations: false,
   nps: false,

@@ -49,6 +49,7 @@ export interface AgentToolTupleDiffInput {
    * inheritance pair as the owner team:
    *
    *   team:<slug>#member user agent:<id>     (can_use → can DM and use in any channel mapped to this team)
+   *   team:<slug>#member writer agent:<id>   (can_write → can save non-destructive edits)
    *   team:<slug>#admin  manager agent:<id>  (can_manage → can edit/disable/delete the agent)
    *
    * Empty array or `undefined` means "no additional shared teams"; the
@@ -160,15 +161,19 @@ export function buildAgentRelationshipTupleDiff(input: AgentToolTupleDiffInput):
   }
   // Owner-team + shared-team grants are delegated to the shared
   // `buildTeamGrantTuples` primitive (spec 2026-06-03, US1 / FR-003). The
-  // agent's member relation is `user` (granting `can_use`), distinct from
-  // the `reader` default used by KB/data_source. The primitive handles the
+  // agent's member relations are `user` (granting `can_use`) and `writer`
+  // (granting non-destructive edits), distinct from the `reader` default used
+  // by KB/data_source. The primitive handles the
   // owner ∪ shared union, the owner-team transition delete via
   // `previousOwnerTeamSlug`, and the shared-team revoke diff — the same
   // logic this builder used to inline. A team promoted from shared → owner
   // is never deleted (it's still in the effective set).
   const teamGrants = buildTeamGrantTuples({
     object: `agent:${input.agentId}`,
-    memberRelations: ["user"],
+    // assisted-by Codex Codex-sonnet-4-6
+    // Members of owner/shared teams can edit agent config, while delete and
+    // transfer stay reserved for managers through the admin tuple.
+    memberRelations: ["user", "writer"],
     ownerTeamSlug: input.ownerTeamSlug,
     previousOwnerTeamSlug: input.previousOwnerTeamSlug,
     nextSharedTeamSlugs: input.nextSharedTeamSlugs,

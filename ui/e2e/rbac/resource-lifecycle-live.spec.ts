@@ -35,6 +35,7 @@ type ResourceType =
   | "agent"
   | "data_source"
   | "knowledge_base"
+  | "llm_model"
   | "mcp_server"
   | "secret_ref"
   | "skill"
@@ -114,6 +115,19 @@ function dataArray(result: ApiResult): unknown[] {
   }
   if (Array.isArray(result.body)) return result.body;
   return [];
+}
+
+function isOptionalRagCreateFailure(result: ApiResult): boolean {
+  const body = bodyRecord(result);
+  const detail = body.detail ?? body.error;
+  // assisted-by Codex Codex-sonnet-4-6
+  // Synthetic Playwright sessions carry a non-Keycloak access token. Some live
+  // RAG servers validate that upstream token even after the BFF RBAC checks pass.
+  const protectedRagRejectedSyntheticToken =
+    result.status === 401 &&
+    typeof detail === "string" &&
+    /invalid or expired token/i.test(detail);
+  return [404, 502, 503, 504].includes(result.status) || protectedRagRejectedSyntheticToken;
 }
 
 function idFrom(result: ApiResult, keys: string[]): string {
@@ -257,6 +271,11 @@ function adminCleanup(
   };
 }
 
+function removeCleanup(cleanups: Cleanup[], cleanup: Cleanup): void {
+  const index = cleanups.indexOf(cleanup);
+  if (index >= 0) cleanups.splice(index, 1);
+}
+
 async function createGlobalAgent(page: Page, name: string, extra: Record<string, unknown> = {}) {
   const result = await postJson(page, "/api/dynamic-agents", {
     name,
@@ -270,6 +289,38 @@ async function createGlobalAgent(page: Page, name: string, extra: Record<string,
   });
   expect(result.status, JSON.stringify(result.body)).toBe(201);
   return idFrom(result, ["_id", "id"]);
+}
+
+async function createTeamAgent(
+  page: Page,
+  name: string,
+  ownerTeamSlug: string,
+  extra: Record<string, unknown> = {},
+) {
+  const result = await postJson(page, "/api/dynamic-agents", {
+    name,
+    description: "RBAC live matrix fixture",
+    system_prompt: "You are a deterministic RBAC matrix test agent.",
+    model: { id: "gpt-4o-mini", provider: "openai" },
+    visibility: "team",
+    owner_team_slug: ownerTeamSlug,
+    enabled: true,
+    allowed_tools: {},
+    ...extra,
+  });
+  expect(result.status, JSON.stringify(result.body)).toBe(201);
+  return idFrom(result, ["_id", "id"]);
+}
+
+async function createLlmModel(page: Page, modelId: string, name: string) {
+  const result = await postJson(page, "/api/llm-models", {
+    model_id: modelId,
+    name,
+    provider: "rbac-e2e",
+    description: "RBAC live matrix fixture",
+  });
+  expect(result.status, JSON.stringify(result.body)).toBe(201);
+  return idFrom(result, ["_id", "id", "model_id"]);
 }
 
 async function createSkill(page: Page, name: string) {
@@ -323,6 +374,37 @@ async function createTeam(page: Page, name: string, slug: string, memberEmail: s
   return idFrom(result, ["team_id"]);
 }
 
+async function addTeamMemberTuple(
+  page: Page,
+  cleanups: Cleanup[],
+  env: RbacEnv,
+  adminSubject: string,
+  teamSlug: string,
+  subject: string,
+  relation: "member" | "admin" = "member",
+): Promise<void> {
+  const tuple = { user: `user:${subject}`, relation, object: `team:${teamSlug}` };
+  await writeTuples(page, { writes: [tuple] });
+  cleanups.push(adminCleanup(page, env, adminSubject, async () => {
+    await writeTuples(page, { deletes: [tuple] });
+  }));
+}
+
+async function addOrganizationMemberTuple(
+  page: Page,
+  cleanups: Cleanup[],
+  env: RbacEnv,
+  adminSubject: string,
+  subject: string,
+): Promise<void> {
+  const orgId = process.env.CAIPE_ORG_KEY?.trim() || "caipe";
+  const tuple = { user: `user:${subject}`, relation: "member", object: `organization:${orgId}` };
+  await writeTuples(page, { writes: [tuple] });
+  cleanups.push(adminCleanup(page, env, adminSubject, async () => {
+    await writeTuples(page, { deletes: [tuple] });
+  }));
+}
+
 async function createMcpServer(page: Page, suffixValue: string, credentialId?: string) {
   const inputId = `rbac-${suffixValue}`;
   const serverId = `mcp-${inputId}`;
@@ -353,6 +435,27 @@ async function createMcpServer(page: Page, suffixValue: string, credentialId?: s
   return serverId;
 }
 
+async function createMcpServerForTeam(
+  page: Page,
+  suffixValue: string,
+  ownerTeamSlug: string,
+) {
+  const inputId = `rbac-team-${suffixValue}`;
+  const serverId = `mcp-${inputId}`;
+  const result = await postJson(page, "/api/mcp-servers", {
+    id: inputId,
+    name: `RBAC Team MCP ${suffixValue}`,
+    description: "RBAC live matrix fixture",
+    transport: "http",
+    endpoint: "https://mcp.example.test/mcp",
+    owner_team_slug: ownerTeamSlug,
+    enabled: true,
+  });
+  expect(result.status, JSON.stringify(result.body)).toBe(201);
+  expect(idFrom(result, ["_id", "id"])).toBe(serverId);
+  return serverId;
+}
+
 async function maybeCreateCredential(page: Page, name: string): Promise<string | null> {
   const result = await postJson(page, "/api/credentials/secrets", {
     name,
@@ -368,6 +471,746 @@ async function maybeCreateCredential(page: Page, name: string): Promise<string |
 }
 
 test.describe("RBAC live e2e — resource lifecycle matrix", () => {
+  test("covers share/use and delegated-manager edit matrix for agents, MCP servers, LLMs, KBs, and data sources", async ({
+    page,
+  }) => {
+    const env = rbacEnvOrSkip({ requireUserSub: true });
+    const run = suffix();
+    const cleanups: Cleanup[] = [];
+    const adminSubject = env.user.sub!;
+    const teamSlug = `rbac-matrix-${slugify(run)}`;
+    const teamMemberSubject = `e2e-matrix-member-${run}`;
+    const teamMemberEmail = `matrix-member-${run}@caipe.local`;
+    const delegatedManagerSubject = `e2e-matrix-manager-${run}`;
+    const delegatedManagerEmail = `matrix-manager-${run}@caipe.local`;
+    const outsiderSubject = `e2e-matrix-outsider-${run}`;
+    const datasourceId = `rbac-matrix-ds-${slugify(run)}`;
+    const llmModelId = `rbac-e2e/${slugify(run)}`;
+
+    try {
+      await installSession(page, env, { email: env.user.email, subject: adminSubject, role: "admin" });
+
+      const teamId = await createTeam(page, `RBAC Matrix Team ${run}`, teamSlug, env.user.email);
+      cleanups.push(adminCleanup(page, env, adminSubject, async () => {
+        await deleteJson(page, `/api/admin/teams/${encodeURIComponent(teamId)}`);
+      }));
+      await addTeamMemberTuple(page, cleanups, env, adminSubject, teamSlug, teamMemberSubject, "member");
+      await addTeamMemberTuple(page, cleanups, env, adminSubject, teamSlug, delegatedManagerSubject, "admin");
+
+      const agentId = await createTeamAgent(page, `RBAC Matrix Agent ${run}`, teamSlug);
+      cleanups.push(adminCleanup(page, env, adminSubject, async () => {
+        await deleteJson(page, `/api/dynamic-agents?id=${encodeURIComponent(agentId)}`);
+      }));
+      await expectDecisionEventually(page, {
+        subjectId: teamMemberSubject,
+        resourceType: "agent",
+        resourceId: agentId,
+        action: "use",
+      }, "ALLOW");
+      await expectDecisionEventually(page, {
+        subjectId: teamMemberSubject,
+        resourceType: "agent",
+        resourceId: agentId,
+        action: "write",
+      }, "ALLOW");
+      await expectDecision(page, {
+        subjectId: outsiderSubject,
+        resourceType: "agent",
+        resourceId: agentId,
+        action: "use",
+      }, "DENY");
+      await expectDecision(page, {
+        subjectId: outsiderSubject,
+        resourceType: "agent",
+        resourceId: agentId,
+        action: "write",
+      }, "DENY");
+
+      await installSession(page, env, {
+        email: teamMemberEmail,
+        subject: teamMemberSubject,
+        role: "user",
+      });
+      const teamMemberAgentEdit = await putJson(page, `/api/dynamic-agents?id=${encodeURIComponent(agentId)}`, {
+        description: "Updated by shared team member in RBAC matrix",
+      });
+      expect(teamMemberAgentEdit.status, JSON.stringify(teamMemberAgentEdit.body)).toBe(200);
+
+      await installSession(page, env, {
+        email: delegatedManagerEmail,
+        subject: delegatedManagerSubject,
+        role: "user",
+      });
+      const delegatedAgentEdit = await putJson(page, `/api/dynamic-agents?id=${encodeURIComponent(agentId)}`, {
+        description: "Updated by delegated team admin in RBAC matrix",
+      });
+      expect(delegatedAgentEdit.status, JSON.stringify(delegatedAgentEdit.body)).toBe(200);
+
+      await installSession(page, env, { email: env.user.email, subject: adminSubject, role: "admin" });
+      const mcpServerId = await createMcpServerForTeam(page, run, teamSlug);
+      cleanups.push(adminCleanup(page, env, adminSubject, async () => {
+        await deleteJson(page, `/api/mcp-servers?id=${encodeURIComponent(mcpServerId)}`);
+      }));
+      await expectDecisionEventually(page, {
+        subjectId: teamMemberSubject,
+        resourceType: "mcp_server",
+        resourceId: mcpServerId,
+        action: "read",
+      }, "ALLOW");
+      await expectDecision(page, {
+        subjectId: outsiderSubject,
+        resourceType: "mcp_server",
+        resourceId: mcpServerId,
+        action: "read",
+      }, "DENY");
+
+      await installSession(page, env, {
+        email: delegatedManagerEmail,
+        subject: delegatedManagerSubject,
+        role: "user",
+      });
+      const delegatedMcpEdit = await putJson(page, `/api/mcp-servers?id=${encodeURIComponent(mcpServerId)}`, {
+        description: "Updated by delegated team admin in RBAC matrix",
+      });
+      expect(delegatedMcpEdit.status, JSON.stringify(delegatedMcpEdit.body)).toBe(200);
+
+      await installSession(page, env, { email: env.user.email, subject: adminSubject, role: "admin" });
+      const modelId = await createLlmModel(page, llmModelId, `RBAC Matrix LLM ${run}`);
+      cleanups.push(adminCleanup(page, env, adminSubject, async () => {
+        await deleteJson(page, `/api/llm-models?id=${encodeURIComponent(modelId)}`);
+      }));
+      await grant(page, {
+        resource: { type: "llm_model", id: modelId },
+        grantee: { type: "team", id: teamSlug },
+        capability: "read",
+      });
+      await grant(page, {
+        resource: { type: "llm_model", id: modelId },
+        grantee: { type: "user", id: delegatedManagerSubject },
+        capability: "manage",
+      });
+      await expectDecisionEventually(page, {
+        subjectId: teamMemberSubject,
+        resourceType: "llm_model",
+        resourceId: modelId,
+        action: "read",
+      }, "ALLOW");
+      await expectDecision(page, {
+        subjectId: outsiderSubject,
+        resourceType: "llm_model",
+        resourceId: modelId,
+        action: "read",
+      }, "DENY");
+
+      await installSession(page, env, {
+        email: delegatedManagerEmail,
+        subject: delegatedManagerSubject,
+        role: "user",
+      });
+      const delegatedModelEdit = await putJson(page, `/api/llm-models?id=${encodeURIComponent(modelId)}`, {
+        description: "Updated by delegated manager in RBAC matrix",
+      });
+      expect(delegatedModelEdit.status, JSON.stringify(delegatedModelEdit.body)).toBe(200);
+
+      await installSession(page, env, { email: env.user.email, subject: adminSubject, role: "admin" });
+      const kbAssign = await putJson(page, `/api/admin/teams/${encodeURIComponent(teamId)}/kb-assignments`, {
+        kb_ids: [datasourceId],
+        kb_permissions: { [datasourceId]: "ingest" },
+      });
+      expect(kbAssign.status, JSON.stringify(kbAssign.body)).toBe(200);
+      await expectDecisionEventually(page, {
+        subjectId: teamMemberSubject,
+        resourceType: "knowledge_base",
+        resourceId: datasourceId,
+        action: "ingest",
+      }, "ALLOW");
+      await expectDecisionEventually(page, {
+        subjectId: teamMemberSubject,
+        resourceType: "data_source",
+        resourceId: datasourceId,
+        action: "read",
+      }, "ALLOW");
+      await expectDecision(page, {
+        subjectId: outsiderSubject,
+        resourceType: "knowledge_base",
+        resourceId: datasourceId,
+        action: "read",
+      }, "DENY");
+
+      const ragCreate = await postJson(page, "/api/rag/v1/datasource", {
+        datasource_id: datasourceId,
+        name: `RBAC Matrix Datasource ${run}`,
+        ingestor_id: "rbac-e2e",
+        source_type: "web",
+        description: "RBAC matrix live datasource fixture",
+        metadata: { source_url: "https://example.test/rbac-matrix" },
+        owner_team_slug: teamSlug,
+      });
+      if (ragCreate.status >= 200 && ragCreate.status < 300) {
+        cleanups.push(adminCleanup(page, env, adminSubject, async () => {
+          await deleteJson(page, `/api/rag/v1/datasource?datasource_id=${encodeURIComponent(datasourceId)}`);
+        }));
+        await expectDecisionEventually(page, {
+          subjectId: teamMemberSubject,
+          resourceType: "knowledge_base",
+          resourceId: datasourceId,
+          action: "ingest",
+        }, "ALLOW");
+      } else if (isOptionalRagCreateFailure(ragCreate)) {
+        test.info().annotations.push({
+          type: "rag-create-skipped",
+          description:
+            `RAG datasource create returned ${ragCreate.status}; tuple/share matrix was still validated for ${datasourceId}.`,
+        });
+      } else {
+        expect(ragCreate.status, JSON.stringify(ragCreate.body)).toBeGreaterThanOrEqual(200);
+        expect(ragCreate.status, JSON.stringify(ragCreate.body)).toBeLessThan(300);
+      }
+
+      const kbRemove = await deleteJson(
+        page,
+        `/api/admin/teams/${encodeURIComponent(teamId)}/kb-assignments?datasource_id=${encodeURIComponent(datasourceId)}`,
+      );
+      expect(kbRemove.status, JSON.stringify(kbRemove.body)).toBe(200);
+      await expectDecisionEventually(page, {
+        subjectId: teamMemberSubject,
+        resourceType: "knowledge_base",
+        resourceId: datasourceId,
+        action: "ingest",
+      }, "DENY");
+    } finally {
+      await bestEffort(cleanups);
+    }
+  });
+
+  test("repairs legacy shared-agent writer tuples on first non-admin team edit", async ({ page }) => {
+    const env = rbacEnvOrSkip({ requireUserSub: true });
+    const run = suffix();
+    const cleanups: Cleanup[] = [];
+    const adminSubject = env.user.sub!;
+    const ownerTeamSlug = `rbac-legacy-owner-${slugify(run)}`;
+    const sharedTeamSlug = `rbac-legacy-shared-${slugify(run)}`;
+    const sharedMemberSubject = `e2e-legacy-shared-member-${run}`;
+    const sharedMemberEmail = `legacy-shared-member-${run}@caipe.local`;
+
+    try {
+      await installSession(page, env, { email: env.user.email, subject: adminSubject, role: "admin" });
+
+      const ownerTeamId = await createTeam(page, `RBAC Legacy Owner ${run}`, ownerTeamSlug, env.user.email);
+      cleanups.push(adminCleanup(page, env, adminSubject, async () => {
+        await deleteJson(page, `/api/admin/teams/${encodeURIComponent(ownerTeamId)}`);
+      }));
+      const sharedTeamId = await createTeam(page, `RBAC Legacy Shared ${run}`, sharedTeamSlug, env.user.email);
+      cleanups.push(adminCleanup(page, env, adminSubject, async () => {
+        await deleteJson(page, `/api/admin/teams/${encodeURIComponent(sharedTeamId)}`);
+      }));
+      await addTeamMemberTuple(page, cleanups, env, adminSubject, sharedTeamSlug, sharedMemberSubject, "member");
+
+      const agentId = await createTeamAgent(
+        page,
+        `RBAC Legacy Shared Agent ${run}`,
+        ownerTeamSlug,
+        { shared_with_teams: [sharedTeamSlug] },
+      );
+      cleanups.push(adminCleanup(page, env, adminSubject, async () => {
+        await deleteJson(page, `/api/dynamic-agents?id=${encodeURIComponent(agentId)}`);
+      }));
+
+      const legacyUserTuple = {
+        user: `team:${sharedTeamSlug}#member`,
+        relation: "user",
+        object: `agent:${agentId}`,
+      };
+      const missingWriterTuple = {
+        user: `team:${sharedTeamSlug}#member`,
+        relation: "writer",
+        object: `agent:${agentId}`,
+      };
+      await writeTuples(page, { deletes: [missingWriterTuple] });
+
+      await expectTuple(page, legacyUserTuple, true);
+      await expectTuple(page, missingWriterTuple, false);
+      await expectDecisionEventually(page, {
+        subjectId: sharedMemberSubject,
+        resourceType: "agent",
+        resourceId: agentId,
+        action: "use",
+      }, "ALLOW");
+      await expectDecisionEventually(page, {
+        subjectId: sharedMemberSubject,
+        resourceType: "agent",
+        resourceId: agentId,
+        action: "write",
+      }, "DENY");
+
+      await installSession(page, env, {
+        email: sharedMemberEmail,
+        subject: sharedMemberSubject,
+        role: "user",
+      });
+      const sharedMemberEdit = await putJson(page, `/api/dynamic-agents?id=${encodeURIComponent(agentId)}`, {
+        description: "Updated by a shared-team member while repairing a legacy writer tuple",
+      });
+      expect(sharedMemberEdit.status, JSON.stringify(sharedMemberEdit.body)).toBe(200);
+
+      await installSession(page, env, { email: env.user.email, subject: adminSubject, role: "admin" });
+      await expectTuple(page, missingWriterTuple, true);
+      await expectDecisionEventually(page, {
+        subjectId: sharedMemberSubject,
+        resourceType: "agent",
+        resourceId: agentId,
+        action: "write",
+      }, "ALLOW");
+    } finally {
+      await bestEffort(cleanups);
+    }
+  });
+
+  test("covers owner-team, shared-team, and non-admin lifecycle boundaries", async ({ page }) => {
+    const env = rbacEnvOrSkip({ requireUserSub: true });
+    const run = suffix();
+    const cleanups: Cleanup[] = [];
+    const adminSubject = env.user.sub!;
+    const ownerTeamSlug = `rbac-owner-${slugify(run)}`;
+    const sharedTeamSlug = `rbac-shared-${slugify(run)}`;
+    const ownerMemberSubject = `e2e-owner-member-${run}`;
+    const ownerMemberEmail = `owner-member-${run}@caipe.local`;
+    const ownerAdminSubject = `e2e-owner-admin-${run}`;
+    const ownerAdminEmail = `owner-admin-${run}@caipe.local`;
+    const sharedMemberSubject = `e2e-shared-member-${run}`;
+    const sharedMemberEmail = `shared-member-${run}@caipe.local`;
+    const outsiderSubject = `e2e-boundary-outsider-${run}`;
+    const outsiderEmail = `boundary-outsider-${run}@caipe.local`;
+
+    try {
+      await installSession(page, env, { email: env.user.email, subject: adminSubject, role: "admin" });
+
+      const ownerTeamId = await createTeam(page, `RBAC Owner Team ${run}`, ownerTeamSlug, env.user.email);
+      cleanups.push(adminCleanup(page, env, adminSubject, async () => {
+        await deleteJson(page, `/api/admin/teams/${encodeURIComponent(ownerTeamId)}`);
+      }));
+      const sharedTeamId = await createTeam(page, `RBAC Shared Team ${run}`, sharedTeamSlug, env.user.email);
+      cleanups.push(adminCleanup(page, env, adminSubject, async () => {
+        await deleteJson(page, `/api/admin/teams/${encodeURIComponent(sharedTeamId)}`);
+      }));
+      await addTeamMemberTuple(page, cleanups, env, adminSubject, ownerTeamSlug, ownerMemberSubject, "member");
+      await addTeamMemberTuple(page, cleanups, env, adminSubject, ownerTeamSlug, ownerAdminSubject, "admin");
+      await addTeamMemberTuple(page, cleanups, env, adminSubject, sharedTeamSlug, sharedMemberSubject, "member");
+      await addOrganizationMemberTuple(page, cleanups, env, adminSubject, ownerMemberSubject);
+      await addOrganizationMemberTuple(page, cleanups, env, adminSubject, outsiderSubject);
+
+      await installSession(page, env, {
+        email: ownerMemberEmail,
+        subject: ownerMemberSubject,
+        role: "user",
+      });
+      const memberAgentId = await createTeamAgent(page, `RBAC Member Created Agent ${run}`, ownerTeamSlug);
+      const cleanupMemberAgent = adminCleanup(page, env, adminSubject, async () => {
+        await deleteJson(page, `/api/dynamic-agents?id=${encodeURIComponent(memberAgentId)}`);
+      });
+      cleanups.push(cleanupMemberAgent);
+      const memberAgentEdit = await putJson(page, `/api/dynamic-agents?id=${encodeURIComponent(memberAgentId)}`, {
+        description: "Updated by the non-admin creator in lifecycle matrix",
+      });
+      expect(memberAgentEdit.status, JSON.stringify(memberAgentEdit.body)).toBe(200);
+      const memberAgentDelete = await deleteJson(page, `/api/dynamic-agents?id=${encodeURIComponent(memberAgentId)}`);
+      expect(memberAgentDelete.status, JSON.stringify(memberAgentDelete.body)).toBe(200);
+      removeCleanup(cleanups, cleanupMemberAgent);
+
+      const memberMcpServerId = await createMcpServerForTeam(page, `${slugify(run)}-member`, ownerTeamSlug);
+      const cleanupMemberMcp = async () => {
+        await installSession(page, env, {
+          email: ownerMemberEmail,
+          subject: ownerMemberSubject,
+          role: "user",
+        });
+        await deleteJson(page, `/api/mcp-servers?id=${encodeURIComponent(memberMcpServerId)}`);
+      };
+      cleanups.push(cleanupMemberMcp);
+      const memberMcpEdit = await putJson(page, `/api/mcp-servers?id=${encodeURIComponent(memberMcpServerId)}`, {
+        description: "Updated by the non-admin MCP creator in lifecycle matrix",
+      });
+      expect(memberMcpEdit.status, JSON.stringify(memberMcpEdit.body)).toBe(200);
+      const memberMcpDelete = await deleteJson(page, `/api/mcp-servers?id=${encodeURIComponent(memberMcpServerId)}`);
+      expect(memberMcpDelete.status, JSON.stringify(memberMcpDelete.body)).toBe(200);
+      removeCleanup(cleanups, cleanupMemberMcp);
+
+      const memberModelId = await createLlmModel(
+        page,
+        `rbac-member/${slugify(run)}`,
+        `RBAC Member LLM ${run}`,
+      );
+      const cleanupMemberModel = async () => {
+        await installSession(page, env, {
+          email: ownerMemberEmail,
+          subject: ownerMemberSubject,
+          role: "user",
+        });
+        await deleteJson(page, `/api/llm-models?id=${encodeURIComponent(memberModelId)}`);
+      };
+      cleanups.push(cleanupMemberModel);
+      const memberModelEdit = await putJson(page, `/api/llm-models?id=${encodeURIComponent(memberModelId)}`, {
+        description: "Updated by the non-admin LLM creator in lifecycle matrix",
+      });
+      expect(memberModelEdit.status, JSON.stringify(memberModelEdit.body)).toBe(200);
+      const memberModelDelete = await deleteJson(page, `/api/llm-models?id=${encodeURIComponent(memberModelId)}`);
+      expect(memberModelDelete.status, JSON.stringify(memberModelDelete.body)).toBe(200);
+      removeCleanup(cleanups, cleanupMemberModel);
+
+      await installSession(page, env, {
+        email: outsiderEmail,
+        subject: outsiderSubject,
+        role: "user",
+      });
+      const deniedTeamAgentCreate = await postJson(page, "/api/dynamic-agents", {
+        name: `RBAC Outsider Agent ${run}`,
+        system_prompt: "Should not be created by a non-member.",
+        model: { id: "gpt-4o-mini", provider: "openai" },
+        visibility: "team",
+        owner_team_slug: ownerTeamSlug,
+        enabled: true,
+        allowed_tools: {},
+      });
+      expect(deniedTeamAgentCreate.status, JSON.stringify(deniedTeamAgentCreate.body)).toBe(403);
+      const deniedTeamMcpCreate = await postJson(page, "/api/mcp-servers", {
+        id: `rbac-denied-${slugify(run)}`,
+        name: `RBAC Denied MCP ${run}`,
+        description: "Should not be created for a team by a non-member.",
+        transport: "http",
+        endpoint: "https://mcp.example.test/mcp",
+        owner_team_slug: ownerTeamSlug,
+        enabled: true,
+      });
+      expect(deniedTeamMcpCreate.status, JSON.stringify(deniedTeamMcpCreate.body)).toBe(403);
+
+      await installSession(page, env, { email: env.user.email, subject: adminSubject, role: "admin" });
+      const adminAgentId = await createTeamAgent(page, `RBAC Admin Created Agent ${run}`, ownerTeamSlug);
+      const cleanupAdminAgent = adminCleanup(page, env, adminSubject, async () => {
+        await deleteJson(page, `/api/dynamic-agents?id=${encodeURIComponent(adminAgentId)}`);
+      });
+      cleanups.push(cleanupAdminAgent);
+      await expectDecisionEventually(page, {
+        subjectId: ownerMemberSubject,
+        resourceType: "agent",
+        resourceId: adminAgentId,
+        action: "write",
+      }, "ALLOW");
+      await expectDecisionEventually(page, {
+        subjectId: ownerMemberSubject,
+        resourceType: "agent",
+        resourceId: adminAgentId,
+        action: "delete",
+      }, "DENY");
+      await expectDecision(page, {
+        subjectId: sharedMemberSubject,
+        resourceType: "agent",
+        resourceId: adminAgentId,
+        action: "write",
+      }, "DENY");
+      await expectDecision(page, {
+        subjectId: outsiderSubject,
+        resourceType: "agent",
+        resourceId: adminAgentId,
+        action: "write",
+      }, "DENY");
+
+      await installSession(page, env, {
+        email: ownerMemberEmail,
+        subject: ownerMemberSubject,
+        role: "user",
+      });
+      const ownerMemberEdit = await putJson(page, `/api/dynamic-agents?id=${encodeURIComponent(adminAgentId)}`, {
+        description: "Updated by owner-team member in lifecycle matrix",
+      });
+      expect(ownerMemberEdit.status, JSON.stringify(ownerMemberEdit.body)).toBe(200);
+      const ownerMemberDelete = await deleteJson(page, `/api/dynamic-agents?id=${encodeURIComponent(adminAgentId)}`);
+      expect(ownerMemberDelete.status, JSON.stringify(ownerMemberDelete.body)).toBe(403);
+
+      await installSession(page, env, {
+        email: outsiderEmail,
+        subject: outsiderSubject,
+        role: "user",
+      });
+      const outsiderAgentEdit = await putJson(page, `/api/dynamic-agents?id=${encodeURIComponent(adminAgentId)}`, {
+        description: "Outsider update should be denied",
+      });
+      expect(outsiderAgentEdit.status, JSON.stringify(outsiderAgentEdit.body)).toBe(403);
+
+      await installSession(page, env, { email: env.user.email, subject: adminSubject, role: "admin" });
+      const agentShare = await putJson(page, `/api/dynamic-agents?id=${encodeURIComponent(adminAgentId)}`, {
+        shared_with_teams: [sharedTeamSlug],
+      });
+      expect(agentShare.status, JSON.stringify(agentShare.body)).toBe(200);
+      await expectDecisionEventually(page, {
+        subjectId: sharedMemberSubject,
+        resourceType: "agent",
+        resourceId: adminAgentId,
+        action: "use",
+      }, "ALLOW");
+      await expectDecisionEventually(page, {
+        subjectId: sharedMemberSubject,
+        resourceType: "agent",
+        resourceId: adminAgentId,
+        action: "write",
+      }, "ALLOW");
+
+      await installSession(page, env, {
+        email: sharedMemberEmail,
+        subject: sharedMemberSubject,
+        role: "user",
+      });
+      const sharedMemberEdit = await putJson(page, `/api/dynamic-agents?id=${encodeURIComponent(adminAgentId)}`, {
+        description: "Updated by shared-team member in lifecycle matrix",
+      });
+      expect(sharedMemberEdit.status, JSON.stringify(sharedMemberEdit.body)).toBe(200);
+      const sharedMemberDelete = await deleteJson(page, `/api/dynamic-agents?id=${encodeURIComponent(adminAgentId)}`);
+      expect(sharedMemberDelete.status, JSON.stringify(sharedMemberDelete.body)).toBe(403);
+
+      await installSession(page, env, { email: env.user.email, subject: adminSubject, role: "admin" });
+      const agentRevoke = await putJson(page, `/api/dynamic-agents?id=${encodeURIComponent(adminAgentId)}`, {
+        shared_with_teams: [],
+      });
+      expect(agentRevoke.status, JSON.stringify(agentRevoke.body)).toBe(200);
+      await expectDecisionEventually(page, {
+        subjectId: sharedMemberSubject,
+        resourceType: "agent",
+        resourceId: adminAgentId,
+        action: "write",
+      }, "DENY");
+      await expectDecisionEventually(page, {
+        subjectId: sharedMemberSubject,
+        resourceType: "agent",
+        resourceId: adminAgentId,
+        action: "use",
+      }, "DENY");
+      await installSession(page, env, {
+        email: sharedMemberEmail,
+        subject: sharedMemberSubject,
+        role: "user",
+      });
+      const revokedSharedMemberEdit = await putJson(page, `/api/dynamic-agents?id=${encodeURIComponent(adminAgentId)}`, {
+        description: "Revoked shared-team member should not edit",
+      });
+      expect(revokedSharedMemberEdit.status, JSON.stringify(revokedSharedMemberEdit.body)).toBe(403);
+
+      await installSession(page, env, { email: env.user.email, subject: adminSubject, role: "admin" });
+      const teamAdminAgentId = await createTeamAgent(page, `RBAC Team Admin Delete Agent ${run}`, ownerTeamSlug);
+      const cleanupTeamAdminAgent = adminCleanup(page, env, adminSubject, async () => {
+        await deleteJson(page, `/api/dynamic-agents?id=${encodeURIComponent(teamAdminAgentId)}`);
+      });
+      cleanups.push(cleanupTeamAdminAgent);
+      await installSession(page, env, {
+        email: ownerAdminEmail,
+        subject: ownerAdminSubject,
+        role: "user",
+      });
+      const teamAdminAgentDelete = await deleteJson(page, `/api/dynamic-agents?id=${encodeURIComponent(teamAdminAgentId)}`);
+      expect(teamAdminAgentDelete.status, JSON.stringify(teamAdminAgentDelete.body)).toBe(200);
+      removeCleanup(cleanups, cleanupTeamAdminAgent);
+
+      await installSession(page, env, { email: env.user.email, subject: adminSubject, role: "admin" });
+      const adminMcpServerId = await createMcpServerForTeam(page, `${slugify(run)}-admin`, ownerTeamSlug);
+      const cleanupAdminMcp = adminCleanup(page, env, adminSubject, async () => {
+        await deleteJson(page, `/api/mcp-servers?id=${encodeURIComponent(adminMcpServerId)}`);
+      });
+      cleanups.push(cleanupAdminMcp);
+      await expectDecisionEventually(page, {
+        subjectId: ownerMemberSubject,
+        resourceType: "mcp_server",
+        resourceId: adminMcpServerId,
+        action: "read",
+      }, "ALLOW");
+      await expectDecisionEventually(page, {
+        subjectId: ownerMemberSubject,
+        resourceType: "mcp_server",
+        resourceId: adminMcpServerId,
+        action: "manage",
+      }, "DENY");
+
+      await installSession(page, env, {
+        email: ownerMemberEmail,
+        subject: ownerMemberSubject,
+        role: "user",
+      });
+      const ownerMemberMcpEdit = await putJson(page, `/api/mcp-servers?id=${encodeURIComponent(adminMcpServerId)}`, {
+        description: "Owner-team member should not manage MCP servers",
+      });
+      expect(ownerMemberMcpEdit.status, JSON.stringify(ownerMemberMcpEdit.body)).toBe(403);
+
+      await installSession(page, env, {
+        email: ownerAdminEmail,
+        subject: ownerAdminSubject,
+        role: "user",
+      });
+      const ownerAdminMcpEdit = await putJson(page, `/api/mcp-servers?id=${encodeURIComponent(adminMcpServerId)}`, {
+        description: "Updated by owner-team admin in lifecycle matrix",
+      });
+      expect(ownerAdminMcpEdit.status, JSON.stringify(ownerAdminMcpEdit.body)).toBe(200);
+      const ownerAdminMcpDelete = await deleteJson(page, `/api/mcp-servers?id=${encodeURIComponent(adminMcpServerId)}`);
+      expect(ownerAdminMcpDelete.status, JSON.stringify(ownerAdminMcpDelete.body)).toBe(200);
+      removeCleanup(cleanups, cleanupAdminMcp);
+
+      await installSession(page, env, { email: env.user.email, subject: adminSubject, role: "admin" });
+      const adminModelId = await createLlmModel(
+        page,
+        `rbac-admin/${slugify(run)}`,
+        `RBAC Admin LLM ${run}`,
+      );
+      const cleanupAdminModel = adminCleanup(page, env, adminSubject, async () => {
+        await deleteJson(page, `/api/llm-models?id=${encodeURIComponent(adminModelId)}`);
+      });
+      cleanups.push(cleanupAdminModel);
+      await grant(page, {
+        resource: { type: "llm_model", id: adminModelId },
+        grantee: { type: "team", id: ownerTeamSlug },
+        capability: "read",
+      });
+      await expectDecisionEventually(page, {
+        subjectId: ownerMemberSubject,
+        resourceType: "llm_model",
+        resourceId: adminModelId,
+        action: "read",
+      }, "ALLOW");
+      await expectDecision(page, {
+        subjectId: ownerMemberSubject,
+        resourceType: "llm_model",
+        resourceId: adminModelId,
+        action: "write",
+      }, "DENY");
+      await installSession(page, env, {
+        email: ownerMemberEmail,
+        subject: ownerMemberSubject,
+        role: "user",
+      });
+      const ownerMemberModelEdit = await putJson(page, `/api/llm-models?id=${encodeURIComponent(adminModelId)}`, {
+        description: "Read-only team member should not edit LLM models",
+      });
+      expect(ownerMemberModelEdit.status, JSON.stringify(ownerMemberModelEdit.body)).toBe(403);
+
+      await installSession(page, env, { email: env.user.email, subject: adminSubject, role: "admin" });
+      await grant(page, {
+        resource: { type: "llm_model", id: adminModelId },
+        grantee: { type: "user", id: ownerAdminSubject },
+        capability: "manage",
+      });
+      await installSession(page, env, {
+        email: ownerAdminEmail,
+        subject: ownerAdminSubject,
+        role: "user",
+      });
+      const ownerAdminModelEdit = await putJson(page, `/api/llm-models?id=${encodeURIComponent(adminModelId)}`, {
+        description: "Updated by delegated LLM manager in lifecycle matrix",
+      });
+      expect(ownerAdminModelEdit.status, JSON.stringify(ownerAdminModelEdit.body)).toBe(200);
+      const ownerAdminModelDelete = await deleteJson(page, `/api/llm-models?id=${encodeURIComponent(adminModelId)}`);
+      expect(ownerAdminModelDelete.status, JSON.stringify(ownerAdminModelDelete.body)).toBe(200);
+      removeCleanup(cleanups, cleanupAdminModel);
+    } finally {
+      await bestEffort(cleanups);
+    }
+  });
+
+  test("covers two-team knowledge-base and datasource share/revoke independence", async ({ page }) => {
+    const env = rbacEnvOrSkip({ requireUserSub: true });
+    const run = suffix();
+    const cleanups: Cleanup[] = [];
+    const adminSubject = env.user.sub!;
+    const teamOneSlug = `rbac-kb-one-${slugify(run)}`;
+    const teamTwoSlug = `rbac-kb-two-${slugify(run)}`;
+    const teamOneMemberSubject = `e2e-kb-one-member-${run}`;
+    const teamTwoMemberSubject = `e2e-kb-two-member-${run}`;
+    const datasourceId = `rbac-kb-matrix-${slugify(run)}`;
+
+    try {
+      await installSession(page, env, { email: env.user.email, subject: adminSubject, role: "admin" });
+
+      const teamOneId = await createTeam(page, `RBAC KB One ${run}`, teamOneSlug, env.user.email);
+      cleanups.push(adminCleanup(page, env, adminSubject, async () => {
+        await deleteJson(page, `/api/admin/teams/${encodeURIComponent(teamOneId)}`);
+      }));
+      const teamTwoId = await createTeam(page, `RBAC KB Two ${run}`, teamTwoSlug, env.user.email);
+      cleanups.push(adminCleanup(page, env, adminSubject, async () => {
+        await deleteJson(page, `/api/admin/teams/${encodeURIComponent(teamTwoId)}`);
+      }));
+      await addTeamMemberTuple(page, cleanups, env, adminSubject, teamOneSlug, teamOneMemberSubject, "member");
+      await addTeamMemberTuple(page, cleanups, env, adminSubject, teamTwoSlug, teamTwoMemberSubject, "member");
+
+      const teamOneAssign = await putJson(page, `/api/admin/teams/${encodeURIComponent(teamOneId)}/kb-assignments`, {
+        kb_ids: [datasourceId],
+        kb_permissions: { [datasourceId]: "ingest" },
+      });
+      expect(teamOneAssign.status, JSON.stringify(teamOneAssign.body)).toBe(200);
+      await expectDecisionEventually(page, {
+        subjectId: teamOneMemberSubject,
+        resourceType: "knowledge_base",
+        resourceId: datasourceId,
+        action: "ingest",
+      }, "ALLOW");
+      await expectDecisionEventually(page, {
+        subjectId: teamOneMemberSubject,
+        resourceType: "data_source",
+        resourceId: datasourceId,
+        action: "read",
+      }, "ALLOW");
+      await expectDecision(page, {
+        subjectId: teamTwoMemberSubject,
+        resourceType: "knowledge_base",
+        resourceId: datasourceId,
+        action: "ingest",
+      }, "DENY");
+
+      const teamTwoAssign = await putJson(page, `/api/admin/teams/${encodeURIComponent(teamTwoId)}/kb-assignments`, {
+        kb_ids: [datasourceId],
+        kb_permissions: { [datasourceId]: "read" },
+      });
+      expect(teamTwoAssign.status, JSON.stringify(teamTwoAssign.body)).toBe(200);
+      await expectDecisionEventually(page, {
+        subjectId: teamTwoMemberSubject,
+        resourceType: "knowledge_base",
+        resourceId: datasourceId,
+        action: "read",
+      }, "ALLOW");
+      await expectDecisionEventually(page, {
+        subjectId: teamTwoMemberSubject,
+        resourceType: "knowledge_base",
+        resourceId: datasourceId,
+        action: "ingest",
+      }, "DENY");
+
+      const teamOneRemove = await deleteJson(
+        page,
+        `/api/admin/teams/${encodeURIComponent(teamOneId)}/kb-assignments?datasource_id=${encodeURIComponent(datasourceId)}`,
+      );
+      expect(teamOneRemove.status, JSON.stringify(teamOneRemove.body)).toBe(200);
+      await expectDecisionEventually(page, {
+        subjectId: teamOneMemberSubject,
+        resourceType: "knowledge_base",
+        resourceId: datasourceId,
+        action: "ingest",
+      }, "DENY");
+      await expectDecisionEventually(page, {
+        subjectId: teamTwoMemberSubject,
+        resourceType: "knowledge_base",
+        resourceId: datasourceId,
+        action: "read",
+      }, "ALLOW");
+
+      const teamTwoRemove = await deleteJson(
+        page,
+        `/api/admin/teams/${encodeURIComponent(teamTwoId)}/kb-assignments?datasource_id=${encodeURIComponent(datasourceId)}`,
+      );
+      expect(teamTwoRemove.status, JSON.stringify(teamTwoRemove.body)).toBe(200);
+      await expectDecisionEventually(page, {
+        subjectId: teamTwoMemberSubject,
+        resourceType: "knowledge_base",
+        resourceId: datasourceId,
+        action: "read",
+      }, "DENY");
+    } finally {
+      await bestEffort(cleanups);
+    }
+  });
+
   test("covers agent, skill, workflow create/update/delete across org-admin and non-admin personas", async ({
     page,
   }) => {

@@ -65,6 +65,8 @@ const RELEASE_051_FALLBACK_SECTIONS: ReleaseNote["sections"] = [
   },
 ];
 
+const CHANGELOG_URL = "https://github.com/cnoe-io/ai-platform-engineering/blob/main/CHANGELOG.md";
+
 function fallbackSections(releaseVersion: string): ReleaseNote["sections"] {
   const normalizedReleaseVersion = releaseVersion.trim().replace(/^v/, "").toLowerCase();
   if (normalizedReleaseVersion === "0.5.1" || normalizedReleaseVersion === "dev") {
@@ -228,9 +230,9 @@ export function ReleaseUpgradeDialog({
           </div>
           <DialogTitle>What&apos;s new in {releaseVersion}</DialogTitle>
           <DialogDescription>
-            {isAdmin
+            {isAdmin && showMigrationCta
               ? "This deployment includes new release updates and schema migrations. Review the notes, then open the migration assistant when you are ready."
-              : "This deployment includes CAIPE updates that make agent access and chat connector setup easier to understand."}
+              : "This deployment includes CAIPE updates from the active release. Review the notes when you are ready."}
           </DialogDescription>
         </DialogHeader>
 
@@ -258,6 +260,17 @@ export function ReleaseUpgradeDialog({
               ))}
             </div>
           )}
+        </div>
+
+        <div className="text-xs text-muted-foreground">
+          <a
+            href={CHANGELOG_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-medium text-primary underline-offset-2 hover:underline"
+          >
+            View full changelog
+          </a>
         </div>
 
         {isAdmin && showMigrationCta && (

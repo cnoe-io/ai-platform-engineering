@@ -37,13 +37,14 @@ async function resolveDefaultAgentId(): Promise<string | undefined> {
  */
 function ChatRedirectPage() {
   const router = useRouter();
-  const { data: session } = useSession();
+  const { data: session, status } = useSession();
   const redirected = useRef(false);
 
   const createConversation = useChatStore((s) => s.createConversation);
   const loadConversationsFromServer = useChatStore((s) => s.loadConversationsFromServer);
 
   useEffect(() => {
+    if (status === "loading") return;
     if (redirected.current) return;
 
     const resolve = async () => {
@@ -102,7 +103,7 @@ function ChatRedirectPage() {
       }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [status]);
 
   return (
     <div className="flex-1 flex items-center justify-center h-full bg-background">

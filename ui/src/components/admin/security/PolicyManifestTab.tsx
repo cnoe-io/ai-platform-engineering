@@ -1,12 +1,20 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { FileText, Loader2, RefreshCw, Search } from "lucide-react";
+import { Download, Eye, FileText, Loader2, RefreshCw, Search } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { AuthorizationPolicyDefinition } from "@/lib/rbac/authorization-policy-catalog";
 
 // assisted-by Codex Codex-sonnet-4-6
@@ -84,6 +92,58 @@ function grantTemplate(grant: AuthorizationPolicyDefinition["grants"][number]): 
   return `${grant.subject.type}:{${grant.subject.parameter}}${subjectRelation} ${grant.action} ${grant.resource.type}:{${grant.resource.parameter}}`;
 }
 
+function yamlScalar(value: string): string {
+  return JSON.stringify(value);
+}
+
+function policyToYaml(policy: AuthorizationPolicyDefinition): string {
+  const lines = [
+    `id: ${yamlScalar(policy.id)}`,
+    `family: ${yamlScalar(policy.family)}`,
+    `surface: ${yamlScalar(policy.surface)}`,
+    `title: ${yamlScalar(policy.title)}`,
+    `description: ${yamlScalar(policy.description)}`,
+    `trigger: ${yamlScalar(policy.trigger)}`,
+    "feature:",
+    `  name: ${yamlScalar(policy.feature.name)}`,
+    `  summary: ${yamlScalar(policy.feature.summary)}`,
+    "  subfeatures:",
+    ...policy.feature.subfeatures.flatMap((subfeature) => [
+      `    - name: ${yamlScalar(subfeature.name)}`,
+      `      behavior: ${yamlScalar(subfeature.behavior)}`,
+      `      authorization: ${yamlScalar(subfeature.authorization)}`,
+    ]),
+    "grants:",
+    ...policy.grants.flatMap((grant) => [
+      "  - subject:",
+      `      type: ${yamlScalar(grant.subject.type)}`,
+      `      parameter: ${yamlScalar(grant.subject.parameter)}`,
+      ...(grant.subject.relation ? [`      relation: ${yamlScalar(grant.subject.relation)}`] : []),
+      `    action: ${yamlScalar(grant.action)}`,
+      "    resource:",
+      `      type: ${yamlScalar(grant.resource.type)}`,
+      `      parameter: ${yamlScalar(grant.resource.parameter)}`,
+    ]),
+  ];
+
+  return `${lines.join("\n")}\n`;
+}
+
+function downloadPolicy(policy: AuthorizationPolicyDefinition, format: "json" | "yaml") {
+  const content = format === "json" ? `${JSON.stringify(policy, null, 2)}\n` : policyToYaml(policy);
+  const blob = new Blob([content], {
+    type: format === "json" ? "application/json" : "application/yaml",
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${policy.id}.${format === "json" ? "json" : "yaml"}`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 function policyMatches(policy: AuthorizationPolicyDefinition, query: string): boolean {
   const haystack = [
     policy.id,
@@ -123,6 +183,7 @@ export function PolicyManifestTab() {
   const [surface, setSurface] = useState("all");
   const [family, setFamily] = useState("all");
   const [query, setQuery] = useState("");
+  const [selectedPolicy, setSelectedPolicy] = useState<AuthorizationPolicyDefinition | null>(null);
 
   const loadPolicies = useCallback(async () => {
     setLoading(true);
@@ -245,7 +306,39 @@ export function PolicyManifestTab() {
                     </div>
                     <p className="text-sm text-muted-foreground">{policyOutcome(policy)}</p>
                   </div>
-                  <Badge variant="secondary">{policy.grants.length} access changes</Badge>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="gap-2"
+                      onClick={() => setSelectedPolicy(policy)}
+                    >
+                      <Eye className="h-4 w-4" />
+                      View manifest
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="gap-2"
+                      onClick={() => downloadPolicy(policy, "yaml")}
+                    >
+                      <Download className="h-4 w-4" />
+                      YAML
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="gap-2"
+                      onClick={() => downloadPolicy(policy, "json")}
+                    >
+                      <Download className="h-4 w-4" />
+                      JSON
+                    </Button>
+                    <Badge variant="secondary">{policy.grants.length} access changes</Badge>
+                  </div>
                 </div>
 
                 <div className="mt-4 rounded-md border bg-background/50 p-3">
@@ -334,6 +427,59 @@ export function PolicyManifestTab() {
           </div>
         )}
       </CardContent>
+      <PolicyManifestDialog policy={selectedPolicy} onOpenChange={(open) => !open && setSelectedPolicy(null)} />
     </Card>
+  );
+}
+
+function PolicyManifestDialog({
+  policy,
+  onOpenChange,
+}: {
+  policy: AuthorizationPolicyDefinition | null;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const json = useMemo(() => (policy ? `${JSON.stringify(policy, null, 2)}\n` : ""), [policy]);
+  const yaml = useMemo(() => (policy ? policyToYaml(policy) : ""), [policy]);
+
+  return (
+    <Dialog open={Boolean(policy)} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[85vh] max-w-4xl overflow-hidden p-0">
+        <DialogHeader className="border-b px-6 pb-4 pt-6">
+          <DialogTitle>Policy manifest</DialogTitle>
+          <DialogDescription>{policy ? policyHeading(policy) : "Policy manifest"}</DialogDescription>
+        </DialogHeader>
+        {policy ? (
+          <Tabs defaultValue="yaml" className="flex min-h-0 flex-col px-6 pb-6">
+            <div className="flex flex-wrap items-center justify-between gap-3 py-4">
+              <TabsList>
+                <TabsTrigger value="yaml">YAML</TabsTrigger>
+                <TabsTrigger value="json">JSON</TabsTrigger>
+              </TabsList>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button variant="outline" size="sm" className="gap-2" onClick={() => downloadPolicy(policy, "yaml")}>
+                  <Download className="h-4 w-4" />
+                  Download YAML
+                </Button>
+                <Button variant="outline" size="sm" className="gap-2" onClick={() => downloadPolicy(policy, "json")}>
+                  <Download className="h-4 w-4" />
+                  Download JSON
+                </Button>
+              </div>
+            </div>
+            <TabsContent value="yaml" className="mt-0 min-h-0">
+              <pre className="max-h-[55vh] overflow-auto rounded-md border bg-muted/30 p-4 text-xs leading-relaxed">
+                <code>{yaml}</code>
+              </pre>
+            </TabsContent>
+            <TabsContent value="json" className="mt-0 min-h-0">
+              <pre className="max-h-[55vh] overflow-auto rounded-md border bg-muted/30 p-4 text-xs leading-relaxed">
+                <code>{json}</code>
+              </pre>
+            </TabsContent>
+          </Tabs>
+        ) : null}
+      </DialogContent>
+    </Dialog>
   );
 }

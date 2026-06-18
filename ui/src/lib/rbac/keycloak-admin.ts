@@ -527,7 +527,7 @@ export async function searchRealmUsers(
   return parseJsonArray<Record<string, unknown>>(response);
 }
 
-async function findRealmUsersByExactEmail(email: string): Promise<Array<Record<string, unknown>>> {
+export async function findRealmUsersByExactEmail(email: string): Promise<Array<Record<string, unknown>>> {
   const qs = new URLSearchParams({
     email,
     exact: "true",

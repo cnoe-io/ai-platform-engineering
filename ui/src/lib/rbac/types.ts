@@ -5,6 +5,8 @@
  * the CAIPE Admin UI and Web UI backend API routes.
  */
 
+// assisted-by Codex Codex-sonnet-4-6
+
 /** Protected components from the 098 permission matrix (FR-008, FR-014) */
 export type RbacResource =
   | "ai_assist"
@@ -196,6 +198,7 @@ export type AdminTabKey =
   | "health"
   | "credentials"
   | "audit_logs"
+  | "dynamic_agent_conversations"
   | "action_audit"
   | "openfga"
   | "migrations"

@@ -1,5 +1,7 @@
 "use client";
 
+// assisted-by Codex Codex-sonnet-4-6
+
 import { Badge } from "@/components/ui/badge";
 import { Popover,PopoverContent,PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
@@ -15,6 +17,7 @@ interface MultiSelectProps {
   emptyLabel?: string;
   badgeLabel?: string;
   className?: string;
+  portalled?: boolean;
 }
 
 export function MultiSelect({
@@ -26,13 +29,21 @@ export function MultiSelect({
   emptyLabel = "No results found",
   badgeLabel = "selected",
   className,
+  portalled = true,
 }: MultiSelectProps) {
   const [open, setOpen] = React.useState(false);
   const [search, setSearch] = React.useState("");
   const inputRef = React.useRef<HTMLInputElement>(null);
 
-  const filtered = search
-    ? options.filter((o) => o.toLowerCase().includes(search.toLowerCase()))
+  React.useEffect(() => {
+    if (!open) return;
+    const id = window.setTimeout(() => inputRef.current?.focus(), 0);
+    return () => window.clearTimeout(id);
+  }, [open]);
+
+  const normalizedSearch = search.trim().toLowerCase();
+  const filtered = normalizedSearch
+    ? options.filter((o) => o.toLowerCase().includes(normalizedSearch))
     : options;
 
   const toggle = (option: string) => {
@@ -85,14 +96,20 @@ export function MultiSelect({
           <ChevronDown className="h-3 w-3 text-muted-foreground shrink-0" />
         </button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-[240px] p-0">
-        <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
+      <PopoverContent align="start" className="w-[240px] p-0" portalled={portalled}>
+        <div
+          className="flex items-center gap-2 px-3 py-2 border-b border-border"
+          onClick={() => inputRef.current?.focus()}
+        >
           <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
           <input
             ref={inputRef}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
+            onInput={(e) => setSearch(e.currentTarget.value)}
+            onKeyDown={(e) => e.stopPropagation()}
             placeholder={searchPlaceholder}
+            data-testid="multi-select-search"
             className="flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground"
             autoFocus
           />
