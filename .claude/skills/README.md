@@ -60,6 +60,21 @@ docker restart caipe-supervisor  # after agents are warm
 
 See [integration-testing/SKILL.md](./integration-testing/SKILL.md) for full testing procedure.
 
+### 🐳 [docker-compose-first-install](./docker-compose-first-install/)
+Validate and repair the plain OSS first-install path for `docker-compose.yaml`
+and `.env.example`.
+
+**Quick Start:**
+```bash
+COMPOSE_PROFILES="mcp-servers,caipe-ui-prod,rbac,caipe-supervisor,dynamic-agents,rag,caipe-mongodb" \
+NEXTAUTH_SECRET=test \
+docker compose --env-file .env.example -f docker-compose.yaml config --quiet
+```
+
+See [docker-compose-first-install/SKILL.md](./docker-compose-first-install/SKILL.md)
+before changing Compose profiles, release images, Keycloak/OpenFGA/RAG defaults,
+or first-launch UX.
+
 ### 📡 [streaming-testing](./streaming-testing/)
 Compare A2A streaming behaviour across supervisor versions (e.g. 0.3.0 vs 0.2.41).
 

@@ -69,6 +69,20 @@ Before committing code changes, run relevant checks:
 - Python: `uv run ruff check`, `uv run pytest` (always use `uv run` to ensure virtual env)
 - UI: `nvm use` first (if available), then `npm run lint`, `npm run build`
 
+## Docker Compose First Install
+
+When changing `docker-compose.yaml`, `docker-compose.dev.yaml`, `.env.example`,
+release image tags, Compose profiles, Keycloak/OpenFGA/RAG defaults, or
+first-launch UX, follow `.claude/skills/docker-compose-first-install/SKILL.md`.
+The `docker-compose.yaml` + `.env.example` path must work for a first-time OSS
+user with the minimal profiles:
+
+```bash
+mcp-servers,caipe-ui-prod,rbac,caipe-supervisor,dynamic-agents,rag,caipe-mongodb
+```
+
+Do not add Slack/Webex bots to that default path.
+
 ## Code Style
 
 - **Imports at top** - All imports must be at the top of the file, unless otherwise specified

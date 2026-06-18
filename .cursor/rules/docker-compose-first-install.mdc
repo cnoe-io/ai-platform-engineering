@@ -1,0 +1,23 @@
+---
+description: Use the Docker Compose first-install skill when Compose, env examples, release images, Keycloak/OpenFGA/RAG defaults, or first-launch UX changes
+alwaysApply: false
+---
+
+# Docker Compose First Install
+
+When a task touches `docker-compose.yaml`, `docker-compose.dev.yaml`,
+`.env.example`, release image tags, Compose profiles, Keycloak/OpenFGA/RAG
+defaults, or first-launch UI behavior, follow:
+
+`.claude/skills/docker-compose-first-install/SKILL.md`
+
+The plain OSS path must work from:
+
+```bash
+cp .env.example .env
+COMPOSE_PROFILES="mcp-servers,caipe-ui-prod,rbac,caipe-supervisor,dynamic-agents,rag,caipe-mongodb" \
+docker compose --env-file .env -f docker-compose.yaml up -d
+```
+
+Do not add Slack/Webex bots to the default all-in-one path. Do not add AI
+attribution comments.
