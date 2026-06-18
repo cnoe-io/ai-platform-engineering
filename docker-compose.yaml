@@ -474,6 +474,15 @@ services:
       - OIDC_REQUIRED_ADMIN_GROUP=${OIDC_REQUIRED_ADMIN_GROUP:-}
       - BOOTSTRAP_ADMIN_EMAILS=${BOOTSTRAP_ADMIN_EMAILS:-}
       - OIDC_ENABLE_REFRESH_TOKEN=${OIDC_ENABLE_REFRESH_TOKEN:-true}
+      # Local Docker Keycloak admin client. The rbac profile seeds this
+      # confidential client in realm-config.json; Kubernetes should inject
+      # production values from its secret store instead.
+      - KEYCLOAK_URL=${KEYCLOAK_URL:-http://keycloak:7080}
+      - KEYCLOAK_REALM=${KEYCLOAK_REALM:-caipe}
+      - KEYCLOAK_RESOURCE_SERVER_ID=${KEYCLOAK_RESOURCE_SERVER_ID:-caipe-platform}
+      - KEYCLOAK_CLIENT_SECRET=${KEYCLOAK_CLIENT_SECRET:-caipe-platform-dev-secret}
+      - KEYCLOAK_ADMIN_CLIENT_ID=${KEYCLOAK_ADMIN_CLIENT_ID:-caipe-platform}
+      - KEYCLOAK_ADMIN_CLIENT_SECRET=${KEYCLOAK_ADMIN_CLIENT_SECRET:-caipe-platform-dev-secret}
       # Workflow runner - set WORKFLOW_RUNNER_ENABLED=true to show Run Workflow button and Multi-Step Workflows
       - WORKFLOW_RUNNER_ENABLED=${WORKFLOW_RUNNER_ENABLED:-false}
       # Dynamic Agents - set DYNAMIC_AGENTS_ENABLED=true and add dynamic-agents profile to enable Custom Agents tab
@@ -1166,6 +1175,8 @@ services:
       IDP_PKCE_ENABLED: ${IDP_PKCE_ENABLED:-false}
       KEYCLOAK_FORCE_IDP_REDIRECT: ${KEYCLOAK_FORCE_IDP_REDIRECT:-false}
       KEYCLOAK_ADMIN_FRONTEND_URL: ${KEYCLOAK_ADMIN_FRONTEND_URL:-}
+      KEYCLOAK_UI_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-caipe-ui-dev-secret}
+      KEYCLOAK_PLATFORM_CLIENT_SECRET: ${KEYCLOAK_ADMIN_CLIENT_SECRET:-caipe-platform-dev-secret}
       CAIPE_UNSAFE_RBAC_BYPASS: ${CAIPE_UNSAFE_RBAC_BYPASS:-false}
       SLACK_BOT_ADMIN_AUDIENCE: ${SLACK_BOT_ADMIN_AUDIENCE:-caipe-slack-bot-admin}
       KC_REALM: caipe
