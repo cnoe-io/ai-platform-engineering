@@ -2,6 +2,8 @@
  * @jest-environment node
  */
 
+// assisted-by Codex Codex-sonnet-4-6
+
 import { NextRequest } from "next/server";
 
 const mockGetServerSession = jest.fn();
@@ -189,6 +191,49 @@ describe("GET /api/rbac/admin-tab-gates", () => {
 
     expect(res.status).toBe(200);
     expect(body.gates.credentials).toBe(false);
+  });
+
+  it("keeps Dynamic Agent Conversations visible for org admins when the Chat Audit tab flag is disabled", async () => {
+    mockGetServerSession.mockResolvedValue({
+      role: "admin",
+      sub: "admin-sub",
+      user: { email: "admin@example.com" },
+    });
+    mockGetConfig.mockImplementation((key: string) => key !== "auditLogsEnabled");
+    mockCheckOpenFgaTuple.mockImplementation(async (tuple: { user: string; relation: string; object: string }) => ({
+      allowed:
+        tuple.user === "user:admin-sub" &&
+        tuple.relation === "can_manage" &&
+        tuple.object === "organization:caipe",
+    }));
+
+    const res = await GET();
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.gates.audit_logs).toBe(false);
+    expect(body.gates.dynamic_agent_conversations).toBe(true);
+  });
+
+  it("shows Dynamic Agent Conversations for a non-admin with the scoped audit read grant", async () => {
+    mockGetServerSession.mockResolvedValue({
+      role: "user",
+      sub: "user-sub",
+      user: { email: "user@example.com" },
+    });
+    mockCheckOpenFgaTuple.mockImplementation(async (tuple: { user: string; relation: string; object: string }) => ({
+      allowed:
+        tuple.user === "user:user-sub" &&
+        tuple.relation === "can_read" &&
+        tuple.object === "audit_log:dynamic_agent_conversations",
+    }));
+
+    const res = await GET();
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.gates.audit_logs).toBe(false);
+    expect(body.gates.dynamic_agent_conversations).toBe(true);
   });
 
   it("repairs baseline member tuples before evaluating non-admin tab gates", async () => {

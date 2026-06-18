@@ -1,5 +1,6 @@
 "use client";
 
+// assisted-by Codex Codex-sonnet-4-6
 // assisted-by Claude:claude-opus-4-8
 //
 // Service Accounts admin tab (spec 2026-06-05-service-accounts, US1).
@@ -552,6 +553,7 @@ function CreateServiceAccountDialog({
                 placeholder="Grant agents you hold..."
                 emptyLabel="You hold no agents to grant"
                 badgeLabel="agents"
+                portalled={false}
               />
             </div>
 
@@ -572,6 +574,7 @@ function CreateServiceAccountDialog({
                 placeholder="Grant tools you hold..."
                 emptyLabel="You hold no tools to grant"
                 badgeLabel="tools"
+                portalled={false}
               />
             </div>
 
@@ -782,10 +785,11 @@ function ManageServiceAccountDialog({
         );
         const body = await res.json();
         if (!res.ok || !body.success) {
-          setError(body.error || `Failed to add ${scope.type} ${scope.ref}`);
+          const message = body.error || `Failed to add ${scope.type} ${scope.ref}`;
           // Refresh so any scopes that DID get added show, then stop.
           await refresh();
           onMutated();
+          setError(message);
           return;
         }
       }
@@ -946,8 +950,8 @@ function ManageServiceAccountDialog({
         <DialogHeader>
           <DialogTitle>{detail?.name ?? "Service account"}</DialogTitle>
           <DialogDescription>
-            Manage scopes, rotate the credential, or revoke this service account. You can only
-            add scopes you currently hold; removing a scope needs no such hold.
+            Manage scopes, rotate the credential, or revoke this service account. Super admins
+            can add enabled platform catalog scopes; other users can add scopes they currently hold.
           </DialogDescription>
         </DialogHeader>
 
@@ -1064,9 +1068,10 @@ function ManageServiceAccountDialog({
                         .filter((v): v is string => Boolean(v)),
                     )
                   }
-                  placeholder="Add agents you hold..."
+                  placeholder="Add agents..."
                   emptyLabel="No more agents you can grant"
                   badgeLabel="agents"
+                  portalled={false}
                 />
               </div>
               <div className="space-y-1">
@@ -1083,9 +1088,10 @@ function ManageServiceAccountDialog({
                         .filter((v): v is string => Boolean(v)),
                     )
                   }
-                  placeholder="Add tools you hold..."
+                  placeholder="Add tools..."
                   emptyLabel="No more tools you can grant"
                   badgeLabel="tools"
+                  portalled={false}
                 />
               </div>
               <div className="flex justify-end">

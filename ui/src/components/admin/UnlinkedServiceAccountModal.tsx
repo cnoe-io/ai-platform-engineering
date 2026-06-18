@@ -1,5 +1,7 @@
 "use client";
 
+// assisted-by Codex Codex-sonnet-4-6
+
 /**
  * Unlinked Access Modal
  *
@@ -194,11 +196,9 @@ export function UnlinkedServiceAccountModal({
             Unlinked Access
           </DialogTitle>
           <DialogDescription>
-            Grant agents and tools to unlinked users — people who have messaged via Slack
-            or Webex but never signed in to the web UI, so the platform has no linked account
-            for them. Any platform admin can add enabled agents or tools here, and whatever
-            you grant becomes the base access every unlinked Slack/Webex caller and bot
-            receives.
+            Set the starting access for people who message the platform from Slack or Webex
+            before they have signed in to the web UI. Agents and tools granted here are
+            available to every unlinked caller and bot.
             {!isAdmin && (
               <span className="block mt-1 font-medium text-amber-600 dark:text-amber-400">
                 Read-only: platform admin access required to edit.
