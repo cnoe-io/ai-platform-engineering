@@ -18,6 +18,7 @@ import { useAgentRuntimeHealth } from "@/hooks/use-agent-runtime-health";
 import { useCAIPEHealth } from "@/hooks/use-caipe-health";
 import { useKeycloakHealthSummary } from "@/hooks/use-keycloak-health-summary";
 import { useMigrationStatus } from "@/hooks/use-migration-status";
+import { usePlatformHealthProbes } from "@/hooks/use-platform-health-probes";
 import { useRAGHealth } from "@/hooks/use-rag-health";
 import { useReleaseUpgradePrompt } from "@/hooks/use-release-upgrade-prompt";
 import { useVersion } from "@/hooks/use-version";
@@ -210,7 +211,6 @@ export function AppHeader() {
     url: caipeUrl,
     secondsUntilNextCheck: caipeNextCheck,
     agents,
-    tags,
     mongoDBStatus,
     storageMode
   } = useCAIPEHealth();
@@ -226,6 +226,12 @@ export function AppHeader() {
 
   // Health check for Agent Runtime (polls every 30 seconds)
   const { status: agentRuntimeStatus } = useAgentRuntimeHealth();
+  const {
+    status: platformProbeStatus,
+    probes: platformProbes,
+    summary: platformProbeSummary,
+    secondsUntilNextCheck: platformProbeNextCheck,
+  } = usePlatformHealthProbes();
 
   // Check if RAG is enabled in config
   const ragEnabled = config.ragEnabled;
@@ -256,13 +262,15 @@ export function AppHeader() {
     releasePrompt.markToastShown();
   }, [releasePrompt, session, toast]);
 
-  // Combined status: if either is checking -> checking, if supervisor is disconnected -> disconnected,
-  // if only RAG is disconnected (supervisor connected) -> rag-disconnected (amber warning), else connected
-  // Note: Only include RAG in status if it's enabled
+  // Combined status: hard failures from the supervisor or platform
+  // dependencies mark the system as disconnected; optional RAG failures are
+  // degraded so the core chat/runtime path can still show separately.
   const getCombinedStatus = () => {
     if (caipeStatus === "checking") return "checking";
     if (ragEnabled && ragStatus === "checking") return "checking";
+    if (platformProbeStatus === "checking") return "checking";
     if (caipeStatus === "disconnected") return "disconnected";
+    if (platformProbeStatus === "down") return "disconnected";
     if (ragEnabled && ragStatus === "disconnected") return "rag-disconnected";
     return "connected";
   };
@@ -804,31 +812,75 @@ export function AppHeader() {
                       </div>
                     </div>
 
-                    {/* Integrations */}
-                    {tags.length > 0 && (
-                      <div>
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                            Connected Integrations
-                          </div>
-                          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-primary/10 border border-primary/20">
-                            <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-400" />
-                            <span className="text-[10px] font-bold text-primary">{tags.length}</span>
-                          </div>
+                    {/* Platform dependency probes */}
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                          Platform Probes
                         </div>
-                        <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pr-1">
-                          {tags.map((tag, idx) => (
-                            <span
-                              key={idx}
-                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-semibold bg-gradient-to-br from-primary/10 to-primary/5 text-primary border border-primary/20 hover:border-primary/40 hover:bg-primary/15 transition-all"
-                            >
-                              <span className="inline-block w-1 h-1 rounded-full bg-green-400" />
-                              {tag}
-                            </span>
-                          ))}
+                        <div className={cn(
+                          "flex items-center gap-1.5 px-2 py-0.5 rounded-full border",
+                          platformProbeStatus === "healthy" && "bg-green-500/10 border-green-500/20",
+                          platformProbeStatus === "down" && "bg-red-500/10 border-red-500/20",
+                          platformProbeStatus === "checking" && "bg-muted/50 border-border"
+                        )}>
+                          {platformProbeStatus === "checking" ? (
+                            <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+                          ) : (
+                            <span className={cn(
+                              "inline-block w-1.5 h-1.5 rounded-full",
+                              platformProbeStatus === "healthy" && "bg-green-400",
+                              platformProbeStatus === "down" && "bg-red-400"
+                            )} />
+                          )}
+                          <span className={cn(
+                            "text-[10px] font-bold",
+                            platformProbeStatus === "healthy" && "text-green-600 dark:text-green-400",
+                            platformProbeStatus === "down" && "text-red-600 dark:text-red-400",
+                            platformProbeStatus === "checking" && "text-muted-foreground"
+                          )}>
+                            {platformProbeSummary
+                              ? `${platformProbeSummary.healthy}/${platformProbeSummary.total}`
+                              : platformProbeStatus === "checking" ? "Checking" : "Unavailable"}
+                          </span>
                         </div>
                       </div>
-                    )}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                        {platformProbes.length === 0 && (
+                          <div className="text-xs text-muted-foreground bg-muted/20 rounded px-2 py-1.5">
+                            Checking Keycloak, OpenFGA, AgentGateway, and bridge health...
+                          </div>
+                        )}
+                        {platformProbes.map((probe) => (
+                          <div
+                            key={probe.id}
+                            title={`${probe.target} — ${probe.detail}`}
+                            className="flex items-center justify-between gap-2 bg-muted/20 rounded px-2 py-1.5"
+                          >
+                            <div className="min-w-0">
+                              <div className="truncate text-xs font-medium text-foreground">
+                                {probe.label}
+                              </div>
+                              <div className="truncate text-[10px] text-muted-foreground">
+                                {probe.detail}
+                                {probe.latency_ms !== null ? ` · ${probe.latency_ms}ms` : ""}
+                              </div>
+                            </div>
+                            <div className={cn(
+                              "px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0 border",
+                              probe.status === "healthy"
+                                ? "bg-green-500/15 text-green-400 border-green-500/30"
+                                : "bg-red-500/15 text-red-400 border-red-500/30"
+                            )}>
+                              {probe.status === "healthy" ? "OK" : "DOWN"}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="mt-1.5 text-[10px] text-muted-foreground font-mono text-right">
+                        Next probe: {platformProbeNextCheck}s
+                      </div>
+                    </div>
                   </div>
 
                   {/* RAG Server Section - only show if RAG is enabled */}
