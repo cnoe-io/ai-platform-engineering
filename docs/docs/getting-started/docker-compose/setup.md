@@ -27,7 +27,7 @@ Set up CAIPE on a laptop or VM (e.g. EC2) using Docker Compose.
 
    ```bash
    IMAGE_TAG=0.5.16
-   COMPOSE_PROFILES=mcp-servers,caipe-ui-prod,rbac,caipe-supervisor,dynamic-agents,rag,caipe-mongodb
+   COMPOSE_PROFILES=mcp-servers,caipe-ui-prod,rbac,caipe-supervisor,dynamic-agents,rag,caipe-mongodb,web_ingestor
 
    # All-in-one mode: agents run in-process and use MCP server containers.
    DISTRIBUTED_AGENTS=
@@ -105,8 +105,9 @@ docker compose up
 
 Open the UI at **http://localhost:3000** and the supervisor API at **http://localhost:8000**.
 
-Add `web_ingestor` when you want the web ingestion worker. Add `slack-bot` or
-`webex-bot` only when you want those bot integrations.
+The default profile set includes `web_ingestor` so the Knowledge Bases ingest
+page can submit web datasource jobs. Add `slack-bot` or `webex-bot` only when
+you want those bot integrations.
 
 **Primary profiles:**
 
@@ -199,11 +200,11 @@ grep -q '^OPENFGA_STORE_NAME=' .env || echo 'OPENFGA_STORE_NAME=caipe-openfga' >
 grep -q '^AUTHZ_SERVICE_URL=' .env || echo 'AUTHZ_SERVICE_URL=http://caipe-ui:3000' >> .env
 ```
 
-Then rerun the UI, Dynamic Agents, and Keycloak seed job:
+Then rerun the UI, Dynamic Agents, Web Ingestor, and Keycloak seed job:
 
 ```bash
-COMPOSE_PROFILES="mcp-servers,caipe-ui-prod,rbac,caipe-supervisor,dynamic-agents,rag,caipe-mongodb" \
-docker compose --env-file .env -f docker-compose.yaml up -d --force-recreate caipe-ui dynamic-agents keycloak-init
+COMPOSE_PROFILES="mcp-servers,caipe-ui-prod,rbac,caipe-supervisor,dynamic-agents,rag,caipe-mongodb,web_ingestor" \
+docker compose --env-file .env -f docker-compose.yaml up -d --force-recreate caipe-ui dynamic-agents web_ingestor keycloak-init
 ```
 
 If Keycloak or OpenFGA were already initialized with bad settings, reset only
@@ -215,7 +216,7 @@ docker compose --env-file .env -f docker-compose.yaml down
 docker volume ls | grep -E 'keycloak_postgres_data|openfga_postgres_data'
 docker volume rm <keycloak_postgres_data_volume> <openfga_postgres_data_volume>
 
-COMPOSE_PROFILES="mcp-servers,caipe-ui-prod,rbac,caipe-supervisor,dynamic-agents,rag,caipe-mongodb" \
+COMPOSE_PROFILES="mcp-servers,caipe-ui-prod,rbac,caipe-supervisor,dynamic-agents,rag,caipe-mongodb,web_ingestor" \
 docker compose --env-file .env -f docker-compose.yaml up -d
 ```
 

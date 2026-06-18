@@ -17,7 +17,7 @@ first-launch UX, follow `.claude/skills/docker-compose-first-install/SKILL.md`.
 The plain OSS path must work from `.env.example` with:
 
 ```bash
-mcp-servers,caipe-ui-prod,rbac,caipe-supervisor,dynamic-agents,rag,caipe-mongodb
+mcp-servers,caipe-ui-prod,rbac,caipe-supervisor,dynamic-agents,rag,caipe-mongodb,web_ingestor
 ```
 
 Do not add Slack/Webex bots to that default all-in-one path.
