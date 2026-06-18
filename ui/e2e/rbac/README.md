@@ -1,4 +1,4 @@
-# RBAC End-to-End Harness (Spec 102 / US7)
+# RBAC End-to-End Harness
 
 Playwright specs that exercise the BFF auth contract against a **live**
 CAIPE + Keycloak stack:

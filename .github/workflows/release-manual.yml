@@ -212,12 +212,13 @@ jobs:
           echo "CI workflows run from the pushed \`$NEW_VERSION\` tag and publish matching artifacts when complete:" >> $GITHUB_STEP_SUMMARY
           echo "- Supervisor agent" >> $GITHUB_STEP_SUMMARY
           echo "- Dynamic agents" >> $GITHUB_STEP_SUMMARY
-          echo "- A2A sub-agents" >> $GITHUB_STEP_SUMMARY
           echo "- MCP sub-agents" >> $GITHUB_STEP_SUMMARY
           echo "- RAG components" >> $GITHUB_STEP_SUMMARY
           echo "- CAIPE UI" >> $GITHUB_STEP_SUMMARY
           echo "- Slack bot" >> $GITHUB_STEP_SUMMARY
           echo "- Helm charts" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "A2A sub-agent images are skipped by default. Set repository variable \`CAIPE_BUILD_A2A_AGENT_IMAGES=true\` before the tag push, or run \`ci-a2a-sub-agent.yml\` manually with \`build_a2a_agents=true\`, when those images are required." >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### GitHub Release (Draft) 📝" >> $GITHUB_STEP_SUMMARY
           echo "🔗 [Release $NEW_VERSION](https://github.com/${{ github.repository }}/releases/tag/$NEW_VERSION)" >> $GITHUB_STEP_SUMMARY

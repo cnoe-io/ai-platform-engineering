@@ -95,7 +95,6 @@ jobs:
           # tag, so an unbuilt image would otherwise produce ImagePullBackOff
           # on every fresh install with global.skillScanner.enabled=true.
           REQUIRED_WORKFLOWS=(
-            "[CI][A2A] Sub-Agents A2A Docker Build and Push"
             "[CI][MCP] Sub-Agents MCP Docker Build and Push"
             "[CI][A2A] CAIPE RAG Build and Push"
             "[CI][A2A] Supervisor Agent Docker Build and Push"
