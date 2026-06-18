@@ -8242,6 +8242,36 @@ cmd_docker_compose() {
   log "Knowledge Bases ingest: http://localhost:3000/knowledge-bases/ingest"
 }
 
+choose_setup_target() {
+  $NON_INTERACTIVE && return 0
+
+  echo ""
+  echo -e "  ${BOLD}How do you want to run CAIPE?${NC}"
+  echo -e "    ${CYAN}1)${NC} Kind/Kubernetes ${DIM}(default; uses saved setup configuration when available)${NC}"
+  echo -e "    ${CYAN}2)${NC} Docker Compose ${DIM}(uses docker-compose.yaml + .env)${NC}"
+  echo ""
+  prompt "Select runtime [1]: "
+
+  local choice
+  tty_read -r choice
+  choice="${choice:-1}"
+  choice="$(echo "$choice" | tr '[:upper:]' '[:lower:]')"
+
+  case "$choice" in
+    1|kind|kubernetes|k8s)
+      return 0
+      ;;
+    2|compose|docker-compose|docker)
+      cmd_docker_compose
+      exit 0
+      ;;
+    *)
+      warn "Unknown choice '${choice}', continuing with Kind/Kubernetes"
+      return 0
+      ;;
+  esac
+}
+
 # ─── Auto-Detect Features ────────────────────────────────────────────────────
 detect_deployed_features() {
   if helm status langfuse -n langfuse &>/dev/null; then
@@ -8690,6 +8720,7 @@ BANNER
   # the same file and see the same cluster and contexts.
   export KUBECONFIG="${KUBECONFIG:-${HOME}/.kube/config}"
 
+  choose_setup_target
   check_prerequisites
   _load_caipe_config
   choose_cluster

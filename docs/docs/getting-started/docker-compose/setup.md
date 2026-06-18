@@ -122,8 +122,9 @@ You can also have the setup helper update `.env` and start the
 ./setup-caipe.sh --docker-compose
 ```
 
-Running `./setup-caipe.sh` without that option still follows the default
-Kind/Kubernetes setup path.
+Running `./setup-caipe.sh` interactively asks whether to use Kind/Kubernetes or
+Docker Compose. Kind/Kubernetes remains the default, and any saved setup
+configuration applies only to that Kind/Kubernetes path.
 
 The default profile set includes `web_ingestor` so the Knowledge Bases ingest
 page can submit web datasource jobs. Add `slack-bot` or `webex-bot` only when
