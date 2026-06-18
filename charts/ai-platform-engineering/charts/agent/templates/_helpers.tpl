@@ -266,6 +266,20 @@ Get agentSecrets.externalSecrets.name - if empty assume no secret, if not append
 {{- end -}}
 
 {{/*
+Determine whether to render the A2A agent Deployment and Service.
+Per-agent .Values.a2a.enabled overrides global.a2aAgents.enabled.
+*/}}
+{{- define "agent.a2a.enabled" -}}
+    {{- if and (hasKey .Values "a2a") (hasKey .Values.a2a "enabled") -}}
+        {{- .Values.a2a.enabled -}}
+    {{- else if and (hasKey .Values "global") (hasKey .Values.global "a2aAgents") (hasKey .Values.global.a2aAgents "enabled") -}}
+        {{- .Values.global.a2aAgents.enabled -}}
+    {{- else -}}
+        {{- true -}}
+    {{- end -}}
+{{- end -}}
+
+{{/*
 Determine MCP mode
 */}}
 {{- define "agent.createMcpHttpServer" -}}
@@ -387,4 +401,3 @@ Explicit non-CAIPE repositories are left unchanged.
 {{- $repository -}}
 {{- end -}}
 {{- end -}}
-

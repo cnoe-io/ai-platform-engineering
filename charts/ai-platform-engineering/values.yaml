@@ -40,6 +40,10 @@ global:
 
   # Deployment mode: "single-node" (all agents in-process) or "multi-node" (each agent as a separate pod)
   deploymentMode: "multi-node"
+  a2aAgents:
+    # Keep bundled A2A agent pods disabled by default while still allowing
+    # their MCP servers to install via broad tags such as complete.
+    enabled: false
 
   # When deploymentMode is single-node, in-cluster MCP Services/Deployments/SAs use
   # {mcpResourcePrefix}-agent-<name>-mcp. Leave mcpResourcePrefix unset (empty) to use the

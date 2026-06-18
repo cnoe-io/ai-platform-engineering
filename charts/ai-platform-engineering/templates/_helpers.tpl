@@ -114,7 +114,7 @@ Get llmSecrets.externalSecrets.secretStoreRef with global fallback
 {{/*
 Returns the enabledSubAgents dict as YAML.
 In single-node mode reads from supervisor-agent.singleNode.enabledSubAgents.
-In multi-node mode reads from global.enabledSubAgents (populated by Chart.yaml import-values e.g. global.enabledSubAgents.backstage.enabled: true).
+In multi-node mode reads from global.enabledSubAgents for non-A2A exports such as RAG.
 */}}
 {{- define "ai-platform-engineering.enabledSubAgents" -}}
 {{- if eq .Values.global.deploymentMode "single-node" -}}
