@@ -196,6 +196,8 @@ TLS_CERT_FILE=""
 TLS_KEY_FILE=""
 ENV_FILE=""
 UI_ENV_FILE=""
+COMPOSE_ENV_FILE=""
+COMPOSE_PROFILES_DEFAULT="mcp-servers,caipe-ui-prod,rbac,caipe-supervisor,dynamic-agents,rag,caipe-mongodb,web_ingestor"
 # Dynamic agents: default ON (custom agent builder UI is part of the
 # baseline CAIPE experience). Set ENABLE_DYNAMIC_AGENTS=false or pass
 # --no-dynamic-agents to skip.
@@ -3059,6 +3061,55 @@ _env_true() {
   local val
   val=$(echo "$1" | tr '[:upper:]' '[:lower:]')
   [[ "$val" == "true" || "$val" == "yes" || "$val" == "1" ]]
+}
+
+_compose_env_file() {
+  if [[ -n "${COMPOSE_ENV_FILE:-}" ]]; then
+    echo "$COMPOSE_ENV_FILE"
+  elif [[ -n "${ENV_FILE:-}" ]]; then
+    echo "$ENV_FILE"
+  else
+    echo ".env"
+  fi
+}
+
+_ensure_compose_env_file() {
+  local env_file="$1"
+  if [[ -f "$env_file" ]]; then
+    return 0
+  fi
+  if [[ ! -f ".env.example" ]]; then
+    err "Env file not found: ${env_file}; .env.example is also missing"
+    exit 1
+  fi
+  cp .env.example "$env_file"
+  log "Created ${env_file} from .env.example"
+}
+
+_update_compose_image_tag() {
+  local env_file="$1"
+  _ensure_compose_env_file "$env_file"
+  if ! command -v gh &>/dev/null; then
+    err "GitHub CLI (gh) is required to fetch the latest CAIPE release"
+    err "Install gh or edit IMAGE_TAG in ${env_file} manually."
+    exit 1
+  fi
+
+  local latest
+  latest=$(gh release view --repo cnoe-io/ai-platform-engineering --json tagName -q .tagName)
+  latest="${latest#v}"
+  if [[ -z "$latest" ]]; then
+    err "Could not resolve the latest CAIPE release tag"
+    exit 1
+  fi
+
+  if grep -q '^IMAGE_TAG=' "$env_file"; then
+    sed -i.bak "s/^IMAGE_TAG=.*/IMAGE_TAG=${latest}/" "$env_file"
+  else
+    cp "$env_file" "${env_file}.bak"
+    printf '\nIMAGE_TAG=%s\n' "$latest" >> "$env_file"
+  fi
+  log "Updated IMAGE_TAG=${latest} in ${env_file} (backup: ${env_file}.bak)"
 }
 
 # Create a Kubernetes generic secret from a list of key names sourced from a
@@ -8160,6 +8211,36 @@ cmd_status() {
   helm list -A 2>/dev/null
 }
 
+cmd_update_compose_release() {
+  local env_file
+  env_file=$(_compose_env_file)
+  _update_compose_image_tag "$env_file"
+}
+
+cmd_docker_compose() {
+  local env_file
+  env_file=$(_compose_env_file)
+  _ensure_compose_env_file "$env_file"
+  _update_compose_image_tag "$env_file"
+
+  if ! command -v docker &>/dev/null; then
+    err "docker is required for Docker Compose setup"
+    exit 1
+  fi
+
+  COMPOSE_PROFILES="${COMPOSE_PROFILES:-$(_env_get "$env_file" COMPOSE_PROFILES)}"
+  COMPOSE_PROFILES="${COMPOSE_PROFILES:-$COMPOSE_PROFILES_DEFAULT}"
+  export COMPOSE_PROFILES
+
+  step "Starting Docker Compose all-in-one stack"
+  log "Env file: ${env_file}"
+  log "Profiles: ${COMPOSE_PROFILES}"
+  docker compose --env-file "$env_file" -f docker-compose.yaml up -d
+
+  log "CAIPE UI: http://localhost:3000"
+  log "Knowledge Bases ingest: http://localhost:3000/knowledge-bases/ingest"
+}
+
 # ─── Auto-Detect Features ────────────────────────────────────────────────────
 detect_deployed_features() {
   if helm status langfuse -n langfuse &>/dev/null; then
@@ -8902,6 +8983,12 @@ Commands:
                 PVCs, namespaces, and optionally the Kind cluster
   nuke          Non-interactive cleanup (same as: cleanup --yes)
   status        Show pod status and Helm releases
+  docker-compose
+                Prepare .env, update IMAGE_TAG to the latest GitHub release,
+                and start the OSS all-in-one Docker Compose stack
+  update-compose-release
+                Update IMAGE_TAG in .env (or --env-file=FILE) to the latest
+                GitHub release using gh
 
 Options:
   --non-interactive  Skip all prompts (use current context, latest chart,
@@ -8970,6 +9057,11 @@ Options:
                      in the caipe-local-user Secret)
   --env-file=FILE    Path to .env file with agent credentials (ENABLE_ARGOCD=true, ARGOCD_TOKEN=..., etc.)
                      Creates per-agent k8s secrets and enables corresponding agents in Helm.
+                     For docker-compose/update-compose-release, selects the
+                     Compose env file to update/use (default: .env).
+  --compose-env-file=FILE
+                     Alias for selecting the Docker Compose env file without
+                     affecting Helm agent-secret provisioning.
                      Also honors feature toggles to mirror docker-compose.dev.yaml:
                      ENABLE_RAG, ENABLE_GRAPH_RAG, ENABLE_TRACING, ENABLE_SLACK(_BOT),
                      ENABLE_WEBEX(_BOT) (enable-only; CLI flags win). Supported agents:
@@ -9076,6 +9168,8 @@ Examples:
   $(basename "$0")                                        # re-run: offers monitor/upgrade/full menu
   $(basename "$0") cleanup                                # interactive teardown
   $(basename "$0") nuke                                   # teardown (confirm once with 'yes')
+  $(basename "$0") docker-compose                         # update .env IMAGE_TAG + start Docker Compose
+  $(basename "$0") update-compose-release                 # only update IMAGE_TAG in .env
   LLM_PROVIDER=openai $(basename "$0") --non-interactive  # OpenAI instead of Claude
   LLM_PROVIDER=aws-bedrock $(basename "$0") --non-interactive       # AWS Bedrock (uses profile)
   ENABLE_VLLM=true $(basename "$0") --non-interactive                    # vLLM + LiteLLM (gpt-oss-20B in-cluster)
@@ -9137,6 +9231,7 @@ for arg in "$@"; do
     --tls-cert=*)      TLS_CERT_FILE="${arg#--tls-cert=}" ;;
     --tls-key=*)       TLS_KEY_FILE="${arg#--tls-key=}" ;;
     --env-file=*)      ENV_FILE="${arg#--env-file=}" ;;
+    --compose-env-file=*) COMPOSE_ENV_FILE="${arg#--compose-env-file=}" ;;
     --ui-env-file=*)   UI_ENV_FILE="${arg#--ui-env-file=}" ;;
     --load-config=*)   CAIPE_CONFIG_FILE="${arg#--load-config=}" ;;
     --dynamic-agents)    ENABLE_DYNAMIC_AGENTS=true ;;
@@ -9167,6 +9262,8 @@ case "${args[0]:-setup}" in
   cleanup)      cmd_cleanup ;;
   nuke)         AUTO_YES=true; cmd_cleanup ;;
   status)       cmd_status ;;
+  docker-compose|compose) cmd_docker_compose ;;
+  update-compose-release) cmd_update_compose_release ;;
   -h|--help)    usage ;;
   *)            err "Unknown command: ${args[0]}"; usage ;;
 esac

@@ -105,6 +105,16 @@ docker compose up
 
 Open the UI at **http://localhost:3000** and the supervisor API at **http://localhost:8000**.
 
+To update your local `.env` to the latest published CAIPE release before
+starting Compose, run:
+
+```bash
+./setup-caipe.sh update-compose-release
+```
+
+The helper uses the GitHub CLI to resolve the latest release and rewrites
+`IMAGE_TAG` in `.env`, leaving a `.env.bak` backup.
+
 The default profile set includes `web_ingestor` so the Knowledge Bases ingest
 page can submit web datasource jobs. Add `slack-bot` or `webex-bot` only when
 you want those bot integrations.
