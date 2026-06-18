@@ -87,7 +87,7 @@ docker compose up
 
 Access the UI at **http://localhost:3000** and the supervisor API at **http://localhost:8000**.
 
-The default `.env.example` uses image tag `0.5.14` and enables this profile set:
+The default `.env.example` uses image tag `0.5.16` and enables this profile set:
 
 ```bash
 COMPOSE_PROFILES=mcp-servers,caipe-ui-prod,rbac,caipe-supervisor,dynamic-agents,rag,caipe-mongodb

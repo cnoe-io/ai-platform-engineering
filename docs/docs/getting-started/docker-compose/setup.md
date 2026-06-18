@@ -26,7 +26,7 @@ Set up CAIPE on a laptop or VM (e.g. EC2) using Docker Compose.
    dynamic agents, local Keycloak/RBAC, MongoDB, and RAG:
 
    ```bash
-   IMAGE_TAG=0.5.14
+   IMAGE_TAG=0.5.16
    COMPOSE_PROFILES=mcp-servers,caipe-ui-prod,rbac,caipe-supervisor,dynamic-agents,rag,caipe-mongodb
 
    # All-in-one mode: agents run in-process and use MCP server containers.
