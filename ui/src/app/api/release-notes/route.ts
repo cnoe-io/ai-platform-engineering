@@ -20,7 +20,6 @@ const CONTENT_TTL_MS = 10 * 60 * 1000;
 interface ReleaseFile {
   name: string;
   version: string;
-  versionParts: [number, number, number];
   rawUrl: string;
   localPath?: string;
 }
@@ -55,27 +54,12 @@ function baseVersion(value: string): string {
   return value.trim().replace(/^v/i, "").split(/[-+]/)[0];
 }
 
-function parseVersionParts(version: string): [number, number, number] | null {
-  const match = version.match(/^(\d+)\.(\d+)\.(\d+)$/);
-  if (!match) return null;
-  return [Number(match[1]), Number(match[2]), Number(match[3])];
-}
-
-function compareVersionParts(a: [number, number, number], b: [number, number, number]): number {
-  for (let i = 0; i < 3; i += 1) {
-    if (a[i] !== b[i]) return a[i] - b[i];
-  }
-  return 0;
-}
-
 function buildReleaseFile(name: string, rawUrl: string, localPath?: string): ReleaseFile | null {
   const match = name.match(RELEASE_FILE_PATTERN);
   if (!match) return null;
-  const versionParts: [number, number, number] = [Number(match[1]), Number(match[2]), Number(match[3])];
   return {
     name,
-    version: versionParts.join("."),
-    versionParts,
+    version: [match[1], match[2], match[3]].map(Number).join("."),
     rawUrl,
     localPath,
   };
@@ -143,19 +127,7 @@ async function getReleaseFiles(): Promise<ReleaseFile[]> {
 
 function selectRelease(files: ReleaseFile[], requestedBase: string): ReleaseFile | null {
   if (files.length === 0) return null;
-  const exact = files.find((file) => file.version === requestedBase);
-  if (exact) return exact;
-
-  const target = parseVersionParts(requestedBase);
-  const sorted = [...files].sort((a, b) => compareVersionParts(a.versionParts, b.versionParts));
-  if (!target) return sorted[sorted.length - 1] ?? null;
-
-  // Highest available release at or below the requested version, else the newest.
-  let best: ReleaseFile | null = null;
-  for (const file of sorted) {
-    if (compareVersionParts(file.versionParts, target) <= 0) best = file;
-  }
-  return best ?? sorted[sorted.length - 1] ?? null;
+  return files.find((file) => file.version === requestedBase) ?? null;
 }
 
 async function readReleaseContent(file: ReleaseFile): Promise<{ body: string; source: "github" | "local" } | null> {

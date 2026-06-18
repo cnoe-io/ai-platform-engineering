@@ -47,19 +47,19 @@ test.describe("mocked admin settings browser regression", () => {
       waitUntil: "domcontentloaded",
     });
 
-    await expect(page.getByText("Grant agents and tools to unlinked users")).toBeVisible();
-    await expect(page.getByText(/messaged via Slack or Webex but never signed in/)).toBeVisible();
+    await expect(page.getByText(/Set the starting access for people who message/)).toBeVisible();
+    await expect(page.getByText(/before they have signed in to the web UI/)).toBeVisible();
     await expect(
-      page.getByText(/base access every unlinked Slack\/Webex caller and bot/),
+      page.getByText(/available to every unlinked caller and bot/),
     ).toBeVisible();
 
     await page.getByRole("button", { name: "Manage Unlinked Access" }).click();
 
     const dialog = page.getByRole("dialog", { name: "Unlinked Access" });
     await expect(dialog).toBeVisible();
-    await expect(dialog.getByText("Grant agents and tools to unlinked users")).toBeVisible();
     await expect(
-      dialog.getByText(/Any platform admin can add agents or tools they own/),
+      dialog.getByText(/Set the starting access for people who message/),
     ).toBeVisible();
+    await expect(dialog.getByText(/available to every unlinked caller and bot/)).toBeVisible();
   });
 });

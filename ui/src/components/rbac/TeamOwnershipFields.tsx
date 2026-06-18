@@ -9,7 +9,7 @@
  * Renders, for any shareable resource (agent, datasource, MCP tool, future
  * types):
  *   - an owner-team picker (single-select; disabled on edit unless transfers
- *     are allowed, in which case changing it directly performs a transfer),
+ *     are allowed, in which case changing it directly marks a transfer),
  *   - a share-with-teams multi-select,
  *   - a read-only creator (provenance) line,
  *   - a not-a-member transfer confirmation when transferring to a team the
@@ -27,7 +27,6 @@
 
 import * as React from "react";
 
-import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import {
 TeamMultiPicker,
@@ -43,9 +42,9 @@ export interface TeamOwnershipFieldsProps {
   creatorSubject?: string | null;
 
   // ---- mode ------------------------------------------------------------
-  /** Disables the owner picker (owner is immutable on edit) unless transferring. */
+  /** Disables the owner picker on edit unless transfers are allowed. */
   isEditing: boolean;
-  /** Surfaces a "Transfer ownership" affordance on edit. */
+  /** Allows owner picker edits on edit; changed values are treated as transfers. */
   allowTransfer?: boolean;
   /** Mark the owner field required (create flow); drives the inline error. */
   ownerRequired?: boolean;
@@ -65,8 +64,8 @@ export interface TeamOwnershipFieldsProps {
   // ---- callbacks -------------------------------------------------------
   onOwnerTeamChange: (slug: string) => void;
   onSharedTeamsChange: (slugs: string[]) => void;
-  /** Called when a transfer is confirmed. `confirmedNotMember` is true when the
-   *  caller acknowledged they are not a member of the destination team. */
+  /** Called when an edit-mode owner change is confirmed. `confirmedNotMember`
+   * is true when the caller acknowledged they are not a member of the destination team. */
   onTransfer?: (newOwnerSlug: string, confirmedNotMember: boolean) => void;
 
   disabled?: boolean;
@@ -125,9 +124,6 @@ export function TeamOwnershipFields(props: TeamOwnershipFieldsProps) {
     // grant-preview block was removed).
   } = props;
 
-  // Transfer mode: only meaningful on edit when transfers are allowed. While
-  // active, the owner picker is re-enabled so a new destination can be chosen.
-  const [transferring, setTransferring] = React.useState(false);
   const ownerMissing = ownerRequired && !isEditing && !ownerTeamSlug?.trim();
   // On edit the picker is editable only when transfers are allowed; otherwise
   // it stays locked. On create it is always enabled (unless globally disabled).
@@ -162,25 +158,12 @@ export function TeamOwnershipFields(props: TeamOwnershipFieldsProps) {
     <div className="space-y-4">
       {/* Owner team ------------------------------------------------------ */}
       <div className="space-y-2 rounded-lg">
-        <div className="flex items-center justify-between gap-2">
-          <Label htmlFor="ownerTeam">
-            {ownerLabel}{" "}
-            {ownerRequired && !isEditing && (
-              <span className="text-destructive">*</span>
-            )}
-          </Label>
-          {isEditing && allowTransfer && onTransfer && (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={disabled}
-              onClick={() => setTransferring((t) => !t)}
-            >
-              {transferring ? "Cancel transfer" : "Transfer ownership"}
-            </Button>
+        <Label htmlFor="ownerTeam">
+          {ownerLabel}{" "}
+          {ownerRequired && !isEditing && (
+            <span className="text-destructive">*</span>
           )}
-        </div>
+        </Label>
         <TeamPicker
           id="ownerTeam"
           value={ownerTeamSlug}
@@ -200,15 +183,16 @@ export function TeamOwnershipFields(props: TeamOwnershipFieldsProps) {
         <p id="owner-team-help" className="text-xs text-muted-foreground">
           {ownerHelpText ?? (
             <>
-              Owner-team members can use the {resourceNoun}; owner-team admins
-              can manage it.
+              Owner-team members can use and edit the {resourceNoun};
+              owner-team admins can manage it.
             </>
           )}
         </p>
-        {transferring && allowTransfer && (
+        {isEditing && allowTransfer && onTransfer && (
           <p className="text-xs text-amber-600 dark:text-amber-400">
-            Pick the destination team. If you are not a member you will be asked
-            to confirm — transferring may remove your own access.
+            Changing the owner team will transfer ownership when you save. If
+            you are not a member of the destination team, saving may remove your
+            own access.
           </p>
         )}
         {creatorSubject && (

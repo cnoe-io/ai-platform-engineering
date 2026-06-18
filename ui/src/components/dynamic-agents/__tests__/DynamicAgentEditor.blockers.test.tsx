@@ -96,8 +96,9 @@ function jsonResponse(body: unknown) {
 
 /**
  * Wire up a fetch mock that returns a single model (so the model dropdown is
- * populated) and one own-able team (so the Owner Team blocker can flip from
- * "missing" to "filled" inside a test without rerendering).
+ * populated) and own-able teams (so the Owner Team blocker can flip from
+ * "missing" to "filled" and edit-mode transfers can switch teams without
+ * rerendering).
  */
 function mockApi() {
   const fetchMock = jest.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
@@ -115,6 +116,7 @@ function mockApi() {
         success: true,
         data: [
           { _id: "team-1", slug: "platform", name: "Platform", can_own_agents: true, user_role: "admin" },
+          { _id: "team-2", slug: "data-eng", name: "Data Eng", can_own_agents: true, user_role: "admin" },
         ],
       });
     }
@@ -215,9 +217,7 @@ describe("DynamicAgentEditor — required-field enforcement", () => {
     });
   });
 
-  it("does NOT block submit when editing an existing agent (Owner Team is fixed at create time)", async () => {
-    // When `agent` is supplied, isEditing is true and the Owner Team picker
-    // is disabled; the blocker logic skips the Owner Team check entirely.
+  it("lets edit-mode owner team changes save as ownership transfers", async () => {
     const agent = {
       _id: "agent-edit-1",
       name: "Existing Agent",
@@ -240,11 +240,34 @@ describe("DynamicAgentEditor — required-field enforcement", () => {
       updated_at: "2026-04-29T00:00:00Z",
     };
 
-    render(<DynamicAgentEditor agent={agent} onCancel={jest.fn()} onSave={jest.fn()} />);
+    const onSave = jest.fn();
+    render(<DynamicAgentEditor agent={agent} onCancel={jest.fn()} onSave={onSave} />);
     await flushAsync();
 
     expect(screen.queryByTestId("create-agent-blocker-hint")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Transfer ownership/i })).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/Owner Team/i)).not.toBeDisabled();
+    expect(
+      screen.getByText(/Changing the owner team will transfer ownership when you save/i),
+    ).toBeInTheDocument();
+
+    await pickTeam(/Owner Team/i, "data-eng");
+
     const saveButton = screen.getByRole("button", { name: /Save Changes/i });
     expect(saveButton).not.toBeDisabled();
+
+    await act(async () => {
+      fireEvent.click(saveButton);
+      await new Promise((r) => setTimeout(r, 50));
+    });
+
+    const fetchMock = global.fetch as jest.Mock;
+    const putCall = fetchMock.mock.calls.find(([, init]) => init?.method === "PUT");
+    expect(putCall).toBeDefined();
+    expect(JSON.parse(String(putCall?.[1]?.body))).toMatchObject({
+      owner_team_slug: "data-eng",
+      confirm_not_member: false,
+    });
+    expect(onSave).toHaveBeenCalledTimes(1);
   });
 });

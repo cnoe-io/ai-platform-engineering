@@ -281,7 +281,7 @@ def _slack_agent_channel_grant_check(context, channel_id: str | None, agent_id: 
         return None
 
     logger.info(
-        "Slack channel grant denied channel=%s agent=%s reason=%s",
+        "Slack channel grant denied channel={} agent={} reason={}",
         channel_id,
         agent_id,
         decision.reason,
@@ -1066,20 +1066,6 @@ def rbac_global_middleware(body, context, next, logger):
         )
     except Exception as exc:
         logger.error("Failed to resolve Slack user %s — denying request: %s", slack_user_id, exc)
-        channel = (
-            body.get("event", {}).get("channel")
-            or body.get("channel", {}).get("id")
-            or body.get("channel_id")  # slash command bodies
-        )
-        if channel:
-            try:
-                context["client"].chat_postEphemeral(
-                    channel=channel,
-                    user=slack_user_id,
-                    text="Identity verification is temporarily unavailable. Please try again later.",
-                )
-            except Exception:
-                logger.warning("Could not send RBAC error message to %s", slack_user_id)
         return _HANDLED_200
     finally:
         if loop is not None:
@@ -1515,7 +1501,7 @@ def _route_to_agent(event, say, client, channel_config, agent_match, is_bot, bot
     denial = _slack_agent_channel_grant_check(context, channel_id, agent_id)
     if denial:
       logger.warning(
-        "Slack channel grant denied for ambient message channel=%s agent=%s — silently dropping",
+        "Slack channel grant denied for ambient message channel={} agent={} — silently dropping",
         channel_id,
         agent_id,
       )

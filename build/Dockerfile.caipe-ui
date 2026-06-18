@@ -47,6 +47,7 @@ RUN --mount=type=cache,id=caipe-ui-npm-cache,target=/root/.npm,sharing=locked \
 # Also pinned to BUILDPLATFORM — next build uses @next/swc at compile time only;
 # the standalone output is platform-independent JavaScript.
 FROM --platform=$BUILDPLATFORM node:24-alpine AS build
+RUN apk add --no-cache libc6-compat
 WORKDIR /app
 
 # Build args for version info

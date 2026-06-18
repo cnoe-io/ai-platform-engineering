@@ -40,7 +40,7 @@ async function resolveDefaultAgentId(): Promise<string | undefined> {
 function ChatRedirectPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { data: session } = useSession();
+  const { data: session, status } = useSession();
   const redirected = useRef(false);
   const autonomousOnly = searchParams.get("source") === "autonomous";
   const autonomousAgentsEnabled = getConfig('autonomousAgentsEnabled');
@@ -51,12 +51,16 @@ function ChatRedirectPage() {
   const loadAutonomousConversationsFromService = useChatStore((s) => s.loadAutonomousConversationsFromService);
 
   useEffect(() => {
+    if (status === "loading") return;
     if (redirected.current) return;
     if (autonomousOnly && !autonomousAgentsEnabled) {
       redirected.current = true;
       router.replace("/chat");
       return;
     }
+    // Reset the autonomous empty-state before re-resolving on dep changes; the
+    // value is driven by the async resolve() below, so it can't be derived.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setShowAutonomousEmpty(false);
 
     const resolve = async () => {
@@ -89,9 +93,13 @@ function ChatRedirectPage() {
         ? ownedConversations.filter((c) => c.source === "autonomous")
         : ownedConversations;
 
-      // 1. Resume the last active conversation if it still exists and is owned
-      if (activeConversationId) {
-        const stillOwned = ownedConversations.some((c) => c.id === activeConversationId);
+      // 1. Resume the last active conversation if it still exists and is owned.
+      // Gate on lastActiveConversationId (in-memory active OR persisted) so a
+      // reload — where the in-memory activeConversationId is null — still resumes
+      // the persisted conversation. Check against redirectCandidates so autonomous
+      // view only resumes autonomous threads.
+      if (lastActiveConversationId) {
+        const stillOwned = redirectCandidates.some((c) => c.id === lastActiveConversationId);
         if (stillOwned) {
           redirected.current = true;
           router.replace(`/chat/${lastActiveConversationId}`);
@@ -123,7 +131,7 @@ function ChatRedirectPage() {
         router.replace(`/chat/${newId}`);
       }
     });
-  }, [autonomousOnly, autonomousAgentsEnabled, createConversation, loadAutonomousConversationsFromService, loadConversationsFromServer, router, session?.user?.email]);
+  }, [status, autonomousOnly, autonomousAgentsEnabled, createConversation, loadAutonomousConversationsFromService, loadConversationsFromServer, router, session?.user?.email]);
 
   if (showAutonomousEmpty) {
     return (

@@ -1,8 +1,10 @@
 import React from "react";
 import { render, screen } from "@testing-library/react";
 
+// assisted-by Codex Codex-sonnet-4-6
+
 let mockIsAdmin = false;
-let mockAdminTabGates = { audit_logs: false };
+let mockAdminTabGates = { audit_logs: false, dynamic_agent_conversations: false };
 let mockSearchParams = new URLSearchParams();
 
 jest.mock("@/hooks/use-admin-role", () => ({
@@ -64,7 +66,7 @@ import DynamicAgentsPage from "../page";
 describe("DynamicAgentsPage", () => {
   beforeEach(() => {
     mockIsAdmin = false;
-    mockAdminTabGates = { audit_logs: false };
+    mockAdminTabGates = { audit_logs: false, dynamic_agent_conversations: false };
     mockSearchParams = new URLSearchParams();
   });
 
@@ -89,18 +91,18 @@ describe("DynamicAgentsPage", () => {
     expect(screen.queryByTestId("conversations-tab")).not.toBeInTheDocument();
   });
 
-  it("shows Conversations for admins with OpenFGA audit-log access", () => {
+  it("shows Conversations for admins with Dynamic Agent conversation access", () => {
     mockIsAdmin = true;
-    mockAdminTabGates = { audit_logs: true };
+    mockAdminTabGates = { audit_logs: false, dynamic_agent_conversations: true };
 
     render(<DynamicAgentsPage />);
 
     expect(screen.getByRole("tab", { name: /^Conversations$/i })).toBeInTheDocument();
   });
 
-  it("allows OpenFGA-authorized admins to deep link to Conversations", () => {
+  it("allows OpenFGA-authorized users to deep link to Conversations", () => {
     mockIsAdmin = true;
-    mockAdminTabGates = { audit_logs: true };
+    mockAdminTabGates = { audit_logs: false, dynamic_agent_conversations: true };
     mockSearchParams = new URLSearchParams("tab=conversations");
 
     render(<DynamicAgentsPage />);

@@ -139,10 +139,15 @@ function resourceTuples(
 }
 
 const MCP_TOOL_WILDCARD_SUFFIX = "_*";
+const MCP_TOOL_SLASH_WILDCARD_SUFFIX = "/*";
 
 function mcpServerIdFromToolPrefix(toolId: string): string | null {
-  if (!toolId.endsWith(MCP_TOOL_WILDCARD_SUFFIX)) return null;
-  const serverId = toolId.slice(0, -MCP_TOOL_WILDCARD_SUFFIX.length);
+  let serverId: string | null = null;
+  if (toolId.endsWith(MCP_TOOL_WILDCARD_SUFFIX)) {
+    serverId = toolId.slice(0, -MCP_TOOL_WILDCARD_SUFFIX.length);
+  } else if (toolId.endsWith(MCP_TOOL_SLASH_WILDCARD_SUFFIX)) {
+    serverId = toolId.slice(0, -MCP_TOOL_SLASH_WILDCARD_SUFFIX.length);
+  }
   return serverId || null;
 }
 
@@ -240,15 +245,6 @@ function combinedTeamToolIds(added: string[], removed: string[]): string[] {
   return out;
 }
 
-/** Revoke legacy agent `tool:*` tuples written before per-server expansion. */
-function agentLegacyToolStarDeletes(agentIds: string[]): OpenFgaTupleKey[] {
-  return agentIds.filter(isValidTeamAgentId).map((agentId) => ({
-    user: `agent:${agentId}`,
-    relation: "caller",
-    object: "tool:*",
-  }));
-}
-
 function splitTeamToolSelections(toolIds: string[]): {
   mcpServerSelections: string[];
   directToolIds: string[];
@@ -269,23 +265,25 @@ function splitTeamToolSelections(toolIds: string[]): {
 function mcpServerLegacyToolGrantDeletes(teamSlug: string, toolIds: string[]): OpenFgaTupleKey[] {
   const deletes: OpenFgaTupleKey[] = [];
   for (const toolId of toolIds) {
-    if (!mcpServerIdFromToolPrefix(toolId)) continue;
+    const serverId = mcpServerIdFromToolPrefix(toolId);
+    if (!serverId) continue;
+    const legacyToolId = `${serverId}${MCP_TOOL_WILDCARD_SUFFIX}`;
     deletes.push({
       user: `team:${teamSlug}#member`,
       relation: "caller",
-      object: `tool:${toolId}`,
+      object: `tool:${legacyToolId}`,
     });
     for (const relation of ["reader", "user", "caller"] as const) {
       deletes.push({
         user: `team:${teamSlug}#member`,
         relation,
-        object: `mcp_tool:${toolId}`,
+        object: `mcp_tool:${legacyToolId}`,
       });
     }
     deletes.push({
       user: `team:${teamSlug}#admin`,
       relation: "manager",
-      object: `mcp_tool:${toolId}`,
+      object: `mcp_tool:${legacyToolId}`,
     });
   }
   return deletes;
@@ -309,8 +307,9 @@ export function buildTeamResourceTupleDiff(input: TeamResourceTupleDiffInput): T
     ...resourceTuples(input.teamSlug, "user", "agent", input.agents.added),
     ...resourceTuples(input.teamSlug, "manager", "agent", input.agentAdmins.added, "admin"),
     ...resourceTuples(input.teamSlug, "caller", "tool", addedTools.directToolIds),
-    // Team Resources stores MCP server selections as `<server_id>_*` in Mongo;
-    // OpenFGA tuples target `mcp_server:<id>` (BFF) and `tool:<id>/*` (gateway).
+    // Team Resources accepts MCP server selections as current `<server_id>/*`
+    // or legacy `<server_id>_*`; OpenFGA tuples target `mcp_server:<id>` (BFF)
+    // and `tool:<id>/*` (gateway).
     ...mcpServerAccessTuples(input.teamSlug, addedTools.mcpServerSelections, true),
     ...mcpServerGatewayToolCallerTuples(input.teamSlug, addedTools.mcpServerSelections),
     ...agentRuntimeToolCallerTuples(input.agents.added, input.tools.added),
@@ -324,9 +323,6 @@ export function buildTeamResourceTupleDiff(input: TeamResourceTupleDiffInput): T
     ...resourceTuples(input.teamSlug, "reader", "knowledge_base", input.knowledgeBases?.added ?? []),
     ...resourceTuples(input.teamSlug, "user", "skill", input.skills?.added ?? []),
     ...resourceTuples(input.teamSlug, "user", "task", input.tasks?.added ?? []),
-    ...(input.toolWildcard.added
-      ? resourceTuples(input.teamSlug, "caller", "tool", ["*"])
-      : []),
   ]);
 
   const agentsAffectedByWildcard = Array.from(
@@ -353,16 +349,9 @@ export function buildTeamResourceTupleDiff(input: TeamResourceTupleDiffInput): T
           ...agentRuntimeAllServerWildcards(agentsAffectedByWildcard, input.allMcpServerIds ?? []),
         ]
       : []),
-    ...agentLegacyToolStarDeletes(input.agents.removed),
-    ...(input.toolWildcard.removed
-      ? agentLegacyToolStarDeletes(agentsAffectedByWildcard)
-      : []),
     ...resourceTuples(input.teamSlug, "reader", "knowledge_base", input.knowledgeBases?.removed ?? []),
     ...resourceTuples(input.teamSlug, "user", "skill", input.skills?.removed ?? []),
     ...resourceTuples(input.teamSlug, "user", "task", input.tasks?.removed ?? []),
-    ...(input.toolWildcard.removed
-      ? resourceTuples(input.teamSlug, "caller", "tool", ["*"])
-      : []),
   ]);
 
   return { writes, deletes };

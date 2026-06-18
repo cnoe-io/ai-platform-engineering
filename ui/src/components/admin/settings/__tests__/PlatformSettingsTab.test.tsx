@@ -2,6 +2,8 @@
  * @jest-environment jsdom
  */
 
+// assisted-by Codex Codex-sonnet-4-6
+
 import React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { PlatformSettingsTab } from '../PlatformSettingsTab';
@@ -31,7 +33,7 @@ function mockFetch({
   patch = { success: true },
 }: {
   agents?: Array<{ _id: string; name: string; description?: string }>;
-  config?: { success: boolean; data?: { default_agent_id?: string | null; source?: string; release_notes?: any } };
+  config?: { success: boolean; data?: { default_agent_id?: string | null; source?: string; release_notes?: unknown } };
   patch?: { success: boolean };
 } = {}) {
   global.fetch = jest.fn((url: RequestInfo | URL, init?: RequestInit) => {
@@ -166,8 +168,8 @@ describe('PlatformSettingsTab', () => {
     render(<PlatformSettingsTab isAdmin />);
 
     await waitFor(() => {
-      expect(screen.getByText(/env var as bootstrap default/i)).toBeInTheDocument();
-      expect(screen.getAllByText('DEFAULT_AGENT_ID')).toHaveLength(2);
+      expect(screen.getByText(/using the deployment default/i)).toBeInTheDocument();
+      expect(screen.getAllByText('DEFAULT_AGENT_ID')).toHaveLength(1);
     });
   });
 
@@ -182,7 +184,7 @@ describe('PlatformSettingsTab', () => {
 
     // Lighter "Remove default" confirmation appears first.
     const removeDefaultButton = await screen.findByRole('button', { name: /remove default/i });
-    expect(screen.getByText(/fall back to the supervisor/i)).toBeInTheDocument();
+    expect(screen.getByText(/New chats will use the supervisor instead/i)).toBeInTheDocument();
     fireEvent.click(removeDefaultButton);
 
     await waitFor(() => {
@@ -210,7 +212,7 @@ describe('PlatformSettingsTab', () => {
 
     await screen.findByRole('combobox');
     expect(screen.getByTestId('default-agent-public-banner')).toHaveTextContent(
-      /becomes available to every signed-in user/i,
+      /gives every signed-in user access/i,
     );
   });
 
@@ -245,7 +247,7 @@ describe('PlatformSettingsTab', () => {
       await screen.findByText(/Make.*Basic SRE.*the platform default/i),
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/Every signed-in user will be able to chat with this agent/i),
+      screen.getByText(/Everyone who signs in will be able to use this agent/i),
     ).toBeInTheDocument();
     // No PATCH yet — the admin still has to confirm.
     expect(global.fetch).not.toHaveBeenCalledWith(

@@ -86,6 +86,29 @@ describe("useReleaseUpgradePrompt", () => {
           },
         });
       }
+      if (href === "/api/rbac/migration-status") {
+        return jsonResponse({
+          success: true,
+          data: {
+            requires_attention: true,
+            is_blocking: true,
+            needs_version_bootstrap: false,
+            pending_required_count: 1,
+            blocking_required_count: 1,
+            version_bootstrap_required_count: 0,
+          },
+        });
+      }
+      if (href.startsWith("/api/release-notes")) {
+        return jsonResponse({
+          requestedVersion: "0.5.1",
+          matchedVersion: "0.5.1",
+          title: "Release 0.5.1",
+          date: "2026-05-19",
+          body: "Curated release notes body",
+          source: "github",
+        });
+      }
       if (href === "/api/settings/preferences" && init?.method === "PATCH") {
         return jsonResponse({ success: true });
       }
@@ -102,7 +125,127 @@ describe("useReleaseUpgradePrompt", () => {
 
     expect(result.current.releaseVersion).toBe("0.5.1");
     expect(result.current.release?.sections[0].items[0].text).toBe("Added migrations");
+    expect(result.current.releaseMarkdown).toBeNull();
+    expect(result.current.showMigrationCta).toBe(true);
     expect(result.current.isAdmin).toBe(true);
+  });
+
+  it("uses exact changelog entries before exact curated release markdown", async () => {
+    const { result } = renderHook(() => useReleaseUpgradePrompt());
+
+    await waitFor(() => expect(result.current.open).toBe(true));
+
+    expect(result.current.release?.version).toBe("0.5.1");
+    expect(result.current.releaseMarkdown).toBeNull();
+    expect(global.fetch).toHaveBeenCalledWith("/api/release-notes?version=0.5.1");
+  });
+
+  it("uses exact curated release markdown only when the changelog has no exact entry", async () => {
+    (global.fetch as jest.Mock).mockImplementation(async (url: RequestInfo | URL) => {
+      const href = String(url);
+      if (href === "/api/settings") {
+        return jsonResponse({
+          success: true,
+          data: {
+            preferences: {
+              releaseNotesDismissedVersions: [],
+              releaseNotesDismissedAnnouncementIds: [],
+            },
+          },
+        });
+      }
+      if (href === "/api/changelog") {
+        return jsonResponse({ releases: [], scopes: [] });
+      }
+      if (href === "/api/admin/platform-config") {
+        return jsonResponse({
+          success: true,
+          data: {
+            release_notes: {
+              enabled: true,
+              release_version: "0.5.1",
+              announcement_revision: 1,
+              announcement_id: "0.5.1:revision-1",
+              show_toast: false,
+              toast_duration_ms: 5000,
+              show_migration_cta: false,
+            },
+          },
+        });
+      }
+      if (href.startsWith("/api/release-notes")) {
+        return jsonResponse({
+          requestedVersion: "0.5.1",
+          matchedVersion: "0.5.1",
+          title: "Release 0.5.1",
+          date: "2026-05-19",
+          body: "Curated release notes body",
+          source: "github",
+        });
+      }
+      return jsonResponse({}, false);
+    });
+
+    const { result } = renderHook(() => useReleaseUpgradePrompt());
+
+    await waitFor(() => expect(result.current.open).toBe(true));
+
+    expect(result.current.release).toBeNull();
+    expect(result.current.releaseMarkdown?.body).toBe("Curated release notes body");
+  });
+
+  it("hides the migration CTA when migration status is clean", async () => {
+    (global.fetch as jest.Mock).mockImplementation(async (url: RequestInfo | URL) => {
+      const href = String(url);
+      if (href === "/api/settings") {
+        return jsonResponse({
+          success: true,
+          data: {
+            preferences: {
+              releaseNotesDismissedVersions: [],
+              releaseNotesDismissedAnnouncementIds: [],
+            },
+          },
+        });
+      }
+      if (href === "/api/changelog") return jsonResponse(changelogPayload);
+      if (href === "/api/admin/platform-config") {
+        return jsonResponse({
+          success: true,
+          data: {
+            release_notes: {
+              enabled: true,
+              release_version: "0.5.1",
+              announcement_revision: 1,
+              announcement_id: "0.5.1:revision-1",
+              show_toast: false,
+              toast_duration_ms: 5000,
+              show_migration_cta: true,
+            },
+          },
+        });
+      }
+      if (href === "/api/rbac/migration-status") {
+        return jsonResponse({
+          success: true,
+          data: {
+            requires_attention: false,
+            is_blocking: false,
+            needs_version_bootstrap: false,
+            pending_required_count: 0,
+            blocking_required_count: 0,
+            version_bootstrap_required_count: 0,
+          },
+        });
+      }
+      if (href.startsWith("/api/release-notes")) return jsonResponse({}, false);
+      return jsonResponse({}, false);
+    });
+
+    const { result } = renderHook(() => useReleaseUpgradePrompt());
+
+    await waitFor(() => expect(result.current.open).toBe(true));
+    expect(result.current.showMigrationCta).toBe(false);
   });
 
   it("opens the migration assistant and suppresses the prompt for the current session", async () => {

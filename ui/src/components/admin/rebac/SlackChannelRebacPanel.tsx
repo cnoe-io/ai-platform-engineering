@@ -1,5 +1,8 @@
 "use client";
 
+import { HelpCircle } from "lucide-react";
+
+import { Tooltip,TooltipContent,TooltipTrigger } from "@/components/ui/tooltip";
 import type {
 ConnectorAdminAdapter,
 DiagnosticRoute,
@@ -22,6 +25,38 @@ function formatSlackChannelName(value: unknown): string {
   const name = String(value ?? "").trim();
   if (!name) return "";
   return name.startsWith("#") ? name : `#${name}`;
+}
+
+// assisted-by Codex Codex-sonnet-4-6
+function SlackAccessNote() {
+  return (
+    <div className="flex max-w-4xl items-start gap-2 rounded-md border border-border/60 bg-background/50 px-3 py-2 text-sm text-muted-foreground">
+      <span>
+        Members of the assigned team can update this Slack channel&apos;s bot routing. Agents added here can answer in this channel.
+      </span>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            aria-label="Slack access details"
+            className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <HelpCircle className="h-4 w-4" aria-hidden="true" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="top" className="max-w-md whitespace-normal break-words text-xs">
+          <div className="space-y-2">
+            <p>
+              Team assignment controls who can manage this channel&apos;s integration. The channel and the assigned team must both be allowed to use an agent before the bot will call it.
+            </p>
+            <p>
+              Technical details: CAIPE records these access rules in the relationship store. Global or default agents may also be available outside this channel.
+            </p>
+          </div>
+        </TooltipContent>
+      </Tooltip>
+    </div>
+  );
 }
 
 const SLACK_ADAPTER: ConnectorAdminAdapter = {
@@ -126,7 +161,7 @@ const SLACK_ADAPTER: ConnectorAdminAdapter = {
     discoveryEmptyLabel: "No bot-member channels were discovered.",
     discoveryDiscoveredLabel: "bot-member channel",
     selfServiceTitle: "My Slack Channel Settings",
-    selfServiceDescription: "Manage bot routing behavior only for Slack channels where OpenFGA grants you channel admin access.",
+    selfServiceDescription: "Manage Slack bot routing for channels shared with your team.",
   },
   ariaLabels: {
     tablist: "Slack admin views",
@@ -145,34 +180,7 @@ const SLACK_ADAPTER: ConnectorAdminAdapter = {
   syncDialogueDescription: "Preview reads the Slack bot's loaded static YAML config. Apply upserts matching MongoDB route metadata and channel-agent OpenFGA tuples without deleting UI-managed associations.",
   syncSummaryItemsLabel: "Channels",
 
-  authzDisclaimer: (
-    <>
-      <div>
-        Slack authorization has two checks before dispatch: the channel must have
-        <code className="mx-1">can_use agent:&lt;id&gt;</code>, and the user&apos;s active
-        team must also have <code className="mx-1">can_use agent:&lt;id&gt;</code>.
-        If either check fails, the Slack bot denies the request before calling the agent.
-      </div>
-      <div className="rounded-md border border-amber-300/60 bg-amber-50 p-2 text-amber-950 dark:bg-amber-950/30 dark:text-amber-200">
-        <span className="font-medium">Sharing model:</span> Adding an agent to a
-        channel that is assigned to a team transitively grants <em>every member of
-        that team</em> permission to invoke the agent in this channel — even members
-        who were never granted the agent directly. If that is not what you want, share
-        the agent with a smaller subgroup (or with individual users) instead of the
-        channel&apos;s team.
-        <p className="mt-2">
-          Agents with <strong>global</strong> visibility or set as the{" "}
-          <strong>platform default</strong> (Admin → Settings) also carry an OpenFGA
-          grant <code className="mx-1">user:* can_use agent:&lt;id&gt;</code>, so every
-          signed-in user can DM the agent and use it in any mapped Slack channel or
-          Webex space. Channel onboarding here still writes{" "}
-          <code className="mx-1">slack_channel:… can_use agent:&lt;id&gt;</code> and{" "}
-          <code className="mx-1">team:&lt;slug&gt;#member can_use agent:&lt;id&gt;</code>{" "}
-          for the channel&apos;s team; the bot&apos;s dispatch checks above still apply.
-        </p>
-      </div>
-    </>
-  ),
+  authzDisclaimer: <SlackAccessNote />,
 
   configuredDetailExtra: (ctx) => (
     <SlackConfiguredChannelDetail

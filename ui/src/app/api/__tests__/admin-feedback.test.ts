@@ -50,6 +50,11 @@ const mockCheckPermission = jest.requireMock<{ checkPermission: jest.Mock }>(
   '@/lib/rbac/keycloak-authz'
 ).checkPermission;
 
+const mockGetReadableSlackChannelNames = jest.fn<Promise<string[]>, [string]>();
+jest.mock('@/lib/rbac/user-insights-scope', () => ({
+  getReadableSlackChannelNames: (...args: any[]) => mockGetReadableSlackChannelNames(...args),
+}));
+
 let mockFeedbackEnabled = true;
 jest.mock('@/lib/config', () => ({
   getConfig: (key: string) => {
@@ -137,6 +142,15 @@ function userSession() {
   return {
     user: { email: 'user@example.com', name: 'User' },
     role: 'user',
+    sub: 'user-sub',
+    accessToken: accessTokenWithRoles(['chat_user']),
+  };
+}
+
+function userSessionNoSub() {
+  return {
+    user: { email: 'user@example.com', name: 'User' },
+    role: 'user',
     accessToken: accessTokenWithRoles(['chat_user']),
   };
 }
@@ -212,6 +226,8 @@ describe('GET /api/admin/feedback', () => {
     mockCheckPermission.mockReset();
     // Default to allow — individual tests override for deny scenarios.
     mockCheckPermission.mockResolvedValue({ allowed: true, reason: 'OK' });
+    mockGetReadableSlackChannelNames.mockReset();
+    mockGetReadableSlackChannelNames.mockResolvedValue([]);
     mockIsMongoDBConfigured = true;
     mockFeedbackEnabled = true;
   });
@@ -231,19 +247,101 @@ describe('GET /api/admin/feedback', () => {
     expect(res.status).toBe(401);
   });
 
-  // Spec 102 / FR-001 — route was migrated in T052 from withAuth-only to
-  // requireRbacPermission(session, 'admin_ui', 'view'). Non-admin users now
-  // hit a Keycloak PDP deny.
-  it('returns 403 for non-admin users (admin_ui#view denied)', async () => {
-    mockGetServerSession.mockResolvedValue(userSession());
+  // Non-admins are scoped, not denied — but a non-admin with no `sub` claim
+  // can't be scoped (no OpenFGA subject), so the route must 401 rather than
+  // fall through to an unscoped query.
+  it('returns 401 for non-admin users with no sub claim', async () => {
+    mockGetServerSession.mockResolvedValue(userSessionNoSub());
     mockCheckPermission.mockResolvedValue({
       allowed: false,
       reason: 'DENY_NO_CAPABILITY',
     });
     const res = await GET(makeRequest('/api/admin/feedback'));
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(401);
     const body = await res.json();
     expect(body.success).toBe(false);
+    expect(body.code).toBe('UNAUTHORIZED');
+  });
+
+  it('scopes filter to user_email when non-admin has no readable channels', async () => {
+    mockGetServerSession.mockResolvedValue(userSession());
+    mockCheckPermission.mockResolvedValue({
+      allowed: false,
+      reason: 'DENY_NO_CAPABILITY',
+    });
+    mockGetReadableSlackChannelNames.mockResolvedValue([]);
+    const feedbackCol = setupFeedbackCollection([], 0);
+
+    const res = await GET(makeRequest('/api/admin/feedback'));
+    expect(res.status).toBe(200);
+    const filter = feedbackCol.find.mock.calls[0][0];
+    expect(filter.$or).toEqual([{ user_email: 'user@example.com' }]);
+    expect(mockGetReadableSlackChannelNames).toHaveBeenCalledWith('user:user-sub');
+  });
+
+  it('scopes filter to readable channels OR own email when non-admin has channels', async () => {
+    mockGetServerSession.mockResolvedValue(userSession());
+    mockCheckPermission.mockResolvedValue({
+      allowed: false,
+      reason: 'DENY_NO_CAPABILITY',
+    });
+    mockGetReadableSlackChannelNames.mockResolvedValue(['general', 'random']);
+    const feedbackCol = setupFeedbackCollection([], 0);
+
+    const res = await GET(makeRequest('/api/admin/feedback'));
+    expect(res.status).toBe(200);
+    const filter = feedbackCol.find.mock.calls[0][0];
+    expect(filter.$or).toEqual([
+      { source: 'slack', channel_name: { $in: ['general', 'random'] } },
+      { user_email: 'user@example.com' },
+    ]);
+  });
+
+  it('does not inject scope filter for full admin', async () => {
+    mockGetServerSession.mockResolvedValue(adminSession());
+    const feedbackCol = setupFeedbackCollection([], 0);
+
+    await GET(makeRequest('/api/admin/feedback'));
+    const filter = feedbackCol.find.mock.calls[0][0];
+    expect(filter.$or).toBeUndefined();
+    expect(filter.$and).toBeUndefined();
+    expect(mockGetReadableSlackChannelNames).not.toHaveBeenCalled();
+  });
+
+  it('scopes distinct channel/user dropdowns to filter for non-admin', async () => {
+    mockGetServerSession.mockResolvedValue(userSession());
+    mockCheckPermission.mockResolvedValue({
+      allowed: false,
+      reason: 'DENY_NO_CAPABILITY',
+    });
+    mockGetReadableSlackChannelNames.mockResolvedValue(['general']);
+    const feedbackCol = setupFeedbackCollection([], 0);
+
+    await GET(makeRequest('/api/admin/feedback'));
+    const channelDistinctArgs = feedbackCol.distinct.mock.calls.find(
+      (call: any[]) => call[0] === 'channel_name'
+    );
+    const userDistinctArgs = feedbackCol.distinct.mock.calls.find(
+      (call: any[]) => call[0] === 'user_email'
+    );
+    expect(channelDistinctArgs?.[1].$or).toBeDefined();
+    expect(userDistinctArgs?.[1].$or).toBeDefined();
+  });
+
+  it('combines existing $or (search) with scope using $and for non-admin', async () => {
+    mockGetServerSession.mockResolvedValue(userSession());
+    mockCheckPermission.mockResolvedValue({
+      allowed: false,
+      reason: 'DENY_NO_CAPABILITY',
+    });
+    mockGetReadableSlackChannelNames.mockResolvedValue([]);
+    const feedbackCol = setupFeedbackCollection([], 0);
+
+    await GET(makeRequest('/api/admin/feedback?search=wrong'));
+    const filter = feedbackCol.find.mock.calls[0][0];
+    expect(filter.$and).toBeDefined();
+    expect(filter.$and).toHaveLength(2);
+    expect(filter.$or).toBeUndefined();
   });
 
   it('returns 503 when MongoDB is not configured', async () => {

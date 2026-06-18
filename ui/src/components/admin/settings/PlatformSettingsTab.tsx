@@ -1,5 +1,6 @@
 "use client";
 
+// assisted-by Codex Codex-sonnet-4-6
 // assisted-by claude code claude-sonnet-4-6
 // assisted-by Cursor claude-opus-4-7
 
@@ -142,10 +143,8 @@ export function PlatformSettingsTab({ isAdmin }: PlatformSettingsTabProps) {
         <CardHeader>
           <CardTitle>Default Agent</CardTitle>
           <CardDescription>
-            Select which agent new chats open with across the Web UI <em>and</em> Slack
-            (channel fallback when no route matches, and direct messages). Admins can
-            override this at runtime; it takes precedence over the <code>DEFAULT_AGENT_ID</code>
-            Helm value.
+            Choose the agent people see first when they start a new chat in the web UI
+            or connected chat channels. Changes take effect right away.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -156,13 +155,12 @@ export function PlatformSettingsTab({ isAdmin }: PlatformSettingsTabProps) {
             <Info className="h-4 w-4 shrink-0 mt-0.5" />
             <div className="space-y-1">
               <p className="font-medium">
-                Whichever agent you pick here becomes available to every signed-in user.
+                This choice gives every signed-in user access to the selected agent.
               </p>
               <p className="text-xs">
-                The platform default is the agent new users land on in direct messages and the
-                Web UI before any team grants kick in. Choose <em>Default CAIPE Supervisor</em> if
-                you don&apos;t want any agent to be public by default — users will only see agents
-                their teams have granted them.
+                Use it for an assistant that is safe for everyone. To avoid granting a default
+                agent, choose <em>Default CAIPE Supervisor</em>; users will then see only the
+                agents their teams can access.
               </p>
             </div>
           </div>
@@ -194,7 +192,8 @@ export function PlatformSettingsTab({ isAdmin }: PlatformSettingsTabProps) {
 
           {configSource === 'env' && (
             <p className="text-xs text-muted-foreground">
-              Currently using <code>DEFAULT_AGENT_ID</code> env var as bootstrap default. Saving here overrides it at runtime.
+              Currently using the deployment default (<code>DEFAULT_AGENT_ID</code>). Saving here
+              updates the live default.
             </p>
           )}
 
@@ -250,11 +249,9 @@ export function PlatformSettingsTab({ isAdmin }: PlatformSettingsTabProps) {
               Unlinked Access
             </CardTitle>
             <CardDescription>
-              Grant agents and tools to unlinked users — people who have messaged via Slack
-              or Webex but never signed in to the web UI, so the platform has no linked
-              account for them. Any platform admin can add agents or tools they own here, and
-              whatever you grant becomes the base access every unlinked Slack/Webex caller and
-              bot receives.
+              Set the starting access for people who message the platform from Slack or Webex
+              before they have signed in to the web UI. Agents and tools granted here are
+              available to every unlinked caller and bot.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -293,10 +290,9 @@ export function PlatformSettingsTab({ isAdmin }: PlatformSettingsTabProps) {
               <DialogHeader>
                 <DialogTitle>Make &ldquo;{selectedAgentName}&rdquo; the platform default?</DialogTitle>
                 <DialogDescription>
-                  Every signed-in user will be able to chat with this agent in direct messages and
-                  the Web UI until you change this. Anyone in any Slack workspace connected to
-                  CAIPE will see it in <code>/caipe-list</code>. New users get instant access on
-                  first login.
+                  Everyone who signs in will be able to use this agent for new chats until you
+                  change the default. Connected Slack users may also see it in{" "}
+                  <code>/caipe-list</code>.
                 </DialogDescription>
               </DialogHeader>
               <DialogFooter>
@@ -319,8 +315,8 @@ export function PlatformSettingsTab({ isAdmin }: PlatformSettingsTabProps) {
               <DialogHeader>
                 <DialogTitle>Remove platform default agent?</DialogTitle>
                 <DialogDescription>
-                  New chats will fall back to the supervisor. Users will no longer have automatic
-                  access to the previous default agent unless their team grants it. Continue?
+                  New chats will use the supervisor instead. The previous default agent will only
+                  be available to users whose teams have access.
                 </DialogDescription>
               </DialogHeader>
               <DialogFooter>

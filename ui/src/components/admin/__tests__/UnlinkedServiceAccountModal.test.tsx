@@ -107,6 +107,9 @@ describe("UnlinkedServiceAccountModal", () => {
     await waitFor(() => {
       expect(screen.getByText(/add a scope/i)).toBeInTheDocument();
     });
+    expect(global.fetch).toHaveBeenCalledWith(
+      "/api/admin/service-accounts/grantable?context=unlinked",
+    );
   });
 
   it("keeps Add scope controls in a responsive row that cannot bleed past the modal", async () => {
@@ -302,7 +305,7 @@ describe("UnlinkedServiceAccountModal — grantable fetch failure (TEST-11/UX-5)
     );
   });
 
-  it("UX-5: shows the platform-admin limitation note when grantable is empty (loaded OK)", async () => {
+  it("UX-5: shows the empty platform-catalog note when grantable is empty (loaded OK)", async () => {
     mockFetch({
       grantable: { success: true, data: { agents: [], tools: [] } },
     });
@@ -315,7 +318,7 @@ describe("UnlinkedServiceAccountModal — grantable fetch failure (TEST-11/UX-5)
       expect(screen.getByTestId("unlinked-modal-grantable-empty-note")).toBeInTheDocument();
     });
     expect(screen.getByTestId("unlinked-modal-grantable-empty-note")).toHaveTextContent(
-      /platform admin.*can only grant/i,
+      /platform agent resources.*enabled/i,
     );
     // Error banner must not be shown — this is a normal (empty) result, not a failure
     expect(screen.queryByTestId("unlinked-modal-grantable-error")).not.toBeInTheDocument();

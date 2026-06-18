@@ -1,6 +1,8 @@
 /**
  * @jest-environment node
  */
+// assisted-by Codex Codex-sonnet-4-6
+
 /**
  * T034 + T034a — ownership & visibility boundaries (US5) + static-access guard.
  *
@@ -21,7 +23,10 @@ const mockGetServerSession = jest.fn();
 jest.mock("next-auth", () => ({
   getServerSession: (...args: unknown[]) => mockGetServerSession(...args),
 }));
-jest.mock("@/lib/auth-config", () => ({ authOptions: {} }));
+jest.mock("@/lib/auth-config", () => ({
+  authOptions: {},
+  isBootstrapAdmin: jest.fn().mockReturnValue(false),
+}));
 
 const mockCheckOpenFgaTuple = jest.fn();
 const mockListOpenFgaObjects = jest.fn();
@@ -239,6 +244,6 @@ describe("static access (FR-020) — SA grant is independent of the creator", ()
     ]);
     // No check was made against the editor's own holding of the scope.
     const checkedRelations = mockCheckOpenFgaTuple.mock.calls.map((c) => c[0].relation);
-    expect(checkedRelations).toEqual(["can_manage"]);
+    expect(new Set(checkedRelations)).toEqual(new Set(["can_manage"]));
   });
 });

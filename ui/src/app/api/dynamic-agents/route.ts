@@ -265,11 +265,46 @@ async function canUseOwnerTeam(
 ): Promise<boolean> {
   const ownerTeamSlug = normalizeString(ownerTeam.slug);
   if (!ownerTeamSlug) return false;
+  return canUseTeamSlug(session, ownerTeamSlug);
+}
+
+async function canUseTeamSlug(
+  session: Parameters<typeof requireResourcePermission>[0],
+  teamSlug: string,
+): Promise<boolean> {
   try {
-    await requireResourcePermission(session, { type: "team", id: ownerTeamSlug, action: "use" });
+    await requireResourcePermission(session, { type: "team", id: teamSlug, action: "use" });
     return true;
   } catch {
-    return false;
+    // assisted-by Codex Codex-sonnet-4-6
+    // Team admins/owners may be represented only by the manage relation in
+    // older projections; they still count as members for owner-team selection.
+    try {
+      await requireResourcePermission(session, { type: "team", id: teamSlug, action: "manage" });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+
+async function requireAgentWritePermission(
+  session: Parameters<typeof requireAgentPermission>[0],
+  agentId: string,
+  agent: DynamicAgentConfig,
+): Promise<void> {
+  try {
+    await requireAgentPermission(session, agentId, "write");
+    return;
+  } catch (error) {
+    const ownerSlug = normalizeString(agent.owner_team_slug);
+    if (ownerSlug && (await canUseTeamSlug(session, ownerSlug))) return;
+
+    const { slugs: sharedTeamSlugs } = await resolveSharedTeamSlugs(agent.shared_with_teams);
+    for (const slug of sharedTeamSlugs) {
+      if (await canUseTeamSlug(session, slug)) return;
+    }
+    throw error;
   }
 }
 
@@ -570,7 +605,6 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
   }
 
   const { session } = await getAuthFromBearerOrSession(request);
-  await requireAgentPermission(session, id, "write");
 
     const body = await request.json();
     const collection = await getCollection<DynamicAgentConfig>(COLLECTION_NAME);
@@ -580,6 +614,7 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     if (!agent) {
       throw new ApiError("Agent not found", 404);
     }
+    await requireAgentWritePermission(session, id, agent);
 
     // Config-driven guard
     if (agent.config_driven) {

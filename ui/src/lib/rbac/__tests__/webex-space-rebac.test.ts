@@ -22,9 +22,8 @@ describe("webex-space-rebac helpers", () => {
 
   describe("webexSpaceTeamVisibilityRelationships", () => {
     it("emits a team#admin -> manage and team#member -> use pair", () => {
-      // Mirrors the Slack helper: `use` (relation `user`) for member rather than
-      // `read` (relation `reader`) so this matches the existing team-spaces PUT
-      // endpoint and the two onboarding paths converge on identical tuples.
+      // Materializes policy `webex_space_team_assignment_v1`.
+      // assisted-by Codex Codex-sonnet-4-6
       const rels = webexSpaceTeamVisibilityRelationships(
         "WEBEX",
         "space-1",

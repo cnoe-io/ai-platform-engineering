@@ -7,7 +7,7 @@
  */
 
 import React from "react";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 
 // ============================================================================
 // Mocks — must be before component import
@@ -15,15 +15,21 @@ import { render, screen } from "@testing-library/react";
 
 const mockReplace = jest.fn();
 const mockPush = jest.fn();
-let mockSearchParams = new URLSearchParams();
+const mockFetch = jest.fn();
+const mockSearchParams = new URLSearchParams();
 
 jest.mock("next/navigation", () => ({
   useRouter: () => ({ replace: mockReplace, push: mockPush }),
   useSearchParams: () => mockSearchParams,
 }));
 
+let mockSessionStatus: "loading" | "authenticated" | "unauthenticated" = "authenticated";
+
 jest.mock("next-auth/react", () => ({
-  useSession: () => ({ data: { user: { email: "test@example.com" } }, status: "authenticated" }),
+  useSession: () => ({
+    data: mockSessionStatus === "authenticated" ? { user: { email: "test@example.com" } } : null,
+    status: mockSessionStatus,
+  }),
 }));
 
 jest.mock("@/lib/config", () => ({
@@ -91,6 +97,14 @@ import Chat from "../page";
 describe("Chat Redirect Page", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    global.fetch = mockFetch;
+    mockFetch.mockResolvedValue({
+      json: async () => ({ success: true, data: { default_agent_id: "default-agent" } }),
+    });
+    mockConversations = [];
+    mockActiveConversationId = null;
+    mockGetLastActiveConversationId.mockReturnValue(null);
+    mockSessionStatus = "authenticated";
   });
 
   it("renders CAIPESpinner with branded loading message", () => {
@@ -109,5 +123,73 @@ describe("Chat Redirect Page", () => {
     // The old Loader2 icon had this class combo — should NOT be present
     const oldSpinner = container.querySelector(".lucide-loader2");
     expect(oldSpinner).not.toBeInTheDocument();
+  });
+
+  it("redirects to the persisted last active conversation after reload", async () => {
+    mockGetLastActiveConversationId.mockReturnValue("conv-2");
+    mockConversations = [
+      {
+        id: "conv-1",
+        owner_id: "test@example.com",
+        updatedAt: new Date("2026-05-18T09:00:00Z"),
+      },
+      {
+        id: "conv-2",
+        owner_id: "test@example.com",
+        updatedAt: new Date("2026-05-18T08:00:00Z"),
+      },
+    ];
+
+    render(<Chat />);
+
+    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith("/chat/conv-2"));
+    expect(mockCreateConversation).not.toHaveBeenCalled();
+  });
+
+  it("creates a new default-agent conversation when the user has no owned conversations", async () => {
+    render(<Chat />);
+
+    await waitFor(() => expect(mockCreateConversation).toHaveBeenCalledWith("default-agent"));
+    expect(mockFetch).toHaveBeenCalledWith("/api/admin/platform-config");
+    expect(mockReplace).toHaveBeenCalledWith("/chat/new-conv-id");
+  });
+
+  it("falls back to supervisor when no default agent is configured", async () => {
+    mockFetch.mockResolvedValueOnce({
+      json: async () => ({ success: true, data: { default_agent_id: null } }),
+    });
+
+    render(<Chat />);
+
+    await waitFor(() => expect(mockCreateConversation).toHaveBeenCalledWith(undefined));
+    expect(mockReplace).toHaveBeenCalledWith("/chat/new-conv-id");
+  });
+
+  it("does not create a conversation while the session is still loading", async () => {
+    mockSessionStatus = "loading";
+
+    render(<Chat />);
+
+    // Give the effect time to run if it were going to
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(mockCreateConversation).not.toHaveBeenCalled();
+    expect(mockReplace).not.toHaveBeenCalled();
+    expect(mockLoadConversationsFromServer).not.toHaveBeenCalled();
+  });
+
+  it("does not create a new conversation when owned conversations already exist", async () => {
+    mockConversations = [
+      {
+        id: "existing-conv",
+        owner_id: "test@example.com",
+        updatedAt: new Date("2026-05-18T10:00:00Z"),
+      },
+    ];
+
+    render(<Chat />);
+
+    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith("/chat/existing-conv"));
+    expect(mockCreateConversation).not.toHaveBeenCalled();
   });
 });

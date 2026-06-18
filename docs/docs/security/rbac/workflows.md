@@ -1604,7 +1604,7 @@ Dynamic Agents no longer perform in-process OpenFGA checks for agent invocation.
 
 1. Read `sub` from the already-validated bearer (signature verified upstream).
 2. `POST {AUTHZ_SERVICE_URL}/api/authz/v1/decisions` with `{ subject, resource: agent:<id>, action: use }`, forwarding the same OBO bearer so CAS **subject-binding** (`caller == subject`) holds.
-3. **Allow** on `decision: ALLOW`; **403** on deny; **503** when CAS is unreachable or `AUTHZ_SERVICE_URL` is unset (fail closed).
+3. **Allow** on `decision: ALLOW`; **403** on deny; **same 4xx status** when CAS returns a definitive 4xx (e.g. `403` subject-binding mismatch, `400` bad request, `401` — `reason: pdp_rejected`, `action: contact_admin`); **503** when CAS returns a 5xx, is unreachable, or `AUTHZ_SERVICE_URL` is unset (fail closed, `reason: pdp_unavailable`, `action: retry`). This ensures a misconfigured subject binding surfaces as a real denial signal rather than a misleading "temporarily unavailable".
 
 Workflow step execution in the BFF orchestrates agents in-process (`/api/v1/chat/stream/start` per step), so per-step agent-use checks run through the BFF CAS path rather than this DA HTTP client.
 
