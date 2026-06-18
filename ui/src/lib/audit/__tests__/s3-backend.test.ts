@@ -9,6 +9,12 @@ jest.mock("@aws-sdk/client-s3", () => ({
 
 const MockS3Client = S3Client as jest.MockedClass<typeof S3Client>;
 
+// Helper: get the send mock from the most-recently constructed S3Client instance
+function latestSend(): jest.Mock {
+  const result = MockS3Client.mock.results[MockS3Client.mock.results.length - 1];
+  return (result?.value as { send: jest.Mock }).send;
+}
+
 import { S3Backend } from "../backends/s3-backend";
 
 function makeEvent(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -21,6 +27,9 @@ function makeEvent(overrides: Record<string, unknown> = {}): Record<string, unkn
   };
 }
 
+// jsdom doesn't have setImmediate; use a microtask/macrotask flush instead
+const tick = () => new Promise<void>((r) => setTimeout(r, 0));
+
 describe("S3Backend", () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -31,13 +40,13 @@ describe("S3Backend", () => {
     backend.write(makeEvent());
     backend.write(makeEvent({ action: "admin_ui#export" })); // triggers flush at size=2
 
-    await new Promise((r) => setImmediate(r));
-    await new Promise((r) => setImmediate(r));
+    await tick();
+    await tick();
 
-    const mockInstance = MockS3Client.mock.instances[0] as unknown as { send: jest.Mock };
-    expect(mockInstance.send).toHaveBeenCalledTimes(1); // one batch, not two PUTs
+    const send = latestSend();
+    expect(send).toHaveBeenCalledTimes(1); // one batch, not two PUTs
 
-    const [cmd] = mockInstance.send.mock.calls[0] as [{ input: Record<string, unknown> }];
+    const [cmd] = send.mock.calls[0] as [{ input: Record<string, unknown> }];
     expect(cmd.input.Bucket).toBe("my-bucket");
     const key = cmd.input.Key as string;
     expect(key).toMatch(/^audit\/2026\/06\/18\/audit-20260618T\d{6}Z-[a-f0-9]+\.ndjson\.gz$/);
@@ -51,20 +60,19 @@ describe("S3Backend", () => {
     backend.write(makeEvent());
     backend.write(makeEvent());
 
-    await new Promise((r) => setImmediate(r));
+    await tick();
 
-    const mockInstance = MockS3Client.mock.instances[0] as unknown as { send: jest.Mock };
-    expect(mockInstance.send).not.toHaveBeenCalled();
+    const send = latestSend();
+    expect(send).not.toHaveBeenCalled();
   });
 
   it("catches S3 errors and does not throw", async () => {
     const backend = new S3Backend("my-bucket", "audit", "us-east-1", undefined, 999_999, 1);
-    const freshMock = MockS3Client.mock.instances[MockS3Client.mock.instances.length - 1] as unknown as { send: jest.Mock };
-    freshMock.send.mockRejectedValueOnce(new Error("network error"));
+    latestSend().mockRejectedValueOnce(new Error("network error"));
 
     expect(() => backend.write(makeEvent())).not.toThrow();
-    await new Promise((r) => setImmediate(r));
-    await new Promise((r) => setImmediate(r));
+    await tick();
+    await tick();
   });
 
   it("passes custom endpoint to S3Client for MinIO compatibility", () => {
