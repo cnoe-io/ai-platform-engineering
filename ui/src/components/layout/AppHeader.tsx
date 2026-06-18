@@ -11,10 +11,15 @@ Popover,
 PopoverContent,
 PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+Tooltip,
+TooltipContent,
+TooltipProvider,
+TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useToast } from "@/components/ui/toast";
 import { UserMenu } from "@/components/user-menu";
 import { useAdminRole } from "@/hooks/use-admin-role";
-import { useAgentRuntimeHealth } from "@/hooks/use-agent-runtime-health";
 import { useCAIPEHealth } from "@/hooks/use-caipe-health";
 import { useKeycloakHealthSummary } from "@/hooks/use-keycloak-health-summary";
 import { useMigrationStatus } from "@/hooks/use-migration-status";
@@ -36,6 +41,7 @@ ChevronRight,
 Database,
 FileText,
 Home,
+Info,
 KeyRound,
 Loader2,
 Shield,
@@ -46,19 +52,6 @@ import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { usePathname,useRouter } from "next/navigation";
 import React from "react";
-
-/** Format seconds into a human-readable interval (e.g., "3h", "30m", "45s") */
-function formatInterval(seconds: number): string {
-  if (seconds >= 3600) {
-    const hours = seconds / 3600;
-    return hours % 1 === 0 ? `${hours}h` : `${hours.toFixed(1)}h`;
-  }
-  if (seconds >= 60) {
-    const minutes = Math.round(seconds / 60);
-    return `${minutes}m`;
-  }
-  return `${seconds}s`;
-}
 
 /**
  * Editor routes that participate in the unsaved-changes guard.
@@ -205,24 +198,16 @@ export function AppHeader() {
     }
   }, [session, isAdmin]);
 
-  // Health check for CAIPE supervisor (polls every 30 seconds)
+  // Health check for the CAIPE API path (polls every 30 seconds)
   const {
     status: caipeStatus,
-    secondsUntilNextCheck: caipeNextCheck,
-    agents,
-    mongoDBStatus,
     storageMode
   } = useCAIPEHealth();
 
   // Health check for RAG server (polls every 30 seconds)
   const {
-    status: ragStatus,
-    graphRagEnabled,
-    cleanupConfig
+    status: ragStatus
   } = useRAGHealth();
-
-  // Health check for Agent Runtime (polls every 30 seconds)
-  const { status: agentRuntimeStatus } = useAgentRuntimeHealth();
   const {
     status: platformProbeStatus,
     probes: platformProbes,
@@ -259,7 +244,7 @@ export function AppHeader() {
     releasePrompt.markToastShown();
   }, [releasePrompt, session, toast]);
 
-  // Combined status: hard failures from the supervisor or platform
+  // Combined status: hard failures from the API path or platform
   // dependencies mark the system as disconnected; optional RAG failures are
   // degraded so the core chat/runtime path can still show separately.
   const getCombinedStatus = () => {
@@ -281,11 +266,31 @@ export function AppHeader() {
     combinedStatus === "rag-disconnected" ? "RAG Disconnected" :
     "Disconnected";
   const platformProbeGroups = [
-    { id: "core", label: "Core Runtime" },
-    { id: "identity", label: "Identity & Authz" },
-    { id: "bootstrap", label: "Bootstrap & Migrations" },
-    { id: "storage", label: "Storage" },
-    { id: "rag", label: "RAG & Web Ingestor" },
+    {
+      id: "core",
+      label: "Dynamic Agent Runtime",
+      description: "The path dynamic agents use to reach tools: AgentGateway plus the config bridge that publishes MCP targets.",
+    },
+    {
+      id: "identity",
+      label: "Identity & Authz",
+      description: "Keycloak sign-in, OpenFGA authorization, and the OpenFGA bridge used by runtime permission checks.",
+    },
+    {
+      id: "bootstrap",
+      label: "Bootstrap & Migrations",
+      description: "Outcome checks for one-time setup: Keycloak realm reconciliation, OpenFGA store/model seeding, and required RBAC migrations.",
+    },
+    {
+      id: "storage",
+      label: "Storage",
+      description: "Databases backing CAIPE, Keycloak, and OpenFGA.",
+    },
+    {
+      id: "rag",
+      label: "RAG & Web Ingestor",
+      description: "Knowledge services, vector-store dependencies, Redis queue readiness, and web ingestor readiness.",
+    },
   ] as const;
   const platformProbeIssues = platformProbes.filter((probe) => probe.status !== "healthy");
   const platformProbeHealthyCount = platformProbes.filter((probe) => probe.status === "healthy").length;
@@ -300,23 +305,6 @@ export function AppHeader() {
     platformProbeStatus === "down" ? "red" :
     platformProbeStatus === "checking" ? "muted" :
     "amber";
-  const storageLabel =
-    mongoDBStatus === "connected" ? "MongoDB" :
-    mongoDBStatus === "checking" ? "Checking" :
-    "localStorage";
-  const ragSummaryLabel = !ragEnabled
-    ? "Disabled"
-    : ragStatus === "connected"
-      ? "Online"
-      : ragStatus === "checking"
-        ? "Checking"
-        : "Offline";
-  const agentRuntimeLabel =
-    agentRuntimeStatus === "connected" ? "Online" :
-    agentRuntimeStatus === "checking" ? "Checking" :
-    "Offline";
-  const statusCardClassName =
-    "rounded-lg border border-border/60 bg-muted/20 px-3 py-2.5";
   const statusBadgeClassName = (tone: "green" | "amber" | "red" | "muted") =>
     cn(
       "inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-semibold",
@@ -744,14 +732,15 @@ export function AppHeader() {
                 </AnimatePresence>
               </button>
             </PopoverTrigger>
-            <PopoverContent side="bottom" align="end" className="w-[600px] max-w-[calc(100vw-1rem)] p-0 overflow-hidden border-2">
-              <div className="bg-gradient-to-br from-card via-card to-card/95">
+            <PopoverContent side="bottom" align="end" className="w-[600px] max-w-[calc(100vw-1rem)] max-h-[min(760px,calc(100vh-5rem))] p-0 overflow-hidden border-2">
+              <TooltipProvider delayDuration={150}>
+              <div className="flex max-h-[min(760px,calc(100vh-5rem))] flex-col bg-gradient-to-br from-card via-card to-card/95">
                 {/* Header with gradient */}
                 <div className="gradient-primary-br p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex-1">
                       <div className="text-base font-bold text-white mb-1">System Status</div>
-                      <div className="text-xs text-white/80">{config.appName} Agents & Knowledge Services</div>
+                      <div className="text-xs text-white/80">Dynamic agents, tools, identity, and knowledge services</div>
                     </div>
                     <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/20 backdrop-blur-sm">
                       <span className={cn(
@@ -772,75 +761,15 @@ export function AppHeader() {
                   </div>
                 </div>
 
-                <div className="p-4 space-y-3">
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className={statusCardClassName}>
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="text-xs font-semibold text-muted-foreground">Supervisor</div>
-                        <span className={statusBadgeClassName(
-                          caipeStatus === "connected" ? "green" : caipeStatus === "checking" ? "amber" : "red",
-                        )}>
-                          {caipeStatus === "connected" ? "Online" : caipeStatus === "checking" ? "Checking" : "Offline"}
-                        </span>
-                      </div>
-                      <div className="mt-1 truncate text-[11px] text-muted-foreground">
-                        Next check in {caipeNextCheck}s
-                      </div>
-                    </div>
-
-                    <div className={statusCardClassName}>
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="text-xs font-semibold text-muted-foreground">Storage</div>
-                        <span className={statusBadgeClassName(
-                          mongoDBStatus === "connected" ? "green" : mongoDBStatus === "checking" ? "muted" : "amber",
-                        )}>
-                          {storageLabel}
-                        </span>
-                      </div>
-                      <div className="mt-1 truncate text-[11px] text-muted-foreground">
-                        {mongoDBStatus === "connected" ? "Persistent data enabled" : "Local browser fallback"}
-                      </div>
-                    </div>
-
-                    <div className={statusCardClassName}>
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="text-xs font-semibold text-muted-foreground">RAG</div>
-                        <span className={statusBadgeClassName(
-                          !ragEnabled ? "muted" : ragStatus === "connected" ? "green" : ragStatus === "checking" ? "amber" : "red",
-                        )}>
-                          {ragSummaryLabel}
-                        </span>
-                      </div>
-                      <div className="mt-1 truncate text-[11px] text-muted-foreground">
-                        {ragEnabled
-                          ? `Graph ${graphRagEnabled ? "on" : "off"}${cleanupConfig?.enabled ? ` · cleanup ${formatInterval(cleanupConfig.interval_seconds)}` : ""}`
-                          : "Knowledge services are off"}
-                      </div>
-                    </div>
-
-                    <div className={statusCardClassName}>
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="text-xs font-semibold text-muted-foreground">Agents</div>
-                        <span className={statusBadgeClassName(
-                          agentRuntimeStatus === "connected" ? "green" : agentRuntimeStatus === "checking" ? "amber" : "red",
-                        )}>
-                          {agentRuntimeLabel}
-                        </span>
-                      </div>
-                      <div className="mt-1 truncate text-[11px] text-muted-foreground">
-                        {agents[0]?.name || "Dynamic agent runtime"}
-                      </div>
-                    </div>
-                  </div>
-
+                <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-4">
                   <div className="rounded-xl border border-border/70 bg-background/40 p-3">
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <div className="text-sm font-semibold text-foreground">Platform Health</div>
                         <div className="mt-0.5 text-xs text-muted-foreground">
                           {platformProbeSummary
-                            ? `${platformProbeSummary.total} checks across runtime, auth, storage, RAG, web ingestor, and migrations`
-                            : "Checking runtime, auth, storage, RAG, web ingestor, and migrations"}
+                            ? `${platformProbeSummary.total} checks across dynamic agents, auth, storage, RAG, web ingestor, and migrations`
+                            : "Checking dynamic agents, auth, storage, RAG, web ingestor, and migrations"}
                         </div>
                       </div>
                       <span className={statusBadgeClassName(platformHealthTone)}>
@@ -863,24 +792,64 @@ export function AppHeader() {
                           const warningCount = groupProbes.filter((probe) => probe.status === "warning").length;
                           const groupStatus = downCount > 0 ? "down" : warningCount > 0 ? "warning" : "healthy";
                           return (
-                            <span
-                              key={group.id}
-                              className={cn(
-                                "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-medium",
-                                groupStatus === "healthy" && "border-green-500/20 bg-green-500/10 text-green-600 dark:text-green-400",
-                                groupStatus === "warning" && "border-amber-500/20 bg-amber-500/10 text-amber-600 dark:text-amber-400",
-                                groupStatus === "down" && "border-red-500/20 bg-red-500/10 text-red-600 dark:text-red-400",
-                              )}
-                              title={`${groupProbes.length} checks`}
-                            >
-                              <span className={cn(
-                                "h-1.5 w-1.5 rounded-full",
-                                groupStatus === "healthy" && "bg-green-400",
-                                groupStatus === "warning" && "bg-amber-400",
-                                groupStatus === "down" && "bg-red-400",
-                              )} />
-                              {group.label}
-                            </span>
+                            <Tooltip key={group.id}>
+                              <TooltipTrigger asChild>
+                                <button
+                                  type="button"
+                                  className={cn(
+                                    "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-medium",
+                                    groupStatus === "healthy" && "border-green-500/20 bg-green-500/10 text-green-600 dark:text-green-400",
+                                    groupStatus === "warning" && "border-amber-500/20 bg-amber-500/10 text-amber-600 dark:text-amber-400",
+                                    groupStatus === "down" && "border-red-500/20 bg-red-500/10 text-red-600 dark:text-red-400",
+                                  )}
+                                >
+                                  <span className={cn(
+                                    "h-1.5 w-1.5 rounded-full",
+                                    groupStatus === "healthy" && "bg-green-400",
+                                    groupStatus === "warning" && "bg-amber-400",
+                                    groupStatus === "down" && "bg-red-400",
+                                  )} />
+                                  {group.label}
+                                  <Info className="h-3 w-3 opacity-70" />
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent side="top" className="max-h-80 max-w-[28rem] overflow-y-auto whitespace-normal text-left">
+                                <div className="font-semibold">{group.label}</div>
+                                <div className="mt-1 text-muted-foreground">{group.description}</div>
+                                <div className="mt-1 text-[10px] text-muted-foreground">
+                                  {groupStatus === "healthy"
+                                    ? `${groupProbes.length} checks OK`
+                                    : `${downCount + warningCount} of ${groupProbes.length} need attention`}
+                                </div>
+                                <div className="mt-2 space-y-1.5 border-t border-border/60 pt-2">
+                                  <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                    Probes
+                                  </div>
+                                  {groupProbes.map((probe) => (
+                                    <div key={probe.id} className="rounded bg-muted/35 px-2 py-1.5">
+                                      <div className="flex items-center justify-between gap-2 text-[11px] font-medium">
+                                        <span>{probe.label}</span>
+                                        <span className={cn(
+                                          "shrink-0",
+                                          probe.status === "healthy" && "text-green-500 dark:text-green-400",
+                                          probe.status === "warning" && "text-amber-600 dark:text-amber-400",
+                                          probe.status === "down" && "text-red-500 dark:text-red-400",
+                                        )}>
+                                          {probe.status === "healthy" ? "OK" : probe.status === "warning" ? "Check" : "Down"}
+                                        </span>
+                                      </div>
+                                      <div className="mt-0.5 text-[10px] text-muted-foreground">
+                                        {probe.detail}
+                                        {probe.latency_ms !== null ? ` · ${probe.latency_ms}ms` : ""}
+                                      </div>
+                                      <div className="mt-1 break-all font-mono text-[10px] text-muted-foreground">
+                                        {probe.target}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </TooltipContent>
+                            </Tooltip>
                           );
                         })}
                       </div>
@@ -940,6 +909,54 @@ export function AppHeader() {
                       </div>
                     ) : null}
 
+                    {platformProbes.length > 0 && (
+                      <div className="mt-3 overflow-hidden rounded-lg border border-border/60">
+                        <div className="grid grid-cols-[minmax(0,1fr)_auto] bg-muted/30 px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                          <span>Probe</span>
+                          <span>Status</span>
+                        </div>
+                        <div className="max-h-48 divide-y divide-border/60 overflow-y-auto overscroll-contain">
+                          {platformProbes.map((probe) => (
+                            <Tooltip key={probe.id}>
+                              <TooltipTrigger asChild>
+                                <div className="grid cursor-help grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-3 py-2 hover:bg-muted/30">
+                                  <div className="min-w-0">
+                                    <div className="truncate text-xs font-medium text-foreground">
+                                      {probe.label}
+                                    </div>
+                                    <div className="truncate text-[10px] text-muted-foreground">
+                                      {probe.detail}
+                                      {probe.latency_ms !== null ? ` · ${probe.latency_ms}ms` : ""}
+                                    </div>
+                                  </div>
+                                  <span className={statusBadgeClassName(
+                                    probe.status === "healthy" ? "green" : probe.status === "warning" ? "amber" : "red",
+                                  )}>
+                                    {probe.status === "healthy" ? "OK" : probe.status === "warning" ? "Check" : "Down"}
+                                  </span>
+                                </div>
+                              </TooltipTrigger>
+                              <TooltipContent side="left" className="max-w-96 whitespace-normal text-left">
+                                <div className="font-semibold">{probe.label}</div>
+                                <div className="mt-1 text-muted-foreground">Validation: {probe.detail}</div>
+                                <div className="mt-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                  Probe target
+                                </div>
+                                <div className="mt-2 break-all rounded bg-muted/40 px-2 py-1 font-mono text-[10px] text-muted-foreground">
+                                  {probe.target}
+                                </div>
+                                {probe.remediation && (
+                                  <div className="mt-2 text-[10px] text-muted-foreground">
+                                    Action: {probe.remediation.description}
+                                  </div>
+                                )}
+                              </TooltipContent>
+                            </Tooltip>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                     <div className="mt-2 text-right text-[10px] font-mono text-muted-foreground">
                       Next probe: {platformProbeNextCheck}s
                     </div>
@@ -987,7 +1004,8 @@ export function AppHeader() {
                     </div>
                   )}
                 </div>
-              </div>
+                </div>
+              </TooltipProvider>
             </PopoverContent>
           </Popover>
           {noAuthConfigured && (

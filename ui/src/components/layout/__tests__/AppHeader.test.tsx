@@ -644,7 +644,7 @@ describe('AppHeader — connection status badge', () => {
       expect(screen.getByText('All Systems Live')).toBeInTheDocument()
       expect(screen.getByText('All systems operational')).toBeInTheDocument()
       expect(screen.getByText('Platform Health')).toBeInTheDocument()
-      expect(screen.getByText('Identity & Authz')).toBeInTheDocument()
+      expect(screen.getAllByText('Identity & Authz').length).toBeGreaterThan(0)
     })
   })
 
@@ -793,7 +793,7 @@ describe('AppHeader — connection status badge', () => {
       ]
       render(<AppHeader />)
       expect(screen.getByText('Disconnected')).toBeInTheDocument()
-      expect(screen.getByText('OpenFGA')).toBeInTheDocument()
+      expect(screen.getAllByText('OpenFGA').length).toBeGreaterThan(0)
       expect(screen.getAllByText('Down').length).toBeGreaterThan(0)
     })
 

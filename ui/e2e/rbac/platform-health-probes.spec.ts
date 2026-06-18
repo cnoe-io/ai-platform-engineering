@@ -157,9 +157,14 @@ test.describe("platform health probes", () => {
     await expect(page.getByText("Platform Health")).toBeVisible();
     await expect(page.getByText("Connected Integrations")).toHaveCount(0);
     await expect(page.getByText("5/5")).toBeVisible();
-    await expect(page.getByText("Core Runtime", { exact: true })).toBeVisible();
+    const dynamicAgentRuntime = page.getByText("Dynamic Agent Runtime", { exact: true });
+    await expect(dynamicAgentRuntime).toBeVisible();
     await expect(page.getByText("Identity & Authz")).toBeVisible();
     await expect(page.getByText("All critical checks are ready.")).toBeVisible();
+
+    await dynamicAgentRuntime.hover();
+    await expect(page.getByText("AgentGateway Config Bridge")).toBeVisible();
+    await expect(page.getByText("http://caipe-ui:3000/api/internal/agentgateway/mcp-targets")).toBeVisible();
   });
 
   test("a down platform dependency changes the header to issues detected", async ({ page }) => {
@@ -186,8 +191,8 @@ test.describe("platform health probes", () => {
     await expect(page.getByText("Issues Detected")).toBeVisible();
     await expect(page.getByText("4/5")).toBeVisible();
     await expect(page.getByText("Action needed")).toBeVisible();
-    await expect(page.getByText("OpenFGA", { exact: true })).toBeVisible();
-    await expect(page.getByText("HTTP 503")).toBeVisible();
+    await expect(page.getByText("OpenFGA", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("HTTP 503").first()).toBeVisible();
     await expect(page.getByText("Down").first()).toBeVisible();
     await expect(page.getByText("Check logs for details")).toBeVisible();
   });
