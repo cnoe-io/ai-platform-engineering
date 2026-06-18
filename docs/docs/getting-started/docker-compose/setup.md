@@ -115,6 +115,16 @@ starting Compose, run:
 The helper uses the GitHub CLI to resolve the latest release and rewrites
 `IMAGE_TAG` in `.env`, leaving a `.env.bak` backup.
 
+You can also have the setup helper update `.env` and start the
+`docker-compose.yaml` stack in one step:
+
+```bash
+./setup-caipe.sh --docker-compose
+```
+
+Running `./setup-caipe.sh` without that option still follows the default
+Kind/Kubernetes setup path.
+
 The default profile set includes `web_ingestor` so the Knowledge Bases ingest
 page can submit web datasource jobs. Add `slack-bot` or `webex-bot` only when
 you want those bot integrations.

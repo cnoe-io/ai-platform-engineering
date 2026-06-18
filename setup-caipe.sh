@@ -198,6 +198,7 @@ ENV_FILE=""
 UI_ENV_FILE=""
 COMPOSE_ENV_FILE=""
 COMPOSE_PROFILES_DEFAULT="mcp-servers,caipe-ui-prod,rbac,caipe-supervisor,dynamic-agents,rag,caipe-mongodb,web_ingestor"
+USE_DOCKER_COMPOSE=false
 # Dynamic agents: default ON (custom agent builder UI is part of the
 # baseline CAIPE experience). Set ENABLE_DYNAMIC_AGENTS=false or pass
 # --no-dynamic-agents to skip.
@@ -8232,7 +8233,7 @@ cmd_docker_compose() {
   COMPOSE_PROFILES="${COMPOSE_PROFILES:-$COMPOSE_PROFILES_DEFAULT}"
   export COMPOSE_PROFILES
 
-  step "Starting Docker Compose all-in-one stack"
+  step "Starting Docker Compose all-in-one stack from docker-compose.yaml"
   log "Env file: ${env_file}"
   log "Profiles: ${COMPOSE_PROFILES}"
   docker compose --env-file "$env_file" -f docker-compose.yaml up -d
@@ -8973,7 +8974,8 @@ Usage: $(basename "$0") [COMMAND] [OPTIONS]
 
 Commands:
   setup         Interactive setup: cluster, chart version, credentials,
-                features (RAG, tracing), deploy, port-forward (default)
+                features (RAG, tracing), deploy to Kind/Kubernetes,
+                port-forward (default)
   port-forward  Start port-forwarding, run validation + sanity tests,
                 monitor with auto-restart and periodic health checks (5m)
   validate      Run validation and sanity tests (A2A, agents, RAG, tracing)
@@ -8985,7 +8987,8 @@ Commands:
   status        Show pod status and Helm releases
   docker-compose
                 Prepare .env, update IMAGE_TAG to the latest GitHub release,
-                and start the OSS all-in-one Docker Compose stack
+                and start the OSS all-in-one Docker Compose stack from
+                docker-compose.yaml
   update-compose-release
                 Update IMAGE_TAG in .env (or --env-file=FILE) to the latest
                 GitHub release using gh
@@ -8993,6 +8996,8 @@ Commands:
 Options:
   --non-interactive  Skip all prompts (use current context, latest chart,
                      defaults for endpoint/model, no RAG/tracing unless flagged)
+  --docker-compose   Run the Docker Compose setup path instead of the default
+                     Kind/Kubernetes setup path
   --load-config=FILE Load wizard config from FILE instead of the default
                      ~/.config/caipe/config.yaml (shows summary, asks confirmation)
   --create-cluster   Create a Kind cluster if no kubectl context exists
@@ -9157,6 +9162,7 @@ Supported providers (via cnoe-agent-utils LLMFactory):
 
 Examples:
   $(basename "$0")                                        # interactive setup (default)
+  $(basename "$0") --docker-compose                       # update .env IMAGE_TAG + start Docker Compose
   $(basename "$0") --non-interactive --create-cluster     # create Kind cluster + deploy Claude (default)
   $(basename "$0") --non-interactive --rag --tracing      # Claude + vector RAG + tracing
   $(basename "$0") --non-interactive --graph-rag --tracing # Claude + Graph RAG + tracing
@@ -9194,6 +9200,7 @@ args=()
 for arg in "$@"; do
   case "$arg" in
     --yes|-y)          AUTO_YES=true ;;
+    --docker-compose)  USE_DOCKER_COMPOSE=true ;;
     --non-interactive) NON_INTERACTIVE=true ;;
     --create-cluster)  CREATE_CLUSTER=true ;;
     --rag)             ENABLE_RAG=true ;;
@@ -9249,6 +9256,14 @@ for arg in "$@"; do
     *)                 args+=("$arg") ;;
   esac
 done
+
+if $USE_DOCKER_COMPOSE; then
+  if [[ ${#args[@]} -gt 0 && "${args[0]}" != "setup" ]]; then
+    err "--docker-compose cannot be combined with the '${args[0]}' command"
+    usage
+  fi
+  args=(docker-compose)
+fi
 
 $ENABLE_RBAC_RUNTIME && ENABLE_AGENTGATEWAY=true
 $ENABLE_GRAPH_RAG && ENABLE_RAG=true
