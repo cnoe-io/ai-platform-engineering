@@ -58,7 +58,7 @@ import { getConfig } from "@/lib/config";
 import { cn } from "@/lib/utils";
 import type { SkillMetricsAdmin } from "@/types/agent-skill";
 import type { Team as TeamType } from "@/types/teams";
-import { Activity,Bot,Bug,Calendar,CheckCircle2,Clock,Database,ExternalLink,Eye,FileText,Filter,Globe,Hash,HelpCircle,Layers,Loader2,MessageSquare,Plus,RefreshCw,Search,Settings,Share2,Shield,ShieldCheck,Star,ThumbsDown,ThumbsUp,Trash2,TrendingUp,User,UserPlus,Users,UsersIcon,Wrench,X,Zap,type LucideIcon } from "lucide-react";
+import { Activity,Bot,Bug,Calendar,CheckCircle2,ChevronLeft,ChevronRight,Clock,Database,ExternalLink,Eye,FileText,Filter,Globe,Hash,HelpCircle,Layers,Loader2,MessageSquare,Plus,RefreshCw,Search,Settings,Share2,Shield,ShieldCheck,Star,ThumbsDown,ThumbsUp,Trash2,TrendingUp,User,UserPlus,Users,UsersIcon,Wrench,X,Zap,type LucideIcon } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { usePathname,useRouter,useSearchParams } from "next/navigation";
 import React,{ useCallback,useEffect,useMemo,useRef,useState } from "react";
@@ -364,6 +364,11 @@ function categoryForTab(tab: string): CategoryKey {
   return DEFAULT_ADMIN_CATEGORY;
 }
 
+// Admin Teams grid page size. The grid is server-paginated (`?page=`) so the
+// browser only ever holds one page of teams regardless of directory size.
+// 12 fills the 3-column layout in 4 clean rows.
+const TEAMS_PAGE_SIZE = 12;
+
 // IdP membership source types (okta / oidc_claim / active_directory) → display
 // label + optional logo asset, for the "synced from <IdP>" team badge.
 const IDP_SOURCE_META: Record<string, { label: string; logo?: string }> = {
@@ -372,29 +377,39 @@ const IDP_SOURCE_META: Record<string, { label: string; logo?: string }> = {
   active_directory: { label: 'Active Directory' },
 };
 
-// Badge shown on a team card when its membership was synced from an IdP. Renders
-// the provider logo (e.g. Okta) when available, falling back to a label, with a
+// Badges shown on a team card when its membership was synced from an IdP. A
+// team can be synced from more than one source (e.g. some members from Okta,
+// others from a raw OIDC claim), so we render one pill PER source type rather
+// than collapsing them into a single combined label. Each pill shows the
+// provider logo (e.g. Okta) when available plus its label, with a
 // "Synced with <IdP>" tooltip.
 function IdpSyncedBadge({ sourceTypes }: { sourceTypes: string[] }) {
-  const metas = sourceTypes.map((t) => IDP_SOURCE_META[t] ?? { label: t });
-  const labels = metas.map((m) => m.label).join(', ');
-  const title = `Synced with ${labels}`;
+  // Dedupe defensively — the backend $addToSet already returns distinct types,
+  // but a stray duplicate would otherwise render two identical pills.
+  const seen = new Set<string>();
+  const types = sourceTypes.filter((t) => (seen.has(t) ? false : (seen.add(t), true)));
   return (
-    <span
-      className="inline-flex items-center gap-1 rounded-full bg-muted px-1.5 py-0.5 border border-border"
-      title={title}
-      aria-label={title}
-    >
-      {metas.map((m, i) =>
-        m.logo ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img key={i} src={m.logo} alt={m.label} className="h-3.5 w-3.5" />
-        ) : (
-          <span key={i} className="text-[10px] font-medium text-muted-foreground">
-            {m.label}
+    <span className="inline-flex flex-wrap items-center gap-1">
+      {types.map((t) => {
+        const meta = IDP_SOURCE_META[t] ?? { label: t };
+        const title = `Synced with ${meta.label}`;
+        return (
+          <span
+            key={t}
+            className="inline-flex items-center gap-1 rounded-full bg-muted px-1.5 py-0.5 border border-border"
+            title={title}
+            aria-label={title}
+          >
+            {meta.logo && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={meta.logo} alt="" aria-hidden="true" className="h-3.5 w-3.5" />
+            )}
+            <span className="text-[10px] font-medium text-muted-foreground">
+              {meta.label}
+            </span>
           </span>
-        )
-      )}
+        );
+      })}
     </span>
   );
 }
@@ -511,9 +526,20 @@ function AdminPage() {
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [globalOverview, setGlobalOverview] = useState<AdminStats['overview'] | null>(null);
   const [skillStats, setSkillStats] = useState<SkillMetricsAdmin | null>(null);
+  // `teams` is the FULL team list, used only by the shared Stats/Feedback
+  // team-filter dropdowns and the access-simulation team picker (which need
+  // every team available for selection). The Teams grid below does NOT read
+  // from this — it has its own server-paginated state (`gridTeams`) so the
+  // grid only ever renders one page of cards.
   const [teams, setTeams] = useState<Team[]>([]);
   const [teamSearch, setTeamSearch] = useState("");
-  const [teamsRefreshing, setTeamsRefreshing] = useState(false);
+  // Server-paginated Teams grid state. `gridTeams` holds only the current
+  // page; `gridSearch` is the debounced query sent to the server.
+  const [gridTeams, setGridTeams] = useState<Team[]>([]);
+  const [gridTotal, setGridTotal] = useState(0);
+  const [gridPage, setGridPage] = useState(1);
+  const [gridLoading, setGridLoading] = useState(false);
+  const [gridLoaded, setGridLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedUserEmail, setSelectedUserEmail] = useState<string | null>(null);
@@ -872,40 +898,78 @@ function AdminPage() {
     return result.data?.teams || [];
   };
 
+  // Refresh the FULL team list backing the shared filter dropdowns. The Teams
+  // grid has its own paginated loader (`fetchTeamsGridPage`) and does not use
+  // this. Runs quietly in the background — no visible spinner.
   const loadTeams = async () => {
-    setTeamsRefreshing(true);
     try {
       setTeams(await fetchTeamsFromDb());
     } catch (err: any) {
       console.error('[Admin] Failed to refresh teams:', err);
-      alert(`Failed to refresh teams: ${err.message || 'Unknown error'}`);
-    } finally {
-      setTeamsRefreshing(false);
     }
   };
 
-  const filteredTeams = useMemo(() => {
-    const query = teamSearch.trim().toLowerCase();
-    if (!query) return teams;
+  // Fetch one page of the Teams grid from the server. Search is applied
+  // server-side so the browser never holds more than a page of rows. The
+  // request is the source of truth for `gridTotal`, which drives the pager.
+  const fetchTeamsGridPage = useCallback(async (page: number, search: string) => {
+    setGridLoading(true);
+    try {
+      const params = new URLSearchParams({
+        page: String(page),
+        page_size: String(TEAMS_PAGE_SIZE),
+        fresh: String(Date.now()),
+      });
+      if (search.trim()) params.set('search', search.trim());
+      const response = await fetch(`/api/admin/teams?${params.toString()}`, {
+        cache: 'no-store',
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || 'Failed to load teams');
+      }
+      setGridTeams(result.data?.teams ?? []);
+      setGridTotal(result.data?.total ?? 0);
+      setGridPage(result.data?.page ?? page);
+      setGridLoaded(true);
+    } catch (err: any) {
+      console.error('[Admin] Failed to load teams page:', err);
+    } finally {
+      setGridLoading(false);
+    }
+  }, []);
 
-    return teams.filter((team) => {
-      const searchableValues = [
-        team.name,
-        team.slug,
-        team.description,
-        team.owner_id,
-        // Defensive read: post Commit 6/8 of the canonical-team-membership
-        // refactor the embedded `members[]` array goes away. Until the
-        // search-by-member-email UX is reworked to lazily fetch rosters
-        // via `/api/admin/teams/[id]` we still consult the embedded list
-        // when it's present, but never crash if it's absent.
-        ...(team.members ?? []).map((member) => member.user_id),
-      ];
-      return searchableValues
-        .filter(Boolean)
-        .some((value) => String(value).toLowerCase().includes(query));
-    });
-  }, [teams, teamSearch]);
+  // Debounced server-side search for the Teams grid. Typing resets to page 1
+  // and re-queries the server (~250ms after the last keystroke), matching the
+  // discovery-search pattern used elsewhere in the admin dialogs. We only run
+  // this while the Teams tab is active so other tabs don't trigger team
+  // queries on every keystroke.
+  useEffect(() => {
+    if (activeTab !== 'teams') return;
+    const handle = setTimeout(() => {
+      void fetchTeamsGridPage(1, teamSearch);
+    }, 250);
+    return () => clearTimeout(handle);
+  }, [teamSearch, activeTab, fetchTeamsGridPage]);
+
+  const gridTotalPages = Math.max(1, Math.ceil(gridTotal / TEAMS_PAGE_SIZE));
+  const gridHasMore = gridPage * TEAMS_PAGE_SIZE < gridTotal;
+
+  const goToTeamsPage = (page: number) => {
+    const clamped = Math.min(Math.max(1, page), gridTotalPages);
+    void fetchTeamsGridPage(clamped, teamSearch);
+  };
+
+  // Refresh after a team mutation (create/edit/delete/member change). Always
+  // re-fetches the visible grid page. Also refreshes the full team list — but
+  // only when it has already been loaded — so the shared filter dropdowns stay
+  // current without forcing a full fetch for users who never opened those tabs.
+  const refreshAfterTeamMutation = (page?: number) => {
+    void fetchTeamsGridPage(page ?? gridPage, teamSearch);
+    if (visitedTabsRef.current.has('_teams-loaded')) {
+      void loadTeams();
+    }
+  };
 
   // Expand team: prefixed selections to member emails
   // See `filteredTeams` above for the canonical-team-membership refactor note —
@@ -1079,11 +1143,13 @@ function AdminPage() {
 
     // Map of tab key → loader. Tabs not listed here have no upfront data to
     // load and should not block render (loading is initialized to false).
+    // The Teams tab is NOT listed here: its grid is server-paginated and
+    // self-loads via a debounced effect, so it must not pull the full team
+    // list. The full list (`loadTeamsIfNeeded`) is only needed by tabs whose
+    // dropdowns offer every team for selection (stats/slack/feedback).
     const loaders: Record<string, () => Promise<void>> = {
       stats: async () => { await Promise.all([loadStatsIfNeeded(), loadTeamsIfNeeded()]); },
       slack: async () => { await Promise.all([loadStatsIfNeeded(), loadTeamsIfNeeded()]); },
-      teams: () => loadTeamsIfNeeded(),
-      'identity-sync': () => loadTeamsIfNeeded(),
       skills: loadSkillStats,
       feedback: async () => { await Promise.all([loadFeedbackOnce(), loadTeamsIfNeeded()]); },
       nps: loadNpsDataOnce,
@@ -1242,8 +1308,13 @@ function AdminPage() {
         throw new Error(result.error || 'Failed to delete team');
       }
 
-      // Remove from local state
-      setTeams(teams.filter(t => t._id !== team._id));
+      // Drop from both local lists, then re-fetch the grid page so a team
+      // from the next page backfills the now-empty slot (and the pager total
+      // stays correct). If the deletion emptied the current page, step back.
+      setTeams((prev) => prev.filter((t) => t._id !== team._id));
+      setGridTeams((prev) => prev.filter((t) => t._id !== team._id));
+      const nextPage = gridTeams.length === 1 && gridPage > 1 ? gridPage - 1 : gridPage;
+      refreshAfterTeamMutation(nextPage);
       setTeamPendingDelete(null);
       console.log(`[Admin] Team deleted: ${team.name}`);
     } catch (err: any) {
@@ -1622,10 +1693,10 @@ function AdminPage() {
                       type="button"
                       variant="outline"
                       className="gap-2"
-                      onClick={loadTeams}
-                      disabled={teamsRefreshing}
+                      onClick={() => fetchTeamsGridPage(gridPage, teamSearch)}
+                      disabled={gridLoading}
                     >
-                      {teamsRefreshing ? (
+                      {gridLoading ? (
                         <Loader2 className="h-4 w-4 animate-spin" />
                       ) : (
                         <RefreshCw className="h-4 w-4" />
@@ -1640,11 +1711,11 @@ function AdminPage() {
                     )}
                   </div>
                 </div>
-                {teamsRefreshing && teams.length === 0 ? (
+                {(!gridLoaded && gridLoading) || (gridLoading && gridTeams.length === 0) ? (
                   <div className="flex justify-center py-12">
                     <CAIPESpinner />
                   </div>
-                ) : teams.length === 0 ? (
+                ) : gridTeams.length === 0 && !teamSearch.trim() ? (
                   <div className="text-center py-12">
                     <UsersIcon className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
                     <h3 className="text-lg font-semibold mb-2">No Teams Yet</h3>
@@ -1660,12 +1731,12 @@ function AdminPage() {
                       </Button>
                     )}
                   </div>
-                ) : filteredTeams.length === 0 ? (
+                ) : gridTeams.length === 0 ? (
                   <div className="rounded-lg border border-dashed py-12 text-center">
                     <Search className="h-10 w-10 text-muted-foreground mx-auto mb-4" />
                     <h3 className="text-lg font-semibold mb-2">No teams match &quot;{teamSearch}&quot;</h3>
                     <p className="text-muted-foreground mb-4">
-                      Try a team name, owner email, member email, or description.
+                      Try a team name, owner email, or description.
                     </p>
                     <Button type="button" variant="outline" onClick={() => setTeamSearch("")}>
                       Clear team search
@@ -1673,7 +1744,7 @@ function AdminPage() {
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {filteredTeams.map((team) => {
+                    {gridTeams.map((team) => {
                       const chatIntegrationCount =
                         (team.slack_channels?.length ?? 0) + (team.webex_spaces?.length ?? 0);
 
@@ -1790,6 +1861,36 @@ function AdminPage() {
                       </Card>
                       );
                     })}
+                  </div>
+                )}
+                {/* Pager — shown whenever the result set spans more than one
+                    page. Prev/Next drive a server fetch; the page indicator
+                    reflects server-reported totals. */}
+                {gridTotal > TEAMS_PAGE_SIZE && (
+                  <div className="flex items-center justify-between pt-2 text-sm">
+                    <span className="text-muted-foreground">
+                      Page {gridPage} of {gridTotalPages} · {gridTotal} team{gridTotal === 1 ? "" : "s"}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => goToTeamsPage(gridPage - 1)}
+                        disabled={gridPage <= 1 || gridLoading}
+                        aria-label="Previous page"
+                      >
+                        <ChevronLeft className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => goToTeamsPage(gridPage + 1)}
+                        disabled={!gridHasMore || gridLoading}
+                        aria-label="Next page"
+                      >
+                        <ChevronRight className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </div>
                 )}
               </TabsContent>
@@ -3265,7 +3366,9 @@ function AdminPage() {
       <CreateTeamDialog
         open={createTeamDialogOpen}
         onOpenChange={setCreateTeamDialogOpen}
-        onSuccess={loadTeams}
+        // New teams sort to the top (newest-first), so jump to page 1 to
+        // reveal the just-created team.
+        onSuccess={() => refreshAfterTeamMutation(1)}
       />
 
       {/* Team Details / Member Management Dialog */}
@@ -3274,25 +3377,23 @@ function AdminPage() {
         mode={teamDialogMode}
         open={teamDetailsOpen}
         onOpenChange={setTeamDetailsOpen}
-        onTeamUpdated={loadTeams}
+        onTeamUpdated={() => refreshAfterTeamMutation()}
         onTeamMutated={(updatedTeam) => {
-          // In-place patch of the teams[] state so the row in the
-          // background list re-renders with the new member count /
-          // attributes — without triggering loadAdminData() (which
-          // sets loading=true and re-fetches the entire dashboard).
+          // In-place patch of the grid + full team lists so the row in the
+          // background re-renders with the new member count / attributes —
+          // without triggering a full dashboard reload.
           //
           // The Team shape used by this page is a structural superset
           // of the one returned by /api/admin/teams/[id]/* mutation
           // endpoints; we merge so any locally-known fields the API
           // doesn't echo back (e.g. denormalised StatChip counters)
           // survive the patch.
-          setTeams((prev) =>
-            prev.map((t) =>
-              t._id === updatedTeam._id
-                ? ({ ...t, ...(updatedTeam as Partial<Team>) } as Team)
-                : t,
-            ),
-          );
+          const patch = (t: Team) =>
+            t._id === updatedTeam._id
+              ? ({ ...t, ...(updatedTeam as Partial<Team>) } as Team)
+              : t;
+          setGridTeams((prev) => prev.map(patch));
+          setTeams((prev) => prev.map(patch));
           // Also keep `selectedTeam` (the prop the dialog reads from)
           // in sync so its `useEffect(() => setCurrentTeam(team), [team])`
           // can pick up the patched payload if the dialog re-opens

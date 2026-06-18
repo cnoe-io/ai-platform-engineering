@@ -1107,33 +1107,42 @@ describe('Admin Dashboard Page', () => {
 
     it('filters teams by search text and shows an empty result state', async () => {
       currentSearchParams = new URLSearchParams('cat=people&tab=teams');
+      // The Teams grid is server-paginated: search is sent to the API as a
+      // `search` query param and the server returns the matching page. The
+      // mock mirrors that — it filters by the `search` param so the debounced
+      // re-query drives the UI exactly as the real endpoint would.
+      const allTeams = [
+        {
+          _id: 'team-platform',
+          name: 'Platform Team',
+          description: 'Core platform engineering',
+          owner_id: 'platform-owner@example.com',
+          created_at: new Date().toISOString(),
+          members: [
+            { user_id: 'platform-owner@example.com', role: 'owner', added_at: new Date().toISOString() },
+          ],
+        },
+        {
+          _id: 'team-security',
+          name: 'Security Team',
+          description: 'Guardrails and audits',
+          owner_id: 'security-owner@example.com',
+          created_at: new Date().toISOString(),
+          members: [
+            { user_id: 'security-owner@example.com', role: 'owner', added_at: new Date().toISOString() },
+          ],
+        },
+      ];
       setupFetchMock({
-        teams: {
-          success: true,
-          data: {
-            teams: [
-              {
-                _id: 'team-platform',
-                name: 'Platform Team',
-                description: 'Core platform engineering',
-                owner_id: 'platform-owner@example.com',
-                created_at: new Date().toISOString(),
-                members: [
-                  { user_id: 'platform-owner@example.com', role: 'owner', added_at: new Date().toISOString() },
-                ],
-              },
-              {
-                _id: 'team-security',
-                name: 'Security Team',
-                description: 'Guardrails and audits',
-                owner_id: 'security-owner@example.com',
-                created_at: new Date().toISOString(),
-                members: [
-                  { user_id: 'security-owner@example.com', role: 'owner', added_at: new Date().toISOString() },
-                ],
-              },
-            ],
-          },
+        teams: (url: string) => {
+          const search = new URL(url, 'http://localhost').searchParams.get('search')?.toLowerCase() ?? '';
+          const matched = search
+            ? allTeams.filter((t) => t.name.toLowerCase().includes(search))
+            : allTeams;
+          return {
+            success: true,
+            data: { teams: matched, total: matched.length, page: 1, page_size: 12, has_more: false },
+          };
         },
       });
 
@@ -1147,7 +1156,10 @@ describe('Admin Dashboard Page', () => {
         { target: { value: 'security' } }
       );
 
-      expect(screen.queryByText('Platform Team')).not.toBeInTheDocument();
+      // Debounced server re-query drops the non-matching team.
+      await waitFor(() => {
+        expect(screen.queryByText('Platform Team')).not.toBeInTheDocument();
+      });
       expect(screen.getByText('Security Team')).toBeInTheDocument();
 
       fireEvent.change(
@@ -1155,7 +1167,7 @@ describe('Admin Dashboard Page', () => {
         { target: { value: 'does-not-exist' } }
       );
 
-      expect(screen.getByText(/No teams match "does-not-exist"/i)).toBeInTheDocument();
+      expect(await screen.findByText(/No teams match "does-not-exist"/i)).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /clear team search/i })).toBeInTheDocument();
     });
 
@@ -1198,9 +1210,13 @@ describe('Admin Dashboard Page', () => {
         String(url).includes('/api/admin/teams')
       );
       expect(teamRequests).toHaveLength(2);
-      expect(teamRequests[0][0]).toEqual(expect.stringContaining('/api/admin/teams?fresh='));
+      // The grid is server-paginated, so every request carries page/page_size
+      // plus the cache-busting `fresh` stamp and hits with cache: 'no-store'.
+      expect(teamRequests[0][0]).toEqual(expect.stringContaining('/api/admin/teams?'));
+      expect(teamRequests[0][0]).toEqual(expect.stringContaining('fresh='));
       expect(teamRequests[0][1]).toMatchObject({ cache: 'no-store' });
-      expect(teamRequests[1][0]).toEqual(expect.stringContaining('/api/admin/teams?fresh='));
+      expect(teamRequests[1][0]).toEqual(expect.stringContaining('/api/admin/teams?'));
+      expect(teamRequests[1][0]).toEqual(expect.stringContaining('fresh='));
       expect(teamRequests[1][1]).toMatchObject({ cache: 'no-store' });
     });
   });
