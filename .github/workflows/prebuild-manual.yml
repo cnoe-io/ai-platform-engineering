@@ -27,6 +27,11 @@ on:
           - dynamic-agents
           - slack-bot
           - a2a-rag
+      build_a2a_agents:
+        description: "Also build A2A sub-agent images when target is all or docker"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   actions: read
@@ -198,7 +203,7 @@ jobs:
   prebuild-a2a-sub-agent:
     name: A2A Sub-Agent Images
     needs: resolve-pr
-    if: ${{ needs.resolve-pr.outputs.target == 'a2a-sub-agent' || ((needs.resolve-pr.outputs.target == 'all' || needs.resolve-pr.outputs.target == 'docker') && needs.resolve-pr.outputs.a2a_sub_agent_changed == 'true') }}
+    if: ${{ needs.resolve-pr.outputs.target == 'a2a-sub-agent' || (inputs.build_a2a_agents == true && (needs.resolve-pr.outputs.target == 'all' || needs.resolve-pr.outputs.target == 'docker') && needs.resolve-pr.outputs.a2a_sub_agent_changed == 'true') }}
     uses: ./.github/workflows/prebuild-a2a-sub-agent.yml
     with:
       pr_number: ${{ fromJSON(needs.resolve-pr.outputs.pr_number) }}
@@ -206,6 +211,7 @@ jobs:
       head_sha: ${{ needs.resolve-pr.outputs.head_sha }}
       base_ref: ${{ needs.resolve-pr.outputs.base_ref }}
       base_sha: ${{ needs.resolve-pr.outputs.base_sha }}
+      build_a2a_agents: true
     secrets: inherit
 
   prebuild-supervisor-agent:

@@ -17,13 +17,16 @@ description: "Create an rc/hotfix tag on a release/* branch and trigger a coordi
 #           creates the chart tag.
 #      Both commits are pushed to the release branch so that ci-helm.yml
 #      finds the expected version in Chart.yaml when it checks out at the tag.
-#   4. The push-tag event triggers all container CI workflows automatically.
+#   4. The push-tag event triggers required container CI workflows automatically.
 #   5. Explicitly dispatches ci-helm.yml with force_build=true so the Helm
 #      chart is published even when no chart files changed in this commit.
 #
 # To force-rebuild every container image fresh (bypass retag for unchanged
 # components), run each ci-*.yml individually via workflow_dispatch with
 # force_build=true after this workflow has created the tag.
+# A2A sub-agent images are skipped by default. Set repository variable
+# CAIPE_BUILD_A2A_AGENT_IMAGES=true before pushing the tag, or dispatch
+# ci-a2a-sub-agent.yml manually with build_a2a_agents=true, to publish them.
 
 on:
   workflow_dispatch:
@@ -257,17 +260,21 @@ jobs:
 
           ## What happens next
 
-          The tag push triggers these CI workflows automatically:
+          The tag push triggers these required CI workflows automatically:
           - \`ci-caipe-ui\`
           - \`ci-dynamic-agents\`
           - \`ci-supervisor-agent\`
           - \`ci-slack-bot\`
           - \`ci-webex-bot\`
           - \`ci-skill-scanner\`
-          - \`ci-a2a-sub-agent\`
           - \`ci-mcp-sub-agent\`
           - \`ci-a2a-rag\`
           - \`ci-helm\` (also dispatched explicitly with \`force_build=true\`)
+
+          A2A sub-agent images are skipped by default. To publish them, set
+          repository variable \`CAIPE_BUILD_A2A_AGENT_IMAGES=true\` before this
+          workflow creates the tag, or dispatch \`ci-a2a-sub-agent.yml\`
+          manually with \`build_a2a_agents=true\` and \`tag_version=${RC_TAG}\`.
 
           > To force-rebuild every image fresh (bypass retag for unchanged components),
           > run each \`ci-*.yml\` manually via **workflow_dispatch** with

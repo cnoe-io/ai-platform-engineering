@@ -3,7 +3,7 @@ description: "Build and push A2A Docker images for sub-agents"
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, closed]
+    types: [opened, synchronize, reopened, labeled, closed]
     paths:
       - 'ai_platform_engineering/utils/**'
       - 'ai_platform_engineering/agents/**'
@@ -32,6 +32,11 @@ on:
         required: false
         type: string
         default: ''
+      build_a2a_agents:
+        description: 'Opt in to publishing prebuild A2A sub-agent images'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -49,6 +54,10 @@ jobs:
       (
         startsWith(inputs.head_ref || github.head_ref, 'prebuild/') &&
         !contains(inputs.head_ref || github.head_ref, 'single-node') &&
+        (
+          inputs.build_a2a_agents == true ||
+          contains(github.event.pull_request.labels.*.name, 'build-a2a-agents')
+        ) &&
         github.event.action != 'closed'
       )
     outputs:
@@ -76,6 +85,10 @@ jobs:
     if: |
       startsWith(inputs.head_ref || github.head_ref, 'prebuild/') &&
       !contains(inputs.head_ref || github.head_ref, 'single-node') &&
+      (
+        inputs.build_a2a_agents == true ||
+        contains(github.event.pull_request.labels.*.name, 'build-a2a-agents')
+      ) &&
       github.event.action != 'closed'
     outputs:
       agents: ${{ steps.set-matrix.outputs.agents }}
@@ -147,6 +160,10 @@ jobs:
       needs.determine-agents.outputs.should_build == 'true' &&
       startsWith(inputs.head_ref || github.head_ref, 'prebuild/') &&
       !contains(inputs.head_ref || github.head_ref, 'single-node') &&
+      (
+        inputs.build_a2a_agents == true ||
+        contains(github.event.pull_request.labels.*.name, 'build-a2a-agents')
+      ) &&
       github.event.action != 'closed'
     permissions:
       contents: write
