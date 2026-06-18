@@ -4,6 +4,7 @@
 import {
 ApiError,
 getAuthFromBearerOrSession,
+requireRbacPermission,
 successResponse,
 validateEmail,
 withErrorHandler,
@@ -16,7 +17,7 @@ listActiveTeamMembershipSourcesForTeamUser,
 markTeamMembershipSourceRemoved,
 upsertTeamMembershipSource,
 } from '@/lib/rbac/team-membership-source-store';
-import { findUserRoleInTeam } from '@/lib/rbac/team-membership-store';
+import { findUserRoleInTeam, loadActiveTeamMembersPage } from '@/lib/rbac/team-membership-store';
 import {
 buildTeamMembershipTuples,
 mongoRoleToOpenFgaRelations,
@@ -159,6 +160,57 @@ function manualMembershipSource(input: {
     created_at: timestamp,
   };
 }
+
+// GET /api/admin/teams/[id]/members — paginated, search-filtered member list.
+//
+// Returns one page of the team's deduplicated members so the Admin team
+// dialog can show large rosters without loading every membership-source row.
+// Query params: `page` (1-based), `page_size` (1–100, default 25), `search`
+// (case-insensitive email substring). Each member carries `source_types`
+// (e.g. ["okta"]) and `idp_managed` so the UI can badge provenance and lock
+// the remove action for directory-managed members.
+export const GET = withErrorHandler(async (
+  request: NextRequest,
+  context: { params: Promise<{ id: string }> }
+) => {
+  const mongoCheck = requireMongoDB();
+  if (mongoCheck) return mongoCheck;
+
+  const { session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, 'team', 'view');
+
+  const params = await context.params;
+  const teamId = parseTeamId(params.id);
+  const teams = await getCollection<TeamDocument>('teams');
+  const team = await teams.findOne({ _id: teamId });
+  if (!team) {
+    throw new ApiError('Team not found', 404);
+  }
+
+  const teamSlug = String(team.slug || '').trim();
+  const url = new URL(request.url);
+  const page = Math.max(1, parseInt(url.searchParams.get('page') || '1', 10) || 1);
+  const pageSizeRaw = parseInt(url.searchParams.get('page_size') || '25', 10) || 25;
+  const pageSize = Math.min(100, Math.max(1, pageSizeRaw));
+  const search = (url.searchParams.get('search') || '').trim();
+
+  const { members, total } = teamSlug
+    ? await loadActiveTeamMembersPage(teamSlug, {
+        page,
+        pageSize,
+        search,
+        ownerEmail: typeof team.owner_id === 'string' ? team.owner_id : undefined,
+      })
+    : { members: [], total: 0 };
+
+  return successResponse({
+    members,
+    total,
+    page,
+    page_size: pageSize,
+    has_more: page * pageSize < total,
+  });
+});
 
 // POST /api/admin/teams/[id]/members
 export const POST = withErrorHandler(async (
