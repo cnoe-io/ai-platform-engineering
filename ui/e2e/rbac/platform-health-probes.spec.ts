@@ -342,6 +342,83 @@ test.describe("platform health probes", () => {
     await expect(page.getByText("Check logs for details")).toBeVisible();
   });
 
+  test("down probes render as red outages, not amber warnings", async ({ page }) => {
+    const env = rbacEnvOrSkip({ requireUserSub: true });
+    await installStableHeaderHealthMocks(page);
+    const probes = healthyProbes.map((probe) =>
+      probe.id === "agentgateway"
+        ? { ...probe, status: "down" as const, detail: "connection refused", latency_ms: 31 }
+        : probe,
+    );
+    await page.route("**/api/platform/health", async (route) => {
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify(platformHealthPayload(probes)),
+      });
+    });
+
+    await installSessionAndOpenHome(page, env);
+
+    const statusButton = page.getByRole("button", { name: /system status: disconnected/i });
+    await expect(statusButton).toBeVisible();
+    await expect(statusButton).toHaveClass(/red/);
+    await openSystemStatus(page);
+
+    await expect(page.getByText("Issues Detected")).toBeVisible();
+    await expect(page.getByText("12/13 Down")).toBeVisible();
+    await expect(page.getByText("Check logs for details")).toBeVisible();
+    await expect(page.getByText("Needs Attention")).toHaveCount(0);
+    await expect(page.getByText("AgentGateway", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("connection refused").first()).toBeVisible();
+    await expect(page.getByText("Down").first()).toBeVisible();
+  });
+
+  test("warning probes render as amber degraded state without marking the stack down", async ({ page }) => {
+    const env = rbacEnvOrSkip({ requireUserSub: true });
+    await installStableHeaderHealthMocks(page);
+    const probes = healthyProbes.map((probe) =>
+      probe.id === "rbac-migrations"
+        ? {
+            ...probe,
+            status: "warning" as const,
+            detail: "2 blocking migrations pending",
+            latency_ms: 0,
+            remediation: {
+              label: "Migration Assistant",
+              href: "/admin?cat=security&tab=migrations",
+              description: "Open the migration assistant to apply required schema migrations.",
+            },
+          }
+        : probe,
+    );
+    await page.route("**/api/platform/health", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(platformHealthPayload(probes)),
+      });
+    });
+
+    await installSessionAndOpenHome(page, env);
+
+    const statusButton = page.getByRole("button", { name: /system status: needs attention/i });
+    await expect(statusButton).toBeVisible();
+    await expect(statusButton).toHaveClass(/amber/);
+    await expect(page.getByRole("button", { name: /system status: disconnected/i })).toHaveCount(0);
+    await openSystemStatus(page);
+
+    await expect(page.getByText("Action Needed", { exact: true })).toBeVisible();
+    await expect(page.getByText("12/13 Attention")).toBeVisible();
+    await expect(page.getByText("Action available")).toBeVisible();
+    await expect(page.getByText("Issues Detected")).toHaveCount(0);
+    await expect(page.getByText("RBAC Migrations").first()).toBeVisible();
+    await expect(page.getByText("2 blocking migrations pending").first()).toBeVisible();
+    await expect(page.getByText("Check").first()).toBeVisible();
+    await page.getByText("Bootstrap & Migrations", { exact: true }).hover();
+    await expect(page.getByText("1 of 3 need attention")).toBeVisible();
+  });
+
   test("remediation buttons navigate to the configured admin surface", async ({ page }) => {
     const env = rbacEnvOrSkip({ requireUserSub: true });
     await installStableHeaderHealthMocks(page);
