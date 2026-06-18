@@ -175,6 +175,54 @@ DISTRIBUTED_AGENTS=argocd,github docker compose -f docker-compose.dev.yaml --pro
 
 ---
 
+## Troubleshooting first install
+
+If the first launch reports Keycloak reconciliation errors, failed migrations
+with `OPENFGA_HTTP is not set`, or missing Keycloak admin credentials, make
+sure your local `.env` has the first-install RBAC defaults from `.env.example`:
+
+```bash
+KEYCLOAK_ADMIN_CLIENT_ID=caipe-platform
+KEYCLOAK_ADMIN_CLIENT_SECRET=caipe-platform-dev-secret
+OPENFGA_HTTP=http://openfga:8080
+OPENFGA_STORE_NAME=caipe-openfga
+```
+
+You can add any missing values without overwriting your existing `.env`:
+
+```bash
+grep -q '^KEYCLOAK_ADMIN_CLIENT_ID=' .env || echo 'KEYCLOAK_ADMIN_CLIENT_ID=caipe-platform' >> .env
+grep -q '^KEYCLOAK_ADMIN_CLIENT_SECRET=' .env || echo 'KEYCLOAK_ADMIN_CLIENT_SECRET=caipe-platform-dev-secret' >> .env
+grep -q '^OPENFGA_HTTP=' .env || echo 'OPENFGA_HTTP=http://openfga:8080' >> .env
+grep -q '^OPENFGA_STORE_NAME=' .env || echo 'OPENFGA_STORE_NAME=caipe-openfga' >> .env
+```
+
+Then rerun the UI and Keycloak seed job:
+
+```bash
+COMPOSE_PROFILES="mcp-servers,caipe-ui-prod,rbac,caipe-supervisor,dynamic-agents,rag,caipe-mongodb" \
+docker compose --env-file .env -f docker-compose.yaml up -d --force-recreate caipe-ui keycloak-init
+```
+
+If Keycloak or OpenFGA were already initialized with bad settings, reset only
+the local auth/RBAC volumes. This keeps MongoDB and CAIPE application data:
+
+```bash
+docker compose --env-file .env -f docker-compose.yaml down
+
+docker volume ls | grep -E 'keycloak_postgres_data|openfga_postgres_data'
+docker volume rm <keycloak_postgres_data_volume> <openfga_postgres_data_volume>
+
+COMPOSE_PROFILES="mcp-servers,caipe-ui-prod,rbac,caipe-supervisor,dynamic-agents,rag,caipe-mongodb" \
+docker compose --env-file .env -f docker-compose.yaml up -d
+```
+
+Use the exact volume names printed by `docker volume ls`. Avoid
+`docker compose down -v` unless you also want to delete MongoDB and other local
+CAIPE data.
+
+---
+
 ## Connect to the agent
 
 Once services are running, connect with the agent chat CLI:
