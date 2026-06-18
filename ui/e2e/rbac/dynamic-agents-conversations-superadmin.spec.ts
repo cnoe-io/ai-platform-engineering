@@ -174,7 +174,7 @@ test.describe("mocked RBAC Dynamic Agent conversations", () => {
     await installMockedRbacApp(page, {
       isAdmin: true,
       session: adminSession,
-      gates: { audit_logs: true },
+      gates: { audit_logs: false, dynamic_agent_conversations: true },
       handlers: [
         installConversationRoutes({
           onConversationRequest: (url) => conversationRequests.push(new URL(url.toString())),
@@ -233,7 +233,7 @@ test.describe("mocked RBAC Dynamic Agent conversations", () => {
     await installMockedRbacApp(page, {
       isAdmin: true,
       session: adminSession,
-      gates: { audit_logs: true },
+      gates: { audit_logs: false, dynamic_agent_conversations: true },
       handlers: [
         installConversationRoutes({
           onConversationRequest: (url) => conversationRequests.push(new URL(url.toString())),
@@ -276,7 +276,7 @@ test.describe("mocked RBAC Dynamic Agent conversations", () => {
     await installMockedRbacApp(page, {
       isAdmin: true,
       session: adminSession,
-      gates: { audit_logs: true },
+      gates: { audit_logs: false, dynamic_agent_conversations: true },
       handlers: [
         installConversationRoutes({
           denyConversations: true,
@@ -297,7 +297,7 @@ test.describe("mocked RBAC Dynamic Agent conversations", () => {
     await installMockedRbacApp(page, {
       isAdmin: true,
       session: adminSession,
-      gates: { audit_logs: true },
+      gates: { audit_logs: false, dynamic_agent_conversations: true },
       handlers: [
         async ({ route, path, method }) => {
           if (path === "/api/dynamic-agents" && method === "GET") {
@@ -320,11 +320,11 @@ test.describe("mocked RBAC Dynamic Agent conversations", () => {
     await expect.poll(() => requests).toBeGreaterThanOrEqual(2);
   });
 
-  test("hides the Conversations tab when the audit logs gate is disabled", async ({ page }) => {
+  test("hides the Conversations tab when the Dynamic Agent conversation gate is disabled", async ({ page }) => {
     await installMockedRbacApp(page, {
       isAdmin: true,
       session: adminSession,
-      gates: { audit_logs: false },
+      gates: { audit_logs: true, dynamic_agent_conversations: false },
       handlers: [installConversationRoutes()],
     });
 
