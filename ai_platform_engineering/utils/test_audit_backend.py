@@ -301,7 +301,6 @@ class TestAuditBackendFactory:
         assert first is second
 
     def test_get_audit_backend_thread_safe(self, monkeypatch):
-        import ai_platform_engineering.utils.audit_backend as _mod
         from ai_platform_engineering.utils.audit_backend import get_audit_backend
 
         monkeypatch.delenv("AUDIT_LOG_BACKEND", raising=False)
