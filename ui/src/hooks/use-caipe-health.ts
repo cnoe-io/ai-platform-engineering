@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
 import { config as appConfig } from "@/lib/config";
+import { useCallback,useEffect,useRef,useState } from "react";
 
 export type HealthStatus = "checking" | "connected" | "disconnected";
 
@@ -37,7 +37,7 @@ export function useCAIPEHealth(): UseCAIPEHealthResult {
   const [tags, setTags] = useState<string[]>([]);
   const [mongoDBStatus, setMongoDBStatus] = useState<'connected' | 'disconnected' | 'checking'>('checking');
   const [storageMode, setStorageMode] = useState<'mongodb' | 'localStorage' | null>(null);
-  const nextCheckTimeRef = useRef<number>(Date.now() + POLL_INTERVAL_MS);
+  const nextCheckTimeRef = useRef<number>(0);
   const url = appConfig.caipeUrl;
 
   const checkHealth = useCallback(async () => {
@@ -154,7 +154,8 @@ export function useCAIPEHealth(): UseCAIPEHealthResult {
 
   useEffect(() => {
     // Check immediately on mount (includes fetching storage mode from server)
-    checkHealth();
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- checkHealth is async; setState only called after awaited fetch
+    void checkHealth();
 
     // Set up 30-second polling interval
     const interval = setInterval(checkHealth, POLL_INTERVAL_MS);

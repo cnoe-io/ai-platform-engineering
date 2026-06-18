@@ -5,7 +5,7 @@
  * Tests for Admin Write API Routes
  *
  * Covers:
- * - PATCH /api/admin/users/[email]/role — update user role
+ * - PATCH /api/admin/users/[id]/role — update user role
  * - POST /api/admin/teams/[id]/members — add member to team
  * - DELETE /api/admin/teams/[id]/members — remove member from team
  * - POST /api/admin/migrate-conversations — migrate conversations
@@ -32,7 +32,32 @@ jest.mock('next-auth', () => ({
 // Mock auth config
 jest.mock('@/lib/auth-config', () => ({
   authOptions: {},
+  isBootstrapAdmin: jest.fn().mockReturnValue(false),
+  REQUIRED_ADMIN_GROUP: '',
 }));
+
+jest.mock('@/lib/rbac/keycloak-authz', () => ({
+  checkPermission: jest.fn(),
+}));
+jest.mock('@/lib/rbac/audit', () => ({
+  logAuthzDecision: jest.fn(),
+}));
+
+function setDefaultCheckPermissionMock() {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { checkPermission } = require('@/lib/rbac/keycloak-authz') as {
+    checkPermission: jest.Mock;
+  };
+  checkPermission.mockResolvedValue({
+    allowed: false,
+    reason: 'DENY_NO_CAPABILITY',
+  });
+}
+
+function resetRouteModules() {
+  jest.resetModules();
+  setDefaultCheckPermissionMock();
+}
 
 jest.mock('@/lib/config', () => ({
   getConfig: (key: string) => key === 'ssoEnabled',
@@ -64,11 +89,17 @@ jest.spyOn(console, 'warn').mockImplementation(() => {});
 // ============================================================================
 
 function createMockCollection() {
+  // Cursor supports BOTH `find().toArray()` and `find().sort().toArray()`.
+  // Team-admin-guard reader (post 2026-05-26 canonical-membership) calls
+  // toArray() directly. `deleteMany` is also stubbed because
+  // `upsertTeamMembershipSource` (called by route POST) uses it to
+  // collapse stale rows.
   return {
     find: jest.fn().mockReturnValue({
       sort: jest.fn().mockReturnValue({
         toArray: jest.fn().mockResolvedValue([]),
       }),
+      toArray: jest.fn().mockResolvedValue([]),
     }),
     findOne: jest.fn().mockResolvedValue(null),
     insertOne: jest.fn().mockResolvedValue({ insertedId: new ObjectId() }),
@@ -76,6 +107,7 @@ function createMockCollection() {
     updateOne: jest.fn().mockResolvedValue({ matchedCount: 1, modifiedCount: 1 }),
     updateMany: jest.fn().mockResolvedValue({ modifiedCount: 0 }),
     deleteOne: jest.fn().mockResolvedValue({ deletedCount: 1 }),
+    deleteMany: jest.fn().mockResolvedValue({ deletedCount: 0 }),
     countDocuments: jest.fn().mockResolvedValue(0),
     aggregate: jest.fn().mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) }),
   };
@@ -85,10 +117,19 @@ function makeRequest(url: string, options: RequestInit = {}): NextRequest {
   return new NextRequest(new URL(url, 'http://localhost:3000'), options);
 }
 
+function accessTokenWithRoles(roles: string[]): string {
+  const payload = Buffer.from(
+    JSON.stringify({ realm_access: { roles } }),
+    'utf8'
+  ).toString('base64url');
+  return `h.${payload}.s`;
+}
+
 function adminSession() {
   return {
     user: { email: 'admin@example.com', name: 'Admin User' },
     role: 'admin',
+    accessToken: accessTokenWithRoles(['admin']),
   };
 }
 
@@ -96,13 +137,20 @@ function userSession() {
   return {
     user: { email: 'user@example.com', name: 'Regular User' },
     role: 'user',
+    accessToken: accessTokenWithRoles(['chat_user']),
   };
 }
 
 const TEST_TEAM_ID = '507f1f77bcf86cd799439011';
+const TEST_TEAM_SLUG = 'platform-engineering';
 const TEST_TEAM = {
   _id: new ObjectId(TEST_TEAM_ID),
   name: 'Platform Engineering',
+  // Post 2026-05-26 canonical-membership refactor: route handlers
+  // require a slug to query team_membership_sources. Pre-refactor the
+  // tests passed without a slug because the routes read the embedded
+  // members[] array directly.
+  slug: TEST_TEAM_SLUG,
   description: 'The platform team',
   owner_id: 'admin@example.com',
   created_at: new Date(),
@@ -123,6 +171,67 @@ const TEST_TEAM = {
   ],
 };
 
+/**
+ * Seed `team_membership_sources` to mirror TEST_TEAM.members so route
+ * handlers that gate on canonical membership find the same identities.
+ * Pre 2026-05-26 the routes read team.members[] directly; this seed
+ * keeps the existing test cases green without overhauling the entire
+ * suite.
+ *
+ * Crucial: `find()` honors the `user_email` clause so per-user lookups
+ * (`findUserRoleInTeam(slug, {user_email})`) only return matching rows.
+ * Without this, every user appears to be a team admin and the 403/404
+ * tests collapse into 200/400.
+ */
+function seedTestTeamCanonicalMembers() {
+  // Start from createMockCollection() so the stub also has updateOne,
+  // deleteMany, etc. — needed by upsertTeamMembershipSource and
+  // related write paths that the route still exercises post-gate.
+  const sourcesCol = createMockCollection();
+  const rows = [
+    {
+      team_slug: TEST_TEAM_SLUG,
+      user_email: 'admin@example.com',
+      relationship: 'admin',
+      source_type: 'manual',
+      status: 'active',
+    },
+    {
+      team_slug: TEST_TEAM_SLUG,
+      user_email: 'member@example.com',
+      relationship: 'member',
+      source_type: 'manual',
+      status: 'active',
+    },
+  ];
+  // Minimal MongoDB-filter shim. Supports the exact filter shapes used
+  // by the canonical-membership readers: equality on `team_slug`, `status`,
+  // and identity clauses (`user_email`, `user_subject`) inside `$or`.
+  function rowMatches(filter: Record<string, unknown>, row: Record<string, unknown>): boolean {
+    for (const [key, value] of Object.entries(filter)) {
+      if (key === '$or' && Array.isArray(value)) {
+        if (!value.some((clause: Record<string, unknown>) => rowMatches(clause, row))) return false;
+        continue;
+      }
+      if (value && typeof value === 'object' && '$in' in (value as object)) {
+        const arr = (value as { $in: unknown[] }).$in ?? [];
+        if (!arr.includes(row[key])) return false;
+        continue;
+      }
+      if (row[key] !== value) return false;
+    }
+    return true;
+  }
+  sourcesCol.find = jest.fn((filter: Record<string, unknown> = {}) => {
+    const matched = rows.filter((row) => rowMatches(filter, row));
+    return {
+      sort: jest.fn().mockReturnValue({ toArray: jest.fn().mockResolvedValue(matched) }),
+      toArray: jest.fn().mockResolvedValue(matched),
+    };
+  });
+  mockCollections['team_membership_sources'] = sourcesCol;
+}
+
 // ============================================================================
 // Test Setup
 // ============================================================================
@@ -131,23 +240,29 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockIsMongoDBConfigured = true;
   Object.keys(mockCollections).forEach(key => delete mockCollections[key]);
+  setDefaultCheckPermissionMock();
+  // Default: team_membership_sources mirrors TEST_TEAM.members so the
+  // canonical-store reader (post 2026-05-26 canonical-membership refactor)
+  // returns the expected identities. Tests that need a different roster
+  // can override mockCollections.team_membership_sources after this.
+  seedTestTeamCanonicalMembers();
 });
 
 // ============================================================================
-// PATCH /api/admin/users/[email]/role — Update user role
+// PATCH /api/admin/users/[id]/role — Update user role
 // ============================================================================
 
-describe('PATCH /api/admin/users/[email]/role', () => {
+describe('PATCH /api/admin/users/[id]/role', () => {
   let PATCH: any;
 
   beforeEach(async () => {
-    jest.resetModules();
-    const mod = await import('@/app/api/admin/users/[email]/role/route');
+    resetRouteModules();
+    const mod = await import('@/app/api/admin/users/[id]/role/route');
     PATCH = mod.PATCH;
   });
 
   const makeContext = (email: string) => ({
-    params: Promise.resolve({ email }),
+    params: Promise.resolve({ id: email }),
   });
 
   it('returns 401 when not authenticated', async () => {
@@ -162,6 +277,13 @@ describe('PATCH /api/admin/users/[email]/role', () => {
   });
 
   it('returns 403 when not admin', async () => {
+    // Spec 102 / Phase 3 — this route migrated from requireAdmin (which threw
+    // "Admin access required - must be member of admin group") to
+    // requireRbacPermission, which throws the standard ApiError(403)
+    // "You do not have permission to perform this action." The default
+    // checkPermission mock at the top of this file already returns
+    // { allowed: false, reason: 'DENY_NO_CAPABILITY' }, so non-admin sessions
+    // hit the new 403 path.
     mockGetServerSession.mockResolvedValue(userSession());
     const req = makeRequest('/api/admin/users/user@example.com/role', {
       method: 'PATCH',
@@ -171,7 +293,7 @@ describe('PATCH /api/admin/users/[email]/role', () => {
     const res = await PATCH(req, makeContext('user@example.com'));
     expect(res.status).toBe(403);
     const body = await res.json();
-    expect(body.error).toContain('Admin access required');
+    expect(body.error).toContain('You do not have permission to perform this action');
   });
 
   it('returns 503 when MongoDB not configured', async () => {
@@ -286,7 +408,7 @@ describe('POST /api/admin/teams/[id]/members', () => {
   let POST: any;
 
   beforeEach(async () => {
-    jest.resetModules();
+    resetRouteModules();
     const mod = await import('@/app/api/admin/teams/[id]/members/route');
     POST = mod.POST;
   });
@@ -308,6 +430,14 @@ describe('POST /api/admin/teams/[id]/members', () => {
 
   it('returns 403 when not admin', async () => {
     mockGetServerSession.mockResolvedValue(userSession());
+    // Spec 098 reordered the route: the team is loaded before the permission
+    // gate so we can pass the resolved team into
+    // `requireTeamMembershipManagementPermission`. Seed the team so the test
+    // reaches the auth gate (instead of stopping at the 404).
+    const teamsCol = createMockCollection();
+    teamsCol.findOne.mockResolvedValue(TEST_TEAM);
+    mockCollections['teams'] = teamsCol;
+
     const req = makeRequest(`/api/admin/teams/${TEST_TEAM_ID}/members`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -316,7 +446,7 @@ describe('POST /api/admin/teams/[id]/members', () => {
     const res = await POST(req, makeContext(TEST_TEAM_ID));
     expect(res.status).toBe(403);
     const body = await res.json();
-    expect(body.error).toContain('Admin access required');
+    expect(body.error).toMatch(/do not have permission|Admin access required/);
   });
 
   it('returns 400 when user_id is missing', async () => {
@@ -404,10 +534,18 @@ describe('POST /api/admin/teams/[id]/members', () => {
     expect(res.status).toBe(201);
     expect(body.success).toBe(true);
     expect(body.data.team).toBeDefined();
+    // Commit 6/8 of the canonical-team-membership refactor (spec
+    // 2026-05-26-canonical-team-membership): the POST /members route
+    // no longer $push'es into teams.members[]. It only refreshes the
+    // mutation timestamps on the team doc; the new member lives in
+    // team_membership_sources (covered by membership-sources.test.ts).
     expect(teamsCol.updateOne).toHaveBeenCalledTimes(1);
     const updateCall = teamsCol.updateOne.mock.calls[0];
-    expect(updateCall[1].$push.members.user_id).toBe('new@example.com');
-    expect(updateCall[1].$push.members.role).toBe('admin');
+    expect(updateCall[1].$push).toBeUndefined();
+    expect(updateCall[1].$set).toMatchObject({
+      updated_by: 'admin@example.com',
+    });
+    expect(updateCall[1].$set.updated_at).toBeInstanceOf(Date);
   });
 });
 
@@ -419,7 +557,7 @@ describe('DELETE /api/admin/teams/[id]/members', () => {
   let DELETE: any;
 
   beforeEach(async () => {
-    jest.resetModules();
+    resetRouteModules();
     const mod = await import('@/app/api/admin/teams/[id]/members/route');
     DELETE = mod.DELETE;
   });
@@ -439,13 +577,20 @@ describe('DELETE /api/admin/teams/[id]/members', () => {
 
   it('returns 403 when not admin', async () => {
     mockGetServerSession.mockResolvedValue(userSession());
+    // See POST 403 test above — spec 098 reordered the route so the team is
+    // resolved before the auth gate. Seed the team so the test reaches the
+    // permission check instead of short-circuiting to 404.
+    const teamsCol = createMockCollection();
+    teamsCol.findOne.mockResolvedValue(TEST_TEAM);
+    mockCollections['teams'] = teamsCol;
+
     const req = makeRequest(`/api/admin/teams/${TEST_TEAM_ID}/members?user_id=member@example.com`, {
       method: 'DELETE',
     });
     const res = await DELETE(req, makeContext(TEST_TEAM_ID));
     expect(res.status).toBe(403);
     const body = await res.json();
-    expect(body.error).toContain('Admin access required');
+    expect(body.error).toMatch(/do not have permission|Admin access required/);
   });
 
   it('returns 400 when user_id query param is missing', async () => {
@@ -537,7 +682,7 @@ describe('POST /api/admin/migrate-conversations', () => {
   let POST: any;
 
   beforeEach(async () => {
-    jest.resetModules();
+    resetRouteModules();
     const mod = await import('@/app/api/admin/migrate-conversations/route');
     POST = mod.POST;
   });
@@ -563,7 +708,7 @@ describe('POST /api/admin/migrate-conversations', () => {
     const res = await POST(req);
     expect(res.status).toBe(403);
     const body = await res.json();
-    expect(body.error).toContain('Admin access required');
+    expect(body.error).toBe('You do not have permission to perform this action.');
   });
 
   it('returns 503 when MongoDB not configured', async () => {

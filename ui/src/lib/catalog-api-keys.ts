@@ -1,0 +1,195 @@
+/**
+ * MongoDB-backed catalog API keys for Skills Gateway (FR-018).
+ *
+ * Mirrors `ai_platform_engineering/skills_middleware/api_keys_store.py` so the
+ * BFF can mint/list/revoke keys without proxying to the supervisor.
+ *
+ * Key format: `{key_id}.{secret}`. Only HMAC-SHA256(pepper, secret) is stored.
+ */
+
+import { createHmac,randomInt } from "crypto";
+
+import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
+
+const COLLECTION = "catalog_api_keys";
+const KEY_ID_PREFIX = "sk_";
+const KEY_ID_RANDOM_LEN = 12;
+const SECRET_LEN = 32;
+const ALPHABET =
+  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+
+interface CatalogApiKeyDocument {
+  key_id: string;
+  key_hash: string;
+  owner_user_id: string;
+  scopes: string[];
+  created_at: number;
+  revoked_at: number | null;
+  last_used_at?: number | null;
+}
+
+export interface CatalogApiKeyListItem {
+  key_id: string;
+  owner_user_id: string;
+  scopes: string[];
+  created_at: number;
+  revoked_at: number | null;
+  last_used_at?: number | null;
+}
+
+function catalogApiKeyPepper(): string {
+  return (
+    process.env.CAIPE_CATALOG_API_KEY_PEPPER?.trim() ||
+    process.env.SKILLS_API_KEY_PEPPER?.trim() ||
+    ""
+  );
+}
+
+function hashCatalogApiKeySecret(secret: string): string {
+  const pepper = catalogApiKeyPepper();
+  return createHmac("sha256", pepper).update(secret, "utf8").digest("hex");
+}
+
+function randomAlphanumeric(length: number): string {
+  let out = "";
+  while (out.length < length) {
+    out += ALPHABET[randomInt(ALPHABET.length)]!;
+  }
+  return out;
+}
+
+function requireMongoCollection() {
+  if (!isMongoDBConfigured) {
+    throw new Error("MongoDB unavailable for catalog_api_keys");
+  }
+}
+
+/**
+ * Resolve the Keycloak subject used as `owner_user_id` (matches Python `_catalog_api_key_owner`).
+ */
+export function resolveCatalogApiKeyOwnerId(session: {
+  sub?: unknown;
+}): string | null {
+  if (typeof session.sub === "string" && session.sub.trim()) {
+    return session.sub.trim();
+  }
+  return null;
+}
+
+export async function createCatalogApiKey(
+  ownerUserId: string,
+  scopes: string[] = ["catalog:read"],
+): Promise<{ key: string; key_id: string }> {
+  requireMongoCollection();
+  const collection = await getCollection<CatalogApiKeyDocument>(COLLECTION);
+  const keyId = `${KEY_ID_PREFIX}${randomAlphanumeric(KEY_ID_RANDOM_LEN)}`;
+  const secret = randomAlphanumeric(SECRET_LEN);
+  const fullKey = `${keyId}.${secret}`;
+  const now = Date.now() / 1000;
+
+  const doc: CatalogApiKeyDocument = {
+    key_id: keyId,
+    key_hash: hashCatalogApiKeySecret(secret),
+    owner_user_id: ownerUserId,
+    scopes,
+    created_at: now,
+    revoked_at: null,
+  };
+  await collection.insertOne(doc);
+
+  return { key: fullKey, key_id: keyId };
+}
+
+export async function listCatalogApiKeys(
+  ownerUserId: string,
+): Promise<CatalogApiKeyListItem[]> {
+  if (!isMongoDBConfigured) {
+    return [];
+  }
+  const collection = await getCollection<CatalogApiKeyDocument>(COLLECTION);
+  const docs = await collection
+    .find({ owner_user_id: ownerUserId })
+    .project({ key_hash: 0 })
+    .sort({ created_at: -1 })
+    .toArray();
+
+  return docs
+    .filter((doc) => doc.key_id)
+    .map((doc) => ({
+      key_id: doc.key_id,
+      owner_user_id: doc.owner_user_id,
+      scopes: doc.scopes ?? ["catalog:read"],
+      created_at: doc.created_at,
+      revoked_at: doc.revoked_at ?? null,
+      last_used_at: doc.last_used_at ?? null,
+    }));
+}
+
+export async function getCatalogApiKeyOwnerIfActive(
+  keyId: string,
+): Promise<string | null> {
+  if (!isMongoDBConfigured) {
+    return null;
+  }
+  const collection = await getCollection<CatalogApiKeyDocument>(COLLECTION);
+  const doc = await collection.findOne(
+    { key_id: keyId },
+    { projection: { owner_user_id: 1, revoked_at: 1 } },
+  );
+  if (!doc || doc.revoked_at != null) {
+    return null;
+  }
+  return doc.owner_user_id ?? null;
+}
+
+export async function revokeCatalogApiKey(keyId: string): Promise<boolean> {
+  if (!isMongoDBConfigured) {
+    return false;
+  }
+  const collection = await getCollection<CatalogApiKeyDocument>(COLLECTION);
+  const result = await collection.updateOne(
+    { key_id: keyId },
+    { $set: { revoked_at: Date.now() / 1000 } },
+  );
+  return result.modifiedCount > 0;
+}
+
+/** Validate a raw key; returns owner_user_id when valid (for catalog auth paths). */
+export async function verifyCatalogApiKey(
+  rawKey: string,
+): Promise<string | null> {
+  const trimmed = (rawKey || "").trim();
+  const dot = trimmed.indexOf(".");
+  if (dot <= 0) {
+    return null;
+  }
+  const keyId = trimmed.slice(0, dot).trim();
+  const secret = trimmed.slice(dot + 1).trim();
+  if (!keyId || !secret) {
+    return null;
+  }
+
+  if (!isMongoDBConfigured) {
+    return null;
+  }
+
+  const collection = await getCollection<CatalogApiKeyDocument>(COLLECTION);
+  const doc = await collection.findOne(
+    { key_id: keyId, revoked_at: null },
+    { projection: { key_hash: 1, owner_user_id: 1 } },
+  );
+  if (!doc || doc.key_hash !== hashCatalogApiKeySecret(secret)) {
+    return null;
+  }
+
+  try {
+    await collection.updateOne(
+      { key_id: keyId },
+      { $set: { last_used_at: Date.now() / 1000 } },
+    );
+  } catch {
+    // best-effort
+  }
+
+  return doc.owner_user_id ?? null;
+}

@@ -1,20 +1,20 @@
-import { NextRequest, NextResponse } from "next/server";
 import {
-  withAuth,
-  withErrorHandler,
-  requireAdmin,
-  validateCredentialsRef,
-} from "@/lib/api-middleware";
-import { crawlGitHubRepo, crawlGitLabRepo } from "@/lib/hub-crawl";
+apiHostFromBaseUrl,
+buildCrawlStreamResponse,
+wantsNdjsonStream,
+} from "@/app/api/skill-hubs/_lib/crawl-stream-response";
 import {
-  detectHubProviderFromUrl,
-  normalizeHubLocation,
+detectHubProviderFromUrl,
+normalizeHubLocation,
 } from "@/app/api/skill-hubs/_lib/normalize";
 import {
-  apiHostFromBaseUrl,
-  buildCrawlStreamResponse,
-  wantsNdjsonStream,
-} from "@/app/api/skill-hubs/_lib/crawl-stream-response";
+getAuthFromBearerOrSession,
+requireRbacPermission,
+validateCredentialsRef,
+withErrorHandler,
+} from "@/lib/api-middleware";
+import { crawlGitHubRepo,crawlGitLabRepo } from "@/lib/hub-crawl";
+import { NextRequest,NextResponse } from "next/server";
 
 /**
  * POST /api/skill-hubs/crawl — preview SKILL.md paths for a repo (FR-017).
@@ -26,8 +26,8 @@ import {
  * route's bulk siblings + the hub admin scans). Admin only.
  */
 export const POST = withErrorHandler(async (request: NextRequest): Promise<NextResponse> => {
-  return await withAuth(request, async (_req, _user, session) => {
-    requireAdmin(session);
+  const { session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, "admin_ui", "admin");
 
     const body = await request.json();
     const { type, location } = body;
@@ -231,5 +231,4 @@ export const POST = withErrorHandler(async (request: NextRequest): Promise<NextR
         { status: 502 },
       );
     }
-  });
 });

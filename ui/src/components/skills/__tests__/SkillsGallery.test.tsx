@@ -13,7 +13,7 @@
  *  - Empty states
  *  - Modal interactions (backdrop, X button, Cancel)
  *  - Edit config and onSelectConfig callbacks
- *  - Supervisor sync gating (Try Skill disabled when not synced)
+ *  - Per-skill supervisor sync badge remains hidden
  */
 
 import React from "react";
@@ -86,6 +86,7 @@ jest.mock("next-auth/react", () => ({
 
 jest.mock("framer-motion", () => ({
   motion: {
+    // eslint-disable-next-line react/display-name
     div: React.forwardRef(({ children, ...rest }: any, ref: any) => (
       <div ref={ref} {...rest}>{children}</div>
     )),
@@ -213,33 +214,20 @@ async function renderGallery(props: Partial<React.ComponentProps<typeof SkillsGa
 // Global reset + fetch mock
 // ---------------------------------------------------------------------------
 
-let mockSupervisorSynced = true;
-
 beforeEach(() => {
   jest.clearAllMocks();
   mockWorkflowRunnerEnabled = false;
   mockIsLoading = false;
   mockError = null;
   mockIsAdmin = false;
-  mockSupervisorSynced = true;
   mockIsFavorite.mockReturnValue(false);
   mockGetFavoriteConfigs.mockReturnValue([]);
   mockCreateConversation.mockReturnValue("conv-abc");
   _configs = [];
 
-  // Mock global.fetch for supervisor-status and catalog endpoints
+  // Mock global.fetch for catalog endpoints
   global.fetch = jest.fn((url: string | URL | Request) => {
     const urlStr = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
-
-    if (urlStr.includes("/api/skills/supervisor-status")) {
-      return Promise.resolve({
-        ok: true,
-        json: () => Promise.resolve({
-          mas_registered: mockSupervisorSynced,
-          skills_loaded_count: mockSupervisorSynced ? 5 : 0,
-        }),
-      } as Response);
-    }
 
     if (urlStr.includes("/api/skills")) {
       return Promise.resolve({
@@ -273,6 +261,14 @@ describe("SkillsGallery — WORKFLOW_RUNNER_ENABLED=false (default)", () => {
   it("still renders the quick-start card gallery when the flag is off", async () => {
     await renderGallery();
     expect(screen.getByText("Incident Correlation & Root Cause Analysis")).toBeInTheDocument();
+  });
+
+  it("does not fetch supervisor status for per-skill sync badges", async () => {
+    await renderGallery();
+
+    expect(global.fetch).not.toHaveBeenCalledWith(
+      expect.stringContaining("/api/skills/supervisor-status"),
+    );
   });
 
   it("opens modal with Try Skill button when clicking a skill card", async () => {
@@ -466,6 +462,88 @@ describe("SkillsGallery — Skills Builder button", () => {
 // ---------------------------------------------------------------------------
 
 describe("SkillsGallery — source filter (built-in vs custom)", () => {
+  it("labels user agent_skills from the catalog feed as Custom, not Built-in", async () => {
+    const mongoId = "skill-random-p2h9h87ty";
+    _configs = [];
+    (global.fetch as jest.Mock).mockImplementation((url: string | URL | Request) => {
+      const urlStr = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
+      if (urlStr.includes("/api/skills?")) {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              skills: [
+                {
+                  id: mongoId,
+                  name: "random",
+                  description: "random",
+                  source: "agent_skills",
+                  source_id: "test@example.com",
+                  visibility: "private",
+                  metadata: { is_system: false, category: "Custom" },
+                },
+              ],
+            }),
+        } as Response);
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) } as Response);
+    });
+
+    await renderGallery();
+
+    const heading = screen.getByRole("heading", { name: "random" });
+    expect(heading).toBeInTheDocument();
+    const card = heading.closest("div[class*='group']") ?? heading.parentElement!;
+    expect(within(card as HTMLElement).getByText("Custom")).toBeInTheDocument();
+    expect(within(card as HTMLElement).queryByText("Built-in")).not.toBeInTheDocument();
+  });
+
+  it("does not duplicate a Mongo skill when catalog returns the same agent_skills id", async () => {
+    const mongoId = "skill-random-p2h9h87ty";
+    _configs = [
+      {
+        ...makeQuickStart(mongoId),
+        id: mongoId,
+        name: "random",
+        description: "random",
+        is_system: false,
+        owner_id: "test@example.com",
+        visibility: "private",
+      } as AgentSkill,
+    ];
+    (global.fetch as jest.Mock).mockImplementation((url: string | URL | Request) => {
+      const urlStr = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
+      if (urlStr.includes("/api/skills?")) {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              skills: [
+                {
+                  id: mongoId,
+                  name: "random",
+                  description: "random",
+                  source: "agent_skills",
+                  source_id: "test@example.com",
+                  visibility: "private",
+                  metadata: { is_system: false, category: "Custom" },
+                },
+              ],
+            }),
+        } as Response);
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) } as Response);
+    });
+
+    await renderGallery();
+
+    expect(screen.getAllByRole("heading", { name: "random" })).toHaveLength(1);
+    const heading = screen.getByRole("heading", { name: "random" });
+    const card = heading.closest("div[class*='group']") ?? heading.parentElement!;
+    expect(within(card as HTMLElement).getByText("Custom")).toBeInTheDocument();
+    expect(within(card as HTMLElement).queryByText("Built-in")).not.toBeInTheDocument();
+  });
+
   it("shows only user Mongo skills under Custom and only is_system under Built-in", async () => {
     const userSkill = {
       ...makeQuickStart("user-owned-1"),
@@ -582,16 +660,14 @@ describe("SkillsGallery — Try Skill", () => {
     expect(screen.queryByRole("button", { name: /try skill/i })).not.toBeInTheDocument();
   });
 
-  it("Try Skill is disabled when supervisor is not synced", async () => {
-    mockSupervisorSynced = false;
+  it("Try Skill stays enabled without supervisor sync gating", async () => {
     await renderGallery();
     await act(async () => { fireEvent.click(screen.getByText("Chat Skill")); });
     const tryBtn = screen.getByRole("button", { name: /try skill/i });
-    expect(tryBtn).toBeDisabled();
+    expect(tryBtn).not.toBeDisabled();
   });
 
-  it("Try Skill is enabled when supervisor is synced", async () => {
-    mockSupervisorSynced = true;
+  it("Try Skill is enabled when required parameters are valid", async () => {
     await renderGallery();
     await act(async () => { fireEvent.click(screen.getByText("Chat Skill")); });
     const tryBtn = screen.getByRole("button", { name: /try skill/i });
@@ -979,13 +1055,6 @@ describe("SkillsGallery — catalog refresh after scan/override", () => {
           : url instanceof URL
           ? url.toString()
           : url.url;
-
-      if (urlStr.includes("/api/skills/supervisor-status")) {
-        return Promise.resolve({
-          ok: true,
-          json: () => Promise.resolve({ mas_registered: true, skills_loaded_count: 1 }),
-        } as Response);
-      }
 
       // Both the unified catalog endpoint (`/api/skills?...`) and
       // the per-source mongo endpoint (`/api/skills/configs`) start

@@ -1,7 +1,7 @@
 "use client";
 
-import { useRegisterEvents, useSigma } from "@react-sigma/core";
-import { FC, PropsWithChildren, useEffect } from "react";
+import { useRegisterEvents,useSigma } from "@react-sigma/core";
+import { FC,PropsWithChildren,useEffect } from "react";
 
 interface GraphEventsControllerProps {
     setHoveredNode: (node: string | null) => void;

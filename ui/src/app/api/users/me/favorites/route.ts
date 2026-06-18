@@ -1,15 +1,15 @@
 // GET /api/users/me/favorites - Get user's favorite agent configs
 // PUT /api/users/me/favorites - Update user's favorite agent configs
 
-import { NextRequest } from 'next/server';
-import { getCollection, isMongoDBConfigured } from '@/lib/mongodb';
 import {
-  withAuth,
-  withErrorHandler,
-  successResponse,
-  ApiError,
+ApiError,
+successResponse,
+withAuth,
+withErrorHandler,
 } from '@/lib/api-middleware';
+import { getCollection,isMongoDBConfigured } from '@/lib/mongodb';
 import type { User } from '@/types/mongodb';
+import { NextRequest } from 'next/server';
 
 /**
  * User Favorites API

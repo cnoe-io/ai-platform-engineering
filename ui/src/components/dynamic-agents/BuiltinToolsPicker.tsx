@@ -1,23 +1,23 @@
 "use client";
 
-import React from "react";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-import { Globe, Info, Settings, ChevronDown, ChevronRight, Loader2 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { Label } from "@/components/ui/label";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
+Tooltip,
+TooltipContent,
+TooltipProvider,
+TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 import type {
-  BuiltinToolsConfig,
-  BuiltinToolDefinition,
-  BuiltinToolConfigField,
-  GenericToolConfig,
+BuiltinToolConfigField,
+BuiltinToolDefinition,
+BuiltinToolsConfig,
+GenericToolConfig,
 } from "@/types/dynamic-agent";
+import { ChevronDown,ChevronRight,Globe,Info,Loader2,Settings } from "lucide-react";
+import React from "react";
 
 interface BuiltinToolsPickerProps {
   value: BuiltinToolsConfig | undefined;
@@ -41,8 +41,13 @@ function useBuiltinToolDefinitions() {
           throw new Error(`Failed to fetch: ${response.status}`);
         }
         const data = await response.json();
-        // API returns { success: true, data: [...tools] }
-        setDefinitions(data.data || []);
+        // Backend returns `{ success: true, data: { tools: [...] } }`.
+        // Older proxy unwrapped to `{ success: true, data: [...] }`.
+        // Accept both shapes for forward/backward compat.
+        const tools = Array.isArray(data.data)
+          ? data.data
+          : (data.data?.tools ?? []);
+        setDefinitions(tools);
         setError(null);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Unknown error");

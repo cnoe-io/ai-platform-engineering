@@ -1,98 +1,98 @@
 "use client";
 
-import React, { useEffect, useState, useMemo, useCallback } from "react";
-import { useRouter } from "next/navigation";
-import Link from "next/link";
-import { useSession } from "next-auth/react";
-import { motion, AnimatePresence } from "framer-motion";
-import {
-  Search,
-  Plus,
-  Workflow,
-  GitBranch,
-  GitPullRequest,
-  GitMerge,
-  Cloud,
-  Rocket,
-  Key,
-  Users,
-  Settings,
-  Loader2,
-  AlertCircle,
-  Edit,
-  Eye,
-  FolderOpen,
-  Trash2,
-  Sparkles,
-  Zap,
-  Server,
-  Bug,
-  BarChart,
-  Shield,
-  Database,
-  AlertTriangle,
-  CheckCircle,
-  Container,
-  Terminal,
-  Network,
-  Activity,
-  FileCode,
-  MonitorCheck,
-  RefreshCcw,
-  CircleDot,
-  Layers,
-  PackageCheck,
-  Gauge,
-  ScrollText,
-  Webhook,
-  Cpu,
-  HardDrive,
-  Wrench,
-  ArrowRight,
-  X,
-  MessageSquare,
-  Star,
-  Lock,
-  Globe,
-  UsersRound,
-  User,
-  ChevronsUpDown,
-  Check,
-  Filter,
-  Waypoints,
-  Copy,
-  Archive,
-} from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { useToast } from "@/components/ui/toast";
-import { CAIPESpinner } from "@/components/ui/caipe-spinner";
-import { cn } from "@/lib/utils";
-import { getConfig } from "@/lib/config";
-import { useAgentSkillsStore } from "@/store/agent-skills-store";
-import { useChatStore } from "@/store/chat-store";
-import { useAdminRole } from "@/hooks/use-admin-role";
-import type { AgentSkill, ScanOverride } from "@/types/agent-skill";
-import { SkillScanStatusIndicator } from "@/components/skills/SkillScanStatusIndicator";
-import { SupervisorSyncBadge } from "@/components/skills/SupervisorSyncBadge";
-import { SkillFolderViewer } from "@/components/skills/SkillFolderViewer";
+import { LastReviewBadge } from "@/components/ai-review";
 import { ImportSkillZipDialog } from "@/components/skills/ImportSkillZipDialog";
 import {
-  makeConfigFolderAdapter,
-  makeHubFolderAdapter,
-  makeStaticFolderAdapter,
+makeConfigFolderAdapter,
+makeHubFolderAdapter,
+makeStaticFolderAdapter,
 } from "@/components/skills/skill-folder-adapters";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { SkillFolderViewer } from "@/components/skills/SkillFolderViewer";
+import { SkillScanStatusIndicator } from "@/components/skills/SkillScanStatusIndicator";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { CAIPESpinner } from "@/components/ui/caipe-spinner";
+import {
+Dialog,
+DialogContent,
+DialogDescription,
+DialogFooter,
+DialogHeader,
+DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Popover,PopoverContent,PopoverTrigger } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { useToast } from "@/components/ui/toast";
+import { useAdminRole } from "@/hooks/use-admin-role";
+import { getConfig } from "@/lib/config";
+import { cn } from "@/lib/utils";
+import { useAgentSkillsStore } from "@/store/agent-skills-store";
+import { useChatStore } from "@/store/chat-store";
+import type { AgentSkill,ScanOverride } from "@/types/agent-skill";
+import { AnimatePresence,motion } from "framer-motion";
+import {
+Activity,
+AlertCircle,
+AlertTriangle,
+Archive,
+ArrowRight,
+BarChart,
+Bug,
+Check,
+CheckCircle,
+ChevronsUpDown,
+CircleDot,
+Cloud,
+Container,
+Copy,
+Cpu,
+Database,
+Edit,
+Eye,
+FileCode,
+Filter,
+FolderOpen,
+Gauge,
+GitBranch,
+GitMerge,
+GitPullRequest,
+Globe,
+HardDrive,
+Key,
+Layers,
+Loader2,
+Lock,
+MessageSquare,
+MonitorCheck,
+Network,
+PackageCheck,
+Plus,
+RefreshCcw,
+Rocket,
+ScrollText,
+Search,
+Server,
+Settings,
+Shield,
+Sparkles,
+Star,
+Terminal,
+Trash2,
+User,
+Users,
+UsersRound,
+Waypoints,
+Webhook,
+Workflow,
+Wrench,
+X,
+Zap,
+} from "lucide-react";
+import { useSession } from "next-auth/react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import React,{ useCallback,useEffect,useMemo,useState } from "react";
 
 interface SkillsGalleryProps {
   onEditConfig?: (config: AgentSkill) => void;
@@ -246,10 +246,11 @@ function skillCatalogSource(config: AgentSkill): CatalogSource {
   const raw = (config.metadata as { catalog_source?: string })?.catalog_source;
   if (raw === "hub") return "hub";
   if (raw === "default") return "default";
-  if (config.id.startsWith("catalog-")) return "default";
+  if (raw === "agent_skills") return "agent_skills";
   // Mongo `agent_skills` platform rows (`is_system`) are built-in templates, not user "Custom"
   if (config.is_system) return "default";
-  if (raw === "agent_skills") return "agent_skills";
+  // Unified-catalog merge rows use `catalog-<mongoId>`; source comes from metadata, not id prefix.
+  if (config.id.startsWith("catalog-")) return "agent_skills";
   return "agent_skills";
 }
 
@@ -350,17 +351,6 @@ const PRESET_CATEGORIES: string[] = [
   "Knowledge",
   "Custom",
 ];
-
-/**
- * Supervisor sync badge — sourced from `@/components/skills/SupervisorSyncBadge`.
- *
- * The local definition that previously lived here was a silent
- * `<Link>`-based variant. We've consolidated to the shared component
- * which opens a confirmation modal explaining that the supervisor
- * refresh briefly recompiles the multi-agent graph (and that dynamic
- * custom agents are unaffected). Importing the shared one means card,
- * row, and workspace renderings stay in lockstep.
- */
 
 export function SkillsGallery({
   onEditConfig,
@@ -494,49 +484,6 @@ export function SkillsGallery({
   const [activeFormConfig, setActiveFormConfig] = useState<AgentSkill | null>(null);
   const [paramValues, setParamValues] = useState<Record<string, string>>({});
 
-  // Supervisor sync state
-  const [supervisorSynced, setSupervisorSynced] = useState(false);
-  const [supervisorLoading, setSupervisorLoading] = useState(true);
-  // ISO timestamp of the supervisor's last `_build_graph()` merge. We compare
-  // each skill's `updated_at` against this to flag per-skill drift; if a skill
-  // was edited *after* the supervisor merged, the running graph is stale.
-  const [supervisorMergedAt, setSupervisorMergedAt] = useState<Date | null>(null);
-  const [supervisorReachable, setSupervisorReachable] = useState(false);
-
-  useEffect(() => {
-    fetch("/api/skills/supervisor-status")
-      .then(res => res.ok ? res.json() : null)
-      .then(data => {
-        const reachable = data && typeof data === "object" && !data.message;
-        setSupervisorReachable(Boolean(reachable));
-        setSupervisorSynced(data?.mas_registered === true && (data?.skills_loaded_count ?? 0) > 0);
-        const merged = typeof data?.skills_merged_at === "string" ? new Date(data.skills_merged_at) : null;
-        setSupervisorMergedAt(merged && !Number.isNaN(merged.getTime()) ? merged : null);
-      })
-      .catch(() => {
-        setSupervisorSynced(false);
-        setSupervisorReachable(false);
-      })
-      .finally(() => setSupervisorLoading(false));
-  }, []);
-
-  /**
-   * Per-skill supervisor sync state.
-   * - `synced`: edited at-or-before the supervisor's last graph merge.
-   * - `stale`: edited after the supervisor's last merge — graph is running an older copy.
-   * - `unknown`: supervisor unreachable or hasn't reported a merge yet.
-   */
-  const skillSyncState = useCallback(
-    (cfg: AgentSkill): "synced" | "stale" | "unknown" => {
-      if (!supervisorReachable || supervisorLoading) return "unknown";
-      if (!supervisorMergedAt) return "unknown";
-      const updated = cfg.updated_at instanceof Date ? cfg.updated_at : new Date(cfg.updated_at);
-      if (Number.isNaN(updated.getTime())) return "unknown";
-      return updated.getTime() <= supervisorMergedAt.getTime() ? "synced" : "stale";
-    },
-    [supervisorReachable, supervisorLoading, supervisorMergedAt],
-  );
-
   /**
    * A built-in (`is_system: true`) Mongo-backed skill that the lock
    * policy currently treats as read-only. We split this out so the
@@ -592,7 +539,11 @@ export function SkillsGallery({
         const body = await res.json().catch(() => ({}));
         throw new Error(body?.error || `Clone failed (${res.status})`);
       }
-      const data = await res.json();
+      const json = await res.json();
+      // Clone returns the success-envelope shape ({ success, data: { id, name } })
+      // via successResponse(); unwrap it (falling back to the flat shape) so we
+      // never navigate to /skills/workspace/undefined.
+      const data = json?.data ?? json;
       await loadSkills();
       toast(`Cloned to "${data.name}"`, "success");
       // Drop the user straight into the new skill's workspace —
@@ -641,16 +592,25 @@ export function SkillsGallery({
           scan_summary?: string;
           scan_updated_at?: string;
           scan_override?: ScanOverride;
-        }) =>
-          ({
+        }) => {
+          const isBuiltin =
+            s.source === "default" || Boolean(s.metadata?.is_system);
+          return {
             id: `catalog-${s.id}`,
             name: s.name,
             description: s.description || "",
             category: (s.metadata?.category as string) || "Custom",
             tasks: [],
-            owner_id: "",
-            is_system: true,
-            is_quick_start: true,
+            owner_id:
+              s.source === "agent_skills" && s.source_id
+                ? String(s.source_id)
+                : "",
+            is_system: isBuiltin,
+            is_quick_start: isBuiltin,
+            visibility:
+              (s.visibility as AgentSkill["visibility"]) ??
+              (s.metadata?.visibility as AgentSkill["visibility"]) ??
+              undefined,
             created_at: new Date(),
             updated_at: new Date(),
             thumbnail: (s.metadata?.icon as string) || "Zap",
@@ -670,7 +630,8 @@ export function SkillsGallery({
               ? new Date(s.scan_updated_at)
               : undefined,
             scan_override: s.scan_override,
-          }) as AgentSkill,
+          } as AgentSkill;
+        },
       );
       setCatalogSkills(mapped);
     } catch {
@@ -698,24 +659,28 @@ export function SkillsGallery({
     await Promise.all([loadSkills(), reloadCatalog()]);
   }, [loadSkills, reloadCatalog]);
 
-  // Merge agent configs (store) with catalog-only skills, deduplicating by name
+  // Merge agent configs (store) with catalog-only skills. Prefer Mongo rows from
+  // `/api/skills/configs`; only add catalog rows for templates/hub skills not
+  // already loaded (match by underlying mongo id, not display name).
   const allConfigs = useMemo(() => {
-    const seen = new Set<string>();
+    const seenIds = new Set<string>();
+    const seenNames = new Set<string>();
     const merged: AgentSkill[] = [];
-    // Agent configs take priority (richer data, editable)
     for (const config of configs) {
-      if (!seen.has(config.id)) {
-        seen.add(config.id);
-        seen.add(config.name); // track by name too for catalog dedup
-        merged.push(config);
-      }
+      if (seenIds.has(config.id)) continue;
+      seenIds.add(config.id);
+      seenNames.add(config.name);
+      merged.push(config);
     }
-    // Add catalog-only skills not already present by name
     for (const skill of catalogSkills) {
-      if (!seen.has(skill.name)) {
-        seen.add(skill.name);
-        merged.push(skill);
-      }
+      const mongoId = skill.id.startsWith("catalog-")
+        ? skill.id.slice("catalog-".length)
+        : skill.id;
+      if (seenIds.has(mongoId) || seenIds.has(skill.id)) continue;
+      if (seenNames.has(skill.name)) continue;
+      seenIds.add(skill.id);
+      seenNames.add(skill.name);
+      merged.push(skill);
     }
     return merged;
   }, [configs, catalogSkills]);
@@ -1039,7 +1004,7 @@ export function SkillsGallery({
                 <ScrollText className="h-4 w-4 opacity-90" strokeWidth={2.25} />
                 <span className="hidden md:inline">Scan history</span>
               </Button>
-              {/* "Skills API Gateway" launcher — original prominent
+              {/* "Skills Gateway" launcher — original prominent
                   gradient pill that opens the dedicated Gateway page
                   (`/skills/gateway`). We tried a Gallery / Gateway
                   segmented toggle here briefly, but the launcher
@@ -1049,8 +1014,8 @@ export function SkillsGallery({
                 type="button"
                 size="sm"
                 onClick={() => router.push("/skills/gateway")}
-                aria-label="Open Skills API Gateway — OpenAPI, auth, and agent integration"
-                title="Skills API Gateway: OpenAPI, API keys, and coding-agent setup"
+                aria-label="Open Skills Gateway — OpenAPI, auth, and agent integration"
+                title="Skills Gateway: OpenAPI, API keys, and coding-agent setup"
                 className={cn(
                   "gap-2 h-9 text-sm px-4 font-medium border border-sky-500/20",
                   "text-sky-50/95 shadow-md shadow-black/25",
@@ -1061,8 +1026,8 @@ export function SkillsGallery({
                 )}
               >
                 <Waypoints className="h-4 w-4 shrink-0 opacity-90" strokeWidth={2.25} />
-                <span className="hidden sm:inline">Skills API Gateway</span>
-                <span className="sm:hidden font-semibold">API Gateway</span>
+                <span className="hidden sm:inline">Skills Gateway</span>
+                <span className="sm:hidden font-semibold">Gateway</span>
               </Button>
               {isAdmin && (
                 <Button
@@ -1368,8 +1333,8 @@ export function SkillsGallery({
                             {shouldShowSkillScanIndicator(config) && (
                               <SkillScanStatusIndicator config={config} onScanComplete={refreshAll} />
                             )}
-                            <SupervisorSyncBadge state={skillSyncState(config)} />
                             {isFlaggedSkill(config) && <FlaggedDisabledBadge />}
+                            <LastReviewBadge review={config.last_review} />
                           </div>
                           <div className="flex min-w-0 flex-wrap items-center gap-1.5">
                             {!workflowRunnerEnabled ? (
@@ -1444,8 +1409,8 @@ export function SkillsGallery({
                             {shouldShowSkillScanIndicator(config) && (
                               <SkillScanStatusIndicator config={config} onScanComplete={refreshAll} />
                             )}
-                            <SupervisorSyncBadge state={skillSyncState(config)} />
                             {isFlaggedSkill(config) && <FlaggedDisabledBadge />}
+                            <LastReviewBadge review={config.last_review} />
                           </div>
                           <div className="flex max-w-full flex-wrap items-center justify-end gap-1.5">
                             <CatalogSourceBadge config={config} />
@@ -1549,8 +1514,8 @@ export function SkillsGallery({
                             {shouldShowSkillScanIndicator(config) && (
                               <SkillScanStatusIndicator config={config} onScanComplete={refreshAll} />
                             )}
-                            <SupervisorSyncBadge state={skillSyncState(config)} />
                             {isFlaggedSkill(config) && <FlaggedDisabledBadge />}
+                            <LastReviewBadge review={config.last_review} />
                           </div>
                           <div className="flex max-w-full flex-wrap items-center justify-end gap-1.5">
                             <CatalogSourceBadge config={config} />
@@ -1748,20 +1713,12 @@ export function SkillsGallery({
                 </div>
                 <div className="flex items-center gap-2">
                   <Button variant="ghost" onClick={() => setActiveFormConfig(null)}>Cancel</Button>
-                  {!supervisorSynced && !supervisorLoading && (
-                    <span title="Skills must be synced with the supervisor first"><AlertTriangle className="h-4 w-4 text-amber-500" /></span>
-                  )}
                   <Button
                     onClick={handleTrySkill}
-                    className={supervisorSynced ? "gradient-primary text-white gap-2" : "gap-2"}
-                    variant={supervisorSynced ? "default" : "secondary"}
-                    disabled={!supervisorSynced || supervisorLoading || extractTemplateVars(activeFormConfig).some(v => v.required && !paramValues[v.name]?.trim())}
+                    className="gradient-primary text-white gap-2"
+                    disabled={extractTemplateVars(activeFormConfig).some(v => v.required && !paramValues[v.name]?.trim())}
                   >
-                    {supervisorLoading ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <MessageSquare className="h-4 w-4" />
-                    )}
+                    <MessageSquare className="h-4 w-4" />
                     Try Skill
                   </Button>
                 </div>

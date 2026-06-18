@@ -1,23 +1,18 @@
 /**
- * Proxy route for fetching dynamic agent conversation file list.
+ * Conversation-scoped Dynamic Agents file list proxy.
  *
  * GET /api/dynamic-agents/conversations/[id]/files/list?agent_id=X
  *
- * This proxies to the Dynamic Agents service which retrieves file paths
- * from the LangGraph checkpointer state.
+ * Proxies to Dynamic Agents service: GET /api/v1/files/list
  */
 
-import { NextRequest, NextResponse } from "next/server";
 import {
-  authenticateRequest,
-  getDynamicAgentsConfig,
-  proxyRequest,
+authenticateRequest,
+getDynamicAgentsConfig,
+proxyRequest,
 } from "@/lib/da-proxy";
+import { NextRequest,NextResponse } from "next/server";
 
-/**
- * GET /api/dynamic-agents/conversations/[id]/files/list
- * Proxy to Dynamic Agents service to get file list from checkpointer.
- */
 export async function GET(
   request: NextRequest,
   context: { params: Promise<{ id: string }> },
@@ -41,20 +36,20 @@ export async function GET(
     );
   }
 
-  // Authenticate
-  const authResult = await authenticateRequest(request);
+  const authResult = await authenticateRequest(request, {
+    resource: "dynamic_agent",
+    scope: "invoke",
+  });
   if (authResult instanceof NextResponse) return authResult;
 
-  // Check DA config
   const daConfig = getDynamicAgentsConfig();
   if (daConfig instanceof NextResponse) return daConfig;
 
-  // Build backend URL
-  const backendUrl = new URL(
-    `/api/v1/conversations/${conversationId}/files/list`,
-    daConfig.dynamicAgentsUrl,
+  const backendUrl = new URL("/api/v1/files/list", daConfig.dynamicAgentsUrl);
+  backendUrl.searchParams.set(
+    "fs_namespace",
+    JSON.stringify([agentId, conversationId, "filesystem"]),
   );
-  backendUrl.searchParams.set("agent_id", agentId);
 
-  return proxyRequest(backendUrl.toString(), "GET", authResult, "[files/list]");
+  return proxyRequest(backendUrl.toString(), "GET", authResult, "[conversation-files/list]");
 }

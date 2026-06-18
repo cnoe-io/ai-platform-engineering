@@ -6,17 +6,17 @@
  * Auth is forwarded via X-User-Context header (same as chat routes).
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import { getCollection } from "@/lib/mongodb";
 import {
-  withAuth,
-  withErrorHandler,
-  successResponse,
-  ApiError,
-  requireAdmin,
+ApiError,
+getAuthFromBearerOrSession,
+successResponse,
+withErrorHandler,
 } from "@/lib/api-middleware";
-import { authenticateRequest } from "@/lib/da-proxy";
+import { authenticateRequest,buildBackendHeaders } from "@/lib/da-proxy";
+import { getCollection } from "@/lib/mongodb";
+import { requireResourcePermission } from "@/lib/rbac/resource-authz";
 import type { MCPServerConfig } from "@/types/dynamic-agent";
+import { NextRequest,NextResponse } from "next/server";
 
 const COLLECTION_NAME = "mcp_servers";
 
@@ -26,7 +26,22 @@ const DYNAMIC_AGENTS_URL = process.env.DYNAMIC_AGENTS_URL || "http://localhost:8
 /**
  * POST /api/mcp-servers/probe?id=<server_id>
  * Probe an MCP server to discover available tools.
- * Requires admin role.
+ *
+ * Authorization model:
+ *   Probing only enumerates the tools advertised by an MCP server — it is
+ *   strictly less powerful than runtime tool *invocation*. Users who can
+ *   read the server (because it's shared with them via team/channel/group
+ *   membership, or because they are organization members or admins) need
+ *   to be able to render the Probe button on the Create Agent → Tools
+ *   step even if they don't yet have `can_invoke`. We therefore gate this
+ *   route on `mcp_server:<id>#can_discover`. The authorization model
+ *   defines `can_discover` as `can_read = reader ∪ can_use ∪ can_manage ∪
+ *   owner`, which transitively grants discover to every direct relation
+ *   (`reader`, `user`, `invoker`, `manager`, `owner`) and to indirect
+ *   relations via `team#member`, `team#admin`, `external_group#member`,
+ *   `slack_channel`, `webex_space`, `organization#member`, and
+ *   `organization#admin`. Runtime tool invocation continues to enforce
+ *   `can_invoke` separately on the agent execution path.
  */
 export const POST = withErrorHandler(async (request: NextRequest) => {
   const { searchParams } = new URL(request.url);
@@ -36,8 +51,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     throw new ApiError("Server ID is required", 400);
   }
 
-  return await withAuth(request, async (req, user, session) => {
-    requireAdmin(session);
+  const { session } = await getAuthFromBearerOrSession(request);
 
     const collection = await getCollection<MCPServerConfig>(COLLECTION_NAME);
 
@@ -50,17 +64,15 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     if (!server.enabled) {
       throw new ApiError("MCP server is disabled", 400);
     }
+    await requireResourcePermission(session, { type: "mcp_server", id, action: "discover" });
 
     try {
-      // Build headers with X-User-Context (same pattern as chat routes)
+      // Build headers with X-User-Context AND Authorization: Bearer
+      // (Spec 102 Phase 11.4 — DA now requires Bearer; X-User-Context kept
+      // for legacy claim hints but is no longer authoritative).
       const auth = await authenticateRequest(request);
       if (auth instanceof NextResponse) return auth;
-      const headers: Record<string, string> = {
-        "Content-Type": "application/json",
-      };
-      if (auth.userContextHeader) {
-        headers["X-User-Context"] = auth.userContextHeader;
-      }
+      const headers = buildBackendHeaders("application/json", auth);
 
       // Call the dynamic agents backend to probe the server
       const response = await fetch(`${DYNAMIC_AGENTS_URL}/api/v1/mcp-servers/${id}/probe`, {
@@ -110,5 +122,4 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
 
       throw new ApiError(err.message || "Failed to probe MCP server", 500);
     }
-  });
 });

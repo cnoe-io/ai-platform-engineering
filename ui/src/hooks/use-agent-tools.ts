@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
 import { getConfig } from "@/lib/config";
+import { useCallback,useEffect,useState } from "react";
 
 /**
  * Canonical display labels for known subagent identifiers.
@@ -116,7 +116,8 @@ export function useAgentTools(): AgentToolsData {
   }, []);
 
   useEffect(() => {
-    if (!_cache?.ok) load();
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- load is async; setState only called after fetch completes
+    if (!_cache?.ok) void load();
   }, [load]);
 
   const refresh = useCallback(() => {

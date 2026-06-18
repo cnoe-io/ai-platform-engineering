@@ -1,3 +1,7 @@
+import { getAuthFromBearerOrSession } from "@/lib/api-middleware";
+import { getCollection } from "@/lib/mongodb";
+import { requireConversationResourcePermission } from "@/lib/rbac/conversation-implicit-authz";
+import type { Conversation } from "@/types/mongodb";
 import { NextRequest } from "next/server";
 
 /**
@@ -16,7 +20,41 @@ import { NextRequest } from "next/server";
 export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
+  const { user, session } = await getAuthFromBearerOrSession(request);
   const body = await request.json();
+
+  if (typeof body.conversation_id === "string" && body.conversation_id.trim()) {
+    try {
+      const conversations = await getCollection<Conversation>("conversations");
+      const conversation = await conversations.findOne({ _id: body.conversation_id });
+      if (!conversation) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: "Conversation not found",
+            code: "conversation#write",
+          }),
+          {
+            status: 404,
+            headers: { "Content-Type": "application/json" },
+          },
+        );
+      }
+      await requireConversationResourcePermission(session, user.email, conversation, "write");
+    } catch (error) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: error instanceof Error ? error.message : "Access denied",
+          code: (error as { code?: string }).code,
+        }),
+        {
+          status: (error as { statusCode?: number }).statusCode ?? 500,
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+    }
+  }
 
   // Default to localhost for local dev (UI running via npm run dev on host)
   // In Docker, set SUPERVISOR_SSE_URL=http://caipe-supervisor:8000/chat/stream
@@ -34,6 +72,8 @@ export async function POST(request: NextRequest) {
   const authHeader = request.headers.get("authorization");
   if (authHeader) {
     headers["Authorization"] = authHeader;
+  } else if (typeof session.accessToken === "string" && session.accessToken.trim()) {
+    headers["Authorization"] = `Bearer ${session.accessToken}`;
   }
 
   try {

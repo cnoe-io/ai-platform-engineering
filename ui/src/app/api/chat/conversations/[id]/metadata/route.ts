@@ -7,16 +7,17 @@
  * Supports Bearer JWT (Slack bot service account) and session cookies.
  */
 
-import { NextRequest, NextResponse } from 'next/server';
-import { getCollection, isMongoDBConfigured } from '@/lib/mongodb';
 import {
-  getAuthFromBearerOrSession,
-  withErrorHandler,
-  successResponse,
-  ApiError,
-  validateUUID,
+ApiError,
+getAuthFromBearerOrSession,
+successResponse,
+validateUUID,
+withErrorHandler,
 } from '@/lib/api-middleware';
-import type { Conversation, PatchConversationMetadataRequest } from '@/types/mongodb';
+import { getCollection,isMongoDBConfigured } from '@/lib/mongodb';
+import { requireConversationResourcePermission } from '@/lib/rbac/conversation-implicit-authz';
+import type { Conversation,PatchConversationMetadataRequest } from '@/types/mongodb';
+import { NextRequest,NextResponse } from 'next/server';
 
 export const PATCH = withErrorHandler(async (
   request: NextRequest,
@@ -29,7 +30,7 @@ export const PATCH = withErrorHandler(async (
     );
   }
 
-  await getAuthFromBearerOrSession(request);
+  const { user, session } = await getAuthFromBearerOrSession(request);
 
   const params = await context.params;
   const conversationId = params.id;
@@ -50,6 +51,7 @@ export const PATCH = withErrorHandler(async (
   if (!conversation) {
     throw new ApiError('Conversation not found', 404);
   }
+  await requireConversationResourcePermission(session, user.email, conversation, 'write');
 
   // Shallow-merge provided keys into existing metadata using dot notation
   // so MongoDB only updates the specified fields without replacing the entire

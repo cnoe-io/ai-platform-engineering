@@ -1,17 +1,18 @@
-import { NextRequest } from "next/server";
-import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import {
-  withAuth,
-  withErrorHandler,
-  successResponse,
-  ApiError,
-} from "@/lib/api-middleware";
-import {
-  getAgentSkillVisibleToUser,
-  userCanModifyAgentSkill,
+getAgentSkillVisibleToUser,
+userCanModifyAgentSkill,
 } from "@/lib/agent-skill-visibility";
+import {
+ApiError,
+successResponse,
+withAuth,
+withErrorHandler,
+} from "@/lib/api-middleware";
+import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
+import { requireSkillPermission } from "@/lib/rbac/resource-authz";
 import { recordRevision } from "@/lib/skill-revisions";
 import type { AgentSkill } from "@/types/agent-skill";
+import { NextRequest } from "next/server";
 
 const STORAGE_TYPE = isMongoDBConfigured ? "mongodb" : "none";
 const SKILL_MD_PATH = "SKILL.md";
@@ -46,9 +47,14 @@ export const GET = withErrorHandler(
     const { searchParams } = new URL(request.url);
     const relPath = sanitizePath(searchParams.get("path") ?? "");
 
-    return await withAuth(request, async (_req, user) => {
+    return await withAuth(request, async (_req, user, session) => {
       const skill = await getAgentSkillVisibleToUser(id, user.email);
       if (!skill) throw new ApiError("Skill not found", 404);
+      await requireSkillPermission(
+        session,
+        id,
+        searchParams.get("file") ? "use" : "read",
+      );
 
       // Listing
       if (!searchParams.get("file")) {
@@ -86,9 +92,10 @@ export const PUT = withErrorHandler(
       throw new ApiError("Skills require MongoDB to be configured", 503);
     }
     const { id } = await context.params;
-    return await withAuth(request, async (_req, user) => {
+    return await withAuth(request, async (_req, user, session) => {
       const skill = await getAgentSkillVisibleToUser(id, user.email);
       if (!skill) throw new ApiError("Skill not found", 404);
+      await requireSkillPermission(session, id, "write");
       if (!userCanModifyAgentSkill(skill, user)) {
         throw new ApiError("You don't have permission to edit this skill", 403);
       }
@@ -182,9 +189,10 @@ export const DELETE = withErrorHandler(
     const path = sanitizePath(searchParams.get("path") ?? "");
     if (!path) throw new ApiError("`path` query param is required", 400);
 
-    return await withAuth(request, async (_req, user) => {
+    return await withAuth(request, async (_req, user, session) => {
       const skill = await getAgentSkillVisibleToUser(id, user.email);
       if (!skill) throw new ApiError("Skill not found", 404);
+      await requireSkillPermission(session, id, "write");
       if (!userCanModifyAgentSkill(skill, user)) {
         throw new ApiError("You don't have permission to edit this skill", 403);
       }

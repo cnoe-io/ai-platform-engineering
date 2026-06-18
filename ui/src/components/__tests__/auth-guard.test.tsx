@@ -59,6 +59,7 @@ describe('AuthGuard', () => {
 
   describe('SSO Disabled', () => {
     beforeEach(() => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { getConfig } = require('@/lib/config')
       getConfig.mockImplementation((key: string) => {
         if (key === 'ssoEnabled') return false
@@ -88,6 +89,7 @@ describe('AuthGuard', () => {
 
   describe('SSO Enabled', () => {
     beforeEach(() => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { getConfig } = require('@/lib/config')
       getConfig.mockImplementation((key: string) => {
         if (key === 'ssoEnabled') return true
@@ -354,6 +356,7 @@ describe('AuthGuard', () => {
 
   describe('Edge Cases', () => {
     beforeEach(() => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { getConfig } = require('@/lib/config')
       getConfig.mockImplementation((key: string) => {
         if (key === 'ssoEnabled') return true
@@ -432,6 +435,7 @@ describe('AuthGuard', () => {
 
   describe('TokenExpiryGuard coordination', () => {
     beforeEach(() => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { getConfig } = require('@/lib/config')
       getConfig.mockImplementation((key: string) => {
         if (key === 'ssoEnabled') return true
@@ -547,6 +551,7 @@ describe('AuthGuard', () => {
 
   describe('callbackUrl preservation', () => {
     beforeEach(() => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { getConfig } = require('@/lib/config')
       getConfig.mockImplementation((key: string) => {
         if (key === 'ssoEnabled') return true

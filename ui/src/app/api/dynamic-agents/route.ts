@@ -5,26 +5,135 @@
  * The gateway owns all config writes — DA is a pure runtime reader.
  */
 
-import { NextRequest } from "next/server";
-import { Collection } from "mongodb";
+import {
+ApiError,
+getAuthFromBearerOrSession,
+getPaginationParams,
+paginatedResponse,
+successResponse,
+withErrorHandler,
+} from "@/lib/api-middleware";
 import { getCollection } from "@/lib/mongodb";
 import {
-  withAuth,
-  withErrorHandler,
-  successResponse,
-  ApiError,
-  requireAdmin,
-  getPaginationParams,
-  paginatedResponse,
-  getUserTeamIds,
-} from "@/lib/api-middleware";
+allowedToolsFromAgent,
+deleteAllAgentToolTuples,
+reconcileAgentRelationships,
+} from "@/lib/rbac/openfga-agent-tools";
+import { caipeOrgKey } from "@/lib/rbac/organization";
+import { isPlatformDefaultAgent } from "@/lib/rbac/platform-default";
+import {
+filterResourcesByPermission,
+requireAgentPermission,
+requireResourcePermission,
+} from "@/lib/rbac/resource-authz";
+import { resolveShareableOwnershipWrite } from "@/lib/rbac/shareable-resource";
 import type {
-  DynamicAgentConfig,
-  VisibilityType,
-  SubAgentRef,
+DynamicAgentConfig,
+LegacyVisibilityType,
+SubAgentRef,
+VisibilityType,
 } from "@/types/dynamic-agent";
+import { Collection,ObjectId } from "mongodb";
+import { NextRequest } from "next/server";
+
+const PLATFORM_DEFAULT_VISIBILITY_ERROR =
+  "This agent is currently the platform default for new chats. Open Admin → Settings and change the platform default before changing this agent's visibility.";
+const PLATFORM_DEFAULT_DELETE_ERROR =
+  "This agent is currently the platform default for new chats. Open Admin → Settings and change the platform default before deleting this agent.";
 
 const COLLECTION_NAME = "dynamic_agents";
+
+interface TeamOwnershipDoc {
+  _id?: unknown;
+  slug?: string;
+  name?: string;
+  members?: Array<{ user_id?: string; email?: string; role?: string }>;
+}
+
+/**
+ * Resolve a list of `shared_with_teams` entries (which historically have
+ * been Mongo `_id` strings from the editor but may now also be canonical
+ * slugs after this change is rolled out) into the canonical team slug
+ * set used everywhere else in the RBAC layer.
+ *
+ * - Unknown / invalid entries are dropped (we don't want a typo in the
+ *   request body to silently grant a non-existent `team:<bogus>#member`
+ *   tuple that no admin can ever delete from the UI).
+ * - Duplicates are removed.
+ * - Order is preserved from the input.
+ *
+ * Returns `{ slugs, droppedInputs }` so callers can log/warn on drops
+ * without surfacing a hard error (the agent save should not fail just
+ * because one stale team reference was sent).
+ */
+async function resolveSharedTeamSlugs(
+  rawInput: unknown,
+): Promise<{ slugs: string[]; droppedInputs: string[] }> {
+  if (!Array.isArray(rawInput) || rawInput.length === 0) {
+    return { slugs: [], droppedInputs: [] };
+  }
+  const teams = await getCollection<TeamOwnershipDoc>("teams");
+  const candidates: string[] = [];
+  for (const value of rawInput) {
+    if (typeof value !== "string") continue;
+    const trimmed = value.trim();
+    if (trimmed) candidates.push(trimmed);
+  }
+  if (candidates.length === 0) return { slugs: [], droppedInputs: [] };
+
+  const objectIdCandidates = candidates.filter((c) => ObjectId.isValid(c));
+  const filters: Record<string, unknown>[] = [
+    { slug: { $in: candidates } },
+    { _id: { $in: candidates } },
+  ];
+  if (objectIdCandidates.length > 0) {
+    filters.push({
+      _id: { $in: objectIdCandidates.map((c) => new ObjectId(c)) },
+    });
+  }
+  const docs = (await teams
+    .find({ $or: filters })
+    .project({ _id: 1, slug: 1 })
+    .toArray()) as TeamOwnershipDoc[];
+
+  const slugByCandidate = new Map<string, string>();
+  for (const doc of docs) {
+    const slug = normalizeString(doc.slug);
+    if (!slug) continue;
+    const idHex =
+      doc._id instanceof ObjectId
+        ? doc._id.toHexString()
+        : normalizeString(doc._id);
+    if (idHex) slugByCandidate.set(idHex, slug);
+    slugByCandidate.set(slug, slug);
+  }
+
+  const seen = new Set<string>();
+  const slugs: string[] = [];
+  const droppedInputs: string[] = [];
+  for (const candidate of candidates) {
+    const slug = slugByCandidate.get(candidate);
+    if (!slug) {
+      droppedInputs.push(candidate);
+      continue;
+    }
+    if (seen.has(slug)) continue;
+    seen.add(slug);
+    slugs.push(slug);
+  }
+  return { slugs, droppedInputs };
+}
+
+async function canManageOrganization(
+  session: Parameters<typeof requireResourcePermission>[0]
+): Promise<boolean> {
+  try {
+    await requireResourcePermission(session, { type: "organization", id: caipeOrgKey(), action: "manage" });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 // ═══════════════════════════════════════════════════════════════
 // Helpers
@@ -87,6 +196,7 @@ const AGENT_MUTABLE_FIELDS = [
   "features",
   "interrupt_on",
   "enabled",
+  "last_review",
 ] as const;
 
 /**
@@ -120,6 +230,49 @@ function pickMutableFields(
   return result;
 }
 
+function normalizeString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function requireStableSubject(session: { sub?: unknown }): string {
+  const subject = normalizeString(session.sub);
+  if (!subject) {
+    throw new ApiError("A stable user subject is required for dynamic agent ownership.", 401, "NO_SUBJECT");
+  }
+  return subject;
+}
+
+function teamIdString(team: TeamOwnershipDoc): string | undefined {
+  if (team._id instanceof ObjectId) return team._id.toHexString();
+  return normalizeString(team._id);
+}
+
+async function loadOwnerTeam(ownerTeam: { slug?: string | null; id?: string | null }): Promise<TeamOwnershipDoc | null> {
+  const teams = await getCollection<TeamOwnershipDoc>("teams");
+  const filters: Record<string, unknown>[] = [];
+  if (ownerTeam.slug) filters.push({ slug: ownerTeam.slug });
+  if (ownerTeam.id) {
+    filters.push({ _id: ownerTeam.id });
+    if (ObjectId.isValid(ownerTeam.id)) filters.push({ _id: new ObjectId(ownerTeam.id) });
+  }
+  if (filters.length === 0) return null;
+  return teams.findOne(filters.length === 1 ? filters[0] : { $or: filters });
+}
+
+async function canUseOwnerTeam(
+  session: Parameters<typeof requireResourcePermission>[0],
+  ownerTeam: TeamOwnershipDoc,
+): Promise<boolean> {
+  const ownerTeamSlug = normalizeString(ownerTeam.slug);
+  if (!ownerTeamSlug) return false;
+  try {
+    await requireResourcePermission(session, { type: "team", id: ownerTeamSlug, action: "use" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Validate that subagents have compatible visibility with parent.
  *
@@ -144,7 +297,10 @@ async function validateSubagentVisibility(
       };
     }
 
-    const subVis = sub.visibility as VisibilityType;
+    // Sub agents read from the DB may still carry the legacy "private" visibility
+    // until the migration script rewrites them. Treat any non team/global value as
+    // private for the purpose of these checks.
+    const subVis = sub.visibility as LegacyVisibilityType;
 
     // Global parent → only global subagents
     if (parentVisibility === "global" && subVis !== "global") {
@@ -154,13 +310,12 @@ async function validateSubagentVisibility(
       };
     }
     // Team parent → team or global subagents only
-    if (parentVisibility === "team" && subVis === "private") {
+    if (parentVisibility === "team" && subVis !== "team" && subVis !== "global") {
       return {
         valid: false,
-        error: `Team agents can only use team or global subagents. "${sub.name}" is private.`,
+        error: `Team agents can only use team or global subagents. "${sub.name}" is ${subVis}.`,
       };
     }
-    // Private parent → any visibility (no restriction)
   }
 
   return { valid: true };
@@ -178,45 +333,17 @@ async function validateSubagentVisibility(
  * - enabled_only=true: Only return enabled agents (useful for subagent selection)
  */
 export const GET = withErrorHandler(async (request: NextRequest) => {
-  return await withAuth(request, async (req, user, session) => {
+  const { session } = await getAuthFromBearerOrSession(request);
+
     const collection =
       await getCollection<DynamicAgentConfig>(COLLECTION_NAME);
     const { page, pageSize, skip } = getPaginationParams(request);
     const { searchParams } = new URL(request.url);
     const enabledOnly = searchParams.get("enabled_only") === "true";
 
-    // Build visibility filter
-    let query: any = {};
-
-    if (session.role !== "admin") {
-      // Non-admins see: their own, global, or team-shared agents
-      const userTeams = await getUserTeamIds(user.email);
-
-      query = {
-        $and: [
-          // enabled: true OR enabled field doesn't exist (defaults to true)
-          { $or: [{ enabled: true }, { enabled: { $exists: false } }] },
-          {
-            $or: [
-              { owner_id: user.email },
-              { visibility: "global" },
-              ...(userTeams.length > 0
-                ? [
-                    {
-                      visibility: "team",
-                      shared_with_teams: { $in: userTeams },
-                    },
-                  ]
-                : []),
-            ],
-          },
-        ],
-      };
-    } else if (enabledOnly) {
-      // Admin with enabled_only flag (e.g., for subagent selection)
-      // enabled: true OR enabled field doesn't exist (defaults to true)
-      query = { $or: [{ enabled: true }, { enabled: { $exists: false } }] };
-    }
+    const query: Record<string, unknown> = enabledOnly
+      ? { $or: [{ enabled: true }, { enabled: { $exists: false } }] }
+      : {};
 
     const [items, total] = await Promise.all([
       collection
@@ -232,9 +359,18 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     const normalizedItems = items.map((item) =>
       normalizeAgentDoc(item as unknown as Record<string, unknown>),
     );
+    const visibleItems = await filterResourcesByPermission(session, normalizedItems, {
+      type: "agent",
+      action: enabledOnly ? "use" : "discover",
+      id: (agent) => String(agent._id),
+    });
 
-    return paginatedResponse(normalizedItems, total, page, pageSize);
-  });
+    return paginatedResponse(
+      visibleItems,
+      visibleItems.length < normalizedItems.length ? visibleItems.length : total,
+      page,
+      pageSize,
+    );
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -247,8 +383,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
  * Requires admin role.
  */
 export const POST = withErrorHandler(async (request: NextRequest) => {
-  return await withAuth(request, async (req, user, session) => {
-    requireAdmin(session);
+  const { user, session } = await getAuthFromBearerOrSession(request);
 
     const body = await request.json();
 
@@ -270,8 +405,38 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     if (!body.model?.provider || typeof body.model.provider !== "string") {
       throw new ApiError("Model provider is required (model.provider)", 400);
     }
-
-    const collection = await getCollection<DynamicAgentConfig>(COLLECTION_NAME);
+    const requestedOwnerTeamSlug = normalizeString(body.owner_team_slug);
+    const requestedOwnerTeamId = normalizeString(body.owner_team_id);
+    // Coerce any legacy 'private' on the wire to 'team' (private visibility was
+    // retired 2026-05-22; see refactor commit 096a8b159). New agents without an
+    // explicit visibility default to 'team' so they always have an owner team.
+    const rawVisibility = body.visibility as LegacyVisibilityType | undefined;
+    const visibility: VisibilityType = rawVisibility === "global" ? "global" : "team";
+    let ownerTeam: TeamOwnershipDoc | null = null;
+    let ownerTeamSlug: string | null = null;
+    if (visibility === "global") {
+      const canManageAllAgents = await canManageOrganization(session);
+      if (!canManageAllAgents) {
+        throw new ApiError("Only platform admins can create global agents", 403, "GLOBAL_AGENT_FORBIDDEN");
+      }
+    }
+    if (requestedOwnerTeamSlug || requestedOwnerTeamId || visibility === "team") {
+      if (!requestedOwnerTeamSlug && !requestedOwnerTeamId) {
+        throw new ApiError("Owner team is required for team agents", 400, "OWNER_TEAM_REQUIRED");
+      }
+      ownerTeam = await loadOwnerTeam({ slug: requestedOwnerTeamSlug, id: requestedOwnerTeamId });
+      if (!ownerTeam) {
+        throw new ApiError("Owner team not found", 404, "OWNER_TEAM_NOT_FOUND");
+      }
+      ownerTeamSlug = normalizeString(ownerTeam.slug);
+      if (!ownerTeamSlug) {
+        throw new ApiError("Owner team is missing a slug", 409, "OWNER_TEAM_INVALID");
+      }
+      const canUseTeam = await canUseOwnerTeam(session, ownerTeam);
+      if (!canUseTeam) {
+        throw new ApiError("You must belong to the owner team to create this agent", 403, "OWNER_TEAM_FORBIDDEN");
+      }
+    }
 
     // Generate slug from name with agent- prefix
     const agentId = `agent-${slugify(body.name)}`;
@@ -284,6 +449,8 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       throw new ApiError(`Agent name "${body.name}" is reserved`, 409);
     }
 
+    const collection = await getCollection<DynamicAgentConfig>(COLLECTION_NAME);
+
     // Uniqueness check
     const existing = await collection.findOne({ _id: agentId });
     if (existing) {
@@ -294,7 +461,6 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     }
 
     // Subagent visibility validation
-    const visibility: VisibilityType = body.visibility ?? "private";
     const subagents: SubAgentRef[] = body.subagents ?? [];
     if (subagents.length > 0) {
       const result = await validateSubagentVisibility(
@@ -307,36 +473,83 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       }
     }
 
+    // Resolve `shared_with_teams` (which historically held Mongo `_id`
+    // values from the editor) into canonical slugs so (a) the OpenFGA
+    // tuples we write below match the global subject naming convention
+    // (`team:<slug>#member`) and (b) the stored Mongo field is
+    // self-consistent for any future read path. Owner-team slug is
+    // dropped from the shared list because the reconciler already writes
+    // the owner-team tuples — keeping it duplicated in
+    // `shared_with_teams` would surface confusingly in the UI and is
+    // semantically a no-op for OpenFGA (deduped at write time).
+    const { slugs: rawSharedTeamSlugs, droppedInputs: droppedSharedInputs } =
+      await resolveSharedTeamSlugs(body.shared_with_teams);
+    const sharedTeamSlugs = ownerTeamSlug
+      ? rawSharedTeamSlugs.filter((slug) => slug !== ownerTeamSlug)
+      : rawSharedTeamSlugs;
+    if (droppedSharedInputs.length > 0) {
+      console.warn(
+        "[dynamic-agents] POST dropped unresolved shared_with_teams entries (no such team)",
+        { agent: body.name, dropped: droppedSharedInputs },
+      );
+    }
+
     // Build document with explicit field allowlist (Security VII)
+    const ownerSubject = requireStableSubject(session);
     const now = new Date();
-    const doc = {
+    const doc: DynamicAgentConfig = {
       _id: agentId,
       name: body.name as string,
       description: (body.description as string) ?? "",
       system_prompt: body.system_prompt as string,
-      allowed_tools: (body.allowed_tools as Record<string, string[]>) ?? {},
+      allowed_tools: (body.allowed_tools as Record<string, string[] | boolean>) ?? {},
       builtin_tools: body.builtin_tools ?? undefined,
-      model: body.model as { id: string; provider: string },
+      model: body.model as DynamicAgentConfig["model"],
       visibility,
-      shared_with_teams: (body.shared_with_teams as string[]) ?? [],
+      shared_with_teams: sharedTeamSlugs,
+      owner_team_slug: ownerTeamSlug ?? undefined,
+      owner_team_id: ownerTeam ? teamIdString(ownerTeam) : undefined,
       subagents,
       skills: (body.skills as string[]) ?? [],
-      ui: body.ui ?? undefined,
-      features: body.features ?? undefined,
-      interrupt_on: body.interrupt_on ?? undefined,
+      ui: body.ui as DynamicAgentConfig["ui"],
+      features: body.features as DynamicAgentConfig["features"],
+      interrupt_on: body.interrupt_on as DynamicAgentConfig["interrupt_on"],
       enabled: (body.enabled as boolean) ?? true,
       // Server-controlled fields — never from request body
       owner_id: user.email,
+      owner_subject: ownerSubject,
       is_system: false,
       config_driven: false,
       created_at: now.toISOString(),
       updated_at: now.toISOString(),
     };
 
-    await collection.insertOne(doc as any);
+    await reconcileAgentRelationships({
+      agentId,
+      previousAllowedTools: {},
+      nextAllowedTools: doc.allowed_tools,
+      ownerSubject: doc.owner_subject,
+      organizationId: caipeOrgKey(),
+      ownerTeamSlug,
+      nextSharedTeamSlugs: sharedTeamSlugs,
+      previousSharedTeamSlugs: [],
+      // Encode `visibility === 'global'` as the wildcard `user:* user
+      // agent:<id>` grant so a freshly-created global agent is usable by
+      // every member without waiting for the list-time repair in
+      // available/route.ts. Fresh create has no previous state to revoke.
+      globalUserAccess: visibility === "global",
+    });
+
+    try {
+      await collection.insertOne(doc);
+    } catch (error) {
+      await deleteAllAgentToolTuples(agentId).catch((cleanupError) => {
+        console.warn("[dynamic-agents] failed to clean up OpenFGA tuples after create failure:", cleanupError);
+      });
+      throw error;
+    }
 
     return successResponse(doc, 201);
-  });
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -356,8 +569,8 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     throw new ApiError("Agent ID is required", 400);
   }
 
-  return await withAuth(request, async (req, user, session) => {
-    requireAdmin(session);
+  const { session } = await getAuthFromBearerOrSession(request);
+  await requireAgentPermission(session, id, "write");
 
     const body = await request.json();
     const collection = await getCollection<DynamicAgentConfig>(COLLECTION_NAME);
@@ -378,7 +591,14 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
 
     // Build update with explicit field allowlist
     const updateData = pickMutableFields(body);
-    if (Object.keys(updateData).length === 0) {
+    // An ownership transfer changes owner_team_slug, which is intentionally NOT
+    // in the mutable-field allowlist (owner is immutable on a normal edit).
+    // Detect it here so a transfer-only request isn't dropped by the
+    // "no fields to update" short-circuit below.
+    const isTransferRequest =
+      normalizeString(body.owner_team_slug) !== null &&
+      normalizeString(body.owner_team_slug) !== normalizeString(agent.owner_team_slug);
+    if (Object.keys(updateData).length === 0 && !isTransferRequest) {
       // No fields to update — return current state
       return successResponse(agent);
     }
@@ -389,6 +609,22 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     const finalSubagents = (updateData.subagents ??
       agent.subagents ??
       []) as SubAgentRef[];
+
+    // Platform-default invariant: an agent can't be demoted from `global`
+    // → `team` while it's the configured platform default — that would
+    // silently strip the wildcard `user:*` grant new users rely on.
+    // Force the admin to change the platform default in Admin → Settings
+    // first. We only block the demote case; promoting team → global is
+    // always fine.
+    const currentVisibility = agent.visibility as VisibilityType | "private" | undefined;
+    const isDemoteToTeam = finalVisibility === "team" && currentVisibility === "global";
+    if (isDemoteToTeam && (await isPlatformDefaultAgent(id))) {
+      throw new ApiError(
+        PLATFORM_DEFAULT_VISIBILITY_ERROR,
+        409,
+        "AGENT_IS_PLATFORM_DEFAULT",
+      );
+    }
 
     if (finalSubagents.length > 0) {
       const result = await validateSubagentVisibility(
@@ -401,7 +637,108 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
       }
     }
 
+    // Resolve `shared_with_teams` on update so the OpenFGA reconciler
+    // sees a slug-only set in both `previousSharedTeamSlugs` (from the
+    // existing doc) and `nextSharedTeamSlugs` (from the request). If the
+    // caller did not include `shared_with_teams` in the patch, keep the
+    // existing value unchanged (do NOT clear it — that would silently
+    // revoke team grants on every metadata-only update).
+    const previousSharedRaw = Array.isArray(agent.shared_with_teams)
+      ? (agent.shared_with_teams as string[])
+      : [];
+    const { slugs: previousSharedTeamSlugs } =
+      await resolveSharedTeamSlugs(previousSharedRaw);
+
+    let sharedTeamSlugs = previousSharedTeamSlugs;
+    if (Object.prototype.hasOwnProperty.call(updateData, "shared_with_teams")) {
+      const { slugs: nextRaw, droppedInputs: droppedSharedInputs } =
+        await resolveSharedTeamSlugs(updateData.shared_with_teams);
+      const ownerSlugForFilter = normalizeString(agent.owner_team_slug);
+      sharedTeamSlugs = ownerSlugForFilter
+        ? nextRaw.filter((slug) => slug !== ownerSlugForFilter)
+        : nextRaw;
+      if (droppedSharedInputs.length > 0) {
+        console.warn(
+          "[dynamic-agents] PUT dropped unresolved shared_with_teams entries (no such team)",
+          { agent: id, dropped: droppedSharedInputs },
+        );
+      }
+      // Persist the canonical slug form so subsequent reads from the
+      // editor render the same identifiers we wrote to OpenFGA.
+      updateData.shared_with_teams = sharedTeamSlugs;
+    }
+
     updateData.updated_at = new Date().toISOString();
+
+    // Ownership transfer (spec 2026-06-03, US3): owner_team_slug is immutable
+    // on a normal edit, but the editor can transfer it to another team. The
+    // transfer DECISION (guard: owner-team admin or org admin; not-a-member
+    // confirmation; previous-owner revoke) is the single shared path used by
+    // the RAG datasource + MCP tool routes too — see
+    // `resolveShareableOwnershipWrite`. The agent persists to Mongo and writes
+    // its own org-admin/tool-caller tuples via `reconcileAgentRelationships`,
+    // so we use the resolver for the decision only and apply persistence here.
+    const previousOwnerTeamSlug = normalizeString(agent.owner_team_slug);
+    const resolvedOwnership = await resolveShareableOwnershipWrite(
+      {
+        objectType: "agent",
+        objectId: id,
+        session: { sub: session.sub, role: session.role, user: session.user },
+        requestedOwnerTeamSlug: normalizeString(body.owner_team_slug),
+        requestedSharedTeamSlugs: sharedTeamSlugs,
+        confirmedNotMember: body.confirm_not_member === true,
+        loadPrevious: async () => ({
+          ownerTeamSlug: previousOwnerTeamSlug,
+          sharedTeamSlugs: previousSharedTeamSlugs,
+          creatorSubject: normalizeString(agent.owner_subject),
+        }),
+        persist: async () => {},
+        canUseOwnerTeam: async (slug) => {
+          const team = await loadOwnerTeam({ slug });
+          return team ? canUseOwnerTeam(session, team) : false;
+        },
+      },
+      {
+        ownerTeamSlug: previousOwnerTeamSlug,
+        sharedTeamSlugs: previousSharedTeamSlugs,
+        creatorSubject: normalizeString(agent.owner_subject),
+      },
+    );
+    const nextOwnerTeamSlug = resolvedOwnership.ownerTeamSlug;
+    const transferPreviousOwner = resolvedOwnership.transferred
+      ? resolvedOwnership.previousOwnerTeamSlug ?? undefined
+      : undefined;
+    if (resolvedOwnership.transferred) {
+      const destinationTeam = await loadOwnerTeam({ slug: nextOwnerTeamSlug! });
+      if (!destinationTeam) {
+        throw new ApiError("Destination team not found", 404, "OWNER_TEAM_NOT_FOUND");
+      }
+      updateData.owner_team_slug = nextOwnerTeamSlug ?? undefined;
+      updateData.owner_team_id = teamIdString(destinationTeam) ?? undefined;
+    }
+
+    const finalAllowedTools = (updateData.allowed_tools ??
+      agent.allowed_tools ??
+      {}) as Record<string, string[]>;
+    await reconcileAgentRelationships({
+      agentId: id,
+      previousAllowedTools: allowedToolsFromAgent(agent),
+      nextAllowedTools: finalAllowedTools,
+      ownerSubject: agent.owner_subject ?? agent.owner_id,
+      organizationId: caipeOrgKey(),
+      ownerTeamSlug: nextOwnerTeamSlug,
+      previousOwnerTeamSlug: transferPreviousOwner,
+      nextSharedTeamSlugs: sharedTeamSlugs,
+      previousSharedTeamSlugs,
+      // Keep the wildcard `user:* user agent:<id>` grant in sync with
+      // visibility on every edit. Without this a `global → team` demote
+      // would update Mongo but leave the everyone-can-use grant behind,
+      // so non-owner-team members keep `can_use` (the SRE-agent leak).
+      // `currentVisibility` may be the legacy 'private' value on old docs;
+      // only an exact 'global' match counts as a previous wildcard grant.
+      globalUserAccess: finalVisibility === "global",
+      previousGlobalUserAccess: currentVisibility === "global",
+    });
 
     const updated = await collection.findOneAndUpdate(
       { _id: id },
@@ -414,7 +751,6 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     }
 
     return successResponse(normalizeAgentDoc(updated as unknown as Record<string, unknown>));
-  });
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -434,8 +770,8 @@ export const DELETE = withErrorHandler(async (request: NextRequest) => {
     throw new ApiError("Agent ID is required", 400);
   }
 
-  return await withAuth(request, async (req, user, session) => {
-    requireAdmin(session);
+  const { session } = await getAuthFromBearerOrSession(request);
+  await requireAgentPermission(session, id, "delete");
 
     const collection = await getCollection<DynamicAgentConfig>(COLLECTION_NAME);
 
@@ -458,8 +794,20 @@ export const DELETE = withErrorHandler(async (request: NextRequest) => {
       );
     }
 
+    // Platform-default invariant: deleting the currently configured
+    // default would yank the public `user:*` grant new users rely on
+    // and leave Admin → Settings pointing at a tombstone. Force the
+    // admin to clear/change the platform default first.
+    if (await isPlatformDefaultAgent(id)) {
+      throw new ApiError(
+        PLATFORM_DEFAULT_DELETE_ERROR,
+        409,
+        "AGENT_IS_PLATFORM_DEFAULT",
+      );
+    }
+
+    await deleteAllAgentToolTuples(id);
     await collection.deleteOne({ _id: id });
 
     return successResponse({ deleted: id });
-  });
 });

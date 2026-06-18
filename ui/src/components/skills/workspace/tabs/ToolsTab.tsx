@@ -14,49 +14,49 @@
  * tools↔frontmatter sync; this component only mutates `allowedTools`.
  */
 
-import React, {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
 import {
-  Check,
-  ChevronDown,
-  ChevronRight,
-  ExternalLink,
-  Globe,
-  Info,
-  Loader2,
-  Plus,
-  Search,
-  Server,
-  Trash2,
-  Wrench,
-  Zap,
+Check,
+ChevronDown,
+ChevronRight,
+ExternalLink,
+Globe,
+Info,
+Loader2,
+Plus,
+Search,
+Server,
+Trash2,
+Wrench,
+Zap,
 } from "lucide-react";
+import {
+useCallback,
+useEffect,
+useMemo,
+useRef,
+useState,
+} from "react";
 
+import type { UseSkillFormResult } from "@/components/skills/workspace/use-skill-form";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
+Tooltip,
+TooltipContent,
+TooltipProvider,
+TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import type { UseSkillFormResult } from "@/components/skills/workspace/use-skill-form";
 import type {
-  BuiltinToolDefinition,
-  MCPServerConfig,
-  MCPToolInfo,
+BuiltinToolDefinition,
+MCPServerConfig,
+MCPToolInfo,
 } from "@/types/dynamic-agent";
 import {
-  composeAllowedTools,
-  encodeMcpTool,
-  partitionAllowedTools,
+composeAllowedTools,
+encodeMcpTool,
+partitionAllowedTools,
 } from "./tools-strings";
 
 export interface ToolsTabProps {
@@ -89,7 +89,12 @@ function useBuiltinDefinitions(): {
         const res = await fetch("/api/dynamic-agents/builtin-tools");
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const json = await res.json();
-        if (!cancelled) setDefinitions(json.data || []);
+        // The endpoint returns { data: { tools: [...] } }, but accept a bare
+        // array at json.data too for forward/backward compatibility.
+        const tools = Array.isArray(json.data)
+          ? json.data
+          : (json.data?.tools ?? []);
+        if (!cancelled) setDefinitions(tools);
       } catch (err) {
         if (!cancelled) {
           setError(
@@ -565,6 +570,13 @@ function McpServerRow({
       });
       const json = await res.json();
       if (json.success) {
+        if (json.data?.success === false) {
+          setProbe({
+            loading: false,
+            error: json.data.error || "Probe failed",
+          });
+          return;
+        }
         setProbe({ loading: false, tools: json.data?.tools ?? [] });
       } else {
         setProbe({ loading: false, error: json.error || "Probe failed" });

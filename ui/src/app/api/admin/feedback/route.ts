@@ -3,15 +3,15 @@
 // Reads from the unified `feedback` collection (populated by web dual-write,
 // Slack bot, and backfill scripts).
 
-import { NextRequest, NextResponse } from 'next/server';
-import { getCollection, isMongoDBConfigured } from '@/lib/mongodb';
-import { getConfig } from '@/lib/config';
 import {
-  withAuth,
-  withErrorHandler,
-  successResponse,
-  requireAdminView,
+getAuthFromBearerOrSession,
+requireRbacPermission,
+successResponse,
+withErrorHandler,
 } from '@/lib/api-middleware';
+import { getConfig } from '@/lib/config';
+import { getCollection,isMongoDBConfigured } from '@/lib/mongodb';
+import { NextRequest,NextResponse } from 'next/server';
 
 export const GET = withErrorHandler(async (request: NextRequest) => {
   if (!getConfig('feedbackEnabled')) {
@@ -32,10 +32,10 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     );
   }
 
-  return withAuth(request, async (req, user, session) => {
-    requireAdminView(session);
+  const { session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, 'admin_ui', 'view');
 
-    const { searchParams } = new URL(req.url);
+    const { searchParams } = new URL(request.url);
     const rating = searchParams.get('rating'); // 'positive' | 'negative' | null (all)
     const source = searchParams.get('source'); // 'web' | 'slack' | null (all)
     const channel = searchParams.get('channel'); // comma-separated channel names | null (all)
@@ -170,5 +170,4 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         total_pages: Math.ceil(totalCount / limit),
       },
     });
-  });
 });

@@ -1,13 +1,13 @@
 // GET /api/users/me/stats - Get user usage statistics
 
-import { NextRequest } from 'next/server';
-import { getCollection } from '@/lib/mongodb';
 import {
-  withAuth,
-  withErrorHandler,
-  successResponse,
+successResponse,
+withAuth,
+withErrorHandler,
 } from '@/lib/api-middleware';
-import type { Conversation, Message, UserStats } from '@/types/mongodb';
+import { getCollection } from '@/lib/mongodb';
+import type { Conversation,Message,UserStats } from '@/types/mongodb';
+import { NextRequest } from 'next/server';
 
 // GET /api/users/me/stats
 export const GET = withErrorHandler(async (request: NextRequest) => {

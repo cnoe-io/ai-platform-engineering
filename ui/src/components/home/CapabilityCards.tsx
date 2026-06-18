@@ -1,9 +1,8 @@
 "use client";
 
-import React from "react";
-import Link from "next/link";
-import { MessageSquare, Zap, Database, Workflow, ArrowRight } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ArrowRight,Bot,Database,MessageSquare,Server,Workflow,Zap } from "lucide-react";
+import Link from "next/link";
 
 interface CapabilityCardsProps {
   ragEnabled: boolean;
@@ -20,6 +19,28 @@ const capabilities = [
     color: "text-blue-400",
     bgColor: "bg-blue-500/10",
     borderColor: "hover:border-blue-500/30",
+  },
+  {
+    id: "agents",
+    title: "Agents",
+    description:
+      "Create and manage custom AI agents with models, prompts, skills, and tool access for your team.",
+    icon: Bot,
+    href: "/dynamic-agents",
+    color: "text-cyan-400",
+    bgColor: "bg-cyan-500/10",
+    borderColor: "hover:border-cyan-500/30",
+  },
+  {
+    id: "mcp-servers",
+    title: "MCP Servers",
+    description:
+      "Configure tool servers that connect agents to APIs, infrastructure systems, and internal services.",
+    icon: Server,
+    href: "/dynamic-agents?tab=mcp-servers",
+    color: "text-teal-400",
+    bgColor: "bg-teal-500/10",
+    borderColor: "hover:border-teal-500/30",
   },
   {
     id: "skills",

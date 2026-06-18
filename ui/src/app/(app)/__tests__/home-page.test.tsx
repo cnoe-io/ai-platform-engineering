@@ -37,6 +37,7 @@ jest.mock('next/navigation', () => ({
 }))
 
 jest.mock('next/link', () => {
+  // eslint-disable-next-line react/display-name
   return React.forwardRef(({ children, href, className, ...props }: any, ref: any) => (
     <a ref={ref} href={href} className={className} data-testid={props['data-testid'] || `link-${href}`} {...props}>
       {children}
@@ -46,6 +47,7 @@ jest.mock('next/link', () => {
 
 jest.mock('framer-motion', () => ({
   motion: {
+    // eslint-disable-next-line react/display-name
     div: React.forwardRef(({ children, className, ...props }: any, ref: any) => (
       <div ref={ref} className={className} {...props}>{children}</div>
     )),
@@ -75,6 +77,7 @@ jest.mock('lucide-react', () => ({
   ArrowRight: (props: any) => <svg data-testid="icon-arrow-right" {...props} />,
   TrendingUp: (props: any) => <svg data-testid="icon-trending-up" {...props} />,
   Bot: (props: any) => <svg data-testid="icon-bot" {...props} />,
+  Server: (props: any) => <svg data-testid="icon-server" {...props} />,
   Settings: (props: any) => <svg data-testid="icon-settings" {...props} />,
 }))
 
@@ -135,6 +138,7 @@ function makeConversationItems(count: number) {
     created_at: new Date(),
     updated_at: new Date(Date.now() - i * 3600000),
     metadata: { client_type: 'ui', ui_version: '0.2.0', total_messages: (i + 1) * 2 },
+    agent_name: i === 0 ? 'Release Manager' : undefined,
     sharing: { is_public: false, shared_with: [], shared_with_teams: [], share_link_enabled: false },
     tags: [],
     is_archived: false,
@@ -289,6 +293,15 @@ describe('HomePage', () => {
 
       await waitFor(() => {
         expect(screen.getByTestId('recent-chats-empty')).toBeInTheDocument()
+      })
+    })
+
+    it('shows the agent for recent conversations when present', async () => {
+      setupMockAPIs()
+      render(<HomePage />)
+
+      await waitFor(() => {
+        expect(screen.getByText('Release Manager')).toBeInTheDocument()
       })
     })
   })

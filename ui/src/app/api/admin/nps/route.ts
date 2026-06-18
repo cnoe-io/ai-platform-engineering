@@ -1,14 +1,14 @@
 // GET /api/admin/nps - Get NPS analytics for admin dashboard
 
-import { NextRequest, NextResponse } from 'next/server';
-import { getCollection, isMongoDBConfigured } from '@/lib/mongodb';
-import { getConfig } from '@/lib/config';
 import {
-  withAuth,
-  withErrorHandler,
-  successResponse,
-  requireAdminView,
+getAuthFromBearerOrSession,
+requireRbacPermission,
+successResponse,
+withErrorHandler,
 } from '@/lib/api-middleware';
+import { getConfig } from '@/lib/config';
+import { getCollection,isMongoDBConfigured } from '@/lib/mongodb';
+import { NextRequest,NextResponse } from 'next/server';
 
 export const GET = withErrorHandler(async (request: NextRequest) => {
   if (!getConfig('npsEnabled')) {
@@ -29,8 +29,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     );
   }
 
-  return withAuth(request, async (req, user, session) => {
-    requireAdminView(session);
+  const { session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, 'admin_ui', 'view');
 
     const url = new URL(request.url);
     const campaignIdFilter = url.searchParams.get('campaign_id') || undefined;
@@ -162,5 +162,4 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       recent_responses: recentResponses,
       campaigns,
     });
-  });
 });

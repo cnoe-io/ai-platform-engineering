@@ -1,20 +1,20 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useToast } from "@/components/ui/toast";
+import {
+parseSkillMd,
+resolvePersistedSkillMarkdownForEditor,
+updateAllowedToolsInFrontmatter,
+} from "@/lib/skill-md-parser";
 import { useAgentSkillsStore } from "@/store/agent-skills-store";
 import {
-  parseSkillMd,
-  resolvePersistedSkillMarkdownForEditor,
-  updateAllowedToolsInFrontmatter,
-} from "@/lib/skill-md-parser";
-import {
-  type AgentSkill,
-  type CreateAgentSkillInput,
-  type SkillInputVariable,
-  type SkillVisibility,
-  type WorkflowDifficulty,
+type AgentSkill,
+type CreateAgentSkillInput,
+type SkillInputVariable,
+type SkillVisibility,
+type WorkflowDifficulty,
 } from "@/types/agent-skill";
+import { useCallback,useEffect,useMemo,useRef,useState } from "react";
 
 /**
  * `useSkillForm` — single source of truth for the Skill authoring form.
@@ -100,7 +100,7 @@ export interface UseSkillFormResult {
   isSubmitting: boolean;
   submitStatus: "idle" | "success" | "error";
   validateForm: () => boolean;
-  handleSubmit: () => Promise<void>;
+  handleSubmit: (extras?: Partial<CreateAgentSkillInput>) => Promise<void>;
 
   // ---- Dirty / discard plumbing ------------------------------------------
   isDirty: boolean;
@@ -280,7 +280,9 @@ export function useSkillForm({
     "idle",
   );
 
-  const handleSubmit = useCallback(async (): Promise<void> => {
+  const handleSubmit = useCallback(async (
+    extras?: Partial<CreateAgentSkillInput>,
+  ): Promise<void> => {
     if (!validateForm()) return;
 
     setIsSubmitting(true);
@@ -314,6 +316,7 @@ export function useSkillForm({
         shared_with_teams: visibility === "team" ? selectedTeamIds : undefined,
         ancillary_files:
           Object.keys(ancillaryFiles).length > 0 ? ancillaryFiles : undefined,
+        ...(extras ?? {}),
       };
 
       let savedId: string;

@@ -6,7 +6,10 @@ to agent and MCP server configurations.
 """
 
 import logging
+from functools import lru_cache
+from pathlib import Path
 
+import yaml
 from pymongo import ASCENDING, MongoClient
 from pymongo.collection import Collection
 from pymongo.database import Database
@@ -19,6 +22,69 @@ from dynamic_agents.models import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Packaged seed config: the authoritative declaration of how built-in MCP
+# servers authenticate upstream (see services/config.yaml, same directory).
+_SEED_CONFIG_PATH = Path(__file__).with_name("config.yaml")
+
+
+@lru_cache(maxsize=1)
+def _builtin_credential_sources() -> dict[str, list[dict]]:
+    """Built-in MCP ``credential_sources`` keyed by server id.
+
+    Read once from the packaged ``config.yaml``. AgentGateway discovery (the
+    UI's MCP-server provisioning path) historically persisted ``mcp_servers``
+    documents *without* ``credential_sources``; transform-based gateway routes
+    then emitted an empty Bearer and the upstream returned 401 (most visibly
+    ``knowledge-base``/RAG). Using the seed config as the source of truth keeps
+    this in sync with the runtime declaration the gateway transforms rely on.
+
+    Best-effort: a missing/unreadable config yields an empty map (no injection),
+    so a packaging hiccup can never break reads.
+    """
+    try:
+        with _SEED_CONFIG_PATH.open() as fh:
+            data = yaml.safe_load(fh) or {}
+    except (OSError, yaml.YAMLError) as exc:  # pragma: no cover - defensive
+        logger.warning(
+            "Could not load built-in MCP credential sources from %s: %s",
+            _SEED_CONFIG_PATH,
+            exc,
+        )
+        return {}
+    result: dict[str, list[dict]] = {}
+    for server in data.get("mcp_servers") or []:
+        server_id = server.get("id")
+        sources = server.get("credential_sources")
+        if server_id and sources:
+            result[server_id] = sources
+    return result
+
+
+def _inject_builtin_credential_sources(doc: dict) -> dict:
+    """Self-heal: fill ``credential_sources`` for known built-in MCP servers.
+
+    Read-time defense-in-depth for documents persisted before discovery
+    attached ``credential_sources``. Only fills when the stored value is
+    absent/empty, so an operator-customized list is never overwritten.
+    """
+    if doc.get("credential_sources"):
+        return doc
+    builtin = _builtin_credential_sources().get(doc.get("_id"))
+    if builtin:
+        doc = {**doc, "credential_sources": builtin}
+    return doc
+
+
+def _strip_nulls(doc: dict) -> dict:
+    """Strip None values from a MongoDB document before pydantic construction.
+
+    Pydantic only applies default_factory when a key is absent — an explicit
+    None passed as a kwarg bypasses the default. Stripping nulls here lets
+    fields like interrupt_on recover their default when stored as null in
+    older documents.
+    """
+    return {k: v for k, v in doc.items() if v is not None}
 
 
 class MongoDBService:
@@ -95,8 +161,10 @@ class MongoDBService:
         """Get a dynamic agent config by ID."""
         doc = self._get_agents_collection().find_one({"_id": agent_id})
         if doc:
-            return DynamicAgentConfig(**doc)
+            return DynamicAgentConfig(**_strip_nulls(doc))
         return None
+
+
 
     # =========================================================================
     # Read-only MCP server access
@@ -106,13 +174,16 @@ class MongoDBService:
         """Get an MCP server config by ID."""
         doc = self._get_servers_collection().find_one({"_id": server_id})
         if doc:
-            return MCPServerConfig(**doc)
+            return MCPServerConfig(**_strip_nulls(_inject_builtin_credential_sources(doc)))
         return None
 
     def get_servers_by_ids(self, server_ids: list[str]) -> list[MCPServerConfig]:
         """Get multiple MCP servers by their IDs."""
         docs = self._get_servers_collection().find({"_id": {"$in": server_ids}})
-        return [MCPServerConfig(**doc) for doc in docs]
+        return [
+            MCPServerConfig(**_strip_nulls(_inject_builtin_credential_sources(doc)))
+            for doc in docs
+        ]
 
     def get_agent_mcp_servers(self, agent: DynamicAgentConfig) -> list[MCPServerConfig]:
         """Get MCP servers for an agent AND all its subagents.

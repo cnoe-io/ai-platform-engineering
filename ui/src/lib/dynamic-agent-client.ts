@@ -20,9 +20,9 @@
  */
 
 import {
-  type SSEAgentEvent,
-  createSSEAgentEvent,
-} from "@/components/dynamic-agents/sse-types";
+type SSEAgentEvent,
+createSSEAgentEvent,
+} from "@/lib/streaming/types";
 
 export interface DynamicAgentClientConfig {
   /** Proxy route URL base (e.g. /api/dynamic-agents/chat) */
@@ -242,7 +242,7 @@ export class DynamicAgentClient {
    * @deprecated Stub — no matching Next.js route exists. ChatPanel should not
    * talk to dynamic agents. Remove when the supervisor ChatPanel is retired.
    */
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+   
   async *resumeStream(
     _conversationId: string,
     _agentId: string,

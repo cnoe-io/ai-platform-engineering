@@ -41,8 +41,6 @@ describe('hasPermission', () => {
       email: 'test@example.com',
       role: 'user',
       is_authenticated: true,
-      groups: [],
-      in_trusted_network: false,
     };
     expect(hasPermission(userInfo, Permission.READ)).toBe(false);
   });
@@ -52,9 +50,7 @@ describe('hasPermission', () => {
       email: 'test@example.com',
       role: 'user',
       is_authenticated: true,
-      groups: [] as string[],
       permissions: { read: true } as unknown as typeof Permission.READ[],
-      in_trusted_network: false,
     } as UserInfo;
     expect(hasPermission(userInfo, Permission.READ)).toBe(false);
   });
@@ -64,9 +60,7 @@ describe('hasPermission', () => {
       email: 'test@example.com',
       role: 'admin',
       is_authenticated: true,
-      groups: [],
       permissions: [Permission.READ, Permission.INGEST, Permission.DELETE],
-      in_trusted_network: true,
     };
     expect(hasPermission(userInfo, Permission.READ)).toBe(true);
     expect(hasPermission(userInfo, Permission.INGEST)).toBe(true);
@@ -78,9 +72,7 @@ describe('hasPermission', () => {
       email: 'test@example.com',
       role: 'user',
       is_authenticated: true,
-      groups: [],
       permissions: [Permission.READ],
-      in_trusted_network: false,
     };
     expect(hasPermission(userInfo, Permission.READ)).toBe(true);
     expect(hasPermission(userInfo, Permission.INGEST)).toBe(false);
@@ -92,9 +84,7 @@ describe('hasPermission', () => {
       email: 'reader@example.com',
       role: 'viewer',
       is_authenticated: true,
-      groups: [],
       permissions: [Permission.READ],
-      in_trusted_network: false,
     };
     expect(hasPermission(readOnlyUser, Permission.READ)).toBe(true);
     expect(hasPermission(readOnlyUser, Permission.INGEST)).toBe(false);
@@ -125,9 +115,7 @@ describe('getUserInfo', () => {
       email: 'user@example.com',
       role: 'admin',
       is_authenticated: true,
-      groups: ['admins'],
       permissions: [Permission.READ, Permission.INGEST],
-      in_trusted_network: true,
     };
     (global.fetch as jest.Mock).mockResolvedValue({
       ok: true,
@@ -147,9 +135,7 @@ describe('getUserInfo', () => {
       email: 'test@example.com',
       role: 'user',
       is_authenticated: true,
-      groups: [],
       permissions: [Permission.READ],
-      in_trusted_network: false,
     };
     (global.fetch as jest.Mock).mockResolvedValue({
       ok: true,
@@ -182,9 +168,7 @@ describe('getUserInfo', () => {
           email: 'user@example.com',
           role: 'admin',
           is_authenticated: true,
-          groups: [],
           permissions: { can_read: true, can_ingest: true, can_delete: false },
-          in_trusted_network: true,
         }),
     });
 

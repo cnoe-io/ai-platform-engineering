@@ -1,10 +1,10 @@
 "use client";
 
-import React, { useState, useCallback } from "react";
-import { motion } from "framer-motion";
-import { Send, AlertCircle, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { motion } from "framer-motion";
+import { AlertCircle,ChevronDown,Send } from "lucide-react";
+import React,{ useCallback,useState } from "react";
 
 // Platform Engineer Input Field (from A2A response)
 export interface InputField {
@@ -332,7 +332,7 @@ export function MetadataInputForm({
             disabled={disabled || isSubmitting}
             className="gap-2"
           >
-            {isSubmitting ? (
+            {(isSubmitting || disabled) ? (
               <motion.div
                 animate={{ rotate: 360 }}
                 transition={{ repeat: Infinity, duration: 1, ease: "linear" }}

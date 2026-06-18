@@ -1,33 +1,32 @@
 "use client";
 
-import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { useSession } from "next-auth/react";
-import { motion, AnimatePresence } from "framer-motion";
-import { Send, Square, User, Bot, Sparkles, Copy, Check, Loader2, ChevronDown, ChevronUp, ArrowDown, ArrowLeft, RotateCcw, Activity, MessageSquare, Clock, ShieldCheck } from "lucide-react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import { assistantMarkdownComponents, assistantProseClassName } from "./MarkdownComponents";
-import TextareaAutosize from "react-textarea-autosize";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { useChatStore } from "@/store/chat-store";
-import { A2ASDKClient, type ParsedA2AEvent, type HITLDecision, toStoreEvent } from "@/lib/a2a-sdk-client";
-import { DynamicAgentClient } from "@/lib/dynamic-agent-client";
-import { type SSEAgentEvent } from "@/components/dynamic-agents/sse-types";
-import { isFeatureEnabled, useFeatureFlagStore } from "@/store/feature-flag-store";
-import { cn, deduplicateByKey } from "@/lib/utils";
-import { ChatMessage as ChatMessageType, A2AEvent, SupervisorTimelineSegment, PlanStep } from "@/types/a2a";
-import { parsePlanStepsFromData, parseToolFromArtifact } from "@/lib/timeline-parsers";
-import { SupervisorTimelineManager } from "@/lib/timeline-manager";
-import { SupervisorTimeline } from "./AgentTimeline";
-import { getConfig } from "@/lib/config";
+import { Tooltip,TooltipContent,TooltipProvider,TooltipTrigger } from "@/components/ui/tooltip";
+import { A2ASDKClient,toStoreEvent,type HITLDecision,type ParsedA2AEvent } from "@/lib/a2a-sdk-client";
 import { apiClient } from "@/lib/api-client";
-import { FeedbackButton, Feedback } from "./FeedbackButton";
-import { DEFAULT_AGENTS, CustomCall } from "./CustomCallButtons";
-import { AGENT_LOGOS } from "@/components/shared/AgentLogos";
-import { MetadataInputForm, type UserInputMetadata, type InputField } from "./MetadataInputForm";
-import { SlashCommandMenu, getFilteredCommands, type SlashCommand } from "./SlashCommandMenu";
+import { getConfig } from "@/lib/config";
+import { DynamicAgentClient } from "@/lib/dynamic-agent-client";
+import { type SSEAgentEvent } from "@/lib/streaming/types";
+import { SupervisorTimelineManager } from "@/lib/timeline-manager";
+import { parsePlanStepsFromData,parseToolFromArtifact } from "@/lib/timeline-parsers";
+import { cn,deduplicateByKey } from "@/lib/utils";
+import { useChatStore } from "@/store/chat-store";
+import { useFeatureFlagStore } from "@/store/feature-flag-store";
+import { A2AEvent,ChatMessage as ChatMessageType,PlanStep,SupervisorTimelineSegment } from "@/types/a2a";
+import { AnimatePresence,motion } from "framer-motion";
+import { Activity,ArrowDown,ArrowLeft,Bot,Check,ChevronDown,ChevronUp,Clock,Copy,Loader2,MessageSquare,RotateCcw,Send,ShieldCheck,Sparkles,Square,User } from "lucide-react";
+import { useSession } from "next-auth/react";
+import React,{ useCallback,useEffect,useMemo,useRef,useState } from "react";
+import ReactMarkdown from "react-markdown";
+import TextareaAutosize from "react-textarea-autosize";
+import remarkGfm from "remark-gfm";
+import { SupervisorTimeline } from "./AgentTimeline";
+import { DEFAULT_AGENTS } from "./CustomCallButtons";
+import { Feedback,FeedbackButton } from "./FeedbackButton";
+import { assistantMarkdownComponents } from "./MarkdownComponents";
+import { MetadataInputForm,type InputField,type UserInputMetadata } from "./MetadataInputForm";
+import { SlashCommandMenu,getFilteredCommands,type SlashCommand } from "./SlashCommandMenu";
 import { useSlashCommands } from "./useSlashCommands";
 
 type ReadOnlyReason = 'admin_audit' | 'shared_readonly' | 'agent_deleted' | 'agent_disabled';
@@ -1389,7 +1388,7 @@ export function SupervisorChatPanel({ endpoint, conversationId, conversationTitl
     let accumulatedText = "";
     let rawStreamContent = "";
     let eventCounter = 0;
-    let hasReceivedCompleteResult = false;
+    const hasReceivedCompleteResult = false;
     let hitlFormRequested = false;
 
     // Timeline manager — seed with previous message's plan for continuity
@@ -1862,7 +1861,7 @@ export function SupervisorChatPanel({ endpoint, conversationId, conversationTitl
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-amber-600/20 text-amber-700 dark:text-amber-300 hover:bg-amber-600/30 transition-colors"
             >
               <ArrowLeft className="h-3 w-3" />
-              {adminOrigin === 'audit-logs' ? 'Back to Audit Logs' : 'Back to Feedback'}
+              {adminOrigin === 'audit-logs' ? 'Back to Chat Audit' : 'Back to Feedback'}
             </a>
             )}
           </div>

@@ -23,15 +23,15 @@
  * On rate-limit: HTTP 429 (no SSE body) with Retry-After header.
  */
 
-import { NextRequest } from "next/server";
 import { authenticateRequest } from "@/lib/da-proxy";
-import { fetchAssistantSuggest } from "@/lib/server/assistant-suggest-da";
-import {
-  getAiAssistTask,
-  type AiAssistContext,
-} from "@/lib/server/ai-assist-tasks";
-import { consume } from "@/lib/server/ai-assist-rate-limit";
 import { getCollection } from "@/lib/mongodb";
+import { consume } from "@/lib/server/ai-assist-rate-limit";
+import {
+getAiAssistTask,
+type AiAssistContext,
+} from "@/lib/server/ai-assist-tasks";
+import { fetchAssistantSuggest } from "@/lib/server/assistant-suggest-da";
+import { NextRequest } from "next/server";
 
 /**
  * Resolve a model the dynamic-agents service can actually serve. Tries the
@@ -162,9 +162,19 @@ export async function POST(request: NextRequest) {
   const userMessage = task.buildUserMessage(context);
   const model = await resolveModel(body.model, task.defaultModel(process.env));
 
+  // Forward bearer + trace headers in addition to X-User-Context so the
+  // dynamic-agents `JwtAuthMiddleware` accepts the call. Without this the
+  // backend returns 401 ("Backend error: Unauthorized") even for signed-in
+  // admins whenever SSO is enabled.
   const headers: Record<string, string> = {};
   if (auth.userContextHeader) {
     headers["X-User-Context"] = auth.userContextHeader;
+  }
+  if (auth.bearerToken) {
+    headers["Authorization"] = `Bearer ${auth.bearerToken}`;
+  }
+  if (auth.traceparent) {
+    headers.traceparent = auth.traceparent;
   }
 
   const encoder = new TextEncoder();

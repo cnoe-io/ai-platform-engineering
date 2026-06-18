@@ -1,21 +1,22 @@
 "use client";
 
-import React from "react";
-import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { RagAuthIndicator } from "@/components/rag/RagAuthBanner";
+import { Button } from "@/components/ui/button";
+import { useKbTabGates } from "@/hooks/use-kb-tab-gates";
+import type { KbTabKey } from "@/lib/rbac/types";
+import { cn } from "@/lib/utils";
 import { motion } from "framer-motion";
 import {
-  Database,
-  Search,
-  GitFork,
-  ChevronLeft,
-  ChevronRight,
-  BookOpen,
-  Wrench,
+BookOpen,
+ChevronLeft,
+ChevronRight,
+Database,
+GitFork,
+Search,
+Wrench,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
-import { RagAuthIndicator } from "@/components/rag/RagAuthBanner";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 
 interface KnowledgeSidebarProps {
   collapsed: boolean;
@@ -23,9 +24,19 @@ interface KnowledgeSidebarProps {
   graphRagEnabled: boolean;
 }
 
-const navItems = [
+const navItems: Array<{
+  id: string;
+  /** Key into the KB tab-gate map returned by GET /api/rbac/kb-tab-gates. */
+  gateKey: KbTabKey;
+  label: string;
+  href: string;
+  icon: typeof Search;
+  description: string;
+  requiresGraphRag?: boolean;
+}> = [
   {
     id: "search",
+    gateKey: "search",
     label: "Search",
     href: "/knowledge-bases/search",
     icon: Search,
@@ -33,6 +44,7 @@ const navItems = [
   },
   {
     id: "ingest",
+    gateKey: "data_sources",
     label: "Data Sources",
     href: "/knowledge-bases/ingest",
     icon: Database,
@@ -40,6 +52,7 @@ const navItems = [
   },
   {
     id: "graph",
+    gateKey: "graph",
     label: "Graph",
     href: "/knowledge-bases/graph",
     icon: GitFork,
@@ -48,6 +61,7 @@ const navItems = [
   },
   {
     id: "mcp-tools",
+    gateKey: "mcp_tools",
     label: "MCP Tools",
     href: "/knowledge-bases/mcp-tools",
     icon: Wrench,
@@ -57,6 +71,7 @@ const navItems = [
 
 export function KnowledgeSidebar({ collapsed, onCollapse, graphRagEnabled }: KnowledgeSidebarProps) {
   const pathname = usePathname();
+  const { gates, loading: gatesLoading, orgAdminBypass } = useKbTabGates();
 
   const getActiveTab = () => {
     if (pathname?.includes("/mcp-tools")) return "mcp-tools";
@@ -67,6 +82,17 @@ export function KnowledgeSidebar({ collapsed, onCollapse, graphRagEnabled }: Kno
   };
 
   const activeTab = getActiveTab();
+  // Only nudge "ask an admin to share a KB" when the user genuinely has nothing
+  // to do here. A team granted an explicit capability (search/ingest) with no KB
+  // assigned yet now has enabled tabs, so the share-request banner would
+  // contradict them — each tab's own empty state guides them instead.
+  const hasExplicitCapability = gates.can_ingest === true || gates.can_search === true;
+  const showNoKbBanner =
+    !collapsed &&
+    !gatesLoading &&
+    !orgAdminBypass &&
+    gates.has_any_kb === false &&
+    !hasExplicitCapability;
 
   return (
     <motion.div
@@ -111,6 +137,18 @@ export function KnowledgeSidebar({ collapsed, onCollapse, graphRagEnabled }: Kno
         </div>
       )}
 
+      {showNoKbBanner && (
+        <div
+          role="status"
+          aria-live="polite"
+          data-testid="kb-sidebar-no-access-banner"
+          className="mx-3 mb-3 rounded-md border border-amber-300/40 bg-amber-100/20 px-3 py-2 text-xs text-amber-900 dark:border-amber-400/30 dark:bg-amber-500/10 dark:text-amber-200"
+        >
+          You don&apos;t have access to any knowledge bases yet. Ask a team admin to share one
+          with your team.
+        </div>
+      )}
+
       {/* Navigation Items */}
       <div className="flex-1 px-2">
         {!collapsed && (
@@ -123,17 +161,28 @@ export function KnowledgeSidebar({ collapsed, onCollapse, graphRagEnabled }: Kno
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = activeTab === item.id;
-            const isDisabled = item.requiresGraphRag && !graphRagEnabled;
+            const graphDisabled = item.requiresGraphRag && !graphRagEnabled;
+            // Fail-closed: while gates load OR if RBAC denies, the tab renders as
+            // disabled-with-tooltip rather than a link the user could click and 403.
+            const rbacAllowed = gatesLoading ? false : gates[item.gateKey] === true;
+            const rbacDisabled = !rbacAllowed;
+            const isDisabled = graphDisabled || rbacDisabled;
+            const disabledTooltip = graphDisabled
+              ? "Graph RAG is disabled in the RAG server config"
+              : gatesLoading
+                ? "Checking access…"
+                : "You don't have access to any knowledge bases yet";
 
             if (isDisabled) {
               return (
                 <div
                   key={item.id}
+                  data-testid={`kb-tab-disabled-${item.id}`}
                   className={cn(
                     "flex items-center gap-3 p-2 rounded-lg cursor-not-allowed opacity-50",
                     collapsed && "justify-center"
                   )}
-                  title="Graph RAG is disabled"
+                  title={disabledTooltip}
                 >
                   <div className={cn(
                     "shrink-0 w-8 h-8 rounded-md flex items-center justify-center bg-muted"

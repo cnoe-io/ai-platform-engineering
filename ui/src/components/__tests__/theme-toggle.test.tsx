@@ -28,6 +28,7 @@ jest.mock("next-themes", () => ({
 
 jest.mock("framer-motion", () => ({
   motion: {
+    // eslint-disable-next-line react/display-name
     div: React.forwardRef(
       (
         {
@@ -58,6 +59,7 @@ jest.mock("lucide-react", () => ({
 }));
 
 jest.mock("@/components/ui/button", () => ({
+  // eslint-disable-next-line react/display-name
   Button: React.forwardRef(
     (
       {

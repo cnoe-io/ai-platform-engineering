@@ -5,7 +5,6 @@ metadata:
   name: {{ include "agent.fullname" . }}-mcp
   labels:
     {{- include "agent.labels" . | nindent 4 }}
-    app.kubernetes.io/name: {{ include "agent.fullname" . }}-mcp
     app.kubernetes.io/component: mcp
 spec:
   {{- if not .Values.autoscaling.enabled }}
@@ -15,7 +14,6 @@ spec:
   selector:
     matchLabels:
       {{- include "agent.selectorLabels" . | nindent 6 }}
-      app.kubernetes.io/name: {{ include "agent.fullname" . }}-mcp
       app.kubernetes.io/component: mcp
   template:
     metadata:
@@ -25,7 +23,6 @@ spec:
       {{- end }}
       labels:
         {{- include "agent.labels" . | nindent 8 }}
-        app.kubernetes.io/name: {{ include "agent.fullname" . }}-mcp
         app.kubernetes.io/component: mcp
         {{- with .Values.podLabels }}
         {{- toYaml . | nindent 8 }}
@@ -46,7 +43,7 @@ spec:
           securityContext:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-          image: "{{ .Values.mcp.image.repository }}:{{ .Values.mcp.image.tag | default (include "agent.appVersion" .) }}"
+          image: "{{ include "agent.imageRepository" (dict "root" . "repository" .Values.mcp.image.repository) }}:{{ .Values.mcp.image.tag | default (include "agent.appVersion" .) }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - name: http
@@ -76,6 +73,10 @@ spec:
               value: {{ $value | quote }}
             {{- end }}
             {{- end }}
+          {{- with .Values.mcp.startupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           {{- with .Values.mcp.livenessProbe }}
           livenessProbe:
             {{- toYaml . | nindent 12 }}

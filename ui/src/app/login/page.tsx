@@ -1,14 +1,14 @@
 "use client";
 
-import React, { Suspense, useEffect, useState } from "react";
-import { signIn, useSession } from "next-auth/react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { motion } from "framer-motion";
-import { LogIn, Loader2, AlertCircle } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { LoadingScreen } from "@/components/loading-screen";
 import { IntegrationOrbit } from "@/components/gallery/IntegrationOrbit";
-import { config, getLogoFilterClass } from "@/lib/config";
+import { LoadingScreen } from "@/components/loading-screen";
+import { Button } from "@/components/ui/button";
+import { config,getLogoFilterClass } from "@/lib/config";
+import { motion } from "framer-motion";
+import { AlertCircle,Loader2,LogIn } from "lucide-react";
+import { signIn,useSession } from "next-auth/react";
+import { useRouter,useSearchParams } from "next/navigation";
+import { Suspense,useEffect,useState } from "react";
 
 // Circuit breaker: detect redirect loops via sessionStorage counter.
 // If we've been redirected to /login more than 3 times within 10 seconds,
@@ -59,6 +59,13 @@ function clearRedirectLoopCounter() {
   sessionStorage.removeItem(LOOP_TS_KEY);
 }
 
+function safeCallbackUrl(value: string | null): string {
+  if (!value || !value.startsWith("/") || value.startsWith("//")) {
+    return "/";
+  }
+  return value.startsWith("/login") ? "/" : value;
+}
+
 function LoginContent() {
   const { status } = useSession();
   const router = useRouter();
@@ -71,13 +78,13 @@ function LoginContent() {
   const error = searchParams.get("error");
   const sessionExpired = searchParams.get("session_expired") === "true";
   const sessionReset = searchParams.get("session_reset");
-  const callbackUrl = searchParams.get("callbackUrl") || "/";
+  const callbackUrl = safeCallbackUrl(searchParams.get("callbackUrl"));
 
-  // Redirect if already logged in — but NOT if:
-  // - session_expired/session_reset param is present (user intentionally came here)
-  // - a redirect loop was detected
+  // Redirect if already logged in. A stale session_expired URL can remain after
+  // a successful OIDC callback, so only explicit reset/loop recovery should hold
+  // the user on the login page.
   useEffect(() => {
-    if (loopBroken || sessionExpired || sessionReset) {
+    if (loopBroken || sessionReset) {
       // User is here intentionally or we broke a loop — show login form
       return;
     }
@@ -87,7 +94,7 @@ function LoginContent() {
       clearRedirectLoopCounter();
       router.push(callbackUrl);
     }
-  }, [status, router, callbackUrl, sessionExpired, sessionReset, loopBroken]);
+  }, [status, router, callbackUrl, sessionReset, loopBroken]);
 
   const handleSignIn = async () => {
     setIsLoading(true);

@@ -1,34 +1,55 @@
 "use client";
 
-import React from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import {
-  Server,
-  Plus,
-  Trash2,
-  Loader2,
-  ToggleLeft,
-  ToggleRight,
-  RefreshCw,
-  Zap,
-  Terminal,
-  Radio,
-  Globe,
-  AlertCircle,
-  CheckCircle2,
-  Download,
-} from "lucide-react";
-import type { MCPServerConfig, MCPToolInfo } from "@/types/dynamic-agent";
-import { MCPServerEditor } from "./MCPServerEditor";
+import { Button } from "@/components/ui/button";
+import { Card,CardContent,CardDescription,CardHeader,CardTitle } from "@/components/ui/card";
 import { toYaml } from "@/lib/yaml-serializer";
+import type { MCPServerConfig,MCPToolInfo } from "@/types/dynamic-agent";
+import {
+AlertCircle,
+CheckCircle2,
+Download,
+Globe,
+Loader2,
+Plus,
+Radio,
+RefreshCw,
+Server,
+Terminal,
+ToggleLeft,
+ToggleRight,
+Trash2,
+Zap,
+} from "lucide-react";
+import React from "react";
+import { MCPServerEditor } from "./MCPServerEditor";
+
+// assisted-by Codex Codex-sonnet-4-6
+export const MCP_SERVERS_REFRESH_INTERVAL_MS = 10_000;
+const MCP_SERVERS_LIST_URL = "/api/mcp-servers?page_size=100";
 
 interface ProbeResult {
   server_id: string;
   loading: boolean;
   tools?: MCPToolInfo[];
   error?: string;
+}
+
+interface AgentGatewayMigrationWarning {
+  id: string;
+  endpoint: string;
+  target_endpoint?: string;
+  existing_endpoint?: string;
+  message: string;
+}
+
+interface FetchServersOptions {
+  showLoading?: boolean;
+  preserveListOnError?: boolean;
+}
+
+function errorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message ? error.message : fallback;
 }
 
 export function MCPServersTab() {
@@ -38,27 +59,70 @@ export function MCPServersTab() {
   const [editingServer, setEditingServer] = React.useState<MCPServerConfig | null>(null);
   const [isCreating, setIsCreating] = React.useState(false);
   const [probeResults, setProbeResults] = React.useState<Record<string, ProbeResult>>({});
+  const [agentGatewayMigrationWarnings, setAgentGatewayMigrationWarnings] = React.useState<
+    AgentGatewayMigrationWarning[]
+  >([]);
+  const [agentGatewaySyncing, setAgentGatewaySyncing] = React.useState(false);
+  const [agentGatewayMessage, setAgentGatewayMessage] = React.useState<string | null>(null);
+  const [agentGatewayError, setAgentGatewayError] = React.useState<string | null>(null);
 
-  const fetchServers = React.useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  const fetchServers = React.useCallback(async ({
+    showLoading = true,
+    preserveListOnError = false,
+  }: FetchServersOptions = {}) => {
+    if (showLoading) {
+      setLoading(true);
+    }
+    if (!preserveListOnError) {
+      setError(null);
+    }
     try {
-      const response = await fetch("/api/mcp-servers?page_size=100");
+      const response = await fetch(MCP_SERVERS_LIST_URL, { cache: "no-store" });
       const data = await response.json();
       if (data.success) {
         setServers(data.data.items || []);
+        setError(null);
       } else {
-        setError(data.error || "Failed to fetch servers");
+        if (!preserveListOnError) {
+          setError(data.error || "Failed to fetch servers");
+        }
       }
-    } catch (err: any) {
-      setError(err.message || "Failed to fetch servers");
+    } catch (err: unknown) {
+      if (!preserveListOnError) {
+        setError(errorMessage(err, "Failed to fetch servers"));
+      }
     } finally {
-      setLoading(false);
+      if (showLoading) {
+        setLoading(false);
+      }
     }
   }, []);
 
   React.useEffect(() => {
     fetchServers();
+  }, [fetchServers]);
+
+  React.useEffect(() => {
+    const refreshFromBackend = () => {
+      void fetchServers({ showLoading: false, preserveListOnError: true });
+    };
+
+    const intervalId = window.setInterval(refreshFromBackend, MCP_SERVERS_REFRESH_INTERVAL_MS);
+
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") {
+        refreshFromBackend();
+      }
+    };
+
+    window.addEventListener("focus", refreshFromBackend);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", refreshFromBackend);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
   }, [fetchServers]);
 
   const handleDelete = async (serverId: string) => {
@@ -74,8 +138,8 @@ export function MCPServersTab() {
       } else {
         alert(data.error || "Failed to delete server");
       }
-    } catch (err: any) {
-      alert(err.message || "Failed to delete server");
+    } catch (err: unknown) {
+      alert(errorMessage(err, "Failed to delete server"));
     }
   };
 
@@ -92,8 +156,8 @@ export function MCPServersTab() {
       } else {
         alert(data.error || "Failed to update server");
       }
-    } catch (err: any) {
-      alert(err.message || "Failed to update server");
+    } catch (err: unknown) {
+      alert(errorMessage(err, "Failed to update server"));
     }
   };
 
@@ -145,15 +209,47 @@ export function MCPServersTab() {
           },
         }));
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       setProbeResults((prev) => ({
         ...prev,
         [serverId]: {
           server_id: serverId,
           loading: false,
-          error: err.message || "Probe failed",
+          error: errorMessage(err, "Probe failed"),
         },
       }));
+    }
+  };
+
+  const handleSyncAgentGateway = async () => {
+    setAgentGatewaySyncing(true);
+    setAgentGatewayError(null);
+    setAgentGatewayMessage(null);
+    setAgentGatewayMigrationWarnings([]);
+    try {
+      const response = await fetch("/api/mcp-servers/agentgateway/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const data = await response.json();
+      if (!data.success) {
+        throw new Error(data.error || "Failed to sync AgentGateway MCP servers");
+      }
+      const addedCount = data.data.added?.length || 0;
+      const migratedCount = data.data.migrated?.length || 0;
+      const refreshedCount = data.data.refreshed?.length || 0;
+      setAgentGatewayMessage(
+        `Added ${addedCount}, migrated ${migratedCount}, and refreshed ${refreshedCount} MCP server${
+          addedCount + migratedCount + refreshedCount === 1 ? "" : "s"
+        } from AgentGateway.`,
+      );
+      setAgentGatewayMigrationWarnings(data.data.migration_warnings || []);
+      await fetchServers();
+    } catch (err: unknown) {
+      setAgentGatewayError(errorMessage(err, "Failed to sync AgentGateway MCP servers"));
+    } finally {
+      setAgentGatewaySyncing(false);
     }
   };
 
@@ -240,7 +336,20 @@ export function MCPServersTab() {
             </CardDescription>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={fetchServers} disabled={loading}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleSyncAgentGateway}
+              disabled={agentGatewaySyncing}
+            >
+              {agentGatewaySyncing ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Globe className="h-4 w-4 mr-2" />
+              )}
+              Sync with AgentGateway
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => fetchServers()} disabled={loading}>
               <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
               Refresh
             </Button>
@@ -252,6 +361,56 @@ export function MCPServersTab() {
         </div>
       </CardHeader>
       <CardContent>
+        {agentGatewayError && (
+          <div className="mb-4 flex items-start gap-2 rounded-lg bg-destructive/10 border border-destructive/30 p-3">
+            <AlertCircle className="h-4 w-4 text-destructive mt-0.5 flex-shrink-0" />
+            <p className="text-sm text-destructive">{agentGatewayError}</p>
+          </div>
+        )}
+
+        {agentGatewayMessage && (
+          <div className="mb-4 flex items-start gap-2 rounded-lg bg-green-500/10 border border-green-500/30 p-3">
+            <CheckCircle2 className="h-4 w-4 text-green-500 mt-0.5 flex-shrink-0" />
+            <p className="text-sm text-green-700 dark:text-green-400">{agentGatewayMessage}</p>
+          </div>
+        )}
+
+        {agentGatewayMigrationWarnings.length > 0 && (
+          <div className="mb-6 rounded-lg border border-amber-500/30 bg-amber-500/10 p-4">
+            <div className="flex items-start gap-2">
+              <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
+              <div className="space-y-3">
+                <div>
+                  <h3 className="text-sm font-semibold text-amber-800 dark:text-amber-300">
+                    {agentGatewayMigrationWarnings.length} legacy MCP server
+                    {agentGatewayMigrationWarnings.length === 1 ? "" : "s"} conflict
+                    {agentGatewayMigrationWarnings.length === 1 ? "s" : ""} with AgentGateway targets.
+                  </h3>
+                  <p className="text-sm text-amber-700 dark:text-amber-400">
+                    Remove or rename the legacy MCP server to let AgentGateway manage it. Use the row actions below to
+                    delete the legacy entry after you confirm it is no longer needed.
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  {agentGatewayMigrationWarnings.map((warning) => (
+                    <div key={warning.id} className="rounded-md border border-amber-500/20 bg-background/70 p-3">
+                      <div className="font-mono text-xs font-semibold">{warning.id}</div>
+                      {warning.existing_endpoint && (
+                        <p className="text-xs text-muted-foreground">
+                          Current: {warning.existing_endpoint}
+                        </p>
+                      )}
+                      <p className="text-xs text-muted-foreground">
+                        AgentGateway: {warning.target_endpoint || warning.endpoint}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {loading ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -259,7 +418,7 @@ export function MCPServersTab() {
         ) : error ? (
           <div className="text-center py-12">
             <p className="text-destructive">{error}</p>
-            <Button variant="outline" className="mt-4" onClick={fetchServers}>
+            <Button variant="outline" className="mt-4" onClick={() => fetchServers()}>
               Retry
             </Button>
           </div>
@@ -301,7 +460,18 @@ export function MCPServersTab() {
                           <Server className="h-5 w-5 text-blue-500" />
                         </div>
                         <div>
-                          <div className="font-medium text-sm">{server.name}</div>
+                          <div className="flex items-center gap-2">
+                            <div className="font-medium text-sm">{server.name}</div>
+                            {server.source === "agentgateway" && (
+                              <Badge
+                                variant="outline"
+                                className="gap-1 bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/30"
+                                title="Registered from AgentGateway discovery"
+                              >
+                                AgentGateway
+                              </Badge>
+                            )}
+                          </div>
                           <div className="text-xs text-muted-foreground font-mono">
                             {server._id}
                           </div>
@@ -325,6 +495,11 @@ export function MCPServersTab() {
                           ? server.command
                           : server.endpoint}
                       </span>
+                      {server.source === "agentgateway" && server.agentgateway_target_endpoint && (
+                        <span className="text-xs text-muted-foreground truncate block max-w-[200px]">
+                          Target: {server.agentgateway_target_endpoint}
+                        </span>
+                      )}
                     </div>
 
                     <div className="col-span-2">
@@ -374,7 +549,7 @@ export function MCPServersTab() {
                       >
                         <Download className="h-4 w-4" />
                       </Button>
-                      {server.config_driven && (
+                      {server.config_driven && server.source !== "agentgateway" && (
                         <Badge
                           variant="outline"
                           className="gap-1 bg-gray-500/10 text-gray-600 dark:text-gray-400 border-gray-500/30"

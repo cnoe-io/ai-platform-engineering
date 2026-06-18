@@ -51,8 +51,8 @@
  */
 
 import type {
-  CrawlEventEmitter,
-  CrawlWarningCode,
+CrawlEventEmitter,
+CrawlWarningCode,
 } from "@/lib/crawl-events";
 import { NOOP_EMITTER } from "@/lib/crawl-events";
 

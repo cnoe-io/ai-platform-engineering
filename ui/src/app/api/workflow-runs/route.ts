@@ -1,263 +1,412 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
-import {
-  withAuth,
-  withErrorHandler,
-  successResponse,
-  ApiError,
-} from "@/lib/api-middleware";
-import type {
-  WorkflowRun,
-  CreateWorkflowRunInput,
-  UpdateWorkflowRunInput,
-} from "@/types/workflow-run";
-
 /**
- * Workflow Runs API Routes
+ * Workflow Runs API Routes (v2)
  *
- * Storage: MongoDB only
- * 
- * Features:
- * - Track workflow execution history
- * - User ownership tracking (owner_id)
- * - CRUD operations for workflow runs
- * - Filtering by workflow_id, status, date range
+ * POST /api/workflow-runs — Start a new workflow run (fire-and-forget via engine)
+ * GET  /api/workflow-runs?run_id=X — Poll run status + events (new engine format)
+ * GET  /api/workflow-runs — List runs for current user (legacy compat)
+ * PUT  /api/workflow-runs?id=X — Update a run (legacy compat)
+ * DELETE /api/workflow-runs?id=X — Delete a run (legacy compat)
  */
 
-// Storage configuration - MongoDB only
+import {
+ApiError,
+getAuthFromBearerOrSession,
+successResponse,
+withAuth,
+withErrorHandler,
+} from "@/lib/api-middleware";
+import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
+import {
+detectStaleRun,
+startWorkflowRun,
+type WorkflowRunDocument,
+} from "@/lib/server/workflow-engine";
+import { deleteEventsByRun,readEventsByRun } from "@/lib/server/event-store";
+import {
+filterAccessibleWorkflowConfigs,
+requireWorkflowRunAccess,
+workflowSubjectFromSession,
+type WorkflowAuthzSession,
+} from "@/lib/server/workflow-cas-authz";
+import {
+buildTeamRefToSlugMap,
+filterWorkflowConfigsByRunAccess,
+mergeWorkflowConfigsById,
+requireWorkflowConfigRunAccess,
+requireWorkflowConfigRunViewAccess,
+resolveUserTeamSlugsForWorkflow,
+type WorkflowConfigRebacSnapshot,
+} from "@/lib/rbac/workflow-config-rebac";
+import type { WorkflowConfig } from "@/types/workflow-config";
+import { NextRequest,NextResponse } from "next/server";
+
 const STORAGE_TYPE = isMongoDBConfigured ? "mongodb" : "none";
 
+/** Days to retain workflow runs before auto-cleanup. 0 = disabled. */
+const RETENTION_DAYS = parseInt(process.env.WORKFLOW_RUN_RETENTION_DAYS ?? "7", 10);
+
+/** Throttle cleanup to run at most once per 30 minutes */
+let lastCleanupAt = 0;
+const CLEANUP_INTERVAL_MS = 30 * 60 * 1000;
+
+function ownerMatchesSession(run: WorkflowRunDocument, session: WorkflowAuthzSession): boolean {
+  const subject = workflowSubjectFromSession(session);
+  if (!subject) return false;
+  return run.owner_subject?.type === subject.type && run.owner_subject.id === subject.id;
+}
+
+function filterRunsForOwner<T extends WorkflowRunDocument>(runs: T[], session: WorkflowAuthzSession): T[] {
+  return runs.filter((run) => !run.owner_subject || ownerMatchesSession(run, session));
+}
+
+function workflowRunAccessConfig(config: WorkflowConfig): WorkflowConfigRebacSnapshot {
+  return {
+    _id: String(config._id),
+    owner_id: config.owner_id,
+    visibility: config.visibility,
+    shared_with_teams: config.shared_with_teams,
+    config_driven: config.config_driven,
+  };
+}
+
 /**
- * MongoDB storage functions
+ * Opportunistic cleanup of expired workflow runs.
+ * Deletes runs older than RETENTION_DAYS along with their files and events.
+ * Runs at most once every 5 minutes, fire-and-forget.
  */
-async function saveWorkflowRunToMongoDB(run: WorkflowRun): Promise<void> {
-  const collection = await getCollection<WorkflowRun>("workflow_runs");
-  await collection.insertOne(run);
+async function cleanupExpiredRuns(): Promise<void> {
+  if (RETENTION_DAYS <= 0) return;
+
+  const now = Date.now();
+  if (now - lastCleanupAt < CLEANUP_INTERVAL_MS) return;
+  lastCleanupAt = now;
+
+  try {
+    const col = await getCollection<WorkflowRunDocument>("workflow_runs");
+    const cutoff = new Date(now - RETENTION_DAYS * 24 * 60 * 60 * 1000);
+
+    const expiredRuns = await col
+      .find({
+        status: { $in: ["completed", "failed"] },
+        $or: [
+          { completed_at: { $lt: cutoff } },
+          { started_at: { $lt: cutoff }, completed_at: null },
+        ],
+      })
+      .project({ _id: 1, workflow_config_id: 1 })
+      .toArray();
+
+    if (expiredRuns.length === 0) return;
+
+    const daUrl = process.env.DYNAMIC_AGENTS_URL || "http://localhost:8100";
+
+    for (const run of expiredRuns) {
+      const runId = run._id as string;
+      // Clean up files (best-effort)
+      try {
+        const fsNamespace = JSON.stringify([run.workflow_config_id, runId, "filesystem"]);
+        await fetch(
+          `${daUrl}/api/v1/files/namespace?fs_namespace=${encodeURIComponent(fsNamespace)}`,
+          { method: "DELETE" },
+        );
+      } catch { /* best-effort */ }
+
+      // Clean up events (best-effort)
+      try {
+        await deleteEventsByRun(runId);
+      } catch { /* best-effort */ }
+    }
+
+    // Bulk delete the run documents
+    const ids = expiredRuns.map((r) => r._id);
+    await col.deleteMany({ _id: { $in: ids } });
+
+    console.log(`[workflow-cleanup] Deleted ${expiredRuns.length} expired workflow runs (retention: ${RETENTION_DAYS}d)`);
+  } catch (err) {
+    console.warn("[workflow-cleanup] Error during cleanup:", err);
+  }
 }
 
-async function updateWorkflowRunInMongoDB(
-  id: string,
-  updates: Partial<WorkflowRun>,
-  ownerEmail: string
-): Promise<void> {
-  const collection = await getCollection<WorkflowRun>("workflow_runs");
-  
-  console.log(`[updateWorkflowRunInMongoDB] Finding run ${id} for owner ${ownerEmail}`);
-  const existing = await collection.findOne({ id });
-  if (!existing) {
-    console.error(`[updateWorkflowRunInMongoDB] Run ${id} not found`);
-    throw new ApiError("Workflow run not found", 404);
-  }
-  
-  console.log(`[updateWorkflowRunInMongoDB] Found run ${id}, current status: ${existing.status}`);
-  
-  // Only owner can update
-  if (existing.owner_id !== ownerEmail) {
-    console.error(`[updateWorkflowRunInMongoDB] Permission denied: ${existing.owner_id} !== ${ownerEmail}`);
-    throw new ApiError("You don't have permission to update this workflow run", 403);
-  }
-  
-  console.log(`[updateWorkflowRunInMongoDB] Updating run ${id} with:`, updates);
-  const result = await collection.updateOne(
-    { id },
-    { $set: updates }
-  );
-  console.log(`[updateWorkflowRunInMongoDB] ✅ Update result - matched: ${result.matchedCount}, modified: ${result.modifiedCount}`);
-  
-  // Verify the update
-  const updated = await collection.findOne({ id });
-  console.log(`[updateWorkflowRunInMongoDB] Updated run status is now: ${updated?.status}`);
-}
+// ═══════════════════════════════════════════════════════════════
+// POST — Start a new workflow run
+// ═══════════════════════════════════════════════════════════════
 
-async function deleteWorkflowRunFromMongoDB(
-  id: string,
-  ownerEmail: string
-): Promise<void> {
-  const collection = await getCollection<WorkflowRun>("workflow_runs");
-  
-  const existing = await collection.findOne({ id });
-  if (!existing) {
-    throw new ApiError("Workflow run not found", 404);
-  }
-  
-  // Only owner can delete
-  if (existing.owner_id !== ownerEmail) {
-    throw new ApiError("You don't have permission to delete this workflow run", 403);
-  }
-  
-  await collection.deleteOne({ id });
-}
-
-async function getWorkflowRunsFromMongoDB(
-  ownerEmail: string,
-  filters?: {
-    workflow_id?: string;
-    status?: string;
-    limit?: number;
-  }
-): Promise<WorkflowRun[]> {
-  const collection = await getCollection<WorkflowRun>("workflow_runs");
-  
-  const query: any = { owner_id: ownerEmail };
-  
-  if (filters?.workflow_id) {
-    query.workflow_id = filters.workflow_id;
-  }
-  
-  if (filters?.status) {
-    query.status = filters.status;
-  }
-  
-  const limit = filters?.limit || 100;
-  
-  const runs = await collection
-    .find(query)
-    .sort({ started_at: -1 })
-    .limit(limit)
-    .toArray();
-  
-  return runs;
-}
-
-async function getWorkflowRunByIdFromMongoDB(
-  id: string,
-  ownerEmail: string
-): Promise<WorkflowRun | null> {
-  const collection = await getCollection<WorkflowRun>("workflow_runs");
-  
-  const run = await collection.findOne({
-    id,
-    owner_id: ownerEmail,
-  });
-  
-  return run;
-}
-
-// POST /api/workflow-runs - Create a new workflow run
 export const POST = withErrorHandler(async (request: NextRequest) => {
   if (STORAGE_TYPE !== "mongodb") {
-    throw new ApiError("Workflow run history requires MongoDB to be configured", 503);
+    throw new ApiError("MongoDB is required for workflow runs", 503);
   }
 
-  return await withAuth(request, async (req, user) => {
-    const body: CreateWorkflowRunInput = await request.json();
+  const { user, session } = await getAuthFromBearerOrSession(request);
+  const body = await request.json();
+  const { workflow_config_id, user_context, trigger_info } = body;
 
-    // Validate required fields
-    if (!body.workflow_id || !body.workflow_name) {
-      throw new ApiError("Missing required fields: workflow_id and workflow_name are required", 400);
-    }
+  if (!workflow_config_id) {
+    throw new ApiError("workflow_config_id is required", 400);
+  }
 
-    // Generate ID
-    const id = `run-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    const now = new Date();
+  // Load config
+  const configCol = await getCollection<WorkflowConfig>("workflow_configs");
+  const config = await configCol.findOne({ _id: workflow_config_id });
+  if (!config) {
+    throw new ApiError(`Workflow config ${workflow_config_id} not found`, 404);
+  }
 
-    const run: WorkflowRun = {
-      id,
-      workflow_id: body.workflow_id,
-      workflow_name: body.workflow_name,
-      workflow_category: body.workflow_category,
-      status: "running",
-      started_at: now,
-      input_parameters: body.input_parameters,
-      input_prompt: body.input_prompt,
-      owner_id: user.email,
-      created_at: now,
-      metadata: body.metadata,
-    };
+  // Start uses the same visibility ∪ authorization semantics as workflow config
+  // reads, so global/team/owner-visible workflows remain runnable before every
+  // legacy row has been projected into OpenFGA.
+  const userTeamSlugs = await resolveUserTeamSlugsForWorkflow(user.email, session);
+  await requireWorkflowConfigRunAccess(
+    session,
+    workflowRunAccessConfig(config),
+    user.email,
+    userTeamSlugs,
+  );
 
-    await saveWorkflowRunToMongoDB(run);
-    console.log(`[WorkflowRun] Created workflow run "${id}" for workflow "${body.workflow_name}" by ${user.email}`);
+  // Build auth headers for DA server calls. Prefer the incoming Bearer; fall
+  // back to the session's OIDC access token so browser (cookie) sessions still
+  // forward a valid bearer — DA + the BFF per-step CAS gate both need the
+  // run-owner's token.
+  const authHeaders: Record<string, string> = {};
+  const incomingAuth = request.headers.get("Authorization");
+  const sessionAccessToken = typeof (session as { accessToken?: unknown }).accessToken === "string"
+    ? (session as { accessToken?: string }).accessToken
+    : undefined;
+  if (incomingAuth) {
+    authHeaders["Authorization"] = incomingAuth;
+  } else if (sessionAccessToken) {
+    authHeaders["Authorization"] = `Bearer ${sessionAccessToken}`;
+  }
+  authHeaders["X-User-Context"] = Buffer.from(JSON.stringify({
+    email: user.email,
+    name: user.name,
+  })).toString("base64");
 
-    return successResponse({
-      id,
-      message: "Workflow run created successfully",
-    }, 201);
-  });
+  // Enrich trigger_info with user context
+  const enrichedTriggerInfo = {
+    ...(trigger_info || {}),
+    triggered_by: trigger_info?.triggered_by || "webui",
+    user: { email: user.email, name: user.name },
+  };
+
+  const runId = await startWorkflowRun(
+    config,
+    user_context || null,
+    authHeaders,
+    enrichedTriggerInfo,
+    workflowSubjectFromSession(session),
+  );
+
+  return NextResponse.json({ run_id: runId, status: "running" }, { status: 201 });
 });
 
-// GET /api/workflow-runs - Retrieve workflow runs
+// ═══════════════════════════════════════════════════════════════
+// GET — Poll run status + events (by run_id) or list runs
+// ═══════════════════════════════════════════════════════════════
+
 export const GET = withErrorHandler(async (request: NextRequest) => {
   if (STORAGE_TYPE !== "mongodb") {
-    throw new ApiError("Workflow run history requires MongoDB to be configured", 503);
+    throw new ApiError("MongoDB is required for workflow runs", 503);
   }
 
-  const { searchParams } = new URL(request.url);
-  const id = searchParams.get("id");
-  const workflow_id = searchParams.get("workflow_id");
-  const status = searchParams.get("status");
-  const limit = searchParams.get("limit");
+  const { user, session } = await getAuthFromBearerOrSession(request);
 
-  return await withAuth(request, async (req, user) => {
-    if (id) {
-      // Get single run by ID
-      const run = await getWorkflowRunByIdFromMongoDB(id, user.email);
-      if (!run) {
-        throw new ApiError("Workflow run not found", 404);
-      }
-      return NextResponse.json(run) as NextResponse;
-    } else {
-      // Get all runs with optional filters
-      const runs = await getWorkflowRunsFromMongoDB(user.email, {
-        workflow_id: workflow_id || undefined,
-        status: status || undefined,
-        limit: limit ? parseInt(limit, 10) : undefined,
-      });
-      return NextResponse.json(runs) as NextResponse;
+  const { searchParams } = new URL(request.url);
+  const runId = searchParams.get("run_id");
+
+  if (runId) {
+    // v2: Poll a specific run with events
+    const col = await getCollection<WorkflowRunDocument>("workflow_runs");
+    const run = await col.findOne({ _id: runId });
+    if (!run) {
+      throw new ApiError(`Run ${runId} not found`, 404);
     }
-  });
+
+    try {
+      await requireWorkflowRunAccess(session, run, "read");
+    } catch (err) {
+      if (err instanceof ApiError && err.statusCode === 403) {
+        throw new ApiError(`Run ${runId} not found`, 404);
+      }
+      throw err;
+    }
+
+    // Detect stale runs
+    const isStale = await detectStaleRun(run);
+    if (isStale) {
+      run.status = "failed";
+    }
+
+    // Load events for all steps
+    const events = await readEventsByRun(runId);
+    const eventsObj: Record<number, unknown[]> = {};
+    for (const [stepIndex, stepEvents] of events) {
+      eventsObj[stepIndex] = stepEvents;
+    }
+
+    return NextResponse.json({ ...run, events: eventsObj }) as NextResponse;
+  }
+
+  // Legacy: list runs for user
+  // Fire-and-forget cleanup of expired runs
+  cleanupExpiredRuns().catch(() => {});
+
+  const col = await getCollection<WorkflowRunDocument>("workflow_runs");
+  const workflowConfigId = searchParams.get("workflow_config_id");
+
+  if (workflowConfigId) {
+    const configCol = await getCollection<WorkflowConfig>("workflow_configs");
+    const config = await configCol.findOne({ _id: workflowConfigId });
+    if (!config) {
+      return NextResponse.json([]) as NextResponse;
+    }
+    const userTeamSlugs = await resolveUserTeamSlugsForWorkflow(user.email, session);
+    try {
+      await requireWorkflowConfigRunViewAccess(
+        session,
+        workflowRunAccessConfig(config),
+        user.email,
+        userTeamSlugs,
+      );
+    } catch (err) {
+      if ((err as { statusCode?: number }).statusCode === 403) {
+        return NextResponse.json([]) as NextResponse;
+      }
+      throw err;
+    }
+    const runs = await col
+      .find({ workflow_config_id: workflowConfigId })
+      .sort({ started_at: -1 })
+      .limit(100)
+      .toArray();
+    return NextResponse.json(filterRunsForOwner(runs, session)) as NextResponse;
+  }
+
+  // List all runs — filter to only those whose configs the user can read.
+  const configCol = await getCollection<WorkflowConfig>("workflow_configs");
+  const configCandidates = (await configCol
+    .find({})
+    .project({ _id: 1, owner_id: 1, visibility: 1, shared_with_teams: 1, config_driven: 1 })
+    .toArray()) as WorkflowConfigRebacSnapshot[];
+  const userTeamSlugs = await resolveUserTeamSlugsForWorkflow(user.email, session);
+  const teamRefToSlug = await buildTeamRefToSlugMap();
+  const byVisibility = filterWorkflowConfigsByRunAccess(
+    configCandidates,
+    user.email,
+    userTeamSlugs,
+    teamRefToSlug,
+  );
+  const byFga = await filterAccessibleWorkflowConfigs(
+    session,
+    configCandidates,
+    (config) => String(config._id),
+    "read",
+  );
+  const accessibleConfigs = mergeWorkflowConfigsById(byVisibility, byFga);
+
+  const accessibleIds = accessibleConfigs.map((c) => c._id);
+  if (accessibleIds.length === 0) {
+    return NextResponse.json([]) as NextResponse;
+  }
+
+  const runs = await col
+    .find({ workflow_config_id: { $in: accessibleIds } })
+    .sort({ started_at: -1 })
+    .limit(100)
+    .toArray();
+  return NextResponse.json(filterRunsForOwner(runs, session)) as NextResponse;
 });
 
-// PUT /api/workflow-runs?id=<runId> - Update an existing workflow run
+// ═══════════════════════════════════════════════════════════════
+// PUT — Update a run (legacy compat)
+// ═══════════════════════════════════════════════════════════════
+
 export const PUT = withErrorHandler(async (request: NextRequest) => {
   if (STORAGE_TYPE !== "mongodb") {
-    throw new ApiError("Workflow run history requires MongoDB to be configured", 503);
+    throw new ApiError("MongoDB is required for workflow runs", 503);
   }
 
   const { searchParams } = new URL(request.url);
   const id = searchParams.get("id");
-
   if (!id) {
     throw new ApiError("Workflow run ID is required", 400);
   }
 
-  return await withAuth(request, async (req, user) => {
-    const body: UpdateWorkflowRunInput = await request.json();
-
-    // Validate that at least one field is provided
+  return await withAuth(request, async (_req, user, session) => {
+    const body = await request.json();
     if (Object.keys(body).length === 0) {
       throw new ApiError("At least one field must be provided for update", 400);
     }
 
-    await updateWorkflowRunInMongoDB(id, body, user.email);
-    console.log(`[WorkflowRun] Updated workflow run "${id}" by ${user.email}`);
+    const col = await getCollection<WorkflowRunDocument>("workflow_runs");
+    const run = await col.findOne({ _id: id });
+    if (!run) {
+      throw new ApiError("Workflow run not found", 404);
+    }
 
-    return successResponse({
-      id,
-      message: "Workflow run updated successfully",
-    });
+    await requireWorkflowRunAccess(session, run, "write");
+
+    await col.updateOne({ _id: id }, { $set: body });
+
+    return successResponse({ id, message: "Workflow run updated successfully" });
   });
 });
 
-// DELETE /api/workflow-runs?id=<runId> - Delete a workflow run
+// ═══════════════════════════════════════════════════════════════
+// DELETE — Delete a run
+// ═══════════════════════════════════════════════════════════════
+
 export const DELETE = withErrorHandler(async (request: NextRequest) => {
   if (STORAGE_TYPE !== "mongodb") {
-    throw new ApiError("Workflow run history requires MongoDB to be configured", 503);
+    throw new ApiError("MongoDB is required for workflow runs", 503);
   }
 
   const { searchParams } = new URL(request.url);
   const id = searchParams.get("id");
-
   if (!id) {
     throw new ApiError("Workflow run ID is required", 400);
   }
 
-  return await withAuth(request, async (req, user) => {
-    await deleteWorkflowRunFromMongoDB(id, user.email);
-    console.log(`[WorkflowRun] Deleted workflow run "${id}" by ${user.email}`);
+  return await withAuth(request, async (_req, user, session) => {
+    const col = await getCollection<WorkflowRunDocument>("workflow_runs");
 
-    return successResponse({
-      id,
-      message: "Workflow run deleted successfully",
-    });
+    // Load run to get workflow_config_id for file cleanup
+    const run = await col.findOne({ _id: id });
+    if (!run) {
+      throw new ApiError("Workflow run not found", 404);
+    }
+
+    await requireWorkflowRunAccess(session, run, "delete");
+
+    // Clean up GridFS files via backend
+    try {
+      const daUrl = process.env.DYNAMIC_AGENTS_URL || "http://localhost:8100";
+      const fsNamespace = JSON.stringify([run.workflow_config_id, id, "filesystem"]);
+      await fetch(
+        `${daUrl}/api/v1/files/namespace?fs_namespace=${encodeURIComponent(fsNamespace)}`,
+        {
+          method: "DELETE",
+          headers: {
+            "X-User-Context": Buffer.from(JSON.stringify({
+              email: user.email,
+              name: user.name,
+            })).toString("base64"),
+          },
+        },
+      );
+    } catch {
+      // Best-effort file cleanup — don't block run deletion
+    }
+
+    // Clean up stream events
+    try {
+      await deleteEventsByRun(id);
+    } catch {
+      // Best-effort event cleanup
+    }
+
+    // Delete the run document
+    await col.deleteOne({ _id: id });
+
+    return successResponse({ id, message: "Workflow run deleted successfully" });
   });
 });

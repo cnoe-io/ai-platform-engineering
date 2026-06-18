@@ -24,58 +24,55 @@
  * small and trivially testable in isolation.
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import {
-  ArrowLeft,
-  ArrowRight,
-  Copy,
-  Download,
-  Eye,
-  FileCode,
-  History as HistoryIcon,
-  Loader2,
-  Save,
-  Settings as SettingsIcon,
-  ShieldCheck,
-  Wrench,
+ArrowLeft,
+ArrowRight,
+Copy,
+Download,
+Eye,
+FileCode,
+History as HistoryIcon,
+Loader2,
+Save,
+Settings as SettingsIcon,
+ShieldCheck,
+Wrench,
 } from "lucide-react";
+import { useRouter } from "next/navigation";
+import React,{ useCallback,useEffect,useMemo,useState } from "react";
 
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
-  Tabs,
-  TabsList,
-  TabsTrigger,
-  TabsContent,
-} from "@/components/ui/tabs";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
+Dialog,
+DialogContent,
+DialogDescription,
+DialogFooter,
+DialogHeader,
+DialogTitle,
 } from "@/components/ui/dialog";
+import {
+Tabs,
+TabsContent,
+TabsList,
+TabsTrigger,
+} from "@/components/ui/tabs";
 import { useToast } from "@/components/ui/toast";
 import { getConfig } from "@/lib/config";
 import { cn } from "@/lib/utils";
 
-import {
-  useSkillForm,
-} from "@/components/skills/workspace/use-skill-form";
-import {
-  SupervisorSyncBadge,
-  useSupervisorSyncStateForSkill,
-} from "@/components/skills/SupervisorSyncBadge";
+import { buildLastReview,useAiReview } from "@/components/ai-review";
 import { SkillScanStatusIndicator } from "@/components/skills/SkillScanStatusIndicator";
+import {
+useSkillForm,
+} from "@/components/skills/workspace/use-skill-form";
 import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
 import type { AgentSkill } from "@/types/agent-skill";
 
-import { OverviewTab } from "@/components/skills/workspace/tabs/OverviewTab";
 import { FilesTab } from "@/components/skills/workspace/tabs/FilesTab";
-import { ToolsTab } from "@/components/skills/workspace/tabs/ToolsTab";
 import { ScanTab } from "@/components/skills/workspace/tabs/HistoryTab";
+import { OverviewTab } from "@/components/skills/workspace/tabs/OverviewTab";
+import { ToolsTab } from "@/components/skills/workspace/tabs/ToolsTab";
 import { VersionsTab } from "@/components/skills/workspace/tabs/VersionsTab";
 
 // ---------------------------------------------------------------------------
@@ -239,11 +236,27 @@ export function SkillWorkspace({
     },
   });
 
+  // -------------------------------------------------------------------
+  // AI Review for SKILL.md
+  //
+  // The review hook lives here (not in `FilesTab`) so the wizard's
+  // Next/Save click handlers can call `review.ensurePassedOrRun()` from
+  // any step. `FilesTab` consumes the same hook result via prop and
+  // renders the button + panel in its toolbar / editor row.
+  // -------------------------------------------------------------------
+  const review = useAiReview({
+    target: "skill-md",
+    content: form.skillContent,
+    context: {
+      name: form.formData.name,
+      skill_description: form.formData.description,
+    },
+    onApplyFix: (next) => form.setSkillContentAndSyncTools(next),
+  });
+
   // History tab needs a stable id; for new (unsaved) skills there is no
   // backing audit log yet.
   const skillIdForHistory = existingConfig?.id;
-
-  const supervisorSync = useSupervisorSyncStateForSkill(existingConfig);
 
   // ---------------------------------------------------------------------
   // Unsaved-changes guard
@@ -436,7 +449,11 @@ export function SkillWorkspace({
         const body = await res.json().catch(() => ({}));
         throw new Error(body?.error || `Clone failed (${res.status})`);
       }
-      const data = await res.json();
+      const json = await res.json();
+      // Clone returns the success-envelope shape ({ success, data: { id, name } })
+      // via successResponse(); unwrap it (falling back to the flat shape) so we
+      // never navigate to /skills/workspace/undefined.
+      const data = json?.data ?? json;
       toast(`Cloned to "${data.name}"`, "success");
       router.push(`/skills/workspace/${encodeURIComponent(data.id)}`);
     } catch (err) {
@@ -496,6 +513,50 @@ export function SkillWorkspace({
   const currentStepIsFullWidth =
     visibleSteps[currentIndex]?.fullWidth ?? false;
 
+  // ---------------------------------------------------------------------
+  // Save / Next gating — when AI Review is configured as `blocking` for
+  // skill-md, both Save buttons (header + footer) and Next-from-files
+  // must run the review first and only proceed when it passes. The hook
+  // caches the last-passing hash so unmodified content doesn't re-trigger
+  // an LLM call.
+  // ---------------------------------------------------------------------
+  const handleSave = useCallback(async () => {
+    if (review.isBlocking) {
+      const ok = await review.ensurePassedOrRun();
+      if (!ok) {
+        toast(
+          "AI Review failed — address the comments in the Skill content step before saving.",
+          "error",
+        );
+        return;
+      }
+    }
+    // Stamp the latest in-memory review verdict onto the saved row so the
+    // skills gallery can show a grade badge without re-running the LLM.
+    const lastReview = buildLastReview(review.result, "skill-md");
+    await form.handleSubmit(
+      lastReview ? { last_review: lastReview } : undefined,
+    );
+  }, [review, form, toast]);
+
+  const handleNext = useCallback(async () => {
+    // Only the Files step is gated by skill-md review; advancing from
+    // any other step is unconditional. We still gate Save from any step
+    // (see `handleSave`) so the user can't sidestep the review by
+    // jumping back and clicking Save.
+    if (tab === "files" && review.isBlocking) {
+      const ok = await review.ensurePassedOrRun();
+      if (!ok) {
+        toast(
+          "AI Review failed — address the comments before continuing.",
+          "error",
+        );
+        return;
+      }
+    }
+    if (nextStep) setTab(nextStep.id);
+  }, [tab, review, toast, nextStep]);
+
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
       {/* Header */}
@@ -526,9 +587,6 @@ export function SkillWorkspace({
                 <Eye className="h-3 w-3" />
                 Read-only
               </Badge>
-            )}
-            {existingConfig && (
-              <SupervisorSyncBadge state={supervisorSync} />
             )}
             {existingConfig && (
               <SkillScanStatusIndicator config={existingConfig} />
@@ -585,7 +643,7 @@ export function SkillWorkspace({
             {!showCloneCta && (
               <Button
                 size="sm"
-                onClick={() => void form.handleSubmit()}
+                onClick={() => void handleSave()}
                 disabled={submitDisabled}
                 className="gap-1.5"
               >
@@ -703,7 +761,7 @@ export function SkillWorkspace({
               <OverviewTab form={form} />
             </TabsContent>
             <TabsContent value="files" className="mt-0 h-full outline-none">
-              <FilesTab form={form} readOnly={readOnly} />
+              <FilesTab form={form} readOnly={readOnly} review={review} />
             </TabsContent>
             <TabsContent value="tools" className="mt-0 outline-none">
               <ToolsTab form={form} />
@@ -774,7 +832,7 @@ export function SkillWorkspace({
             {isFinalStep ? (
               <Button
                 size="sm"
-                onClick={() => void form.handleSubmit()}
+                onClick={() => void handleSave()}
                 disabled={submitDisabled}
                 className="gap-1.5"
                 data-testid="skill-workspace-step-save"
@@ -789,7 +847,7 @@ export function SkillWorkspace({
             ) : (
               <Button
                 size="sm"
-                onClick={() => nextStep && setTab(nextStep.id)}
+                onClick={() => void handleNext()}
                 className="gap-1.5"
                 data-testid="skill-workspace-step-next"
               >

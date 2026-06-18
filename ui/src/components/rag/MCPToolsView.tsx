@@ -1,50 +1,51 @@
 "use client";
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
-import {
-  Plus,
-  Pencil,
-  Trash2,
-  RefreshCw,
-  Wrench,
-  ChevronDown,
-  ChevronRight,
-  Loader2,
-  AlertCircle,
-  Search,
-  X,
-  Filter,
-} from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
+import { TeamOwnershipFields } from "@/components/rbac/TeamOwnershipFields";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+Dialog,
+DialogContent,
+DialogFooter,
+DialogHeader,
+DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/toast";
-import { useRagPermissions, Permission } from "@/hooks/useRagPermissions";
+import { Permission,useRagPermissions } from "@/hooks/useRagPermissions";
 import {
-  getMCPTools,
-  createMCPTool,
-  updateMCPTool,
-  deleteMCPTool,
-  getMCPBuiltinConfig,
-  updateMCPBuiltinConfig,
-  getDataSources,
-  type MCPToolConfig,
-  type MCPBuiltinToolsConfig,
-  type ParallelSearch,
+createMCPTool,
+deleteMCPTool,
+getDataSources,
+getMCPBuiltinConfig,
+getMCPTools,
+updateMCPBuiltinConfig,
+updateMCPTool,
+type MCPBuiltinToolsConfig,
+type MCPToolConfig,
+type ParallelSearch,
 } from "@/lib/rag-api";
-import { getHealthStatus } from "./api";
 import { cn } from "@/lib/utils";
+import { AnimatePresence,motion } from "framer-motion";
+import {
+AlertCircle,
+ChevronDown,
+ChevronRight,
+Filter,
+Loader2,
+Pencil,
+Plus,
+RefreshCw,
+Search,
+Trash2,
+Wrench,
+X,
+} from "lucide-react";
+import { useCallback,useEffect,useRef,useState } from "react";
+import { getHealthStatus } from "./api";
 
 // ============================================================================
 // Constants
@@ -71,9 +72,17 @@ const DEFAULT_TOOL: Omit<MCPToolConfig, "created_at" | "updated_at"> = {
 // DatasourceChipPicker — reusable chip picker for datasource IDs
 // ============================================================================
 
+// A datasource as presented in the picker: the immutable `id`
+// (`datasource_id`, the authorization key we store) plus an optional
+// human-friendly `name` used purely for display.
+interface DatasourceOption {
+  id: string;
+  name?: string | null;
+}
+
 interface DatasourceChipPickerProps {
   selected: string[];
-  available: string[];
+  available: DatasourceOption[];
   onChange: (ids: string[]) => void;
 }
 
@@ -97,8 +106,15 @@ function DatasourceChipPicker({ selected, available, onChange }: DatasourceChipP
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
 
+  // Map id -> canonical display name for selected chips (which only carry ids).
+  const nameById = new Map(available.map((o) => [o.id, o.name?.trim() || o.id]));
+  const labelFor = (id: string) => nameById.get(id) ?? id;
+
+  const q = search.toLowerCase();
   const filtered = available.filter(
-    (id) => !selected.includes(id) && id.toLowerCase().includes(search.toLowerCase())
+    (o) =>
+      !selected.includes(o.id) &&
+      (o.id.toLowerCase().includes(q) || (o.name?.toLowerCase().includes(q) ?? false))
   );
 
   const add = (id: string) => {
@@ -113,23 +129,26 @@ function DatasourceChipPicker({ selected, available, onChange }: DatasourceChipP
     <div className="space-y-1.5">
       {selected.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
-          {selected.map((id) => (
-            <span
-              key={id}
-              className={cn(
-                "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs max-w-[200px]",
-                id.endsWith("*")
-                  ? "bg-amber-500/15 text-amber-600 dark:text-amber-400"
-                  : "bg-primary/10 text-primary"
-              )}
-              title={id}
-            >
-              <span className="truncate font-mono">{id}</span>
-              <button type="button" onClick={() => remove(id)} className="hover:opacity-70">
-                <X className="h-3 w-3" />
-              </button>
-            </span>
-          ))}
+          {selected.map((id) => {
+            const label = labelFor(id);
+            return (
+              <span
+                key={id}
+                className={cn(
+                  "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs max-w-[220px]",
+                  id.endsWith("*")
+                    ? "bg-amber-500/15 text-amber-600 dark:text-amber-400"
+                    : "bg-primary/10 text-primary"
+                )}
+                title={label !== id ? `${label}\n${id}` : id}
+              >
+                <span className="truncate">{label}</span>
+                <button type="button" onClick={() => remove(id)} className="hover:opacity-70">
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
+            );
+          })}
         </div>
       )}
 
@@ -173,18 +192,25 @@ function DatasourceChipPicker({ selected, available, onChange }: DatasourceChipP
             </p>
           ) : (
             <ul className="max-h-36 overflow-y-auto py-1">
-              {filtered.map((id) => (
-                <li key={id}>
-                  <button
-                    type="button"
-                    onMouseDown={(e) => { e.preventDefault(); add(id); }}
-                    className="w-full px-3 py-1.5 text-left text-xs hover:bg-muted"
-                    title={id}
-                  >
-                    <span className="break-all font-mono">{id}</span>
-                  </button>
-                </li>
-              ))}
+              {filtered.map((o) => {
+                const label = o.name?.trim() || o.id;
+                const showId = label !== o.id;
+                return (
+                  <li key={o.id}>
+                    <button
+                      type="button"
+                      onMouseDown={(e) => { e.preventDefault(); add(o.id); }}
+                      className="w-full px-3 py-1.5 text-left text-xs hover:bg-muted"
+                      title={showId ? `${label}\n${o.id}` : o.id}
+                    >
+                      <span className="block break-all">{label}</span>
+                      {showId && (
+                        <span className="block break-all font-mono text-[10px] text-muted-foreground">{o.id}</span>
+                      )}
+                    </button>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </div>
@@ -379,7 +405,7 @@ interface ParallelSearchRowProps {
   value: ParallelSearch;
   index: number;
   canRemove: boolean;
-  availableDatasources: string[];
+  availableDatasources: DatasourceOption[];
   validFilterKeys: string[];
   filterKeyTypes: Record<string, string>;
   onChange: (updated: ParallelSearch) => void;
@@ -491,9 +517,18 @@ function ToolFormDialog({ open, onClose, onSave, initial, isEdit }: ToolFormDial
   const [allowRuntimeFilters, setAllowRuntimeFilters] = useState(
     initial?.allow_runtime_filters ?? false
   );
+  const [ownerTeamSlug, setOwnerTeamSlug] = useState(initial?.owner_team_slug ?? "");
+  const [sharedTeamSlugs, setSharedTeamSlugs] = useState<string[]>(initial?.shared_with_teams ?? []);
+  const [sharedWithOrg, setSharedWithOrg] = useState(initial?.shared_with_org ?? false);
+  // Ownership transfer (US3): on edit the owner picker is read-only until the
+  // user invokes the transfer affordance; these track the pending transfer so
+  // the PUT carries owner_team_slug + confirm_not_member.
+  const [transferRequested, setTransferRequested] = useState(false);
+  const [transferConfirmedNotMember, setTransferConfirmedNotMember] = useState(false);
+  const [availableTeams, setAvailableTeams] = useState<Array<{ _id?: string; slug?: string; name?: string }>>([]);
   const [saving, setSaving] = useState(false);
 
-  const [availableDatasources, setAvailableDatasources] = useState<string[]>([]);
+  const [availableDatasources, setAvailableDatasources] = useState<DatasourceOption[]>([]);
   const [validFilterKeys, setValidFilterKeys] = useState<string[]>([]);
   const [filterKeyTypes, setFilterKeyTypes] = useState<Record<string, string>>({});
 
@@ -507,12 +542,25 @@ function ToolFormDialog({ open, onClose, onSave, initial, isEdit }: ToolFormDial
           : [{ ...DEFAULT_PARALLEL_SEARCH }]
       );
       setAllowRuntimeFilters(initial?.allow_runtime_filters ?? false);
+      setOwnerTeamSlug(initial?.owner_team_slug ?? "");
+      setSharedTeamSlugs(initial?.shared_with_teams ?? []);
+      setSharedWithOrg(initial?.shared_with_org ?? false);
       setSaving(false);
+
+      // Load the caller's teams for the owner picker + share multi-select.
+      fetch("/api/dynamic-agents/teams")
+        .then((res) => res.json())
+        .then((data: { success?: boolean; data?: Array<{ _id?: string; slug?: string; name?: string }> }) => {
+          if (data?.success && Array.isArray(data.data)) setAvailableTeams(data.data);
+        })
+        .catch(() => {});
 
       // Fetch datasources and filter keys in parallel
       Promise.all([
         getDataSources().then((res) => {
-          setAvailableDatasources(res.datasources.map((ds) => ds.datasource_id));
+          setAvailableDatasources(
+            res.datasources.map((ds) => ({ id: ds.datasource_id, name: ds.name }))
+          );
         }),
         getHealthStatus().then((res) => {
           setValidFilterKeys(res?.config?.search?.keys || []);
@@ -536,6 +584,16 @@ function ToolFormDialog({ open, onClose, onSave, initial, isEdit }: ToolFormDial
       enabled: initial?.enabled ?? true,
       created_at: initial?.created_at ?? 0,
       updated_at: initial?.updated_at ?? 0,
+      owner_team_slug: ownerTeamSlug.trim() || null,
+      shared_with_teams: sharedTeamSlugs,
+      shared_with_org: sharedWithOrg,
+      creator_subject: initial?.creator_subject ?? null,
+      // Transfer confirmation (US3): only send when the user actually invoked
+      // the transfer affordance, so a normal edit never trips the BFF's
+      // not-a-member transfer gate.
+      ...(transferRequested
+        ? { confirm_not_member: transferConfirmedNotMember }
+        : {}),
     };
     setSaving(true);
     try {
@@ -548,9 +606,28 @@ function ToolFormDialog({ open, onClose, onSave, initial, isEdit }: ToolFormDial
   const toolIdValid = isEdit || (toolId.length > 0 && TOOL_ID_REGEX.test(toolId));
   const canSave = toolIdValid && parallelSearches.length > 0 && parallelSearches.every((ps) => ps.label.trim().length > 0);
 
+  // The team owner/share pickers render their dropdown in a portal to
+  // `document.body` (so it can escape this dialog's `overflow-y-auto`
+  // clipping). A Radix *modal* Dialog would then trap focus away from the
+  // portaled search box (no typing) and treat row clicks as "interact
+  // outside" (no selecting). Running the dialog non-modal disables the focus
+  // trap, and the guard below keeps the dialog open while the user is
+  // interacting with that portaled popover.
+  const keepOpenForPopover = (event: { detail?: { originalEvent?: Event } } & Event) => {
+    const original = event.detail?.originalEvent;
+    const target = (original?.target ?? event.target) as HTMLElement | null;
+    if (target?.closest?.("[data-popover-content]")) {
+      event.preventDefault();
+    }
+  };
+
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()} modal={false}>
+      <DialogContent
+        className="max-w-xl max-h-[90vh] overflow-y-auto"
+        onInteractOutside={keepOpenForPopover}
+        onFocusOutside={keepOpenForPopover}
+      >
         <DialogHeader>
           <DialogTitle>{isEdit ? "Edit MCP Tool" : "Create MCP Tool"}</DialogTitle>
         </DialogHeader>
@@ -589,6 +666,78 @@ function ToolFormDialog({ open, onClose, onSave, initial, isEdit }: ToolFormDial
               placeholder="Describe what this tool searches for, shown to the LLM agent…"
               rows={3}
             />
+          </div>
+
+          {/* Ownership & sharing (spec 2026-06-03, US6). Owner team is set at
+              create and fixed on edit; sharing grants other teams can_call. */}
+          <TeamOwnershipFields
+            ownerTeamSlug={ownerTeamSlug}
+            sharedTeamSlugs={sharedTeamSlugs}
+            creatorSubject={initial?.creator_subject ?? null}
+            isEditing={isEdit}
+            ownerRequired
+            allowTransfer={isEdit}
+            resourceNoun="tool"
+            disabled={saving}
+            availableTeams={availableTeams
+              .filter((t): t is { _id?: string; slug: string; name?: string } => Boolean(t.slug))
+              .map((t) => ({ slug: t.slug, name: t.name ?? t.slug, _id: t._id }))}
+            currentUserTeamSlugs={availableTeams
+              .map((t) => t.slug)
+              .filter((s): s is string => Boolean(s))}
+            onOwnerTeamChange={setOwnerTeamSlug}
+            onSharedTeamsChange={setSharedTeamSlugs}
+            onTransfer={(_newOwnerSlug, confirmedNotMember) => {
+              setTransferRequested(true);
+              setTransferConfirmedNotMember(confirmedNotMember);
+            }}
+            shareHelpText={
+              <>
+                Teams you share with can invoke this tool. Each selected team
+                gets <code>can_call</code> on the tool in OpenFGA.
+              </>
+            }
+            renderGrantDetail={(slug) => (
+              <>
+                members of <code>team:{slug}</code> can call this tool.
+              </>
+            )}
+          />
+
+          {/* Org-wide sharing. Grants every organization member can_call on the
+              tool (in addition to the owner + shared teams). */}
+          <div className="flex items-start gap-3 rounded-lg border border-border/50 bg-muted/20 p-3">
+            <button
+              type="button"
+              role="switch"
+              aria-checked={sharedWithOrg}
+              disabled={saving}
+              onClick={() => setSharedWithOrg((v) => !v)}
+              title={sharedWithOrg ? "Stop sharing with the whole organization" : "Share with the whole organization"}
+              className={cn(
+                "relative w-9 shrink-0 rounded-full transition-colors mt-0.5",
+                sharedWithOrg ? "bg-primary" : "bg-muted",
+                saving && "opacity-50 cursor-not-allowed"
+              )}
+              style={{ height: "20px" }}
+            >
+              <span
+                className={cn(
+                  "absolute top-0.5 h-3.5 w-3.5 rounded-full bg-white shadow transition-all",
+                  sharedWithOrg ? "left-[calc(100%-16px)]" : "left-0.5"
+                )}
+              />
+            </button>
+            <div className="min-w-0">
+              <Label className="cursor-pointer" onClick={() => !saving && setSharedWithOrg((v) => !v)}>
+                Share with the whole organization
+              </Label>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Every organization member gets <code>can_call</code> on this tool
+                (grants <code>organization#member</code> reader/user/caller in OpenFGA).
+                Useful for shared knowledge-base search tools.
+              </p>
+            </div>
           </div>
 
           {/* Parallel Searches */}
@@ -807,12 +956,14 @@ function BuiltinConfigSection({ config, canEdit, onUpdate }: BuiltinConfigSectio
 interface ToolCardProps {
   tool: MCPToolConfig;
   canEdit: boolean;
+  /** datasource_id → canonical display name; missing ids fall back to the id. */
+  datasourceNameById: Map<string, string>;
   onEdit: (tool: MCPToolConfig) => void;
   onDelete: (toolId: string) => void;
   onToggleEnabled: (tool: MCPToolConfig) => void;
 }
 
-function ToolCard({ tool, canEdit, onEdit, onDelete, onToggleEnabled }: ToolCardProps) {
+function ToolCard({ tool, canEdit, datasourceNameById, onEdit, onDelete, onToggleEnabled }: ToolCardProps) {
   const [expanded, setExpanded] = useState(false);
 
   return (
@@ -912,20 +1063,28 @@ function ToolCard({ tool, canEdit, onEdit, onDelete, onToggleEnabled }: ToolCard
                   </div>
                   {ps.datasource_ids.length > 0 && (
                     <div className="flex flex-wrap gap-1">
-                      {ps.datasource_ids.map((id) => (
-                        <span
-                          key={id}
-                          className={cn(
-                            "text-[11px] font-mono px-1.5 py-0.5 rounded",
-                            id.endsWith("*")
-                              ? "bg-amber-500/15 text-amber-600 dark:text-amber-400"
-                              : "bg-primary/10 text-primary"
-                          )}
-                          title={id}
-                        >
-                          {id.length > 30 ? id.slice(0, 28) + "…" : id}
-                        </span>
-                      ))}
+                      {ps.datasource_ids.map((id) => {
+                        // Wildcards (e.g. `src_*`) have no canonical name; show
+                        // them verbatim. Otherwise prefer the display name and
+                        // keep the id in the tooltip.
+                        const isWildcard = id.endsWith("*");
+                        const label = isWildcard ? id : datasourceNameById.get(id) ?? id;
+                        const showId = label !== id;
+                        return (
+                          <span
+                            key={id}
+                            className={cn(
+                              "text-[11px] font-mono px-1.5 py-0.5 rounded",
+                              isWildcard
+                                ? "bg-amber-500/15 text-amber-600 dark:text-amber-400"
+                                : "bg-primary/10 text-primary"
+                            )}
+                            title={showId ? `${label}\n${id}` : id}
+                          >
+                            {label.length > 30 ? label.slice(0, 28) + "…" : label}
+                          </span>
+                        );
+                      })}
                     </div>
                   )}
                   {Object.keys(ps.extra_filters).length > 0 && (
@@ -957,6 +1116,9 @@ export default function MCPToolsView() {
   const { toast } = useToast();
 
   const [tools, setTools] = useState<MCPToolConfig[]>([]);
+  // Map of datasource_id → canonical display name, so saved-tool cards can
+  // show human-friendly labels instead of raw ids. Falls back to the id.
+  const [datasourceNameById, setDatasourceNameById] = useState<Map<string, string>>(new Map());
   const [builtinConfig, setBuiltinConfig] = useState<MCPBuiltinToolsConfig>({
     search_enabled: true,
     fetch_document_enabled: true,
@@ -984,6 +1146,16 @@ export default function MCPToolsView() {
       ]);
       setTools(fetchedTools);
       setBuiltinConfig(fetchedBuiltin);
+      // Datasource names are best-effort: a failure here must not block the
+      // tools list, so fetch separately and swallow errors (cards fall back
+      // to showing the raw id).
+      getDataSources()
+        .then((res) =>
+          setDatasourceNameById(
+            new Map(res.datasources.map((ds) => [ds.datasource_id, ds.name?.trim() || ds.datasource_id])),
+          ),
+        )
+        .catch(() => undefined);
     } catch (err) {
       setError(String(err));
     } finally {
@@ -1140,6 +1312,7 @@ export default function MCPToolsView() {
                         key={tool.tool_id}
                         tool={tool}
                         canEdit={canEdit}
+                        datasourceNameById={datasourceNameById}
                         onEdit={(t) => {
                           setEditingTool(t);
                           setDialogOpen(true);

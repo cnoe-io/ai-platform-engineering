@@ -6,10 +6,10 @@
  * Full Sigma.js graph visualization for ontology and data exploration.
  */
 
-import React, { useState, useCallback, useEffect } from 'react';
+import { GitFork,Loader2 } from 'lucide-react';
 import dynamic from 'next/dynamic';
+import { useCallback,useEffect,useState } from 'react';
 import { getHealthStatus } from './api';
-import { Loader2, GitFork } from 'lucide-react';
 
 // Dynamically import Sigma components with SSR disabled
 // This is required because Sigma.js uses browser-only APIs

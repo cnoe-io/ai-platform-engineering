@@ -132,7 +132,7 @@ helm show values oci://ghcr.io/cnoe-io/charts/supervisor-agent --version 0.2.38
 | serviceAccount.create | bool | `true` | Create a service account |
 | serviceAccount.name | string | `""` | Override the service account name. Generated from fullname template when empty |
 | slim.enabled | bool | `false` | Enable SLIM transport (standalone fallback; in production provided by global.slim) |
-| slim.endpoint | string | `"http://ai-platform-engineering-slim:46357"` | SLIM endpoint URL |
+| slim.endpoint | string | `""` | SLIM endpoint URL |
 | slim.transport | string | `"slim"` | Transport label passed to agents |
 | tolerations | list | `[]` | Pod tolerations |
 | volumeMounts | list | `[]` | Extra volume mounts |

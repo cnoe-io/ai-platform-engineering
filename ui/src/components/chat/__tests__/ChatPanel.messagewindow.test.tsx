@@ -36,9 +36,11 @@ jest.mock('next-auth/react', () => ({
 
 jest.mock('framer-motion', () => ({
   motion: {
+    // eslint-disable-next-line react/display-name
     div: React.forwardRef(({ children, initial, animate, exit, transition, whileHover, whileTap, onMouseEnter, onMouseLeave, ...props }: any, ref: any) => (
       <div ref={ref} onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} {...props}>{children}</div>
     )),
+    // eslint-disable-next-line react/display-name
     button: React.forwardRef(({ children, ...props }: any, ref: any) => <button ref={ref} {...props}>{children}</button>),
   },
   AnimatePresence: ({ children }: any) => <>{children}</>,
@@ -125,6 +127,7 @@ jest.mock('react-syntax-highlighter/dist/esm/styles/prism', () => ({
 }))
 
 jest.mock('react-textarea-autosize', () => {
+  // eslint-disable-next-line react/display-name
   return React.forwardRef((props: any, ref: any) => <textarea ref={ref} {...props} />)
 })
 
@@ -148,6 +151,7 @@ jest.mock('@/components/shared/timeline/MarkdownRenderer', () => ({
 }))
 
 jest.mock('@/components/ui/scroll-area', () => ({
+  // eslint-disable-next-line react/display-name
   ScrollArea: React.forwardRef(({ children, viewportRef, ...props }: any, ref: any) => {
     const setViewportRef = React.useCallback((node: HTMLDivElement | null) => {
       if (viewportRef) {
@@ -173,8 +177,10 @@ jest.mock('@/components/ui/tooltip', () => ({
   Tooltip: ({ children }: any) => <>{children}</>,
   TooltipContent: ({ children }: any) => <div>{children}</div>,
   TooltipProvider: ({ children }: any) => <>{children}</>,
+  // eslint-disable-next-line react/display-name
   TooltipTrigger: React.forwardRef(({ children, asChild, ...props }: any, ref: any) => {
     if (asChild && React.isValidElement(children)) {
+      // eslint-disable-next-line react-hooks/refs
       return React.cloneElement(children as React.ReactElement<any>, { ref, ...props })
     }
     return <div ref={ref} {...props}>{children}</div>
@@ -182,6 +188,7 @@ jest.mock('@/components/ui/tooltip', () => ({
 }))
 
 jest.mock('@/components/ui/button', () => ({
+  // eslint-disable-next-line react/display-name
   Button: React.forwardRef(({ children, ...props }: any, ref: any) => (
     <button ref={ref} {...props}>{children}</button>
   )),
@@ -243,6 +250,7 @@ describe('SupervisorChatPanel — Message Windowing', () => {
 
     // Restore useChatStore mock to default (may have been overridden by
     // conversation switch tests that call mockImplementation directly)
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { useChatStore } = require('@/store/chat-store')
     ;(useChatStore as jest.Mock).mockImplementation(() => ({
       activeConversationId: mockActiveConversationId,
@@ -434,6 +442,7 @@ describe('SupervisorChatPanel — Message Windowing', () => {
       })
 
       // Force re-render by updating the store mock
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { useChatStore } = require('@/store/chat-store')
       ;(useChatStore as jest.Mock).mockImplementation(() => ({
         activeConversationId: 'conv-2',

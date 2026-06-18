@@ -1,19 +1,19 @@
 "use client";
 
-import React, { useState, useEffect, useMemo, useRef } from "react";
-import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { useSession } from "next-auth/react";
-import { SupervisorChatView } from "@/components/chat/PlatformEngineerChatView";
 import { ChatView } from "@/components/chat/DynamicAgentChatView";
-import { getConfig } from "@/lib/config";
-import { apiClient } from "@/lib/api-client";
-import { useChatStore } from "@/store/chat-store";
-import { getStorageMode } from "@/lib/storage-config";
+import { SupervisorChatView } from "@/components/chat/PlatformEngineerChatView";
 import { CAIPESpinner } from "@/components/ui/caipe-spinner";
-import type { Conversation } from "@/types/mongodb";
+import { apiClient } from "@/lib/api-client";
+import { getConfig } from "@/lib/config";
+import { getStorageMode } from "@/lib/storage-config";
+import { useChatStore } from "@/store/chat-store";
 import type { Conversation as LocalConversation } from "@/types/a2a";
-import { getAgentId, isDynamicAgentConversation } from "@/types/a2a";
+import { getAgentId,isDynamicAgentConversation } from "@/types/a2a";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
+import type { Conversation } from "@/types/mongodb";
+import { useSession } from "next-auth/react";
+import { useParams,useRouter,useSearchParams } from "next/navigation";
+import { useEffect,useMemo,useRef,useState } from "react";
 
 /**
  * ChatContainer - renders the appropriate chat view based on conversation type.
@@ -452,17 +452,8 @@ export function ChatContainer() {
       conversationId={uuid}
       conversationTitle={conversationTitle}
       selectedAgentId={selectedAgentId}
-      agentName={agentInfo?.name}
-      agentDescription={agentInfo?.description}
-      agentModel={agentInfo?.model?.id}
-      agentVisibility={agentInfo?.visibility}
-      agentGradient={agentInfo?.ui?.gradient_theme}
-      agentCustomTheme={agentInfo?.ui?.custom_theme_config}
-      allowedTools={agentInfo?.allowed_tools}
-      subagents={agentInfo?.subagents}
-      agentSkills={agentInfo?.skills ?? []}
+      agent={agentInfo}
       agentNotFound={agentNotFound}
-      agentDisabled={agentInfo?.enabled === false}
       readOnly={isReadOnly}
       readOnlyReason={readOnlyReason}
       adminOrigin={adminOrigin}

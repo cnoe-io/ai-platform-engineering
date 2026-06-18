@@ -1,24 +1,24 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  CheckCircle2,
-  Loader2,
-  ShieldAlert,
-  ShieldQuestion,
-  Zap,
+CheckCircle2,
+Loader2,
+ShieldAlert,
+ShieldQuestion,
+Zap,
 } from "lucide-react";
+import { useCallback,useEffect,useMemo,useState } from "react";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
+Dialog,
+DialogContent,
+DialogDescription,
+DialogFooter,
+DialogHeader,
+DialogTitle,
 } from "@/components/ui/dialog";
-import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import type { ScanStatus } from "@/types/agent-skill";
 

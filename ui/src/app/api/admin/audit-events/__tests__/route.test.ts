@@ -1,0 +1,352 @@
+/**
+ * @jest-environment node
+ */
+
+// assisted-by Codex Codex-sonnet-4-6
+
+import { NextRequest } from "next/server";
+
+const mockGetServerSession = jest.fn();
+const mockRequireRbacPermission = jest.fn();
+const mockGetCollection = jest.fn();
+
+jest.mock("next-auth", () => ({
+  getServerSession: (...args: unknown[]) => mockGetServerSession(...args),
+}));
+
+jest.mock("@/lib/auth-config", () => ({
+  authOptions: {},
+}));
+
+jest.mock("@/lib/api-middleware", () => {
+  class ApiError extends Error {
+    status: number;
+    code?: string;
+
+    constructor(message: string, status = 500, code?: string) {
+      super(message);
+      this.status = status;
+      this.code = code;
+    }
+  }
+
+  return {
+    ApiError,
+    requireRbacPermission: (...args: unknown[]) => mockRequireRbacPermission(...args),
+    withErrorHandler:
+      <T,>(handler: (request: NextRequest, context?: unknown) => Promise<T>) =>
+      (request: NextRequest, context?: unknown) =>
+        handler(request, context),
+  };
+});
+
+jest.mock("@/lib/mongodb", () => ({
+  getCollection: (...args: unknown[]) => mockGetCollection(...args),
+  isMongoDBConfigured: true,
+}));
+
+interface TestAuditDoc {
+  ts: Date;
+  type: string;
+  tenant_id: string;
+  subject_hash: string;
+  user_email?: string;
+  action: string;
+  outcome: string;
+  correlation_id: string;
+  source: string;
+  agent_name?: string;
+  tool_name?: string;
+  actor_hash?: string;
+  caller_ref?: string;
+  grantee_ref?: string;
+  operation?: string;
+  reason_code?: string;
+  resource_ref?: string;
+  resource_type?: string;
+  resource_id?: string;
+  workflow_run_id?: string;
+  decision_via?: string;
+  component?: string;
+  pdp?: string;
+}
+
+const docs: TestAuditDoc[] = [
+  {
+    ts: new Date("2026-05-17T16:59:23.000Z"),
+    type: "auth",
+    tenant_id: "default",
+    subject_hash: "sha256:workflow-owner",
+    user_email: "sraradhy@cisco.com",
+    action: "admin_ui#view",
+    outcome: "allow",
+    correlation_id: "admin-view-correlation",
+    source: "webui_backend",
+  },
+  {
+    ts: new Date("2026-05-17T16:59:24.000Z"),
+    type: "auth",
+    tenant_id: "default",
+    subject_hash: "hash-audit-view",
+    action: "admin_ui#audit.view",
+    outcome: "allow",
+    correlation_id: "audit-view-correlation",
+    source: "webui_backend",
+  },
+  {
+    ts: new Date("2026-05-17T16:59:25.000Z"),
+    type: "auth",
+    tenant_id: "default",
+    subject_hash: "hash-system-config",
+    action: "system_config#read",
+    outcome: "allow",
+    correlation_id: "system-config-correlation",
+    source: "webui_backend",
+  },
+  {
+    ts: new Date("2026-05-17T16:59:26.000Z"),
+    type: "tool_action",
+    tenant_id: "default",
+    subject_hash: "hash-tool",
+    action: "argocd_list_applications",
+    outcome: "success",
+    correlation_id: "tool-correlation",
+    source: "supervisor",
+    agent_name: "argocd",
+    tool_name: "argocd_list_applications",
+  },
+  {
+    ts: new Date("2026-05-17T16:59:27.000Z"),
+    type: "agent_delegation",
+    tenant_id: "default",
+    subject_hash: "hash-delegation",
+    action: "delegate_to_argocd",
+    outcome: "success",
+    correlation_id: "delegation-correlation",
+    source: "supervisor",
+    agent_name: "argocd",
+  },
+  {
+    ts: new Date("2026-05-17T16:59:28.000Z"),
+    type: "openfga_rebac",
+    tenant_id: "default",
+    subject_hash: "hash-openfga",
+    action: "agent#use",
+    outcome: "allow",
+    correlation_id: "openfga-correlation",
+    source: "webui_backend",
+  },
+  {
+    ts: new Date("2026-05-17T16:59:28.500Z"),
+    type: "cas_decision",
+    tenant_id: "default",
+    subject_hash: "sha256:workflow-owner",
+    action: "use",
+    outcome: "allow",
+    correlation_id: "wfrun-20260517165928-abc",
+    source: "cas",
+    reason_code: "OK",
+    resource_ref: "agent:hello-world",
+    resource_type: "agent",
+    resource_id: "hello-world",
+    workflow_run_id: "wfrun-20260517165928-abc",
+    decision_via: "tuple",
+    component: "cas",
+    pdp: "openfga",
+  },
+  {
+    ts: new Date("2026-05-17T16:59:29.000Z"),
+    type: "cas_grant",
+    tenant_id: "acme",
+    subject_hash: "hash-caller",
+    actor_hash: "hash-caller",
+    action: "use",
+    outcome: "success",
+    correlation_id: "grant-success-correlation",
+    source: "cas",
+    caller_ref: "user:alice",
+    grantee_ref: "team:eng",
+    operation: "grant",
+    resource_ref: "agent:platform-engineer",
+    component: "cas",
+    pdp: "openfga",
+  },
+  {
+    ts: new Date("2026-05-17T16:59:30.000Z"),
+    type: "cas_grant",
+    tenant_id: "acme",
+    subject_hash: "hash-caller",
+    actor_hash: "hash-caller",
+    action: "use",
+    outcome: "error",
+    correlation_id: "grant-deny-correlation",
+    source: "cas",
+    caller_ref: "user:alice",
+    grantee_ref: "team:eng",
+    operation: "grant",
+    reason_code: "NO_CAPABILITY",
+    resource_ref: "agent:platform-engineer",
+    component: "cas",
+    pdp: "openfga",
+  },
+];
+
+function applyFilter(filter: Record<string, unknown>): TestAuditDoc[] {
+  return docs.filter((doc) => {
+    if (filter.type && doc.type !== filter.type) return false;
+    const subjectHash = filter.subject_hash as { $in?: string[] } | undefined;
+    if (subjectHash?.$in && !subjectHash.$in.includes(doc.subject_hash)) return false;
+    const emailFilter = filter.user_email as { $exists?: boolean; $ne?: unknown } | undefined;
+    if (emailFilter?.$exists === true && !doc.user_email) return false;
+    if (emailFilter?.$ne === "" && doc.user_email === "") return false;
+    const action = filter.action as { $ne?: string; $nin?: string[] } | undefined;
+    if (action?.$ne && doc.action === action.$ne) return false;
+    if (action?.$nin?.includes(doc.action)) return false;
+    return true;
+  });
+}
+
+function mockAuditCollection() {
+  return {
+    countDocuments: jest.fn(async (filter: Record<string, unknown>) => applyFilter(filter).length),
+    find: jest.fn((filter: Record<string, unknown>) => {
+      const filtered = applyFilter(filter);
+      const chain = {
+        sort: jest.fn(() => chain),
+        project: jest.fn(() => chain),
+        skip: jest.fn(() => chain),
+        limit: jest.fn(() => chain),
+        toArray: jest.fn(async () => filtered),
+      };
+      return chain;
+    }),
+  };
+}
+
+function request(path: string): NextRequest {
+  return new NextRequest(new URL(path, "http://localhost:3000"));
+}
+
+beforeEach(() => {
+  jest.clearAllMocks();
+  mockGetServerSession.mockResolvedValue({
+    accessToken: "token",
+    sub: "admin-sub",
+    org: undefined,
+    user: { email: "admin@example.com" },
+  });
+  mockRequireRbacPermission.mockResolvedValue(undefined);
+  mockGetCollection.mockResolvedValue(mockAuditCollection());
+});
+
+describe("GET /api/admin/audit-events", () => {
+  it("returns all audit event rows by default", async () => {
+    const { GET } = await import("../route");
+
+    const response = await GET(request("/api/admin/audit-events"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.records.map((record: TestAuditDoc) => record.action)).toEqual([
+      "admin_ui#view",
+      "admin_ui#audit.view",
+      "system_config#read",
+      "argocd_list_applications",
+      "delegate_to_argocd",
+      "agent#use",
+      "use",
+      "use",
+      "use",
+    ]);
+    expect(body.records.map((record: TestAuditDoc) => record.type)).toEqual([
+      "auth",
+      "auth",
+      "auth",
+      "tool_action",
+      "agent_delegation",
+      "openfga_rebac",
+      "cas_decision",
+      "cas_grant",
+      "cas_grant",
+    ]);
+  });
+
+  it("includes admin UI view authorization rows when authorization type is explicitly selected", async () => {
+    const { GET } = await import("../route");
+
+    const response = await GET(request("/api/admin/audit-events?type=auth"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.records.map((record: TestAuditDoc) => record.action)).toEqual([
+      "admin_ui#view",
+      "admin_ui#audit.view",
+      "system_config#read",
+    ]);
+  });
+
+  it("filters cas_grant policy-change events and maps grant audit fields", async () => {
+    const { GET } = await import("../route");
+
+    const response = await GET(request("/api/admin/audit-events?type=cas_grant"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.records).toHaveLength(2);
+    expect(body.records[0]).toMatchObject({
+      type: "cas_grant",
+      outcome: "success",
+      operation: "grant",
+      caller_ref: "user:alice",
+      grantee_ref: "team:eng",
+      resource_ref: "agent:platform-engineer",
+      source: "cas",
+      tenant_id: "acme",
+    });
+    expect(body.records[1]).toMatchObject({
+      type: "cas_grant",
+      outcome: "error",
+      reason_code: "NO_CAPABILITY",
+      operation: "grant",
+    });
+  });
+
+  it("preserves CAS resource and workflow fields for downloadable audit evidence", async () => {
+    const { GET } = await import("../route");
+
+    const response = await GET(request("/api/admin/audit-events?type=cas_decision"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.records).toHaveLength(1);
+    expect(body.records[0]).toMatchObject({
+      type: "cas_decision",
+      outcome: "allow",
+      action: "use",
+      reason_code: "OK",
+      resource_ref: "agent:hello-world",
+      resource_type: "agent",
+      resource_id: "hello-world",
+      workflow_run_id: "wfrun-20260517165928-abc",
+      decision_via: "tuple",
+      user_email: "sraradhy@cisco.com",
+      source: "cas",
+      component: "cas",
+      pdp: "openfga",
+    });
+  });
+
+  it("enriches rows missing user_email from matching subject_hash audit rows", async () => {
+    const { GET } = await import("../route");
+
+    const response = await GET(request("/api/admin/audit-events?type=cas_decision"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.records[0]).toMatchObject({
+      type: "cas_decision",
+      subject_hash: "sha256:workflow-owner",
+      user_email: "sraradhy@cisco.com",
+    });
+  });
+});

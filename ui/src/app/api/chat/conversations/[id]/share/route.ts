@@ -2,27 +2,26 @@
 // POST /api/chat/conversations/[id]/share - Share conversation with users
 // DELETE /api/chat/conversations/[id]/share/[userId] handled in separate file
 
-import { NextRequest } from 'next/server';
-import { ObjectId } from 'mongodb';
-import { getCollection } from '@/lib/mongodb';
 import {
-  withAuth,
-  withErrorHandler,
-  successResponse,
-  ApiError,
-  requireOwnership,
-  validateUUID,
-  validateRequired,
-  validateEmail,
+ApiError,
+successResponse,
+validateEmail,
+validateUUID,
+withAuth,
+withErrorHandler
 } from '@/lib/api-middleware';
-import type { Conversation, ShareConversationRequest, SharingAccess } from '@/types/mongodb';
+import { getCollection } from '@/lib/mongodb';
+import { requireConversationResourcePermission } from '@/lib/rbac/conversation-implicit-authz';
+import type { Conversation,ShareConversationRequest,SharingAccess } from '@/types/mongodb';
+import { ObjectId } from 'mongodb';
+import { NextRequest } from 'next/server';
 
 // GET /api/chat/conversations/[id]/share
 export const GET = withErrorHandler(async (
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) => {
-  return withAuth(request, async (req, user) => {
+  return withAuth(request, async (req, user, session) => {
     const params = await context.params;
     const conversationId = params.id;
 
@@ -37,7 +36,7 @@ export const GET = withErrorHandler(async (
       throw new ApiError('Conversation not found', 404);
     }
 
-    requireOwnership(conversation.owner_id, user.email);
+    await requireConversationResourcePermission(session, user.email, conversation, 'share');
 
     const sharingAccess = await getCollection<SharingAccess>('sharing_access');
     const accessList = await sharingAccess
@@ -59,7 +58,7 @@ export const POST = withErrorHandler(async (
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) => {
-  return withAuth(request, async (req, user) => {
+  return withAuth(request, async (req, user, session) => {
     const params = await context.params;
     const conversationId = params.id;
     const body: ShareConversationRequest = await request.json();
@@ -87,7 +86,7 @@ export const POST = withErrorHandler(async (
       throw new ApiError('Conversation not found', 404);
     }
 
-    requireOwnership(conversation.owner_id, user.email);
+    await requireConversationResourcePermission(session, user.email, conversation, 'share');
 
     const now = new Date();
     const sharingAccess = await getCollection<SharingAccess>('sharing_access');
@@ -190,7 +189,7 @@ export const PATCH = withErrorHandler(async (
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) => {
-  return withAuth(request, async (req, user) => {
+  return withAuth(request, async (req, user, session) => {
     const params = await context.params;
     const conversationId = params.id;
     const body = await request.json();
@@ -213,7 +212,7 @@ export const PATCH = withErrorHandler(async (
       throw new ApiError('Conversation not found', 404);
     }
 
-    requireOwnership(conversation.owner_id, user.email);
+    await requireConversationResourcePermission(session, user.email, conversation, 'share');
 
     if (email) {
       const sharingAccess = await getCollection<SharingAccess>('sharing_access');

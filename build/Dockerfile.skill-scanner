@@ -61,8 +61,14 @@ WORKDIR /app
 ARG SKILL_SCANNER_VERSION
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv venv --python python3.13 /app/.venv \
-    && UV_HTTP_TIMEOUT=300 uv pip install --python /app/.venv/bin/python \
+    && UV_HTTP_TIMEOUT=900 uv pip install --python /app/.venv/bin/python \
         "cisco-ai-skill-scanner==${SKILL_SCANNER_VERSION}"
+
+# Temporary patch for cisco-ai-skill-scanner 2.0.11: map malformed SKILL.md
+# loader failures to HTTP validation responses instead of generic 500s.
+COPY build/skill-scanner-patches/patch_router_validation_errors.py /tmp/patch_router_validation_errors.py
+RUN /app/.venv/bin/python /tmp/patch_router_validation_errors.py \
+    && rm /tmp/patch_router_validation_errors.py
 
 ENV PATH="/app/.venv/bin:${PATH}" \
     UV_PROJECT_ENVIRONMENT="/app/.venv" \

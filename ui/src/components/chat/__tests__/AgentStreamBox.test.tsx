@@ -22,6 +22,7 @@ import { render, screen, fireEvent, act } from '@testing-library/react'
 // Mock framer-motion
 jest.mock('framer-motion', () => ({
   motion: {
+    // eslint-disable-next-line react/display-name
     div: React.forwardRef(({ children, initial, animate, exit, transition, ...props }: any, ref: any) => (
       <div ref={ref} {...props}>{children}</div>
     )),
@@ -55,7 +56,7 @@ jest.mock('@/components/shared/AgentLogos', () => ({
 // ============================================================================
 
 import { AgentStreamBox } from '../AgentStreamBox'
-import type { StreamEvent } from '@/components/dynamic-agents/sse-types'
+import type { StreamEvent } from '@/lib/streaming/types'
 
 // ============================================================================
 // Helpers

@@ -9,6 +9,7 @@ import logging
 from typing import Optional, Dict, Tuple, Any
 import httpx
 from dotenv import load_dotenv
+from mcp_agent_auth.token import get_request_token
 
 # Load environment variables
 load_dotenv()
@@ -30,10 +31,15 @@ logger = logging.getLogger("confluence_mcp")
 
 
 def get_env() -> Optional[str]:
-    """Retrieve the environment variables."""
-    token = os.getenv("ATLASSIAN_TOKEN") or os.getenv("ATLASSIAN_API_TOKEN") or os.getenv("CONFLUENCE_API_TOKEN") or os.getenv("CONFLUENCE_TOKEN")
+    """Retrieve the Atlassian API token from request header or environment."""
+    token = (
+        get_request_token("ATLASSIAN_TOKEN")
+        or get_request_token("ATLASSIAN_API_TOKEN")
+        or get_request_token("CONFLUENCE_API_TOKEN")
+        or get_request_token("CONFLUENCE_TOKEN")
+    )
     if not token:
-        logger.warning("ATLASSIAN_TOKEN is not set in environment variables.")
+        logger.warning("ATLASSIAN_TOKEN is not set and no Authorization header provided.")
     return token
 
 async def make_api_request(

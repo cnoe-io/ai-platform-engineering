@@ -8,6 +8,13 @@
 .docusaurus
 .cache-loader
 
+# Versioned docs are generated at build time from release tags
+# (see scripts/generate-versioned-docs.js); never commit the snapshots.
+/versioned_docs
+/versioned_sidebars
+/versions.json
+/versions-config.json
+
 # Misc
 .DS_Store
 .env.local

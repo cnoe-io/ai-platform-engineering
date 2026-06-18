@@ -1,23 +1,23 @@
 // POST /api/chat/conversations/[id]/pin - Toggle pin status
 
-import { NextRequest } from 'next/server';
-import { getCollection } from '@/lib/mongodb';
 import {
-  withAuth,
-  withErrorHandler,
-  successResponse,
-  ApiError,
-  requireOwnership,
-  validateUUID,
+ApiError,
+successResponse,
+validateUUID,
+withAuth,
+withErrorHandler,
 } from '@/lib/api-middleware';
+import { getCollection } from '@/lib/mongodb';
+import { requireConversationResourcePermission } from '@/lib/rbac/conversation-implicit-authz';
 import type { Conversation } from '@/types/mongodb';
+import { NextRequest } from 'next/server';
 
 // POST /api/chat/conversations/[id]/pin
 export const POST = withErrorHandler(async (
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) => {
-  return withAuth(request, async (req, user) => {
+  return withAuth(request, async (req, user, session) => {
     const params = await context.params;
     const conversationId = params.id;
 
@@ -32,7 +32,7 @@ export const POST = withErrorHandler(async (
       throw new ApiError('Conversation not found', 404);
     }
 
-    requireOwnership(conversation.owner_id, user.email);
+    await requireConversationResourcePermission(session, user.email, conversation, 'write');
 
     // Toggle pin status
     const newStatus = !conversation.is_pinned;

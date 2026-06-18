@@ -1,14 +1,15 @@
-import { NextRequest } from "next/server";
-import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import {
-  withAuth,
-  withErrorHandler,
-  successResponse,
-  ApiError,
+ApiError,
+successResponse,
+withAuth,
+withErrorHandler,
 } from "@/lib/api-middleware";
-import { scanSkillContent, isSkillScannerConfigured } from "@/lib/skill-scan";
+import type { HubSkillDoc,SkillHubDoc } from "@/lib/hub-crawl";
+import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
+import { requireResourcePermission } from "@/lib/rbac/resource-authz";
+import { isSkillScannerConfigured,scanSkillContent } from "@/lib/skill-scan";
 import { recordScanEvent } from "@/lib/skill-scan-history";
-import type { HubSkillDoc, SkillHubDoc } from "@/lib/hub-crawl";
+import { NextRequest } from "next/server";
 
 const STORAGE_TYPE = isMongoDBConfigured ? "mongodb" : "none";
 
@@ -35,7 +36,7 @@ export const POST = withErrorHandler(
       throw new ApiError("hubId and skillId are required", 400);
     }
 
-    return await withAuth(request, async (_req, user) => {
+    return await withAuth(request, async (_req, user, session) => {
       const hubsCol = await getCollection<SkillHubDoc>("skill_hubs");
       const hub = await hubsCol.findOne({ id: hubId });
       if (!hub) {
@@ -53,6 +54,11 @@ export const POST = withErrorHandler(
           404,
         );
       }
+      await requireResourcePermission(session, {
+        type: "skill",
+        id: `hub-${hubId}-${skillId}`,
+        action: "admin",
+      });
 
       const content = doc.content?.trim();
       if (!content) {

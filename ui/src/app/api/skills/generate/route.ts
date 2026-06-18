@@ -1,8 +1,8 @@
-import { NextRequest } from "next/server";
 import { authenticateRequest } from "@/lib/da-proxy";
-import { fetchAssistantSuggest } from "@/lib/server/assistant-suggest-da";
-import { getAiAssistTask } from "@/lib/server/ai-assist-tasks";
 import { getCollection } from "@/lib/mongodb";
+import { getAiAssistTask } from "@/lib/server/ai-assist-tasks";
+import { fetchAssistantSuggest } from "@/lib/server/assistant-suggest-da";
+import { NextRequest } from "next/server";
 
 export const dynamic = "force-dynamic";
 

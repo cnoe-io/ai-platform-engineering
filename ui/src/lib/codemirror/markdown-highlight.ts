@@ -14,7 +14,7 @@
  * our rules only add properties oneDark doesn't set (fontSize,
  * backgroundColor) or target tags oneDark leaves unstyled.
  */
-import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
+import { HighlightStyle,syntaxHighlighting } from "@codemirror/language";
 import { tags } from "@lezer/highlight";
 
 const markdownHighlightStyle = HighlightStyle.define([

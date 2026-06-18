@@ -1,28 +1,34 @@
+# syntax=docker/dockerfile:1.7
 # CAIPE UI Dockerfile
 # Multi-stage build for Next.js application with nginx reverse proxy
 # Pattern based on RAG webui Dockerfile
+# assisted-by Codex Codex-sonnet-4-6
 
 # ---------- Stage 1: Install dependencies ----------
 # Pin to BUILDPLATFORM so npm ci runs natively (avoids QEMU "Illegal instruction"
 # crashes when cross-compiling arm64 on amd64 CI runners).
-ARG BUILDPLATFORM
-FROM --platform=$BUILDPLATFORM node:20-alpine AS deps
+FROM --platform=$BUILDPLATFORM node:24-alpine AS deps
 RUN apk add --no-cache libc6-compat
 WORKDIR /app
 
 # Install dependencies with cache and network resilience
 COPY ui/package.json ui/package-lock.json* ui/yarn.lock* ui/pnpm-lock.yaml* ./
 
-# Configure npm for better network resilience
-RUN npm config set fetch-retries 5 && \
+# Configure npm for better network resilience. The cache mount keeps downloaded
+# tarballs on the host between local Docker builds without baking them into the
+# image layer.
+RUN --mount=type=cache,id=caipe-ui-npm-cache,target=/root/.npm,sharing=locked \
+    npm config set cache /root/.npm && \
+    npm config set fetch-retries 5 && \
     npm config set fetch-retry-mintimeout 20000 && \
     npm config set fetch-retry-maxtimeout 120000 && \
     npm config set fetch-timeout 300000
 
 # Install dependencies with retry wrapper for transient registry errors (E403/ETIMEDOUT)
-RUN set -e; \
+RUN --mount=type=cache,id=caipe-ui-npm-cache,target=/root/.npm,sharing=locked \
+    set -e; \
     install_deps() { \
-      if [ -f package-lock.json ]; then npm ci; \
+      if [ -f package-lock.json ]; then npm ci --prefer-offline --no-audit --no-fund; \
       elif [ -f yarn.lock ]; then yarn install --frozen-lockfile; \
       elif [ -f pnpm-lock.yaml ]; then npm i -g pnpm && pnpm i --frozen-lockfile; \
       else npm i; fi; \
@@ -35,25 +41,26 @@ RUN set -e; \
       attempt=$((attempt + 1)); \
       echo "Attempt $((attempt - 1)) failed, retrying ($attempt/$max_attempts) in 15s..."; \
       sleep 15; \
-      npm cache clean --force; \
     done
 
 # ---------- Stage 2: Build application ----------
 # Also pinned to BUILDPLATFORM — next build uses @next/swc at compile time only;
 # the standalone output is platform-independent JavaScript.
-FROM --platform=$BUILDPLATFORM node:20-alpine AS build
+FROM --platform=$BUILDPLATFORM node:24-alpine AS build
 WORKDIR /app
 
 # Build args for version info
 ARG IMAGE_TAG=dev
 ARG GIT_COMMIT=unknown
 ARG BUILD_DATE
+ARG CAIPE_UI_FAST_BUILD=false
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY ui .
 
 # Disable telemetry during build
 ENV NEXT_TELEMETRY_DISABLED=1
+ENV CAIPE_UI_FAST_BUILD=${CAIPE_UI_FAST_BUILD}
 
 # Create version info file
 RUN BUILD_DATE_VALUE="${BUILD_DATE}"; \
@@ -73,14 +80,19 @@ RUN BUILD_DATE_VALUE="${BUILD_DATE}"; \
 RUN npm run build
 
 # ---------- Stage 3: Production runtime ----------
-FROM node:20-alpine AS runner
+FROM node:24-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
 # Patch system packages to address CVEs
-RUN apk update && apk upgrade --no-cache
+RUN apk update && apk upgrade --no-cache && \
+    rm -rf /usr/local/lib/node_modules/npm \
+        /usr/local/bin/npm \
+        /usr/local/bin/npx \
+        /usr/local/share/man/man1/npm* \
+        /usr/local/share/man/man1/npx*
 
 # Create non-root user
 RUN addgroup --system --gid 1001 nodejs && \
@@ -111,3 +123,35 @@ ENV HOSTNAME="0.0.0.0"
 # 2. Server component reads process.env at request time via API
 # Both NEXT_PUBLIC_* and plain env vars are supported.
 CMD ["/app/entrypoint.sh"]
+
+# ---------- Stage 4: Development (hot reload) ----------
+# Opt-in via `target: dev` in docker-compose (set CAIPE_UI_BUILD_TARGET=dev,
+# typically by running `make dev-ui-hot` or exporting DEV_HOT_RELOAD=true and
+# the wrapper in docker-compose.dev.yaml). Mounts ./ui/src and ./ui/public
+# from the host so `next dev` picks up edits in <1s.
+#
+# Anonymous volumes for /app/node_modules and /app/.next must be declared in
+# the compose file so the host bind doesn't shadow the container's installs.
+FROM --platform=$BUILDPLATFORM node:24-alpine AS dev
+RUN apk add --no-cache libc6-compat
+WORKDIR /app
+
+# Reuse the dependency closure from the deps stage to avoid an extra `npm ci`.
+COPY --from=deps /app/node_modules ./node_modules
+COPY ui/package.json ui/package-lock.json* ./
+# Copy the rest of the UI sources so first boot works even before any host
+# bind-mount overlays them; the bind-mount then takes precedence on subsequent
+# starts and on file edits.
+COPY ui ./
+
+ENV NODE_ENV=development
+ENV NEXT_TELEMETRY_DISABLED=1
+# WATCHPACK_POLLING fallback: chokidar fs events sometimes drop through
+# Docker Desktop's VirtioFS on macOS. Polling at 1s is cheap insurance.
+ENV WATCHPACK_POLLING=true
+ENV CHOKIDAR_USEPOLLING=true
+ENV PORT=3000
+ENV HOSTNAME=0.0.0.0
+EXPOSE 3000
+
+CMD ["npm", "run", "dev"]

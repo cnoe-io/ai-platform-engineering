@@ -1,7 +1,7 @@
 "use client";
 
-import { useSetSettings, useSigma } from "@react-sigma/core";
-import { FC, PropsWithChildren, useEffect } from "react";
+import { useSetSettings,useSigma } from "@react-sigma/core";
+import { FC,PropsWithChildren,useEffect } from "react";
 
 interface GraphSettingsControllerProps {
     hoveredNode: string | null;

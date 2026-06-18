@@ -12,23 +12,23 @@
  * SKILL.md row is never deletable).
  */
 
-import React, { useMemo, useRef, useState } from "react";
 import {
-  FileCode,
-  FileText,
-  FileType,
-  Image as ImageIcon,
-  Plus,
-  Trash2,
-  Upload,
+FileCode,
+FileText,
+FileType,
+Image as ImageIcon,
+Plus,
+Trash2,
+Upload,
 } from "lucide-react";
+import React,{ useMemo,useRef,useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
+Popover,
+PopoverContent,
+PopoverTrigger,
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 

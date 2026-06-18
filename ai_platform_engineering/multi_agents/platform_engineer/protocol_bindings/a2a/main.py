@@ -10,6 +10,7 @@ Supports both single-node (all-in-one, in-process MCP tools) and distributed
 import logging
 import os
 import httpx
+from contextlib import asynccontextmanager
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -144,24 +145,24 @@ a2a_server = A2AStarletteApplication(
     http_handler=request_handler
 )
 
-app = a2a_server.build()
-
 ################################################################################
 # Eager initialisation — load MCP tools at startup, not on first request
 ################################################################################
 _binding = request_handler.agent_executor.agent
 
 
-async def _startup_initialize():
+@asynccontextmanager
+async def _supervisor_lifespan(_starlette_app):
     logger.info("Initialising agent (loading MCP tools)...")
     try:
         await _binding.ensure_initialized()
         logger.info("Agent initialised successfully")
     except Exception:
         logger.exception("Agent initialisation failed — will retry on first request")
+    yield
 
 
-app.add_event_handler("startup", _startup_initialize)
+app = a2a_server.build(lifespan=_supervisor_lifespan)
 
 ################################################################################
 # /tools endpoint – returns tool names per subagent from the running MAS
@@ -180,6 +181,14 @@ async def _tools_endpoint(request: Request) -> JSONResponse:
 
 
 app.routes.append(Route("/tools", _tools_endpoint, methods=["GET"]))
+
+
+async def _health_endpoint(request: Request) -> JSONResponse:
+    return JSONResponse({"status": "ok"})
+
+
+app.routes.append(Route("/health", _health_endpoint, methods=["GET"]))
+app.routes.append(Route("/ready", _health_endpoint, methods=["GET"]))
 
 ################################################################################
 # Mount the skills middleware REST API alongside the A2A routes.
@@ -226,6 +235,34 @@ elif A2A_AUTH_OAUTH2:
     )
 else:
     logger.info("Using no authentication")
+
+# JWT user context middleware — extracts user identity from the Bearer token
+# and stores it in a per-request contextvar. Runs after auth so the token is
+# already validated. Active whenever a Bearer token is present (no extra flag).
+#
+# Smart-merge note (PR #1257 + #1145): RBAC factored this middleware into
+# `jwt_user_context_middleware.py`. PR #1145 defined an inline class gated on
+# ENABLE_USER_INFO_TOOL. We keep RBAC's external-module pattern AND register
+# unconditionally because multiple downstream consumers depend on the
+# contextvar (e.g. base_langgraph_agent's MCP forwarder, OBO/agentgateway
+# integrations) — not just the user-info tool.
+# Spec 102 Phase 6 / T083: optional Keycloak PDP gate on supervisor#invoke.
+# Enabled with SUPERVISOR_PDP_GATE_ENABLED=true. Added BEFORE the JWT
+# context middleware so it runs AFTER it (Starlette middleware order is
+# reverse-of-addition), which guarantees current_bearer_token is bound
+# before the PDP read.
+from ai_platform_engineering.utils.auth.supervisor_pdp_middleware import (
+    SupervisorPdpMiddleware,
+)
+
+app.add_middleware(SupervisorPdpMiddleware)
+logger.info(
+    "Supervisor PDP gate middleware mounted (enable with SUPERVISOR_PDP_GATE_ENABLED=true)"
+)
+
+from ai_platform_engineering.utils.auth.jwt_user_context_middleware import JwtUserContextMiddleware
+app.add_middleware(JwtUserContextMiddleware)
+logger.info("JWT user context middleware enabled")
 
 # Add CORSMiddleware to allow requests from any origin
 app.add_middleware(

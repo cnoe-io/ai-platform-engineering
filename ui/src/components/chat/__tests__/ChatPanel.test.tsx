@@ -39,9 +39,11 @@ jest.mock('next-auth/react', () => ({
 // Mock framer-motion to simplify animation testing
 jest.mock('framer-motion', () => ({
   motion: {
+    // eslint-disable-next-line react/display-name
     div: React.forwardRef(({ children, initial, animate, exit, transition, whileHover, whileTap, onMouseEnter, onMouseLeave, ...props }: any, ref: any) => (
       <div ref={ref} onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} {...props}>{children}</div>
     )),
+    // eslint-disable-next-line react/display-name
     button: React.forwardRef(({ children, ...props }: any, ref: any) => <button ref={ref} {...props}>{children}</button>),
   },
   AnimatePresence: ({ children }: any) => <>{children}</>,
@@ -132,6 +134,7 @@ jest.mock('react-syntax-highlighter/dist/esm/styles/prism', () => ({
 
 // Mock react-textarea-autosize
 jest.mock('react-textarea-autosize', () => {
+  // eslint-disable-next-line react/display-name
   return React.forwardRef((props: any, ref: any) => <textarea ref={ref} {...props} />)
 })
 
@@ -158,6 +161,7 @@ jest.mock('@/components/shared/timeline/MarkdownRenderer', () => ({
 // Mock ScrollArea to expose the viewport ref
 // Use callback ref to ensure viewportRef.current is set in React 19
 jest.mock('@/components/ui/scroll-area', () => ({
+  // eslint-disable-next-line react/display-name
   ScrollArea: React.forwardRef(({ children, viewportRef, ...props }: any, ref: any) => {
     const setViewportRef = React.useCallback((node: HTMLDivElement | null) => {
       if (viewportRef) {
@@ -185,8 +189,10 @@ jest.mock('@/components/ui/tooltip', () => ({
   Tooltip: ({ children }: any) => <>{children}</>,
   TooltipContent: ({ children }: any) => <div>{children}</div>,
   TooltipProvider: ({ children }: any) => <>{children}</>,
+  // eslint-disable-next-line react/display-name
   TooltipTrigger: React.forwardRef(({ children, asChild, ...props }: any, ref: any) => {
     if (asChild && React.isValidElement(children)) {
+      // eslint-disable-next-line react-hooks/refs
       return React.cloneElement(children as React.ReactElement<any>, { ref, ...props })
     }
     return <div ref={ref} {...props}>{children}</div>
@@ -195,6 +201,7 @@ jest.mock('@/components/ui/tooltip', () => ({
 
 // Mock Button
 jest.mock('@/components/ui/button', () => ({
+  // eslint-disable-next-line react/display-name
   Button: React.forwardRef(({ children, ...props }: any, ref: any) => (
     <button ref={ref} {...props}>{children}</button>
   )),
@@ -348,6 +355,7 @@ describe('SupervisorChatPanel', () => {
       mockGetActiveConversation.mockReturnValue(createConversation([msg]))
 
       // Override session to have no name
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { useSession } = require('next-auth/react')
       useSession.mockReturnValueOnce({
         data: { user: { email: 'test@test.com' }, accessToken: 'test-token' },
@@ -365,6 +373,7 @@ describe('SupervisorChatPanel', () => {
       mockGetActiveConversation.mockReturnValue(createConversation([msg]))
 
       // Override session to be unauthenticated
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { useSession } = require('next-auth/react')
       useSession.mockReturnValueOnce({
         data: null,
@@ -1037,7 +1046,7 @@ describe('SupervisorChatPanel', () => {
       expect(link.closest('a')).toHaveAttribute('href', '/admin?tab=feedback')
     })
 
-    it('shows "Back to Audit Logs" link when adminOrigin is "audit-logs"', () => {
+    it('shows "Back to Chat Audit" link when adminOrigin is "audit-logs"', () => {
       mockGetActiveConversation.mockReturnValue(createConversation([]))
       render(
         <SupervisorChatPanel
@@ -1047,7 +1056,7 @@ describe('SupervisorChatPanel', () => {
           adminOrigin="audit-logs"
         />
       )
-      const link = screen.getByText('Back to Audit Logs')
+      const link = screen.getByText('Back to Chat Audit')
       expect(link.closest('a')).toHaveAttribute('href', '/admin?tab=audit-logs')
     })
 
@@ -1061,7 +1070,7 @@ describe('SupervisorChatPanel', () => {
         />
       )
       expect(screen.queryByText('Back to Feedback')).not.toBeInTheDocument()
-      expect(screen.queryByText('Back to Audit Logs')).not.toBeInTheDocument()
+      expect(screen.queryByText('Back to Chat Audit')).not.toBeInTheDocument()
       expect(screen.getByText('View Only')).toBeInTheDocument()
     })
 

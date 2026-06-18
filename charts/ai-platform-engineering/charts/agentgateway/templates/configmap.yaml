@@ -1,0 +1,17 @@
+{{- /*
+In static (CRD-free) routing mode the umbrella chart renders the proxy config
+(<release>-agentgateway-static-config) from the enabled MCP targets, so this
+subchart-owned ConfigMap is not used. Skip it to avoid a dangling object.
+*/ -}}
+{{- $agwGlobal := ((.Values.global).agentgateway) | default dict }}
+{{- if not (and $agwGlobal.enabled (eq ($agwGlobal.routingMode | default "static") "static")) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "agentgateway.fullname" . }}-config
+  labels:
+    {{- include "agentgateway.labels" . | nindent 4 }}
+data:
+  config.yaml: |-
+{{ tpl (toYaml .Values.config) . | indent 4 }}
+{{- end }}
