@@ -19,9 +19,11 @@ import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import type { TeamMembershipSource } from "@/types/identity-group-sync";
-import type { Team,TeamMember } from "@/types/teams";
+import type { Team } from "@/types/teams";
 import {
 Check,
+ChevronLeft,
+ChevronRight,
 Clock3,
 Crown,
 Hash,
@@ -155,6 +157,27 @@ interface WebexDiscoveryPayload {
   query: { q: string; limit: number };
 }
 
+// One row of the paginated member list (GET /api/admin/teams/[id]/members).
+interface TeamMemberPageRow {
+  identity_key: string;
+  user_subject?: string;
+  user_email?: string;
+  role: "owner" | "admin" | "member";
+  source_types: TeamMembershipSource["source_type"][];
+  idp_managed: boolean;
+  added_at?: string;
+}
+
+interface TeamMembersPagePayload {
+  members: TeamMemberPageRow[];
+  total: number;
+  page: number;
+  page_size: number;
+  has_more: boolean;
+}
+
+const TEAM_MEMBERS_PAGE_SIZE = 25;
+
 interface TeamDetailsDialogProps {
   team: Team | null;
   mode: DialogMode;
@@ -195,18 +218,18 @@ function getRoleBadgeVariant(role: string) {
   }
 }
 
-function getSourceLabel(source: TeamMembershipSource): string {
-  if (source.source_type === "manual") return "Manual";
-  if (source.source_type === "oidc_claim") return "OIDC claim";
-  if (source.source_type === "active_directory") return "AD";
-  if (source.source_type === "okta") return "Okta";
-  return source.source_type.replace(/_/g, " ");
+function getSourceLabel(sourceType: TeamMembershipSource["source_type"]): string {
+  if (sourceType === "manual") return "Manual";
+  if (sourceType === "oidc_claim") return "OIDC claim";
+  if (sourceType === "active_directory") return "AD";
+  if (sourceType === "okta") return "Okta";
+  return sourceType.replace(/_/g, " ");
 }
 
-function getSourceBadgeVariant(source: TeamMembershipSource) {
-  if (source.status === "active" && source.source_type === "manual") return "secondary" as const;
-  if (source.status === "active") return "outline" as const;
-  return "destructive" as const;
+function getSourceBadgeVariant(sourceType: TeamMembershipSource["source_type"]) {
+  // Members from the paginated list are always active; only the manual source
+  // gets the filled "secondary" treatment, IdP sources get the "outline".
+  return sourceType === "manual" ? ("secondary" as const) : ("outline" as const);
 }
 
 // Render-helpers for the OpenFGA sync diagnostic. Kept colocated so the
@@ -260,34 +283,6 @@ function syncBadgeAppearance(status: TeamMembershipSyncState): {
   }
 }
 
-function memberFromSource(source: TeamMembershipSource, fallbackDate: Date): TeamMember | null {
-  if (source.status !== "active") return null;
-  const userId = (source.user_email ?? source.user_subject ?? "").trim();
-  if (!userId) return null;
-
-  return {
-    user_id: userId,
-    role: source.relationship === "admin" ? "admin" : "member",
-    added_at: new Date(source.first_seen_at ?? source.created_at ?? source.last_seen_at ?? fallbackDate),
-    added_by: source.created_by ?? "identity-sync",
-  };
-}
-
-function membersFromSources(sources: TeamMembershipSource[], fallbackDate: Date): TeamMember[] {
-  const byUser = new Map<string, TeamMember>();
-  for (const source of sources) {
-    const member = memberFromSource(source, fallbackDate);
-    if (!member) continue;
-
-    const key = member.user_id.toLowerCase();
-    const existing = byUser.get(key);
-    if (!existing || existing.role === "member") {
-      byUser.set(key, member);
-    }
-  }
-  return Array.from(byUser.values());
-}
-
 export function TeamDetailsDialog({
   team,
   mode,
@@ -336,6 +331,16 @@ export function TeamDetailsDialog({
   );
   const [removingMember, setRemovingMember] = useState<string | null>(null);
 
+  // Paginated member list (GET /api/admin/teams/[id]/members). The Members tab
+  // renders from this — NOT from the full `membershipSources` array — so a team
+  // with a very large roster loads one page at a time instead of all at once.
+  // `memberSearch` is debounced into a server-side email filter.
+  const [memberPage, setMemberPage] = useState<TeamMemberPageRow[]>([]);
+  const [memberTotal, setMemberTotal] = useState(0);
+  const [memberPageNum, setMemberPageNum] = useState(1);
+  const [memberSearch, setMemberSearch] = useState("");
+  const [membersLoading, setMembersLoading] = useState(false);
+
   // Spec 104 — Resources tab state
   const [resourcesData, setResourcesData] = useState<ResourcesPayload | null>(null);
   const [selectedAgents, setSelectedAgents] = useState<Set<string>>(new Set());
@@ -379,7 +384,6 @@ export function TeamDetailsDialog({
 
   // Current team data (may be refreshed after mutations)
   const [currentTeam, setCurrentTeam] = useState<Team | null>(team);
-  const [membershipSources, setMembershipSources] = useState<TeamMembershipSource[]>([]);
   // OpenFGA sync diagnostic — populated from the GET /api/admin/teams/[id]
   // response (top-level `openfga_sync` field). `canReconcile` controls
   // visibility of the Reconcile button; we only know that the request
@@ -405,6 +409,11 @@ export function TeamDetailsDialog({
       setMemberSearchLoading(false);
       setMemberSearchOpen(false);
       setPendingRemoveMember(null);
+      setMemberPage([]);
+      setMemberTotal(0);
+      setMemberPageNum(1);
+      setMemberSearch("");
+      setMembersLoading(false);
       setResourcesData(null);
       setResourcesNotice(null);
       setChannelsData(null);
@@ -425,7 +434,6 @@ export function TeamDetailsDialog({
       setWebexDiscoverySearch("");
       setManualSpaceId("");
       setManualSpaceName("");
-      setMembershipSources(team.membership_sources ?? []);
       setOpenFgaSync(null);
       setReconcileError(null);
       setReconcileNotice(null);
@@ -445,12 +453,6 @@ export function TeamDetailsDialog({
         if (cancelled || !data.success) return;
         if (data.data?.openfga_sync) {
           setOpenFgaSync(data.data.openfga_sync as TeamMembershipSyncReport);
-        }
-        // Canonical team route also returns the membership sources, so we
-        // hydrate them here instead of from the (now-removed) identity-group
-        // -sync membership-sources endpoint.
-        if (Array.isArray(data.data?.membership_sources)) {
-          setMembershipSources(data.data.membership_sources as TeamMembershipSource[]);
         }
       })
       .catch((err: unknown) => {
@@ -1006,11 +1008,6 @@ export function TeamDetailsDialog({
       if (payload.team) {
         setCurrentTeam(payload.team);
       }
-      setMembershipSources(
-        Array.isArray(payload.membership_sources)
-          ? (payload.membership_sources as TeamMembershipSource[])
-          : []
-      );
       setOpenFgaSync(
         payload.openfga_sync
           ? (payload.openfga_sync as TeamMembershipSyncReport)
@@ -1023,6 +1020,64 @@ export function TeamDetailsDialog({
       setRefreshingTeam(false);
     }
   }, [currentTeam]);
+
+  // Fetch one page of the member list from the server. Search is applied
+  // server-side (email substring) so the browser only ever holds a page of
+  // members regardless of roster size.
+  const fetchMembersPage = useCallback(
+    async (teamId: string, page: number, search: string) => {
+      setMembersLoading(true);
+      try {
+        const params = new URLSearchParams({
+          page: String(page),
+          page_size: String(TEAM_MEMBERS_PAGE_SIZE),
+        });
+        if (search.trim()) params.set("search", search.trim());
+        const res = await fetch(
+          `/api/admin/teams/${teamId}/members?${params.toString()}`,
+        );
+        const data = await res.json();
+        if (!data.success) {
+          throw new Error(data.error || `Failed to load members (${res.status})`);
+        }
+        const payload = data.data as TeamMembersPagePayload;
+        setMemberPage(payload.members ?? []);
+        setMemberTotal(payload.total ?? 0);
+        setMemberPageNum(payload.page ?? page);
+      } catch (err: unknown) {
+        console.error("[TeamDetails] Failed to load members:", err);
+        setError(err instanceof Error ? err.message : "Failed to load members");
+      } finally {
+        setMembersLoading(false);
+      }
+    },
+    [],
+  );
+
+  // Load + debounced search for the Members tab. Typing resets to page 1 and
+  // re-queries the server (~250ms after the last keystroke). Only runs while
+  // the Members tab is active so other tabs don't trigger member queries.
+  useEffect(() => {
+    if (!open || activeMode !== "members" || !currentTeam?._id) return;
+    const teamId = currentTeam._id;
+    const handle = setTimeout(() => {
+      void fetchMembersPage(teamId, 1, memberSearch);
+    }, 250);
+    return () => clearTimeout(handle);
+  }, [open, activeMode, currentTeam?._id, memberSearch, fetchMembersPage]);
+
+  const memberTotalPages = Math.max(1, Math.ceil(memberTotal / TEAM_MEMBERS_PAGE_SIZE));
+  const memberHasMore = memberPageNum * TEAM_MEMBERS_PAGE_SIZE < memberTotal;
+  const goToMembersPage = (page: number) => {
+    if (!currentTeam?._id) return;
+    const clamped = Math.min(Math.max(1, page), memberTotalPages);
+    void fetchMembersPage(currentTeam._id, clamped, memberSearch);
+  };
+  // Re-fetch the current member page after an add/remove mutation.
+  const reloadMembersPage = useCallback(() => {
+    if (!currentTeam?._id) return;
+    void fetchMembersPage(currentTeam._id, memberPageNum, memberSearch);
+  }, [currentTeam?._id, fetchMembersPage, memberPageNum, memberSearch]);
 
   const handleSaveEdit = async () => {
     if (!currentTeam) return;
@@ -1087,10 +1142,9 @@ export function TeamDetailsDialog({
       setNewMemberRole("member");
       setMemberSearchResults([]);
       setMemberSearchOpen(false);
-      // Re-fetch in the background so badges (membership sources,
-      // OpenFGA sync status) reflect the post-write reality. The
-      // primary list update above already shows the new member; this
-      // is a follow-up that hydrates secondary metadata.
+      // Reload the member page so the new member shows up, and refresh the
+      // OpenFGA sync diagnostic (Details-tab banner) in the background.
+      reloadMembersPage();
       void refreshTeam();
       // Prefer the lightweight callback so the parent admin page can
       // patch its `teams[]` state in place — no full dashboard reload,
@@ -1138,6 +1192,13 @@ export function TeamDetailsDialog({
 
       const updatedTeam = data.data.team as Team;
       setCurrentTeam(updatedTeam);
+      // Optimistically drop the removed row, then reload the page so a member
+      // from the next page backfills the slot and the total stays correct.
+      setMemberPage((prev) =>
+        prev.filter((m) => (m.user_email ?? "").toLowerCase() !== email.toLowerCase()),
+      );
+      setMemberTotal((prev) => Math.max(0, prev - 1));
+      reloadMembersPage();
       void refreshTeam();
       if (onTeamMutated) {
         onTeamMutated(updatedTeam);
@@ -1203,26 +1264,16 @@ export function TeamDetailsDialog({
 
   if (!currentTeam) return null;
 
-  const canonicalMembers = membersFromSources(
-    membershipSources,
-    new Date(currentTeam.created_at),
-  );
-  const members = canonicalMembers.length > 0 ? canonicalMembers : currentTeam.members || [];
-  const sourcesByMember = membershipSources.reduce<Record<string, TeamMembershipSource[]>>(
-    (acc, source) => {
-      const key = (source.user_email ?? source.user_subject ?? "").toLowerCase();
-      if (!key) return acc;
-      acc[key] = acc[key] ?? [];
-      acc[key].push(source);
-      return acc;
-    },
-    {}
-  );
+  // Member count for the tab/Details badges. Prefer the server total from the
+  // paginated members endpoint once loaded; fall back to the count decorated
+  // onto the team by GET /api/admin/teams before the first page loads.
+  const memberCount = memberTotal || currentTeam.member_count || 0;
+
   // Pick the "worst" sync entry per member email so the Members tab can
   // show a single badge instead of one per identity source. Ordering of
-  // severity: drifted > unknown > pending > synced. If no entry exists
-  // for the user (no source row yet), we render no badge — silence is
-  // accurate because there's literally nothing to sync.
+  // severity: drifted > unknown > pending > synced. Sourced from the
+  // OpenFGA sync report (Details-tab diagnostic); members not covered by
+  // the report simply render no sync badge.
   const syncByMember = (openFgaSync?.entries ?? []).reduce<
     Record<string, TeamMembershipSyncEntry>
   >((acc, entry) => {
@@ -1234,11 +1285,6 @@ export function TeamDetailsDialog({
     }
     return acc;
   }, {});
-  const sortedMembers = [...members].sort((a, b) => {
-    const roleOrder = { owner: 0, admin: 1, member: 2 };
-    return (roleOrder[a.role as keyof typeof roleOrder] ?? 2) -
-           (roleOrder[b.role as keyof typeof roleOrder] ?? 2);
-  });
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -1270,7 +1316,7 @@ export function TeamDetailsDialog({
             onClick={() => setActiveMode("members")}
             className="text-xs"
           >
-            Members ({members.length})
+            Members ({memberCount})
           </Button>
           <Button
             variant={activeMode === "resources" ? "default" : "ghost"}
@@ -1400,7 +1446,7 @@ export function TeamDetailsDialog({
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-muted-foreground">Members</span>
-                    <span className="text-sm">{members.length}</span>
+                    <span className="text-sm">{memberCount}</span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-muted-foreground">Created</span>
@@ -1572,8 +1618,13 @@ export function TeamDetailsDialog({
                           .filter(Boolean)
                           .join(" ")
                           .trim();
-                        const alreadyMember = members.some(
-                          (m) => m.user_id.toLowerCase() === u.email.toLowerCase()
+                        // Best-effort hint only: the member list is paginated,
+                        // so we can confidently flag matches on the loaded page
+                        // but cannot prove non-membership client-side. The add
+                        // endpoint is authoritative and rejects true duplicates
+                        // with a 400.
+                        const alreadyMember = memberPage.some(
+                          (m) => (m.user_email ?? "").toLowerCase() === u.email.toLowerCase()
                         );
                         return (
                           <button
@@ -1642,34 +1693,44 @@ export function TeamDetailsDialog({
               </Button>
             </form>
 
+            {/* Filter the roster by email. Debounced into a server-side
+                query so it works regardless of how large the team is. */}
+            <div className="relative">
+              <Search className="h-3.5 w-3.5 text-muted-foreground absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <Input
+                placeholder="Filter members by email…"
+                value={memberSearch}
+                onChange={(e) => setMemberSearch(e.target.value)}
+                className="pl-8 h-9"
+                type="search"
+                aria-label="Filter members by email"
+              />
+            </div>
+
             {/* Members List */}
             <ScrollArea className="flex-1 -mx-1 px-1" style={{ maxHeight: "320px" }}>
               <div className="space-y-1">
-                {sortedMembers.length === 0 ? (
+                {membersLoading && memberPage.length === 0 ? (
+                  <div className="flex justify-center py-8">
+                    <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                  </div>
+                ) : memberPage.length === 0 ? (
                   <p className="text-sm text-muted-foreground text-center py-8">
-                    No members yet. Add members above.
+                    {memberSearch.trim()
+                      ? `No members match "${memberSearch.trim()}".`
+                      : "No members yet. Add members above."}
                   </p>
                 ) : (
-                  sortedMembers.map((member) => {
-                    // Only surface currently-active provenance to operators. Non-active
-                    // rows (status="removed") are an audit-trail artefact: when a user is
-                    // removed and later re-added they otherwise show up next to the active
-                    // badge as a confusing "Manual: Removed" pill alongside "Manual".
-                    // See team-membership-source-store.markTeamMembershipSourceRemoved.
-                    const memberSources = (sourcesByMember[member.user_id.toLowerCase()] ?? [])
-                      .filter((source) => source.status === "active");
-                    const isIdpManaged =
-                      memberSources.length > 0 &&
-                      memberSources.every((s) => s.source_type !== "manual");
-                    const syncEntry = syncByMember[member.user_id.toLowerCase()];
+                  memberPage.map((member) => {
+                    const email = member.user_email ?? member.identity_key;
+                    const syncEntry = syncByMember[email.toLowerCase()];
                     const syncBadge = syncEntry
                       ? syncBadgeAppearance(syncEntry.status)
                       : null;
-                    const isPendingRemove =
-                      pendingRemoveMember === member.user_id;
+                    const isPendingRemove = pendingRemoveMember === email;
                     return (
                       <div
-                        key={member.user_id}
+                        key={member.identity_key}
                         className={`flex items-center justify-between py-2 px-3 rounded-md group ${
                           isPendingRemove
                             ? "bg-destructive/5 ring-1 ring-destructive/20"
@@ -1678,23 +1739,24 @@ export function TeamDetailsDialog({
                       >
                         <div className="flex items-center gap-3 min-w-0">
                           <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-medium text-sm shrink-0">
-                            {member.user_id.charAt(0).toUpperCase()}
+                            {email.charAt(0).toUpperCase()}
                           </div>
                           <div className="min-w-0">
-                            <p className="text-sm truncate">{member.user_id}</p>
-                            <p className="text-xs text-muted-foreground">
-                              Added {new Date(member.added_at).toLocaleDateString()}
-                            </p>
-                            {(memberSources.length > 0 || syncBadge) && (
+                            <p className="text-sm truncate">{email}</p>
+                            {member.added_at && (
+                              <p className="text-xs text-muted-foreground">
+                                Added {new Date(member.added_at).toLocaleDateString()}
+                              </p>
+                            )}
+                            {(member.source_types.length > 0 || syncBadge) && (
                               <div className="mt-1 flex flex-wrap gap-1">
-                                {memberSources.map((source) => (
+                                {member.source_types.map((sourceType) => (
                                   <Badge
-                                    key={`${source.source_type}-${source.provider_id ?? "local"}-${source.external_group_id ?? "manual"}-${source.relationship}-${source.status}`}
-                                    variant={getSourceBadgeVariant(source)}
+                                    key={sourceType}
+                                    variant={getSourceBadgeVariant(sourceType)}
                                     className="text-[10px] capitalize"
                                   >
-                                    {getSourceLabel(source)}
-                                    {source.status !== "active" ? `: ${source.status}` : ""}
+                                    {getSourceLabel(sourceType)}
                                   </Badge>
                                 ))}
                                 {syncBadge && (
@@ -1717,7 +1779,7 @@ export function TeamDetailsDialog({
                             {member.role}
                           </Badge>
                           {member.role !== "owner" && (
-                            isIdpManaged ? (
+                            member.idp_managed ? (
                               <span
                                 title="Managed by identity sync — edit membership in your IDP"
                                 className="flex h-7 w-7 items-center justify-center text-muted-foreground/50"
@@ -1726,8 +1788,8 @@ export function TeamDetailsDialog({
                                 <Lock className="h-3.5 w-3.5" />
                               </span>
                             ) : (
-                              pendingRemoveMember === member.user_id &&
-                              removingMember !== member.user_id ? (
+                              pendingRemoveMember === email &&
+                              removingMember !== email ? (
                                 // Inline confirm row — replaces the previous
                                 // window.confirm() blocking prompt. Stays on
                                 // the same row so focus, scroll position, and
@@ -1735,7 +1797,7 @@ export function TeamDetailsDialog({
                                 <div
                                   className="flex items-center gap-1"
                                   role="group"
-                                  aria-label={`Confirm removal of ${member.user_id}`}
+                                  aria-label={`Confirm removal of ${email}`}
                                   onKeyDown={(e) => {
                                     if (e.key === "Escape") {
                                       e.stopPropagation();
@@ -1753,11 +1815,9 @@ export function TeamDetailsDialog({
                                     variant="destructive"
                                     size="sm"
                                     className="h-7 px-2 text-xs"
-                                    onClick={() =>
-                                      handleRemoveMember(member.user_id)
-                                    }
+                                    onClick={() => handleRemoveMember(email)}
                                     autoFocus
-                                    aria-label={`Confirm remove ${member.user_id}`}
+                                    aria-label={`Confirm remove ${email}`}
                                   >
                                     <Check className="h-3.5 w-3.5 mr-1" />
                                     Remove
@@ -1777,17 +1837,15 @@ export function TeamDetailsDialog({
                                   variant="ghost"
                                   size="sm"
                                   className={`h-7 w-7 p-0 text-muted-foreground hover:text-destructive ${
-                                    removingMember === member.user_id
+                                    removingMember === email
                                       ? "opacity-100"
                                       : "opacity-0 group-hover:opacity-100"
                                   }`}
-                                  onClick={() =>
-                                    setPendingRemoveMember(member.user_id)
-                                  }
-                                  disabled={removingMember === member.user_id}
-                                  aria-label={`Remove ${member.user_id}`}
+                                  onClick={() => setPendingRemoveMember(email)}
+                                  disabled={removingMember === email}
+                                  aria-label={`Remove ${email}`}
                                 >
-                                  {removingMember === member.user_id ? (
+                                  {removingMember === email ? (
                                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
                                   ) : (
                                     <Trash2 className="h-3.5 w-3.5" />
@@ -1803,6 +1861,38 @@ export function TeamDetailsDialog({
                 )}
               </div>
             </ScrollArea>
+
+            {/* Member pager — shown when the roster spans more than one page. */}
+            {memberTotal > TEAM_MEMBERS_PAGE_SIZE && (
+              <div className="flex items-center justify-between pt-1 text-xs">
+                <span className="text-muted-foreground">
+                  Page {memberPageNum} of {memberTotalPages} · {memberTotal} member
+                  {memberTotal === 1 ? "" : "s"}
+                </span>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7"
+                    onClick={() => goToMembersPage(memberPageNum - 1)}
+                    disabled={memberPageNum <= 1 || membersLoading}
+                    aria-label="Previous page"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7"
+                    onClick={() => goToMembersPage(memberPageNum + 1)}
+                    disabled={!memberHasMore || membersLoading}
+                    aria-label="Next page"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
