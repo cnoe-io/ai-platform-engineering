@@ -761,7 +761,10 @@ export function AppHeader() {
                   </div>
                 </div>
 
-                <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-4">
+                <div
+                  data-testid="platform-health-scroll"
+                  className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-4"
+                >
                   <div className="rounded-xl border border-border/70 bg-background/40 p-3">
                     <div className="flex items-start justify-between gap-3">
                       <div>
@@ -915,7 +918,10 @@ export function AppHeader() {
                           <span>Probe</span>
                           <span>Status</span>
                         </div>
-                        <div className="max-h-48 divide-y divide-border/60 overflow-y-auto overscroll-contain">
+                        <div
+                          data-testid="platform-health-probe-list"
+                          className="max-h-48 divide-y divide-border/60 overflow-y-auto overscroll-contain"
+                        >
                           {platformProbes.map((probe) => (
                             <Tooltip key={probe.id}>
                               <TooltipTrigger asChild>
