@@ -133,6 +133,10 @@ describe("OpenFGA team resource tuple reconciliation", () => {
         { user: "agent:agent-1", relation: "caller", object: "tool:jira/*" },
         { user: "agent:agent-1", relation: "caller", object: "tool:github/*" },
         { user: "team:platform-engineering#member", relation: "caller", object: "tool:github/*" },
+      ]),
+    );
+    expect(diff.writes).not.toEqual(
+      expect.arrayContaining([
         { user: "team:platform-engineering#member", relation: "caller", object: "tool:*" },
       ]),
     );
@@ -155,6 +159,10 @@ describe("OpenFGA team resource tuple reconciliation", () => {
         { user: "team:platform-engineering#admin", relation: "manager", object: "mcp_tool:github_*" },
         { user: "agent:agent-old", relation: "caller", object: "tool:jira/*" },
         { user: "agent:agent-old", relation: "caller", object: "tool:github/*" },
+      ]),
+    );
+    expect(diff.deletes).not.toEqual(
+      expect.arrayContaining([
         { user: "agent:agent-old", relation: "caller", object: "tool:*" },
       ]),
     );
@@ -311,6 +319,10 @@ describe("OpenFGA team resource tuple reconciliation", () => {
       expect(directlyRelatedUserTypes(modelPath, "knowledge_base", "manager")).toContainEqual({
         type: "team",
         relation: "admin",
+      });
+      expect(directlyRelatedUserTypes(modelPath, "slack_channel", "manager")).toContainEqual({
+        type: "team",
+        relation: "member",
       });
       expect(directlyRelatedUserTypes(modelPath, "mcp_server", "manager")).toContainEqual({
         type: "team",
@@ -750,6 +762,7 @@ describe("OpenFGA team resource tuple reconciliation", () => {
       { user: "user:admin-sub", relation: "owner", object: "agent:agent-platform-helper" },
       { user: "organization:default#admin", relation: "manager", object: "agent:agent-platform-helper" },
       { user: "team:platform#member", relation: "user", object: "agent:agent-platform-helper" },
+      { user: "team:platform#member", relation: "writer", object: "agent:agent-platform-helper" },
       { user: "team:platform#admin", relation: "manager", object: "agent:agent-platform-helper" },
       { user: "agent:agent-platform-helper", relation: "caller", object: "tool:jira/search" },
     ]);

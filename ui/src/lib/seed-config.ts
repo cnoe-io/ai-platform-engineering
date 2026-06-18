@@ -824,16 +824,19 @@ export function buildAutoCreateTeamsBootstrapRule(now: string) {
 }
 
 /**
- * Provision the bootstrap identity-group-sync rule if and only if:
- * 1. `IDENTITY_SYNC_LOGIN_AUTO_CREATE_TEAMS === "true"` (the same opt-in
- *    that gates the planner's allowTeamCreation; if you're not opting in,
- *    we don't pre-create policy on your behalf), AND
- * 2. The `identity_group_sync_rules` collection is empty (any
- *    admin-curated rules — even unrelated to oidc-claims — are treated as
- *    "the operator has taken over policy" and we step out of the way).
+ * Provision (or repair) the bootstrap identity-group-sync rule when
+ * `IDENTITY_SYNC_LOGIN_AUTO_CREATE_TEAMS === "true"`.
  *
- * Returns `true` on insert, `false` otherwise. Idempotent. Best-effort —
- * race-conditioned duplicate keys are logged and swallowed.
+ * Strategy: upsert by the well-known bootstrap rule ID rather than gating
+ * on an empty collection. This means:
+ * - Fresh installs: rule is inserted.
+ * - Existing installs where the rule was seeded with an old `provider_id`
+ *   (e.g. "oidc-claims" instead of "*"): the stale row is updated so both
+ *   the OIDC login sync and the Okta directory sync pick it up.
+ * - Admin-curated rules with different IDs are never touched.
+ *
+ * Returns `true` if the rule was inserted or updated, `false` otherwise.
+ * Idempotent.
  */
 export async function bootstrapDefaultIdentityGroupSyncRuleIfEmpty(): Promise<boolean> {
   if (process.env.IDENTITY_SYNC_LOGIN_AUTO_CREATE_TEAMS !== "true") {
@@ -841,27 +844,48 @@ export async function bootstrapDefaultIdentityGroupSyncRuleIfEmpty(): Promise<bo
   }
   if (!isMongoDBConfigured) return false;
 
-  const collection = await getCollection<{ id: string }>(
+  const collection = await getCollection<{ id: string; provider_id?: string; name?: string }>(
     "identity_group_sync_rules",
   );
-  const existingCount = await collection.countDocuments({});
-  if (existingCount > 0) return false;
 
-  const rule = buildAutoCreateTeamsBootstrapRule(new Date().toISOString());
-  try {
-    await collection.insertOne(rule as { id: string });
-  } catch (err) {
-    const code = (err as { code?: number } | null)?.code;
-    if (code === 11000) {
+  const now = new Date().toISOString();
+  const rule = buildAutoCreateTeamsBootstrapRule(now);
+
+  const existing = await collection.findOne({ id: AUTO_CREATE_TEAMS_BOOTSTRAP_RULE_ID } as { id: string });
+
+  if (!existing) {
+    try {
+      await collection.insertOne(rule as { id: string });
       console.log(
-        "[seed-config] auto-create-teams bootstrap rule already present (race), skipping",
+        `[seed-config] Provisioned identity-group-sync rule: ${AUTO_CREATE_TEAMS_BOOTSTRAP_RULE_ID} (auto-create teams from any IdP group claim, role=member)`,
       );
-      return false;
+      return true;
+    } catch (err) {
+      const code = (err as { code?: number } | null)?.code;
+      if (code === 11000) {
+        console.log(
+          "[seed-config] auto-create-teams bootstrap rule already present (race), skipping",
+        );
+        return false;
+      }
+      throw err;
     }
-    throw err;
   }
+
+  // Rule exists — update fields that may be stale from an older seed (e.g.
+  // provider_id was "oidc-claims" before the wildcard "*" was introduced).
+  const needsUpdate =
+    existing.provider_id !== rule.provider_id ||
+    existing.name !== rule.name;
+
+  if (!needsUpdate) return false;
+
+  await collection.updateOne(
+    { id: AUTO_CREATE_TEAMS_BOOTSTRAP_RULE_ID } as { id: string },
+    { $set: { provider_id: rule.provider_id, name: rule.name, updated_at: now, updated_by: AUTO_CREATE_TEAMS_BOOTSTRAP_ACTOR } } as object,
+  );
   console.log(
-    `[seed-config] Provisioned identity-group-sync rule: ${AUTO_CREATE_TEAMS_BOOTSTRAP_RULE_ID} (auto-create teams from any OIDC group claim, role=member)`,
+    `[seed-config] Updated identity-group-sync bootstrap rule: provider_id=${rule.provider_id}`,
   );
   return true;
 }

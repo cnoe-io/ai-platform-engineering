@@ -38,6 +38,7 @@ function isSupportedUniversalSubject(value: string): boolean {
   return (
     SUBJECT_PREFIXES.some((prefix) => value.startsWith(prefix)) ||
     /^team:[A-Za-z0-9._:@*+-]+#(member|admin)$/.test(value) ||
+    /^organization:[A-Za-z0-9._:@*+-]+#(member|admin)$/.test(value) ||
     /^external_group:[A-Za-z0-9._:@*+-]+#member$/.test(value)
   );
 }
@@ -66,7 +67,21 @@ export function validateTupleKey(tuple: unknown): OpenFgaTupleKey {
     );
   }
 
-  const isUserMembership = user.startsWith("user:") && relation === "member" && object.startsWith("team:");
+  // assisted-by Codex Codex-sonnet-4-6
+  // The team model allows direct user grants for both base membership
+  // relations. Live RBAC e2e uses this admin endpoint to seed team admins.
+  const isUserMembership =
+    user.startsWith("user:") &&
+    ["member", "admin"].includes(relation) &&
+    object.startsWith("team:");
+  // assisted-by Codex Codex-sonnet-4-6
+  // Baseline access and live RBAC setup seed organization membership through
+  // the same admin tuple endpoint, so keep the validator aligned with the
+  // OpenFGA organization model.
+  const isUserOrganizationMembership =
+    user.startsWith("user:") &&
+    ["member", "admin"].includes(relation) &&
+    object.startsWith("organization:");
   const isTeamAgent =
     user.startsWith("team:") &&
     ((user.endsWith("#member") && relation === "user") ||
@@ -93,6 +108,7 @@ export function validateTupleKey(tuple: unknown): OpenFgaTupleKey {
 
   if (
     !isUserMembership &&
+    !isUserOrganizationMembership &&
     !isTeamAgent &&
     !isTeamTool &&
     !isTeamKb &&

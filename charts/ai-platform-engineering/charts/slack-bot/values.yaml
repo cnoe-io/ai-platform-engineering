@@ -22,7 +22,6 @@ serviceAccount:
 #   APP_NAME:                          Display name used in Slack messages (default: CAIPE)
 #   SLACK_BOT_MODE:                    "socket" (WebSocket) or "http" (webhooks)
 #   CAIPE_API_URL:                     Next.js gateway URL the bot routes requests through
-#   SLACK_INTEGRATION_SILENCE_ENV:     "true" to suppress environment info in responses
 #   SLACK_WORKSPACE_URL:               e.g. "https://mycompany.slack.com" for permalink deep links
 #   SLACK_WORKSPACE_ALIAS:             Canonical workspace alias used for Slack ReBAC/routes
 #   MONGODB_URI:                       MongoDB connection string
@@ -76,7 +75,6 @@ config:
   APP_NAME: "CAIPE"
   SLACK_BOT_MODE: "socket"
   CAIPE_API_URL: ""
-  SLACK_INTEGRATION_SILENCE_ENV: "false"
   MONGODB_DATABASE: "caipe"
   SLACK_WORKSPACE_ALIAS: "CAIPE"
   SLACK_AGENT_ROUTES_MODE: "db_prefer"

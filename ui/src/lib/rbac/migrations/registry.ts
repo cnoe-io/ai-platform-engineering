@@ -170,8 +170,7 @@ const MESSAGING_REBAC_INDEXES_MIGRATION_ID = "messaging_rebac_indexes_v1";
 // ever written. The /api/admin/{slack,webex}/{channels,spaces} list routes
 // filter rows by user `can_read` on the channel/space object, so with no
 // inbound tuples every row got dropped. This migration backfills the missing
-// `team#admin → manage → slack_channel|webex_space` and
-// `team#member → read → slack_channel|webex_space` tuples derived from
+// `team#admin → manage → slack_channel|webex_space` and team-member access tuples derived from
 // existing `channel_team_mappings` / `webex_space_team_mappings` rows. It is
 // fully idempotent because writeOpenFgaTuples no-ops on identical writes.
 const MESSAGING_TEAM_VISIBILITY_MIGRATION_ID = "messaging_team_visibility_v1";
@@ -499,7 +498,7 @@ export const MIGRATION_DEFINITIONS: MigrationDefinition[] = [
     kind: "explicit",
     title: "Messaging team→channel/space visibility",
     description:
-      "Backfill team#admin→manage and team#member→read tuples onto previously-onboarded Slack channels and Webex spaces so admins can actually see them in the listing endpoints.",
+      "Backfill team#admin→manage plus team#member Slack channel use/manage and Webex space read tuples onto previously-onboarded messaging mappings so team members can see and maintain assigned Slack integrations.",
     confirmation: "MIGRATE messaging_team_visibility TO v2",
     required: true,
     implemented: true,
@@ -1886,7 +1885,8 @@ export function deriveMessagingTeamMappingPlan(input: {
 //
 // Tuple shape (per onboarded channel/space with a resolvable team_slug):
 //   team:<slug>#admin  → manage → slack_channel|webex_space:<workspace>--<id>
-//   team:<slug>#member → read   → slack_channel|webex_space:<workspace>--<id>
+//   team:<slug>#member → use/manage → slack_channel:<workspace>--<id>
+//   team:<slug>#member → read       → webex_space:<workspace>--<id>
 //
 // Idempotent: writeOpenFgaTuples no-ops on identical writes.
 export function deriveMessagingTeamVisibilityPlan(input: {

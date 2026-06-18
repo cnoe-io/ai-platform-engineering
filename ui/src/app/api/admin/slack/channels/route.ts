@@ -2,14 +2,16 @@ import { NextRequest } from "next/server";
 
 import { getAuthFromBearerOrSession,successResponse,withErrorHandler } from "@/lib/api-middleware";
 import { getCollection } from "@/lib/mongodb";
-import { checkOpenFgaTuple } from "@/lib/rbac/openfga";
+import { checkOpenFgaTuple,writeOpenFgaTuples } from "@/lib/rbac/openfga";
 import { requireAdminSurfaceManage } from "@/lib/rbac/require-openfga";
 import { subjectFromSession } from "@/lib/rbac/resource-authz";
+import { slackChannelTeamVisibilityRelationships } from "@/lib/rbac/slack-channel-rebac";
 import {
 computeSlackChannelHealthSummary,
 type SlackChannelHealthSummary,
 } from "@/lib/rbac/slack-channel-diagnostics";
 import { listSlackChannelGrants,slackWorkspaceRef } from "@/lib/rbac/slack-channel-grant-store";
+import { buildUniversalRebacTupleDiff } from "@/lib/rbac/tuple-builders";
 import type { SlackChannelAgentRouteDocument } from "@/lib/rbac/slack-channel-route-store";
 
 interface ChannelTeamMappingDoc {
@@ -34,16 +36,41 @@ interface ChannelListRow {
 async function slackChannelAccess(
   openfgaUser: string,
   workspaceId: string,
-  channelId: string
+  channelId: string,
+  teamSlug?: string
 ): Promise<{ canRead: boolean; canManage: boolean }> {
   const object = `slack_channel:${workspaceId}--${channelId}`;
-  const [read, manage] = await Promise.all([
+  const checkAccess = () => Promise.all([
     checkOpenFgaTuple({ user: openfgaUser, relation: "can_read", object }).catch(() => ({ allowed: false })),
     checkOpenFgaTuple({ user: openfgaUser, relation: "can_manage", object }).catch(() => ({ allowed: false })),
   ]);
+  let [read, manage] = await checkAccess();
+  let repairedManageGrant = false;
+  if (read.allowed && !manage.allowed && teamSlug) {
+    // assisted-by Codex Codex-sonnet-4-6
+    // Older channel assignments may only have the team-member use tuple.
+    // Re-materialize the central assignment policy so upgraded installs get
+    // the new team-member manage tuple without a manual migration first.
+    const repair = await writeOpenFgaTuples(
+      buildUniversalRebacTupleDiff({
+        writes: slackChannelTeamVisibilityRelationships(workspaceId, channelId, teamSlug),
+        deletes: [],
+      })
+    ).catch((error) => {
+      console.warn("[SlackChannels] Failed to repair team visibility tuples", {
+        workspaceId,
+        channelId,
+        teamSlug,
+        error,
+      });
+      return null;
+    });
+    repairedManageGrant = Boolean(repair?.enabled && repair.writes > 0);
+    [read, manage] = await checkAccess();
+  }
   return {
-    canRead: read.allowed || manage.allowed,
-    canManage: manage.allowed,
+    canRead: read.allowed || manage.allowed || repairedManageGrant,
+    canManage: manage.allowed || repairedManageGrant,
   };
 }
 
@@ -99,7 +126,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       rows.map(async (row) => {
         const workspaceId = slackWorkspaceRef(row.slack_workspace_id);
         const access = subject
-          ? await slackChannelAccess(subject, workspaceId, row.slack_channel_id)
+          ? await slackChannelAccess(subject, workspaceId, row.slack_channel_id, row.team_slug)
           : { canRead: false, canManage: false };
         // A Slack surface admin can see every channel row, including
         // team_mapping rows imported (config_sync) but not yet assigned to a

@@ -4,14 +4,13 @@
  * <TeamOwnershipFields> — the canonical group-based access-control control
  * bundle (spec 2026-06-03-unified-shareable-resource-rbac, US1, contract
  * ui-component.md).
+ * assisted-by Codex Codex-sonnet-4-6
  *
  * Renders, for any shareable resource (agent, datasource, MCP tool, future
  * types):
- *   - an owner-team picker (single-select; disabled on edit unless a transfer
- *     is in progress),
+ *   - an owner-team picker (single-select; disabled on edit unless transfers
+ *     are allowed, in which case changing it directly marks a transfer),
  *   - a share-with-teams multi-select,
- *   - an effective-access preview that names exactly the grants the next save
- *     will write (transparency, not decoration),
  *   - a read-only creator (provenance) line,
  *   - a not-a-member transfer confirmation when transferring to a team the
  *     caller does not belong to.
@@ -26,17 +25,14 @@
  * its UI (SC-006). RAG/MCP editors simply omit them.
  */
 
-import { AlertCircle } from "lucide-react";
 import * as React from "react";
 
-import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import {
 TeamMultiPicker,
 TeamPicker,
 type TeamPickerOption,
 } from "@/components/ui/team-picker";
-import { cn } from "@/lib/utils";
 
 export interface TeamOwnershipFieldsProps {
   // ---- current values --------------------------------------------------
@@ -46,9 +42,9 @@ export interface TeamOwnershipFieldsProps {
   creatorSubject?: string | null;
 
   // ---- mode ------------------------------------------------------------
-  /** Disables the owner picker (owner is immutable on edit) unless transferring. */
+  /** Disables the owner picker on edit unless transfers are allowed. */
   isEditing: boolean;
-  /** Surfaces a "Transfer ownership" affordance on edit. */
+  /** Allows owner picker edits on edit; changed values are treated as transfers. */
   allowTransfer?: boolean;
   /** Mark the owner field required (create flow); drives the inline error. */
   ownerRequired?: boolean;
@@ -68,8 +64,8 @@ export interface TeamOwnershipFieldsProps {
   // ---- callbacks -------------------------------------------------------
   onOwnerTeamChange: (slug: string) => void;
   onSharedTeamsChange: (slugs: string[]) => void;
-  /** Called when a transfer is confirmed. `confirmedNotMember` is true when the
-   *  caller acknowledged they are not a member of the destination team. */
+  /** Called when an edit-mode owner change is confirmed. `confirmedNotMember`
+   * is true when the caller acknowledged they are not a member of the destination team. */
   onTransfer?: (newOwnerSlug: string, confirmedNotMember: boolean) => void;
 
   disabled?: boolean;
@@ -100,14 +96,6 @@ export interface TeamOwnershipFieldsProps {
   }>;
 }
 
-/** Resolve a share entry (slug or legacy _id) to a canonical slug via the options. */
-function resolveSlug(entry: string, options: TeamPickerOption[]): string | null {
-  const match = options.find(
-    (o) => o.slug === entry || o.id === entry || o._id === entry,
-  );
-  return match?.slug ?? (typeof entry === "string" && entry.trim() ? entry : null);
-}
-
 export function TeamOwnershipFields(props: TeamOwnershipFieldsProps) {
   const {
     ownerTeamSlug,
@@ -131,18 +119,15 @@ export function TeamOwnershipFields(props: TeamOwnershipFieldsProps) {
     showShare = true,
     betweenOwnerAndShare,
     ownerExtra,
-    renderGrantDetail,
-    extraGrantPreviewItems = [],
+    // `renderGrantDetail` and `extraGrantPreviewItems` remain in the props
+    // interface for caller compatibility but are no longer rendered (the
+    // grant-preview block was removed).
   } = props;
 
-  // Transfer mode: only meaningful on edit when transfers are allowed. While
-  // active, the owner picker is re-enabled so a new destination can be chosen.
-  const [transferring, setTransferring] = React.useState(false);
-  // Missing-treatment (asterisk, "Required" badge, inline error, aria-invalid)
-  // is a create-flow concern: on edit the owner is fixed and the picker is
-  // disabled, so it can never be missing-and-fixable.
   const ownerMissing = ownerRequired && !isEditing && !ownerTeamSlug?.trim();
-  const ownerPickerDisabled = disabled || (isEditing && !transferring);
+  // On edit the picker is editable only when transfers are allowed; otherwise
+  // it stays locked. On create it is always enabled (unless globally disabled).
+  const ownerPickerDisabled = disabled || (isEditing && !allowTransfer);
 
   const shareOptions = availableTeams.filter(
     (t): t is TeamPickerOption & { slug: string } => Boolean(t.slug),
@@ -151,19 +136,10 @@ export function TeamOwnershipFields(props: TeamOwnershipFieldsProps) {
     (t): t is TeamPickerOption & { slug: string } => Boolean(t.slug),
   );
 
-  // Effective grants = owner (if any) + shared (resolved to slugs, owner deduped).
-  const ownerSlug = ownerTeamSlug?.trim() || null;
-  const effectiveShared = sharedTeamSlugs
-    .map((entry) => resolveSlug(entry, availableTeams))
-    .filter((slug): slug is string => Boolean(slug))
-    .filter((slug) => slug !== ownerSlug);
-  const grants: Array<{ slug: string; kind: "owner" | "shared" }> = [
-    ...(ownerSlug ? [{ slug: ownerSlug, kind: "owner" as const }] : []),
-    ...effectiveShared.map((slug) => ({ slug, kind: "shared" as const })),
-  ];
-
   function handleOwnerChange(slug: string) {
-    if (transferring && allowTransfer) {
+    // On edit, changing the owner performs a transfer (with the not-a-member
+    // confirm). On create there is no transfer — just set the owner.
+    if (isEditing && allowTransfer && onTransfer) {
       const confirmedNotMember = !currentUserTeamSlugs.includes(slug);
       if (confirmedNotMember) {
         const ok = window.confirm(
@@ -172,8 +148,7 @@ export function TeamOwnershipFields(props: TeamOwnershipFieldsProps) {
         if (!ok) return;
       }
       onOwnerTeamChange(slug);
-      onTransfer?.(slug, confirmedNotMember);
-      setTransferring(false);
+      onTransfer(slug, confirmedNotMember);
       return;
     }
     onOwnerTeamChange(slug);
@@ -182,51 +157,20 @@ export function TeamOwnershipFields(props: TeamOwnershipFieldsProps) {
   return (
     <div className="space-y-4">
       {/* Owner team ------------------------------------------------------ */}
-      <div
-        className={cn(
-          "space-y-2 rounded-lg transition-colors",
-          ownerMissing && "border border-destructive/40 bg-destructive/5 p-3",
-        )}
-      >
-        <div className="flex items-center justify-between gap-2">
-          <Label htmlFor="ownerTeam">
-            {ownerLabel}{" "}
-            {ownerRequired && !isEditing && (
-              <span className="text-destructive">*</span>
-            )}
-          </Label>
-          {ownerMissing && (
-            <span className="rounded-full bg-destructive px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-destructive-foreground">
-              Required
-            </span>
+      <div className="space-y-2 rounded-lg">
+        <Label htmlFor="ownerTeam">
+          {ownerLabel}{" "}
+          {ownerRequired && !isEditing && (
+            <span className="text-destructive">*</span>
           )}
-          {isEditing && allowTransfer && onTransfer && (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={disabled}
-              onClick={() => setTransferring((t) => !t)}
-            >
-              {transferring ? "Cancel transfer" : "Transfer ownership"}
-            </Button>
-          )}
-        </div>
+        </Label>
         <TeamPicker
           id="ownerTeam"
           value={ownerTeamSlug}
           onChange={handleOwnerChange}
           disabled={ownerPickerDisabled}
           ariaInvalid={ownerMissing}
-          ariaDescribedBy={
-            ownerMissing
-              ? "owner-team-required-message owner-team-help"
-              : "owner-team-help"
-          }
-          triggerClassName={cn(
-            ownerMissing &&
-              "border-destructive/70 bg-destructive/5 ring-1 ring-destructive/30 focus:ring-destructive",
-          )}
+          ariaDescribedBy="owner-team-help"
           placeholder={`Select a team that will own this ${resourceNoun}`}
           searchPlaceholder="Search your teams..."
           emptyLabel={
@@ -236,31 +180,19 @@ export function TeamOwnershipFields(props: TeamOwnershipFieldsProps) {
           }
           options={ownerOptions}
         />
-        {ownerMissing && (
-          <p
-            id="owner-team-required-message"
-            role="alert"
-            className="flex items-start gap-1.5 rounded-md border border-destructive/30 bg-destructive/10 px-2.5 py-2 text-xs text-destructive"
-          >
-            <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            <span>
-              <span className="font-semibold">{ownerLabel} is required.</span>{" "}
-              Choose a team before creating this {resourceNoun}.
-            </span>
-          </p>
-        )}
         <p id="owner-team-help" className="text-xs text-muted-foreground">
           {ownerHelpText ?? (
             <>
-              Owner-team members can use the {resourceNoun}; owner-team admins
-              can manage it.
+              Owner-team members can use and edit the {resourceNoun};
+              owner-team admins can manage it.
             </>
           )}
         </p>
-        {transferring && allowTransfer && (
+        {isEditing && allowTransfer && onTransfer && (
           <p className="text-xs text-amber-600 dark:text-amber-400">
-            Pick the destination team. If you are not a member you will be asked
-            to confirm — transferring may remove your own access.
+            Changing the owner team will transfer ownership when you save. If
+            you are not a member of the destination team, saving may remove your
+            own access.
           </p>
         )}
         {creatorSubject && (
@@ -295,41 +227,6 @@ export function TeamOwnershipFields(props: TeamOwnershipFieldsProps) {
               searchPlaceholder="Search your teams..."
               emptyLabel="No teams match"
             />
-          )}
-
-          {(extraGrantPreviewItems.length > 0 || grants.length > 0) && (
-            <div
-              role="note"
-              aria-label="Effective access summary"
-              className="mt-4 rounded-md border border-amber-300/60 bg-amber-50 p-3 text-xs text-amber-950 dark:bg-amber-950/30 dark:text-amber-200"
-            >
-              <div className="mb-2 font-medium">
-                On save, these OpenFGA grants will be written:
-              </div>
-              <ul className="space-y-1.5">
-                {extraGrantPreviewItems.map(({ id, line, detail }) => (
-                  <li key={id}>
-                    {line}
-                    {detail && (
-                      <span className="block pl-4 text-amber-900/80 dark:text-amber-300/80">
-                        {detail}
-                      </span>
-                    )}
-                  </li>
-                ))}
-                {grants.map(({ slug, kind }) => (
-                  <li key={`${kind}-${slug}`}>
-                    <code>team:{slug}#member</code> can use this {resourceNoun}
-                    {kind === "owner" && " (owner team)"}
-                    {renderGrantDetail && (
-                      <span className="block pl-4 text-amber-900/80 dark:text-amber-300/80">
-                        {renderGrantDetail(slug, kind)}
-                      </span>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </div>
           )}
         </div>
       )}

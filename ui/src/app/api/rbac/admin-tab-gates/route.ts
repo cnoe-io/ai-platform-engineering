@@ -10,6 +10,7 @@ baselineBootstrapTuples,
 getBaselineFgaProfile,
 } from "@/lib/rbac/baseline-access";
 import { checkOpenFgaTuple,listOpenFgaObjects,writeOpenFgaTuples } from "@/lib/rbac/openfga";
+import { openFgaResourceObject } from "@/lib/rbac/openfga-resource-ids";
 import { organizationObjectId } from "@/lib/rbac/organization";
 import { slackChannelSubjectId } from "@/lib/rbac/slack-channel-grant-store";
 import type { AdminTabGatesMap,AdminTabKey } from "@/lib/rbac/types";
@@ -33,11 +34,14 @@ const ALL_TABS: AdminTabKey[] = [
   "health",
   "credentials",
   "audit_logs",
+  "dynamic_agent_conversations",
   "action_audit",
   "openfga",
   "migrations",
   "service_accounts",
 ];
+
+const DYNAMIC_AGENT_CONVERSATIONS_AUDIT_ID = "dynamic_agent_conversations";
 
 function decodeJwtPayload(token: string): Record<string, unknown> {
   try {
@@ -130,6 +134,17 @@ async function hasAdminSurfaceManage(openfgaUser: string, tab: AdminTabKey): Pro
   });
 }
 
+async function hasDynamicAgentConversationsRead(openfgaUser: string): Promise<boolean> {
+  // assisted-by Codex Codex-sonnet-4-6
+  // Mirrors /api/dynamic-agents/conversations, which gates this surface on
+  // audit_log:dynamic_agent_conversations#can_read with org-admin bypass.
+  return checkTupleAllowed({
+    user: openfgaUser,
+    relation: "can_read",
+    object: openFgaResourceObject("audit_log", DYNAMIC_AGENT_CONVERSATIONS_AUDIT_ID),
+  });
+}
+
 async function hasBaselineAdminSurfaceRead(openfgaUser: string, tab: AdminTabKey): Promise<boolean> {
   if (!BASELINE_TABS.has(tab)) return false;
   return checkTupleAllowed({
@@ -163,7 +178,7 @@ async function repairCurrentUserBaseline(subject: string, isAdmin: boolean): Pro
   }
 }
 
-async function hasManageableSlackChannel(openfgaUser: string): Promise<boolean> {
+async function hasAccessibleSlackChannel(openfgaUser: string): Promise<boolean> {
   try {
     const mappings = await getCollection<SlackChannelMapping>("channel_team_mappings");
     const rows = await mappings
@@ -173,11 +188,15 @@ async function hasManageableSlackChannel(openfgaUser: string): Promise<boolean> 
 
     for (const row of rows) {
       if (!row.slack_channel_id) continue;
-      if (await checkTupleAllowed({
-        user: openfgaUser,
-        relation: "can_manage",
-        object: `slack_channel:${slackChannelSubjectId(row.slack_workspace_id ?? "", row.slack_channel_id)}`,
-      })) {
+      const object = `slack_channel:${slackChannelSubjectId(row.slack_workspace_id ?? "", row.slack_channel_id)}`;
+      // assisted-by Codex Codex-sonnet-4-6
+      // Team-shared Slack channels should reveal the self-service integration
+      // surface for readers too; row edit controls still depend on can_manage.
+      const [readable, manageable] = await Promise.all([
+        checkTupleAllowed({ user: openfgaUser, relation: "can_read", object }),
+        checkTupleAllowed({ user: openfgaUser, relation: "can_manage", object }),
+      ]);
+      if (readable || manageable) {
         return true;
       }
     }
@@ -187,7 +206,7 @@ async function hasManageableSlackChannel(openfgaUser: string): Promise<boolean> 
   return false;
 }
 
-async function hasManageableWebexSpace(openfgaUser: string): Promise<boolean> {
+async function hasAccessibleWebexSpace(openfgaUser: string): Promise<boolean> {
   try {
     const mappings = await getCollection<WebexSpaceMapping>("webex_space_team_mappings");
     const rows = await mappings
@@ -197,11 +216,12 @@ async function hasManageableWebexSpace(openfgaUser: string): Promise<boolean> {
 
     for (const row of rows) {
       if (!row.webex_space_id) continue;
-      if (await checkTupleAllowed({
-        user: openfgaUser,
-        relation: "can_manage",
-        object: `webex_space:${webexSpaceSubjectId(row.webex_workspace_id ?? "", row.webex_space_id)}`,
-      })) {
+      const object = `webex_space:${webexSpaceSubjectId(row.webex_workspace_id ?? "", row.webex_space_id)}`;
+      const [readable, manageable] = await Promise.all([
+        checkTupleAllowed({ user: openfgaUser, relation: "can_read", object }),
+        checkTupleAllowed({ user: openfgaUser, relation: "can_manage", object }),
+      ]);
+      if (readable || manageable) {
         return true;
       }
     }
@@ -231,8 +251,8 @@ async function isMemberOfAnyTeam(openfgaUser: string): Promise<boolean> {
 }
 
 async function hasResourceScopedIntegrationAccess(openfgaUser: string, tab: AdminTabKey): Promise<boolean> {
-  if (tab === "slack") return hasManageableSlackChannel(openfgaUser);
-  if (tab === "webex") return hasManageableWebexSpace(openfgaUser);
+  if (tab === "slack") return hasAccessibleSlackChannel(openfgaUser);
+  if (tab === "webex") return hasAccessibleWebexSpace(openfgaUser);
   if (tab === "service_accounts") return isMemberOfAnyTeam(openfgaUser);
   return false;
 }
@@ -286,20 +306,34 @@ export async function GET(request?: NextRequest) {
   const gates: AdminTabGatesMap = {} as AdminTabGatesMap;
   for (const tab of ALL_TABS) {
     const actor = simulatedUser ?? currentUser;
-    let allowed =
-      tab === "credentials"
-        ? simulatedUser
-          ? await checkTupleAllowed({
-              user: simulatedUser,
-              relation: "can_manage",
-              object: organizationObjectId(),
-            })
-          : isAdmin
-        : BASELINE_TABS.has(tab) && actor
-          ? await hasBaselineAdminSurfaceRead(actor, tab)
-          : simulatedUser
-            ? await hasAdminSurfaceManage(simulatedUser, tab)
-            : bootstrapAdmin || (actor ? await hasAdminSurfaceManage(actor, tab) : false);
+    let allowed: boolean;
+    if (tab === "dynamic_agent_conversations") {
+      if (simulatedUser) {
+        const simulatedOrgAdmin = await checkTupleAllowed({
+          user: simulatedUser,
+          relation: "can_manage",
+          object: organizationObjectId(),
+        });
+        allowed = simulatedOrgAdmin || await hasDynamicAgentConversationsRead(simulatedUser);
+      } else {
+        allowed = isAdmin || (actor ? await hasDynamicAgentConversationsRead(actor) : false);
+      }
+    } else {
+      allowed =
+        tab === "credentials"
+          ? simulatedUser
+            ? await checkTupleAllowed({
+                user: simulatedUser,
+                relation: "can_manage",
+                object: organizationObjectId(),
+              })
+            : isAdmin
+          : BASELINE_TABS.has(tab) && actor
+            ? await hasBaselineAdminSurfaceRead(actor, tab)
+            : simulatedUser
+              ? await hasAdminSurfaceManage(simulatedUser, tab)
+              : bootstrapAdmin || (actor ? await hasAdminSurfaceManage(actor, tab) : false);
+    }
     if (!allowed && actor && !simulatedUser) {
       allowed = await hasResourceScopedIntegrationAccess(actor, tab);
     }

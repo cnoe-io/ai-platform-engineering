@@ -365,9 +365,9 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
     source?.shared_with_teams || []
   );
   const [ownerTeamSlug, setOwnerTeamSlug] = React.useState(source?.owner_team_slug || "");
-  // Ownership transfer (spec 2026-06-03, US3). On edit, the owner picker is
-  // read-only until the user invokes the transfer affordance; these track the
-  // pending transfer so the PUT can send owner_team_slug + confirm_not_member.
+  // Ownership transfer (spec 2026-06-03, US3). On edit, changing the owner
+  // picker marks a pending transfer so the PUT can send owner_team_slug +
+  // confirm_not_member.
   const [transferRequested, setTransferRequested] = React.useState(false);
   const [transferConfirmedNotMember, setTransferConfirmedNotMember] = React.useState(false);
   const [allowedTools, setAllowedTools] = React.useState<Record<string, string[] | boolean>>(
@@ -720,7 +720,11 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
     if (activeStep === "instructions" && review.isBlocking) {
       const ok = await review.ensurePassedOrRun();
       if (!ok) {
-        setError("AI Review failed — address comments before continuing.");
+        const message = "AI Review failed — address the comments below before continuing.";
+        // assisted-by Codex Codex-sonnet-4-6
+        // A blocking review should be visible even when the footer is below the fold.
+        toast(message, "error");
+        setError(message);
         return;
       }
     }
@@ -876,7 +880,12 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
     if (review.isBlocking) {
       const ok = await review.ensurePassedOrRun();
       if (!ok) {
-        setError("AI Review failed — address comments before saving.");
+        const message = "AI Review failed — address the comments in the Instructions step before saving.";
+        // assisted-by Codex Codex-sonnet-4-6
+        // Return to the reviewed content so the user can see and act on comments.
+        toast(message, "error");
+        setActiveStep("instructions");
+        setError(message);
         setLoading(false);
         return;
       }
@@ -943,8 +952,8 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
           features: features,
           interrupt_on: interruptOn,
           // Ownership transfer (US3): only send owner_team_slug when the user
-          // actually invoked the transfer affordance, so a normal edit never
-          // trips the route's transfer guard.
+          // changed the owner picker, so a normal edit never trips the route's
+          // transfer guard.
           ...(transferRequested
             ? {
                 owner_team_slug: ownerTeamSlug,
@@ -1495,16 +1504,17 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                 shareHelpText={
                   <>
                     Select which teams can access this agent. Each selected
-                    team gets <code>can_use</code> on the agent in OpenFGA, so
-                    every member can DM it and use it in any Slack channel or
-                    Webex space mapped to that team.
+                    team gets <code>can_use</code> and <code>can_write</code> on
+                    the agent in OpenFGA, so every member can edit it, DM it,
+                    and use it in any Slack channel or Webex space mapped to
+                    that team.
                   </>
                 }
                 renderGrantDetail={(slug) => (
                   <>
-                    every member of <code>team:{slug}</code> can DM this agent
-                    in a 1:1 chat and use it in any Slack channel or Webex space
-                    that is mapped to <code>team:{slug}</code>.
+                    every member of <code>team:{slug}</code> can edit this
+                    agent, DM it in a 1:1 chat, and use it in any Slack channel
+                    or Webex space that is mapped to <code>team:{slug}</code>.
                   </>
                 )}
                 extraGrantPreviewItems={
@@ -1961,40 +1971,6 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
             </>
           )}
         </div>
-        {!readOnly && firstBlocker && !loading && (
-          // Inline blocker hint. Renders only when the submit button is
-          // disabled AND we're not mid-save. Includes a click-to-jump shortcut
-          // so the user can land on the offending step in one click without
-          // hunting through the wizard. Wrapped in flex so the label and the
-          // jump-to button sit on one line on wide screens and wrap on narrow.
-          <div
-            role="status"
-            aria-live="polite"
-            data-testid="create-agent-blocker-hint"
-            className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-destructive"
-          >
-            <span>
-              Required: <span className="font-medium">{firstBlocker.label}</span>
-              {blockerStepLabel ? (
-                <>
-                  {" "}<span className="text-muted-foreground">(on {blockerStepLabel} step)</span>
-                </>
-              ) : null}
-              {blockers.length > 1 ? (
-                <span className="text-muted-foreground"> · {blockers.length - 1} more</span>
-              ) : null}
-            </span>
-            {blockerStepLabel && firstBlocker.step !== activeStep ? (
-              <button
-                type="button"
-                onClick={() => setActiveStep(firstBlocker.step)}
-                className="underline underline-offset-2 hover:text-destructive/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive rounded-sm"
-              >
-                Go to {blockerStepLabel}
-              </button>
-            ) : null}
-          </div>
-        )}
         <Button type="button" variant="outline" onClick={onCancel} disabled={loading}>
           {readOnly ? "Close" : "Cancel"}
         </Button>

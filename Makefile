@@ -196,6 +196,7 @@ caipe-ui-e2e-rbac: ## Run mocked RBAC Playwright regression (dev server on :3000
 			e2e/rbac/workflow-agent-access.spec.ts \
 			e2e/rbac/rbac-admin-regression.spec.ts \
 			e2e/rbac/mcp-openfga-tuples.spec.ts \
+			e2e/rbac/admin-settings-regression.spec.ts \
 			--config=playwright.rbac.config.ts
 
 migrate-canonical-team-membership: ## Backfill team_membership_sources from legacy teams.members[] and $$unset the field. Dry-run by default; APPLY=1 to apply.
@@ -636,7 +637,7 @@ scan-image: ## Scan a single image with grype (make scan-image IMG=ghcr.io/cnoe-
 	@[ -n "$(IMG)" ] || { echo "Usage: make scan-image IMG=<image:tag>"; exit 1; }
 	@grype "$(IMG)" --fail-on "$(GRYPE_SEVERITY)"
 
-## ========== Comprehensive RBAC tests (spec 102) ==========
+## ========== RBAC tests ==========
 # See docs/docs/specs/102-comprehensive-rbac-tests-and-completion/quickstart.md
 
 # Profile selection. Override with E2E_PROFILES=...

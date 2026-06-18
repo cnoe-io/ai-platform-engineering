@@ -118,7 +118,7 @@ function isValidCronExpr(expr: string): boolean {
 
 function scheduleSummary(settings: IdpSyncSettings): string {
   if (settings.schedule_mode === "cron") {
-    return settings.sync_cron ? `cron: ${settings.sync_cron}` : "Custom (cron)";
+    return settings.sync_cron ? `cron: ${settings.sync_cron} (UTC)` : "Custom (cron)";
   }
   const preset = INTERVAL_OPTIONS.find((o) => o.value === settings.sync_interval_minutes);
   return preset ? preset.label : `Every ${settings.sync_interval_minutes}m`;
@@ -472,7 +472,7 @@ export function IdentitySyncPanel({ isAdmin }: IdentitySyncPanelProps) {
                       <p className={`text-xs ${cronInvalid ? "text-red-600" : "text-muted-foreground"}`}>
                         {cronInvalid
                           ? "Invalid cron: expected 5 fields (minute hour day-of-month month day-of-week)."
-                          : "Standard 5-field cron (minute hour day-of-month month day-of-week)."}
+                          : "Standard 5-field cron (minute hour day-of-month month day-of-week), evaluated in UTC."}
                       </p>
                     </div>
                   )}

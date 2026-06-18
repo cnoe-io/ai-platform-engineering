@@ -1,13 +1,14 @@
 # assisted-by Codex Codex-sonnet-4-6
 
-"""Reconcile Mongo MCP server records into standalone AgentGateway config.
+"""Reconcile BFF-published MCP server targets into standalone AgentGateway config.
 
 AgentGateway's Kubernetes mode should use native Gateway API resources
 (`HTTPRoute` + `AgentgatewayBackend`). Local Docker Compose runs standalone
 AgentGateway from a config file, and AgentGateway hot-reloads route/backend
 changes written to that file. This bridge keeps those local routes in sync
-with the `mcp_servers` collection so runtime-added MCP servers get a matching
-`/mcp/<server_id>` route.
+with the BFF's internal MCP target API so runtime-added MCP servers get a
+matching `/mcp/<server_id>` route without exposing the persistence backend to
+the sidecar.
 """
 
 from __future__ import annotations
@@ -117,7 +118,7 @@ DEFAULT_MCP_ROUTE_POLICY_OVERRIDES: dict[str, dict[str, Any]] = {
 
 @dataclass(frozen=True)
 class McpGatewayTarget:
-    """AgentGateway MCP target rendered from an `mcp_servers` document."""
+    """AgentGateway MCP target rendered from the BFF target API."""
 
     id: str
     upstream_url: str
@@ -176,7 +177,7 @@ def _credential_sources(document: dict[str, Any]) -> tuple[dict[str, Any], ...]:
 
 
 def select_gateway_targets(documents: Iterable[dict[str, Any]]) -> list[McpGatewayTarget]:
-    """Select enabled AgentGateway-managed MCP targets from Mongo documents."""
+    """Select enabled AgentGateway-managed MCP targets from persisted server documents."""
 
     targets: list[McpGatewayTarget] = []
     seen: set[str] = set()
@@ -202,6 +203,25 @@ def select_gateway_targets(documents: Iterable[dict[str, Any]]) -> list[McpGatew
         )
         seen.add(target_id)
     return targets
+
+
+def select_gateway_targets_from_bff_payload(payload: dict[str, Any]) -> list[McpGatewayTarget]:
+    """Select bridge targets from the BFF's internal target API response."""
+
+    documents: list[dict[str, Any]] = []
+    for item in payload.get("targets", []):
+        if not isinstance(item, dict):
+            continue
+        document = {
+            "_id": item.get("id"),
+            "enabled": True,
+            "source": "agentgateway",
+            "agentgateway_target_endpoint": item.get("target_endpoint"),
+        }
+        if isinstance(item.get("credential_sources"), list):
+            document["credential_sources"] = item["credential_sources"]
+        documents.append(document)
+    return select_gateway_targets(documents)
 
 
 def _first_http_listener(config: dict[str, Any]) -> dict[str, Any]:
@@ -366,12 +386,12 @@ def load_builtin_mcp_routes(bootstrap_path: Path | None) -> dict[str, dict[str, 
     static bootstrap config (``deploy/agentgateway/config.yaml``).
 
     These are the platform's *built-in* MCP servers. Unlike runtime-added servers,
-    they are never written to the ``mcp_servers`` Mongo collection, so the
+    they are not part of the dynamic BFF target payload, so the
     reconciler must treat them as a **protected baseline**: always rendered (from
     their authoritative bootstrap definition, including any per-route
-    transformations) and never pruned just because they are absent from Mongo.
+    transformations) and never pruned just because they are absent from the API.
 
-    Without this, an empty (or freshly reset) ``mcp_servers`` collection makes the
+    Without this, an empty (or freshly reset) dynamic target set makes the
     reconciler classify all built-in ``/mcp/<id>`` routes as "stale managed
     routes" and wipe them — leaving AgentGateway with zero MCP routes.
     """
@@ -418,7 +438,7 @@ def merge_agentgateway_mcp_routes(
 
     ``builtin_routes`` (id -> route) are statically shipped MCP servers that the
     reconciler protects: they are always re-rendered from their bootstrap
-    definition and never pruned. Mongo-backed ``targets`` are layered on top as
+    definition and never pruned. BFF-backed ``targets`` are layered on top as
     *dynamic* routes that may be added or pruned; a dynamic target sharing an id
     with a built-in defers to the built-in definition.
     """
@@ -434,7 +454,7 @@ def merge_agentgateway_mcp_routes(
     builtin_routes = builtin_routes or {}
     builtin_ids = set(builtin_routes)
     builtin_paths = {f"/mcp/{target_id}" for target_id in builtin_ids}
-    # Dynamic (Mongo-managed) targets are everything not shipped as a built-in.
+    # Dynamic (BFF-managed) targets are everything not shipped as a built-in.
     dynamic_targets = [target for target in targets if target.id not in builtin_ids]
     desired_by_path = {f"/mcp/{target.id}": target for target in dynamic_targets}
     target_policies_by_path = {
@@ -448,9 +468,9 @@ def merge_agentgateway_mcp_routes(
     # The reconciler owns every dynamic ``/mcp/<id>`` route, so drop *all* managed
     # MCP routes from the baseline and re-render the protected built-ins plus the
     # desired dynamic set below. This makes deletion automatic: when an
-    # ``mcp_servers`` row is removed, its route is no longer in ``desired_by_path``
+    # target is removed, its route is no longer in ``desired_by_path``
     # and simply isn't re-added. Built-in routes are exempt — they are restored
-    # from ``builtin_routes`` regardless of Mongo state. Non-MCP routes (and any
+    # from ``builtin_routes`` regardless of dynamic target state. Non-MCP routes (and any
     # malformed entries) are always retained.
     stale_paths = sorted(
         path
@@ -643,15 +663,27 @@ def load_baseline_config(
         return _minimal_config()
 
 
-def _load_targets_from_mongo() -> list[McpGatewayTarget]:
-    from pymongo import MongoClient
+def _load_targets_from_bff() -> list[McpGatewayTarget]:
+    targets_url = os.environ["AGENTGATEWAY_TARGETS_URL"]
+    token = os.environ["AGENTGATEWAY_TARGETS_TOKEN"]
+    timeout = float(os.getenv("AGENTGATEWAY_TARGETS_TIMEOUT_SECONDS", "5"))
+    request = urllib.request.Request(
+        targets_url,
+        headers={
+            "Accept": "application/json",
+            "Authorization": f"Bearer {token}",
+        },
+        method="GET",
+    )
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("AgentGateway targets API returned a non-object payload")
+    return select_gateway_targets_from_bff_payload(payload)
 
-    mongo_uri = os.environ["MONGODB_URI"]
-    database_name = os.getenv("MONGODB_DATABASE", "caipe")
-    collection_name = os.getenv("MCP_SERVERS_COLLECTION", "mcp_servers")
-    with MongoClient(mongo_uri) as client:
-        documents = list(client[database_name][collection_name].find({}))
-    return select_gateway_targets(documents)
+
+def _load_targets() -> list[McpGatewayTarget]:
+    return _load_targets_from_bff()
 
 
 def reconcile_once(
@@ -662,7 +694,7 @@ def reconcile_once(
 ) -> dict[str, Any]:
     """Render and write one AgentGateway config generation."""
 
-    targets = _load_targets_from_mongo()
+    targets = _load_targets()
     try:
         baseline = load_baseline_config(
             admin_config_url,
@@ -709,8 +741,10 @@ def main() -> None:
         level=os.getenv("LOG_LEVEL", "INFO").upper(),
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
-    if not os.getenv("MONGODB_URI"):
-        raise RuntimeError("MONGODB_URI is required")
+    if not os.getenv("AGENTGATEWAY_TARGETS_URL"):
+        raise RuntimeError("AGENTGATEWAY_TARGETS_URL is required")
+    if not os.getenv("AGENTGATEWAY_TARGETS_TOKEN"):
+        raise RuntimeError("AGENTGATEWAY_TARGETS_TOKEN is required")
 
     config_path = Path(os.getenv("AGENTGATEWAY_CONFIG_PATH", "/generated/config.yaml"))
     bootstrap_config_path = os.getenv("AGENTGATEWAY_BOOTSTRAP_CONFIG_PATH")

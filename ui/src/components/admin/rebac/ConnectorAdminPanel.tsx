@@ -12,6 +12,7 @@ Dialog,DialogContent,DialogDescription,DialogFooter,DialogHeader,DialogTitle,
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
 import { Tooltip,TooltipContent,TooltipTrigger } from "@/components/ui/tooltip";
+import { useSubtabParam } from "@/hooks/use-subtab-param";
 import { cn } from "@/lib/utils";
 import { ConnectorOnboardingWizard } from "./ConnectorOnboardingWizard";
 import type {
@@ -30,6 +31,7 @@ TeamOption,
 } from "./connector-admin-adapter";
 
 type PanelView = "channels" | "onboard" | "advanced";
+const PANEL_VIEWS: readonly PanelView[] = ["channels", "onboard", "advanced"];
 type SyncModalMode = "preview" | "apply";
 type SyncModalStatus = "idle" | "loading" | "success" | "error";
 
@@ -462,7 +464,11 @@ export function ConnectorAdminPanel({
   const [discoveredRows, setDiscoveredRows] = useState<Array<DiscoveredItem & { selected: boolean; team_slug: string; agent_id: string; is_existing: boolean }>>([]);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const [view, setView] = useState<PanelView>("channels");
+  // Sub-tab (Configured / Onboard / Advanced) is mirrored to the `subtab` URL
+  // param so admins can deep-link and refresh without losing their place. In
+  // self-service mode there is no tab bar — the configured table always shows —
+  // so `view` stays local there and the URL is left untouched.
+  const [view, setView] = useSubtabParam(PANEL_VIEWS, "channels");
   const [configuredSearch, setConfiguredSearch] = useState("");
   const [discoverySearch, setDiscoverySearch] = useState("");
 

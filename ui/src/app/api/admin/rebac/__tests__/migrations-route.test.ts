@@ -852,4 +852,51 @@ describe("admin ReBAC migrations API", () => {
     expect(collections.webex_space_team_mappings.createIndex).toHaveBeenCalled();
     expect(indexBody.data.applied_counts.indexes_created).toBeGreaterThan(0);
   });
+
+  it("backfills Slack team member manage tuples for configured channels", async () => {
+    const planRoute = await import("../migrations/[migrationId]/plan/route");
+    const applyRoute = await import("../migrations/[migrationId]/apply/route");
+
+    const planResponse = await planRoute.POST(
+      request("/api/admin/rebac/migrations/messaging_team_visibility_v1/plan", { method: "POST" }),
+      { params: Promise.resolve({ migrationId: "messaging_team_visibility_v1" }) },
+    );
+    const planBody = await planResponse.json();
+
+    expect(planResponse.status).toBe(200);
+    expect(planBody.data.counts).toMatchObject({
+      slack_channels_scanned: 1,
+      webex_spaces_scanned: 1,
+    });
+    expect(planBody.data.counts.tuple_writes_planned).toBeGreaterThanOrEqual(4);
+    expect(planBody.data.tuples).toEqual(
+      expect.arrayContaining([
+        {
+          user: "team:platform#member",
+          relation: "manager",
+          object: "slack_channel:T123--C123",
+        },
+      ]),
+    );
+
+    const applyResponse = await applyRoute.POST(
+      request("/api/admin/rebac/migrations/messaging_team_visibility_v1/apply", {
+        method: "POST",
+        body: JSON.stringify({ confirmation: "MIGRATE messaging_team_visibility TO v2" }),
+      }),
+      { params: Promise.resolve({ migrationId: "messaging_team_visibility_v1" }) },
+    );
+
+    expect(applyResponse.status).toBe(200);
+    expect(mockWriteOpenFgaTupleDiff).toHaveBeenCalledWith({
+      writes: expect.arrayContaining([
+        {
+          user: "team:platform#member",
+          relation: "manager",
+          object: "slack_channel:T123--C123",
+        },
+      ]),
+      deletes: [],
+    });
+  });
 });

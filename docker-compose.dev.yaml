@@ -1429,6 +1429,7 @@ services:
       # (changeme default is for local dev only; for production use Helm chart and External Secrets)
       - MONGODB_URI=${MONGODB_URI:-mongodb://admin:changeme@caipe-mongodb:27017/caipe?authSource=admin}
       - MONGODB_DATABASE=${MONGODB_DATABASE:-caipe}
+      - AGENTGATEWAY_TARGETS_TOKEN=${AGENTGATEWAY_TARGETS_TOKEN:-agentgateway-config-bridge-dev-token}
       # Connections & Secrets. Local OAuth connector bootstrap reads these
       # values from .env; Kubernetes deployments use ESO to inject the same
       # variable names into caipe-ui.
@@ -1635,6 +1636,7 @@ services:
       - GITHUB_TOKEN=${GITHUB_TOKEN:-${GITHUB_PERSONAL_ACCESS_TOKEN:-}}
       - MONGODB_URI=${MONGODB_URI:-mongodb://admin:changeme@caipe-mongodb:27017/caipe?authSource=admin}
       - MONGODB_DATABASE=${MONGODB_DATABASE:-caipe}
+      - AGENTGATEWAY_TARGETS_TOKEN=${AGENTGATEWAY_TARGETS_TOKEN:-agentgateway-config-bridge-dev-token}
       - CAIPE_CREDENTIALS_ENABLED=${CAIPE_CREDENTIALS_ENABLED:-false}
       - CREDENTIAL_STORE_BACKEND=${CREDENTIAL_STORE_BACKEND:-mongodb-envelope}
       - CREDENTIAL_KEY_PROVIDER=${CREDENTIAL_KEY_PROVIDER:-local-cmk}
@@ -1786,6 +1788,7 @@ services:
       # server-to-server credential API instead of browser/session cookies.
       - CAIPE_CREDENTIALS_ENABLED=${CAIPE_CREDENTIALS_ENABLED:-false}
       - CREDENTIAL_API_URL=${CREDENTIAL_API_URL:-http://caipe-ui:3000/api/credentials}
+      - CAIPE_API_URL=${CAIPE_API_URL:-http://caipe-ui:3000}
       - CREDENTIAL_SERVICE_AUDIENCE=${CREDENTIAL_SERVICE_AUDIENCE:-caipe-credential-service}
       - USE_IMPERSONATION_TOKENS=${USE_IMPERSONATION_TOKENS:-false}
       # Static service-account fallback for shared-token MCP servers (GitHub/GitLab).
@@ -1972,6 +1975,7 @@ services:
     restart: unless-stopped
     profiles:
       - web-ingestor
+      - web_ingestor
 
   backstage_ingestor:
     build:
@@ -3067,8 +3071,8 @@ services:
     profiles:
       - rbac
     environment:
-      MONGODB_URI: ${MONGODB_URI:-mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin}
-      MONGODB_DATABASE: ${MONGODB_DATABASE:-caipe}
+      AGENTGATEWAY_TARGETS_URL: ${AGENTGATEWAY_TARGETS_URL:-http://caipe-ui:3000/api/internal/agentgateway/mcp-targets}
+      AGENTGATEWAY_TARGETS_TOKEN: ${AGENTGATEWAY_TARGETS_TOKEN:-agentgateway-config-bridge-dev-token}
       AGENTGATEWAY_CONFIG_PATH: /generated/config.yaml
       AGENTGATEWAY_BOOTSTRAP_CONFIG_PATH: /bootstrap/config.yaml
       AGENTGATEWAY_ADMIN_CONFIG_URL: http://agentgateway:15000/config
@@ -3111,8 +3115,9 @@ services:
       retries: 12
       start_period: 5s
     depends_on:
-      caipe-mongodb:
-        condition: service_healthy
+      caipe-ui:
+        condition: service_started
+        required: false
 
   agentgateway:
     image: ghcr.io/agentgateway/agentgateway:v1.1.0

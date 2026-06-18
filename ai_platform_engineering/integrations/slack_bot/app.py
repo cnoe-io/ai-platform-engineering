@@ -51,10 +51,7 @@ from utils.slack_agent_routes import (  # noqa: E402
     slack_agent_route_mode,
     slack_workspace_ref,
 )
-from utils.slack_runtime_policy import (  # noqa: E402
-    should_post_route_miss_notice,
-    should_process_slack_payload,
-)
+from utils.slack_runtime_policy import should_post_route_miss_notice  # noqa: E402
 from utils.dispatch_identity import apply_execution_identity  # noqa: E402
 from utils.unlinked_fallback import apply_unlinked_fallback  # noqa: E402
 from utils.slack_admin_api import start_slack_admin_api_server  # noqa: E402
@@ -286,7 +283,7 @@ def _slack_agent_channel_grant_check(context, channel_id: str | None, agent_id: 
         return None
 
     logger.info(
-        "Slack channel grant denied channel=%s agent=%s reason=%s",
+        "Slack channel grant denied channel={} agent={} reason={}",
         channel_id,
         agent_id,
         decision.reason,
@@ -560,11 +557,6 @@ def _match_channel_agents(
   return config_matches
 
 
-def _slack_responses_suppressed() -> bool:
-  """Return whether setup mode should suppress user-visible Slack responses."""
-  return not should_process_slack_payload(silence_env=bool(getattr(config, "silence_env", False)))
-
-
 def _post_route_miss_notice(
   client,
   channel_id: str,
@@ -576,14 +568,7 @@ def _post_route_miss_notice(
   """Tell the sender why Slack routing did not dispatch an agent."""
   if not channel_id or not text:
     return
-  silence_env = bool(getattr(config, "silence_env", False))
-  if silence_env:
-    logger.info("Suppressing Slack route miss notice because setup silence mode is enabled")
-    return
-  if not should_post_route_miss_notice(
-    silence_env=silence_env,
-    explicit_invocation=explicit_invocation,
-  ):
+  if not should_post_route_miss_notice(explicit_invocation=explicit_invocation):
     logger.debug("Suppressing Slack route miss notice for ambient channel message")
     return
   try:
@@ -1022,9 +1007,6 @@ def rbac_global_middleware(body, context, next, logger):
             logger.debug("Ignoring duplicate event_id=%s", event_id)
             return _HANDLED_200
         _seen_events[event_id] = now
-    if _slack_responses_suppressed():
-        logger.info("Ignoring Slack payload while SLACK_INTEGRATION_SILENCE_ENV=true")
-        return _HANDLED_200
     """Enterprise RBAC enforcement checkpoint (098).
 
     When SLACK_RBAC_ENABLED=true:
@@ -1086,20 +1068,6 @@ def rbac_global_middleware(body, context, next, logger):
         )
     except Exception as exc:
         logger.error("Failed to resolve Slack user %s — denying request: %s", slack_user_id, exc)
-        channel = (
-            body.get("event", {}).get("channel")
-            or body.get("channel", {}).get("id")
-            or body.get("channel_id")  # slash command bodies
-        )
-        if channel:
-            try:
-                context["client"].chat_postEphemeral(
-                    channel=channel,
-                    user=slack_user_id,
-                    text="Identity verification is temporarily unavailable. Please try again later.",
-                )
-            except Exception:
-                logger.warning("Could not send RBAC error message to %s", slack_user_id)
         return _HANDLED_200
     finally:
         if loop is not None:
@@ -1535,7 +1503,7 @@ def _route_to_agent(event, say, client, channel_config, agent_match, is_bot, bot
     denial = _slack_agent_channel_grant_check(context, channel_id, agent_id)
     if denial:
       logger.warning(
-        "Slack channel grant denied for ambient message channel=%s agent=%s — silently dropping",
+        "Slack channel grant denied for ambient message channel={} agent={} — silently dropping",
         channel_id,
         agent_id,
       )

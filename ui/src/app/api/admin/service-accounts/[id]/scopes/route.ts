@@ -1,3 +1,4 @@
+// assisted-by Codex Codex-sonnet-4-6
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth-config";
@@ -26,8 +27,11 @@ import { isPlatformAdmin } from "@/lib/rbac/unlinked-service-account";
  * caller to be able to MANAGE the SA (owning-team membership):
  *   check(user:<caller>, can_manage, service_account:<id>).
  *
- * POST  — add a scope (FR-015): the editor must ALSO hold the scope being
- *         granted (check(user:<editor>, <rel>, <object>) → 403 if unheld).
+ * POST  — add a scope (FR-015): non-admin editors must ALSO hold the scope
+ *         being granted (check(user:<editor>, <rel>, <object>) → 403 if
+ *         unheld). Platform admins can add any catalog scope to an SA they can
+ *         manage, even if their org-admin authority is not materialized as a
+ *         per-tool `can_call` tuple.
  * DELETE — remove a scope (FR-016): can_manage ONLY; the editor need NOT hold
  *         the scope.
  *
@@ -58,7 +62,7 @@ async function authorizeScopeMutation(
   id: string,
 ): Promise<
   | { response: NextResponse }
-  | { actor: ResolvedActor; scope: ScopeRef }
+  | { actor: ResolvedActor; scope: ScopeRef; bypassHeldScopeCheck: boolean }
 > {
   const session = (await getServerSession(authOptions)) as {
     sub?: string;
@@ -101,26 +105,18 @@ async function authorizeScopeMutation(
     relation: "can_manage",
     object: `service_account:${id}`,
   });
+  const targetDoc = await getBySub(id);
+  const isUnlinkedSa = targetDoc?.is_platform_unlinked === true;
+  const platformAdmin = await isPlatformAdmin(session);
+  const unlinkedPlatformAdmin = isUnlinkedSa && platformAdmin;
+
   if (!canManage.allowed) {
     // [unlinked-sa][TS-B1] Org-admin bypass for the unlinked SA.
     // The unlinked SA is owned by super-admins, but its scopes are intended to be
     // managed by any platform/org-admin (mirrors the unlinked GET route's auth gate).
     // ADDITIVE: normal SAs still require owning-team can_manage; the bypass ONLY
     // fires for is_platform_unlinked===true docs when the caller is a platform admin.
-    const targetDoc = await getBySub(id);
-    const isUnlinkedSa = targetDoc?.is_platform_unlinked === true;
-    if (isUnlinkedSa) {
-      const admin = await isPlatformAdmin(session);
-      if (!admin) {
-        return {
-          response: NextResponse.json(
-            { success: false, error: "Service account not found" },
-            { status: 404 },
-          ),
-        };
-      }
-      // Org-admin managing the unlinked SA — allow.
-    } else {
+    if (!unlinkedPlatformAdmin) {
       return {
         response: NextResponse.json(
           { success: false, error: "Service account not found" },
@@ -128,9 +124,14 @@ async function authorizeScopeMutation(
         ),
       };
     }
+    // Org-admin managing the unlinked SA — allow.
   }
 
-  return { actor: { callerSub: session.sub, email: session.user.email ?? undefined }, scope };
+  return {
+    actor: { callerSub: session.sub, email: session.user.email ?? undefined },
+    scope,
+    bypassHeldScopeCheck: platformAdmin,
+  };
 }
 
 /**
@@ -178,20 +179,25 @@ export async function POST(request: Request, context: RouteContext) {
   const { id } = await context.params;
   const pre = await authorizeScopeMutation(request, id);
   if ("response" in pre) return pre.response;
-  const { actor, scope } = pre;
+  const { actor, scope, bypassHeldScopeCheck } = pre;
 
   try {
-    // FR-015: the editor must hold the scope they're granting.
-    const held = await checkOpenFgaTuple(scopeCheckTuple(scope, `user:${actor.callerSub}`));
-    if (!held.allowed) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "You cannot grant a scope you do not hold",
-          data: { rejected_scope: scope },
-        },
-        { status: 403 },
-      );
+    // FR-015: normal non-admin editors must hold the scope they're granting.
+    // Platform admins are different: org-admin authority is administrative and
+    // often is not materialized as per-tool can_call tuples, but the picker now
+    // exposes the full platform MCP catalog for them.
+    if (!bypassHeldScopeCheck) {
+      const held = await checkOpenFgaTuple(scopeCheckTuple(scope, `user:${actor.callerSub}`));
+      if (!held.allowed) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: "You cannot grant a scope you do not hold",
+            data: { rejected_scope: scope },
+          },
+          { status: 403 },
+        );
+      }
     }
 
     const saSubject = `service_account:${id}`;

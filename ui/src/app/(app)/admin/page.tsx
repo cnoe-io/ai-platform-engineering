@@ -218,6 +218,11 @@ interface Team {
   // the team, server-decorated from team_membership_sources. Drives the
   // "synced from <IdP>" badge so synced teams are distinguishable from manual.
   idp_source_types?: string[];
+  // Per-row management gate, server-decorated from OpenFGA. True for org/super
+  // admins on every team and for team admins on the teams they own. Drives
+  // the "Manage team" vs "View team" affordance on the team card so that team
+  // admins (without admin_ui#view) still get the manage entry-point.
+  can_manage?: boolean;
   members?: Array<{
     user_id: string;
     role: string;
@@ -267,8 +272,8 @@ const MOVED_OPENFGA_DEEPLINK_TAB_MAP = {
 } as const;
 
 type CategoryKey = 'settings' | 'people' | 'integrations' | 'insights' | 'platform' | 'security';
-const DEFAULT_ADMIN_CATEGORY: CategoryKey = 'security';
-const DEFAULT_ADMIN_TAB = 'cas-permissions-tool';
+const DEFAULT_ADMIN_CATEGORY: CategoryKey = 'settings';
+const DEFAULT_ADMIN_TAB = 'settings';
 const DEFAULT_READONLY_TAB = 'users';
 
 interface Category {
@@ -289,7 +294,7 @@ const CATEGORIES: Category[] = [
     label: 'Settings',
     icon: Settings,
     tabs: [
-      { value: 'settings', label: 'Default Agent', icon: Settings, gateKey: 'settings' },
+      { value: 'settings', label: 'General', icon: Settings, gateKey: 'settings' },
       { value: 'release-notes', label: 'Release notes', icon: FileText, gateKey: 'settings' },
       { value: 'ai-review', label: 'AI Review', icon: ShieldCheck, gateKey: 'ai_review' },
       { value: 'credentials', label: 'Credentials', icon: Shield, gateKey: 'credentials' },
@@ -509,7 +514,7 @@ function AdminPage() {
   const [teams, setTeams] = useState<Team[]>([]);
   const [teamSearch, setTeamSearch] = useState("");
   const [teamsRefreshing, setTeamsRefreshing] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedUserEmail, setSelectedUserEmail] = useState<string | null>(null);
   const [updatingRole, setUpdatingRole] = useState<string | null>(null);
@@ -840,12 +845,19 @@ function AdminPage() {
   const rangeLabel = datePreset === "1h" ? "1 Hour" : datePreset === "12h" ? "12 Hours" : datePreset === "24h" ? "24 Hours" : datePreset === "7d" ? "7 Days" : datePreset === "90d" ? "90 Days" : datePreset === "custom" ? "Custom Range" : "30 Days";
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
 
+  const visitedTabsRef = useRef<Set<string>>(new Set());
+
   useEffect(() => {
-    // Fetch admin data when authenticated or when SSO is disabled (local dev)
     if (status === "authenticated" || !getConfig('ssoEnabled')) {
-      loadAdminData();
+      loadTabData(activeTab);
     }
   }, [status]);
+
+  // Load data for newly-visited tabs
+  useEffect(() => {
+    if (status !== "authenticated" && getConfig('ssoEnabled')) return;
+    loadTabData(activeTab);
+  }, [activeTab, status]);
 
   const fetchTeamsFromDb = async (): Promise<Team[]> => {
     const response = await fetch(`/api/admin/teams?fresh=${Date.now()}`, {
@@ -949,43 +961,27 @@ function AdminPage() {
     fetchStatsWithFilters();
   }, [dateRange, sourceFilter, userFilter, status]);
 
-  const loadAdminData = async () => {
+  const loadStats = async () => {
     setLoading(true);
     setError(null);
-
     try {
-      const feedbackOn = getConfig('feedbackEnabled');
-      const npsOn = getConfig('npsEnabled');
-      // Fetch stats, teams, skill metrics, feedback, and NPS in parallel.
-      // The user list is intentionally NOT fetched here — UserManagementTab
-      // lazy-loads it when the Users tab is selected. Fetching it eagerly
-      // burned a Keycloak list+count round-trip on every admin page load
-      // and the result was discarded.
       const hasStatsFilters = sourceFilter !== 'all' || userFilter.length > 0;
-      const [statsRes, globalStatsRes, teamsData, skillStatsRes, feedbackRes, npsRes] = await Promise.all([
-        (() => {
-          const p = new URLSearchParams({ from: dateRange.from, to: dateRange.to });
-          if (sourceFilter !== 'all') p.set('source', sourceFilter);
-          if (userFilter.length > 0) p.set('user', userFilter.join(','));
-          return fetch(`/api/admin/stats?${p}`);
-        })(),
+      const p = new URLSearchParams({ from: dateRange.from, to: dateRange.to });
+      if (sourceFilter !== 'all') p.set('source', sourceFilter);
+      if (userFilter.length > 0) p.set('user', userFilter.join(','));
+      const [statsRes, globalStatsRes] = await Promise.all([
+        fetch(`/api/admin/stats?${p}`),
         hasStatsFilters ? fetch('/api/admin/stats') : null,
-        fetchTeamsFromDb().catch(() => []),
-        fetch('/api/admin/stats/skills').catch(() => null),
-        feedbackOn ? fetch('/api/admin/feedback').catch(() => null) : null,
-        npsOn ? fetch('/api/admin/nps').catch(() => null) : null,
       ]);
 
       if (statsRes.status === 401) {
         setError('Not authenticated. Please sign in via SSO first.');
-        setLoading(false);
         return;
       }
 
       const statsForbidden = statsRes.status === 403;
       if (statsForbidden && !tabGateValues.settings) {
         setError('Access denied. Try signing out and back in to refresh your session.');
-        setLoading(false);
         return;
       }
 
@@ -997,43 +993,104 @@ function AdminPage() {
       if (statsResponse.success) {
         setStats(statsResponse.data);
         if (statsResponse.data.available_channels) setStatsChannels(statsResponse.data.available_channels);
-        // Use unfiltered response for global overview, or the main response if no filters were applied
         const overviewData = globalStatsResponse?.success ? globalStatsResponse.data.overview : statsResponse.data.overview;
         setGlobalOverview(overviewData);
       } else if (!statsForbidden) {
         throw new Error(statsResponse.error || 'Failed to load stats');
       }
-
-      setTeams(teamsData);
-
-      if (skillStatsRes?.ok) {
-        const skillStatsResponse = await skillStatsRes.json().catch(() => ({ success: false }));
-        if (skillStatsResponse.success) {
-          setSkillStats(skillStatsResponse.data);
-        }
-      }
-
-      if (feedbackRes?.ok) {
-        const feedbackResponse = await feedbackRes.json().catch(() => ({ success: false }));
-        if (feedbackResponse.success) {
-          setFeedbackData(feedbackResponse.data);
-          if (feedbackResponse.data.channels) setFeedbackChannels(feedbackResponse.data.channels);
-          if (feedbackResponse.data.users) setFeedbackUsers(feedbackResponse.data.users);
-        }
-      }
-
-      if (npsRes?.ok) {
-        const npsResponse = await npsRes.json().catch(() => ({ success: false }));
-        if (npsResponse.success) {
-          setNpsData(npsResponse.data);
-        }
-      }
     } catch (err: any) {
-      console.error('[Admin] Failed to load data:', err);
-      setError(err.message || 'Failed to load admin data');
+      console.error('[Admin] Failed to load stats:', err);
+      setError(err.message || 'Failed to load stats');
     } finally {
       setLoading(false);
     }
+  };
+
+  const loadTeamsData = async () => {
+    try {
+      setTeams(await fetchTeamsFromDb());
+    } catch (err: any) {
+      console.error('[Admin] Failed to load teams:', err);
+    }
+  };
+
+  const loadSkillStats = async () => {
+    try {
+      const res = await fetch('/api/admin/stats/skills');
+      if (res.ok) {
+        const data = await res.json().catch(() => ({ success: false }));
+        if (data.success) setSkillStats(data.data);
+      }
+    } catch (err) {
+      console.error('[Admin] Failed to load skill stats:', err);
+    }
+  };
+
+  const loadNpsDataOnce = async () => {
+    if (!getConfig('npsEnabled')) return;
+    try {
+      const res = await fetch('/api/admin/nps');
+      if (res.ok) {
+        const data = await res.json().catch(() => ({ success: false }));
+        if (data.success) setNpsData(data.data);
+      }
+    } catch (err) {
+      console.error('[Admin] Failed to load NPS data:', err);
+    }
+  };
+
+  const loadFeedbackOnce = async () => {
+    if (!getConfig('feedbackEnabled')) return;
+    try {
+      const res = await fetch('/api/admin/feedback');
+      if (res.ok) {
+        const data = await res.json().catch(() => ({ success: false }));
+        if (data.success) {
+          setFeedbackData(data.data);
+          if (data.data.channels) setFeedbackChannels(data.data.channels);
+          if (data.data.users) setFeedbackUsers(data.data.users);
+        }
+      }
+    } catch (err) {
+      console.error('[Admin] Failed to load feedback:', err);
+    }
+  };
+
+  const loadTabData = async (tab: string) => {
+    if (visitedTabsRef.current.has(tab)) return;
+    visitedTabsRef.current.add(tab);
+
+    // Teams data is shared across stats/slack/feedback filter dropdowns.
+    // Use a data-level key (not the tab name) so it isn't confused with the
+    // tab-visit guard that loadTabData adds before invoking the loader.
+    const loadTeamsIfNeeded = () => {
+      if (visitedTabsRef.current.has('_teams-loaded')) return Promise.resolve();
+      visitedTabsRef.current.add('_teams-loaded');
+      return loadTeamsData();
+    };
+
+    // Stats data is shared between the stats and slack tabs. Use a separate
+    // key so visiting one doesn't cause the other to re-fetch it.
+    const loadStatsIfNeeded = () => {
+      if (visitedTabsRef.current.has('_stats-loaded')) return Promise.resolve();
+      visitedTabsRef.current.add('_stats-loaded');
+      return loadStats();
+    };
+
+    // Map of tab key → loader. Tabs not listed here have no upfront data to
+    // load and should not block render (loading is initialized to false).
+    const loaders: Record<string, () => Promise<void>> = {
+      stats: async () => { await Promise.all([loadStatsIfNeeded(), loadTeamsIfNeeded()]); },
+      slack: async () => { await Promise.all([loadStatsIfNeeded(), loadTeamsIfNeeded()]); },
+      teams: () => loadTeamsIfNeeded(),
+      'identity-sync': () => loadTeamsIfNeeded(),
+      skills: loadSkillStats,
+      feedback: async () => { await Promise.all([loadFeedbackOnce(), loadTeamsIfNeeded()]); },
+      nps: loadNpsDataOnce,
+    };
+
+    const loader = loaders[tab];
+    if (loader) await loader();
   };
 
   const loadFeedback = async (
@@ -1217,7 +1274,7 @@ function AdminPage() {
         <div className="text-center">
           <p className="text-sm text-destructive mb-2">{error}</p>
           <button
-            onClick={loadAdminData}
+            onClick={() => { visitedTabsRef.current.delete(activeTab); loadTabData(activeTab); }}
             className="text-sm text-primary hover:underline"
           >
             Retry
@@ -1583,7 +1640,11 @@ function AdminPage() {
                     )}
                   </div>
                 </div>
-                {teams.length === 0 ? (
+                {teamsRefreshing && teams.length === 0 ? (
+                  <div className="flex justify-center py-12">
+                    <CAIPESpinner />
+                  </div>
+                ) : teams.length === 0 ? (
                   <div className="text-center py-12">
                     <UsersIcon className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
                     <h3 className="text-lg font-semibold mb-2">No Teams Yet</h3>
@@ -1717,14 +1778,12 @@ function AdminPage() {
                           <div className="mt-4">
                             <Button
                               size="sm"
-                              variant={isAdmin ? "default" : "outline"}
+                              variant={(isAdmin || team.can_manage) ? "default" : "outline"}
                               className="w-full gap-1.5"
-                              onClick={() =>
-                                openTeamDialog(team, isAdmin ? "details" : "details")
-                              }
+                              onClick={() => openTeamDialog(team, "details")}
                             >
                               <Settings className="h-3.5 w-3.5" />
-                              {isAdmin ? "Manage team" : "View team"}
+                              {(isAdmin || team.can_manage) ? "Manage team" : "View team"}
                             </Button>
                           </div>
                         </CardContent>
@@ -3206,7 +3265,7 @@ function AdminPage() {
       <CreateTeamDialog
         open={createTeamDialogOpen}
         onOpenChange={setCreateTeamDialogOpen}
-        onSuccess={loadAdminData}
+        onSuccess={loadTeams}
       />
 
       {/* Team Details / Member Management Dialog */}
@@ -3215,7 +3274,7 @@ function AdminPage() {
         mode={teamDialogMode}
         open={teamDetailsOpen}
         onOpenChange={setTeamDetailsOpen}
-        onTeamUpdated={loadAdminData}
+        onTeamUpdated={loadTeams}
         onTeamMutated={(updatedTeam) => {
           // In-place patch of the teams[] state so the row in the
           // background list re-renders with the new member count /
