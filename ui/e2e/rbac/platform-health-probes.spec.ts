@@ -131,6 +131,7 @@ async function installSessionAndOpenHome(page: Page, env: RbacEnv): Promise<void
 }
 
 async function openSystemStatus(page: Page) {
+  await dismissReleaseUpgradeDialog(page);
   const trigger = page.getByRole("button", { name: /system status:/i });
   await expect(trigger).toBeVisible({ timeout: 15_000 });
   await trigger.click();
@@ -158,7 +159,7 @@ test.describe("platform health probes", () => {
     await expect(page.getByText("5/5")).toBeVisible();
     await expect(page.getByText("Core Runtime", { exact: true })).toBeVisible();
     await expect(page.getByText("Identity & Authz")).toBeVisible();
-    await expect(page.getByText("Core runtime, identity, storage, RAG, web ingestor queue readiness, and migrations look ready.")).toBeVisible();
+    await expect(page.getByText("All critical checks are ready.")).toBeVisible();
   });
 
   test("a down platform dependency changes the header to issues detected", async ({ page }) => {
@@ -187,7 +188,7 @@ test.describe("platform health probes", () => {
     await expect(page.getByText("Action needed")).toBeVisible();
     await expect(page.getByText("OpenFGA", { exact: true })).toBeVisible();
     await expect(page.getByText("HTTP 503")).toBeVisible();
-    await expect(page.getByText("DOWN").first()).toBeVisible();
+    await expect(page.getByText("Down").first()).toBeVisible();
     await expect(page.getByText("Check logs for details")).toBeVisible();
   });
 

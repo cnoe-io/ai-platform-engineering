@@ -505,8 +505,8 @@ describe('AppHeader — nav tabs', () => {
 
       render(<AppHeader />)
 
-      expect(screen.getByText('Agents')).toBeInTheDocument()
       expect(screen.getByTestId('link-/dynamic-agents')).toBeInTheDocument()
+      expect(screen.getByTestId('link-/dynamic-agents')).toHaveTextContent('Agents')
     })
   })
 
@@ -794,7 +794,7 @@ describe('AppHeader — connection status badge', () => {
       render(<AppHeader />)
       expect(screen.getByText('Disconnected')).toBeInTheDocument()
       expect(screen.getByText('OpenFGA')).toBeInTheDocument()
-      expect(screen.getAllByText('DOWN').length).toBeGreaterThan(0)
+      expect(screen.getAllByText('Down').length).toBeGreaterThan(0)
     })
 
     it('Disconnected badge has red styling', () => {

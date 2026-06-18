@@ -23,7 +23,7 @@ import { useRAGHealth } from "@/hooks/use-rag-health";
 import { useReleaseUpgradePrompt } from "@/hooks/use-release-upgrade-prompt";
 import { useVersion } from "@/hooks/use-version";
 import { config,getLogoFilterClass } from "@/lib/config";
-import { cn,formatRelativeTime } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { useChatStore } from "@/store/chat-store";
 import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
 import { AnimatePresence,motion } from "framer-motion";
@@ -155,7 +155,7 @@ export function AppHeader() {
   const pathname = usePathname();
   const { data: session } = useSession();
   const { isAdmin } = useAdminRole();
-  const { isStreaming, streamingConversations, unviewedConversations, inputRequiredConversations } = useChatStore();
+  const { streamingConversations, unviewedConversations, inputRequiredConversations } = useChatStore();
   const {
     hasUnsavedChanges,
     pendingNavigationHref,
@@ -208,7 +208,6 @@ export function AppHeader() {
   // Health check for CAIPE supervisor (polls every 30 seconds)
   const {
     status: caipeStatus,
-    url: caipeUrl,
     secondsUntilNextCheck: caipeNextCheck,
     agents,
     mongoDBStatus,
@@ -218,8 +217,6 @@ export function AppHeader() {
   // Health check for RAG server (polls every 30 seconds)
   const {
     status: ragStatus,
-    url: ragUrl,
-    secondsUntilNextCheck: ragNextCheck,
     graphRagEnabled,
     cleanupConfig
   } = useRAGHealth();
@@ -292,6 +289,42 @@ export function AppHeader() {
   ] as const;
   const platformProbeIssues = platformProbes.filter((probe) => probe.status !== "healthy");
   const platformProbeHealthyCount = platformProbes.filter((probe) => probe.status === "healthy").length;
+  const platformProbeIssueCount = platformProbeIssues.length;
+  const platformHealthLabel =
+    platformProbeStatus === "healthy" ? "Ready" :
+    platformProbeStatus === "degraded" ? "Attention" :
+    platformProbeStatus === "down" ? "Down" :
+    "Checking";
+  const platformHealthTone =
+    platformProbeStatus === "healthy" ? "green" :
+    platformProbeStatus === "down" ? "red" :
+    platformProbeStatus === "checking" ? "muted" :
+    "amber";
+  const storageLabel =
+    mongoDBStatus === "connected" ? "MongoDB" :
+    mongoDBStatus === "checking" ? "Checking" :
+    "localStorage";
+  const ragSummaryLabel = !ragEnabled
+    ? "Disabled"
+    : ragStatus === "connected"
+      ? "Online"
+      : ragStatus === "checking"
+        ? "Checking"
+        : "Offline";
+  const agentRuntimeLabel =
+    agentRuntimeStatus === "connected" ? "Online" :
+    agentRuntimeStatus === "checking" ? "Checking" :
+    "Offline";
+  const statusCardClassName =
+    "rounded-lg border border-border/60 bg-muted/20 px-3 py-2.5";
+  const statusBadgeClassName = (tone: "green" | "amber" | "red" | "muted") =>
+    cn(
+      "inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-semibold",
+      tone === "green" && "border-green-500/25 bg-green-500/10 text-green-500 dark:text-green-400",
+      tone === "amber" && "border-amber-500/25 bg-amber-500/10 text-amber-600 dark:text-amber-400",
+      tone === "red" && "border-red-500/25 bg-red-500/10 text-red-500 dark:text-red-400",
+      tone === "muted" && "border-border bg-muted/40 text-muted-foreground",
+    );
 
   const getActiveTab = () => {
     if (pathname === "/") return "home";
@@ -739,345 +772,178 @@ export function AppHeader() {
                   </div>
                 </div>
 
-                <div className="p-4 space-y-4">
-                  {/* CAIPE Supervisor Section */}
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <div className="text-sm font-bold text-foreground">{config.appName} Supervisor</div>
-                        <div className={cn(
-                          "px-2 py-0.5 rounded-full text-[10px] font-bold",
-                          caipeStatus === "connected" && "bg-green-500/15 text-green-400 border border-green-500/30",
-                          caipeStatus === "checking" && "bg-amber-500/15 text-amber-400 border border-amber-500/30",
-                          caipeStatus === "disconnected" && "bg-red-500/15 text-red-400 border border-red-500/30"
+                <div className="p-4 space-y-3">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className={statusCardClassName}>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="text-xs font-semibold text-muted-foreground">Supervisor</div>
+                        <span className={statusBadgeClassName(
+                          caipeStatus === "connected" ? "green" : caipeStatus === "checking" ? "amber" : "red",
                         )}>
-                          {caipeStatus === "connected" ? "ONLINE" : caipeStatus === "checking" ? "CHECKING" : "OFFLINE"}
-                        </div>
+                          {caipeStatus === "connected" ? "Online" : caipeStatus === "checking" ? "Checking" : "Offline"}
+                        </span>
                       </div>
-                      <div className="text-[10px] text-muted-foreground font-mono">
-                        Next check: {caipeNextCheck}s
-                      </div>
-                    </div>
-                    <div className="text-xs text-muted-foreground font-mono break-all bg-muted/30 rounded px-2 py-1">
-                      {caipeUrl}
-                    </div>
-
-                    {/* Agent Info */}
-                    {agents.length > 0 && (
-                      <div className="bg-muted/30 rounded-lg p-3 border border-border/50">
-                        <div className="flex items-start gap-3">
-                          <div className="w-10 h-10 rounded-lg gradient-primary-br flex items-center justify-center shrink-0">
-                            <span className="text-lg font-bold text-white">AI</span>
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="font-semibold text-sm text-foreground mb-1">
-                              {agents[0].name}
-                            </div>
-                            {agents[0].description && (
-                              <div className="text-xs text-muted-foreground leading-relaxed line-clamp-2">
-                                {agents[0].description}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Storage Status */}
-                    <div className="bg-muted/30 rounded-lg p-3 border border-border/50">
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                          Storage Backend
-                        </div>
-                        <div className={cn(
-                          "flex items-center gap-1.5 px-2 py-0.5 rounded-full border",
-                          mongoDBStatus === 'connected' && "bg-green-500/10 border-green-500/20",
-                          mongoDBStatus === 'disconnected' && "bg-amber-500/10 border-amber-500/20",
-                          mongoDBStatus === 'checking' && "bg-muted/50 border-border"
-                        )}>
-                          {mongoDBStatus === 'checking' ? (
-                            <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
-                          ) : (
-                            <span className={cn(
-                              "inline-block w-1.5 h-1.5 rounded-full",
-                              mongoDBStatus === 'connected' && "bg-green-400",
-                              mongoDBStatus === 'disconnected' && "bg-amber-400"
-                            )} />
-                          )}
-                          <span className={cn(
-                            "text-[10px] font-bold",
-                            mongoDBStatus === 'connected' && "text-green-600 dark:text-green-400",
-                            mongoDBStatus === 'disconnected' && "text-amber-600 dark:text-amber-400",
-                            mongoDBStatus === 'checking' && "text-muted-foreground"
-                          )}>
-                            {mongoDBStatus === 'checking' ? 'Checking' : mongoDBStatus === 'connected' ? 'MongoDB' : 'localStorage'}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        {mongoDBStatus === 'connected' && (
-                          <span>✓ Persistent storage with cross-device sync</span>
-                        )}
-                        {mongoDBStatus === 'disconnected' && (
-                          <span>Local browser storage (no sync)</span>
-                        )}
-                        {mongoDBStatus === 'checking' && (
-                          <span>Checking backend availability...</span>
-                        )}
+                      <div className="mt-1 truncate text-[11px] text-muted-foreground">
+                        Next check in {caipeNextCheck}s
                       </div>
                     </div>
 
-                    {/* Platform dependency probes */}
-                    <div>
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                          Platform Health
-                        </div>
-                        <div className={cn(
-                          "flex items-center gap-1.5 px-2 py-0.5 rounded-full border",
-                          platformProbeStatus === "healthy" && "bg-green-500/10 border-green-500/20",
-                          platformProbeStatus === "degraded" && "bg-amber-500/10 border-amber-500/20",
-                          platformProbeStatus === "down" && "bg-red-500/10 border-red-500/20",
-                          platformProbeStatus === "checking" && "bg-muted/50 border-border"
+                    <div className={statusCardClassName}>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="text-xs font-semibold text-muted-foreground">Storage</div>
+                        <span className={statusBadgeClassName(
+                          mongoDBStatus === "connected" ? "green" : mongoDBStatus === "checking" ? "muted" : "amber",
                         )}>
-                          {platformProbeStatus === "checking" ? (
-                            <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
-                          ) : (
-                            <span className={cn(
-                              "inline-block w-1.5 h-1.5 rounded-full",
-                              platformProbeStatus === "healthy" && "bg-green-400",
-                              platformProbeStatus === "degraded" && "bg-amber-400",
-                              platformProbeStatus === "down" && "bg-red-400"
-                            )} />
-                          )}
-                          <span className={cn(
-                            "text-[10px] font-bold",
-                            platformProbeStatus === "healthy" && "text-green-600 dark:text-green-400",
-                            platformProbeStatus === "degraded" && "text-amber-600 dark:text-amber-400",
-                            platformProbeStatus === "down" && "text-red-600 dark:text-red-400",
-                            platformProbeStatus === "checking" && "text-muted-foreground"
-                          )}>
-                            {platformProbeSummary
-                              ? `${platformProbeSummary.healthy}/${platformProbeSummary.total}`
-                              : platformProbeStatus === "checking" ? "Checking" : "Unavailable"}
-                          </span>
-                        </div>
+                          {storageLabel}
+                        </span>
                       </div>
-                      <div className="space-y-2">
-                        {platformProbes.length === 0 && (
-                          <div className="text-xs text-muted-foreground bg-muted/20 rounded px-2 py-1.5">
-                            Checking Keycloak, OpenFGA, AgentGateway, RAG, storage, web ingestor readiness, and migrations...
-                          </div>
-                        )}
-                        {platformProbes.length > 0 && (
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                            {platformProbeGroups.map((group) => {
-                              const groupProbes = platformProbes.filter((probe) => probe.group === group.id);
-                              if (groupProbes.length === 0) return null;
-                              const downCount = groupProbes.filter((probe) => probe.status === "down").length;
-                              const warningCount = groupProbes.filter((probe) => probe.status === "warning").length;
-                              const groupStatus = downCount > 0 ? "down" : warningCount > 0 ? "warning" : "healthy";
-                              return (
-                                <div
-                                  key={group.id}
-                                  className="flex items-center justify-between gap-2 bg-muted/20 rounded px-2 py-1.5"
-                                >
-                                  <div className="min-w-0">
-                                    <div className="truncate text-xs font-medium text-foreground">
-                                      {group.label}
-                                    </div>
-                                    <div className="truncate text-[10px] text-muted-foreground">
-                                      {groupStatus === "healthy"
-                                        ? `${groupProbes.length} checks OK`
-                                        : `${downCount + warningCount} of ${groupProbes.length} need attention`}
-                                    </div>
-                                  </div>
-                                  <div className={cn(
-                                    "px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0 border",
-                                    groupStatus === "healthy" && "bg-green-500/15 text-green-400 border-green-500/30",
-                                    groupStatus === "warning" && "bg-amber-500/15 text-amber-400 border-amber-500/30",
-                                    groupStatus === "down" && "bg-red-500/15 text-red-400 border-red-500/30"
-                                  )}>
-                                    {groupStatus === "healthy" ? "OK" : groupStatus === "warning" ? "CHECK" : "DOWN"}
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
-                        {platformProbeIssues.length > 0 ? (
-                          <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 p-2 space-y-2">
-                            <div className="flex items-center justify-between gap-2">
-                              <div className="text-xs font-semibold text-amber-700 dark:text-amber-300">
-                                Action needed
-                              </div>
-                              <div className="text-[10px] text-amber-700/80 dark:text-amber-300/80">
-                                {platformProbeHealthyCount} healthy · {platformProbeIssues.length} attention
-                              </div>
-                            </div>
-                            <div className="space-y-1.5">
-                              {platformProbeIssues.slice(0, 4).map((probe) => (
-                                <div
-                                  key={probe.id}
-                                  title={`${probe.target} — ${probe.detail}`}
-                                  className="flex items-center justify-between gap-2 rounded bg-background/60 px-2 py-1.5"
-                                >
-                                  <div className="min-w-0">
-                                    <div className="truncate text-xs font-medium text-foreground">
-                                      {probe.label}
-                                    </div>
-                                    <div className="truncate text-[10px] text-muted-foreground">
-                                      {probe.detail}
-                                    </div>
-                                  </div>
-                                  {probe.remediation ? (
-                                    <button
-                                      type="button"
-                                      onClick={() => router.push(probe.remediation!.href)}
-                                      className="shrink-0 rounded-md border border-primary/30 bg-primary/10 px-2 py-1 text-[10px] font-semibold text-primary hover:bg-primary/15"
-                                      title={probe.remediation.description}
-                                    >
-                                      {probe.remediation.label}
-                                    </button>
-                                  ) : (
-                                    <div className={cn(
-                                      "px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0 border",
-                                      probe.status === "warning"
-                                        ? "bg-amber-500/15 text-amber-400 border-amber-500/30"
-                                        : "bg-red-500/15 text-red-400 border-red-500/30"
-                                    )}>
-                                      {probe.status === "warning" ? "CHECK" : "DOWN"}
-                                    </div>
-                                  )}
-                                </div>
-                              ))}
-                              {platformProbeIssues.length > 4 && (
-                                <div className="text-[10px] text-muted-foreground">
-                                  {platformProbeIssues.length - 4} more checks need attention.
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        ) : platformProbes.length > 0 ? (
-                          <div className="text-xs text-muted-foreground bg-green-500/10 border border-green-500/20 rounded px-2 py-1.5">
-                            Core runtime, identity, storage, RAG, web ingestor queue readiness, and migrations look ready.
-                          </div>
-                        ) : null}
+                      <div className="mt-1 truncate text-[11px] text-muted-foreground">
+                        {mongoDBStatus === "connected" ? "Persistent data enabled" : "Local browser fallback"}
                       </div>
-                      <div className="mt-1.5 text-[10px] text-muted-foreground font-mono text-right">
-                        Next probe: {platformProbeNextCheck}s
+                    </div>
+
+                    <div className={statusCardClassName}>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="text-xs font-semibold text-muted-foreground">RAG</div>
+                        <span className={statusBadgeClassName(
+                          !ragEnabled ? "muted" : ragStatus === "connected" ? "green" : ragStatus === "checking" ? "amber" : "red",
+                        )}>
+                          {ragSummaryLabel}
+                        </span>
+                      </div>
+                      <div className="mt-1 truncate text-[11px] text-muted-foreground">
+                        {ragEnabled
+                          ? `Graph ${graphRagEnabled ? "on" : "off"}${cleanupConfig?.enabled ? ` · cleanup ${formatInterval(cleanupConfig.interval_seconds)}` : ""}`
+                          : "Knowledge services are off"}
+                      </div>
+                    </div>
+
+                    <div className={statusCardClassName}>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="text-xs font-semibold text-muted-foreground">Agents</div>
+                        <span className={statusBadgeClassName(
+                          agentRuntimeStatus === "connected" ? "green" : agentRuntimeStatus === "checking" ? "amber" : "red",
+                        )}>
+                          {agentRuntimeLabel}
+                        </span>
+                      </div>
+                      <div className="mt-1 truncate text-[11px] text-muted-foreground">
+                        {agents[0]?.name || "Dynamic agent runtime"}
                       </div>
                     </div>
                   </div>
 
-                  {/* RAG Server Section - only show if RAG is enabled */}
-                  {ragEnabled && (
-                    <>
-                      {/* Divider */}
-                      <div className="border-t border-border/50" />
-
-                      <div className="space-y-3">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <div className="text-sm font-bold text-foreground">RAG Server</div>
-                            <div className={cn(
-                              "px-2 py-0.5 rounded-full text-[10px] font-bold",
-                              ragStatus === "connected" && "bg-green-500/15 text-green-400 border border-green-500/30",
-                              ragStatus === "checking" && "bg-amber-500/15 text-amber-400 border border-amber-500/30",
-                              ragStatus === "disconnected" && "bg-red-500/15 text-red-400 border border-red-500/30"
-                            )}>
-                              {ragStatus === "connected" ? "ONLINE" : ragStatus === "checking" ? "CHECKING" : "OFFLINE"}
-                            </div>
-                          </div>
-                          <div className="text-[10px] text-muted-foreground font-mono">
-                            Next check: {ragNextCheck}s
-                          </div>
-                        </div>
-                        <div className="text-xs text-muted-foreground font-mono break-all bg-muted/30 rounded px-2 py-1">
-                          {ragUrl}
-                        </div>
-
-                        {/* Graph RAG Status */}
-                        <div className="flex items-center justify-between bg-muted/20 rounded px-2 py-1.5">
-                          <div className="text-xs text-muted-foreground">Knowledge Graph</div>
-                          <div className={cn(
-                            "px-2 py-0.5 rounded-full text-[10px] font-bold",
-                            graphRagEnabled
-                              ? "bg-green-500/15 text-green-400 border border-green-500/30"
-                              : "bg-gray-500/15 text-gray-400 border border-gray-500/30"
-                          )}>
-                            {graphRagEnabled ? "ON" : "OFF"}
-                          </div>
-                        </div>
-
-                        {/* Auto-Cleanup Status */}
-                        {cleanupConfig && (
-                          <div className="bg-muted/20 rounded px-2 py-1.5 space-y-1">
-                            <div className="flex items-center justify-between">
-                              <div className="text-xs text-muted-foreground">Auto-Cleanup</div>
-                              <div className={cn(
-                                "px-2 py-0.5 rounded-full text-[10px] font-bold",
-                                cleanupConfig.enabled
-                                  ? "bg-green-500/15 text-green-400 border border-green-500/30"
-                                  : "bg-gray-500/15 text-gray-400 border border-gray-500/30"
-                              )}>
-                                {cleanupConfig.enabled ? formatInterval(cleanupConfig.interval_seconds) : "OFF"}
-                              </div>
-                            </div>
-                            {cleanupConfig.enabled && (
-                              <div className="text-[10px] text-muted-foreground">
-                                {cleanupConfig.last_cleanup ? (
-                                  <>
-                                    <div>Last: {formatRelativeTime(cleanupConfig.last_cleanup)}</div>
-                                    <div>Next: {formatRelativeTime(cleanupConfig.last_cleanup + cleanupConfig.interval_seconds)}</div>
-                                  </>
-                                ) : (
-                                  <>Waiting for first cleanup...</>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </>
-                  )}
-
-                  {/* Agent Runtime Section */}
-                  <>
-                    {/* Divider */}
-                    <div className="border-t border-border/50" />
-
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <div className="text-sm font-bold text-foreground">Agent Runtime</div>
-                          <div className={cn(
-                            "px-2 py-0.5 rounded-full text-[10px] font-bold",
-                            agentRuntimeStatus === "connected" && "bg-green-500/15 text-green-400 border border-green-500/30",
-                            agentRuntimeStatus === "checking" && "bg-amber-500/15 text-amber-400 border border-amber-500/30",
-                            agentRuntimeStatus === "disconnected" && "bg-red-500/15 text-red-400 border border-red-500/30"
-                          )}>
-                            {agentRuntimeStatus === "connected" ? "ONLINE" : agentRuntimeStatus === "checking" ? "CHECKING" : "OFFLINE"}
-                          </div>
+                  <div className="rounded-xl border border-border/70 bg-background/40 p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-semibold text-foreground">Platform Health</div>
+                        <div className="mt-0.5 text-xs text-muted-foreground">
+                          {platformProbeSummary
+                            ? `${platformProbeSummary.total} checks across runtime, auth, storage, RAG, web ingestor, and migrations`
+                            : "Checking runtime, auth, storage, RAG, web ingestor, and migrations"}
                         </div>
                       </div>
-
-                      {/* Dynamic Agents sub-item */}
-                      <div className="flex items-center justify-between bg-muted/20 rounded px-2 py-1.5">
-                        <div className="text-xs text-muted-foreground">CAIPE Dynamic Agents</div>
-                        <div className={cn(
-                          "px-2 py-0.5 rounded-full text-[10px] font-bold",
-                          agentRuntimeStatus === "connected"
-                            ? "bg-green-500/15 text-green-400 border border-green-500/30"
-                            : agentRuntimeStatus === "checking"
-                            ? "bg-amber-500/15 text-amber-400 border border-amber-500/30"
-                            : "bg-red-500/15 text-red-400 border border-red-500/30"
-                        )}>
-                          {agentRuntimeStatus === "connected" ? "ON" : agentRuntimeStatus === "checking" ? "..." : "OFF"}
-                        </div>
-                      </div>
+                      <span className={statusBadgeClassName(platformHealthTone)}>
+                        {platformProbeSummary
+                          ? `${platformProbeSummary.healthy}/${platformProbeSummary.total} ${platformHealthLabel}`
+                          : platformHealthLabel}
+                      </span>
                     </div>
-                  </>
+
+                    {platformProbes.length === 0 ? (
+                      <div className="mt-3 rounded-lg border border-border/60 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                        Checking Keycloak, OpenFGA, AgentGateway, RAG, storage, web ingestor readiness, and migrations...
+                      </div>
+                    ) : (
+                      <div className="mt-3 flex flex-wrap gap-1.5">
+                        {platformProbeGroups.map((group) => {
+                          const groupProbes = platformProbes.filter((probe) => probe.group === group.id);
+                          if (groupProbes.length === 0) return null;
+                          const downCount = groupProbes.filter((probe) => probe.status === "down").length;
+                          const warningCount = groupProbes.filter((probe) => probe.status === "warning").length;
+                          const groupStatus = downCount > 0 ? "down" : warningCount > 0 ? "warning" : "healthy";
+                          return (
+                            <span
+                              key={group.id}
+                              className={cn(
+                                "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-medium",
+                                groupStatus === "healthy" && "border-green-500/20 bg-green-500/10 text-green-600 dark:text-green-400",
+                                groupStatus === "warning" && "border-amber-500/20 bg-amber-500/10 text-amber-600 dark:text-amber-400",
+                                groupStatus === "down" && "border-red-500/20 bg-red-500/10 text-red-600 dark:text-red-400",
+                              )}
+                              title={`${groupProbes.length} checks`}
+                            >
+                              <span className={cn(
+                                "h-1.5 w-1.5 rounded-full",
+                                groupStatus === "healthy" && "bg-green-400",
+                                groupStatus === "warning" && "bg-amber-400",
+                                groupStatus === "down" && "bg-red-400",
+                              )} />
+                              {group.label}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {platformProbeIssues.length > 0 ? (
+                      <div className="mt-3 rounded-lg border border-amber-500/25 bg-amber-500/10 p-2.5">
+                        <div className="mb-2 flex items-center justify-between gap-2">
+                          <div className="text-xs font-semibold text-amber-700 dark:text-amber-300">
+                            Action needed
+                          </div>
+                          <div className="text-[10px] text-amber-700/80 dark:text-amber-300/80">
+                            {platformProbeHealthyCount} healthy · {platformProbeIssueCount} attention
+                          </div>
+                        </div>
+                        <div className="space-y-1.5">
+                          {platformProbeIssues.slice(0, 3).map((probe) => (
+                            <div
+                              key={probe.id}
+                              title={`${probe.target} — ${probe.detail}`}
+                              className="flex items-center justify-between gap-2 rounded-md bg-background/70 px-2.5 py-2"
+                            >
+                              <div className="min-w-0">
+                                <div className="truncate text-xs font-medium text-foreground">
+                                  {probe.label}
+                                </div>
+                                <div className="truncate text-[10px] text-muted-foreground">
+                                  {probe.detail}
+                                </div>
+                              </div>
+                              {probe.remediation ? (
+                                <button
+                                  type="button"
+                                  onClick={() => router.push(probe.remediation!.href)}
+                                  className="shrink-0 rounded-md bg-primary px-2.5 py-1 text-[10px] font-semibold text-primary-foreground hover:bg-primary/90"
+                                  title={probe.remediation.description}
+                                >
+                                  {probe.remediation.label}
+                                </button>
+                              ) : (
+                                <span className={statusBadgeClassName(probe.status === "warning" ? "amber" : "red")}>
+                                  {probe.status === "warning" ? "Check" : "Down"}
+                                </span>
+                              )}
+                            </div>
+                          ))}
+                          {platformProbeIssues.length > 3 && (
+                            <div className="px-1 text-[10px] text-muted-foreground">
+                              {platformProbeIssues.length - 3} more checks need attention.
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ) : platformProbes.length > 0 ? (
+                      <div className="mt-3 rounded-lg border border-green-500/20 bg-green-500/10 px-3 py-2 text-xs text-muted-foreground">
+                        All critical checks are ready.
+                      </div>
+                    ) : null}
+
+                    <div className="mt-2 text-right text-[10px] font-mono text-muted-foreground">
+                      Next probe: {platformProbeNextCheck}s
+                    </div>
+                  </div>
                 </div>
 
                 {/* Footer */}
