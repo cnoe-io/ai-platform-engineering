@@ -327,3 +327,4 @@ COMMIT_BODY.md
 
 # GitHub App credentials (never commit)
 .github-apps-credentials/
+reports/
