@@ -102,6 +102,40 @@ function agentGatewayBaseForNormalizer(): string {
   return withMcp.replace(/\/mcp$/, "");
 }
 
+function agentGatewayEndpointForServer(serverId: string): string {
+  return agentGatewayMcpEndpointUrl(`/mcp/${serverId}`);
+}
+
+function wantsAgentGatewayRouting(body: Record<string, unknown>): boolean {
+  return body.route_through_agentgateway === true || normalizeString(body.agentgateway_target_endpoint) !== null;
+}
+
+function agentGatewayFieldsForServer(
+  body: Record<string, unknown>,
+  serverId: string,
+): Record<string, unknown> | null {
+  if (!wantsAgentGatewayRouting(body)) return null;
+
+  const targetEndpoint =
+    normalizeString(body.agentgateway_target_endpoint) ??
+    normalizeString(body.endpoint);
+  if (!targetEndpoint) {
+    throw new ApiError(
+      "'agentgateway_target_endpoint' or 'endpoint' is required when routing through AgentGateway",
+      400,
+    );
+  }
+
+  return {
+    endpoint: agentGatewayEndpointForServer(serverId),
+    source: "agentgateway",
+    agentgateway_discovered: true,
+    agentgateway_endpoint: agentGatewayEndpointForServer(serverId),
+    agentgateway_target_endpoint: targetEndpoint,
+    config_driven: false,
+  };
+}
+
 /**
  * Validate transport-specific required fields.
  *
@@ -228,7 +262,8 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     validateTransportConfig(
       body.transport as TransportType,
       body.command as string | undefined,
-      body.endpoint as string | undefined,
+      (body.endpoint as string | undefined) ??
+        (body.agentgateway_target_endpoint as string | undefined),
     );
 
     // Normalise AgentGateway endpoints. If the admin (or the editor)
@@ -242,6 +277,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       serverId,
       agentGatewayBaseUrl: agentGatewayBaseForNormalizer(),
     });
+    const agentGatewayFields = agentGatewayFieldsForServer(body, serverId);
 
     // Build document with explicit field allowlist (Security VII)
     const now = new Date();
@@ -263,6 +299,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       config_driven: false,
       created_at: now.toISOString(),
       updated_at: now.toISOString(),
+      ...agentGatewayFields,
     };
 
     const ownerSubjectKind =
@@ -330,6 +367,7 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
 
     // Build update with explicit field allowlist
     const updateData = pickMutableFields(body);
+    const unsetData: Record<string, ""> = {};
     if (Object.keys(updateData).length === 0) {
       // No fields to update — return current state
       return successResponse(server);
@@ -348,11 +386,25 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
       });
     }
 
+    const agentGatewayFields = agentGatewayFieldsForServer(body, String(id));
+    if (agentGatewayFields) {
+      Object.assign(updateData, agentGatewayFields);
+    } else if (body.route_through_agentgateway === false) {
+      updateData.source = "manual";
+      updateData.agentgateway_discovered = false;
+      updateData.config_driven = false;
+      unsetData.agentgateway_endpoint = "";
+      unsetData.agentgateway_target_endpoint = "";
+    }
+
     updateData.updated_at = new Date().toISOString();
 
     const updated = await collection.findOneAndUpdate(
       { _id: id },
-      { $set: updateData },
+      {
+        $set: updateData,
+        ...(Object.keys(unsetData).length > 0 ? { $unset: unsetData } : {}),
+      },
       { returnDocument: "after" },
     );
 

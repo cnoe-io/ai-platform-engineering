@@ -132,6 +132,11 @@ async function installMcpServerMocks(page: Page): Promise<InstalledMcpMocks> {
     endpoint: string;
     enabled: boolean;
     config_driven: boolean;
+    source?: "manual" | "config" | "agentgateway";
+    agentgateway_discovered?: boolean;
+    agentgateway_endpoint?: string;
+    agentgateway_target_endpoint?: string;
+    credential_sources?: unknown[];
   };
   let servers: BrowserMcpServer[] = [];
 
@@ -167,18 +172,41 @@ async function installMcpServerMocks(page: Page): Promise<InstalledMcpMocks> {
             typeof body.id === "string" && body.id.startsWith("mcp-")
               ? body.id
               : `mcp-${String(body.id ?? "ops-tools")}`;
+          const routeThroughAgentGateway = body.route_through_agentgateway === true;
+          const upstreamEndpoint = String(
+            body.agentgateway_target_endpoint ?? body.endpoint ?? "",
+          );
+          const gatewayEndpoint = `http://agentgateway:4000/mcp/${serverId}`;
           servers = [
             {
               _id: serverId,
               name: String(body.name ?? "Ops Tools"),
               description: String(body.description ?? ""),
               transport: String(body.transport ?? "sse"),
-              endpoint: String(body.endpoint ?? ""),
+              endpoint: routeThroughAgentGateway ? gatewayEndpoint : String(body.endpoint ?? ""),
               enabled: true,
               config_driven: false,
+              ...(routeThroughAgentGateway
+                ? {
+                    source: "agentgateway" as const,
+                    agentgateway_discovered: true,
+                    agentgateway_endpoint: gatewayEndpoint,
+                    agentgateway_target_endpoint: upstreamEndpoint,
+                  }
+                : {}),
+              ...(Array.isArray(body.credential_sources)
+                ? { credential_sources: body.credential_sources }
+                : {}),
             },
           ];
           await fulfillJson(route, { success: true, data: servers[0] }, 201);
+          return true;
+        }
+
+        if (path === "/api/mcp-servers" && method === "DELETE") {
+          const id = new URL(route.request().url()).searchParams.get("id");
+          servers = servers.filter((server) => server._id !== id);
+          await fulfillJson(route, { success: true, data: { deleted: id } });
           return true;
         }
 
@@ -414,6 +442,71 @@ test.describe("mocked MCP OpenFGA tuple browser regression", () => {
     await expect(page.getByText("Ops Tools")).toBeVisible();
     await expect.poll(() => mocks.listRequests).toBeGreaterThanOrEqual(2);
     await expect(page.getByText("No MCP Servers Yet")).toHaveCount(0);
+  });
+
+  test("custom HTTP MCP servers can be routed through AgentGateway and remain user-managed", async ({ page }) => {
+    const mocks = await installMcpServerMocks(page);
+
+    await page.goto("/dynamic-agents?tab=mcp-servers", { waitUntil: "domcontentloaded" });
+    await expect(page.getByText("No MCP Servers Yet")).toBeVisible();
+
+    await page.getByRole("button", { name: "Add Server" }).first().click();
+    await expect(page.getByText("Add MCP Server")).toBeVisible();
+
+    await page.getByLabel(/Server ID/i).fill("gateway-tools");
+    await page.getByLabel(/Display Name/i).fill("Gateway Tools");
+    await page.getByRole("button", { name: /HTTP/i }).click();
+    await page.getByLabel(/Endpoint URL/i).fill("https://mcp.example.test/gateway/mcp");
+    await page.getByLabel(/Route through AgentGateway/i).check();
+    await page.getByRole("button", { name: /Add Credential/i }).click();
+    await page.getByLabel(/Credential name/i).fill("X-API-TOKEN");
+    await page.getByLabel(/Credential reference/i).fill("secret-ref-playwright");
+
+    await page.getByRole("button", { name: "Create Server" }).click();
+
+    await expect.poll(() => mocks.createRequests.length).toBe(1);
+    expect(mocks.createRequests[0]).toMatchObject({
+      id: "gateway-tools",
+      name: "Gateway Tools",
+      transport: "http",
+      endpoint: "https://mcp.example.test/gateway/mcp",
+      route_through_agentgateway: true,
+      agentgateway_target_endpoint: "https://mcp.example.test/gateway/mcp",
+      credential_sources: [
+        {
+          kind: "secret_ref",
+          target: "header",
+          name: "X-API-TOKEN",
+          secret_ref: "secret-ref-playwright",
+        },
+      ],
+    });
+
+    await expect(page.getByText("Gateway Tools")).toBeVisible();
+    await expect(page.getByText("mcp-gateway-tools", { exact: true })).toBeVisible();
+    await expect(page.getByTitle("Registered from AgentGateway discovery")).toBeVisible();
+    await expect(page.getByText(/Target: https:\/\/mcp\.example\.test\/gateway\/mcp/i)).toBeVisible();
+
+    const gatewayRow = page
+      .locator(".grid")
+      .filter({ hasText: "Gateway Tools" })
+      .filter({ hasText: "mcp-gateway-tools" })
+      .first();
+    await expect(gatewayRow.getByRole("button", { name: /Probe for tools/i })).toBeVisible();
+    await expect(gatewayRow.getByRole("button", { name: /Export as YAML/i })).toBeVisible();
+
+    page.once("dialog", (dialog) => dialog.accept());
+    const [deleteResponse] = await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.request().method() === "DELETE" &&
+          new URL(response.url()).pathname === "/api/mcp-servers" &&
+          new URL(response.url()).searchParams.get("id") === "mcp-gateway-tools",
+      ),
+      gatewayRow.getByRole("button").last().click(),
+    ]);
+    expect(deleteResponse.status()).toBe(200);
+    await expect(page.getByText("Gateway Tools")).toHaveCount(0);
   });
 
   test("mounted MCP server list refreshes when servers change outside the tab", async ({ page }) => {
