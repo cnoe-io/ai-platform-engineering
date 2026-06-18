@@ -25,7 +25,11 @@ resolveKeycloakUserSubject,
 writeTeamMembershipTuples,
 type TeamMemberRelation,
 } from '@/lib/rbac/team-membership-sync';
-import { readTeamOpenFgaTuples } from '@/lib/rbac/team-openfga-sync-status';
+import {
+classifyMemberSyncStatus,
+readTeamMemberOpenFgaTuples,
+readTeamOpenFgaTuples,
+} from '@/lib/rbac/team-openfga-sync-status';
 import type { TeamMembershipSource } from '@/types/identity-group-sync';
 import type { Team } from '@/types/teams';
 import { ObjectId } from 'mongodb';
@@ -203,8 +207,37 @@ export const GET = withErrorHandler(async (
       })
     : { members: [], total: 0 };
 
+  // Decorate each member with its OpenFGA sync state (synced/pending/drifted/
+  // unknown) so the dialog can badge the row. This is PAGE-SCOPED: we read
+  // tuples for only the subjects on this page (one filtered `{user, object}`
+  // read each), never the whole team. Reading the full `team:<slug>` tuple set
+  // here would be catastrophic for a team like `everyone` (tens of thousands
+  // of tuples) and previously truncated at 1000, falsely flagging most members
+  // as "drifted". Read-only — computing the badge never writes tuples.
+  const subjects = members
+    .map((m) => m.user_subject)
+    .filter((s): s is string => Boolean(s));
+  const relationsBySubject = teamSlug
+    ? await readTeamMemberOpenFgaTuples(teamSlug, subjects)
+    : null;
+
+  const membersWithSync = members.map((member) => {
+    // `owner` grants both admin+member; otherwise the role maps directly.
+    const requiredRelations = mongoRoleToOpenFgaRelations(member.role);
+    const relationsHeld = member.user_subject
+      ? (relationsBySubject?.get(member.user_subject) ?? null)
+      : null;
+    const sync = classifyMemberSyncStatus({
+      teamSlug,
+      userSubject: member.user_subject,
+      requiredRelations,
+      relationsHeld: teamSlug ? relationsHeld : null,
+    });
+    return { ...member, sync_status: sync.status, sync_reason: sync.reason };
+  });
+
   return successResponse({
-    members,
+    members: membersWithSync,
     total,
     page,
     page_size: pageSize,

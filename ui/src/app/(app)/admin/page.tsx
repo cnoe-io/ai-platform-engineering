@@ -366,7 +366,8 @@ function categoryForTab(tab: string): CategoryKey {
 
 // Admin Teams grid page size. The grid is server-paginated (`?page=`) so the
 // browser only ever holds one page of teams regardless of directory size.
-const TEAMS_PAGE_SIZE = 24;
+// 12 fills the 3-column layout in 4 clean rows.
+const TEAMS_PAGE_SIZE = 12;
 
 // IdP membership source types (okta / oidc_claim / active_directory) → display
 // label + optional logo asset, for the "synced from <IdP>" team badge.

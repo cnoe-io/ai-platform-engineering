@@ -49,9 +49,17 @@ jest.mock("@/lib/rbac/openfga", () => ({
   isOpenFgaConfigured: jest.fn(() => true),
 }));
 
-jest.mock("@/lib/rbac/team-openfga-sync-status", () => ({
-  readTeamOpenFgaTuples: jest.fn(),
-}));
+jest.mock("@/lib/rbac/team-openfga-sync-status", () => {
+  const actual = jest.requireActual("@/lib/rbac/team-openfga-sync-status");
+  return {
+    readTeamOpenFgaTuples: jest.fn(),
+    // Page-scoped per-member tuple read used by GET /members for the sync
+    // badge. Default to "no tuples found" so members read as drifted unless a
+    // test overrides it; the pure classifier stays real.
+    readTeamMemberOpenFgaTuples: jest.fn(async () => new Map<string, Set<string>>()),
+    classifyMemberSyncStatus: actual.classifyMemberSyncStatus,
+  };
+});
 
 jest.mock("@/lib/rbac/team-membership-source-store", () => ({
   upsertTeamMembershipSource: jest.fn(),
@@ -210,5 +218,94 @@ describe("GET /api/admin/teams/[id]/members", () => {
     expect(body.data.members).toEqual([]);
     expect(body.data.total).toBe(0);
     expect(mockLoadActiveTeamMembersPage).not.toHaveBeenCalled();
+  });
+
+  describe("per-member OpenFGA sync badge (page-scoped)", () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const syncModule = require("@/lib/rbac/team-openfga-sync-status");
+    const mockReadMemberTuples = syncModule.readTeamMemberOpenFgaTuples as jest.Mock;
+
+    it("marks a member synced when OpenFGA holds the required relation", async () => {
+      seedTeam();
+      mockLoadActiveTeamMembersPage.mockResolvedValueOnce({
+        members: [
+          {
+            identity_key: "alice@example.com",
+            user_email: "alice@example.com",
+            user_subject: "sub-alice",
+            role: "member",
+            source_types: ["okta"],
+            idp_managed: true,
+            added_at: "2026-01-01T00:00:00.000Z",
+          },
+        ],
+        total: 1,
+      });
+      mockReadMemberTuples.mockResolvedValueOnce(
+        new Map([["sub-alice", new Set(["member"])]]),
+      );
+
+      const { response, body } = await callGet(`/api/admin/teams/${TEAM_ID}/members`);
+
+      expect(response.status).toBe(200);
+      expect(mockReadMemberTuples).toHaveBeenCalledWith("platform", ["sub-alice"]);
+      expect(body.data.members[0].sync_status).toBe("synced");
+    });
+
+    it("marks a member drifted when the required relation is missing in OpenFGA", async () => {
+      seedTeam();
+      mockLoadActiveTeamMembersPage.mockResolvedValueOnce({
+        members: [
+          {
+            identity_key: "bob@example.com",
+            user_email: "bob@example.com",
+            user_subject: "sub-bob",
+            role: "member",
+            source_types: ["okta"],
+            idp_managed: true,
+            added_at: "2026-01-01T00:00:00.000Z",
+          },
+        ],
+        total: 1,
+      });
+      // OpenFGA reachable but holds no tuple for this subject.
+      mockReadMemberTuples.mockResolvedValueOnce(new Map([["sub-bob", new Set()]]));
+
+      const { body } = await callGet(`/api/admin/teams/${TEAM_ID}/members`);
+
+      expect(body.data.members[0].sync_status).toBe("drifted");
+    });
+
+    it("marks a member pending when no Keycloak subject is resolved", async () => {
+      seedTeam();
+      // Default fixture member (owner@example.com) has no user_subject.
+      const { body } = await callGet(`/api/admin/teams/${TEAM_ID}/members`);
+
+      expect(body.data.members[0].sync_status).toBe("pending");
+    });
+
+    it("reports unknown when the per-member OpenFGA read fails", async () => {
+      seedTeam();
+      mockLoadActiveTeamMembersPage.mockResolvedValueOnce({
+        members: [
+          {
+            identity_key: "carol@example.com",
+            user_email: "carol@example.com",
+            user_subject: "sub-carol",
+            role: "admin",
+            source_types: ["manual"],
+            idp_managed: false,
+            added_at: "2026-01-01T00:00:00.000Z",
+          },
+        ],
+        total: 1,
+      });
+      // null signals OpenFGA unreachable — must not be inferred as drift.
+      mockReadMemberTuples.mockResolvedValueOnce(null);
+
+      const { body } = await callGet(`/api/admin/teams/${TEAM_ID}/members`);
+
+      expect(body.data.members[0].sync_status).toBe("unknown");
+    });
   });
 });

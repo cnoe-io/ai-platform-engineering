@@ -48,18 +48,11 @@ import React,{ useCallback,useEffect,useRef,useState } from "react";
 // Server response shape — mirrors TeamMembershipSyncReport in
 // @/lib/rbac/team-openfga-sync-status.ts (kept local to avoid forcing
 // the page bundle to import server-side modules).
+//
+// Only the team-wide `summary` is consumed here (the post-Reconcile banner).
+// Per-member status is delivered separately as `sync_status` on each row of
+// the paginated members list, so we don't model the report's `entries`.
 type TeamMembershipSyncState = "synced" | "pending" | "drifted" | "unknown";
-
-interface TeamMembershipSyncEntry {
-  source_signature: string;
-  user_email: string;
-  user_subject?: string;
-  relationship: "member" | "admin";
-  source_type: TeamMembershipSource["source_type"];
-  status: TeamMembershipSyncState;
-  reason: string;
-  expected_tuple: { user: string; relation: string; object: string } | null;
-}
 
 interface TeamMembershipSyncSummary {
   total: number;
@@ -73,7 +66,6 @@ interface TeamMembershipSyncSummary {
 
 interface TeamMembershipSyncReport {
   team_slug: string;
-  entries: TeamMembershipSyncEntry[];
   summary: TeamMembershipSyncSummary;
 }
 
@@ -166,6 +158,10 @@ interface TeamMemberPageRow {
   source_types: TeamMembershipSource["source_type"][];
   idp_managed: boolean;
   added_at?: string;
+  // Per-member OpenFGA sync state, computed page-scoped by the members
+  // endpoint (only the visible subjects are read, never the whole team).
+  sync_status?: TeamMembershipSyncState;
+  sync_reason?: string;
 }
 
 interface TeamMembersPagePayload {
@@ -176,7 +172,7 @@ interface TeamMembersPagePayload {
   has_more: boolean;
 }
 
-const TEAM_MEMBERS_PAGE_SIZE = 25;
+const TEAM_MEMBERS_PAGE_SIZE = 4;
 
 interface TeamDetailsDialogProps {
   team: Team | null;
@@ -234,20 +230,6 @@ function getSourceBadgeVariant(sourceType: TeamMembershipSource["source_type"]) 
 
 // Render-helpers for the OpenFGA sync diagnostic. Kept colocated so the
 // badge and the banner agree on colour/icon/label.
-
-function severityRank(status: TeamMembershipSyncState): number {
-  switch (status) {
-    case "drifted":
-      return 3;
-    case "unknown":
-      return 2;
-    case "pending":
-      return 1;
-    case "synced":
-    default:
-      return 0;
-  }
-}
 
 function syncBadgeAppearance(status: TeamMembershipSyncState): {
   variant: "default" | "secondary" | "outline" | "destructive";
@@ -1269,23 +1251,6 @@ export function TeamDetailsDialog({
   // onto the team by GET /api/admin/teams before the first page loads.
   const memberCount = memberTotal || currentTeam.member_count || 0;
 
-  // Pick the "worst" sync entry per member email so the Members tab can
-  // show a single badge instead of one per identity source. Ordering of
-  // severity: drifted > unknown > pending > synced. Sourced from the
-  // OpenFGA sync report (Details-tab diagnostic); members not covered by
-  // the report simply render no sync badge.
-  const syncByMember = (openFgaSync?.entries ?? []).reduce<
-    Record<string, TeamMembershipSyncEntry>
-  >((acc, entry) => {
-    const key = (entry.user_email ?? "").toLowerCase();
-    if (!key) return acc;
-    const existing = acc[key];
-    if (!existing || severityRank(entry.status) > severityRank(existing.status)) {
-      acc[key] = entry;
-    }
-    return acc;
-  }, {});
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[680px] max-h-[85vh] flex flex-col">
@@ -1459,90 +1424,102 @@ export function TeamDetailsDialog({
                 {/* OpenFGA sync status banner. Surfaces whether the tuple
                     state on `team:<slug>` matches what Mongo expects. The
                     four-state model (synced / drifted / pending / unknown)
-                    is defined in lib/rbac/team-openfga-sync-status.ts. */}
-                {openFgaSync && (
-                  <div
-                    className={
-                      "rounded-lg border p-3 space-y-2 " +
-                      (openFgaSync.summary.drifted > 0
-                        ? "border-destructive/40 bg-destructive/5"
-                        : openFgaSync.summary.unknown > 0
-                          ? "border-amber-500/40 bg-amber-500/5"
-                          : "border-emerald-500/30 bg-emerald-500/5")
-                    }
-                  >
-                    <div className="flex items-start gap-2">
-                      {openFgaSync.summary.drifted > 0 ? (
-                        <ShieldAlert className="h-4 w-4 mt-0.5 text-destructive" />
-                      ) : openFgaSync.summary.unknown > 0 ? (
-                        <ShieldQuestion className="h-4 w-4 mt-0.5 text-amber-600 dark:text-amber-400" />
-                      ) : (
-                        <ShieldCheck className="h-4 w-4 mt-0.5 text-emerald-600 dark:text-emerald-400" />
-                      )}
-                      <div className="flex-1 text-sm">
-                        <p className="font-medium">
-                          OpenFGA authorization sync
-                        </p>
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          {openFgaSync.summary.total === 0 ? (
-                            "No active membership sources tracked for this team."
-                          ) : (
-                            <>
-                              {openFgaSync.summary.synced}/
-                              {openFgaSync.summary.total} member(s) synced
-                              {openFgaSync.summary.drifted > 0
-                                ? `, ${openFgaSync.summary.drifted} drifted`
-                                : ""}
-                              {openFgaSync.summary.pending > 0
-                                ? `, ${openFgaSync.summary.pending} pending Keycloak link`
-                                : ""}
-                              {openFgaSync.summary.unknown > 0
-                                ? `, ${openFgaSync.summary.unknown} unknown`
-                                : ""}
-                              .
-                            </>
-                          )}
-                        </p>
-                        {!openFgaSync.summary.openfga_available && (
-                          <p className="text-xs text-amber-700 dark:text-amber-400 mt-1">
-                            OpenFGA was unreachable. Tuple state cannot be
-                            verified right now.
-                          </p>
-                        )}
-                      </div>
-                      {/* Reconcile button. We show it whenever the report
-                          is loaded — the server gates the action on
-                          team-admin or platform-admin and will return 403
-                          if the caller is not permitted. We surface that
-                          inline rather than hiding the button (cheaper than
-                          a separate "can-i-reconcile" probe). */}
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={handleReconcileOpenFga}
-                        disabled={reconciling}
-                        className="gap-1 shrink-0"
-                      >
-                        {reconciling ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    is defined in lib/rbac/team-openfga-sync-status.ts.
+
+                    The team-detail GET no longer computes a whole-team report
+                    (that read the entire tuple set and falsely flagged drift
+                    on huge teams), so `openFgaSync` is null until the admin
+                    runs Reconcile. Until then we show a neutral banner and
+                    point at the per-member badges in the Members tab, which
+                    ARE accurate (computed page-scoped). After Reconcile the
+                    server returns a fresh report and we show its counts. */}
+                <div
+                  className={
+                    "rounded-lg border p-3 space-y-2 " +
+                    (openFgaSync && openFgaSync.summary.drifted > 0
+                      ? "border-destructive/40 bg-destructive/5"
+                      : openFgaSync && openFgaSync.summary.unknown > 0
+                        ? "border-amber-500/40 bg-amber-500/5"
+                        : openFgaSync
+                          ? "border-emerald-500/30 bg-emerald-500/5"
+                          : "border-border bg-muted/30")
+                  }
+                >
+                  <div className="flex items-start gap-2">
+                    {!openFgaSync ? (
+                      <Shield className="h-4 w-4 mt-0.5 text-muted-foreground" />
+                    ) : openFgaSync.summary.drifted > 0 ? (
+                      <ShieldAlert className="h-4 w-4 mt-0.5 text-destructive" />
+                    ) : openFgaSync.summary.unknown > 0 ? (
+                      <ShieldQuestion className="h-4 w-4 mt-0.5 text-amber-600 dark:text-amber-400" />
+                    ) : (
+                      <ShieldCheck className="h-4 w-4 mt-0.5 text-emerald-600 dark:text-emerald-400" />
+                    )}
+                    <div className="flex-1 text-sm">
+                      <p className="font-medium">
+                        OpenFGA authorization sync
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {!openFgaSync ? (
+                          "Per-member status is shown in the Members tab. Run Reconcile to repair any drift and see a team-wide summary."
+                        ) : openFgaSync.summary.total === 0 ? (
+                          "No active membership sources tracked for this team."
                         ) : (
-                          <RefreshCw className="h-3.5 w-3.5" />
+                          <>
+                            {openFgaSync.summary.synced}/
+                            {openFgaSync.summary.total} member(s) synced
+                            {openFgaSync.summary.drifted > 0
+                              ? `, ${openFgaSync.summary.drifted} drifted`
+                              : ""}
+                            {openFgaSync.summary.pending > 0
+                              ? `, ${openFgaSync.summary.pending} pending Keycloak link`
+                              : ""}
+                            {openFgaSync.summary.unknown > 0
+                              ? `, ${openFgaSync.summary.unknown} unknown`
+                              : ""}
+                            .
+                          </>
                         )}
-                        Reconcile
-                      </Button>
+                      </p>
+                      {openFgaSync && !openFgaSync.summary.openfga_available && (
+                        <p className="text-xs text-amber-700 dark:text-amber-400 mt-1">
+                          OpenFGA was unreachable. Tuple state cannot be
+                          verified right now.
+                        </p>
+                      )}
                     </div>
-                    {reconcileError && (
-                      <p className="text-xs text-destructive">
-                        {reconcileError}
-                      </p>
-                    )}
-                    {reconcileNotice && (
-                      <p className="text-xs text-emerald-700 dark:text-emerald-400">
-                        {reconcileNotice}
-                      </p>
-                    )}
+                    {/* Reconcile button. We show it whenever the report
+                        is loaded — the server gates the action on
+                        team-admin or platform-admin and will return 403
+                        if the caller is not permitted. We surface that
+                        inline rather than hiding the button (cheaper than
+                        a separate "can-i-reconcile" probe). */}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleReconcileOpenFga}
+                      disabled={reconciling}
+                      className="gap-1 shrink-0"
+                    >
+                      {reconciling ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <RefreshCw className="h-3.5 w-3.5" />
+                      )}
+                      Reconcile
+                    </Button>
                   </div>
-                )}
+                  {reconcileError && (
+                    <p className="text-xs text-destructive">
+                      {reconcileError}
+                    </p>
+                  )}
+                  {reconcileNotice && (
+                    <p className="text-xs text-emerald-700 dark:text-emerald-400">
+                      {reconcileNotice}
+                    </p>
+                  )}
+                </div>
                 <Button
                   size="sm"
                   variant="outline"
@@ -1723,9 +1700,8 @@ export function TeamDetailsDialog({
                 ) : (
                   memberPage.map((member) => {
                     const email = member.user_email ?? member.identity_key;
-                    const syncEntry = syncByMember[email.toLowerCase()];
-                    const syncBadge = syncEntry
-                      ? syncBadgeAppearance(syncEntry.status)
+                    const syncBadge = member.sync_status
+                      ? syncBadgeAppearance(member.sync_status)
                       : null;
                     const isPendingRemove = pendingRemoveMember === email;
                     return (
@@ -1763,7 +1739,7 @@ export function TeamDetailsDialog({
                                   <Badge
                                     variant={syncBadge.variant}
                                     className="text-[10px] gap-1"
-                                    title={syncEntry?.reason ?? ""}
+                                    title={member.sync_reason ?? ""}
                                   >
                                     {syncBadge.icon}
                                     {syncBadge.label}

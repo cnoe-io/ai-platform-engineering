@@ -188,25 +188,21 @@ beforeEach(() => {
   ]);
 });
 
-describe("GET /api/admin/teams/[id] — OpenFGA sync decoration", () => {
-  it("reports every member as synced when OpenFGA tuples match the source rows", async () => {
+describe("GET /api/admin/teams/[id] — no whole-team OpenFGA scan", () => {
+  // Invariant: GET /api/admin/teams/[id] returns `openfga_sync: null` and
+  // issues ZERO OpenFGA reads. Computing a whole-team report here would read
+  // the entire `team:<slug>` tuple set on every detail view — O(team size),
+  // i.e. tens of thousands of tuples for a team like `everyone` — which is
+  // too expensive to pay on a page load. Per-member sync state is instead
+  // computed PAGE-SCOPED by GET /api/admin/teams/[id]/members (only the
+  // visible subjects are read); see members-pagination.test.ts for that
+  // coverage. These tests guard against anyone re-introducing the full scan.
+  it("returns openfga_sync: null and performs no OpenFGA read", async () => {
     mockGetServerSession.mockResolvedValue(adminSession());
     const teamsCol = createMockCollection();
     teamsCol.findOne.mockResolvedValue(teamDocument());
     mockCollections.teams = teamsCol;
     mockListTeamMembershipSources.mockResolvedValue(membershipSources());
-    // OpenFGA returns the matching admin + member tuples.
-    mockReadOpenFgaTuples.mockResolvedValueOnce({
-      tuples: [
-        {
-          key: { user: "user:admin-sub", relation: "admin", object: "team:platform" },
-        },
-        {
-          key: { user: "user:member-sub", relation: "member", object: "team:platform" },
-        },
-      ],
-      continuationToken: undefined,
-    });
 
     const { GET } = await import("../[id]/route");
     const response = await GET(
@@ -217,34 +213,18 @@ describe("GET /api/admin/teams/[id] — OpenFGA sync decoration", () => {
     expect(response.status).toBe(200);
     const json = await response.json();
     expect(json.success).toBe(true);
-    const sync = json.data.openfga_sync;
-    expect(sync.summary).toMatchObject({
-      total: 2,
-      synced: 2,
-      drifted: 0,
-      pending: 0,
-      unknown: 0,
-      needs_attention: false,
-      openfga_available: true,
-    });
-    expect(sync.entries.every((e: { status: string }) => e.status === "synced")).toBe(true);
+    expect(json.data.openfga_sync).toBeNull();
+    // Critical: the detail view must NOT scan the team's tuple set.
+    expect(mockReadOpenFgaTuples).not.toHaveBeenCalled();
   });
 
-  it("reports drifted when source rows have user_subject but OpenFGA is missing the tuple", async () => {
+  it("still returns the team and its membership_sources", async () => {
     mockGetServerSession.mockResolvedValue(adminSession());
     const teamsCol = createMockCollection();
     teamsCol.findOne.mockResolvedValue(teamDocument());
     mockCollections.teams = teamsCol;
-    mockListTeamMembershipSources.mockResolvedValue(membershipSources());
-    // OpenFGA only has the admin tuple. The member is drifted.
-    mockReadOpenFgaTuples.mockResolvedValueOnce({
-      tuples: [
-        {
-          key: { user: "user:admin-sub", relation: "admin", object: "team:platform" },
-        },
-      ],
-      continuationToken: undefined,
-    });
+    const sources = membershipSources();
+    mockListTeamMembershipSources.mockResolvedValue(sources);
 
     const { GET } = await import("../[id]/route");
     const response = await GET(
@@ -253,18 +233,12 @@ describe("GET /api/admin/teams/[id] — OpenFGA sync decoration", () => {
     );
 
     const json = await response.json();
-    expect(json.data.openfga_sync.summary).toMatchObject({
-      synced: 1,
-      drifted: 1,
-      needs_attention: true,
-    });
-    const driftedEntry = json.data.openfga_sync.entries.find(
-      (e: { status: string }) => e.status === "drifted",
-    );
-    expect(driftedEntry.user_email).toBe("member@example.com");
+    expect(json.data.team.slug).toBe("platform");
+    expect(json.data.membership_sources).toHaveLength(sources.length);
+    expect(json.data.team.membership_sources).toHaveLength(sources.length);
   });
 
-  it("reports unknown for every active row when OpenFGA is not configured", async () => {
+  it("does not scan OpenFGA even when the store is unconfigured", async () => {
     mockGetServerSession.mockResolvedValue(adminSession());
     mockIsOpenFgaConfigured.mockReturnValue(false);
     const teamsCol = createMockCollection();
@@ -279,48 +253,8 @@ describe("GET /api/admin/teams/[id] — OpenFGA sync decoration", () => {
     );
 
     const json = await response.json();
-    expect(json.data.openfga_sync.summary).toMatchObject({
-      total: 2,
-      unknown: 2,
-      synced: 0,
-      drifted: 0,
-      openfga_available: false,
-      needs_attention: true,
-    });
+    expect(json.data.openfga_sync).toBeNull();
     expect(mockReadOpenFgaTuples).not.toHaveBeenCalled();
-  });
-
-  it("reports pending for rows without user_subject (even when OpenFGA is healthy)", async () => {
-    mockGetServerSession.mockResolvedValue(adminSession());
-    const teamsCol = createMockCollection();
-    teamsCol.findOne.mockResolvedValue(teamDocument());
-    mockCollections.teams = teamsCol;
-    mockListTeamMembershipSources.mockResolvedValue(
-      membershipSources([{}, { user_subject: undefined }]),
-    );
-    mockReadOpenFgaTuples.mockResolvedValueOnce({
-      tuples: [
-        {
-          key: { user: "user:admin-sub", relation: "admin", object: "team:platform" },
-        },
-      ],
-      continuationToken: undefined,
-    });
-
-    const { GET } = await import("../[id]/route");
-    const response = await GET(
-      makeRequest(`/api/admin/teams/${TEAM_ID}`),
-      { params: Promise.resolve({ id: TEAM_ID }) },
-    );
-
-    const json = await response.json();
-    expect(json.data.openfga_sync.summary).toMatchObject({
-      synced: 1,
-      pending: 1,
-      drifted: 0,
-      // pending is expected — no admin action needed yet.
-      needs_attention: false,
-    });
   });
 });
 
