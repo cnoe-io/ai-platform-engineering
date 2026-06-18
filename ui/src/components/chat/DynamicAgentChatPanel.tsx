@@ -653,6 +653,8 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
     hitlFormRequested: boolean;
     hasError: boolean;
     errorMessage?: string;
+    /** Epoch ms when the turn was submitted — used to derive latency_ms. */
+    startedAt?: number;
   }
 
   // Get the protocol-agnostic adapter config
@@ -883,6 +885,13 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
         ? "interrupted"
         : "done";
 
+    // Client-measured end-to-end latency for the turn. Only recorded on a
+    // clean completion (a HITL pause or error would skew response-time stats).
+    const latencyMs =
+      isFinal && !state.hasError && state.startedAt != null
+        ? Date.now() - state.startedAt
+        : undefined;
+
     updateMessage(conversationId, assistantMsgId, {
       content: state.accumulatedText,
       rawStreamContent: state.rawStreamContent,
@@ -890,10 +899,13 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       turnStatus,
       ...(state.errorMessage ? { error: state.errorMessage } : {}),
       streamEvents: turnStreamEvents.length > 0 ? turnStreamEvents : undefined,
+      // Persisted to metadata.agent_name / metadata.latency_ms for Insights.
+      ...(agentName && { agentName }),
+      ...(latencyMs != null && { latencyMs }),
     });
     setConversationStreaming(conversationId, null);
     // Store's setConversationStreaming(null) hook auto-saves after 500ms.
-  }, [updateMessage, setConversationStreaming]);
+  }, [updateMessage, setConversationStreaming, agentName]);
 
   // Core submit function that accepts a message directly
   const submitMessage = useCallback(async (messageToSend: string) => {
@@ -962,6 +974,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       rawStreamContent: "",
       hitlFormRequested: false,
       hasError: false,
+      startedAt: Date.now(),
     };
     const toolCallIdToName = new Map<string, string>();
 
@@ -1262,6 +1275,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       rawStreamContent: "",
       hitlFormRequested: false,
       hasError: false,
+      startedAt: Date.now(),
     };
     const toolCallIdToName = new Map<string, string>();
 
@@ -1374,6 +1388,7 @@ export function ChatPanel({ endpoint, conversationId, conversationTitle, readOnl
       rawStreamContent: "",
       hitlFormRequested: false,
       hasError: false,
+      startedAt: Date.now(),
     };
     const toolCallIdToName = new Map<string, string>();
 

@@ -181,7 +181,7 @@ describe('GET /api/chat/conversations/[id]/messages', () => {
         content: 'Hi there!',
         created_at: new Date(),
         metadata: { turn_id: 'turn-1', is_final: true },
-        a2a_events: [
+        stream_events: [
           { id: 'evt-1', type: 'tool_start', toolName: 'search' },
           { id: 'evt-2', type: 'tool_end', toolName: 'search' },
         ],
@@ -330,7 +330,7 @@ describe('POST /api/chat/conversations/[id]/messages', () => {
       content: 'The weather is sunny.',
       created_at: new Date(),
       metadata: { turn_id: 'turn-abc', is_final: true },
-      a2a_events: [
+      stream_events: [
         { id: 'evt-1', type: 'tool_start', toolName: 'weather_api' },
         { id: 'evt-2', type: 'artifact', artifactName: 'execution_plan_update' },
         { id: 'evt-3', type: 'tool_end', toolName: 'weather_api' },
@@ -341,7 +341,7 @@ describe('POST /api/chat/conversations/[id]/messages', () => {
     const sharingCol = createMockCollection();
     mockCollections['sharing_access'] = sharingCol;
 
-    const a2aEvents = [
+    const streamEvents = [
       { id: 'evt-1', type: 'tool_start', toolName: 'weather_api', timestamp: new Date().toISOString() },
       { id: 'evt-2', type: 'artifact', artifactName: 'execution_plan_update', timestamp: new Date().toISOString() },
       { id: 'evt-3', type: 'tool_end', toolName: 'weather_api', timestamp: new Date().toISOString() },
@@ -357,20 +357,20 @@ describe('POST /api/chat/conversations/[id]/messages', () => {
           turn_id: 'turn-abc',
           is_final: true,
         },
-        a2a_events: a2aEvents,
+        stream_events: streamEvents,
       }),
     });
 
     const res = await POST(req, { params: Promise.resolve({ id: testConversationId }) });
     expect(res.status).toBe(201);
 
-    // Verify A2A events were persisted in $set
+    // Verify stream events were persisted in $set
     const updateDoc = msgCol.updateOne.mock.calls[0][1];
-    expect(updateDoc.$set.a2a_events).toHaveLength(3);
-    expect(updateDoc.$set.a2a_events[0].type).toBe('tool_start');
-    expect(updateDoc.$set.a2a_events[0].toolName).toBe('weather_api');
-    expect(updateDoc.$set.a2a_events[1].type).toBe('artifact');
-    expect(updateDoc.$set.a2a_events[1].artifactName).toBe('execution_plan_update');
+    expect(updateDoc.$set.stream_events).toHaveLength(3);
+    expect(updateDoc.$set.stream_events[0].type).toBe('tool_start');
+    expect(updateDoc.$set.stream_events[0].toolName).toBe('weather_api');
+    expect(updateDoc.$set.stream_events[1].type).toBe('artifact');
+    expect(updateDoc.$set.stream_events[1].artifactName).toBe('execution_plan_update');
     expect(updateDoc.$set.metadata.is_final).toBe(true);
   });
 
@@ -423,7 +423,7 @@ describe('POST /api/chat/conversations/[id]/messages', () => {
     expect(res.status).toBe(201);
 
     const updateDoc = msgCol.updateOne.mock.calls[0][1];
-    expect(updateDoc.$set.a2a_events).toBeUndefined();
+    expect(updateDoc.$set.stream_events).toBeUndefined();
     expect(updateDoc.$setOnInsert.message_id).toBeUndefined();
   });
 
@@ -611,7 +611,7 @@ describe('POST /api/chat/conversations/[id]/messages', () => {
     expect(updateDoc.$set.metadata.tokens_used).toBe(150);
   });
 
-  it('upsert updates a2a_events on existing message', async () => {
+  it('upsert updates stream_events on existing message', async () => {
     mockGetServerSession.mockResolvedValue(authenticatedSession());
 
     const usersCol = createMockCollection();
@@ -633,7 +633,7 @@ describe('POST /api/chat/conversations/[id]/messages', () => {
       modifiedCount: 1,
       acknowledged: true,
     });
-    const a2aEvents = [
+    const streamEvents = [
       { id: 'evt-1', type: 'tool_start', toolName: 'search' },
       { id: 'evt-2', type: 'tool_end', toolName: 'search' },
     ];
@@ -645,7 +645,7 @@ describe('POST /api/chat/conversations/[id]/messages', () => {
       content: 'Result with events',
       created_at: new Date(),
       metadata: { turn_id: 'turn-1', is_final: true },
-      a2a_events: a2aEvents,
+      stream_events: streamEvents,
     });
     mockCollections['messages'] = msgCol;
 
@@ -659,7 +659,7 @@ describe('POST /api/chat/conversations/[id]/messages', () => {
         role: 'assistant',
         content: 'Result with events',
         metadata: { turn_id: 'turn-1', is_final: true },
-        a2a_events: a2aEvents,
+        stream_events: streamEvents,
       }),
     });
 
@@ -667,10 +667,10 @@ describe('POST /api/chat/conversations/[id]/messages', () => {
     expect(res.status).toBe(200);
 
     const updateDoc = msgCol.updateOne.mock.calls[0][1];
-    expect(updateDoc.$set.a2a_events).toHaveLength(2);
-    expect(updateDoc.$set.a2a_events[0].type).toBe('tool_start');
-    expect(updateDoc.$set.a2a_events[0].toolName).toBe('search');
-    expect(updateDoc.$set.a2a_events[1].type).toBe('tool_end');
+    expect(updateDoc.$set.stream_events).toHaveLength(2);
+    expect(updateDoc.$set.stream_events[0].type).toBe('tool_start');
+    expect(updateDoc.$set.stream_events[0].toolName).toBe('search');
+    expect(updateDoc.$set.stream_events[1].type).toBe('tool_end');
   });
 });
 
@@ -1233,7 +1233,7 @@ describe('Cross-device message persistence', () => {
         role: 'assistant',
         content: 'Here are the ArgoCD applications...',
         metadata: { turn_id: 'turn-1', is_final: true },
-        a2a_events: [
+        stream_events: [
           { id: 'evt-1', type: 'execution_plan', artifactName: 'execution_plan_update' },
           { id: 'evt-2', type: 'tool_start', toolName: 'argocd_list_apps' },
           { id: 'evt-3', type: 'tool_end', toolName: 'argocd_list_apps' },
@@ -1255,7 +1255,7 @@ describe('Cross-device message persistence', () => {
     const res1 = await POST(req1, { params: Promise.resolve({ id: testConversationId }) });
     expect(res1.status).toBe(201);
 
-    // Save assistant message with A2A events
+    // Save assistant message with stream events
     const req2 = makeRequest(`/api/chat/conversations/${testConversationId}/messages`, {
       method: 'POST',
       body: JSON.stringify({
@@ -1263,7 +1263,7 @@ describe('Cross-device message persistence', () => {
         role: 'assistant',
         content: 'Here are the ArgoCD applications...',
         metadata: { turn_id: 'turn-1', is_final: true },
-        a2a_events: [
+        stream_events: [
           { id: 'evt-1', type: 'execution_plan', artifactName: 'execution_plan_update' },
           { id: 'evt-2', type: 'tool_start', toolName: 'argocd_list_apps' },
           { id: 'evt-3', type: 'tool_end', toolName: 'argocd_list_apps' },
@@ -1292,7 +1292,7 @@ describe('Cross-device message persistence', () => {
         content: 'Here are the ArgoCD applications...',
         created_at: new Date(),
         metadata: { turn_id: 'turn-1', is_final: true },
-        a2a_events: [
+        stream_events: [
           { id: 'evt-1', type: 'execution_plan', artifactName: 'execution_plan_update' },
           { id: 'evt-2', type: 'tool_start', toolName: 'argocd_list_apps' },
           { id: 'evt-3', type: 'tool_end', toolName: 'argocd_list_apps' },
@@ -1322,12 +1322,12 @@ describe('Cross-device message persistence', () => {
     expect(body.data.items[0].message_id).toBe('user-msg-1');
     expect(body.data.items[0].content).toBe('List ArgoCD apps');
 
-    // Verify assistant message with A2A events
+    // Verify assistant message with stream events
     expect(body.data.items[1].message_id).toBe('assistant-msg-1');
     expect(body.data.items[1].content).toBe('Here are the ArgoCD applications...');
-    expect(body.data.items[1].a2a_events).toHaveLength(3);
-    expect(body.data.items[1].a2a_events[0].type).toBe('execution_plan');
-    expect(body.data.items[1].a2a_events[1].toolName).toBe('argocd_list_apps');
+    expect(body.data.items[1].stream_events).toHaveLength(3);
+    expect(body.data.items[1].stream_events[0].type).toBe('execution_plan');
+    expect(body.data.items[1].stream_events[1].toolName).toBe('argocd_list_apps');
     expect(body.data.items[1].metadata.is_final).toBe(true);
   });
 });

@@ -77,9 +77,8 @@ function timeAgo(iso: string | null): string {
   return `${days}d ago`;
 }
 
-/** Format a display name: caipe_supervisor -> Supervisor, aws -> AWS, argocd -> ArgoCD */
+/** Format a display name: aws -> AWS, argocd -> ArgoCD, conversation -> Conversation */
 function displayName(name: string): string {
-  if (name === "caipe_supervisor") return "Supervisor";
   const upper = name.toUpperCase();
   // Known abbreviations
   if (["AWS", "SSH", "NPS"].includes(upper)) return upper;
@@ -362,7 +361,7 @@ export function CheckpointStatsSection() {
                     </p>
                     <p className="text-xs text-muted-foreground">
                       {stats.cross_contamination.shared_threads > 0
-                        ? "Shared threads between supervisor and subagent collections are expected (supervisor forwards context_id)"
+                        ? "A thread id appears in more than one checkpoint collection — usually a workflow run that reused a conversation thread id"
                         : "Each agent writes exclusively to its own collection pair"}
                     </p>
                   </div>

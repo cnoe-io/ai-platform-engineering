@@ -93,6 +93,13 @@ export interface ChatMessage {
   turnStatus?: TurnStatus;
   /** Connection/server error — rendered as inline banner, not as bot content */
   error?: string;
+  /** Display name of the dynamic agent that produced this assistant message.
+   *  Persisted to metadata.agent_name and drives the Insights "Favorite/Top
+   *  Agents" breakdowns. */
+  agentName?: string;
+  /** End-to-end client-measured turn latency in milliseconds (request → final
+   *  response). Persisted to metadata.latency_ms for response-time analytics. */
+  latencyMs?: number;
 }
 
 // Input field configuration for use case forms
