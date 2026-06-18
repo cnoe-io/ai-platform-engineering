@@ -155,7 +155,6 @@ jobs:
               ],
               skill_scanner: [
                 'build/Dockerfile.skill-scanner',
-                'docker-compose.dev.yaml',
               ],
               dynamic_agents: [
                 'ai_platform_engineering/dynamic_agents/**',
