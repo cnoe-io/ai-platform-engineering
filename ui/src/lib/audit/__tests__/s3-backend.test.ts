@@ -1,5 +1,5 @@
 // assisted-by claude code claude-sonnet-4-6
-import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { S3Client } from "@aws-sdk/client-s3";
 
 jest.mock("@aws-sdk/client-s3", () => ({
   S3Client: jest.fn().mockImplementation(() => ({
@@ -27,31 +27,44 @@ describe("S3Backend", () => {
     jest.clearAllMocks();
   });
 
-  it("sends a PutObjectCommand with correct key pattern and gzip body", async () => {
-    const backend = new S3Backend("my-bucket", "audit", "us-east-1");
+  it("buffers events and flushes as a single batch when count threshold is reached", async () => {
+    const backend = new S3Backend("my-bucket", "audit", "us-east-1", undefined, 999_999, 2);
     backend.write(makeEvent());
+    backend.write(makeEvent({ action: "admin_ui#export" })); // triggers flush at size=2
 
-    // flush async queue
+    await new Promise((r) => setImmediate(r));
     await new Promise((r) => setImmediate(r));
 
     const mockInstance = MockS3Client.mock.instances[0] as unknown as { send: jest.Mock };
-    expect(mockInstance.send).toHaveBeenCalledTimes(1);
+    expect(mockInstance.send).toHaveBeenCalledTimes(1); // one batch, not two PUTs
 
     const [cmd] = mockInstance.send.mock.calls[0] as [{ input: Record<string, unknown> }];
     expect(cmd.input.Bucket).toBe("my-bucket");
     const key = cmd.input.Key as string;
-    expect(key).toMatch(/^audit\/2026\/06\/18\/auth-20260618T\d{6}Z-[a-f0-9]+\.ndjson\.gz$/);
-    expect(cmd.input.ContentEncoding).toBe("gzip");
+    expect(key).toMatch(/^audit\/2026\/06\/18\/audit-20260618T\d{6}Z-[a-f0-9]+\.ndjson\.gz$/);
+    expect(cmd.input.ContentType).toBe("application/gzip");
+    // No ContentEncoding — avoids transparent auto-decompression by S3 consumers
+    expect(cmd.input.ContentEncoding).toBeUndefined();
+  });
+
+  it("does not flush until batch size is reached", async () => {
+    const backend = new S3Backend("my-bucket", "audit", "us-east-1", undefined, 999_999, 5);
+    backend.write(makeEvent());
+    backend.write(makeEvent());
+
+    await new Promise((r) => setImmediate(r));
+
+    const mockInstance = MockS3Client.mock.instances[0] as unknown as { send: jest.Mock };
+    expect(mockInstance.send).not.toHaveBeenCalled();
   });
 
   it("catches S3 errors and does not throw", async () => {
-    const mockInstance = MockS3Client.mock.instances[0] as unknown as { send: jest.Mock } | undefined;
-    // Instantiate backend to get a fresh instance
-    const backend = new S3Backend("my-bucket");
+    const backend = new S3Backend("my-bucket", "audit", "us-east-1", undefined, 999_999, 1);
     const freshMock = MockS3Client.mock.instances[MockS3Client.mock.instances.length - 1] as unknown as { send: jest.Mock };
     freshMock.send.mockRejectedValueOnce(new Error("network error"));
 
     expect(() => backend.write(makeEvent())).not.toThrow();
+    await new Promise((r) => setImmediate(r));
     await new Promise((r) => setImmediate(r));
   });
 

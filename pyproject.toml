@@ -53,7 +53,9 @@ dependencies = [
     # Async MongoDB driver for MongoDB store
     "motor==3.7.1",
     # S3-compatible object storage client for audit log backend
-    "boto3>=1.34,<2",
+    "boto3==1.42.7",
+    # Parquet writer for columnar audit log files (S3 backend)
+    "pyarrow==23.0.1",
 ]
 
 [tool.pytest.ini_options]

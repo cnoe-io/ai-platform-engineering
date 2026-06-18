@@ -3,14 +3,9 @@
 # assisted-by claude code claude-sonnet-4-6
 """Unit tests for audit log storage backends."""
 
-import gzip
 import json
-import os
-import tempfile
 from datetime import datetime, timezone
 from unittest import mock
-
-import pytest
 
 
 # ---------------------------------------------------------------------------
@@ -92,11 +87,11 @@ class TestLocalBackend:
 
 
 # ---------------------------------------------------------------------------
-# S3Backend
+# S3Backend (buffered Parquet)
 # ---------------------------------------------------------------------------
 
 class TestS3Backend:
-    def test_puts_gzip_object_with_correct_key_pattern(self):
+    def test_buffers_events_and_flushes_parquet_on_batch_size(self):
         from ai_platform_engineering.utils.audit_backends.s3_backend import S3Backend
 
         with mock.patch(
@@ -105,22 +100,26 @@ class TestS3Backend:
             mock_client = mock.MagicMock()
             mock_build.return_value = mock_client
 
-            backend = S3Backend(bucket="my-bucket", prefix="audit")
-            event = _make_event()
-            backend.write(event)
+            backend = S3Backend(
+                bucket="my-bucket",
+                prefix="audit",
+                flush_interval=9999,
+                flush_batch_size=2,
+            )
+            backend.write(_make_event())
+            # Not flushed yet
+            mock_client.put_object.assert_not_called()
 
+            backend.write(_make_event(action="admin_ui#export"))
+            # Batch of 2 → flush triggered
             mock_client.put_object.assert_called_once()
+
             call_kwargs = mock_client.put_object.call_args.kwargs
             assert call_kwargs["Bucket"] == "my-bucket"
             key = call_kwargs["Key"]
-            assert key.startswith("audit/2026/06/18/auth-")
-            assert key.endswith(".ndjson.gz")
-
-            # Body must be valid gzip-compressed NDJSON
-            body = call_kwargs["Body"]
-            decompressed = gzip.decompress(body).decode("utf-8").strip()
-            data = json.loads(decompressed)
-            assert data["type"] == "auth"
+            assert key.startswith("audit/")
+            assert key.endswith(".parquet")
+            assert call_kwargs["ContentType"] == "application/octet-stream"
 
     def test_s3_error_is_caught_and_does_not_raise(self):
         from ai_platform_engineering.utils.audit_backends.s3_backend import S3Backend
@@ -132,8 +131,8 @@ class TestS3Backend:
             mock_client.put_object.side_effect = Exception("network error")
             mock_build.return_value = mock_client
 
-            backend = S3Backend(bucket="my-bucket")
-            # Must not raise
+            backend = S3Backend(bucket="my-bucket", flush_interval=9999, flush_batch_size=1)
+            # Must not raise even when S3 throws
             backend.write(_make_event())
 
     def test_endpoint_url_passed_to_boto3(self):
@@ -141,9 +140,10 @@ class TestS3Backend:
 
         with mock.patch("boto3.client") as mock_boto3:
             mock_boto3.return_value = mock.MagicMock()
-            backend = S3Backend(
+            S3Backend(
                 bucket="minio-bucket",
                 endpoint_url="http://localhost:9000",
+                flush_interval=9999,
             )
             mock_boto3.assert_called_once_with(
                 "s3",

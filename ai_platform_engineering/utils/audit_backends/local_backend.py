@@ -15,6 +15,7 @@ the lifetime of the process, keeping one file per (process × type × day).
 import json
 import logging
 import os
+import threading
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict
@@ -38,9 +39,14 @@ class LocalBackend:
     def __init__(self, path: str) -> None:
         self._root = path
         self._file_uuid = uuid.uuid4().hex[:12]
+        self._lock = threading.Lock()
 
     def write(self, event: Dict[str, Any]) -> None:
         """Append *event* as a JSON line. Never raises; logs errors."""
+        with self._lock:
+            self._write_locked(event)
+
+    def _write_locked(self, event: Dict[str, Any]) -> None:
         try:
             ts: datetime = event.get("ts") or datetime.now(timezone.utc)
             if isinstance(ts, str):

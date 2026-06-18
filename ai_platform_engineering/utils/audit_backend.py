@@ -35,7 +35,7 @@ class AuditBackend(Protocol):
 
     def write(self, event: Dict[str, Any]) -> None:
         """Persist *event*. Must never raise; log errors internally."""
-        ...
+        pass
 
 
 def get_audit_backend() -> "AuditBackend":
@@ -57,7 +57,11 @@ def _create_backend() -> "AuditBackend":
     if backend_name == "mongodb":
         from ai_platform_engineering.utils.audit_backends.mongo_backend import MongoBackend
         instance: AuditBackend = MongoBackend()
-        logger.info("[audit] backend=mongodb")
+        logger.warning(
+            "[audit] backend=mongodb — audit writes are going to MongoDB. "
+            "This causes database contention under load. "
+            "Set AUDIT_LOG_BACKEND=local or =s3 to use a dedicated storage backend."
+        )
 
     elif backend_name == "local":
         from ai_platform_engineering.utils.audit_backends.local_backend import LocalBackend
