@@ -49,7 +49,7 @@ describe("S3Backend", () => {
     const [cmd] = send.mock.calls[0] as [{ input: Record<string, unknown> }];
     expect(cmd.input.Bucket).toBe("my-bucket");
     const key = cmd.input.Key as string;
-    expect(key).toMatch(/^audit\/2026\/06\/18\/audit-20260618T\d{6}Z-[a-f0-9]+\.ndjson\.gz$/);
+    expect(key).toMatch(/^audit\/\d{4}\/\d{2}\/\d{2}\/audit-\d{8}T\d{6}Z-[a-f0-9]+\.ndjson\.gz$/);
     expect(cmd.input.ContentType).toBe("application/gzip");
     // No ContentEncoding — avoids transparent auto-decompression by S3 consumers
     expect(cmd.input.ContentEncoding).toBeUndefined();

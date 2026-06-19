@@ -59,7 +59,9 @@ def on_locust_init(environment, **kwargs):
         sys.exit(1)
 
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    mint_script = os.path.join(repo_root, "scripts", "mint-test-session.mjs")
+    mint_script = os.path.join(repo_root, "ui", "mint-test-session.mjs")
+    # next-auth is installed in ui/node_modules — run from there
+    ui_dir = os.path.join(repo_root, "ui")
 
     try:
         result = subprocess.run(
@@ -67,7 +69,7 @@ def on_locust_init(environment, **kwargs):
             capture_output=True,
             text=True,
             check=True,
-            cwd=repo_root,
+            cwd=ui_dir,
             env={**os.environ},
         )
         _SESSION_COOKIE = result.stdout.strip()

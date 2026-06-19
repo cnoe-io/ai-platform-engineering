@@ -1,6 +1,11 @@
+import { getAuditBackend } from "@/lib/audit";
 import { writeCredentialAuditEvent } from "@/lib/credentials/audit";
 import { getCredentialDependencyHealth } from "@/lib/credentials/health";
 import { maskCredentialValue, redactCredentialDetails } from "@/lib/credentials/masking";
+
+jest.mock("@/lib/audit", () => ({
+  getAuditBackend: jest.fn(),
+}));
 
 describe("credential masking", () => {
   it("masks credential values without exposing the full value", () => {
@@ -28,7 +33,7 @@ describe("credential masking", () => {
 describe("credential audit writer", () => {
   it("writes a redacted audit event via the backend (no secret values persisted)", () => {
     const mockWrite = jest.fn();
-    jest.mock("@/lib/audit", () => ({ getAuditBackend: () => ({ write: mockWrite }) }));
+    (getAuditBackend as jest.Mock).mockReturnValue({ write: mockWrite });
 
     writeCredentialAuditEvent({
       action: "credential.rotate",
