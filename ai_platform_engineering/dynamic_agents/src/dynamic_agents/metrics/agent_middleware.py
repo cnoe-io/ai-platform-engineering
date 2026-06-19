@@ -2,10 +2,6 @@
 
 ``MetricsAgentMiddleware`` — append to the END of the middleware stack.
 It wraps model and tool calls to record total duration and counts.
-
-``TimedMiddlewareWrapper`` — wraps any ``AgentMiddleware`` instance and
-records how long that middleware's own logic takes (total hook time minus
-inner handler time) in ``da_middleware_duration_seconds``.
 """
 
 from __future__ import annotations

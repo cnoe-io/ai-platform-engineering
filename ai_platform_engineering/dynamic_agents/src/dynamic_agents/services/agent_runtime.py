@@ -1365,6 +1365,39 @@ class AgentRuntime:
 
         return config
 
+    async def _has_prior_conversation_messages(self, session_id: str) -> bool:
+        """Return whether this LangGraph thread already has chat history."""
+        if not self._graph:
+            return True
+
+        try:
+            state = await self._graph.aget_state({"configurable": {"thread_id": session_id}})
+        except Exception as exc:  # noqa: BLE001 - avoid repeated memory injection if state lookup fails
+            logger.warning(
+                "[stream] Failed to check conversation history before memory injection: %s",
+                exc,
+            )
+            return True
+
+        values = getattr(state, "values", None) or {}
+        getter = getattr(values, "get", None)
+        messages = getter("messages") if callable(getter) else None
+        if messages is not None:
+            return bool(messages)
+        return bool(values)
+
+    def _drain_memory_context_used_ids(self) -> list[str]:
+        """Return and clear queued context memory ids from tool-result attachment."""
+        memory_ids = list(
+            dict.fromkeys(
+                str(memory_id)
+                for memory_id in getattr(self, "_pending_memory_context_used_ids", [])
+                if memory_id
+            )
+        )
+        self._pending_memory_context_used_ids = []
+        return memory_ids
+
     async def stream(
         self,
         message: str,
@@ -1372,17 +1405,21 @@ class AgentRuntime:
         user_id: str,
         trace_id: str | None = None,
         encoder: "StreamEncoder | None" = None,
+        memory_enabled: bool = True,
     ) -> AsyncGenerator[str, None]:
         """Stream agent response for a user message.
 
         Yields SSE frame strings produced by the encoder.
         """
+        self._memory_enabled_for_run = memory_enabled
+
         if not self._initialized:
             await self.initialize()
 
         assert encoder is not None, "encoder must be provided"
 
         self._cancelled = False
+        self._pending_memory_context_used_ids = []
 
         config = self._build_stream_config(session_id, user_id, trace_id)
         run_id = f"run-{uuid4().hex[:12]}"
@@ -1425,7 +1462,17 @@ class AgentRuntime:
                 yield frame
 
         # ── Core lifecycle: chunks ──
-        state_input: dict[str, Any] = {"messages": [{"role": "user", "content": message}]}
+        messages: list[dict[str, str]] = []
+        if not await self._has_prior_conversation_messages(session_id):
+            memory_message = self.build_memory_prompt_message(session_id)
+            if memory_message:
+                messages.append(memory_message)
+                memory_ids = getattr(self, "_last_injected_memory_ids", [])
+                if memory_ids:
+                    for frame in encoder.on_memory_injected(memory_ids):
+                        yield frame
+        messages.append({"role": "user", "content": message})
+        state_input: dict[str, Any] = {"messages": messages}
         # Inject skills files into state for StateBackend (non-GridFS mode).
         # In GridFS mode, skills are pre-populated in the store at init time.
         if getattr(self, "_skills_files", None) and self._resolve_backend_type() != BACKEND_STORE:
@@ -1444,6 +1491,10 @@ class AgentRuntime:
 
             for frame in encoder.on_chunk(chunk):
                 yield frame
+            memory_context_ids = self._drain_memory_context_used_ids()
+            if memory_context_ids:
+                for frame in encoder.on_memory_context_used(memory_context_ids):
+                    yield frame
 
         # ── Core lifecycle: stream end (flush) ──
         for frame in encoder.on_stream_end():
@@ -1705,6 +1756,7 @@ class AgentRuntime:
         resume_data: str,
         trace_id: str | None = None,
         encoder: "StreamEncoder | None" = None,
+        memory_enabled: bool = True,
     ) -> AsyncGenerator[str, None]:
         """Resume agent execution after a HITL interrupt.
 
@@ -1715,6 +1767,8 @@ class AgentRuntime:
         - ``{"type": "tool_approval", "decision": "reject"}``
         - ``{"type": "tool_approval", "decision": "edit", "edited_args": {...}}``
         """
+        self._memory_enabled_for_run = memory_enabled
+
         if not self._initialized:
             await self.initialize()
 
