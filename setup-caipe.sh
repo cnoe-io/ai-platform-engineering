@@ -3108,14 +3108,17 @@ _compose_env_edit_target() {
 _update_compose_image_tag() {
   local env_file="$1"
   _ensure_compose_env_file "$env_file"
-  if ! command -v gh &>/dev/null; then
-    err "GitHub CLI (gh) is required to fetch the latest CAIPE release"
-    err "Install gh or edit IMAGE_TAG in ${env_file} manually."
+  local latest
+  if command -v gh &>/dev/null; then
+    latest=$(gh release view --repo cnoe-io/ai-platform-engineering --json tagName -q .tagName)
+  elif command -v curl &>/dev/null; then
+    latest=$(curl -sf "https://api.github.com/repos/cnoe-io/ai-platform-engineering/releases/latest" \
+      | jq .tag_name)
+  else
+    err "Either GitHub CLI (gh) or curl is required to fetch the latest CAIPE release"
+    err "Install gh/curl or edit IMAGE_TAG in ${env_file} manually."
     exit 1
   fi
-
-  local latest
-  latest=$(gh release view --repo cnoe-io/ai-platform-engineering --json tagName -q .tagName)
   latest="${latest#v}"
   if [[ -z "$latest" ]]; then
     err "Could not resolve the latest CAIPE release tag"
