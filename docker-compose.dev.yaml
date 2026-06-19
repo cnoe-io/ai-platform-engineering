@@ -83,19 +83,10 @@ services:
       # Disable cache so UI edits are reflected immediately in the agent
       - TASK_CONFIG_CACHE_TTL=${TASK_CONFIG_CACHE_TTL:-0}
 
-      # Spec #099 Phase 3 — autonomous-task management tools registered on
-      # the supervisor (multi_agents/tools/autonomous_tasks.py) call back
-      # to the autonomous-agents FastAPI service. Defaults to the
-      # autonomous-agents container's service name; override only if the
-      # service is reached via a non-default hostname/port.
+      # Autonomous-task management tools
       - AUTONOMOUS_AGENTS_URL=${AUTONOMOUS_AGENTS_URL:-http://autonomous-agents:8002}
-      # Spec #099 webhook follow-up — the EXTERNALLY-reachable URL of the
-      # autonomous-agents service. Used when constructing callback URLs
-      # given back to GitHub (or any other external webhook sender). In
-      # dev this is typically an ngrok / cloudflared tunnel; in prod it
-      # is the real hostname ops provisions for the service. When unset,
-      # the supervisor tools log a prominent warning so demos don't
-      # silently produce unreachable URLs. Distinct from the internal
+      # EXTERNALLY-reachable URL of the autonomous-agents service. Used 
+      # when constructing callback URLs. Distinct from the internal
       # AUTONOMOUS_AGENTS_URL above because GitHub can't resolve
       # ``autonomous-agents`` from the public internet.
       - AUTONOMOUS_AGENTS_PUBLIC_URL=${AUTONOMOUS_AGENTS_PUBLIC_URL:-}
@@ -307,13 +298,7 @@ services:
       - caipe-mongodb
       - caipe-supervisor
       - deps
-      # Auto-include Mongo whenever the autonomous-agents profile is
-      # selected. The autonomous-agents service hard-codes its
-      # MONGODB_URI default to caipe-mongodb (so tasks created via the
-      # UI survive restarts); without this, "docker compose --profile
-      # autonomous-agents up" would start the service against a host
-      # that doesn't resolve and it would fail during MongoTaskStore
-      # index creation. See PR #14 review feedback.
+      # Auto-include Mongo whenever the autonomous-agents profile is selected.
       - autonomous-agents
 
   # MongoDB Admin UI
@@ -1875,16 +1860,16 @@ services:
   ####################################################################################################
   #                                    Autonomous Agents Service                                     #
   ####################################################################################################
-  # Autonomous Agents - Standalone scheduler that fires tasks (cron / interval / webhook) at the
-  # CAIPE supervisor over A2A. Tasks and run history are read/written via the UI's
-  # /api/autonomous proxy (admin-gated); this service is the upstream the proxy targets.
+  # Autonomous Agents - Standalone service that fires tasks (cron / interval / webhook) at the
+  # CAIPE supervisor or Dynamic Agents. Tasks and run history are read/written via the UI's
+  # /api/autonomous proxy.
   #
   # Configuration:
   #   - Task definitions are loaded from MongoDB (autonomous_tasks collection);
   #     there is no YAML seed/bootstrap path anymore.
   #   - Talks to the supervisor via SUPERVISOR_URL (default http://caipe-supervisor:8000).
   #     Single-node and distributed mode now share the same caipe-supervisor service
-  #     (PR #1151 unified the bindings); start the caipe-supervisor profile alongside
+  #     ; start the caipe-supervisor profile alongside
   #     autonomous-agents so both resolve within the same compose network.
   #   - Persists run history and task definitions to the same MongoDB the UI uses
   #     so the conversation deep-link in the Autonomous tab works end-to-end.
@@ -1892,36 +1877,25 @@ services:
   #     UI sidebar's "Autonomous" filter; flip to false in production if not desired.
   #
   # Ports:
-  #   - 8002: Autonomous Agents API (proxied via UI at /api/autonomous, admin-only)
+  #   - 8002: Autonomous Agents API (proxied via UI at /api/autonomous)
   autonomous-agents:
     build:
+      # Dockerfile itself lives at the repo root under build/
       context: ./ai_platform_engineering/autonomous_agents
-      dockerfile: Dockerfile
+      dockerfile: ../../build/Dockerfile.autonomous-agents
     image: ghcr.io/cnoe-io/caipe-autonomous-agents:${IMAGE_TAG:-localtag}
     container_name: autonomous-agents
     ports: ["8002:8002"]
     env_file: [.env]
     environment:
-      # Supervisor A2A endpoint -- defaults to the unified caipe-supervisor service
-      # (PR #1151 merged the all-in-one and multi-agent variants into one service).
-      # Override AUTONOMOUS_SUPERVISOR_URL for non-default hostnames or external supervisors.
+      # Supervisor A2A endpoint -- defaults to the unified caipe-supervisor service.
+      # Override AUTONOMOUS_SUPERVISOR_URL.
       - SUPERVISOR_URL=${AUTONOMOUS_SUPERVISOR_URL:-http://caipe-supervisor:8000}
-      # Dynamic-agents service endpoint -- when a TaskDefinition has
-      # ``dynamic_agent_id`` set, the autonomous-agents scheduler and
-      # preflight bypass the supervisor and call the dynamic-agents
-      # service so the prompt actually executes through the user's
-      # custom agent (its tools / system prompt / middleware) rather
-      # than being silently swallowed by the supervisor's permissive
-      # LLM router. Dev default points at the in-network container;
-      # set DYNAMIC_AGENTS_URL in .env to override (e.g. when running
-      # only the autonomous-agents service against a remote DA).
+      # Dynamic-agents service endpoint
       - DYNAMIC_AGENTS_URL=${DYNAMIC_AGENTS_URL:-http://dynamic-agents:8001}
-      # MongoDB persistence -- when both URI and DATABASE are set the service
-      # uses MongoTaskStore + MongoRunStore instead of the in-memory fallback,
-      # so tasks created via the UI survive restarts.
       - MONGODB_URI=${MONGODB_URI:-mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin}
       - MONGODB_DATABASE=${MONGODB_DATABASE:-caipe}
-      # IMP-13: publish completed runs into the UI conversations collection so
+      # Publish completed runs into the UI conversations collection so
       # operators can click the "Open run" deep link from the Autonomous tab and
       # land on the rendered output in the chat sidebar's "Autonomous" filter.
       - CHAT_HISTORY_PUBLISH_ENABLED=${CHAT_HISTORY_PUBLISH_ENABLED:-true}
