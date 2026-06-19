@@ -296,14 +296,11 @@ export async function GET(request?: NextRequest) {
   const currentSubject = getSessionSubject(session);
   const currentUser = currentSubject ? `user:${currentSubject}` : undefined;
   const bootstrapAdmin = isBootstrapAdmin(session.user.email ?? "");
-  if (currentSubject && !simulatedUser) {
-    await repairCurrentUserBaseline(currentSubject, isAdmin);
-  }
 
-  const gates: AdminTabGatesMap = {} as AdminTabGatesMap;
-  for (const tab of ALL_TABS) {
+  async function evaluateTab(tab: AdminTabKey): Promise<boolean> {
     const actor = simulatedUser ?? currentUser;
     let allowed: boolean;
+
     if (tab === "dynamic_agent_conversations") {
       if (simulatedUser) {
         const simulatedOrgAdmin = await checkTupleAllowed({
@@ -331,6 +328,7 @@ export async function GET(request?: NextRequest) {
               ? await hasAdminSurfaceManage(simulatedUser, tab)
               : bootstrapAdmin || (actor ? await hasAdminSurfaceManage(actor, tab) : false);
     }
+
     if (!allowed && actor && !simulatedUser) {
       allowed = await hasResourceScopedIntegrationAccess(actor, tab);
     }
@@ -340,8 +338,19 @@ export async function GET(request?: NextRequest) {
       allowed = !!getConfig(flagKey as Parameters<typeof getConfig>[0]);
     }
 
-    gates[tab] = allowed;
+    return allowed;
   }
+
+  // Evaluate all tab gates in parallel; repair baseline tuples concurrently.
+  const [tabResults] = await Promise.all([
+    Promise.all(ALL_TABS.map(evaluateTab)),
+    currentSubject && !simulatedUser
+      ? repairCurrentUserBaseline(currentSubject, isAdmin)
+      : Promise.resolve(),
+  ]);
+
+  const gates: AdminTabGatesMap = {} as AdminTabGatesMap;
+  ALL_TABS.forEach((tab, i) => { gates[tab] = tabResults[i]; });
 
   return NextResponse.json({ gates, simulation });
 }
