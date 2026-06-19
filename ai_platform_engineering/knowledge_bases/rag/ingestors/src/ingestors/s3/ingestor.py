@@ -550,7 +550,11 @@ class S3DocumentLoader(BaseLoader):
   def lazy_load(self) -> Iterator[Document]:
     """Yield accepted S3 objects as LangChain Documents."""
     for obj in self._list_object_infos():
-      text = self._read_object_text(obj)
+      try:
+        text = self._read_object_text(obj)
+      except UnicodeDecodeError:
+        logger.warning(f"Skipping non-UTF-8 S3 object: {obj.s3_uri}")
+        continue
       if not text.strip():
         logger.info(f"Skipping empty S3 object: {obj.s3_uri}")
         continue
@@ -626,7 +630,6 @@ async def sync_s3_buckets(client: Client) -> None:
         message=error_msg,
       )
       logger.error(error_msg, exc_info=True)
-      raise
 
 
 if __name__ == "__main__":
