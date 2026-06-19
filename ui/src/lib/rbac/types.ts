@@ -192,7 +192,6 @@ export type AdminTabKey =
   | "webex"
   | "skills"
   | "feedback"
-  | "nps"
   | "stats"
   | "metrics"
   | "health"

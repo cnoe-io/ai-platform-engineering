@@ -38,6 +38,11 @@ interface CreateTeamRequest {
  * rather fail loudly so the admin notices) — names that produce an empty
  * slug after stripping are rejected with a 400.
  */
+/** Escape user-supplied text for safe use inside a `new RegExp(...)`. */
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function deriveSlug(name: string): string {
   return name
     .toLowerCase()
@@ -97,27 +102,63 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
 
   const teams = await getCollection('teams');
 
-  const allTeams = await teams
-    .find({})
-    .sort({ created_at: -1 })
-    .toArray();
+  // Pagination + server-side search are OPT-IN via the `page` query param.
+  // The Admin Teams grid sends `?page=&page_size=&search=` so it only ever
+  // pulls one page of rows into the browser. Callers that omit `page` (the
+  // shared Stats/Feedback team-filter dropdowns and the access-simulation
+  // team picker) still get the full list, exactly as before.
+  const url = new URL(request.url);
+  const paginated = url.searchParams.has('page');
+  const page = paginated ? Math.max(1, parseInt(url.searchParams.get('page') || '1', 10) || 1) : 1;
+  const pageSizeRaw = parseInt(url.searchParams.get('page_size') || '24', 10) || 24;
+  const pageSize = Math.min(100, Math.max(1, pageSizeRaw));
+  const search = (url.searchParams.get('search') || '').trim();
 
-  const visibleTeams = hasAdminView
-    ? allTeams
-    : allTeams.filter((team) => {
-        const slug = typeof team.slug === 'string' ? team.slug : '';
-        return slug ? memberSlugs.has(slug) : false;
-      });
+  // Build the Mongo query honoring per-row access control + search so the
+  // skip/limit and the aggregations only ever touch matching rows.
+  const andClauses: Record<string, unknown>[] = [];
+  if (!hasAdminView) {
+    const allowedSlugs = Array.from(memberSlugs);
+    if (allowedSlugs.length === 0) {
+      // Fail-closed: a non-admin with no team memberships sees nothing.
+      const empty = paginated
+        ? successResponse({ teams: [], total: 0, page, page_size: pageSize, has_more: false })
+        : successResponse({ teams: [], total: 0 });
+      empty.headers.set('Cache-Control', 'no-store, max-age=0');
+      return empty;
+    }
+    andClauses.push({ slug: { $in: allowedSlugs } });
+  }
+  if (search) {
+    const rx = new RegExp(escapeRegExp(search), 'i');
+    andClauses.push({ $or: [{ name: rx }, { slug: rx }, { description: rx }, { owner_id: rx }] });
+  }
+  const query: Record<string, unknown> = andClauses.length > 0 ? { $and: andClauses } : {};
+
+  // The page (or full set) of team documents to decorate + return.
+  let pageTeams: Record<string, any>[];
+  let total: number;
+  if (paginated) {
+    total = await teams.countDocuments(query);
+    pageTeams = await teams
+      .find(query)
+      .sort({ created_at: -1 })
+      .skip((page - 1) * pageSize)
+      .limit(pageSize)
+      .toArray();
+  } else {
+    pageTeams = await teams.find(query).sort({ created_at: -1 }).toArray();
+    total = pageTeams.length;
+  }
 
   // Commit 4/8 of the canonical-team-membership refactor (spec
   // 2026-05-26-canonical-team-membership): instead of returning
   // team.members[] (which the Admin UI used to read .length on for the
   // Members badge), decorate every row with `member_count` derived from
   // the canonical team_membership_sources store via a single aggregation
-  // query. This is a tracer-bullet step — the legacy team.members[]
-  // payload is still emitted so older UI revisions and integration
-  // tests keep working until commit 5/8 drops the embedded array.
-  const slugs = visibleTeams
+  // query. With pagination this only spans the current page's slugs, so
+  // the aggregation stays cheap even with thousands of teams.
+  const slugs = pageTeams
     .map((team) => (typeof team.slug === 'string' ? team.slug : ''))
     .filter((slug): slug is string => slug.length > 0);
   const memberCounts = slugs.length > 0 ? await loadTeamMemberCounts(slugs) : new Map<string, number>();
@@ -133,7 +174,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   // has KBs assigned (issue #1642 follow-up). We count distinct kb_ids per
   // team in a single query, falling back to the legacy doc field when no
   // ownership row exists yet.
-  const teamIdStrings = visibleTeams.map((team) => team._id.toString());
+  const teamIdStrings = pageTeams.map((team) => team._id.toString());
   const kbCounts = new Map<string, number>();
   if (teamIdStrings.length > 0) {
     const ownership = await getCollection<{ team_id?: string; kb_ids?: string[] }>('team_kb_ownership');
@@ -147,7 +188,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     }
   }
 
-  const teamsWithCounts = visibleTeams.map((team) => {
+  const teamsWithCounts = pageTeams.map((team) => {
     const slug = typeof team.slug === 'string' ? team.slug : '';
     const idStr = team._id.toString();
     const legacyKbCount = Array.isArray(team.resources?.knowledge_bases)
@@ -162,10 +203,18 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     };
   });
 
-  const response = successResponse({
-    teams: teamsWithCounts,
-    total: teamsWithCounts.length,
-  });
+  const response = paginated
+    ? successResponse({
+        teams: teamsWithCounts,
+        total,
+        page,
+        page_size: pageSize,
+        has_more: page * pageSize < total,
+      })
+    : successResponse({
+        teams: teamsWithCounts,
+        total,
+      });
   response.headers.set('Cache-Control', 'no-store, max-age=0');
   return response;
 });

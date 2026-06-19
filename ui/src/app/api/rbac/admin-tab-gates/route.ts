@@ -28,7 +28,6 @@ const ALL_TABS: AdminTabKey[] = [
   "webex",
   "skills",
   "feedback",
-  "nps",
   "stats",
   "metrics",
   "health",
@@ -93,7 +92,6 @@ async function hasOrganizationAdmin(session: {
  */
 const TAB_FEATURE_FLAGS: Partial<Record<AdminTabKey, string>> = {
   feedback: "feedbackEnabled",
-  nps: "npsEnabled",
   audit_logs: "auditLogsEnabled",
   action_audit: "actionAuditEnabled",
   credentials: "credentialsEnabled",
@@ -107,7 +105,6 @@ const TAB_ADMIN_SURFACES: Partial<Record<AdminTabKey, string>> = {
   slack: "slack",
   webex: "webex",
   feedback: "feedback",
-  nps: "nps",
   stats: "stats",
   audit_logs: "audit_logs",
   action_audit: "action_audit",

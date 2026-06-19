@@ -811,23 +811,71 @@ async function compensateAppliedChunks(
   }
 }
 
+/**
+ * Max in-flight `/read` existence checks issued by `filterTupleDiff` at once.
+ *
+ * Each candidate tuple costs one OpenFGA `/read`. A naive `Promise.all` over
+ * the whole diff opens one socket per tuple simultaneously. That was tolerable
+ * when diffs were small (a handful of resource grants), but identity-group-sync
+ * now reconciles the FULL retained membership set each run — tens of thousands
+ * of tuples in a large directory. Firing that many concurrent fetches at once
+ * exhausts the Node HTTP agent / file descriptors and can wedge or crash the
+ * sync mid-run (which is exactly the failure mode that strands Mongo rows
+ * without backing tuples). Bounding concurrency keeps the read phase steady.
+ *
+ * Tunable via `OPENFGA_READ_CONCURRENCY`; defaults to 32 — high enough to keep
+ * the pipeline busy, low enough to never swamp the connection pool.
+ */
+const DEFAULT_OPENFGA_READ_CONCURRENCY = 32;
+
+function openFgaReadConcurrency(): number {
+  const fromEnv = Number(process.env.OPENFGA_READ_CONCURRENCY);
+  if (Number.isFinite(fromEnv) && fromEnv >= 1) {
+    return Math.floor(fromEnv);
+  }
+  return DEFAULT_OPENFGA_READ_CONCURRENCY;
+}
+
+/**
+ * Map `items` through `fn` with at most `limit` promises in flight at a time.
+ * Results preserve input order. A rejection from any worker rejects the whole
+ * call (same semantics as `Promise.all`), so callers' error handling is
+ * unchanged from the previous unbounded implementation.
+ */
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const workerCount = Math.max(1, Math.min(limit, items.length));
+  const workers = Array.from({ length: workerCount }, async () => {
+    while (true) {
+      const index = next;
+      next += 1;
+      if (index >= items.length) return;
+      results[index] = await fn(items[index], index);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
 async function filterTupleDiff(
   baseUrl: string,
   storeId: string,
   diff: TeamResourceTupleDiff
 ): Promise<TeamResourceTupleDiff> {
+  const concurrency = openFgaReadConcurrency();
   const writes = (
-    await Promise.all(
-      diff.writes.map(async (tuple) =>
-        (await tupleExistsInStore(baseUrl, storeId, tuple)) ? null : tuple,
-      ),
+    await mapWithConcurrency(diff.writes, concurrency, async (tuple) =>
+      (await tupleExistsInStore(baseUrl, storeId, tuple)) ? null : tuple,
     )
   ).filter((tuple): tuple is OpenFgaTupleKey => tuple !== null);
   const deletes = (
-    await Promise.all(
-      diff.deletes.map(async (tuple) =>
-        (await tupleExistsInStore(baseUrl, storeId, tuple)) ? tuple : null,
-      ),
+    await mapWithConcurrency(diff.deletes, concurrency, async (tuple) =>
+      (await tupleExistsInStore(baseUrl, storeId, tuple)) ? tuple : null,
     )
   ).filter((tuple): tuple is OpenFgaTupleKey => tuple !== null);
   return { writes, deletes };

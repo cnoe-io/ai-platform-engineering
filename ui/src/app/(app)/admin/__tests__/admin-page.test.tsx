@@ -40,7 +40,6 @@ jest.mock('@/lib/config', () => ({
     ({
       auditLogsEnabled: true,
       feedbackEnabled: true,
-      npsEnabled: true,
       ssoEnabled: false,
     })[key] ?? true,
 }));
@@ -253,21 +252,9 @@ const mockFeedbackResponse = {
   },
 };
 
-const mockNpsResponse = {
-  success: true,
-  data: {
-    nps_score: 0,
-    total_responses: 0,
-    breakdown: { promoters: 0, passives: 0, detractors: 0, promoter_pct: 0, passive_pct: 0, detractor_pct: 0 },
-    trend: [],
-    recent_responses: [],
-    campaigns: [],
-  },
-};
-
 const mockConfigResponse = {
   success: true,
-  data: { auditLogsEnabled: true, npsEnabled: true },
+  data: { auditLogsEnabled: true },
 };
 
 const allGatesOpen = {
@@ -278,7 +265,6 @@ const allGatesOpen = {
   webex: true,
   skills: true,
   feedback: true,
-  nps: true,
   stats: true,
   metrics: true,
   health: true,
@@ -356,13 +342,6 @@ function setupFetchMock(overrides: Record<string, any> = {}): jest.Mock {
         ok: true,
         status: 200,
         json: () => Promise.resolve(overrides.feedback || mockFeedbackResponse),
-      });
-    }
-    if (url.includes('/api/admin/nps')) {
-      return Promise.resolve({
-        ok: true,
-        status: 200,
-        json: () => Promise.resolve(overrides.nps || mockNpsResponse),
       });
     }
     if (url.includes('/api/config')) {
@@ -524,7 +503,6 @@ describe('Admin Dashboard Page', () => {
           ...allGatesOpen,
           roles: false,
           feedback: false,
-          nps: false,
           stats: false,
           audit_logs: false,
           action_audit: false,
@@ -768,7 +746,6 @@ describe('Admin Dashboard Page', () => {
       expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
         'Statistics',
         'Feedback',
-        'NPS',
       ]);
       expect(screen.getByRole('tab', { name: /^Statistics$/i })).toHaveAttribute(
         'aria-selected',
@@ -799,7 +776,6 @@ describe('Admin Dashboard Page', () => {
           webex: false,
           skills: false,
           feedback: false,
-          nps: false,
           stats: false,
           metrics: false,
           health: false,
@@ -864,7 +840,6 @@ describe('Admin Dashboard Page', () => {
       ['integrations', 'webex', /^Webex$/i],
       ['insights', 'stats', /^Statistics$/i],
       ['insights', 'feedback', /^Feedback$/i],
-      ['insights', 'nps', /^NPS$/i],
       ['platform', 'metrics', /^Metrics$/i],
       ['platform', 'health', /^Health$/i],
       ['security', 'openfga', /^OpenFGA ReBAC$/i],
@@ -1107,33 +1082,42 @@ describe('Admin Dashboard Page', () => {
 
     it('filters teams by search text and shows an empty result state', async () => {
       currentSearchParams = new URLSearchParams('cat=people&tab=teams');
+      // The Teams grid is server-paginated: search is sent to the API as a
+      // `search` query param and the server returns the matching page. The
+      // mock mirrors that — it filters by the `search` param so the debounced
+      // re-query drives the UI exactly as the real endpoint would.
+      const allTeams = [
+        {
+          _id: 'team-platform',
+          name: 'Platform Team',
+          description: 'Core platform engineering',
+          owner_id: 'platform-owner@example.com',
+          created_at: new Date().toISOString(),
+          members: [
+            { user_id: 'platform-owner@example.com', role: 'owner', added_at: new Date().toISOString() },
+          ],
+        },
+        {
+          _id: 'team-security',
+          name: 'Security Team',
+          description: 'Guardrails and audits',
+          owner_id: 'security-owner@example.com',
+          created_at: new Date().toISOString(),
+          members: [
+            { user_id: 'security-owner@example.com', role: 'owner', added_at: new Date().toISOString() },
+          ],
+        },
+      ];
       setupFetchMock({
-        teams: {
-          success: true,
-          data: {
-            teams: [
-              {
-                _id: 'team-platform',
-                name: 'Platform Team',
-                description: 'Core platform engineering',
-                owner_id: 'platform-owner@example.com',
-                created_at: new Date().toISOString(),
-                members: [
-                  { user_id: 'platform-owner@example.com', role: 'owner', added_at: new Date().toISOString() },
-                ],
-              },
-              {
-                _id: 'team-security',
-                name: 'Security Team',
-                description: 'Guardrails and audits',
-                owner_id: 'security-owner@example.com',
-                created_at: new Date().toISOString(),
-                members: [
-                  { user_id: 'security-owner@example.com', role: 'owner', added_at: new Date().toISOString() },
-                ],
-              },
-            ],
-          },
+        teams: (url: string) => {
+          const search = new URL(url, 'http://localhost').searchParams.get('search')?.toLowerCase() ?? '';
+          const matched = search
+            ? allTeams.filter((t) => t.name.toLowerCase().includes(search))
+            : allTeams;
+          return {
+            success: true,
+            data: { teams: matched, total: matched.length, page: 1, page_size: 12, has_more: false },
+          };
         },
       });
 
@@ -1147,7 +1131,10 @@ describe('Admin Dashboard Page', () => {
         { target: { value: 'security' } }
       );
 
-      expect(screen.queryByText('Platform Team')).not.toBeInTheDocument();
+      // Debounced server re-query drops the non-matching team.
+      await waitFor(() => {
+        expect(screen.queryByText('Platform Team')).not.toBeInTheDocument();
+      });
       expect(screen.getByText('Security Team')).toBeInTheDocument();
 
       fireEvent.change(
@@ -1155,7 +1142,7 @@ describe('Admin Dashboard Page', () => {
         { target: { value: 'does-not-exist' } }
       );
 
-      expect(screen.getByText(/No teams match "does-not-exist"/i)).toBeInTheDocument();
+      expect(await screen.findByText(/No teams match "does-not-exist"/i)).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /clear team search/i })).toBeInTheDocument();
     });
 
@@ -1198,9 +1185,13 @@ describe('Admin Dashboard Page', () => {
         String(url).includes('/api/admin/teams')
       );
       expect(teamRequests).toHaveLength(2);
-      expect(teamRequests[0][0]).toEqual(expect.stringContaining('/api/admin/teams?fresh='));
+      // The grid is server-paginated, so every request carries page/page_size
+      // plus the cache-busting `fresh` stamp and hits with cache: 'no-store'.
+      expect(teamRequests[0][0]).toEqual(expect.stringContaining('/api/admin/teams?'));
+      expect(teamRequests[0][0]).toEqual(expect.stringContaining('fresh='));
       expect(teamRequests[0][1]).toMatchObject({ cache: 'no-store' });
-      expect(teamRequests[1][0]).toEqual(expect.stringContaining('/api/admin/teams?fresh='));
+      expect(teamRequests[1][0]).toEqual(expect.stringContaining('/api/admin/teams?'));
+      expect(teamRequests[1][0]).toEqual(expect.stringContaining('fresh='));
       expect(teamRequests[1][1]).toMatchObject({ cache: 'no-store' });
     });
   });
@@ -1225,7 +1216,6 @@ describe('Admin Dashboard Page', () => {
       expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
         'Statistics',
         'Feedback',
-        'NPS',
       ]);
       expect(screen.getByRole('tab', { name: /^Statistics$/i })).toHaveAttribute(
         'aria-selected',

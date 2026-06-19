@@ -60,6 +60,46 @@ export async function listIdpSyncRuns(providerId: string, limit = 20): Promise<I
   return col.find({ provider_id: providerId }).sort({ started_at: -1 }).limit(limit).toArray();
 }
 
+export interface IdpSyncRunPage {
+  runs: IdpSyncRun[];
+  total: number;
+}
+
+export interface ListIdpSyncRunsPageOptions {
+  /** 1-based page index. Defaults to 1. */
+  page?: number;
+  /** Rows per page. Clamped to [1, 100]. Defaults to 20. */
+  pageSize?: number;
+}
+
+/**
+ * One page of a connector's run history (newest first) plus the total run
+ * count, for server-side offset pagination of the Sync History table.
+ *
+ * Provider-scoped via `provider_id` exactly like {@link listIdpSyncRuns}, so
+ * any registered connector (Okta today, Duo/etc. later) paginates through the
+ * same path with no per-connector code.
+ */
+export async function listIdpSyncRunsPage(
+  providerId: string,
+  opts?: ListIdpSyncRunsPageOptions
+): Promise<IdpSyncRunPage> {
+  const page = Math.max(1, opts?.page ?? 1);
+  const pageSize = Math.min(100, Math.max(1, opts?.pageSize ?? 20));
+  const col = await getRbacCollection<IdpSyncRun>("idpSyncRuns");
+  const query = { provider_id: providerId };
+  const [runs, total] = await Promise.all([
+    col
+      .find(query)
+      .sort({ started_at: -1 })
+      .skip((page - 1) * pageSize)
+      .limit(pageSize)
+      .toArray(),
+    col.countDocuments(query),
+  ]);
+  return { runs, total };
+}
+
 export async function insertIdpSyncRun(run: Omit<IdpSyncRun, "_id">): Promise<void> {
   const col = await getRbacCollection<IdpSyncRun>("idpSyncRuns");
   await col.insertOne(run as IdpSyncRun);

@@ -93,14 +93,6 @@ export const SCHEMA_AREA_CLASSIFICATIONS: Record<string, SchemaAreaClassificatio
     classification: "metadata",
     description: "Temporary migration override control table.",
   },
-  nps_campaigns: {
-    classification: "baseline_v1",
-    description: "NPS campaign records.",
-  },
-  nps_responses: {
-    classification: "baseline_v1",
-    description: "NPS response records.",
-  },
   openfga_tuples: {
     classification: "migration",
     description:

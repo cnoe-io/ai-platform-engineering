@@ -12,10 +12,6 @@ withErrorHandler,
 import { getCollection,isMongoDBConfigured } from '@/lib/mongodb';
 import { requireTeamMembershipManagementPermission } from '@/lib/rbac/team-admin-guards';
 import { listTeamMembershipSources } from '@/lib/rbac/team-membership-source-store';
-import {
-computeTeamMembershipSyncReport,
-readTeamOpenFgaTuples,
-} from '@/lib/rbac/team-openfga-sync-status';
 import { listOpenFgaObjects } from '@/lib/rbac/openfga';
 import type { UpdateTeamRequest } from '@/types/teams';
 import { ObjectId,type Document } from 'mongodb';
@@ -69,24 +65,20 @@ export const GET = withErrorHandler(async (
 
   const membershipSources = await listTeamMembershipSources(params.id);
 
-  // Decorate the response with OpenFGA sync status so the Teams settings
-  // dialog can show a banner ("All members synced", "1 drifted") and a
-  // per-member badge. This is a read-only diagnostic — repair is gated
-  // behind POST /api/admin/teams/[id]/openfga/reconcile so we never write
-  // tuples just because someone viewed a team.
-  const teamSlug = typeof team.slug === 'string' ? team.slug : '';
-  const openFgaSync = teamSlug
-    ? computeTeamMembershipSyncReport({
-        teamSlug,
-        sources: membershipSources,
-        tuples: await readTeamOpenFgaTuples(teamSlug),
-      })
-    : null;
-
+  // NOTE: we deliberately do NOT compute a whole-team OpenFGA sync report
+  // here anymore. Doing so read the entire `team:<slug>` tuple set on every
+  // team-detail view, which for a team like `everyone` is tens of thousands
+  // of tuples — and the old reader silently truncated at 1000, so most
+  // members read back as "missing" and showed a false "OpenFGA: drifted"
+  // badge. The per-member badge is now computed page-scoped by
+  // GET /api/admin/teams/[id]/members (only the visible subjects are read).
+  // The accurate post-repair summary is returned by the explicit
+  // POST .../openfga/reconcile. `openfga_sync` stays null here so existing
+  // consumers keep working without paying the full-scan cost.
   return successResponse({
     team: { ...team, membership_sources: membershipSources },
     membership_sources: membershipSources,
-    openfga_sync: openFgaSync,
+    openfga_sync: null,
   });
 });
 

@@ -56,4 +56,43 @@ describe("idp sync store (provider-scoped)", () => {
     expect(find).toHaveBeenCalledWith({ provider_id: "okta" });
     expect(sort).toHaveBeenCalledWith({ started_at: -1 });
   });
+
+  it("paginates runs (skip/limit) and counts, scoped by provider_id", async () => {
+    const toArray = jest.fn().mockResolvedValue([{ id: "r1" }]);
+    const limit = jest.fn().mockReturnValue({ toArray });
+    const skip = jest.fn().mockReturnValue({ limit });
+    const sort = jest.fn().mockReturnValue({ skip });
+    const find = jest.fn().mockReturnValue({ sort });
+    const countDocuments = jest.fn().mockResolvedValue(42);
+    getRbacCollection.mockResolvedValue({ find, countDocuments });
+
+    const { listIdpSyncRunsPage } = await import("../../idp-sync-store");
+    const result = await listIdpSyncRunsPage("okta", { page: 3, pageSize: 10 });
+
+    expect(find).toHaveBeenCalledWith({ provider_id: "okta" });
+    expect(sort).toHaveBeenCalledWith({ started_at: -1 });
+    // page 3, size 10 → skip 20, limit 10
+    expect(skip).toHaveBeenCalledWith(20);
+    expect(limit).toHaveBeenCalledWith(10);
+    expect(countDocuments).toHaveBeenCalledWith({ provider_id: "okta" });
+    expect(result).toEqual({ runs: [{ id: "r1" }], total: 42 });
+  });
+
+  it("clamps page/page_size to safe defaults", async () => {
+    const toArray = jest.fn().mockResolvedValue([]);
+    const limit = jest.fn().mockReturnValue({ toArray });
+    const skip = jest.fn().mockReturnValue({ limit });
+    const sort = jest.fn().mockReturnValue({ skip });
+    const find = jest.fn().mockReturnValue({ sort });
+    const countDocuments = jest.fn().mockResolvedValue(0);
+    getRbacCollection.mockResolvedValue({ find, countDocuments });
+
+    const { listIdpSyncRunsPage } = await import("../../idp-sync-store");
+    // page below 1 floors to 1 (skip 0); page_size above 100 clamps to 100.
+    await listIdpSyncRunsPage("duo", { page: 0, pageSize: 9999 });
+
+    expect(find).toHaveBeenCalledWith({ provider_id: "duo" });
+    expect(skip).toHaveBeenCalledWith(0);
+    expect(limit).toHaveBeenCalledWith(100);
+  });
 });
