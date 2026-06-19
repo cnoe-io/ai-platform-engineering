@@ -1686,6 +1686,12 @@ services:
       - WEBEX_BOT_ADMIN_AUDIENCE=${WEBEX_BOT_ADMIN_AUDIENCE:-caipe-webex-bot-admin}
       - WEBEX_BOT_ADMIN_TOKEN_URL=${WEBEX_BOT_ADMIN_TOKEN_URL:-http://keycloak:7080/realms/caipe/protocol/openid-connect/token}
       - APP_CONFIG_PATH=/app/config/app-config.yaml
+      # Audit log backend (local | s3). Defaults to local — override in .env.
+      - AUDIT_LOG_BACKEND=${AUDIT_LOG_BACKEND:-local}
+      - AUDIT_LOG_LOCAL_PATH=${AUDIT_LOG_LOCAL_PATH:-/tmp/caipe-audit-logs}
+      - AUDIT_LOG_S3_BUCKET=${AUDIT_LOG_S3_BUCKET:-}
+      - AUDIT_LOG_S3_REGION=${AUDIT_LOG_S3_REGION:-us-east-2}
+      - AUDIT_LOG_S3_PREFIX=${AUDIT_LOG_S3_PREFIX:-audit}
     volumes:
       # App config only — NO source bind-mounts. The runner stage uses the
       # prebuilt .next/standalone bundle and ignores ./ui/src etc., so any
