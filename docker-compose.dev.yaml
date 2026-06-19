@@ -2205,6 +2205,52 @@ services:
     profiles:
       - jira-ingestor
 
+  s3_ingestor:
+    build:
+      context: ./ai_platform_engineering/knowledge_bases/rag
+      dockerfile: ./build/Dockerfile.ingestors
+      args:
+        VARIANT: slim
+    image: ghcr.io/cnoe-io/caipe-rag-ingestors:${IMAGE_TAG:-localtag}
+    container_name: s3-ingestor
+    volumes:
+      - ./ai_platform_engineering/knowledge_bases/rag/ingestors/src/ingestors:/app/ingestors/src/ingestors
+      - ./ai_platform_engineering/knowledge_bases/rag/common/src/common:/app/common/src/common
+      - ${HOME}/.aws:/home/app/.aws:ro
+    environment:
+      - PYTHONPATH=/app/common/src:/app/ingestors/src
+      - INGESTOR_TYPE=s3
+      - AWS_CONFIG_FILE=/home/app/.aws/config
+      - AWS_SHARED_CREDENTIALS_FILE=/home/app/.aws/credentials
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+      - AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN:-}
+      - AWS_REGION=${AWS_REGION:-}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-us-east-2}
+      - AWS_ACCOUNT_LIST=${AWS_ACCOUNT_LIST:-}
+      - CROSS_ACCOUNT_ROLE_NAME=${CROSS_ACCOUNT_ROLE_NAME:-caipe-read-only}
+      - S3_BUCKETS=${S3_BUCKETS:-}
+      - S3_ALLOWED_FILES_AND_EXTENSIONS=${S3_ALLOWED_FILES_AND_EXTENSIONS:-}
+      - S3_IGNORE_PREFIXES=${S3_IGNORE_PREFIXES:-}
+      - S3_IGNORE_REGEX=${S3_IGNORE_REGEX:-}
+      - S3_MAX_FILES_PER_BUCKET=${S3_MAX_FILES_PER_BUCKET:-2000}
+      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag-server:9446}
+      - SYNC_INTERVAL=${SYNC_INTERVAL:-86400}
+      - INIT_DELAY_SECONDS=${INIT_DELAY_SECONDS:-0}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - EXIT_AFTER_FIRST_SYNC=${EXIT_AFTER_FIRST_SYNC:-false}
+      - MAX_DOCUMENTS_PER_INGEST=${MAX_DOCUMENTS_PER_INGEST:-1000}
+      - INGESTOR_OIDC_ISSUER=${INGESTOR_OIDC_ISSUER:-}
+      - INGESTOR_OIDC_CLIENT_ID=${INGESTOR_OIDC_CLIENT_ID:-}
+      - INGESTOR_OIDC_CLIENT_SECRET=${INGESTOR_OIDC_CLIENT_SECRET:-}
+      - INGESTOR_OIDC_DISCOVERY_URL=${INGESTOR_OIDC_DISCOVERY_URL:-}
+      - INGESTOR_OIDC_SCOPE=${INGESTOR_OIDC_SCOPE:-}
+    restart: no
+    env_file: [.env]
+    depends_on: [rag-server]
+    profiles:
+      - s3-ingestor
+
   # Dummy Graph Ingestor - for testing graph RAG with sample data
   # Requires RAG services to be running first: docker compose -f docker-compose.dev.yaml --profile graph_rag up -d
   # Then run: docker compose -f docker-compose.dev.yaml --profile dummy-ingestor up --build dummy-structured-ingestor
