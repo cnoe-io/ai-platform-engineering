@@ -220,7 +220,12 @@ Set the shared LiteLLM token in the project-root `.env` file:
 
 ```bash
 LITELLM_API_KEY=<token>
+LITELLM_TOKEN_ALERTS_ENABLED=false
+LITELLM_TOKEN_ALERT_THRESHOLD=0.8
 ```
+
+Token usage alert evaluation is available for local tests, but notification
+delivery remains disabled unless `LITELLM_TOKEN_ALERTS_ENABLED=true`.
 
 Then run:
 
