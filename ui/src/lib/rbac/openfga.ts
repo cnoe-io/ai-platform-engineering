@@ -367,6 +367,12 @@ export function buildUniversalRebacTupleDiff(
 // Reset to null on failure so the next call retries.
 let _storeIdPromise: Promise<string> | null = null;
 
+export function resetOpenFgaStoreIdCacheForTests(): void {
+  if (process.env.NODE_ENV === "test") {
+    _storeIdPromise = null;
+  }
+}
+
 export async function getOpenFgaStoreId(): Promise<string> {
   const explicitStoreId = process.env.OPENFGA_STORE_ID?.trim();
   if (explicitStoreId) return explicitStoreId;
