@@ -13,7 +13,7 @@ Provides a centralized token provider that supports two authentication modes:
    - No manual PAT rotation needed
 
 2. **PAT mode** (fallback for development):
-   - Uses GITHUB_PERSONAL_ACCESS_TOKEN as before
+   - Uses GITHUB_PERSONAL_ACCESS_TOKEN, GH_TOKEN, or GITHUB_TOKEN
    - No auto-refresh (manual rotation required)
 
 Usage:
@@ -30,6 +30,7 @@ Environment Variables (GitHub App mode):
 
 Environment Variables (PAT mode - fallback):
     GITHUB_PERSONAL_ACCESS_TOKEN: Classic or fine-grained PAT
+    GH_TOKEN:                     gh CLI-compatible PAT variable
     GITHUB_TOKEN:                 Alternative PAT variable
 """
 
@@ -359,8 +360,9 @@ def get_github_token() -> Optional[str]:
     Priority:
     1. GitHub App installation token (auto-refreshing, if configured)
     2. GITHUB_PERSONAL_ACCESS_TOKEN env var
-    3. GITHUB_TOKEN env var
-    4. None
+    3. GH_TOKEN env var
+    4. GITHUB_TOKEN env var
+    5. None
 
     Returns:
         Valid GitHub token string, or None if no auth is configured
@@ -381,7 +383,11 @@ def get_github_token() -> Optional[str]:
             )
 
     # Fallback to PAT
-    token = os.getenv("GITHUB_PERSONAL_ACCESS_TOKEN") or os.getenv("GITHUB_TOKEN")
+    token = (
+        os.getenv("GITHUB_PERSONAL_ACCESS_TOKEN")
+        or os.getenv("GH_TOKEN")
+        or os.getenv("GITHUB_TOKEN")
+    )
     if token:
         logger.debug("Using GitHub PAT for authentication")
     return token
@@ -433,7 +439,11 @@ def get_token_health() -> dict:
         return provider.get_token_health()
 
     # PAT fallback
-    token = os.getenv("GITHUB_PERSONAL_ACCESS_TOKEN") or os.getenv("GITHUB_TOKEN")
+    token = (
+        os.getenv("GITHUB_PERSONAL_ACCESS_TOKEN")
+        or os.getenv("GH_TOKEN")
+        or os.getenv("GITHUB_TOKEN")
+    )
     if token:
         return {
             "auth_mode": "pat",

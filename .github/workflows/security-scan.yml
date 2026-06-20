@@ -138,7 +138,6 @@ jobs:
           - mcp-argocd
           - mcp-backstage
           - mcp-confluence
-          - mcp-github
           - mcp-jira
           - mcp-komodor
           - mcp-litellm

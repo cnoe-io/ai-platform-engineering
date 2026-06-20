@@ -45,7 +45,6 @@ constraint-dependencies = ["nltk==3.9.4", "pypdf==6.10.2", "starlette==1.0.1", "
 
 [tool.uv.sources]
 ai-platform-engineering-utils = { path = "../../utils" }
-mcp-github = { path = "mcp" }
 
 [tool.hatch.build.targets.wheel]
 packages = ["."]

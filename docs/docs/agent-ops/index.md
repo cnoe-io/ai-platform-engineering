@@ -345,7 +345,7 @@ strategy:
 - MCP Agents: `argocd`, `backstage`, `confluence`, `jira`, `komodor`, `pagerduty`, `slack`, `splunk`, `webex`
 - RAG Components: `agent-rag`, `agent-ontology`, `server`, `webui`
 
-**Example**: When `ai_platform_engineering/agents/github/` changes, only `agent-github` and `mcp-github` images are built. When `ai_platform_engineering/utils/a2a/` changes, all agents are rebuilt.
+**Example**: When `ai_platform_engineering/agents/github/` changes, only the `agent-github` image is built. When `ai_platform_engineering/utils/a2a/` changes, all agents are rebuilt.
 
 **3. Security Hardening**
 
