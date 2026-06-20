@@ -19,6 +19,7 @@ import React from "react";
 interface MCPServerEditorProps {
   server: MCPServerConfig | null; // null = creating new
   readOnly?: boolean;
+  managedByAgentGateway?: boolean;
   onSave: () => void;
   onCancel: () => void;
 }
@@ -29,8 +30,18 @@ const TRANSPORT_OPTIONS: { value: TransportType; label: string; description: str
   { value: "http", label: "HTTP", description: "HTTP/REST endpoint" },
 ];
 
-export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServerEditorProps) {
+export function MCPServerEditor({
+  server,
+  readOnly,
+  managedByAgentGateway,
+  onSave,
+  onCancel,
+}: MCPServerEditorProps) {
   const isEditing = !!server;
+  // assisted-by Codex Codex-sonnet-4-6
+  const credentialOnly = Boolean(isEditing && managedByAgentGateway && !readOnly);
+  const metadataReadOnly = Boolean(readOnly || credentialOnly);
+  const credentialReadOnly = Boolean(readOnly);
 
   // Form state
   const [id, setId] = React.useState(server?._id || "");
@@ -157,16 +168,22 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
 
       if (isEditing) {
         // Update existing server
-        const updateData: MCPServerConfigUpdate = {
-          name,
-          description: description || undefined,
-          transport,
-          endpoint: transport !== "stdio" ? endpoint : undefined,
-          command: transport === "stdio" ? command : undefined,
-          args: transport === "stdio" ? args : undefined,
-          env: transport === "stdio" && Object.keys(env).length > 0 ? env : undefined,
-          credential_sources: credentialSources.length > 0 ? credentialSources : undefined,
-        };
+        const shouldSendCredentialSources =
+          credentialOnly || credentialSources.length > 0 || Boolean(server.credential_sources?.length);
+        const updateData: MCPServerConfigUpdate = credentialOnly
+          ? {
+              credential_sources: credentialSources,
+            }
+          : {
+              name,
+              description: description || undefined,
+              transport,
+              endpoint: transport !== "stdio" ? endpoint : undefined,
+              command: transport === "stdio" ? command : undefined,
+              args: transport === "stdio" ? args : undefined,
+              env: transport === "stdio" && Object.keys(env).length > 0 ? env : undefined,
+              credential_sources: shouldSendCredentialSources ? credentialSources : undefined,
+            };
 
         const response = await fetch(`/api/mcp-servers?id=${server._id}`, {
           method: "PUT",
@@ -213,9 +230,10 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
   };
 
   const isValid =
-    name.trim() &&
-    (isEditing || id.trim()) &&
-    (transport === "stdio" ? command.trim() : endpoint.trim());
+    credentialOnly ||
+    (name.trim() &&
+      (isEditing || id.trim()) &&
+      (transport === "stdio" ? command.trim() : endpoint.trim()));
 
   return (
     <Card>
@@ -225,10 +243,20 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div>
-            <CardTitle>{readOnly ? "View MCP Server" : isEditing ? "Edit MCP Server" : "Add MCP Server"}</CardTitle>
+            <CardTitle>
+              {readOnly
+                ? "View MCP Server"
+                : credentialOnly
+                ? "Manage AgentGateway MCP Server"
+                : isEditing
+                ? "Edit MCP Server"
+                : "Add MCP Server"}
+            </CardTitle>
             <CardDescription>
               {readOnly
                 ? "This server is managed by configuration and cannot be edited."
+                : credentialOnly
+                ? "AgentGateway manages routing metadata. Credential references can be rotated here."
                 : isEditing
                 ? "Update the server configuration"
                 : "Configure a new MCP server connection"}
@@ -253,7 +281,7 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                   placeholder="e.g., github, filesystem, postgres"
                   value={id}
                   onChange={(e) => setId(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ""))}
-                  disabled={loading || readOnly}
+                  disabled={loading || metadataReadOnly}
                   className="font-mono"
                 />
                 <p className="text-xs text-muted-foreground">
@@ -274,7 +302,7 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                 placeholder="e.g., GitHub MCP Server"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                disabled={loading || readOnly}
+                disabled={loading || metadataReadOnly}
               />
             </div>
 
@@ -285,7 +313,7 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                 placeholder="What does this server provide?"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                disabled={loading || readOnly}
+                disabled={loading || metadataReadOnly}
                 rows={2}
               />
             </div>
@@ -308,7 +336,7 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                         ? "border-primary bg-primary/5"
                         : "border-muted hover:border-primary/50"
                     }`}
-                    disabled={loading || readOnly}
+                    disabled={loading || metadataReadOnly}
                   >
                     <div className="font-medium text-sm">{opt.label}</div>
                     <div className="text-xs text-muted-foreground">{opt.description}</div>
@@ -329,7 +357,7 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                     placeholder="e.g., npx, uvx, python"
                     value={command}
                     onChange={(e) => setCommand(e.target.value)}
-                    disabled={loading || readOnly}
+                    disabled={loading || metadataReadOnly}
                     className="font-mono"
                   />
                 </div>
@@ -347,10 +375,10 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                           handleAddArg();
                         }
                       }}
-                      disabled={loading || readOnly}
+                      disabled={loading || metadataReadOnly}
                       className="font-mono"
                     />
-                    <Button type="button" variant="outline" onClick={handleAddArg} disabled={loading || readOnly}>
+                    <Button type="button" variant="outline" onClick={handleAddArg} disabled={loading || metadataReadOnly}>
                       <Plus className="h-4 w-4" />
                     </Button>
                   </div>
@@ -362,7 +390,7 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                           <button
                             type="button"
                             onClick={() => handleRemoveArg(i)}
-                            disabled={readOnly}
+                            disabled={metadataReadOnly}
                             className="ml-1 hover:text-destructive"
                           >
                             <X className="h-3 w-3" />
@@ -381,7 +409,7 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                       variant="ghost"
                       size="sm"
                       onClick={handleAddEnvVar}
-                      disabled={loading || readOnly}
+                      disabled={loading || metadataReadOnly}
                     >
                       <Plus className="h-4 w-4 mr-1" />
                       Add
@@ -395,14 +423,14 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                             placeholder="KEY"
                             value={env.key}
                             onChange={(e) => handleUpdateEnvVar(i, "key", e.target.value)}
-                            disabled={loading || readOnly}
+                            disabled={loading || metadataReadOnly}
                             className="font-mono flex-1"
                           />
                           <Input
                             placeholder="value"
                             value={env.value}
                             onChange={(e) => handleUpdateEnvVar(i, "value", e.target.value)}
-                            disabled={loading || readOnly}
+                            disabled={loading || metadataReadOnly}
                             className="font-mono flex-[2]"
                           />
                           <Button
@@ -410,7 +438,7 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                             variant="ghost"
                             size="icon"
                             onClick={() => handleRemoveEnvVar(i)}
-                            disabled={loading || readOnly}
+                            disabled={loading || metadataReadOnly}
                           >
                             <X className="h-4 w-4" />
                           </Button>
@@ -430,7 +458,7 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                   placeholder={`e.g., http://localhost:3000/${transport === "sse" ? "sse" : "mcp"}`}
                   value={endpoint}
                   onChange={(e) => setEndpoint(e.target.value)}
-                  disabled={loading || readOnly}
+                  disabled={loading || metadataReadOnly}
                   className="font-mono"
                 />
                 {gatewayDiscoveryLoaded && agentGatewayTargets.length > 0 ? (
@@ -447,7 +475,7 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                           type="button"
                           variant="outline"
                           size="sm"
-                          disabled={loading || readOnly}
+                          disabled={loading || metadataReadOnly}
                           onClick={() => setEndpoint(target.endpoint)}
                           title={
                             target.target_endpoint
@@ -479,7 +507,7 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                 variant="ghost"
                 size="sm"
                 onClick={handleAddCredentialSource}
-                disabled={loading || readOnly}
+                disabled={loading || credentialReadOnly}
               >
                 <Plus className="h-4 w-4 mr-1" />
                 Add Credential
@@ -494,7 +522,7 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                       className="rounded-md border border-input bg-background px-3 py-2 text-sm"
                       value={source.kind}
                       onChange={(event) => handleUpdateCredentialSource(i, "kind", event.target.value)}
-                      disabled={readOnly}
+                      disabled={credentialReadOnly}
                     >
                       <option value="secret_ref">Secret ref</option>
                       <option value="provider_connection">Provider connection</option>
@@ -504,7 +532,7 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                       className="rounded-md border border-input bg-background px-3 py-2 text-sm"
                       value={source.target}
                       onChange={(event) => handleUpdateCredentialSource(i, "target", event.target.value)}
-                      disabled={readOnly}
+                      disabled={credentialReadOnly}
                     >
                       <option value="env">Environment</option>
                       <option value="header">Header</option>
@@ -514,7 +542,7 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                       placeholder={source.target === "env" ? "GITHUB_TOKEN" : "Authorization"}
                       value={source.name}
                       onChange={(event) => handleUpdateCredentialSource(i, "name", event.target.value)}
-                      disabled={readOnly}
+                      disabled={credentialReadOnly}
                     />
                     <Input
                       aria-label="Credential reference"
@@ -527,14 +555,14 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                           event.target.value,
                         )
                       }
-                      disabled={readOnly}
+                      disabled={credentialReadOnly}
                     />
                     <Button
                       type="button"
                       variant="ghost"
                       size="icon"
                       onClick={() => handleRemoveCredentialSource(i)}
-                      disabled={loading || readOnly}
+                      disabled={loading || credentialReadOnly}
                     >
                       <X className="h-4 w-4" />
                     </Button>
@@ -559,6 +587,11 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                 Config-driven — managed by configuration file
               </span>
             )}
+            {credentialOnly && (
+              <span className="text-xs text-muted-foreground mr-auto">
+                AgentGateway-managed — route changes must be made in AgentGateway
+              </span>
+            )}
             <Button type="button" variant="outline" onClick={onCancel} disabled={loading}>
               {readOnly ? "Close" : "Cancel"}
             </Button>
@@ -569,6 +602,8 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                     {isEditing ? "Saving..." : "Creating..."}
                   </>
+                ) : credentialOnly ? (
+                  "Save Credential Sources"
                 ) : isEditing ? (
                   "Save Changes"
                 ) : (

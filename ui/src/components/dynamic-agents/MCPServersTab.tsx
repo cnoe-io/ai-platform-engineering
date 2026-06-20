@@ -52,6 +52,10 @@ function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
 }
 
+function isAgentGatewayManagedServer(server: MCPServerConfig): boolean {
+  return server.config_driven === true && server.source === "agentgateway";
+}
+
 export function MCPServersTab() {
   const [servers, setServers] = React.useState<MCPServerConfig[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -308,10 +312,14 @@ export function MCPServersTab() {
   };
 
   if (isCreating || editingServer) {
+    const editingServerIsAgentGatewayManaged = editingServer
+      ? isAgentGatewayManagedServer(editingServer)
+      : false;
     return (
       <MCPServerEditor
         server={editingServer}
-        readOnly={editingServer?.config_driven}
+        readOnly={Boolean(editingServer?.config_driven && !editingServerIsAgentGatewayManaged)}
+        managedByAgentGateway={editingServerIsAgentGatewayManaged}
         onSave={() => {
           setEditingServer(null);
           setIsCreating(false);
@@ -448,6 +456,7 @@ export function MCPServersTab() {
             {/* Server rows */}
             {servers.map((server) => {
               const probe = probeResults[server._id];
+              const isAgentGatewayManaged = isAgentGatewayManagedServer(server);
               return (
                 <div key={server._id} className="space-y-2">
                   <div
@@ -507,7 +516,13 @@ export function MCPServersTab() {
                         onClick={(e) => { e.stopPropagation(); if (!server.config_driven) handleToggleEnabled(server); }}
                         className={`flex items-center gap-1.5 ${server.config_driven ? "cursor-not-allowed opacity-60" : ""}`}
                         disabled={server.config_driven}
-                        title={server.config_driven ? "Config-driven servers cannot be modified" : undefined}
+                        title={
+                          isAgentGatewayManaged
+                            ? "AgentGateway manages enablement for this route. Update AgentGateway, then sync MCP servers."
+                            : server.config_driven
+                            ? "Config-driven servers cannot be modified"
+                            : undefined
+                        }
                       >
                         {server.enabled ? (
                           <>
@@ -557,6 +572,17 @@ export function MCPServersTab() {
                         >
                           Config
                         </Badge>
+                      )}
+                      {isAgentGatewayManaged && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-muted-foreground"
+                          disabled
+                          title="Delete unavailable: AgentGateway manages this route. Remove or disable it in AgentGateway, then sync MCP servers."
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
                       )}
                       {!server.config_driven && (
                         <Button

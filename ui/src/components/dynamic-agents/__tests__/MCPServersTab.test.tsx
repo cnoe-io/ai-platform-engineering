@@ -67,6 +67,15 @@ describe("MCPServersTab AgentGateway sync", () => {
           }),
         } as Response);
       }
+      if (url === "/api/mcp-servers/agentgateway/discover") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            success: true,
+            data: { targets: [] },
+          }),
+        } as Response);
+      }
       throw new Error(`Unexpected fetch: ${url}`);
     }) as unknown as typeof fetch;
   });
@@ -109,6 +118,23 @@ describe("MCPServersTab AgentGateway sync", () => {
 
     expect(screen.getByText("AgentGateway")).toBeInTheDocument();
     expect(screen.getByText(/Target: http:\/\/rag-server:9446\/mcp/i)).toBeInTheDocument();
+  });
+
+  it("explains managed AgentGateway lifecycle actions and opens credential-only editing", async () => {
+    serverItems = [agentGatewayRagServer];
+    render(<MCPServersTab />);
+
+    await screen.findByText("RAG");
+
+    expect(screen.getByTitle(/Delete unavailable: AgentGateway manages this route/i)).toBeDisabled();
+    expect(screen.getByTitle(/AgentGateway manages enablement for this route/i)).toBeDisabled();
+
+    fireEvent.click(screen.getByText("RAG"));
+
+    expect(await screen.findByText("Manage AgentGateway MCP Server")).toBeInTheDocument();
+    expect(screen.getByText(/Credential references can be rotated here/i)).toBeInTheDocument();
+    expect(screen.getByText(/route changes must be made in AgentGateway/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /add credential/i })).toBeEnabled();
   });
 
   it("refreshes the mounted list when servers are added outside the tab", async () => {

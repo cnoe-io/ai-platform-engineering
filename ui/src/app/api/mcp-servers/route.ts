@@ -88,6 +88,16 @@ function pickMutableFields(
   return result;
 }
 
+function isAgentGatewayManagedServer(server: MCPServerConfig): boolean {
+  return server.config_driven === true && server.source === "agentgateway";
+}
+
+function validateCredentialSources(value: unknown): void {
+  if (value !== undefined && !Array.isArray(value)) {
+    throw new ApiError("'credential_sources' must be an array", 400);
+  }
+}
+
 /**
  * Resolve the AgentGateway base URL for endpoint normalisation. Returns
  * just the origin (protocol://host:port), with no `/mcp` suffix —
@@ -293,7 +303,8 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
 /**
  * PUT /api/mcp-servers?id=<server_id>
  * Update an MCP server configuration.
- * Requires resource write access. Config-driven servers cannot be modified.
+ * Requires resource write access. Config-driven servers cannot be modified,
+ * except AgentGateway-managed rows may update credential_sources.
  */
 export const PUT = withErrorHandler(async (request: NextRequest) => {
   const { searchParams } = new URL(request.url);
@@ -320,16 +331,29 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     };
     await requireResourcePermission(session, updateTarget);
 
-    // Config-driven guard
-    if (server.config_driven) {
+    // Build update with explicit field allowlist
+    const updateData = pickMutableFields(body);
+    validateCredentialSources(updateData.credential_sources);
+
+    if (server.config_driven && !isAgentGatewayManagedServer(server)) {
       throw new ApiError(
         "Config-driven MCP servers cannot be modified. Update config.yaml instead.",
         403,
       );
     }
 
-    // Build update with explicit field allowlist
-    const updateData = pickMutableFields(body);
+    if (isAgentGatewayManagedServer(server)) {
+      const disallowedFields = Object.keys(updateData).filter(
+        (field) => field !== "credential_sources",
+      );
+      if (disallowedFields.length > 0) {
+        throw new ApiError(
+          "AgentGateway-managed MCP servers only allow credential source updates. Routing metadata is managed by AgentGateway.",
+          403,
+        );
+      }
+    }
+
     if (Object.keys(updateData).length === 0) {
       // No fields to update — return current state
       return successResponse(server);
@@ -396,8 +420,13 @@ export const DELETE = withErrorHandler(async (request: NextRequest) => {
     };
     await requireResourcePermission(session, deleteTarget);
 
-    // Config-driven guard
     if (server.config_driven) {
+      if (isAgentGatewayManagedServer(server)) {
+        throw new ApiError(
+          "AgentGateway-managed MCP servers cannot be deleted from this UI. Remove or disable the route in AgentGateway, then sync MCP servers again.",
+          403,
+        );
+      }
       throw new ApiError(
         "Config-driven MCP servers cannot be deleted. Remove from config.yaml instead.",
         403,

@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { MCPServerEditor } from "../MCPServerEditor";
@@ -42,5 +42,120 @@ describe("MCPServerEditor credential sources", () => {
     );
     expect(createCall).toBeDefined();
     expect(createCall?.[1]?.body).toContain("conn-1");
+  });
+
+  it("rotates credential references for AgentGateway-managed servers without sending route metadata", async () => {
+    const user = userEvent.setup();
+    render(
+      <MCPServerEditor
+        server={{
+          _id: "rag",
+          name: "RAG",
+          transport: "http",
+          endpoint: "http://agentgateway:4000/mcp",
+          enabled: true,
+          config_driven: true,
+          source: "agentgateway",
+          agentgateway_target_endpoint: "http://rag-server:9446/mcp",
+          credential_sources: [
+            {
+              kind: "secret_ref",
+              target: "header",
+              name: "Authorization",
+              secret_ref: "old-secret",
+            },
+          ],
+          created_at: "2026-06-18T00:00:00.000Z",
+          updated_at: "2026-06-18T00:00:00.000Z",
+        }}
+        managedByAgentGateway
+        onSave={jest.fn()}
+        onCancel={jest.fn()}
+      />,
+    );
+
+    expect(screen.getByLabelText(/display name/i)).toBeDisabled();
+    expect(screen.getByLabelText(/endpoint url/i)).toBeDisabled();
+
+    const credentialReference = screen.getByLabelText(/credential reference/i);
+    expect(credentialReference).not.toBeDisabled();
+    await user.clear(credentialReference);
+    await user.type(credentialReference, "rotated-secret");
+    await user.click(screen.getByRole("button", { name: /save credential sources/i }));
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/mcp-servers?id=rag",
+        expect.objectContaining({ method: "PUT" }),
+      );
+    });
+
+    const updateCall = (global.fetch as jest.Mock).mock.calls.find(
+      ([url, init]: [string, RequestInit | undefined]) =>
+        url === "/api/mcp-servers?id=rag" && init?.method === "PUT",
+    );
+    const body = JSON.parse(String(updateCall?.[1]?.body));
+
+    expect(body).toEqual({
+      credential_sources: [
+        {
+          kind: "secret_ref",
+          target: "header",
+          name: "Authorization",
+          secret_ref: "rotated-secret",
+        },
+      ],
+    });
+    expect(body).not.toHaveProperty("endpoint");
+    expect(body).not.toHaveProperty("agentgateway_target_endpoint");
+  });
+
+  it("adds a missing credential reference for AgentGateway-managed servers", async () => {
+    const user = userEvent.setup();
+    render(
+      <MCPServerEditor
+        server={{
+          _id: "rag",
+          name: "RAG",
+          transport: "http",
+          endpoint: "http://agentgateway:4000/mcp",
+          enabled: true,
+          config_driven: true,
+          source: "agentgateway",
+          created_at: "2026-06-18T00:00:00.000Z",
+          updated_at: "2026-06-18T00:00:00.000Z",
+        }}
+        managedByAgentGateway
+        onSave={jest.fn()}
+        onCancel={jest.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /add credential/i }));
+    await user.type(screen.getByLabelText(/credential name/i), "Authorization");
+    await user.type(screen.getByLabelText(/credential reference/i), "secret-1");
+    await user.click(screen.getByRole("button", { name: /save credential sources/i }));
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/mcp-servers?id=rag",
+        expect.objectContaining({ method: "PUT" }),
+      );
+    });
+
+    const updateCall = (global.fetch as jest.Mock).mock.calls.find(
+      ([url, init]: [string, RequestInit | undefined]) =>
+        url === "/api/mcp-servers?id=rag" && init?.method === "PUT",
+    );
+    const body = JSON.parse(String(updateCall?.[1]?.body));
+
+    expect(body.credential_sources).toEqual([
+      {
+        kind: "secret_ref",
+        target: "header",
+        name: "Authorization",
+        secret_ref: "secret-1",
+      },
+    ]);
   });
 });

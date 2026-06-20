@@ -102,6 +102,7 @@ async function installTeamResourceMocks(page: Page): Promise<InstalledTeamMocks>
 
 type InstalledMcpMocks = {
   createRequests: Array<Record<string, unknown>>;
+  updateRequests: Array<{ id: string | null; body: Record<string, unknown> }>;
   listRequests: number;
   addExternalServer: (server: {
     _id: string;
@@ -111,6 +112,9 @@ type InstalledMcpMocks = {
     endpoint?: string;
     enabled?: boolean;
     config_driven?: boolean;
+    source?: string;
+    agentgateway_target_endpoint?: string;
+    credential_sources?: Array<Record<string, unknown>>;
   }) => void;
 };
 
@@ -123,6 +127,7 @@ type InstalledRagFileMocks = {
 
 async function installMcpServerMocks(page: Page): Promise<InstalledMcpMocks> {
   const createRequests: Array<Record<string, unknown>> = [];
+  const updateRequests: Array<{ id: string | null; body: Record<string, unknown> }> = [];
   let listRequests = 0;
   type BrowserMcpServer = {
     _id: string;
@@ -132,6 +137,9 @@ async function installMcpServerMocks(page: Page): Promise<InstalledMcpMocks> {
     endpoint: string;
     enabled: boolean;
     config_driven: boolean;
+    source?: string;
+    agentgateway_target_endpoint?: string;
+    credential_sources?: Array<Record<string, unknown>>;
   };
   let servers: BrowserMcpServer[] = [];
 
@@ -139,7 +147,7 @@ async function installMcpServerMocks(page: Page): Promise<InstalledMcpMocks> {
     isAdmin: true,
     session: adminSession,
     handlers: [
-      async ({ route, path, method }) => {
+      async ({ route, path, method, url }) => {
         if (path === "/api/mcp-servers/agentgateway/discover" && method === "GET") {
           await fulfillJson(route, { success: true, data: { targets: [] } });
           return true;
@@ -182,6 +190,25 @@ async function installMcpServerMocks(page: Page): Promise<InstalledMcpMocks> {
           return true;
         }
 
+        if (path === "/api/mcp-servers" && method === "PUT") {
+          const body = ((await postJson(route)) ?? {}) as Record<string, unknown>;
+          const id = url.searchParams.get("id");
+          updateRequests.push({ id, body });
+          servers = servers.map((server) =>
+            server._id === id
+              ? {
+                  ...server,
+                  credential_sources: Array.isArray(body.credential_sources)
+                    ? (body.credential_sources as Array<Record<string, unknown>>)
+                    : server.credential_sources,
+                }
+              : server,
+          );
+          const updated = servers.find((server) => server._id === id);
+          await fulfillJson(route, { success: true, data: updated ?? null });
+          return true;
+        }
+
         return false;
       },
     ],
@@ -190,6 +217,9 @@ async function installMcpServerMocks(page: Page): Promise<InstalledMcpMocks> {
   return {
     get createRequests() {
       return createRequests;
+    },
+    get updateRequests() {
+      return updateRequests;
     },
     get listRequests() {
       return listRequests;
@@ -205,6 +235,9 @@ async function installMcpServerMocks(page: Page): Promise<InstalledMcpMocks> {
           endpoint: server.endpoint ?? "",
           enabled: server.enabled ?? true,
           config_driven: server.config_driven ?? false,
+          source: server.source,
+          agentgateway_target_endpoint: server.agentgateway_target_endpoint,
+          credential_sources: server.credential_sources,
         },
       ];
     },
@@ -448,6 +481,65 @@ test.describe("mocked MCP OpenFGA tuple browser regression", () => {
     await expect(page.getByText("mcp-knowledge-base")).toBeVisible();
     await expect(page.getByTitle("Registered from AgentGateway discovery")).toBeVisible();
     await expect(page.getByText("No MCP Servers Yet")).toHaveCount(0);
+  });
+
+  test("rotates credentials for AgentGateway-managed MCP servers without editing routing metadata", async ({
+    page,
+  }) => {
+    const mocks = await installMcpServerMocks(page);
+    mocks.addExternalServer({
+      _id: "rag",
+      name: "RAG",
+      transport: "http",
+      endpoint: "http://agentgateway:4000/mcp",
+      enabled: true,
+      config_driven: true,
+      source: "agentgateway",
+      agentgateway_target_endpoint: "http://rag-server:9446/mcp",
+      credential_sources: [
+        {
+          kind: "secret_ref",
+          target: "header",
+          name: "Authorization",
+          secret_ref: "old-secret",
+        },
+      ],
+    });
+
+    await page.goto("/dynamic-agents?tab=mcp-servers", { waitUntil: "domcontentloaded" });
+    await expect(page.getByText("RAG", { exact: true })).toBeVisible();
+    await expect(page.getByTitle(/Delete unavailable: AgentGateway manages this route/i)).toBeDisabled();
+    await expect(page.getByTitle(/AgentGateway manages enablement for this route/i)).toBeDisabled();
+
+    await page.getByText("RAG", { exact: true }).click();
+
+    await expect(page.getByText("Manage AgentGateway MCP Server")).toBeVisible();
+    await expect(page.getByText(/Credential references can be rotated here/i)).toBeVisible();
+    await expect(page.getByLabel(/Display Name/i)).toBeDisabled();
+    await expect(page.getByLabel(/Endpoint URL/i)).toBeDisabled();
+
+    const credentialReference = page.getByLabel(/Credential reference/i);
+    await expect(credentialReference).toBeEnabled();
+    await credentialReference.fill("rotated-secret");
+
+    await page.getByRole("button", { name: /Save Credential Sources/i }).click();
+
+    await expect.poll(() => mocks.updateRequests.length).toBe(1);
+    expect(mocks.updateRequests[0]).toEqual({
+      id: "rag",
+      body: {
+        credential_sources: [
+          {
+            kind: "secret_ref",
+            target: "header",
+            name: "Authorization",
+            secret_ref: "rotated-secret",
+          },
+        ],
+      },
+    });
+    expect(mocks.updateRequests[0].body).not.toHaveProperty("endpoint");
+    expect(mocks.updateRequests[0].body).not.toHaveProperty("agentgateway_target_endpoint");
   });
 
   test("uploads multiple local files as multipart FormData from the ingest UI", async ({ page }) => {

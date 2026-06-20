@@ -83,7 +83,7 @@ jest.mock("@/lib/rbac/openfga-owned-resources-reconcile", () => ({
     mockDeleteAllMcpServerRelationshipTuples(...args),
 }));
 
-function request(path: string, init: RequestInit & { body: string }): NextRequest {
+function request(path: string, init?: RequestInit): NextRequest {
   return new NextRequest(new URL(path, "http://localhost:3000"), init);
 }
 
@@ -294,5 +294,147 @@ describe("PUT /api/mcp-servers?id=<id> — endpoint normalisation", () => {
     expect(updatePayload.$set.endpoint).toBe(
       "http://agentgateway:4000/mcp/mcp-confluence",
     );
+  });
+});
+
+describe("managed AgentGateway MCP servers", () => {
+  it("allows credential source rotation without changing AgentGateway routing metadata", async () => {
+    const existing = {
+      _id: "rag",
+      name: "RAG",
+      transport: "http",
+      endpoint: "http://agentgateway:4000/mcp",
+      config_driven: true,
+      source: "agentgateway",
+      agentgateway_discovered: true,
+      agentgateway_target_endpoint: "http://rag-server:9446/mcp",
+      credential_sources: [
+        { kind: "secret_ref", target: "header", name: "Authorization", secret_ref: "old-secret" },
+      ],
+    };
+    mockFindOne.mockResolvedValue(existing);
+    mockFindOneAndUpdate.mockImplementation(async (_filter, update) => ({
+      ...existing,
+      ...(update as { $set: Record<string, unknown> }).$set,
+    }));
+    const { PUT } = await import("../route");
+
+    const response = await PUT(
+      request("/api/mcp-servers?id=rag", {
+        method: "PUT",
+        body: JSON.stringify({
+          credential_sources: [
+            {
+              kind: "secret_ref",
+              target: "header",
+              name: "Authorization",
+              secret_ref: "rotated-secret",
+            },
+          ],
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockFindOneAndUpdate).toHaveBeenCalledTimes(1);
+    const updatePayload = mockFindOneAndUpdate.mock.calls[0][1] as {
+      $set: Record<string, unknown>;
+    };
+    expect(updatePayload.$set).toMatchObject({
+      credential_sources: [
+        {
+          kind: "secret_ref",
+          target: "header",
+          name: "Authorization",
+          secret_ref: "rotated-secret",
+        },
+      ],
+    });
+    expect(updatePayload.$set).not.toHaveProperty("endpoint");
+    expect(updatePayload.$set).not.toHaveProperty("source");
+    expect(updatePayload.$set).not.toHaveProperty("agentgateway_target_endpoint");
+  });
+
+  it("allows clearing credential sources from an AgentGateway-managed MCP server", async () => {
+    const existing = {
+      _id: "rag",
+      name: "RAG",
+      transport: "http",
+      endpoint: "http://agentgateway:4000/mcp",
+      config_driven: true,
+      source: "agentgateway",
+      credential_sources: [
+        { kind: "secret_ref", target: "header", name: "Authorization", secret_ref: "old-secret" },
+      ],
+    };
+    mockFindOne.mockResolvedValue(existing);
+    mockFindOneAndUpdate.mockImplementation(async (_filter, update) => ({
+      ...existing,
+      ...(update as { $set: Record<string, unknown> }).$set,
+    }));
+    const { PUT } = await import("../route");
+
+    const response = await PUT(
+      request("/api/mcp-servers?id=rag", {
+        method: "PUT",
+        body: JSON.stringify({ credential_sources: [] }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    const updatePayload = mockFindOneAndUpdate.mock.calls[0][1] as {
+      $set: Record<string, unknown>;
+    };
+    expect(updatePayload.$set.credential_sources).toEqual([]);
+  });
+
+  it("rejects non-credential changes to AgentGateway-managed MCP servers", async () => {
+    mockFindOne.mockResolvedValue({
+      _id: "rag",
+      name: "RAG",
+      transport: "http",
+      endpoint: "http://agentgateway:4000/mcp",
+      config_driven: true,
+      source: "agentgateway",
+    });
+    const { PUT } = await import("../route");
+
+    const response = await PUT(
+      request("/api/mcp-servers?id=rag", {
+        method: "PUT",
+        body: JSON.stringify({
+          name: "RAG renamed",
+          credential_sources: [],
+        }),
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(403);
+    expect(body.error).toMatch(/only allow credential source updates/i);
+    expect(mockFindOneAndUpdate).not.toHaveBeenCalled();
+  });
+
+  it("explains why AgentGateway-managed MCP servers cannot be deleted from the UI", async () => {
+    mockFindOne.mockResolvedValue({
+      _id: "rag",
+      name: "RAG",
+      transport: "http",
+      endpoint: "http://agentgateway:4000/mcp",
+      config_driven: true,
+      source: "agentgateway",
+    });
+    const { DELETE } = await import("../route");
+
+    const response = await DELETE(
+      request("/api/mcp-servers?id=rag", {
+        method: "DELETE",
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(403);
+    expect(body.error).toMatch(/AgentGateway-managed MCP servers cannot be deleted/i);
+    expect(mockDeleteAllMcpServerRelationshipTuples).not.toHaveBeenCalled();
   });
 });
