@@ -170,8 +170,6 @@ helm install ai-platform-engineering oci://ghcr.io/cnoe-io/charts/ai-platform-en
 | Component | Version | Description |
 |-----------|---------|-------------|
 | **supervisor-agent** | 0.1.1 | Multi-agent orchestration and coordination |
-| **slim** | v0.1.8 | AGNTCY Slim dataplane service |
-| **slim-control-plane** | v0.1.3 | AGNTCY Slim control plane |
 | **rag-stack** | 0.0.1 | RAG (Retrieval-Augmented Generation) stack |
 ### Agent components
 

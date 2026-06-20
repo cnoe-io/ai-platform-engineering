@@ -32,23 +32,6 @@ persona:
       - webex
       - petstore
 
-  # SLIM with tracing
-  slim-tracing:
-    description: "Complete SLIM setup with all agents and tracing enabled"
-    agents:
-      - argocd
-      - aws
-      - backstage
-      - confluence
-      - github
-      - gitlab
-      - jira
-      - komodor
-      - pagerduty
-      - slack
-      - splunk
-      - weather
-
   # RAG only
   rag-only:
     description: "RAG-only platform engineer with knowledge base services (without graph RAG)"

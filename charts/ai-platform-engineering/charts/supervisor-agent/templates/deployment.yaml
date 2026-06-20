@@ -96,12 +96,6 @@ spec:
               value: {{ $value | quote }}
             {{- end }}
             {{- end }}
-            {{- if eq (include "supervisorAgent.slim.enabled" .) "true" }}
-            - name: A2A_TRANSPORT
-              value: {{ include "supervisorAgent.slim.transport" . | quote }}
-            - name: SLIM_ENDPOINT
-              value: {{ include "supervisorAgent.slim.endpoint" . | quote }}
-            {{- end }}
             {{- with .Values.memoryPersistence }}
             - name: LANGGRAPH_STORE_TYPE
               value: {{ .type | default "memory" | quote }}
@@ -233,7 +227,6 @@ spec:
             - name: LANGGRAPH_CHECKPOINT_TTL_MINUTES
               value: {{ .ttlMinutes | default 0 | quote }}
             {{- end }}
-          {{- if not (eq (include "supervisorAgent.slim.enabled" .) "true") }}
           {{- with .Values.startupProbe }}
           startupProbe:
             {{- toYaml . | nindent 12 }}
@@ -245,7 +238,6 @@ spec:
           {{- with .Values.readinessProbe }}
           readinessProbe:
             {{- toYaml . | nindent 12 }}
-          {{- end }}
           {{- end }}
           {{- with .Values.resources }}
           resources:

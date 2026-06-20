@@ -58,11 +58,6 @@ global:
   externalSecrets:
     enabled: false
     apiVersion: "v1beta1"  # API version for ExternalSecret resources. Options: "v1" or "v1beta1". Defaults to "v1beta1" if not specified.
-  slim:
-    enabled: false
-    endpoint: ""
-    transport: "slim"
-
   # RAG Stack configuration
   rag:
     enableGraphRag: true

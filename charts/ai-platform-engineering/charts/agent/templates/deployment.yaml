@@ -86,12 +86,6 @@ spec:
               value: {{ $value | quote }}
             {{- end }}
             {{- end }}
-            {{- if eq (include "agent.slim.enabled" .) "true" }}
-            - name: A2A_TRANSPORT
-              value: {{ include "agent.slim.transport" . | quote }}
-            - name: SLIM_ENDPOINT
-              value: {{ include "agent.slim.endpoint" . | quote }}
-            {{- end }}
             {{- if eq .Values.mcp.mode "http" }}
             - name: MCP_MODE
               value: http
@@ -164,7 +158,6 @@ spec:
             - name: LANGGRAPH_CHECKPOINT_TTL_MINUTES
               value: {{ .ttlMinutes | default 0 | quote }}
             {{- end }}
-          {{- if not (eq (include "agent.slim.enabled" .) "true") }}
           {{- with .Values.startupProbe }}
           startupProbe:
             {{- toYaml . | nindent 12 }}
@@ -176,7 +169,6 @@ spec:
           {{- with .Values.readinessProbe }}
           readinessProbe:
             {{- toYaml . | nindent 12 }}
-          {{- end }}
           {{- end }}
           {{- with .Values.resources }}
           resources:
