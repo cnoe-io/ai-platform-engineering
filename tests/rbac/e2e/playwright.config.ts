@@ -1,5 +1,5 @@
 /**
- * Playwright config for the spec-102 RBAC e2e suite — task T056.
+ * Playwright config for the RBAC e2e suite.
  *
  * Scope
  * -----

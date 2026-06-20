@@ -4412,6 +4412,11 @@
               }
             ]
           }
+        },
+        "can_share": {
+          "computedUserset": {
+            "relation": "can_manage"
+          }
         }
       },
       "metadata": {
@@ -4423,6 +4428,10 @@
               },
               {
                 "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "member"
               },
               {
                 "type": "team",

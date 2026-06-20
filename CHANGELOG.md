@@ -1,3 +1,31 @@
+## 0.5.17 (2026-06-18)
+
+### Feat
+
+- **ui**: add platform health probes (#1909)
+- **ui**: paginate admin teams/members/IdP-sync history + self-heal OpenFGA drift (#1916)
+
+## 0.5.16-dev.2 (2026-06-18)
+
+### Feat
+
+- **rbac**: add background scheduler for IdP directory sync (#1901)
+
+### Fix
+
+- **ui**: prefer exact changelog release prompts
+- **admin**: align superadmin access surfaces
+- **rbac**: unblock superadmin conversations and tool grants
+- **workflows**: portal visibility dropdown and fix runs-to-workflows nav (#1900)
+
+## 0.5.16-dev.1 (2026-06-17)
+
+### Fix
+
+- **slack**: remove ephemeral identity verification error message (#1902)
+
+## 0.5.16 (2026-06-17)
+
 ## 0.5.15-dev.8 (2026-06-17)
 
 ### Fix

@@ -19,7 +19,7 @@ The top-level Admin Dashboard categories are:
 |----------|------|---------|
 | `System` | `Default Agent`, `AI Review`, `Skills` | Configure core CAIPE behavior and system-level agent features. |
 | `Users & Teams` | `Users`, `Teams` | Review users, assign roles, and manage collaboration groups. |
-| `Insights` | `Feedback`, `NPS`, `Statistics` | Inspect user feedback, satisfaction trends, and product usage. |
+| `Insights` | `Feedback`, `Statistics` | Inspect user feedback, satisfaction trends, and product usage. |
 | `Metrics & Health` | `Metrics`, `Health` | Check platform telemetry and service health. |
 | `Security & Policy` | `Audit Logs`, `Policy` | Review administrative activity and policy controls. |
 

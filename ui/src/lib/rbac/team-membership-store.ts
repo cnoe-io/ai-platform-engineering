@@ -228,6 +228,149 @@ export async function loadTeamMembersForSlugs(
 }
 
 /**
+ * One page of a team's deduplicated, role-escalated members, plus the total
+ * distinct member count for the (optionally search-filtered) set.
+ *
+ * `source_types` lists every active source that contributed a row for the
+ * member (e.g. `["okta", "manual"]`). `idp_managed` is true when the member
+ * has at least one source and ALL of them are non-manual — i.e. the member is
+ * managed entirely by directory sync and cannot be removed by hand.
+ */
+export interface TeamMemberPageRow {
+  identity_key: string;
+  user_subject?: string;
+  user_email?: string;
+  // UI-facing role. The canonical store only tracks member/admin; "owner" is
+  // derived from the team document's owner_id for display + sort purposes.
+  role: "owner" | "admin" | "member";
+  source_types: TeamMembershipSource["source_type"][];
+  idp_managed: boolean;
+  added_at?: string;
+}
+
+export interface TeamMemberPage {
+  members: TeamMemberPageRow[];
+  total: number;
+}
+
+export interface LoadTeamMembersPageOptions extends QueryOptions {
+  /** 1-based page index. Defaults to 1. */
+  page?: number;
+  /** Rows per page. Clamped to [1, 100]. Defaults to 25. */
+  pageSize?: number;
+  /** Case-insensitive substring match against `user_email`. */
+  search?: string;
+  /**
+   * Team owner's email. When provided, the matching member is reported with
+   * role `"owner"` and sorted to the very top so it leads page 1.
+   */
+  ownerEmail?: string;
+}
+
+/**
+ * Paginated, search-filtered companion to `loadActiveTeamMembers`. Dedupe +
+ * role escalation happen server-side via aggregation, and only one page of
+ * rows crosses the wire — so this stays cheap for teams with very large
+ * rosters where loading the full member list would be prohibitive.
+ *
+ * Pagination is stable: members are sorted owner-first, then by email, then
+ * identity_key as a tiebreak.
+ */
+export async function loadActiveTeamMembersPage(
+  teamSlug: string,
+  opts?: LoadTeamMembersPageOptions,
+): Promise<TeamMemberPage> {
+  if (!teamSlug || typeof teamSlug !== "string") return { members: [], total: 0 };
+
+  const page = Math.max(1, opts?.page ?? 1);
+  const pageSize = Math.min(100, Math.max(1, opts?.pageSize ?? 25));
+  const search = (opts?.search ?? "").trim();
+  const ownerEmail = opts?.ownerEmail?.trim().toLowerCase() || null;
+
+  const collection = await getRbacCollection<TeamMembershipSource>("teamMembershipSources");
+
+  const match: Record<string, unknown> = {
+    team_slug: teamSlug,
+    ...buildStatusFilter(opts),
+  };
+  if (search) {
+    // Escape regex metacharacters so a user typing e.g. "a.b" doesn't match
+    // unexpectedly. Email matching only — that's what the UI displays.
+    const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    match.user_email = { $regex: escaped, $options: "i" };
+  }
+
+  const groupStage = {
+    $group: {
+      _id: { $ifNull: ["$user_subject", { $toLower: "$user_email" }] },
+      user_subject: { $first: "$user_subject" },
+      user_email: { $first: "$user_email" },
+      // Escalate to admin if ANY contributing row is an admin grant.
+      is_admin: { $max: { $cond: [{ $eq: ["$relationship", "admin"] }, 1, 0] } },
+      source_types: { $addToSet: "$source_type" },
+      // Earliest provenance timestamp wins as "added" date.
+      added_at: { $min: { $ifNull: ["$first_seen_at", "$created_at"] } },
+    },
+  };
+
+  const ownerRank = ownerEmail
+    ? { $cond: [{ $eq: [{ $toLower: { $ifNull: ["$user_email", ""] } }, ownerEmail] }, 0, 1] }
+    : 1;
+
+  // Run count and page as two pipelines sharing this prefix, NOT one $facet:
+  // $facet is unsupported on Amazon DocumentDB (our deploy target). The count
+  // runs over grouped identities, not the raw match, so members with multiple
+  // source rows are counted once.
+  const prefix: Record<string, unknown>[] = [
+    { $match: match },
+    groupStage,
+    { $match: { _id: { $ne: null } } },
+    { $addFields: { owner_rank: ownerRank, email_sort: { $toLower: { $ifNull: ["$user_email", ""] } } } },
+  ];
+
+  const [countDocs, rows] = await Promise.all([
+    collection
+      .aggregate<{ count: number }>([...prefix, { $count: "count" }])
+      .toArray(),
+    collection
+      .aggregate<{
+        _id: string | null;
+        user_subject?: string;
+        user_email?: string;
+        is_admin: number;
+        source_types: TeamMembershipSource["source_type"][];
+        added_at?: string;
+      }>([
+        ...prefix,
+        { $sort: { owner_rank: 1, email_sort: 1, _id: 1 } },
+        { $skip: (page - 1) * pageSize },
+        { $limit: pageSize },
+      ])
+      .toArray(),
+  ]);
+
+  const total = countDocs[0]?.count ?? 0;
+
+  const members: TeamMemberPageRow[] = rows.map((row) => {
+    const sourceTypes = Array.isArray(row.source_types) ? row.source_types : [];
+    const isOwner = Boolean(ownerEmail && (row.user_email ?? "").toLowerCase() === ownerEmail);
+    return {
+      identity_key: row._id ?? "",
+      user_subject: row.user_subject || undefined,
+      user_email: row.user_email || undefined,
+      // Owner is a UI-only role label; the canonical store only tracks
+      // member/admin. The owner is always at least an admin in OpenFGA.
+      role: isOwner ? "owner" : row.is_admin ? "admin" : "member",
+      source_types: sourceTypes,
+      idp_managed: sourceTypes.length > 0 && sourceTypes.every((t) => t !== "manual"),
+      added_at: row.added_at,
+    };
+  });
+
+  return { members, total };
+}
+
+/**
  * Bulk variant of `countActiveTeamMembers` for the admin teams list
  * endpoint. Returns a map keyed by team_slug. Slugs with zero members
  * are present in the map with value 0 (so callers don't have to check

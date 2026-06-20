@@ -4,7 +4,7 @@ description: "Build and push Skill Scanner Docker image"
 # Mirrors ci-caipe-ui.yml. Triggers on:
 #   - tag pushes (any tag): build + push the released image used by the
 #     skill-scanner Helm subchart (image tag = chart appVersion).
-#   - pull requests touching the scanner Dockerfile or compose entry:
+#   - pull requests touching the scanner Dockerfile:
 #     PR validation only (push=false except for tags / workflow_dispatch).
 #   - workflow_dispatch: manual rebuild with an explicit tag override.
 #
@@ -24,9 +24,8 @@ on:
     paths:
       # No first-party scanner source lives in this repo (the image installs
       # `cisco-ai-skill-scanner` from PyPI), so we only need to validate when
-      # the Dockerfile or its compose entrypoint changes.
+      # the Dockerfile changes.
       - 'build/Dockerfile.skill-scanner'
-      - 'docker-compose.dev.yaml'
   workflow_dispatch:
     inputs:
       tag_version:
@@ -85,7 +84,6 @@ jobs:
           filters: |
             scanner:
               - 'build/Dockerfile.skill-scanner'
-              - 'docker-compose.dev.yaml'
 
       - name: Read pinned upstream scanner version
         id: scanner_version

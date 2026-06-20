@@ -1,5 +1,7 @@
 "use client";
 
+// assisted-by Codex Codex-sonnet-4-6
+
 import React from "react";
 
 import { Button } from "@/components/ui/button";
@@ -71,7 +73,7 @@ export function SecretSharingPanel({
         action === "share"
           ? Array.from(new Set([...current, targetTeamId]))
           : current.filter((team) => team !== targetTeamId);
-      onSharingChange?.(next);
+      queueMicrotask(() => onSharingChange?.(next));
       return next;
     });
     setTeamId("");

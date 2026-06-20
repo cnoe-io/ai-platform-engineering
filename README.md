@@ -70,7 +70,7 @@ Together, these sub-agents enable users to perform complex operations using agen
 
 ## 🚀 Quick Start with Docker Compose
 
-Run CAIPE locally with a single command:
+Run CAIPE locally with the OSS all-in-one stack:
 
 ```bash
 # Clone the repository
@@ -79,13 +79,23 @@ cd ai-platform-engineering
 
 # Copy and configure environment variables
 cp .env.example .env
-# Edit .env with your API keys (OPENAI_API_KEY, etc.)
+# Edit .env with your LLM API key or local OpenAI-compatible endpoint.
 
-# Run CAIPE with the web UI
-docker compose --profile caipe-ui up
+# Run the stack described by .env.example
+docker compose up
 ```
 
-Access the UI at **http://localhost:3001** and the API at **http://localhost:8000**.
+Access the UI at **http://localhost:3000** and the supervisor API at **http://localhost:8000**.
+
+The default `.env.example` uses image tag `0.5.16` and enables this profile set:
+
+```bash
+COMPOSE_PROFILES=mcp-servers,caipe-ui-prod,rbac,caipe-supervisor,dynamic-agents,rag,caipe-mongodb
+```
+
+That starts the supervisor in all-in-one mode, the MCP server containers, production UI, dynamic agents, local Keycloak/OpenFGA/AgentGateway RBAC, MongoDB, and RAG. Remote A2A sub-agent containers are not started by default.
+
+Add `web_ingestor` when you want the web ingestion worker. Add `slack-bot` or `webex-bot` only when you want those bot integrations.
 
 ### Optional Profiles
 
@@ -93,40 +103,44 @@ Enable additional features with profiles:
 
 ```bash
 # With tracing (Langfuse)
-docker compose --profile caipe-ui --profile tracing up
+docker compose --profile tracing up
 
-# With RAG (knowledge base)
-docker compose --profile caipe-ui --profile rag up
+# With Graph RAG (adds Neo4j and ontology services)
+docker compose --profile graph_rag up
+
+# With web ingestion worker
+docker compose --profile web_ingestor up
 
 # Development mode (build from source)
-docker compose -f docker-compose.dev.yaml --profile caipe-ui up --build
+docker compose -f docker-compose.dev.yaml up --build
 ```
 
 ### Deployment Modes
 
-CAIPE supports two deployment modes:
+CAIPE supports all-in-one, distributed, and hybrid supervisor modes:
 
 | Mode | Description | Use Case |
 |------|-------------|----------|
-| **Multi-Node** (default) | Supervisor orchestrates multiple remote sub-agents via A2A protocol | Production, scalable deployments |
-| **Single-Node** | All agents run in-process with MCP tools via stdio transport | Development, simpler deployments |
+| **All-in-one** (default) | Supervisor runs agents in-process and connects to MCP server containers | OSS local deployments, VM deployments, demos |
+| **Distributed** | Supervisor orchestrates remote sub-agent containers via A2A | Scale-out testing and specialized deployments |
+| **Hybrid** | Only selected agents run remotely | Gradual migration or debugging |
 
-#### Single-Node Mode
+#### All-in-One Mode
 
-All-in-one (single-node) mode runs everything in a single container, making it ideal for development and simpler deployments:
+All-in-one mode leaves `DISTRIBUTED_AGENTS` empty and starts MCP servers instead of sub-agent containers:
 
 ```bash
-# Run all-in-one mode
-docker compose -f docker-compose.single-node.yaml --profile caipe-ui up
+# Image-based stack
+docker compose up
 
 # Development mode — all-in-one (build from source)
-docker compose -f docker-compose.dev.yaml --profile caipe-supervisor --profile caipe-mongodb --profile caipe-ui up --build
+docker compose -f docker-compose.dev.yaml up --build
 
 # Development mode — fully distributed (all agents as separate A2A containers)
-DISTRIBUTED_AGENTS=all docker compose -f docker-compose.dev.yaml --profile caipe-supervisor --profile caipe-mongodb --profile caipe-ui up --build
+DISTRIBUTED_AGENTS=all docker compose -f docker-compose.dev.yaml --profile all-agents up --build
 
 # Development mode — hybrid (only specific agents distributed)
-DISTRIBUTED_AGENTS=argocd,github docker compose -f docker-compose.dev.yaml --profile caipe-supervisor --profile caipe-mongodb --profile caipe-ui up --build
+DISTRIBUTED_AGENTS=argocd,github docker compose -f docker-compose.dev.yaml --profile argocd --profile github up --build
 ```
 
 The supervisor mode is controlled by the `DISTRIBUTED_AGENTS` environment variable:
@@ -136,21 +150,22 @@ The supervisor mode is controlled by the `DISTRIBUTED_AGENTS` environment variab
 
 ##### All-in-One with RAG (Knowledge Base)
 
-Enable RAG services to give the agent access to ingested knowledge bases:
+RAG is included in the default profile set. Use `graph_rag` only when you also want Neo4j-backed graph relationships:
 
 ```bash
-# All-in-one with RAG (no graph database)
-docker compose -f docker-compose.dev.yaml --profile caipe-supervisor --profile caipe-mongodb --profile rag --profile caipe-ui up --build
+# Vector RAG, included by default
+docker compose up
 
 # All-in-one with full Graph RAG (includes Neo4j)
-docker compose -f docker-compose.dev.yaml --profile caipe-supervisor --profile caipe-mongodb --profile graph_rag --profile caipe-ui up --build
+docker compose --profile graph_rag up
 ```
 
 **RAG Profiles:**
 
 | Profile | Services Included | Use Case |
 |---------|-------------------|----------|
-| `rag` | rag_server, web_ingestor, milvus, redis | Vector search without graph relationships |
+| `rag` | rag-server, milvus, redis | Vector search without graph relationships |
+| `web_ingestor` / `web-ingestor` | web-ingestor | Web datasource ingestion worker |
 | `graph_rag` | All `rag` services + Neo4j, agent_ontology | Full knowledge graph with entity relationships |
 
 **Ingesting Content:**
@@ -166,16 +181,12 @@ curl -X POST http://localhost:9446/v1/datasources \
 
 The agent will automatically use the knowledge base when answering questions about ingested content.
 
-#### Multi-Node Mode (Default)
+#### Distributed Mode
 
-Multi-node mode runs a supervisor agent that orchestrates specialized sub-agents as separate services:
+Distributed mode runs a supervisor that orchestrates specialized sub-agents as separate services:
 
 ```bash
-# Run multi-node mode (default docker-compose.yaml)
-docker compose --profile caipe-ui up
-
-# Development mode with multi-node
-docker compose -f docker-compose.dev.yaml --profile caipe-ui up --build
+DISTRIBUTED_AGENTS=all docker compose -f docker-compose.dev.yaml --profile all-agents up --build
 ```
 
 ### Kubernetes Deployment

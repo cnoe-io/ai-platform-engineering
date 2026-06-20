@@ -25,15 +25,6 @@ jobs:
         with:
           egress-policy: audit
 
-      - name: 🔑 Generate GitHub App token
-        id: app-token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
-        with:
-          app-id: ${{ secrets.CI_BUILD_APP_ID }}
-          private-key: ${{ secrets.CI_BUILD_APP_PRIVATE_KEY }}
-          permission-actions: read
-          permission-contents: write
-
       - name: 📥 Extract payload
         id: payload
         env:
@@ -81,7 +72,7 @@ jobs:
         id: check-cis
         if: steps.payload.outputs.tag != ''
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.payload.outputs.tag }}
         run: |
           echo "🔍 Checking CI statuses for tag: $TAG"
@@ -95,7 +86,6 @@ jobs:
           # tag, so an unbuilt image would otherwise produce ImagePullBackOff
           # on every fresh install with global.skillScanner.enabled=true.
           REQUIRED_WORKFLOWS=(
-            "[CI][A2A] Sub-Agents A2A Docker Build and Push"
             "[CI][MCP] Sub-Agents MCP Docker Build and Push"
             "[CI][A2A] CAIPE RAG Build and Push"
             "[CI][A2A] Supervisor Agent Docker Build and Push"
@@ -175,7 +165,7 @@ jobs:
       - name: 🚀 Publish release
         if: steps.check-cis.outputs.all_passed == 'true'
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.payload.outputs.tag }}
         run: |
           echo "🚀 Publishing release $TAG..."
@@ -198,7 +188,7 @@ jobs:
       - name: 🧹 Clean up old RC tags
         if: steps.check-cis.outputs.all_passed == 'true'
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.payload.outputs.tag }}
         run: |
           echo "🧹 Cleaning up old RC tags..."
@@ -267,7 +257,7 @@ jobs:
       - name: ❌ Mark release as failed
         if: steps.check-cis.outputs.any_failed == 'true'
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.payload.outputs.tag }}
         run: |
           echo "❌ CI builds failed for $TAG"
@@ -334,18 +324,9 @@ jobs:
       contents: read
       actions: write
     steps:
-      - name: 🔑 Generate GitHub App token
-        id: app-token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
-        with:
-          app-id: ${{ secrets.CI_BUILD_APP_ID }}
-          private-key: ${{ secrets.CI_BUILD_APP_PRIVATE_KEY }}
-          permission-actions: write
-          permission-contents: read
-
       - name: 🔍 Trigger post-release scans and tests
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ needs.check-and-publish.outputs.tag }}
         run: |
           set -euo pipefail

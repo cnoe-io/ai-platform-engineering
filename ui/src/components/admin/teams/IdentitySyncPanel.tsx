@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2,Clock,Loader2,Lock,Play,Settings,XCircle } from "lucide-react";
+import { CheckCircle2,ChevronLeft,ChevronRight,Clock,Loader2,Lock,Play,Settings,XCircle } from "lucide-react";
 import { useCallback,useEffect,useState } from "react";
 
 import { SaveButton } from "@/components/admin/shared/SaveButton";
@@ -118,7 +118,7 @@ function isValidCronExpr(expr: string): boolean {
 
 function scheduleSummary(settings: IdpSyncSettings): string {
   if (settings.schedule_mode === "cron") {
-    return settings.sync_cron ? `cron: ${settings.sync_cron}` : "Custom (cron)";
+    return settings.sync_cron ? `cron: ${settings.sync_cron} (UTC)` : "Custom (cron)";
   }
   const preset = INTERVAL_OPTIONS.find((o) => o.value === settings.sync_interval_minutes);
   return preset ? preset.label : `Every ${settings.sync_interval_minutes}m`;
@@ -126,8 +126,20 @@ function scheduleSummary(settings: IdpSyncSettings): string {
 
 const STATUS_BASE = "/api/admin/identity-group-sync/directory-sync";
 
+// Sync History rows per page. Server-paginated (`?page=`) so the table only
+// ever holds one page regardless of how many runs a connector has accumulated.
+const SYNC_RUNS_PAGE_SIZE = 10;
+
 interface IdentitySyncPanelProps {
   isAdmin: boolean;
+}
+
+interface IdpSyncRunsPage {
+  runs: IdpSyncRun[];
+  total: number;
+  page: number;
+  page_size: number;
+  has_more: boolean;
 }
 
 export function IdentitySyncPanel({ isAdmin }: IdentitySyncPanelProps) {
@@ -144,6 +156,14 @@ export function IdentitySyncPanel({ isAdmin }: IdentitySyncPanelProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [triggering, setTriggering] = useState(false);
+
+  // Sync History pagination. The table is server-paginated off the dedicated
+  // `/runs` endpoint (separate from `/status`, which still feeds the summary
+  // cards + run poller), so the summaries stay accurate on any history page.
+  const [runPage, setRunPage] = useState<IdpSyncRun[]>([]);
+  const [runTotal, setRunTotal] = useState(0);
+  const [runPageNum, setRunPageNum] = useState(1);
+  const [runsLoading, setRunsLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveResult, setSaveResult] = useState<"success" | "error" | null>(null);
 
@@ -196,6 +216,39 @@ export function IdentitySyncPanel({ isAdmin }: IdentitySyncPanelProps) {
     void loadStatus();
   }, [loadStatus]);
 
+  // Load one page of Sync History from the dedicated `/runs` endpoint. Provider
+  // is passed through (never hardcoded) so any registered connector paginates
+  // through the same path.
+  const fetchRunsPage = useCallback(
+    async (page: number) => {
+      setRunsLoading(true);
+      try {
+        const params = new URLSearchParams({
+          provider,
+          page: String(page),
+          page_size: String(SYNC_RUNS_PAGE_SIZE),
+        });
+        const res = await fetch(`${STATUS_BASE}/runs?${params.toString()}`);
+        const json = await res.json();
+        if (!json.success) throw new Error(json.error ?? "Failed to load sync history");
+        const payload = json.data as IdpSyncRunsPage;
+        setRunPage(payload.runs ?? []);
+        setRunTotal(payload.total ?? 0);
+        setRunPageNum(payload.page ?? page);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to load sync history");
+      } finally {
+        setRunsLoading(false);
+      }
+    },
+    [provider]
+  );
+
+  // Load page 1 of history on mount and whenever the connector changes.
+  useEffect(() => {
+    void fetchRunsPage(1);
+  }, [fetchRunsPage]);
+
   // The sync runs server-side after the trigger responds, so while a run is
   // still `running` we poll the status so its row flips to success/failed in
   // the history without a manual refresh. Polling stops once nothing is running.
@@ -204,9 +257,18 @@ export function IdentitySyncPanel({ isAdmin }: IdentitySyncPanelProps) {
     if (!hasRunningRun) return;
     const id = window.setInterval(() => {
       void loadStatus({ silent: true });
+      // Refresh the visible history page too so a finishing run flips in place.
+      void fetchRunsPage(runPageNum);
     }, 4000);
     return () => window.clearInterval(id);
-  }, [hasRunningRun, loadStatus]);
+  }, [hasRunningRun, loadStatus, fetchRunsPage, runPageNum]);
+
+  const runTotalPages = Math.max(1, Math.ceil(runTotal / SYNC_RUNS_PAGE_SIZE));
+  const runHasMore = runPageNum * SYNC_RUNS_PAGE_SIZE < runTotal;
+  const goToRunsPage = (page: number) => {
+    const clamped = Math.min(Math.max(1, page), runTotalPages);
+    void fetchRunsPage(clamped);
+  };
 
   const saveSettings = async () => {
     setSaving(true);
@@ -256,6 +318,8 @@ export function IdentitySyncPanel({ isAdmin }: IdentitySyncPanelProps) {
       if (!json.success) throw new Error(json.error ?? "Failed to start sync");
       toast(`${connectorLabel} sync started.`, "info");
       await loadStatus({ silent: true });
+      // The new run lands at the top of history — jump back to page 1 to show it.
+      await fetchRunsPage(1);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to start sync";
       setError(message);
@@ -472,7 +536,7 @@ export function IdentitySyncPanel({ isAdmin }: IdentitySyncPanelProps) {
                       <p className={`text-xs ${cronInvalid ? "text-red-600" : "text-muted-foreground"}`}>
                         {cronInvalid
                           ? "Invalid cron: expected 5 fields (minute hour day-of-month month day-of-week)."
-                          : "Standard 5-field cron (minute hour day-of-month month day-of-week)."}
+                          : "Standard 5-field cron (minute hour day-of-month month day-of-week), evaluated in UTC."}
                       </p>
                     </div>
                   )}
@@ -552,10 +616,14 @@ export function IdentitySyncPanel({ isAdmin }: IdentitySyncPanelProps) {
           <Card>
             <CardHeader>
               <CardTitle>Sync History</CardTitle>
-              <CardDescription>Last 20 sync runs for {connectorLabel}</CardDescription>
+              <CardDescription>Sync runs for {connectorLabel}</CardDescription>
             </CardHeader>
             <CardContent>
-              {!status?.recent_runs?.length ? (
+              {runsLoading && runPage.length === 0 ? (
+                <div className="flex justify-center py-8">
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                </div>
+              ) : !runPage.length ? (
                 <p className="text-sm text-muted-foreground py-4 text-center">No sync runs yet.</p>
               ) : (
                 <div className="overflow-x-auto">
@@ -573,7 +641,7 @@ export function IdentitySyncPanel({ isAdmin }: IdentitySyncPanelProps) {
                       </tr>
                     </thead>
                     <tbody className="divide-y">
-                      {status.recent_runs.map((run) => (
+                      {runPage.map((run) => (
                         <tr key={run.id} className="hover:bg-muted/30">
                           <td className="py-2 pr-4">
                             <RunStatusBadge status={run.status} />
@@ -613,6 +681,37 @@ export function IdentitySyncPanel({ isAdmin }: IdentitySyncPanelProps) {
                       ))}
                     </tbody>
                   </table>
+                </div>
+              )}
+
+              {/* Pager — shown whenever history spans more than one page.
+                  Prev/Next drive a server fetch; the indicator reflects the
+                  server-reported total. */}
+              {runTotal > SYNC_RUNS_PAGE_SIZE && (
+                <div className="flex items-center justify-between pt-3 text-sm">
+                  <span className="text-muted-foreground">
+                    Page {runPageNum} of {runTotalPages} · {runTotal} run{runTotal === 1 ? "" : "s"}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => goToRunsPage(runPageNum - 1)}
+                      disabled={runPageNum <= 1 || runsLoading}
+                      aria-label="Previous page"
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => goToRunsPage(runPageNum + 1)}
+                      disabled={!runHasMore || runsLoading}
+                      aria-label="Next page"
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
               )}
             </CardContent>
