@@ -48,7 +48,6 @@ export async function getCredentialSecretService(): Promise<SecretService> {
   const encryptedPayloadsCollection = await getCollection(
     CREDENTIAL_COLLECTIONS.encryptedPayloads,
   );
-  const auditCollection = await getCollection(CREDENTIAL_COLLECTIONS.auditEvents);
 
   return new SecretService({
     secretRefsCollection,
@@ -56,7 +55,6 @@ export async function getCredentialSecretService(): Promise<SecretService> {
       payloadCollection: encryptedPayloadsCollection,
       keyWrapper: createConfiguredKeyWrapper(),
     }),
-    auditCollection,
     authorize: requireResourcePermission,
     reconcileOwnerRelationships: reconcileSecretRefOwnerRelationships,
     reconcileShare: reconcileSecretRefShare,

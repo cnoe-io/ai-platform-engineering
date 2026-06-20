@@ -15,6 +15,8 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from typing import Literal, Optional
 
+import requests
+
 logger = logging.getLogger("caipe.rbac.audit")
 
 SUBJECT_SALT = os.environ.get("AUDIT_SUBJECT_SALT", "caipe-098-audit")
@@ -38,6 +40,29 @@ RbacResource = Literal[
 def _hash_subject(sub: str) -> str:
     digest = hashlib.sha256(f"{SUBJECT_SALT}:{sub}".encode()).hexdigest()
     return f"sha256:{digest}"
+
+
+def _write_audit_service_event(record: dict[str, object]) -> None:
+    if os.environ.get("AUDIT_LOG_BACKEND", "service").strip().lower() != "service":
+        return
+    service_url = os.environ.get("AUDIT_SERVICE_URL", "").strip().rstrip("/")
+    if not service_url:
+        return
+    event = {
+        **record,
+        "type": "auth",
+        "action": record.get("capability"),
+        "source": "slack",
+    }
+    try:
+        requests.post(
+            f"{service_url}/v1/audit/events",
+            headers={"Content-Type": "application/json"},
+            json={"events": [event]},
+            timeout=1,
+        ).raise_for_status()
+    except requests.RequestException as exc:
+        logger.warning("Failed to submit Slack audit event to audit-service: %s", exc)
 
 
 @dataclass(frozen=True)
@@ -88,4 +113,5 @@ def log_authz_decision(
 
     record = {k: v for k, v in asdict(event).items() if v is not None}
     logger.info(json.dumps(record))
+    _write_audit_service_event(record)
     return event

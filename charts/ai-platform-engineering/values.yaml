@@ -1582,13 +1582,9 @@ openfga-authz-bridge:
       - RS256
   audit:
     enabled: true
-    mongodbUri: ""
-    mongodbDatabase: caipe
+    serviceUrl: ""
     tenantId: default
     subjectSalt: caipe-098-audit
-    existingSecret:
-      name: ""
-      key: MONGODB_URI
 
 ######### RAG Stack configuration #########
 # RAG Stack - Complete stack including web, server, agent, Redis, and Milvus

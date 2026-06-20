@@ -63,16 +63,6 @@ export function buildCredentialIndexSpecs(): CredentialIndexSpec[] {
       options: { name: "provider_connections_status_updated_at" },
     },
     {
-      collection: CREDENTIAL_COLLECTIONS.auditEvents,
-      keys: { createdAt: -1 },
-      options: { name: "credential_audit_events_created_at" },
-    },
-    {
-      collection: CREDENTIAL_COLLECTIONS.auditEvents,
-      keys: { "resource.type": 1, "resource.id": 1, createdAt: -1 },
-      options: { name: "credential_audit_events_resource_created_at" },
-    },
-    {
       collection: CREDENTIAL_COLLECTIONS.migrationPreviews,
       keys: { expiresAt: 1 },
       options: {

@@ -112,7 +112,14 @@ services:
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
       - LANGFUSE_SESSION_ID=${LANGFUSE_SESSION_ID:-ai-platform-engineering}
       - LANGFUSE_USER_ID=${LANGFUSE_USER_ID:-platform-engineer}
+      # Audit log storage is owned by the lightweight Python audit-service.
+      - AUDIT_LOG_BACKEND=${AUDIT_LOG_BACKEND:-service}
+      - AUDIT_SERVICE_URL=${AUDIT_SERVICE_URL:-http://audit-service:8010}
     command: platform-engineer
+    depends_on:
+      audit-service:
+        condition: service_healthy
+        required: false
     profiles:
       - caipe-supervisor
 
@@ -494,6 +501,9 @@ services:
       - WEBEX_CLIENT_ID=${WEBEX_CLIENT_ID:-}
       - WEBEX_CLIENT_SECRET=${WEBEX_CLIENT_SECRET:-}
       - WEBEX_REDIRECT_URI=${WEBEX_REDIRECT_URI:-}
+      # Audit log storage is owned by the lightweight Python audit-service.
+      - AUDIT_LOG_BACKEND=${AUDIT_LOG_BACKEND:-service}
+      - AUDIT_SERVICE_URL=${AUDIT_SERVICE_URL:-http://audit-service:8010}
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health"]
       interval: 30s
@@ -501,8 +511,67 @@ services:
       retries: 3
       start_period: 30s
     command: /app/entrypoint.sh
+    depends_on:
+      audit-service:
+        condition: service_healthy
+        required: false
     profiles:
       - caipe-ui-prod
+
+  ####################################################################################################
+  #                                      Audit Service                                               #
+  ####################################################################################################
+  # Lightweight audit collector. Services emit JSON batches to this process;
+  # it owns local/S3 storage and serves bounded read queries.
+  audit-service:
+    build:
+      context: .
+      dockerfile: build/Dockerfile.audit-service
+    image: ghcr.io/cnoe-io/caipe-audit-service:${IMAGE_TAG:-0.5.16}
+    container_name: audit-service
+    ports:
+      - "127.0.0.1:${AUDIT_SERVICE_PORT:-8010}:8010"
+    environment:
+      AUDIT_SERVICE_BACKEND: ${AUDIT_SERVICE_BACKEND:-local}
+      AUDIT_SERVICE_LOCAL_PATH: /var/lib/caipe-audit-service
+      AUDIT_SERVICE_LOCAL_GZIP: ${AUDIT_SERVICE_LOCAL_GZIP:-true}
+      AUDIT_SERVICE_LOCAL_RETENTION_DAYS: ${AUDIT_SERVICE_LOCAL_RETENTION_DAYS:-1}
+      AUDIT_SERVICE_S3_BUCKET: ${AUDIT_SERVICE_S3_BUCKET:-}
+      AUDIT_SERVICE_S3_PREFIX: ${AUDIT_SERVICE_S3_PREFIX:-audit}
+      AUDIT_SERVICE_S3_REGION: ${AUDIT_SERVICE_S3_REGION:-us-east-2}
+      AUDIT_SERVICE_S3_ENDPOINT_URL: ${AUDIT_SERVICE_S3_ENDPOINT_URL:-}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
+      AWS_REGION: ${AWS_REGION:-us-east-2}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-2}
+      AUDIT_SERVICE_QUEUE_MAX_SIZE: ${AUDIT_SERVICE_QUEUE_MAX_SIZE:-10000}
+      AUDIT_SERVICE_FLUSH_BATCH_SIZE: ${AUDIT_SERVICE_FLUSH_BATCH_SIZE:-500}
+      AUDIT_SERVICE_FLUSH_INTERVAL_SECONDS: ${AUDIT_SERVICE_FLUSH_INTERVAL_SECONDS:-1}
+      AUDIT_SERVICE_READ_DEFAULT_LIMIT: ${AUDIT_SERVICE_READ_DEFAULT_LIMIT:-1000}
+      AUDIT_SERVICE_READ_MAX_LIMIT: ${AUDIT_SERVICE_READ_MAX_LIMIT:-10000}
+      AUDIT_SERVICE_READ_MAX_DAYS: ${AUDIT_SERVICE_READ_MAX_DAYS:-31}
+    volumes:
+      - audit_service_data:/var/lib/caipe-audit-service
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import json,urllib.request,sys; r=urllib.request.urlopen('http://127.0.0.1:8010/readyz',timeout=3); sys.exit(0 if r.status==200 and json.load(r).get('status')=='ready' else 1)"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    profiles:
+      - audit-service
+      - caipe-supervisor
+      - caipe-ui-prod
+      - dynamic-agents
+      - slack-bot
+      - webex-bot
+      - rbac
 
   ####################################################################################################
   #                                      RAG Services                                                #
@@ -587,6 +656,8 @@ services:
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse-web:3000}
+      # Audit log storage is owned by the lightweight Python audit-service.
+      - AUDIT_SERVICE_URL=${AUDIT_SERVICE_URL:-http://audit-service:8010}
       # Runtime configuration
       - AGENT_RUNTIME_TTL_SECONDS=${AGENT_RUNTIME_TTL_SECONDS:-3600}
       - CORS_ORIGINS=${DYNAMIC_AGENTS_CORS_ORIGINS:-["*"]}
@@ -654,44 +725,6 @@ services:
     depends_on: [rag-server]
     profiles:
       - jira-ingestor
-
-  rag_s3_ingestor:
-    image: ghcr.io/cnoe-io/caipe-rag-ingestors:${IMAGE_TAG:-0.2.36}
-    container_name: s3-ingestor
-    volumes:
-      - ${HOME}/.aws:/home/app/.aws:ro
-    environment:
-      - INGESTOR_TYPE=s3
-      - AWS_CONFIG_FILE=/home/app/.aws/config
-      - AWS_SHARED_CREDENTIALS_FILE=/home/app/.aws/credentials
-      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
-      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
-      - AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN:-}
-      - AWS_REGION=${AWS_REGION:-}
-      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-us-east-2}
-      - AWS_ACCOUNT_LIST=${AWS_ACCOUNT_LIST:-}
-      - CROSS_ACCOUNT_ROLE_NAME=${CROSS_ACCOUNT_ROLE_NAME:-caipe-read-only}
-      - S3_BUCKETS=${S3_BUCKETS:-}
-      - S3_ALLOWED_FILES_AND_EXTENSIONS=${S3_ALLOWED_FILES_AND_EXTENSIONS:-}
-      - S3_IGNORE_PREFIXES=${S3_IGNORE_PREFIXES:-}
-      - S3_IGNORE_REGEX=${S3_IGNORE_REGEX:-}
-      - S3_MAX_FILES_PER_BUCKET=${S3_MAX_FILES_PER_BUCKET:-2000}
-      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag-server:9446}
-      - SYNC_INTERVAL=${SYNC_INTERVAL:-86400}
-      - INIT_DELAY_SECONDS=${INIT_DELAY_SECONDS:-0}
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - EXIT_AFTER_FIRST_SYNC=${EXIT_AFTER_FIRST_SYNC:-false}
-      - MAX_DOCUMENTS_PER_INGEST=${MAX_DOCUMENTS_PER_INGEST:-1000}
-      - INGESTOR_OIDC_ISSUER=${INGESTOR_OIDC_ISSUER:-}
-      - INGESTOR_OIDC_CLIENT_ID=${INGESTOR_OIDC_CLIENT_ID:-}
-      - INGESTOR_OIDC_CLIENT_SECRET=${INGESTOR_OIDC_CLIENT_SECRET:-}
-      - INGESTOR_OIDC_DISCOVERY_URL=${INGESTOR_OIDC_DISCOVERY_URL:-}
-      - INGESTOR_OIDC_SCOPE=${INGESTOR_OIDC_SCOPE:-}
-    env_file: [.env]
-    restart: no
-    depends_on: [rag-server]
-    profiles:
-      - s3-ingestor
 
   # RAG Dependencies
   neo4j:
@@ -1018,12 +1051,17 @@ services:
       - OPENFGA_HTTP=${OPENFGA_HTTP:-http://openfga:8080}
       - OPENFGA_STORE_NAME=${OPENFGA_STORE_NAME:-caipe-openfga}
       - OPENFGA_STORE_ID=${OPENFGA_STORE_ID:-}
+      - AUDIT_SERVICE_URL=${AUDIT_SERVICE_URL:-http://audit-service:8010}
       # Spec 103: JIT user creation. See docker-compose.dev.yaml for full
       # description. Defaults to true so first-time DMs work out-of-box.
       - SLACK_JIT_CREATE_USER=${SLACK_JIT_CREATE_USER:-true}
       - SLACK_JIT_ALLOWED_EMAIL_DOMAINS=${SLACK_JIT_ALLOWED_EMAIL_DOMAINS:-}
     depends_on:
-      - caipe-ui
+      caipe-ui:
+        condition: service_started
+      audit-service:
+        condition: service_healthy
+        required: false
     profiles:
       - slack-bot
       - all-integrations
@@ -1048,8 +1086,13 @@ services:
       - OPENFGA_HTTP=${OPENFGA_HTTP:-http://openfga:8080}
       - OPENFGA_STORE_NAME=${OPENFGA_STORE_NAME:-caipe-openfga}
       - OPENFGA_STORE_ID=${OPENFGA_STORE_ID:-}
+      - AUDIT_SERVICE_URL=${AUDIT_SERVICE_URL:-http://audit-service:8010}
     depends_on:
-      - caipe-ui
+      caipe-ui:
+        condition: service_started
+      audit-service:
+        condition: service_healthy
+        required: false
     profiles:
       - webex-bot
       - all-integrations
@@ -1376,8 +1419,7 @@ services:
       # set CAIPE_CALLER_TOOL_CHECK_ENABLED=true (in .env) to enforce the dual
       # agent+caller tool check for E2E.
       CAIPE_CALLER_TOOL_CHECK_ENABLED: ${CAIPE_CALLER_TOOL_CHECK_ENABLED:-false}
-      MONGODB_URI: ${MONGODB_URI:-mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin}
-      MONGODB_DATABASE: ${MONGODB_DATABASE:-caipe}
+      AUDIT_SERVICE_URL: ${AUDIT_SERVICE_URL:-http://audit-service:8010}
       TENANT_ID: ${TENANT_ID:-default}
       AUDIT_SUBJECT_SALT: ${AUDIT_SUBJECT_SALT:-caipe-098-audit}
     ports:
@@ -1396,6 +1438,9 @@ services:
         condition: service_completed_successfully
       openfga:
         condition: service_healthy
+      audit-service:
+        condition: service_healthy
+        required: false
 
   agentgateway-config-bridge:
     build:
@@ -1521,6 +1566,8 @@ volumes:
   openfga_postgres_data:
     driver: local
   agentgateway_config:
+    driver: local
+  audit_service_data:
     driver: local
   keycloak_postgres_data:
     driver: local

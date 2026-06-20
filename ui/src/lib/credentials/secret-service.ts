@@ -49,10 +49,6 @@ interface PayloadStore {
   deleteSecret?(secretRefId: string): Promise<void>;
 }
 
-interface AuditCollection {
-  insertOne(document: Record<string, unknown>): Promise<unknown>;
-}
-
 type AuthorizeSecretAction = (
   session: ResourceAuthzSession,
   target: { type: "secret_ref"; id: string; action: "read-metadata" | "use" | "manage" | "share" | "audit" },
@@ -61,7 +57,6 @@ type AuthorizeSecretAction = (
 export interface SecretServiceOptions {
   secretRefsCollection: SecretRefsCollection;
   payloadStore: PayloadStore;
-  auditCollection: AuditCollection;
   authorize: AuthorizeSecretAction;
   reconcileOwnerRelationships?: (input: {
     secretId: string;
@@ -136,7 +131,6 @@ function toMetadata(doc: SecretRefDocument): SecretMetadata {
 export class SecretService {
   private readonly secretRefsCollection: SecretRefsCollection;
   private readonly payloadStore: PayloadStore;
-  private readonly auditCollection: AuditCollection;
   private readonly authorize: AuthorizeSecretAction;
   private readonly reconcileOwnerRelationships: NonNullable<SecretServiceOptions["reconcileOwnerRelationships"]>;
   private readonly reconcileShare: NonNullable<SecretServiceOptions["reconcileShare"]>;
@@ -148,7 +142,6 @@ export class SecretService {
   constructor(options: SecretServiceOptions) {
     this.secretRefsCollection = options.secretRefsCollection;
     this.payloadStore = options.payloadStore;
-    this.auditCollection = options.auditCollection;
     this.authorize = options.authorize;
     this.reconcileOwnerRelationships = options.reconcileOwnerRelationships ?? (async () => undefined);
     this.reconcileShare = options.reconcileShare ?? (async () => undefined);
@@ -184,7 +177,7 @@ export class SecretService {
       ownerSubject: typeof input.session.sub === "string" ? input.session.sub : null,
     });
     await this.secretRefsCollection.insertOne(doc);
-    await writeCredentialAuditEvent(this.auditCollection, {
+    writeCredentialAuditEvent({
       action: "credential.create",
       actor: { type: "user", id: String(input.session.sub ?? "unknown") },
       resource: { type: "secret_ref", id },
@@ -264,7 +257,7 @@ export class SecretService {
         },
       },
     );
-    await writeCredentialAuditEvent(this.auditCollection, {
+    writeCredentialAuditEvent({
       action: "credential.rotate",
       actor: { type: "user", id: String(input.session.sub ?? "unknown") },
       resource: { type: "secret_ref", id: input.secretId },

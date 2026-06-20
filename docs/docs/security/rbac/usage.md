@@ -434,9 +434,11 @@ underlying tuple list when needed.
 
 ### Authz Audit Storage
 
-Authorization audit is MongoDB-backed in local dev. Use Admin → Security &
-Policy → RBAC Audit as the durable view for OpenFGA checks and authorization
-decisions; the dev compose stack does not start a separate trace backend.
+Authorization audit is owned by `audit-service`. UI, Dynamic Agents, bots, and
+the OpenFGA bridge post JSON event batches to the service; the service owns
+local/S3 storage and the Admin → Security & Policy → RBAC Audit read path. In
+local dev the service uses local disk unless configured for S3. The dev compose
+stack does not start a separate trace backend.
 
 See [Architecture › Component 5: Dynamic Agents](./architecture.md#component-5-dynamic-agents--the-workshop-floor) for the full env var table and what each one does.
 

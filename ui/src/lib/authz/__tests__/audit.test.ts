@@ -2,15 +2,11 @@
  * @jest-environment node
  */
 
-const mockInsertOne = jest.fn();
-const mockGetCollection = jest.fn(async () => ({ insertOne: mockInsertOne }));
-let mongoConfigured = true;
+const mockWrite = jest.fn();
+const mockGetAuditBackend = jest.fn(() => ({ write: mockWrite }));
 
-jest.mock("@/lib/mongodb", () => ({
-  getCollection: (...a: unknown[]) => mockGetCollection(...a),
-  get isMongoDBConfigured() {
-    return mongoConfigured;
-  },
+jest.mock("@/lib/audit", () => ({
+  getAuditBackend: () => mockGetAuditBackend(),
 }));
 
 import { buildDecisionEvent, buildGrantEvent, emitDecisionAudit, emitGrantAudit } from "../audit";
@@ -20,8 +16,7 @@ const resource = { type: "agent" as const, id: "platform-engineer" };
 
 beforeEach(() => {
   jest.clearAllMocks();
-  mongoConfigured = true;
-  mockInsertOne.mockResolvedValue({ acknowledged: true });
+  mockGetAuditBackend.mockReturnValue({ write: mockWrite });
 });
 
 describe("buildDecisionEvent — UnifiedAuditEvent conformance", () => {
@@ -38,6 +33,7 @@ describe("buildDecisionEvent — UnifiedAuditEvent conformance", () => {
       pdp: "openfga",
       source: "cas",
       component: "cas",
+      subject_ref: "user:alice",
     });
     expect(e.subject_hash).toMatch(/^sha256:/);
     expect(e.subject_hash).not.toContain("alice"); // salted, not raw
@@ -79,25 +75,18 @@ describe("buildDecisionEvent — UnifiedAuditEvent conformance", () => {
 });
 
 describe("emitDecisionAudit", () => {
-  it("inserts the event into audit_events when Mongo is configured", async () => {
+  it("writes the event through the audit backend", () => {
     emitDecisionAudit(subject, resource, "use", { decision: "ALLOW", reason: "OK", retriable: false });
-    await new Promise((r) => setImmediate(r)); // let the fire-and-forget settle
-    expect(mockGetCollection).toHaveBeenCalledWith("audit_events");
-    expect(mockInsertOne).toHaveBeenCalledTimes(1);
-    expect(mockInsertOne.mock.calls[0][0]).toMatchObject({ type: "cas_decision", outcome: "allow" });
+    expect(mockWrite).toHaveBeenCalledTimes(1);
+    expect(mockWrite.mock.calls[0][0]).toMatchObject({ type: "cas_decision", outcome: "allow" });
   });
 
-  it("is a no-op when Mongo is not configured", () => {
-    mongoConfigured = false;
-    emitDecisionAudit(subject, resource, "use", { decision: "ALLOW", reason: "OK", retriable: false });
-    expect(mockGetCollection).not.toHaveBeenCalled();
-  });
-
-  it("swallows insert failures (never throws into the decision path)", async () => {
-    mockInsertOne.mockRejectedValue(new Error("mongo down"));
+  it("swallows backend lookup failures (never throws into the decision path)", () => {
+    mockGetAuditBackend.mockImplementationOnce(() => {
+      throw new Error("audit-service down");
+    });
     const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
     expect(() => emitDecisionAudit(subject, resource, "use", { decision: "DENY", reason: "NO_CAPABILITY", retriable: false })).not.toThrow();
-    await new Promise((r) => setImmediate(r));
     expect(warn).toHaveBeenCalled();
     warn.mockRestore();
   });
@@ -122,6 +111,8 @@ describe("buildGrantEvent — policy-change audit conformance", () => {
       type: "cas_grant",
       tenant_id: "acme",
       correlation_id: "corr-grant-1",
+      subject_ref: "user:alice",
+      actor_ref: "user:alice",
       caller_ref: "user:alice",
       grantee_ref: "team:eng",
       action: "use",
@@ -167,10 +158,10 @@ describe("buildGrantEvent — policy-change audit conformance", () => {
 });
 
 describe("emitGrantAudit", () => {
-  it("inserts cas_grant when Mongo is configured and caller is present", async () => {
+  it("writes cas_grant when caller is present", async () => {
     await emitGrantAudit("grant", grantIntent, { caller, tenantId: "acme", correlationId: "c-1" });
-    expect(mockInsertOne).toHaveBeenCalledTimes(1);
-    expect(mockInsertOne.mock.calls[0][0]).toMatchObject({
+    expect(mockWrite).toHaveBeenCalledTimes(1);
+    expect(mockWrite.mock.calls[0][0]).toMatchObject({
       type: "cas_grant",
       caller_ref: "user:alice",
       operation: "grant",
@@ -180,32 +171,27 @@ describe("emitGrantAudit", () => {
 
   it("is a no-op without caller (never writes anonymous policy changes)", async () => {
     await emitGrantAudit("grant", grantIntent, { tenantId: "acme" });
-    expect(mockInsertOne).not.toHaveBeenCalled();
-  });
-
-  it("is a no-op when Mongo is not configured", async () => {
-    mongoConfigured = false;
-    await emitGrantAudit("grant", grantIntent, { caller });
-    expect(mockGetCollection).not.toHaveBeenCalled();
+    expect(mockWrite).not.toHaveBeenCalled();
   });
 
   it("persists failed attempts when outcome is error", async () => {
-    mongoConfigured = true;
     await emitGrantAudit("revoke", grantIntent, { caller }, { outcome: "error", reasonCode: "PDP_WRITE_FAILED" });
-    expect(mockInsertOne.mock.calls[0][0]).toMatchObject({
+    expect(mockWrite.mock.calls[0][0]).toMatchObject({
       outcome: "error",
       reason_code: "PDP_WRITE_FAILED",
       operation: "revoke",
     });
   });
 
-  it("swallows insert failures (never throws into the grant path)", async () => {
-    mockInsertOne.mockRejectedValue(new Error("mongo down"));
+  it("swallows backend lookup failures (never throws into the grant path)", async () => {
+    mockGetAuditBackend.mockImplementationOnce(() => {
+      throw new Error("audit-service down");
+    });
     const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
     await expect(
       emitGrantAudit("grant", grantIntent, { caller }, { outcome: "error", reasonCode: "NO_CAPABILITY" }),
     ).resolves.toBeUndefined();
-    expect(warn).toHaveBeenCalledWith("[cas/audit] Failed to persist grant event:", expect.any(Error));
+    expect(warn).toHaveBeenCalledWith("[cas/audit] Failed to enqueue audit event:", expect.any(Error));
     warn.mockRestore();
   });
 });

@@ -1,10 +1,10 @@
 """Spec 102 T027 — unit tests for `audit.log_authz_decision`.
 
 Covers:
-  - successful Mongo write                   → document persisted
-  - Mongo write failure                      → does NOT raise (FR-007)
+  - successful audit-service write           → event batch posted
+  - audit-service write failure              → does NOT raise (FR-007)
   - invalid `reason`                         → silently dropped (defensive)
-  - persisted document validates against the JSON schema in
+  - decision document validates against the JSON schema in
     `docs/docs/specs/102-comprehensive-rbac-tests-and-completion/contracts/audit-event.schema.json`
 """
 
@@ -26,19 +26,13 @@ _SCHEMA_PATH = (
 )
 
 
-def test_successful_write_persists_doc() -> None:
-    captured: dict[str, Any] = {}
+def test_successful_write_posts_service_event(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AUDIT_LOG_BACKEND", "service")
+    monkeypatch.setenv("AUDIT_SERVICE_URL", "http://audit-service:8010")
+    mock_client = MagicMock()
+    mock_client.__enter__.return_value = mock_client
 
-    fake_collection = MagicMock()
-    fake_collection.insert_one.side_effect = lambda doc: captured.update(doc) or MagicMock()
-
-    fake_db = MagicMock()
-    fake_db.__getitem__.return_value = fake_collection
-
-    fake_client = MagicMock()
-    fake_client.__getitem__.return_value = fake_db
-
-    with patch("pymongo.MongoClient", return_value=fake_client):
+    with patch("httpx.Client", return_value=mock_client):
         audit.log_authz_decision(
             user_id="alice-sub",
             resource="admin_ui",
@@ -52,29 +46,41 @@ def test_successful_write_persists_doc() -> None:
             pdp="keycloak",
         )
 
+    mock_client.post.assert_called_once()
+    url, = mock_client.post.call_args.args
+    payload = mock_client.post.call_args.kwargs["json"]
+    captured = payload["events"][0]
+
+    assert url == "http://audit-service:8010/v1/audit/events"
     assert captured["userId"] == "alice-sub"
     assert captured["userEmail"] == "alice@example.com"
     assert captured["resource"] == "admin_ui"
     assert captured["scope"] == "view"
     assert captured["allowed"] is True
     assert captured["reason"] == "OK"
-    assert captured["source"] == "py"
+    assert captured["source"] == "supervisor"
     assert captured["service"] == "ui"
     assert captured["route"] == "GET /api/admin/users"
     assert captured["requestId"] == "req-123"
     assert captured["pdp"] == "keycloak"
+    assert captured["type"] == "auth"
+    assert captured["tenant_id"] == "default"
+    assert captured["subject_hash"].startswith("sha256:")
+    assert captured["action"] == "admin_ui#view"
+    assert captured["outcome"] == "allow"
+    assert captured["correlation_id"] == "req-123"
     assert "ts" in captured
+    mock_client.post.return_value.raise_for_status.assert_called_once()
 
 
-def test_mongo_failure_does_not_raise() -> None:
-    fake_collection = MagicMock()
-    fake_collection.insert_one.side_effect = RuntimeError("mongo down")
-    fake_db = MagicMock()
-    fake_db.__getitem__.return_value = fake_collection
-    fake_client = MagicMock()
-    fake_client.__getitem__.return_value = fake_db
+def test_service_failure_does_not_raise(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AUDIT_LOG_BACKEND", "service")
+    monkeypatch.setenv("AUDIT_SERVICE_URL", "http://audit-service:8010")
+    mock_client = MagicMock()
+    mock_client.__enter__.return_value = mock_client
+    mock_client.post.side_effect = RuntimeError("audit-service down")
 
-    with patch("pymongo.MongoClient", return_value=fake_client):
+    with patch("httpx.Client", return_value=mock_client):
         # Must NOT raise — FR-007.
         audit.log_authz_decision(
             user_id="bob-sub",
@@ -87,13 +93,7 @@ def test_mongo_failure_does_not_raise() -> None:
 
 
 def test_invalid_reason_is_silently_dropped() -> None:
-    fake_collection = MagicMock()
-    fake_db = MagicMock()
-    fake_db.__getitem__.return_value = fake_collection
-    fake_client = MagicMock()
-    fake_client.__getitem__.return_value = fake_db
-
-    with patch("pymongo.MongoClient", return_value=fake_client):
+    with patch("httpx.Client") as mock_client_cls:
         audit.log_authz_decision(
             user_id="carol-sub",
             resource="rag",
@@ -103,7 +103,7 @@ def test_invalid_reason_is_silently_dropped() -> None:
             service="rag_server",
         )
 
-    fake_collection.insert_one.assert_not_called()
+    mock_client_cls.assert_not_called()
 
 
 def test_document_validates_against_schema() -> None:
@@ -115,14 +115,8 @@ def test_document_validates_against_schema() -> None:
     schema = json.loads(_SCHEMA_PATH.read_text(encoding="utf-8"))
 
     captured: dict[str, Any] = {}
-    fake_collection = MagicMock()
-    fake_collection.insert_one.side_effect = lambda doc: captured.update(doc) or MagicMock()
-    fake_db = MagicMock()
-    fake_db.__getitem__.return_value = fake_collection
-    fake_client = MagicMock()
-    fake_client.__getitem__.return_value = fake_db
 
-    with patch("pymongo.MongoClient", return_value=fake_client):
+    with patch.object(audit, "_write_service_event", side_effect=lambda doc: captured.update(doc)):
         audit.log_authz_decision(
             user_id="alice-sub",
             resource="admin_ui",

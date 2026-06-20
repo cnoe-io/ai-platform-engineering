@@ -1,6 +1,6 @@
 # Copyright 2025 CNOE Contributors
 # SPDX-License-Identifier: Apache-2.0
-
+# assisted-by claude code claude-sonnet-4-6
 """Unit tests for ai_platform_engineering.utils.audit_logger."""
 
 from __future__ import annotations
@@ -10,13 +10,16 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 import ai_platform_engineering.utils.audit_logger as audit_logger
+import ai_platform_engineering.utils.audit_backend as audit_backend_module
 
 
 @pytest.fixture(autouse=True)
-def reset_audit_module_state():
-    audit_logger._audit_state["indexes_ensured"] = False
+def reset_backend_singleton():
+    """Reset the backend singleton between tests."""
+    original = audit_backend_module._backend
+    audit_backend_module._backend = None
     yield
-    audit_logger._audit_state["indexes_ensured"] = False
+    audit_backend_module._backend = original
 
 
 def test_hash_subject_is_stable():
@@ -27,8 +30,9 @@ def test_hash_subject_is_stable():
     assert h1.startswith("sha256:")
 
 
-def test_log_audit_event_returns_event_shape():
-    with patch.object(audit_logger, "_persist_to_mongo", lambda _e: None):
+def test_log_audit_event_calls_backend_write():
+    mock_backend = MagicMock()
+    with patch.object(audit_logger, "get_audit_backend", return_value=mock_backend):
         ev = audit_logger.log_audit_event(
             event_type="auth",
             outcome="allow",
@@ -36,6 +40,8 @@ def test_log_audit_event_returns_event_shape():
             user_email="alice@example.com",
             agent_name="supervisor",
         )
+
+    mock_backend.write.assert_called_once_with(ev)
     assert ev["type"] == "auth"
     assert ev["outcome"] == "allow"
     assert ev["action"] == "test#view"
@@ -45,37 +51,27 @@ def test_log_audit_event_returns_event_shape():
     assert ev["subject_hash"].startswith("sha256:")
 
 
-def test_persist_to_mongo_skips_when_no_client():
-    with patch.object(audit_logger, "get_mongodb_client", return_value=None):
-        audit_logger._persist_to_mongo({"ts": "x", "type": "auth"})
+def test_log_audit_event_returns_event_with_required_fields():
+    mock_backend = MagicMock()
+    with patch.object(audit_logger, "get_audit_backend", return_value=mock_backend):
+        ev = audit_logger.log_audit_event(
+            event_type="tool_action",
+            outcome="success",
+            action="argocd_list_applications",
+            tool_name="argocd",
+        )
+    assert ev["type"] == "tool_action"
+    assert ev["tool_name"] == "argocd"
+    assert ev["subject_hash"].startswith("sha256:")
 
 
-def test_persist_to_mongo_inserts_and_ensures_indexes():
-    mock_coll = MagicMock()
-    mock_db = MagicMock()
-    mock_db.__getitem__.return_value = mock_coll
-    mock_client = MagicMock()
-    mock_client.__getitem__.return_value = mock_db
-
-    with patch.object(audit_logger, "get_mongodb_client", return_value=mock_client):
-        with patch.dict("os.environ", {"MONGODB_DATABASE": "caipe"}):
-            audit_logger._persist_to_mongo({"type": "tool_action", "action": "t"})
-
-    mock_coll.insert_one.assert_called_once()
-    mock_coll.create_index.assert_called()
-
-
-def test_persist_to_mongo_swallows_pymongo_error():
-    from pymongo.errors import PyMongoError
-
-    mock_coll = MagicMock()
-    mock_coll.insert_one.side_effect = PyMongoError("down")
-    mock_coll.create_index = MagicMock()
-    mock_db = MagicMock()
-    mock_db.__getitem__.return_value = mock_coll
-    mock_client = MagicMock()
-    mock_client.__getitem__.return_value = mock_db
-
-    with patch.object(audit_logger, "get_mongodb_client", return_value=mock_client):
-        with patch.dict("os.environ", {"MONGODB_DATABASE": "caipe"}):
-            audit_logger._persist_to_mongo({"type": "auth"})
+def test_log_audit_event_always_calls_backend_write():
+    """Verify write is called regardless of event content; backend is responsible for error handling."""
+    mock_backend = MagicMock()
+    with patch.object(audit_logger, "get_audit_backend", return_value=mock_backend):
+        audit_logger.log_audit_event(
+            event_type="auth",
+            outcome="deny",
+            action="admin_ui#view",
+        )
+    mock_backend.write.assert_called_once()

@@ -21,7 +21,11 @@ serviceAccount:
   create: true
   # -- Automount the service account API token
   automount: true
-  # -- Annotations to add to the service account
+  # -- Annotations to add to the service account.
+  # For IRSA on EKS, add:
+  #   eks.amazonaws.com/role-arn: "arn:aws:iam::<ACCOUNT_ID>:role/<ROLE_NAME>"
+  # The EKS pod identity webhook injects AWS_ROLE_ARN + AWS_WEB_IDENTITY_TOKEN_FILE
+  # automatically — no env var configuration needed for S3 audit log credentials.
   annotations: {}
   # -- Override the service account name. Generated from fullname template when empty
   name: ""
@@ -194,6 +198,9 @@ externalSecrets:
 # -- Non-sensitive environment variables injected into the supervisor container
 env:
   EXTERNAL_URL: "http://localhost:8000"
+  # -- Audit log writes go through audit-service; it owns local/S3 storage.
+  # AUDIT_LOG_BACKEND: "service"
+  # AUDIT_SERVICE_URL: "http://audit-service:8010"
   # -- Strip skill payloads (SKILL.md bodies, ancillary files,
   # skills_metadata channel) and task_config workflow prompts
   # (tasks/todos channels, get_workflow_definition output,

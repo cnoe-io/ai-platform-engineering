@@ -3,77 +3,39 @@
 """
 Unified Audit Logger
 
-Writes structured audit events to the ``audit_events`` MongoDB collection.
+Writes structured audit events to audit-service.
 Covers three event types:
   - **auth**:             RBAC authorization allow/deny decisions
   - **tool_action**:      Tool invocations (start, success, error)
   - **agent_delegation**: Supervisor-to-sub-agent delegation events
 
 All writes are fire-and-forget so audit persistence never blocks the
-request or streaming path.  When MongoDB is unavailable the event is
-emitted as structured JSON to the Python logger for log-aggregation
-pipelines.
+request or streaming path. Backend failures are logged by the audit backend.
 """
 
 import hashlib
 import logging
 import os
-import threading
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, Literal, Optional
 
-from pymongo.errors import PyMongoError
-
-from .mongodb_client import get_mongodb_client
+from .audit_backend import get_audit_backend
 
 try:
     from loguru import logger
 except ImportError:
     logger = logging.getLogger(__name__)
 
-AUDIT_COLLECTION = "audit_events"
 SUBJECT_SALT = os.getenv("AUDIT_SUBJECT_SALT", "caipe-098-audit")
 
 AuditEventType = Literal["auth", "tool_action", "agent_delegation"]
 AuditOutcome = Literal["allow", "deny", "success", "error"]
 AuditSource = Literal["bff", "supervisor", "slack"]
 
-_indexes_lock = threading.Lock()
-# Use a mutable container so the lazy-init write path is recognised as a real
-# mutation by CodeQL's `py/unused-global-variable` analyser. The original
-# `_indexes_ensured` scalar tripped that check because the write at the bottom
-# of `_ensure_indexes()` does not directly reach the reads at the top of the
-# same function (cross-invocation only).
-_audit_state: Dict[str, bool] = {"indexes_ensured": False}
-
 
 def _hash_subject(sub: str) -> str:
     return f"sha256:{hashlib.sha256(f'{SUBJECT_SALT}:{sub}'.encode()).hexdigest()}"
-
-
-def _ensure_indexes() -> None:
-    """Create indexes on first write (idempotent, called once per process)."""
-    if _audit_state["indexes_ensured"]:
-        return
-    with _indexes_lock:
-        if _audit_state["indexes_ensured"]:
-            return
-        client = get_mongodb_client()
-        if client is None:
-            return
-        database = os.getenv("MONGODB_DATABASE", "caipe")
-        try:
-            coll = client[database][AUDIT_COLLECTION]
-            coll.create_index([("ts", -1)])
-            coll.create_index([("type", 1), ("ts", -1)])
-            coll.create_index([("subject_hash", 1), ("ts", -1)])
-            coll.create_index([("agent_name", 1), ("ts", -1)])
-            coll.create_index([("correlation_id", 1)])
-            _audit_state["indexes_ensured"] = True
-            logger.info("audit_events indexes ensured")
-        except PyMongoError as exc:
-            logger.warning(f"Failed to create audit_events indexes: {exc}")
 
 
 def log_audit_event(
@@ -161,19 +123,5 @@ def log_audit_event(
         f"agent={agent_name} tool={tool_name} user={user_email}"
     )
 
-    _persist_to_mongo(event)
+    get_audit_backend().write(event)
     return event
-
-
-def _persist_to_mongo(event: Dict[str, Any]) -> None:
-    """Fire-and-forget insert into MongoDB."""
-    client = get_mongodb_client()
-    if client is None:
-        return
-    _ensure_indexes()
-    database = os.getenv("MONGODB_DATABASE", "caipe")
-    try:
-        coll = client[database][AUDIT_COLLECTION]
-        coll.insert_one(event)
-    except PyMongoError as exc:
-        logger.warning(f"[audit] Failed to persist audit event: {exc}")
