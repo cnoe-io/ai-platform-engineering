@@ -229,7 +229,7 @@ describe("MigrationTab", () => {
               { schema_area: "conversations", current_version: 1, target_version: 2, status: "behind" },
               { schema_area: "messaging_rebac_indexes", current_version: null, target_version: 2, status: "unknown" },
               { schema_area: "conversation_bookmarks", current_version: 2, target_version: 2, status: "current" },
-              { schema_area: "audit_events", current_version: null, target_version: null, status: "unknown" },
+              { schema_area: "rbac_indexes", current_version: null, target_version: null, status: "unknown" },
             ],
             migrations: [],
             completed_migrations: [],
@@ -259,12 +259,12 @@ describe("MigrationTab", () => {
     const messagingCard = screen.getByText("messaging_rebac_indexes").closest(".rounded-lg");
     expect(messagingCard?.querySelector("svg")).toHaveClass("text-amber-600");
     expect(screen.queryByText("conversation_bookmarks")).not.toBeInTheDocument();
-    expect(screen.queryByText("audit_events")).not.toBeInTheDocument();
+    expect(screen.queryByText("rbac_indexes")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByLabelText(/Show collections without pending migrations/i));
 
     expect(await screen.findByText("conversation_bookmarks")).toBeInTheDocument();
-    expect(screen.getByText("audit_events")).toBeInTheDocument();
+    expect(screen.getByText("rbac_indexes")).toBeInTheDocument();
   });
 
   it("lets admins initialize all version-only schema areas to v1", async () => {

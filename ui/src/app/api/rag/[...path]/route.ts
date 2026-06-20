@@ -820,6 +820,16 @@ export async function GET(
       targetUrl.searchParams.append(key, value);
     });
 
+    if (request.method === 'GET' && targetPath === 'healthz') {
+      // assisted-by Codex Codex-sonnet-4-6
+      // Health is a readiness probe, not a data operation. Keep KB/query/admin
+      // routes RBAC-gated, but let UI status checks verify that RAG is up even
+      // when the browser session has no downstream Keycloak access token.
+      const response = await fetch(targetUrl.toString(), { method: 'GET' });
+      const data = await response.json();
+      return NextResponse.json(data, { status: response.status });
+    }
+
     const { headers, session } = await getAuthorizedRagContext('GET', path, request);
     const response = await fetch(targetUrl.toString(), {
       method: 'GET',
