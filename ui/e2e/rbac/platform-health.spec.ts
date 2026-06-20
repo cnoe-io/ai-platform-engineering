@@ -1,4 +1,5 @@
 // assisted-by claude code claude-sonnet-4-6
+// assisted-by Codex Codex-sonnet-4-6
 /**
  * E2e tests for the Platform Health widget in the AppHeader.
  *
@@ -12,7 +13,7 @@
  *   - /api/platform/health never returns 500
  */
 
-import { test, expect, type Route } from "@playwright/test";
+import { test, expect } from "@playwright/test";
 import {
   fulfillJson,
   installMockedRbacApp,
@@ -110,7 +111,7 @@ async function setupWithHealth(
 // ---------------------------------------------------------------------------
 
 test.describe("Platform Health widget", () => {
-  test.beforeEach(({ page: _page }) => {
+  test.beforeEach(() => {
     if (!mockedRbacEnabled()) {
       test.skip(true, "Set RUN_RBAC_E2E=1 to run platform health e2e tests.");
     }
@@ -187,9 +188,7 @@ test.describe("Platform Health widget", () => {
     const badge = page.getByRole("button", { name: /system status/i });
     await expect(badge).toBeVisible();
 
-    // Neither the trigger dot nor the popover header dot should have animate-pulse
-    const dots = page.locator(".rounded-full").filter({ has: page.locator(":not([class*='animate-pulse'])") });
-    // More direct: assert the specific dot class does not contain animate-pulse
+    // Assert the specific badge dot class does not contain animate-pulse.
     const dot = badge.locator("div.h-2.w-2.rounded-full");
     if (await dot.count() > 0) {
       await expect(dot.first()).not.toHaveClass(/animate-pulse/);
