@@ -948,7 +948,17 @@ export async function requireRbacPermission(
  * Handle API errors and return appropriate response
  */
 export function handleApiError(error: unknown): NextResponse {
-  console.error('API Error:', error);
+  const statusCode =
+    error !== null &&
+    typeof error === 'object' &&
+    typeof (error as { statusCode?: unknown }).statusCode === 'number'
+      ? (error as { statusCode: number }).statusCode
+      : error instanceof CredentialError
+        ? error.status
+        : 500;
+  if (statusCode >= 500 || process.env.API_ERROR_LOG_4XX === 'true') {
+    console.error('API Error:', error);
+  }
 
   if (
     error instanceof ApiError ||

@@ -35,8 +35,14 @@ jest.mock("@/lib/config", () => ({
 
 const mockCheckOpenFgaTuple = jest.fn();
 const mockWriteOpenFgaTuples = jest.fn();
+const mockListOpenFgaObjects = jest.fn();
 jest.mock("@/lib/rbac/openfga", () => ({
+  batchCheckOpenFgaTuples: async (tuples: unknown[]) => {
+    const results = await Promise.all(tuples.map((tuple) => mockCheckOpenFgaTuple(tuple)));
+    return results.map((result) => result?.allowed === true);
+  },
   checkOpenFgaTuple: (...args: unknown[]) => mockCheckOpenFgaTuple(...args),
+  listOpenFgaObjects: (...args: unknown[]) => mockListOpenFgaObjects(...args),
   writeOpenFgaTuples: (...args: unknown[]) => mockWriteOpenFgaTuples(...args),
 }));
 
@@ -61,6 +67,7 @@ describe("GET /api/rbac/admin-tab-gates", () => {
       throw new Error("admin_tab_policies should not be read");
     });
     mockCheckOpenFgaTuple.mockResolvedValue({ allowed: false });
+    mockListOpenFgaObjects.mockResolvedValue({ objects: [] });
     mockWriteOpenFgaTuples.mockResolvedValue({ enabled: true, writes: 0, deletes: 0 });
   });
 

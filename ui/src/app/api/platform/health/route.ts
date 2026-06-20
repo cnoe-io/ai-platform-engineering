@@ -1,7 +1,12 @@
 import net from "node:net";
 
-import { NextResponse } from "next/server";
+import { NextRequest,NextResponse } from "next/server";
 
+import {
+createJsonResponseCacheStore,
+envTtlMs,
+withJsonResponseCache,
+} from "@/lib/server-response-cache";
 import { getKeycloakMigrationHealth } from "@/lib/rbac/keycloak-migration-health";
 import { getMigrationBlockingStatus } from "@/lib/rbac/migrations/registry";
 
@@ -29,6 +34,7 @@ interface ProbeResult {
 
 const HTTP_TIMEOUT_MS = 3000;
 const TCP_TIMEOUT_MS = 2000;
+const healthCache = createJsonResponseCacheStore();
 
 function env(name: string): string | undefined {
   return process.env[name] || process.env[`NEXT_PUBLIC_${name}`] || undefined;
@@ -38,18 +44,6 @@ function trimTrailingSlash(value: string): string {
   return value.replace(/\/$/, "");
 }
 
-// Kubernetes auto-injects {SERVICE}_PORT as "tcp://host:port" (a connection URL,
-// not a bare port number). Number("tcp://...") is NaN, which crashes net.createConnection.
-// This helper safely extracts a port from either "tcp://host:port" or a plain number string.
-function envPort(name: string, defaultPort: number): number {
-  const raw = env(name);
-  if (!raw) return defaultPort;
-  const tcpMatch = raw.match(/^tcp:\/\/[^:]+:(\d+)/);
-  if (tcpMatch) return Number(tcpMatch[1]);
-  const num = Number(raw);
-  return Number.isFinite(num) && num > 0 ? num : defaultPort;
-}
-
 async function probeHttp({
   id,
   label,
@@ -57,6 +51,8 @@ async function probeHttp({
   target,
   headers,
   remediation,
+  failureStatus = "down",
+  failureDetailPrefix,
 }: {
   id: string;
   label: string;
@@ -64,6 +60,8 @@ async function probeHttp({
   target: string;
   headers?: HeadersInit;
   remediation?: ProbeRemediation;
+  failureStatus?: ProbeStatus;
+  failureDetailPrefix?: string;
 }): Promise<ProbeResult> {
   const startedAt = Date.now();
   const controller = new AbortController();
@@ -77,12 +75,13 @@ async function probeHttp({
       cache: "no-store",
     });
     const latencyMs = Date.now() - startedAt;
+    const detail = `HTTP ${response.status}`;
     return {
       id,
       label,
       group,
-      status: response.ok ? "healthy" : "down",
-      detail: response.ok ? `HTTP ${response.status}` : `HTTP ${response.status}`,
+      status: response.ok ? "healthy" : failureStatus,
+      detail: response.ok || !failureDetailPrefix ? detail : `${failureDetailPrefix}: ${detail}`,
       target,
       latency_ms: latencyMs,
       remediation: response.ok ? undefined : remediation,
@@ -93,8 +92,13 @@ async function probeHttp({
       id,
       label,
       group,
-      status: "down",
-      detail: error instanceof Error ? error.message : "request failed",
+      status: failureStatus,
+      detail:
+        failureDetailPrefix && failureStatus === "warning"
+          ? `${failureDetailPrefix}: ${error instanceof Error ? error.message : "request failed"}`
+          : error instanceof Error
+            ? error.message
+            : "request failed",
       target,
       latency_ms: latencyMs,
       remediation,
@@ -248,7 +252,7 @@ async function probeKeycloakBootstrap(): Promise<ProbeResult> {
         id: "keycloak-bootstrap",
         label: "Keycloak Bootstrap",
         group: "bootstrap",
-        status: "down",
+        status: "warning",
         detail: health.keycloak.probe_error || `Realm ${health.keycloak.realm} needs attention`,
         target: health.keycloak.realm,
         latency_ms: null,
@@ -260,7 +264,7 @@ async function probeKeycloakBootstrap(): Promise<ProbeResult> {
         id: "keycloak-bootstrap",
         label: "Keycloak Bootstrap",
         group: "bootstrap",
-        status: "down",
+        status: "warning",
         detail:
           health.schema_area.status !== "current"
             ? `Schema ${health.schema_area.current_version ?? "unknown"} → ${health.schema_area.target_version}`
@@ -284,7 +288,7 @@ async function probeKeycloakBootstrap(): Promise<ProbeResult> {
       id: "keycloak-bootstrap",
       label: "Keycloak Bootstrap",
       group: "bootstrap",
-      status: "down",
+      status: "warning",
       detail: error instanceof Error ? error.message : "bootstrap check failed",
       target: env("KEYCLOAK_REALM") || "caipe",
       latency_ms: null,
@@ -306,7 +310,7 @@ async function probeRebacMigrations(): Promise<ProbeResult> {
         id: "rebac-migrations",
         label: "RBAC Migrations",
         group: "bootstrap",
-        status: "down",
+        status: "warning",
         detail: `${status.blocking_required_count} blocking migration${status.blocking_required_count === 1 ? "" : "s"} pending`,
         target: status.release,
         latency_ms: null,
@@ -318,7 +322,7 @@ async function probeRebacMigrations(): Promise<ProbeResult> {
         id: "rebac-migrations",
         label: "RBAC Migrations",
         group: "bootstrap",
-        status: "down",
+        status: "warning",
         detail: `${status.version_bootstrap_required_count} schema area${status.version_bootstrap_required_count === 1 ? "" : "s"} need version metadata`,
         target: status.release,
         latency_ms: null,
@@ -339,7 +343,7 @@ async function probeRebacMigrations(): Promise<ProbeResult> {
       id: "rebac-migrations",
       label: "RBAC Migrations",
       group: "bootstrap",
-      status: "down",
+      status: "warning",
       detail: error instanceof Error ? error.message : "migration status unavailable",
       target: "schema_migrations",
       latency_ms: null,
@@ -369,12 +373,40 @@ function probeWebIngestorReadiness(ragServerHealthy: boolean, redisHealthy: bool
   };
 }
 
-export async function GET(): Promise<Response> {
+function probeAuditDisabled(backend: string, auditServiceUrl: string): ProbeResult {
+  return {
+    id: "audit-service",
+    label: "Audit Service",
+    group: "storage",
+    status: "warning",
+    detail:
+      backend === "service"
+        ? "audit-service unavailable; audit events will be dropped until it is available"
+        : `AUDIT_LOG_BACKEND=${backend}; audit events will be dropped`,
+    target: auditServiceUrl,
+    latency_ms: null,
+    remediation: {
+      label: "Audit Service",
+      href: "/admin?cat=metrics&tab=health",
+      description: "Start audit-service or set AUDIT_LOG_BACKEND=service to enable durable audit collection.",
+    },
+  };
+}
+
+export async function GET(request: NextRequest): Promise<Response> {
+  return withJsonResponseCache(request, healthCache, getPlatformHealth, {
+    ttlMs: envTtlMs("PLATFORM_HEALTH_CACHE_TTL_MS", 5_000),
+    varyHeaders: [],
+    cacheableStatus: (status) => status === 200 || status === 503,
+    maxEntries: 4,
+  });
+}
+
+async function getPlatformHealth(): Promise<NextResponse> {
   const keycloakUrl = trimTrailingSlash(env("KEYCLOAK_URL") || "http://keycloak:7080");
   const keycloakRealm = env("KEYCLOAK_REALM") || "caipe";
   const openfgaUrl = trimTrailingSlash(env("OPENFGA_HTTP") || "http://openfga:8080");
   const ragServerUrl = trimTrailingSlash(env("RAG_SERVER_URL") || "http://rag-server:9446");
-  const dynamicAgentsUrl = trimTrailingSlash(env("DYNAMIC_AGENTS_URL") || env("DA_SERVER_BASE_URL") || "http://dynamic-agents:8001");
   const agentgatewayAdminUrl = trimTrailingSlash(
     env("AGENTGATEWAY_ADMIN_CONFIG_URL") || "http://agentgateway:15000/config",
   );
@@ -382,6 +414,24 @@ export async function GET(): Promise<Response> {
     env("AGENTGATEWAY_TARGETS_URL") || "http://caipe-ui:3000/api/internal/agentgateway/mcp-targets";
   const agentgatewayTargetsToken =
     env("AGENTGATEWAY_TARGETS_TOKEN") || "agentgateway-config-bridge-dev-token";
+  const auditServiceUrl = trimTrailingSlash(env("AUDIT_SERVICE_URL") || "http://audit-service:8010");
+  const auditBackend = (env("AUDIT_LOG_BACKEND") || "service").trim().toLowerCase();
+  const auditProbe =
+    auditBackend === "service"
+      ? probeHttp({
+          id: "audit-service",
+          label: "Audit Service",
+          group: "storage",
+          target: `${auditServiceUrl}/readyz`,
+          failureStatus: "warning",
+          failureDetailPrefix: "optional audit path unavailable; audit events will be dropped",
+          remediation: {
+            label: "Audit Service",
+            href: "/admin?cat=metrics&tab=health",
+            description: "Check audit-service logs, queue status, and local/S3 storage configuration.",
+          },
+        })
+      : probeAuditDisabled(auditBackend, auditServiceUrl);
 
   const probes = await Promise.all([
     probeHttp({
@@ -411,7 +461,7 @@ export async function GET(): Promise<Response> {
       label: "OpenFGA Bridge",
       group: "identity",
       host: env("OPENFGA_AUTHZ_BRIDGE_HOST") || "openfga-authz-bridge",
-      port: envPort("OPENFGA_AUTHZ_BRIDGE_PORT", 9100),
+      port: Number(env("OPENFGA_AUTHZ_BRIDGE_PORT") || 9100),
       remediation: {
         label: "OpenFGA",
         href: "/admin?cat=security&tab=openfga",
@@ -443,37 +493,27 @@ export async function GET(): Promise<Response> {
         description: "Check AgentGateway admin API and compose service logs.",
       },
     }),
-    probeHttp({
-      id: "dynamic-agents",
-      label: "Dynamic Agents",
-      group: "core",
-      target: `${dynamicAgentsUrl}/health`,
-      remediation: {
-        label: "Dynamic Agents",
-        href: "/agents",
-        description: "Check dynamic agents service logs and dependencies.",
-      },
-    }),
     probeTcp({
       id: "caipe-mongodb",
       label: "MongoDB",
       group: "storage",
       host: env("MONGODB_HOST") || "caipe-mongodb",
-      port: envPort("MONGODB_PORT", 27017),
+      port: Number(env("MONGODB_PORT") || 27017),
     }),
+    auditProbe,
     probeTcp({
       id: "keycloak-postgres",
       label: "Keycloak Postgres",
       group: "storage",
       host: env("KEYCLOAK_POSTGRES_HOST") || "keycloak-postgres",
-      port: envPort("KEYCLOAK_POSTGRES_PORT", 5432),
+      port: Number(env("KEYCLOAK_POSTGRES_PORT") || 5432),
     }),
     probeTcp({
       id: "openfga-postgres",
       label: "OpenFGA Postgres",
       group: "storage",
       host: env("OPENFGA_POSTGRES_HOST") || "openfga-postgres",
-      port: envPort("OPENFGA_POSTGRES_PORT", 5432),
+      port: Number(env("OPENFGA_POSTGRES_PORT") || 5432),
     }),
     probeHttp({
       id: "rag-server",
@@ -491,7 +531,7 @@ export async function GET(): Promise<Response> {
       label: "RAG Redis",
       group: "rag",
       host: env("RAG_REDIS_HOST") || "rag-redis",
-      port: envPort("RAG_REDIS_PORT", 6379),
+      port: Number(env("RAG_REDIS_PORT") || 6379),
     }),
     probeHttp({
       id: "milvus",
@@ -504,14 +544,14 @@ export async function GET(): Promise<Response> {
       label: "Milvus MinIO",
       group: "rag",
       host: env("MILVUS_MINIO_HOST") || "milvus-minio",
-      port: envPort("MILVUS_MINIO_PORT", 9000),
+      port: Number(env("MILVUS_MINIO_PORT") || 9000),
     }),
     probeTcp({
       id: "etcd",
       label: "etcd",
       group: "rag",
       host: env("ETCD_HOST") || "etcd",
-      port: envPort("ETCD_PORT", 2379),
+      port: Number(env("ETCD_PORT") || 2379),
     }),
     probeOpenFgaBootstrap(openfgaUrl),
     probeKeycloakBootstrap(),
@@ -527,15 +567,8 @@ export async function GET(): Promise<Response> {
     ),
   );
 
-  // RAG is optional infrastructure — unavailable RAG degrades the platform but
-  // does not take it down. Cap rag-group failures at "warning" so the overall
-  // status only goes "down" when a critical service (identity/core/storage) fails.
-  const normalizedProbes = probes.map((p) =>
-    p.group === "rag" && p.status === "down" ? { ...p, status: "warning" as ProbeStatus } : p,
-  );
-
-  const down = normalizedProbes.filter((p) => p.status === "down").length;
-  const warning = normalizedProbes.filter((p) => p.status === "warning").length;
+  const down = probes.filter((probe) => probe.status === "down").length;
+  const warning = probes.filter((probe) => probe.status === "warning").length;
   const status = down > 0 ? "down" : warning > 0 ? "degraded" : "healthy";
 
   return NextResponse.json(
@@ -543,12 +576,12 @@ export async function GET(): Promise<Response> {
       status,
       checked_at: new Date().toISOString(),
       summary: {
-        total: normalizedProbes.length,
-        healthy: normalizedProbes.length - down - warning,
+        total: probes.length,
+        healthy: probes.length - down - warning,
         warning,
         down,
       },
-      probes: normalizedProbes,
+      probes,
     },
     { status: down > 0 ? 503 : 200 },
   );
