@@ -6,7 +6,7 @@
 */ -}}
 {{- $globalVpa := dig "vpa" dict .Values.global }}
 {{- $vpaEnabled := or .Values.vpa.enabled (and $globalVpa $globalVpa.enabled) }}
-{{- if and $vpaEnabled (or (ne .Values.global.deploymentMode "single-node") .Values.remoteAgent) }}
+{{- if and $vpaEnabled (include "agent.a2a.enabled" . | eq "true") (or (ne .Values.global.deploymentMode "single-node") .Values.remoteAgent) }}
 {{- if .Values.autoscaling.enabled }}
 {{- fail "vpa.enabled and autoscaling.enabled cannot both be true - VPA conflicts with HPA on both CPU-based and memory-based scaling" }}
 {{- end }}
