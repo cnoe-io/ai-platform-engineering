@@ -488,6 +488,92 @@ describe('Archive API', () => {
         ])
       );
     });
+
+    it('default listing INCLUDES autonomous conversations (only excludes slack)', async () => {
+      // Regression: pre-fix the default branch used
+      // ``$nin: ['slack', 'autonomous']`` which contradicted the
+      // sidebar's "All" filter and made autonomous threads vanish
+      // from the All view. The fix narrows the exclusion to slack
+      // only so autonomous chats appear alongside human ones.
+      const convCollection = createMockCollection();
+      convCollection.find.mockReturnValue({
+        sort: jest.fn().mockReturnValue({
+          skip: jest.fn().mockReturnValue({
+            limit: jest.fn().mockReturnValue({
+              toArray: jest.fn().mockResolvedValue([]),
+            }),
+          }),
+        }),
+      });
+      mockCollections['conversations'] = convCollection;
+
+      const req = makeRequest('http://localhost:3000/api/chat/conversations');
+      await GET_CONVERSATIONS(req);
+
+      const findCall = convCollection.find.mock.calls[0][0];
+      // Source filter lives in $and alongside the ownership $or.
+      expect(findCall.$and).toEqual(
+        expect.arrayContaining([{ source: { $nin: ['slack'] } }]),
+      );
+    });
+
+    it('?source=autonomous still narrows to autonomous-only', async () => {
+      const convCollection = createMockCollection();
+      convCollection.find.mockReturnValue({
+        sort: jest.fn().mockReturnValue({
+          skip: jest.fn().mockReturnValue({
+            limit: jest.fn().mockReturnValue({
+              toArray: jest.fn().mockResolvedValue([]),
+            }),
+          }),
+        }),
+      });
+      mockCollections['conversations'] = convCollection;
+
+      const req = makeRequest('http://localhost:3000/api/chat/conversations?source=autonomous');
+      await GET_CONVERSATIONS(req);
+
+      const findCall = convCollection.find.mock.calls[0][0];
+      expect(findCall.$and).toEqual(
+        expect.arrayContaining([{ source: 'autonomous' }]),
+      );
+    });
+
+    it('?source=autonomous does NOT bypass owner scoping (IDOR regression)', async () => {
+      // Pre-fix the autonomous branch did `delete query.$or`, leaking
+      // every user's autonomous conversations to any authed caller.
+      const convCollection = createMockCollection();
+      convCollection.find.mockReturnValue({
+        sort: jest.fn().mockReturnValue({
+          skip: jest.fn().mockReturnValue({
+            limit: jest.fn().mockReturnValue({
+              toArray: jest.fn().mockResolvedValue([]),
+            }),
+          }),
+        }),
+      });
+      mockCollections['conversations'] = convCollection;
+
+      const req = makeRequest('http://localhost:3000/api/chat/conversations?source=autonomous');
+      await GET_CONVERSATIONS(req);
+
+      const findCall = convCollection.find.mock.calls[0][0];
+      // Ownership scope ($or) must be present and non-empty.
+      expect(findCall.$or).toBeDefined();
+      expect(findCall.$or).toEqual(
+        expect.arrayContaining([
+          { owner_id: 'user@example.com' },
+          { 'sharing.shared_with': 'user@example.com' },
+          { 'sharing.is_public': true },
+        ]),
+      );
+      // Source narrow must live inside $and (top-level `query.source`
+      // would also work but is structurally easier to regress).
+      expect(findCall.source).toBeUndefined();
+      expect(findCall.$and).toEqual(
+        expect.arrayContaining([{ source: 'autonomous' }]),
+      );
+    });
   });
 
   // --------------------------------------------------------------------------

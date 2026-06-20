@@ -42,9 +42,15 @@ import { AllowedToolsPicker } from "./AllowedToolsPicker";
 import { BuiltinToolsPicker } from "./BuiltinToolsPicker";
 import { InterruptConfigPicker } from "./InterruptConfigPicker";
 import { MiddlewarePicker } from "./MiddlewarePicker";
-import { SkillsSelector } from "./SkillsSelector";
 import { SubagentPicker } from "./SubagentPicker";
+import { SkillsSelector } from "./SkillsSelector";
 import { WorkflowToolsPicker } from "./WorkflowToolsPicker";
+import { AutonomousTasksStep } from "./AutonomousTasksStep";
+import { syncAutonomousTasks } from "./syncAutonomousTasks";
+import { isTaskOwnedByAgent } from "./taskOwnership";
+import { autonomousApi, AutonomousApiError } from "@/components/autonomous/api";
+import type { AutonomousTask } from "@/components/autonomous/types";
+import { getConfig } from "@/lib/config";
 
 // Lazy-load CodeMirror to avoid SSR issues
 const CodeMirrorEditor = React.lazy(() => import("@uiw/react-codemirror"));
@@ -128,6 +134,11 @@ const STEPS = [
     label: "Advanced", 
     hint: "Subagents, approval rules, and middleware" 
   },
+  {
+    id: "autonomous" as const,
+    label: "Autonomous",
+    hint: "Optional: schedule this agent to run automatically",
+  },
 ];
 
 type StepId = typeof STEPS[number]["id"];
@@ -140,7 +151,7 @@ function StepIndicator({
   currentStep, 
   onStepClick 
 }: { 
-  steps: typeof STEPS; 
+  steps: readonly (typeof STEPS[number])[];
   currentStep: StepId; 
   onStepClick: (stepId: StepId) => void;
 }) {
@@ -338,6 +349,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
   const isEditing = !!agent;
   const isCloning = !!cloneFrom;
   const { toast } = useToast();
+  const autonomousAgentsEnabled = getConfig('autonomousAgentsEnabled');
   
   // Source for initial values: editing agent > cloning source > empty defaults
   const source = agent || cloneFrom;
@@ -393,6 +405,10 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
   const [gradientTheme, setGradientTheme] = React.useState<string>(
     source?.ui?.gradient_theme || "default"
   );
+  const [autonomousTasks, setAutonomousTasks] = React.useState<AutonomousTask[]>([]);
+  const [autonomousTasksLoaded, setAutonomousTasksLoaded] = React.useState<AutonomousTask[]>([]);
+  const [autonomousTasksLoading, setAutonomousTasksLoading] = React.useState(false);
+  const [autonomousTasksError, setAutonomousTasksError] = React.useState<string | null>(null);
   const [customThemeConfig, setCustomThemeConfig] = React.useState<CustomThemeConfig>(
     source?.ui?.custom_theme_config || { gradient_from: "#6366f1", gradient_to: "#1e1b4b", accent_color: "#ffffff" }
   );
@@ -609,6 +625,44 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
     fetchTeams();
   }, []);
 
+  // Load the agent's existing autonomous schedules when editing, so the
+  // Autonomous step can show current tasks and the save step can diff drafts
+  // against what's already on the server. Filtered to tasks owned by this agent.
+  React.useEffect(() => {
+    if (!autonomousAgentsEnabled) return;
+    if (!isEditing || !agent?._id) return;
+    let cancelled = false;
+    const agentId = agent._id;
+    setAutonomousTasksLoading(true);
+    setAutonomousTasksError(null);
+    autonomousApi
+      .listTasks()
+      .then((all) => {
+        if (cancelled) return;
+        const mine = all.filter((t) => isTaskOwnedByAgent(t, agentId));
+        setAutonomousTasks(mine);
+        setAutonomousTasksLoaded(mine);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        if (err instanceof AutonomousApiError && (err.status === 401 || err.status === 403)) {
+          setAutonomousTasksError(
+            "You do not have permission to view autonomous schedules for this agent.",
+          );
+        } else {
+          setAutonomousTasksError(
+            err instanceof Error ? err.message : "Failed to load autonomous schedules.",
+          );
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setAutonomousTasksLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isEditing, agent?._id, autonomousAgentsEnabled]);
+
   // When editing an existing agent, find out if it is the platform default.
   // If it is, lock the visibility selector so the admin can't accidentally
   // demote `global → team` from here — the BFF would reject the request
@@ -704,12 +758,26 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
     currentValues: currentFormValues,
     snapshotKey,
   });
-  const currentStepIndex = STEPS.findIndex((s) => s.id === activeStep);
-  const currentStepConfig = STEPS.find((s) => s.id === activeStep);
+
+  // Filter the wizard step list when the autonomous-agents feature flag is off
+  // so the "Autonomous" step is hidden and step navigation math (next/prev,
+  // current index) stays consistent with what the operator actually sees.
+  const visibleSteps = React.useMemo(
+    () => STEPS.filter((step) => autonomousAgentsEnabled || step.id !== "autonomous"),
+    [autonomousAgentsEnabled],
+  );
+  const currentStepIndex = visibleSteps.findIndex((s) => s.id === activeStep);
+  const currentStepConfig = visibleSteps.find((s) => s.id === activeStep);
+
+  React.useEffect(() => {
+    if (!autonomousAgentsEnabled && activeStep === "autonomous") {
+      setActiveStep("basic");
+    }
+  }, [autonomousAgentsEnabled, activeStep]);
 
   const goToPreviousStep = () => {
     if (currentStepIndex > 0) {
-      setActiveStep(STEPS[currentStepIndex - 1].id);
+      setActiveStep(visibleSteps[currentStepIndex - 1].id);
     }
   };
 
@@ -728,8 +796,8 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
         return;
       }
     }
-    if (currentStepIndex < STEPS.length - 1) {
-      setActiveStep(STEPS[currentStepIndex + 1].id);
+    if (currentStepIndex < visibleSteps.length - 1) {
+      setActiveStep(visibleSteps[currentStepIndex + 1].id);
     }
   };
 
@@ -925,6 +993,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
             ...(gradientTheme === "custom" ? { custom_theme_config: customThemeConfig } : {}),
           }
         : undefined;
+      let savedAgentId: string;
 
       // Stamp the latest in-memory review verdict onto the saved row so the
       // list view can show a grade badge without re-running the LLM. Only
@@ -973,6 +1042,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
         if (!data.success) {
           throw new Error(data.error || "Failed to update agent");
         }
+        savedAgentId = agent._id;
       } else {
         // Create new agent
         const createData: DynamicAgentConfigCreate = {
@@ -1003,6 +1073,30 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
         const data = await response.json();
         if (!data.success) {
           throw new Error(data.error || "Failed to create agent");
+        }
+        savedAgentId = data.data?._id || generatedId;
+      }
+
+      if (autonomousAgentsEnabled && (autonomousTasks.length > 0 || autonomousTasksLoaded.length > 0)) {
+        try {
+          const results = await syncAutonomousTasks({
+            agentId: savedAgentId,
+            drafts: autonomousTasks,
+            serverTasks: autonomousTasksLoaded,
+            api: autonomousApi,
+          });
+          const failures = results.filter((r) => !r.ok);
+          if (failures.length > 0) {
+            toast(
+              `Saved agent, but ${failures.length} schedule change${failures.length === 1 ? "" : "s"} failed. See the Autonomous tab.`,
+              "error",
+            );
+          }
+        } catch (err: unknown) {
+          toast(
+            err instanceof Error ? err.message : "Failed to save autonomous schedules",
+            "error",
+          );
         }
       }
 
@@ -1129,7 +1223,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
               <p className="text-xs text-muted-foreground mt-0.5">{currentStepConfig?.hint}</p>
             </div>
             <StepIndicator 
-              steps={STEPS} 
+              steps={visibleSteps}
               currentStep={activeStep} 
               onStepClick={setActiveStep} 
             />
@@ -1925,6 +2019,18 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
             />
           )}
 
+          {autonomousAgentsEnabled && activeStep === "autonomous" && (
+            <AutonomousTasksStep
+              agentId={isEditing ? agent?._id || "" : generatedId}
+              tasks={autonomousTasks}
+              onChange={setAutonomousTasks}
+              loading={autonomousTasksLoading}
+              error={autonomousTasksError}
+              disabled={loading}
+              isCloning={isCloning}
+            />
+          )}
+
           {/* Error */}
           {error && (
             <div className="rounded-lg bg-destructive/10 border border-destructive/30 p-3">
@@ -1945,11 +2051,11 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
               <ChevronLeft className="h-4 w-4 mr-1" />
               Previous
             </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => void goToNextStep()}
-              disabled={currentStepIndex === STEPS.length - 1 || loading}
+            <Button 
+              type="button" 
+              variant="outline" 
+              onClick={goToNextStep}
+              disabled={currentStepIndex === visibleSteps.length - 1 || loading}
               size="sm"
             >
               Next
@@ -1967,7 +2073,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
           ) : (
             <>
               {builtinTools?.fetch_url?.enabled ? "1 built-in, " : ""}
-              {Object.keys(allowedTools).length} MCP server(s), {subagents.length} subagent(s)
+              {Object.keys(allowedTools).length} MCP server(s), {subagents.length} subagent(s), {autonomousTasks.length} schedule(s)
             </>
           )}
         </div>

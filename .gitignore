@@ -197,6 +197,9 @@ a2a-python
 # helm chart
 charts/*/values-secrets.yaml
 charts/*/values-ingress.yaml
+charts/*/values-both.yaml
+charts/*/values-local-images.yaml
+
 charts/*/tmp/*
 
 .aider*

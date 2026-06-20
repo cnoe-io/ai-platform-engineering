@@ -35,9 +35,17 @@ FINAL_ANSWER_MARKER_SECTION = """
 # ============================================================================
 # Load YAML config
 def load_prompt_config(path="prompt_config.yaml"):
+    # Allow override via env (used by docker-compose; harmless when unset)
+    path = os.environ.get("PROMPT_CONFIG_PATH", path)
     if os.path.exists(path):
-        with open(path, "r") as f:
-            return yaml.safe_load(f)
+        # Force UTF-8 so YAML loads work on Windows (default cp1252 chokes on emoji/unicode)
+        with open(path, "r", encoding="utf-8") as f:
+            loaded = yaml.safe_load(f)
+        # Defensive: if the file is a stub holding a pathname only, treat as no config
+        if not isinstance(loaded, dict):
+            logger.warning("prompt config at %s is not a mapping (got %s); ignoring", path, type(loaded).__name__)
+            return {}
+        return loaded
     return {}
 
 config = load_prompt_config()

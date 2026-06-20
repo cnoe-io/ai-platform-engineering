@@ -151,8 +151,14 @@ export function ChatContainer() {
           setFetchDone(true);
 
           if (storageMode === 'mongodb') {
-            // Dynamic Agents use the old messages path; Platform Engineer uses turns
-            if (isDA) {
+            // Autonomous threads have real MongoDB rows (publisher in
+            // services/chat_history.py) and accept manually-typed turns
+            // via saveMessagesToServer; they must round-trip through
+            // loadMessagesFromServer like Dynamic Agents do, otherwise
+            // typed messages disappear on refresh / chat switch.
+            const isAutonomous =
+              (localConv as { source?: string }).source === 'autonomous';
+            if (isDA || isAutonomous) {
               loadMessagesFromServer(uuid).catch((err) => {
                 console.warn('[ChatContainer] Failed to sync messages from server:', err);
               });
@@ -165,7 +171,9 @@ export function ChatContainer() {
         } else if (storageMode === 'mongodb') {
           console.log("[ChatContainer] Found conversation in store but no messages, loading from MongoDB...");
           try {
-            if (isDA) {
+            const isAutonomous =
+              (localConv as { source?: string }).source === 'autonomous';
+            if (isDA || isAutonomous) {
               await loadMessagesFromServer(uuid, { force: true });
             } else {
               await loadTurnsFromServer(uuid);
@@ -393,8 +401,46 @@ export function ChatContainer() {
     ? ('_id' in conversation ? conversation.title : conversation.title)
     : undefined;
 
-  const isReadOnly = accessLevel === 'admin_audit' || accessLevel === 'shared_readonly';
-  const readOnlyReason = accessLevel === 'admin_audit' ? 'admin_audit' : accessLevel === 'shared_readonly' ? 'shared_readonly' : undefined;
+  // Inv-C: audit banner requires BOTH server admin_audit AND a recognized
+  // in-session ?from= value (closed set: 'audit-logs' or 'feedback').
+  // Inv-C2: when the server says admin_audit but the gate fails, route
+  // through the existing shared_readonly UI branch so the user sees a
+  // clear read-only banner instead of a silent send-failure. The
+  // adminOrigin signal is presentation-only — the server is authoritative
+  // for authorization. Runs only on the API-roundtrip path; the
+  // local-store-hit path above derives accessLevel from owner_id +
+  // sharing.* and never produces admin_audit by construction (Inv-E).
+  //
+  // Autonomous-source short-circuit: autonomous chats are interactive for
+  // every authenticated user (server returns access_level === 'shared').
+  // We hard-suppress any read-only banner here so a stale accessLevel
+  // value from a previous conversation (e.g. an admin_audit chat the
+  // user just left) cannot leak onto an autonomous view during the
+  // brief window before the new effect runs.
+  const isAutonomousConv = conversation
+    ? ('_id' in conversation
+        ? (conversation as { source?: string }).source === 'autonomous'
+        : (conversation as LocalConversation).source === 'autonomous')
+    : false;
+  const adminAuditActive =
+    !isAutonomousConv
+    && accessLevel === 'admin_audit'
+    && (adminOrigin === 'audit-logs' || adminOrigin === 'feedback');
+  const isReadOnly =
+    !isAutonomousConv
+    && (
+      adminAuditActive
+      || accessLevel === 'admin_audit'
+      || accessLevel === 'shared_readonly'
+    );
+  const readOnlyReason: 'admin_audit' | 'shared_readonly' | undefined =
+    isAutonomousConv
+      ? undefined
+      : adminAuditActive
+        ? 'admin_audit'
+        : (accessLevel === 'admin_audit' || accessLevel === 'shared_readonly')
+          ? 'shared_readonly'
+          : undefined;
 
   // Only show loading if we haven't finished fetching yet. After fetchDone=true,
   // having no messages is legitimate (e.g., messages were deleted) — not a loading state.

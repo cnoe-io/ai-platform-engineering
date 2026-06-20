@@ -86,9 +86,20 @@ from ai_platform_engineering.utils.prompt_config import (
 from ai_platform_engineering.multi_agents.platform_engineer.rag_prompts import get_rag_instructions
 
 from ai_platform_engineering.multi_agents.tools import (
+    create_autonomous_task,
     curl,
+    delete_autonomous_task,
+    delete_github_webhook,
     get_current_date,
+    get_webhook_task_template,
     jq,
+    list_autonomous_tasks,
+    list_github_webhooks,
+    register_github_webhook,
+    test_github_webhook,
+    trigger_autonomous_task_now,
+    update_autonomous_task,
+    validate_cron_expression,
     yq,
 )
 
@@ -102,6 +113,7 @@ from ai_platform_engineering.multi_agents.platform_engineer.response_format impo
 
 # Configuration
 ENABLE_RAG = os.getenv("ENABLE_RAG", "false").lower() in ("true", "1", "yes")
+ENABLE_AUTONOMOUS_AGENTS = os.getenv("ENABLE_AUTONOMOUS_AGENTS", "false").lower() in ("true", "1", "yes")
 RAG_SERVER_URL = os.getenv("RAG_SERVER_URL", "http://localhost:9446").strip("/")
 RAG_CONNECTIVITY_RETRIES = 5
 MAX_FETCH_DOCUMENT_CALLS = int(os.getenv("FETCH_DOCUMENT_MAX_CALLS", "10"))
@@ -1466,7 +1478,56 @@ class PlatformEngineerDeepAgent:
             tool_result_to_file,
             # Wait tool for polling and async operations
             wait,
+            # Spec #099 Phase 3 — autonomous-task management. Lets the
+            # supervisor's main agent honour requests like "create a
+            # task that does X every weekday at 9 AM" by walking the
+            # operator through any clarifying questions and finally
+            # calling create_autonomous_task. Same wire contract as
+            # the form dialog (POST /api/v1/tasks); the operator no
+            # longer has to know the form fields to schedule work.
+            list_autonomous_tasks,
+            create_autonomous_task,
+            update_autonomous_task,
+            delete_autonomous_task,
+            trigger_autonomous_task_now,
+            validate_cron_expression,
+            # Spec #099 webhook follow-up — GitHub-side webhook registration
+            # so the supervisor can answer requests like "every time someone
+            # opens an issue on X, message me on Webex and solve it" by
+            # chaining create_autonomous_task (for the receiver) with
+            # register_github_webhook (for the sender). Uses the same GITHUB
+            # token as the github sub-agent; the token needs admin:repo_hook.
+            register_github_webhook,
+            list_github_webhooks,
+            delete_github_webhook,
+            test_github_webhook,
+            # Spec #099 webhook follow-up Phase 4 — canonical prompt
+            # templates for common scenarios so the LLM doesn't have to
+            # improvise structure (acknowledge-first, investigate, report,
+            # comment-back) every time. Operator parameters (repo, webex
+            # room, investigation depth) are substituted at fetch time.
+            get_webhook_task_template,
         ]
+
+        if not ENABLE_AUTONOMOUS_AGENTS:
+            autonomous_tool_names = {
+                "list_autonomous_tasks",
+                "create_autonomous_task",
+                "update_autonomous_task",
+                "delete_autonomous_task",
+                "trigger_autonomous_task_now",
+                "validate_cron_expression",
+                "register_github_webhook",
+                "list_github_webhooks",
+                "delete_github_webhook",
+                "test_github_webhook",
+                "get_webhook_task_template",
+            }
+            utility_tools = [
+                tool for tool in utility_tools
+                if getattr(tool, "name", None) not in autonomous_tool_names
+            ]
+            logger.info("Autonomous task tools disabled; set ENABLE_AUTONOMOUS_AGENTS=true to enable")
 
         # Self-service task tools
         invoke_task_tool = create_invoke_self_service_task_tool()

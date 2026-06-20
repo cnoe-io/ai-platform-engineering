@@ -70,6 +70,9 @@ jest.mock('@/store/chat-store', () => ({
     cancelConversationRequest: jest.fn(),
     updateMessageFeedback: jest.fn(),
     consumePendingMessage: jest.fn(() => null),
+    consumeInputDraft: jest.fn(() => null),
+    setInputDraft: jest.fn(),
+    inputDraft: null,
   })),
 }))
 
@@ -1102,6 +1105,39 @@ describe('SupervisorChatPanel', () => {
       render(<SupervisorChatPanel endpoint="/api/test" />)
       expect(screen.queryByText('Read-Only Audit Mode')).not.toBeInTheDocument()
       expect(screen.queryByText('View Only')).not.toBeInTheDocument()
+    })
+
+    // ChatPanel rendering regression guards for the gate contract owned by
+    // ChatContainer. These tests exercise ONLY ChatPanel in isolation —
+    // they assert the rendering side of the contract is intact, not the
+    // gate computation (which lives in ChatContainer.tsx and is tested in
+    // ChatContainer.test.tsx).
+    it('renders audit banner when readOnlyReason="admin_audit" and adminOrigin="audit-logs" are passed in', () => {
+      mockGetActiveConversation.mockReturnValue(createConversation([]))
+      render(
+        <SupervisorChatPanel
+          endpoint="/api/test"
+          readOnly
+          readOnlyReason="admin_audit"
+          adminOrigin="audit-logs"
+        />
+      )
+      expect(screen.getByText('Read-Only Audit Mode')).toBeInTheDocument()
+      expect(screen.getByText('Back to Audit Logs')).toBeInTheDocument()
+    })
+
+    it('non-admin user with shared_readonly access never sees audit banner (FR-005 regression guard)', () => {
+      mockGetActiveConversation.mockReturnValue(createConversation([]))
+      render(
+        <SupervisorChatPanel
+          endpoint="/api/test"
+          readOnly
+          readOnlyReason="shared_readonly"
+        />
+      )
+      expect(screen.queryByText('Read-Only Audit Mode')).not.toBeInTheDocument()
+      expect(screen.queryByText('Back to Audit Logs')).not.toBeInTheDocument()
+      expect(screen.queryByText('Back to Feedback')).not.toBeInTheDocument()
     })
   })
 })

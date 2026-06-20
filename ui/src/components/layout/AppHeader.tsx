@@ -45,6 +45,7 @@ Info,
 KeyRound,
 Loader2,
 Shield,
+Sparkles,
 Workflow,
 Zap,
 } from "lucide-react";
@@ -321,6 +322,7 @@ export function AppHeader() {
     if (pathname?.startsWith("/credentials")) return "credentials";
     if (pathname?.startsWith("/workflows")) return "workflows";
     if (pathname?.startsWith("/task-builder")) return "task-builder";
+    if (pathname?.startsWith("/autonomous")) return "autonomous";
     if (pathname?.startsWith("/skills") || pathname?.startsWith("/use-cases")) return "skills";
     if (pathname?.startsWith("/dynamic-agents")) return "dynamic-agents";
     if (pathname?.startsWith("/admin")) return "admin";
@@ -419,6 +421,13 @@ export function AppHeader() {
       href: "/task-builder",
       label: "Task Builder",
       Icon: Workflow,
+      activeClassName: "bg-primary text-primary-foreground shadow-sm",
+    },
+    config.autonomousAgentsEnabled && {
+      key: "autonomous",
+      href: "/autonomous",
+      label: "Autonomous",
+      Icon: Sparkles,
       activeClassName: "bg-primary text-primary-foreground shadow-sm",
     },
     config.workflowsEnabled && {

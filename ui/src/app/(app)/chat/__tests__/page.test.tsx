@@ -14,10 +14,13 @@ import { render, screen, waitFor } from "@testing-library/react";
 // ============================================================================
 
 const mockReplace = jest.fn();
+const mockPush = jest.fn();
 const mockFetch = jest.fn();
+const mockSearchParams = new URLSearchParams();
 
 jest.mock("next/navigation", () => ({
-  useRouter: () => ({ replace: mockReplace, push: jest.fn() }),
+  useRouter: () => ({ replace: mockReplace, push: mockPush }),
+  useSearchParams: () => mockSearchParams,
 }));
 
 let mockSessionStatus: "loading" | "authenticated" | "unauthenticated" = "authenticated";
@@ -35,6 +38,7 @@ jest.mock("@/lib/config", () => ({
     if (key === "appName") return "Test App";
     if (key === "logoStyle") return "default";
     if (key === "ssoEnabled") return false;
+    if (key === "autonomousAgentsEnabled") return true;
     return undefined;
   }),
   getLogoFilterClass: jest.fn(() => ""),
@@ -44,7 +48,7 @@ jest.mock("@/lib/storage-config", () => ({
   getStorageMode: () => "mongodb",
 }));
 
-const mockCreateConversation = jest.fn(() => "new-conv-id");
+const mockCreateConversation = jest.fn().mockResolvedValue("new-conv-id");
 const mockLoadConversationsFromServer = jest.fn().mockResolvedValue(undefined);
 let mockConversations: any[] = [];
 let mockActiveConversationId: string | null = null;
@@ -60,8 +64,8 @@ jest.mock("@/store/chat-store", () => {
     const state = {
       createConversation: mockCreateConversation,
       loadConversationsFromServer: mockLoadConversationsFromServer,
-      conversations: mockConversations,
-      activeConversationId: mockActiveConversationId,
+      conversations: [],
+      activeConversationId: null,
     };
     return selector ? selector(state) : state;
   };

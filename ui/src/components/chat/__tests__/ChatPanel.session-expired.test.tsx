@@ -64,6 +64,9 @@ jest.mock('@/store/chat-store', () => {
     evictOldMessageContent: jest.fn(),
     loadMessagesFromServer: jest.fn(),
     updateConversationTitle: jest.fn(),
+    consumeInputDraft: jest.fn(() => null),
+    setInputDraft: jest.fn(),
+    inputDraft: null,
   }))
   mockUseChatStore.getState = jest.fn(() => ({ conversations: [] }))
   return { useChatStore: mockUseChatStore }

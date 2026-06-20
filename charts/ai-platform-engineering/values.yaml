@@ -3,6 +3,7 @@ tags:
   complete: false
   caipe-ui: false
   dynamic-agents: false
+  autonomous-agents: false
   agent-argocd: false
   agent-aws: false
   agent-backstage: false
@@ -966,7 +967,7 @@ caipe-ui:
     # Requires admin role and MongoDB storage mode
     DYNAMIC_AGENTS_ENABLED: "false"
     # Dynamic Agents service URL (only used when DYNAMIC_AGENTS_ENABLED is "true")
-    # DYNAMIC_AGENTS_URL: ""
+    # DYNAMIC_AGENTS_URL
     # Connections & Secrets credential store. Disabled by default. Use local-cmk
     # only for non-production testing; production must use aws-kms.
     CAIPE_CREDENTIALS_ENABLED: "false"
@@ -979,6 +980,12 @@ caipe-ui:
     # Kubernetes, provide provider client IDs/secrets/redirect URIs through
     # externalSecrets; in Docker Compose, provide them through .env.
     CREDENTIAL_BOOTSTRAP_OAUTH_CONNECTORS: "false"
+    # Autonomous Agents: set to "true" to enable the admin-gated Autonomous tab
+    # (UI proxies to the service at /api/autonomous). Requires tags.autonomous-agents=true.
+    ENABLE_AUTONOMOUS_AGENTS: "false"
+    # Autonomous Agents service URL (only used when ENABLE_AUTONOMOUS_AGENTS is "true")
+    # AUTONOMOUS_AGENTS_URL: "http://{{ .Release.Name }}-autonomous-agents:8002"
+    
     # Standalone skill-scanner microservice (cisco-ai-defense/skill-scanner).
     # Active when global.skillScanner.enabled=true. Leave empty to use the
     # in-cluster default (derived from .Release.Name in the deployment template).
@@ -1275,6 +1282,53 @@ dynamic-agents:
       #   remoteRef:
       #     key: dev/dynamic-agents
       #     property: OPENAI_API_KEY
+
+######### Autonomous Agents configuration #########
+# Autonomous Agents - standalone scheduler that fires tasks (cron / interval /
+# webhook) at the CAIPE supervisor over A2A. Tasks and run history are managed
+# through the UI's admin-gated /api/autonomous proxy; this service is the
+# upstream that proxy targets.
+# Enable with: tags.autonomous-agents=true
+# Requires: MongoDB (uses same MongoDB as CAIPE UI), supervisor-agent.
+# Also set the UI flags (caipe-ui.config.ENABLE_AUTONOMOUS_AGENTS /
+# AUTONOMOUS_AGENTS_URL) and the supervisor env (supervisor-agent.env) -- see
+# values-autonomous-agents.yaml.example for the full recipe.
+autonomous-agents:
+  nameOverride: "autonomous-agents"
+  image:
+    repository: "ghcr.io/cnoe-io/caipe-autonomous-agents"
+    # tag defaults to .Chart.AppVersion when not specified
+    tag: ""
+    pullPolicy: "IfNotPresent"
+  service:
+    port: 8002
+  # ConfigMap for non-sensitive configuration (values are rendered via tpl)
+  config:
+    # Supervisor A2A endpoint -- autonomous tasks are sent here
+    SUPERVISOR_URL: "http://{{ .Release.Name }}-supervisor-agent:8000"
+    # MongoDB configuration (uses same database as CAIPE UI)
+    MONGODB_DATABASE: "caipe"
+    # Uncomment when tags.dynamic-agents=true to route dynamic-agent tasks
+    # DYNAMIC_AGENTS_URL: "http://{{ .Release.Name }}-dynamic-agents:8001"
+  # Pre-existing secret with MONGODB_URI (required), WEBHOOK_SECRET, and
+  # optional WEBEX_* values -- see the subchart values.yaml for the full list
+  existingSecret: ""
+  # External Secrets configuration for sensitive data (MongoDB URI, webhook secrets)
+  externalSecrets:
+    enabled: false  # Set to true to enable external secrets
+    apiVersion: "v1beta1"
+    secretStoreRef:
+      name: "vault"  # Your secret store name
+      kind: "ClusterSecretStore"
+    data: []
+      # - secretKey: MONGODB_URI
+      #   remoteRef:
+      #     key: dev/autonomous-agents
+      #     property: MONGODB_URI
+      # - secretKey: WEBHOOK_SECRET
+      #   remoteRef:
+      #     key: dev/autonomous-agents
+      #     property: WEBHOOK_SECRET
 
 ######### Slack Bot Integration configuration #########
 # The Slack bot is a client integration (not an agent) that connects to the

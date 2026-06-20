@@ -4,6 +4,7 @@ import { LastReviewBadge } from "@/components/ai-review";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card,CardContent,CardDescription,CardHeader,CardTitle } from "@/components/ui/card";
+import { getConfig } from "@/lib/config";
 import { toYaml } from "@/lib/yaml-serializer";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 import {
@@ -21,10 +22,13 @@ Trash2,
 Users,
 } from "lucide-react";
 import React from "react";
+import { autonomousApi } from "@/components/autonomous/api";
 import { AgentAvatar } from "./AgentAvatar";
 import { DynamicAgentEditor } from "./DynamicAgentEditor";
+import { isTaskOwnedByAgent } from "./taskOwnership";
 
 export function DynamicAgentsTab() {
+  const autonomousAgentsEnabled = getConfig('autonomousAgentsEnabled');
   const [agents, setAgents] = React.useState<DynamicAgentConfig[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
@@ -73,14 +77,41 @@ export function DynamicAgentsTab() {
   };
 
   const handleToggleEnabled = async (agent: DynamicAgentConfig) => {
+    const nextEnabled = !agent.enabled;
     try {
       const response = await fetch(`/api/dynamic-agents?id=${agent._id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ enabled: !agent.enabled }),
+        body: JSON.stringify({ enabled: nextEnabled }),
       });
       const data = await response.json();
       if (data.success) {
+        if (autonomousAgentsEnabled) {
+          try {
+            const tasks = await autonomousApi.listTasks();
+            const linkedTasks = tasks.filter((task) => isTaskOwnedByAgent(task, agent._id));
+            const tasksToUpdate = linkedTasks.filter((task) => task.enabled !== nextEnabled);
+            const results = await Promise.allSettled(
+              tasksToUpdate.map((task) =>
+                autonomousApi.updateTask(task.id, {
+                  ...task,
+                  enabled: nextEnabled,
+                }),
+              ),
+            );
+            const failures = results.filter((result) => result.status === "rejected");
+            if (failures.length > 0) {
+              alert(
+                `Agent status updated, but ${failures.length} linked autonomous task${failures.length === 1 ? "" : "s"} failed to sync.`,
+              );
+            }
+          } catch (err: any) {
+            alert(
+              err.message ||
+                "Agent status updated, but linked autonomous tasks failed to sync.",
+            );
+          }
+        }
         fetchAgents();
       } else {
         alert(data.error || "Failed to update agent");

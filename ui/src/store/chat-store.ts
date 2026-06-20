@@ -1,6 +1,7 @@
 import { A2AClient } from "@/lib/a2a-client";
 import { apiClient } from "@/lib/api-client";
 import { getStorageMode,shouldUseLocalStorage } from "@/lib/storage-config";
+import { getConfig } from "@/lib/config";
 import type { StreamAdapter } from "@/lib/streaming";
 import { StreamEvent } from "@/lib/streaming/types";
 import { generateId } from "@/lib/utils";
@@ -40,6 +41,7 @@ interface ChatState {
   streamingConversations: Map<string, StreamingState>;
   a2aEvents: A2AEvent[];
   pendingMessage: string | null; // Message to auto-submit when ChatPanel mounts
+  inputDraft: string | null; // One-shot input pre-fill (spec #099 Phase 3) — fills the textbox without sending
 
   // Per-turn event tracking: selectedTurnId per conversation
   selectedTurnIds: Map<string, string>; // conversationId -> turnId
@@ -52,7 +54,7 @@ interface ChatState {
 
   // Actions
   createConversation: (agentId?: string) => Promise<string>;
-  setActiveConversation: (id: string) => void;
+  setActiveConversation: (id: string | null) => void;
   addMessage: (conversationId: string, message: Omit<ChatMessage, "id" | "timestamp" | "events">, turnId?: string, messageId?: string) => string;
   updateMessage: (conversationId: string, messageId: string, updates: Partial<ChatMessage>) => void;
   appendToMessage: (conversationId: string, messageId: string, content: string) => void;
@@ -82,7 +84,18 @@ interface ChatState {
   updateConversationTitle: (conversationId: string, title: string) => Promise<void>;
   setPendingMessage: (message: string | null) => void;
   consumePendingMessage: () => string | null;
-  loadConversationsFromServer: () => Promise<void>; // Load conversations from server (MongoDB mode only)
+  loadConversationsFromServer: (options?: { source?: 'autonomous' | 'web' }) => Promise<void>; // Load conversations from server (MongoDB mode only)
+  /**
+   * Spec #099 Story 2 — synthesise autonomous-task conversations from
+   * the autonomous-agents service so the chat sidebar's Autonomous tab
+   * works regardless of storage mode (no Mongo needed). Each task
+   * becomes one Conversation; messages mirror the metadata.kind
+   * enumeration the Mongo publisher emits (creation_intent,
+   * preflight_ack, run_request/response, next_run_marker).
+   */
+  loadAutonomousConversationsFromService: () => Promise<void>;
+  setInputDraft: (draft: string | null) => void;
+  consumeInputDraft: () => string | null;
   saveMessagesToServer: (conversationId: string) => Promise<void>; // Save messages to MongoDB after streaming
   recoverInterruptedTask: (conversationId: string, messageId: string, endpoint: string, accessToken?: string) => Promise<boolean>; // Level 2: Poll tasks/get for interrupted messages
   loadMessagesFromServer: (conversationId: string, options?: { force?: boolean }) => Promise<void>; // Load messages from MongoDB when opening conversation
@@ -111,6 +124,66 @@ interface ChatState {
 // Track loading state to prevent multiple simultaneous loads
 let isLoadingConversations = false;
 
+// Inv-E: persistence-scope denylists. The TOP_LEVEL list applies to the root
+// persisted object and to each Conversation; the RECURSIVE list applies at
+// every nesting depth. The single difference is `role`, which is legitimate
+// on ChatMessage (sender) and must survive — any future authorization-role
+// field MUST use a disambiguated name (sessionRole / authRole / userRole).
+// Kept in sync with the matching constants in chat-store.test.ts.
+const TOP_LEVEL_DENYLIST = [
+  'access_level', 'accessLevel', 'readOnlyReason', 'readOnly',
+  'adminOrigin', 'isAdmin', 'canViewAdmin', 'sessionRole', 'authRole',
+  'role', 'userRole',
+] as const;
+const RECURSIVE_DENYLIST = [
+  'access_level', 'accessLevel', 'readOnlyReason', 'readOnly',
+  'adminOrigin', 'isAdmin', 'canViewAdmin', 'sessionRole', 'authRole',
+  'userRole',
+] as const;
+
+// Inv-E runtime enforcement: strip every key in `keys` from a shallow clone of
+// `obj`. Used inside partialize so even if a future setter writes one of these
+// keys onto store state, persist will not carry it through to localStorage.
+function stripDenylistedKeys<T extends Record<string, unknown>>(
+  obj: T,
+  keys: readonly string[],
+): Partial<T> {
+  const out: Record<string, unknown> = { ...obj };
+  for (const k of keys) delete out[k];
+  return out as Partial<T>;
+}
+
+// Inv-A site 1: deterministic, NaN-safe winner selection for two persisted
+// Conversation entries that share an id at rehydrate time. Rule order:
+//   (a) source === 'autonomous' wins (consistent with Inv-B)
+//   (b) more messages wins
+//   (c) finite/valid updatedAt wins over invalid
+//   (d) most-recent valid updatedAt wins
+//   (e) lexicographic id sort (last-resort tiebreak — strictly deterministic)
+function pickRehydrateWinner(
+  a: Conversation,
+  b: Conversation,
+): Conversation {
+  // (a) autonomous-source wins
+  const aAuto = a.source === 'autonomous';
+  const bAuto = b.source === 'autonomous';
+  if (aAuto !== bAuto) return aAuto ? a : b;
+  // (b) more messages wins
+  const aLen = a.messages?.length ?? 0;
+  const bLen = b.messages?.length ?? 0;
+  if (aLen !== bLen) return aLen > bLen ? a : b;
+  // (c) finite/valid updatedAt wins
+  const aTs = a.updatedAt ? new Date(a.updatedAt).getTime() : NaN;
+  const bTs = b.updatedAt ? new Date(b.updatedAt).getTime() : NaN;
+  const aValid = Number.isFinite(aTs);
+  const bValid = Number.isFinite(bTs);
+  if (aValid !== bValid) return aValid ? a : b;
+  // (d) most-recent valid updatedAt wins
+  if (aValid && bValid && aTs !== bTs) return aTs > bTs ? a : b;
+  // (e) last-resort: lexicographic id (deterministic)
+  return a.id <= b.id ? a : b;
+}
+
 // NOTE: savedMessageIds / savedMessageState tracking removed.
 // With the upsert-based API, saveMessagesToServer sends ALL messages every
 // time and the server handles insert-or-update via message_id. This eliminates
@@ -136,6 +209,23 @@ const PERIODIC_SAVE_EVENT_THRESHOLD = 20; // Save every 20 events during streami
 // overwrite the correct in-memory state with that stale data.
 const pendingSaveTimestamps = new Map<string, number>();
 const PENDING_SAVE_GRACE_MS = 5000; // 5 second grace period after streaming ends
+
+function isEmptyNewConversation(conv: Conversation): boolean {
+  return (
+    conv.title === "New Conversation" &&
+    conv.messages.length === 0 &&
+    !conv.source
+  );
+}
+
+function compareConversationsForSidebar(a: Conversation, b: Conversation): number {
+  const aIsEmptyNew = isEmptyNewConversation(a);
+  const bIsEmptyNew = isEmptyNewConversation(b);
+  if (aIsEmptyNew !== bIsEmptyNew) {
+    return aIsEmptyNew ? 1 : -1;
+  }
+  return b.updatedAt.getTime() - a.updatedAt.getTime();
+}
 
 // Serialize A2A event for MongoDB storage (strip circular refs and large raw data)
 function serializeA2AEvent(event: A2AEvent): Record<string, unknown> {
@@ -265,6 +355,7 @@ const storeImplementation = (set: any, get: any) => ({
       streamingConversations: new Map<string, StreamingState>(),
       a2aEvents: [],
       pendingMessage: null,
+      inputDraft: null,
       selectedTurnIds: new Map<string, string>(),
       unviewedConversations: new Set<string>(),
       inputRequiredConversations: new Set<string>(),
@@ -309,12 +400,14 @@ const storeImplementation = (set: any, get: any) => ({
         return id;
       },
 
-      setActiveConversation: (id: string) => {
+      setActiveConversation: (id: string | null) => {
         const prev = get();
         const newUnviewed = new Set(prev.unviewedConversations);
-        newUnviewed.delete(id);
         const newInputRequired = new Set(prev.inputRequiredConversations);
-        newInputRequired.delete(id);
+        if (id) {
+          newUnviewed.delete(id);
+          newInputRequired.delete(id);
+        }
         set({
           activeConversationId: id,
           unviewedConversations: newUnviewed,
@@ -836,6 +929,19 @@ const storeImplementation = (set: any, get: any) => ({
         set({ pendingMessage: message });
       },
 
+      setInputDraft: (draft) => {
+        set({ inputDraft: draft });
+      },
+
+      consumeInputDraft: () => {
+        const state = get();
+        const draft = state.inputDraft;
+        if (draft) {
+          set({ inputDraft: null });
+        }
+        return draft;
+      },
+
       consumePendingMessage: () => {
         const state = get();
         const message = state.pendingMessage;
@@ -845,7 +951,7 @@ const storeImplementation = (set: any, get: any) => ({
         return message;
       },
 
-      loadConversationsFromServer: async () => {
+      loadConversationsFromServer: async (options?: { source?: 'autonomous' | 'web' }) => {
         const storageMode = getStorageMode();
 
         // Only load from server in MongoDB mode
@@ -863,10 +969,10 @@ const storeImplementation = (set: any, get: any) => ({
         isLoadingConversations = true;
 
         try {
-          console.log('[ChatStore] Loading conversations from MongoDB...');
+          console.log('[ChatStore] Loading conversations from MongoDB...', options);
           let response;
           try {
-            response = await apiClient.getConversations({ page_size: 100 });
+            response = await apiClient.getConversations({ page_size: 100, source: options?.source });
           } catch (apiError) {
             // Check if it's an auth error (expected when not logged in)
             const errorMessage = apiError instanceof Error ? apiError.message : String(apiError);
@@ -958,6 +1064,9 @@ const storeImplementation = (set: any, get: any) => ({
               participants: conv.participants || [],
               owner_id: conv.owner_id,
               sharing: conv.sharing,
+              source: (conv as { source?: 'web' | 'slack' | 'autonomous' }).source,
+              task_id: (conv as { task_id?: string }).task_id,
+              run_id: (conv as { run_id?: string }).run_id,
             };
           });
 
@@ -972,7 +1081,7 @@ const storeImplementation = (set: any, get: any) => ({
           const localOnlyPreserved = currentState.conversations.filter(
             conv => !serverIds.has(conv.id) && (
               currentState.streamingConversations.has(conv.id) ||
-              conv.id === currentState.activeConversationId
+              (conv.id === currentState.activeConversationId && !isEmptyNewConversation(conv))
             )
           );
 
@@ -980,22 +1089,104 @@ const storeImplementation = (set: any, get: any) => ({
             console.log(`[ChatStore] Keeping ${localOnlyPreserved.length} local-only conversations (streaming or active audit/shared)`);
           }
 
-          const allConversations = [...serverConversations, ...localOnlyPreserved];
-          const sortedConversations = allConversations.sort(
-            (a, b) => b.updatedAt.getTime() - a.updatedAt.getTime()
+          // Inv-A site 2: Map-based dedupe-by-id over
+          // [...serverConversations, ...localOnlyPreserved]. Server entries
+          // are authoritative for source/metadata, so on collision the
+          // server entry wins (do NOT overwrite). In practice the upstream
+          // `serverIds` filter already excludes any id that appears on the
+          // server, but this is defense in depth against a future refactor
+          // that drops that filter.
+          const dedupeMap = new Map<string, Conversation>();
+          for (const c of serverConversations) dedupeMap.set(c.id, c);
+          for (const c of localOnlyPreserved) {
+            if (!dedupeMap.has(c.id)) dedupeMap.set(c.id, c);
+          }
+          const sortedConversations = Array.from(dedupeMap.values()).sort(
+            compareConversationsForSidebar,
           );
 
           // Check if active conversation was deleted on another device
           const activeId = currentState.activeConversationId;
-          const activeStillExists = activeId ? sortedConversations.some(c => c.id === activeId) : true;
 
-          set({
-            conversations: sortedConversations,
-            ...(activeId && !activeStillExists ? {
-              activeConversationId: sortedConversations.length > 0 ? sortedConversations[0].id : null,
-              a2aEvents: [],
-            } : {}),
+          // Inv-G: callback-form set() so any autonomous-source entries
+          // written by loadAutonomousConversationsFromService between our
+          // snapshot read (above) and this write are NOT clobbered. Two
+          // collision shapes are handled:
+          //   1. New-id case (autonomous task with no MongoDB row yet):
+          //      preserve the autonomous entry as-is via cross-loader
+          //      additions (id not in serverIdSet).
+          //   2. Same-id case (autonomous task that does have a MongoDB
+          //      row, so it appears in BOTH sortedConversations and the
+          //      live state with `source === 'autonomous'`): the server
+          //      version has `messages: []` because synth messages are
+          //      client-side only — we must keep the live entry's synth
+          //      messages / a2aEvents / streamEvents instead of letting
+          //      the empty server payload win.
+          set((state) => {
+            const stateById = new Map<string, Conversation>(
+              state.conversations.map((c) => [c.id, c] as [string, Conversation]),
+            );
+            const reconciled = sortedConversations.map((serverConv: Conversation) => {
+              const live = stateById.get(serverConv.id);
+              if (!live) return serverConv;
+              // Same-id collision: prefer live's messages/events when the
+              // live entry is autonomous-synth or actively streaming, OR
+              // when the live entry simply has more messages than the
+              // server's empty payload (defense in depth — covers any
+              // future loader that populates messages between snapshot
+              // and write).
+              const isAutonomousLive = live.source === 'autonomous';
+              const isStreamingLive = state.streamingConversations.has(
+                serverConv.id,
+              );
+              const liveHasMoreMessages =
+                live.messages.length > serverConv.messages.length;
+              if (isAutonomousLive || isStreamingLive || liveHasMoreMessages) {
+                return {
+                  ...serverConv,
+                  messages: live.messages.length > 0
+                    ? live.messages
+                    : serverConv.messages,
+                  a2aEvents: live.a2aEvents.length > 0
+                    ? live.a2aEvents
+                    : serverConv.a2aEvents,
+                  streamEvents: live.streamEvents && live.streamEvents.length > 0
+                    ? live.streamEvents
+                    : serverConv.streamEvents,
+                };
+              }
+              return serverConv;
+            });
+            const serverIdSet = new Set(reconciled.map((c) => c.id));
+            const crossLoaderAdditions = state.conversations.filter(
+              (c) =>
+                !serverIdSet.has(c.id) &&
+                (c.source === 'autonomous' ||
+                  state.streamingConversations.has(c.id)),
+            );
+            const merged = [...reconciled, ...crossLoaderAdditions];
+            const finalMap = new Map<string, Conversation>();
+            for (const c of merged) finalMap.set(c.id, c);
+            const deduped = Array.from(finalMap.values()).sort(
+              compareConversationsForSidebar,
+            );
+            const activeStillExists = activeId
+              ? deduped.some((c) => c.id === activeId)
+              : true;
+            return {
+              conversations: deduped,
+              ...(activeId && !activeStillExists
+                ? {
+                    activeConversationId:
+                      deduped.length > 0 ? deduped[0].id : null,
+                    a2aEvents: [],
+                  }
+                : {}),
+            };
           });
+          const activeStillExists = activeId
+            ? sortedConversations.some((c) => c.id === activeId)
+            : true;
 
           if (activeId && !activeStillExists) {
             persistLastActiveConversationId(get().activeConversationId);
@@ -1014,6 +1205,153 @@ const storeImplementation = (set: any, get: any) => ({
         } finally {
           isLoadingConversations = false;
         }
+      },
+
+      /**
+       * Spec #099 Story 2 — autonomous-task-as-conversation adapter.
+       *
+       * Fetches every task from the autonomous-agents service and, in
+       * parallel, its run history; synthesises a Conversation per task
+       * using ``synthesizeConversationForTask`` and merges them into the
+       * store. Existing autonomous Conversations are *replaced* by the
+       * fresh synthesis (so prompt edits / new runs / new acks land
+       * immediately); non-autonomous Conversations are preserved.
+       *
+       * Errors are swallowed and logged: a flaky autonomous-agents
+       * service must never blank the chat sidebar. Preserves existing
+       * autonomous conversations from the previous successful sync if
+       * the new fetch fails -- consistent with
+       * ``loadConversationsFromServer``'s contract.
+       */
+      loadAutonomousConversationsFromService: async () => {
+        if (!getConfig('autonomousAgentsEnabled')) {
+          set((state) => ({
+            conversations: state.conversations.filter((c) => c.source !== 'autonomous'),
+          }));
+          return;
+        }
+        // Lazy import keeps the autonomous-only deps out of the chat
+        // store's main module load, and avoids a circular import
+        // between chat-store -> autonomous-api at startup.
+        const [
+          { autonomousApi },
+          { synthesizeConversationForTask, NEVER },
+        ] = await Promise.all([
+          import('@/components/autonomous/api'),
+          import('@/components/autonomous/synthesize-conversation'),
+        ]);
+
+        let tasks;
+        try {
+          tasks = await autonomousApi.listTasks();
+        } catch (err) {
+          console.warn(
+            '[ChatStore] Failed to load autonomous tasks for sidebar:', err,
+          );
+          return;
+        }
+
+        // Pull runs per task in parallel. Each task's runs is best-effort
+        // -- a 404 / 5xx for one task should not break the rest.
+        const runsPerTask = await Promise.all(
+          tasks.map(async (task) => {
+            try {
+              const runs = await autonomousApi.listRuns(task.id);
+              return { task, runs };
+            } catch (err) {
+              console.warn(
+                `[ChatStore] Failed to load runs for autonomous task ${task.id}:`, err,
+              );
+              return { task, runs: [] };
+            }
+          }),
+        );
+
+        const synthesized = runsPerTask.map(({ task, runs }) =>
+          synthesizeConversationForTask(task, runs),
+        );
+
+        set((state) => {
+          // MERGE rather than replace: when the user has typed messages
+          // into an autonomous chat thread, those live in the existing
+          // Conversation's ``messages`` / ``a2aEvents`` arrays. A naive
+          // replace would wipe them on every 30s sidebar resync.
+          // Strategy: take the freshly-synthesised canonical messages
+          // (creation_intent, preflight_ack, run_request/response,
+          // next_run_marker — all with stable id schemas), then
+          // append any existing messages whose ids are NOT in the
+          // synthesised set (those are necessarily user-typed turns or
+          // streamed assistant replies). Sort by timestamp so the
+          // thread reads chronologically. ``a2aEvents`` and
+          // ``streamEvents`` are preserved from the existing conversation
+          // so the rich timeline / debug panel survive resync.
+          const existingAutonomous = new Map<string, Conversation>(
+            state.conversations
+              .filter((c) => c.source === 'autonomous')
+              .map((c) => [c.id, c] as const),
+          );
+
+          const merged = synthesized.map((freshConv) => {
+            const existing = existingAutonomous.get(freshConv.id);
+
+            // Monotonic floor for synth `updatedAt`. Synth returns NEVER
+            // when a task has no real signals; without a floor those
+            // rows would sink to the bottom of the sidebar each resync.
+            //   - signals + existing → max of the two (monotonic)
+            //   - signals + no existing → take it as-is
+            //   - NEVER + existing → keep the prior floor
+            //   - NEVER + no existing → mint Date.now() once (the only
+            //     place Date.now() enters the autonomous updatedAt path;
+            //     regenerates on hard refresh — a stable backend
+            //     `task.created_at` would close that gap).
+            let nextUpdatedAt = freshConv.updatedAt;
+            if (nextUpdatedAt.getTime() === NEVER.getTime()) {
+              nextUpdatedAt = existing?.updatedAt ?? new Date();
+            } else if (existing) {
+              nextUpdatedAt = new Date(
+                Math.max(
+                  nextUpdatedAt.getTime(),
+                  existing.updatedAt.getTime(),
+                ),
+              );
+            }
+
+            if (!existing) {
+              return { ...freshConv, updatedAt: nextUpdatedAt };
+            }
+
+            const synthIds = new Set(freshConv.messages.map((m) => m.id));
+            const userTyped = existing.messages.filter((m) => !synthIds.has(m.id));
+            const messages = [...freshConv.messages, ...userTyped].sort(
+              (a, b) => a.timestamp.getTime() - b.timestamp.getTime(),
+            );
+
+            return {
+              ...freshConv,
+              updatedAt: nextUpdatedAt,
+              messages,
+              a2aEvents: existing.a2aEvents,
+              streamEvents: existing.streamEvents,
+            };
+          });
+
+          const others = state.conversations.filter((c) => c.source !== 'autonomous');
+          // Inv-A site 3: Map-based dedupe by id. Insert `others` first so
+          // any same-id `merged` entry overwrites — autonomous-synth wins
+          // on collision (Inv-B). User-typed messages from the surviving
+          // non-autonomous copy are already merged in by message.id above.
+          const dedupeMap = new Map<string, Conversation>();
+          for (const c of others) dedupeMap.set(c.id, c);
+          for (const c of merged) dedupeMap.set(c.id, c);
+          const final = Array.from(dedupeMap.values()).sort(
+            compareConversationsForSidebar,
+          );
+          return { conversations: final };
+        });
+
+        console.log(
+          `[ChatStore] Synthesised ${synthesized.length} autonomous-task conversations`,
+        );
       },
 
       // Save messages to MongoDB via upsert (idempotent).
@@ -1482,14 +1820,22 @@ const storeImplementation = (set: any, get: any) => ({
                 return serverMsg;
               });
 
+              // Autonomous convs: synth aggregates events across ALL
+              // runs; reducing to last-turn-only would shrink the debug
+              // panel. Keep existing a2aEvents/streamEvents, refresh
+              // only `messages`.
+              const isAutonomous =
+                (existingConv as { source?: string } | undefined)?.source ===
+                'autonomous';
+
               return {
                 conversations: state.conversations.map((c: Conversation) =>
                   c.id === conversationId
                     ? {
                         ...c,
                         messages: mergedMessages,
-                        a2aEvents: lastTurnA2AEvents,
-                        streamEvents: lastTurnStreamEvents,
+                        a2aEvents: isAutonomous ? c.a2aEvents : lastTurnA2AEvents,
+                        streamEvents: isAutonomous ? c.streamEvents : lastTurnStreamEvents,
                       }
                     : c
                 ),
@@ -1694,21 +2040,118 @@ export const useChatStore = shouldUseLocalStorage()
       persist(storeImplementation, {
         name: "caipe-chat-history",
         storage: createJSONStorage(() => localStorage),
+        // Inv-E: partialize persists conversation DATA only — never
+        // session/authorization/admin-origin signals. The two scopes below are
+        // enforced at runtime by stripDenylistedKeys (TOP_LEVEL_DENYLIST and
+        // RECURSIVE_DENYLIST), and the test gate in chat-store.test.ts walks
+        // the parsed output asserting neither denylist appears.
+        //
+        //   TOP_LEVEL_DENYLIST (root + each Conversation, 11 keys):
+        //     access_level, accessLevel, readOnlyReason, readOnly, adminOrigin,
+        //     isAdmin, canViewAdmin, sessionRole, authRole, role, userRole
+        //   RECURSIVE_DENYLIST (any nesting depth, 10 keys = top-level minus
+        //     'role' — ChatMessage.role is the legitimate non-authorization
+        //     sender field 'user' | 'assistant' | 'system' and must survive):
+        //     access_level, accessLevel, readOnlyReason, readOnly, adminOrigin,
+        //     isAdmin, canViewAdmin, sessionRole, authRole, userRole
+        //
+        // Broader principle: persist conversation data only. Transient/UI/
+        // loading/timing flags (e.g. isLoadingConversations, streamingConversations,
+        // pendingMessage, inputDraft) belong in module-level variables or
+        // component-local useState (e.g. ChatContainer's accessLevel/agentInfo),
+        // NEVER in persisted store state. Future authorization-role fields
+        // MUST use sessionRole / authRole / userRole — never bare 'role'.
         partialize: (state) => ({
-          conversations: state.conversations.map((conv) => ({
+          conversations: state.conversations.map((conv) => stripDenylistedKeys({
             ...conv,
             a2aEvents: [], // Don't persist events (too large)
             streamEvents: [], // Don't persist stream events (too large)
-            messages: conv.messages.map((msg) => ({
+            messages: conv.messages.map((msg) => stripDenylistedKeys({
               ...msg,
               events: [], // Don't persist events
-            })),
-          })),
+            }, RECURSIVE_DENYLIST)),
+          }, TOP_LEVEL_DENYLIST)),
           activeConversationId: state.activeConversationId,
           selectedTurnIdsArray: Array.from(state.selectedTurnIds.entries()),
         }),
         onRehydrateStorage: () => (state) => {
           if (state) {
+            // Null-state guard: if rehydration produced an unexpected shape,
+            // start empty rather than crash.
+            if (!state || !Array.isArray(state.conversations)) {
+              return;
+            }
+
+            // One-time migration: drop legacy `autonomous-${task.id}`
+            // rows so the next sync resynthesises them under canonical
+            // UUIDv5 ids that match the publisher (services/chat_history.py)
+            // and merge into a single sidebar entry. Non-autonomous
+            // rows are untouched — their non-UUID ids are valid.
+            const UUID_RE =
+              /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+            state.conversations = state.conversations.filter(
+              (c) => c.source !== 'autonomous' || UUID_RE.test(c.id),
+            );
+
+            // REHYDRATE DEDUPE (Inv-A site 1): heals duplicates persisted
+            // before the dedupe shipped, and makes back-to-back F5
+            // refreshes self-healing without a network call. Critical in
+            // localStorage mode + autonomousAgentsEnabled=false where
+            // neither network loader does meaningful work.
+            //
+            // Skip entries with non-string/empty ids — defends against
+            // tampered or corrupted localStorage.
+            const dedupeMap = new Map<string, Conversation>();
+            for (const conv of state.conversations) {
+              if (typeof conv.id !== 'string' || conv.id.length === 0) {
+                continue;
+              }
+              const existing = dedupeMap.get(conv.id);
+              if (!existing) {
+                dedupeMap.set(conv.id, conv);
+                continue;
+              }
+              // Deterministic, NaN-safe winner selection on collision.
+              const winner = pickRehydrateWinner(existing, conv);
+              const loser = winner === existing ? conv : existing;
+              // Merge messages from BOTH entries by message.id; winner's
+              // messages take precedence on per-id collision.
+              const msgMap = new Map<string, ChatMessage>();
+              for (const m of winner.messages) msgMap.set(m.id, m);
+              for (const m of loser.messages) {
+                if (!msgMap.has(m.id)) msgMap.set(m.id, m);
+              }
+              const mergedMessages = Array.from(msgMap.values()).sort(
+                (a, b) => {
+                  const at = new Date(a.timestamp).getTime();
+                  const bt = new Date(b.timestamp).getTime();
+                  // NaN-safe: non-finite timestamps sort to the end.
+                  const av = Number.isFinite(at)
+                    ? at
+                    : Number.POSITIVE_INFINITY;
+                  const bv = Number.isFinite(bt)
+                    ? bt
+                    : Number.POSITIVE_INFINITY;
+                  return av - bv;
+                },
+              );
+              dedupeMap.set(winner.id, {
+                ...winner,
+                messages: mergedMessages,
+              });
+            }
+            state.conversations = Array.from(dedupeMap.values());
+
+            // Clear stale activeConversationId pointing at a dropped row.
+            if (
+              state.activeConversationId &&
+              !state.conversations.some(
+                (c) => c.id === state.activeConversationId,
+              )
+            ) {
+              state.activeConversationId = null;
+            }
+
             state.conversations = state.conversations.map((conv) => ({
               ...conv,
               createdAt: new Date(conv.createdAt),

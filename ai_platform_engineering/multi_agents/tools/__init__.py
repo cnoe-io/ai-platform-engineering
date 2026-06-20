@@ -23,6 +23,34 @@ from ai_platform_engineering.multi_agents.tools.workspace_ops import (
     list_workspace_files,
     clear_workspace
 )
+# Spec #099 Phase 3 — autonomous-task management tools so the supervisor's
+# main agent can chat-create / update / delete / trigger autonomous tasks
+# without forcing the operator into the form dialog.
+from ai_platform_engineering.multi_agents.tools.autonomous_tasks import (
+    list_autonomous_tasks,
+    create_autonomous_task,
+    update_autonomous_task,
+    delete_autonomous_task,
+    trigger_autonomous_task_now,
+    validate_cron_expression,
+)
+# Spec #099 webhook follow-up — GitHub-side webhook registration so the
+# supervisor can wire a repo to an autonomous-agents webhook task in a
+# single conversational turn (no visiting github.com to click through
+# Settings → Webhooks).
+from ai_platform_engineering.multi_agents.tools.github_webhooks import (
+    register_github_webhook,
+    list_github_webhooks,
+    delete_github_webhook,
+    test_github_webhook,
+)
+# Spec #099 webhook follow-up Phase 4 — canonical prompt templates so
+# the supervisor LLM hands create_autonomous_task a well-structured
+# prompt for common scenarios (issue triage, PR review, push notify)
+# instead of improvising from scratch every time.
+from ai_platform_engineering.multi_agents.tools.webhook_task_templates import (
+    get_webhook_task_template,
+)
 
 # Command-line tools from utils/agent_tools/ (available to all agents)
 from ai_platform_engineering.utils.agent_tools import (
@@ -49,6 +77,23 @@ __all__ = [
     'read_workspace_file',
     'list_workspace_files',
     'clear_workspace',
+
+    # Autonomous-task management (spec #099 Phase 3)
+    'list_autonomous_tasks',
+    'create_autonomous_task',
+    'update_autonomous_task',
+    'delete_autonomous_task',
+    'trigger_autonomous_task_now',
+    'validate_cron_expression',
+
+    # GitHub webhook management (spec #099 webhook follow-up)
+    'register_github_webhook',
+    'list_github_webhooks',
+    'delete_github_webhook',
+    'test_github_webhook',
+
+    # Canonical webhook-task prompt templates (spec #099 Phase 4)
+    'get_webhook_task_template',
 
     # Command-line tools (pass full shell command)
     'git',          # git("git clone https://github.com/org/repo")

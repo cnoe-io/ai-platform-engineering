@@ -283,6 +283,14 @@ config:
   # Kubernetes, provide provider client IDs/secrets/redirect URIs through
   # externalSecrets below; in Docker Compose, provide them through .env.
   CREDENTIAL_BOOTSTRAP_OAUTH_CONNECTORS: "false"
+  # Autonomous Agents: set to "true" to enable the admin-gated Autonomous tab.
+  # The UI proxies task management and run history to the service via
+  # /api/autonomous; requires the autonomous-agents subchart (tags.autonomous-agents).
+  ENABLE_AUTONOMOUS_AGENTS: "false"
+  # Autonomous Agents service URL (only used when ENABLE_AUTONOMOUS_AGENTS is
+  # "true").
+  # AUTONOMOUS_AGENTS_URL: "http://{{ .Release.Name }}-autonomous-agents:8002"
+
   # Standalone skill-scanner microservice (cisco-ai-defense/skill-scanner).
   # Set when global.skillScanner.enabled=true on the parent chart so the
   # UI can reach the in-cluster scanner Service. Leave empty to disable

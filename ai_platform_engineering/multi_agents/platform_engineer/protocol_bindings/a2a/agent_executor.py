@@ -902,6 +902,169 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
         logger.info(f"Task {task.id} completed (stream end, {state.sub_agents_completed} sub-agents).")
 
     # ─────────────────────────────────────────────────────────────────────────
+    # Preflight (autonomous-agents acknowledgement on task creation)
+    # ─────────────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _extract_message_metadata(message) -> dict:
+        """Pull metadata off the A2A Message regardless of which slot it lives in.
+
+        The a2a-sdk has historically attached metadata as either a top-level
+        ``message.metadata`` attribute OR inside a DataPart on the message.
+        Probing both keeps us robust across SDK versions and across clients
+        that put their hint in either place.
+        """
+        meta: dict = {}
+        if message is None:
+            return meta
+
+        top_meta = getattr(message, "metadata", None)
+        if isinstance(top_meta, dict):
+            meta.update(top_meta)
+
+        parts = getattr(message, "parts", None) or []
+        for part in parts:
+            data = None
+            if hasattr(part, "root") and hasattr(part.root, "data"):
+                data = part.root.data
+            elif hasattr(part, "data"):
+                data = part.data
+            elif isinstance(part, dict) and "data" in part:
+                data = part.get("data")
+            if isinstance(data, dict):
+                # Only adopt keys we know are metadata-shaped to avoid eating
+                # form payloads. autonomous-agents sends agent / preflight /
+                # llm_provider / user_email and nothing else.
+                for key in ("preflight", "agent", "llm_provider", "user_email", "user_id"):
+                    if key in data and key not in meta:
+                        meta[key] = data[key]
+        return meta
+
+    def _build_preflight_ack(self, prompt: str, agent_hint: str | None,
+                             llm_provider: str | None) -> dict:
+        """Build a structured Acknowledgement payload without executing tools.
+
+        This is intentionally a *light* preflight — it confirms the routing
+        path is viable (sub-agent is loaded, tools are visible) but does NOT
+        actually invoke any sub-agent or call any external API. Operators
+        get fail-fast feedback for the high-leverage failure modes
+        (disabled agent, typo'd agent name) at task-creation time without
+        burning LLM tokens or hitting upstream APIs every time someone
+        edits a task.
+
+        Heavier preflight (real credential probes, dry-run tool routing
+        through the LLM) is intentionally out of scope for this first
+        iteration — see spec #099 for the planned follow-up.
+        """
+        from datetime import datetime, timezone
+
+        # Probe the MAS for what's actually loaded.  ``get_subagent_tools()``
+        # returns the snapshot captured at graph build time so this call is
+        # synchronous and free of side effects.
+        try:
+            subagent_tools = self.agent._mas_instance.get_subagent_tools()
+        except Exception as e:
+            # If the MAS isn't initialized yet (cold start), report that
+            # explicitly rather than crash — autonomous-agents will retry.
+            logger.warning(f"preflight: MAS not ready: {e}")
+            return {
+                "ack_status": "warn",
+                "ack_detail": f"Supervisor MAS not yet initialized: {e}",
+                "routed_to": None,
+                "tools": [],
+                "available_agents": [],
+                "credentials_status": {},
+                "dry_run_summary": "Supervisor is still loading sub-agents; retry in a few seconds.",
+                "ack_at": datetime.now(timezone.utc).isoformat(),
+            }
+
+        available_agents = sorted(subagent_tools.keys())
+        normalized_hint = (agent_hint or "").strip().lower() or None
+
+        if normalized_hint:
+            if normalized_hint in subagent_tools:
+                tools = subagent_tools[normalized_hint]
+                summary = (
+                    f"Will route to '{normalized_hint}' sub-agent which has "
+                    f"{len(tools)} tool(s) loaded. LLM provider: "
+                    f"{llm_provider or 'supervisor default'}."
+                )
+                return {
+                    "ack_status": "ok",
+                    "ack_detail": "Sub-agent loaded; ready for scheduled execution.",
+                    "routed_to": normalized_hint,
+                    "tools": tools,
+                    "available_agents": available_agents,
+                    "credentials_status": {},  # heavy probes deferred
+                    "dry_run_summary": summary,
+                    "ack_at": datetime.now(timezone.utc).isoformat(),
+                }
+            return {
+                "ack_status": "failed",
+                "ack_detail": (
+                    f"Sub-agent '{normalized_hint}' is not loaded in this supervisor. "
+                    f"Enable ENABLE_{normalized_hint.upper()}=true and restart, "
+                    f"or pick from {available_agents}."
+                ),
+                "routed_to": None,
+                "tools": [],
+                "available_agents": available_agents,
+                "credentials_status": {},
+                "dry_run_summary": (
+                    f"Routing target '{normalized_hint}' is unknown. Task will fail at "
+                    f"each scheduled run until this is resolved."
+                ),
+                "ack_at": datetime.now(timezone.utc).isoformat(),
+            }
+
+        # No agent hint — supervisor LLM router will pick at runtime.
+        return {
+            "ack_status": "ok",
+            "ack_detail": "No agent hint provided; LLM router will dispatch at run time.",
+            "routed_to": None,
+            "tools": [],
+            "available_agents": available_agents,
+            "credentials_status": {},
+            "dry_run_summary": (
+                f"At each scheduled run the supervisor's LLM will pick from "
+                f"{len(available_agents)} loaded sub-agents based on the prompt: "
+                f"{available_agents}."
+            ),
+            "ack_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+    async def _handle_preflight(self, query: str, metadata: dict, task: A2ATask,
+                                event_queue: EventQueue) -> None:
+        """Short-circuit execute() with a structured Acknowledgement.
+
+        Emits exactly one ``preflight_ack`` artifact (as a DataPart) and a
+        terminal completion event, then returns. No LLM call, no sub-agent
+        invocation, no tool execution.
+        """
+        agent_hint = metadata.get("agent")
+        llm_provider = metadata.get("llm_provider")
+        ack_payload = self._build_preflight_ack(
+            prompt=query or "",
+            agent_hint=agent_hint,
+            llm_provider=llm_provider,
+        )
+
+        artifact = new_data_artifact(
+            name="preflight_ack",
+            description="Pre-flight acknowledgement from supervisor",
+            data=ack_payload,
+        )
+        await self._send_artifact(event_queue, task, artifact, append=False, last_chunk=True)
+        await self._send_completion(event_queue, task)
+        logger.info(
+            "preflight: status=%s routed_to=%s tools=%d agents=%d",
+            ack_payload.get("ack_status"),
+            ack_payload.get("routed_to"),
+            len(ack_payload.get("tools", [])),
+            len(ack_payload.get("available_agents", [])),
+        )
+
+    # ─────────────────────────────────────────────────────────────────────────
     # Main Execute Method
     # ─────────────────────────────────────────────────────────────────────────
 
@@ -920,6 +1083,15 @@ class AIPlatformEngineerA2AExecutor(AgentExecutor):
             if not task:
                 raise Exception("Failed to create task")
             await self._safe_enqueue_event(event_queue, task)
+
+        # Pre-flight short-circuit (autonomous-agents calls this on task
+        # create/update to surface fail-fast errors — broken token, disabled
+        # sub-agent, typo'd agent name — before the first scheduled run
+        # rather than at 3 AM when the cron fires.  See spec #099.
+        msg_meta = self._extract_message_metadata(context.message)
+        if msg_meta.get("preflight"):
+            await self._handle_preflight(query or "", msg_meta, task, event_queue)
+            return
 
         # Extract trace_id from A2A context (or generate if root)
         trace_id = extract_trace_id_from_context(context)

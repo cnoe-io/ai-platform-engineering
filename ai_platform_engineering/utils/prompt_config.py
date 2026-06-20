@@ -289,10 +289,43 @@ def get_deep_agent_config() -> Dict[str, Any]:
 # ============================================================================
 
 def load_platform_config(path="prompt_config.yaml") -> Dict[str, Any]:
-    """Load platform engineer prompt configuration from YAML file."""
+    """Load platform engineer prompt configuration from YAML file.
+
+    Same hardening as the sibling loader in
+    ``multi_agents/platform_engineer/prompts.py`` — see commit ``6c19d138``
+    for the rationale. Three small but distinct fixes:
+
+    1. ``encoding="utf-8"`` so the deep_agent prompt YAML (which contains
+       emoji/unicode) loads on Windows. The default cp1252 codec raises
+       ``UnicodeDecodeError`` on the first non-ASCII byte and crashes
+       supervisor startup.
+    2. ``PROMPT_CONFIG_PATH`` env-var override so operators can point at
+       any YAML without symlinking or copying.
+    3. Defensive ``isinstance(loaded, dict)`` guard so a malformed stub
+       (e.g. the one-line path-string at the repo root that
+       ``yaml.safe_load`` returns as a bare ``str``) no longer crashes
+       downstream code with ``AttributeError: 'str' object has no
+       attribute 'get'``. On a non-mapping we log once and fall back
+       to defaults, matching the existing "file missing" branch.
+
+    THIS function (not the one in ``multi_agents/platform_engineer/prompts.py``)
+    is the one called by the supervisor's runtime ``message/send`` path
+    via ``deep_agent_single.generate_platform_system_prompt``, so the
+    earlier patch only fixed half the surface — bare-stub configs still
+    crashed actual scheduled runs with the same error message. This
+    closes that gap.
+    """
+    path = os.environ.get("PROMPT_CONFIG_PATH", path)
     if os.path.exists(path):
-        with open(path, "r") as f:
-            return yaml.safe_load(f)
+        with open(path, "r", encoding="utf-8") as f:
+            loaded = yaml.safe_load(f)
+        if not isinstance(loaded, dict):
+            logger.warning(
+                "platform prompt config at %s is not a mapping (got %s); ignoring",
+                path, type(loaded).__name__,
+            )
+            return {}
+        return loaded
     return {}
 
 def get_platform_agent_info(config: Dict[str, Any], platform_registry) -> tuple:
