@@ -51,17 +51,13 @@ AI agents operating in this repository **must** follow these rules on every comm
   - Example: `prebuild/feat/rag-batch-job-status`
 - **PR descriptions** - Follow the template in `.github/pull_request_template.md`
 
-## Issue Tracking (bd)
+## Issue Tracking
 
-This project uses **bd** (beads) for issue tracking.
+This project uses **GitHub Issues** for issue tracking.
 
-```bash
-bd ready              # Find available work
-bd show <id>          # View issue details
-bd update <id> --status in_progress  # Claim work
-bd close <id>         # Complete work
-bd sync               # Sync with git
-```
+- Create follow-up work as GitHub Issues in `cnoe-io/ai-platform-engineering`.
+- Reference related issues in PR descriptions when applicable.
+- Do not use repo-local Beads or `bd` issue tracking.
 
 ## Quality Gates
 
