@@ -2,6 +2,7 @@
 
 import { expect, test } from "@playwright/test";
 import { readFile } from "node:fs/promises";
+import JSZip from "jszip";
 
 import {
   fulfillJson,
@@ -287,7 +288,7 @@ test.describe("mocked RBAC admin browser regression", () => {
     await expect(page.getByTestId("permission-row-use")).toContainText("DENY");
   });
 
-  test("audit log expands policy details and downloads the filtered JSON payload", async ({
+  test("audit log expands policy details and downloads the filtered ZIP payload", async ({
     page,
   }) => {
     const records = auditRecords();
@@ -335,15 +336,17 @@ test.describe("mocked RBAC admin browser regression", () => {
     const downloadPromise = page.waitForEvent("download");
     await page.getByRole("button", { name: /download audit log/i }).click();
     const download = await downloadPromise;
-    expect(download.suggestedFilename()).toMatch(/^rbac-audit-log-.*\.json$/);
+    expect(download.suggestedFilename()).toMatch(/^rbac-audit-log-.*\.zip$/);
 
     const downloadPath = await download.path();
     expect(downloadPath).toBeTruthy();
-    const payload = JSON.parse(await readFile(downloadPath!, "utf8"));
-    expect(payload.record_count).toBe(2);
-    expect(payload.records[0].correlation_id).toBe("corr-grant");
+    const zip = await JSZip.loadAsync(await readFile(downloadPath!));
+    const auditEvents = JSON.parse(await zip.file("audit-events.json")!.async("string"));
+    const manifest = JSON.parse(await zip.file("manifest.json")!.async("string"));
+    expect(manifest.record_count).toBe(2);
+    expect(auditEvents[0].correlation_id).toBe("corr-grant");
 
-    await page.locator("select").first().selectOption("cas_grant");
+    await page.locator("select").nth(1).selectOption("cas_grant");
     await page.getByRole("button", { name: /^Search$/ }).click();
 
     await expect.poll(() => auditQueries.some((query) => query.includes("type=cas_grant"))).toBe(true);

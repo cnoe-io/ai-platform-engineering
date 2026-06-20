@@ -10,6 +10,7 @@ const mockCheckOpenFgaTuple = jest.fn();
 const mockCheckUniversalRebacRelationship = jest.fn();
 const mockReadOpenFgaTuples = jest.fn();
 const mockWriteOpenFgaTuples = jest.fn();
+const mockAuditQuery = jest.fn();
 // Phase 3 (spec 2026-05-24-derive-team-from-channel): the Webex
 // space onboarding flow no longer calls `ensureTeamClientScope` or
 // `selectAgentGatewayActiveTeamScope` — team identity is derived
@@ -94,6 +95,10 @@ jest.mock("@/lib/jwt-validation", () => ({
 jest.mock("@/lib/mongodb", () => ({
   getCollection: jest.fn(async (name: string) => mockCollections[name] ?? createMockCollection([])),
   isMongoDBConfigured: true,
+}));
+
+jest.mock("@/lib/audit/reader", () => ({
+  getAuditReader: () => ({ query: (...args: unknown[]) => mockAuditQuery(...args) }),
 }));
 
 jest.mock("@/lib/rbac/mongo-collections", () => {
@@ -213,6 +218,7 @@ beforeEach(() => {
   process.env.WEBEX_WORKSPACE_ALIAS = workspaceAlias;
   Object.keys(mockCollections).forEach((key) => delete mockCollections[key]);
   mockCheckPermission.mockResolvedValue({ allowed: true, reason: "OK" });
+  mockAuditQuery.mockResolvedValue([]);
   mockCheckOpenFgaTuple.mockResolvedValue({ allowed: true });
   mockCheckUniversalRebacRelationship.mockResolvedValue({ allowed: true });
   mockReadOpenFgaTuples.mockResolvedValue({ tuples: [], continuationToken: undefined });
@@ -724,7 +730,7 @@ describe("Webex space ReBAC resource APIs", () => {
         status: "active",
       },
     ]);
-    mockCollections.audit_events = createMockCollection([
+    mockAuditQuery.mockResolvedValue([
       {
         component: "webex_bot",
         outcome: "error",

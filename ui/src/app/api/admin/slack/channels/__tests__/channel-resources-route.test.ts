@@ -9,6 +9,7 @@ const mockCheckOpenFgaTuple = jest.fn();
 const mockCheckUniversalRebacRelationship = jest.fn();
 const mockReadOpenFgaTuples = jest.fn();
 const mockWriteOpenFgaTuples = jest.fn();
+const mockAuditQuery = jest.fn();
 // Phase 3 (spec 2026-05-24-derive-team-from-channel) removed the
 // per-team Keycloak helpers from Slack channel onboarding —
 // `ensureTeamClientScope` and `selectAgentGatewayActiveTeamScope`
@@ -93,6 +94,10 @@ jest.mock("@/lib/jwt-validation", () => ({
 jest.mock("@/lib/mongodb", () => ({
   getCollection: jest.fn(async (name: string) => mockCollections[name] ?? createMockCollection([])),
   isMongoDBConfigured: true,
+}));
+
+jest.mock("@/lib/audit/reader", () => ({
+  getAuditReader: () => ({ query: (...args: unknown[]) => mockAuditQuery(...args) }),
 }));
 
 jest.mock("@/lib/config", () => ({
@@ -188,6 +193,7 @@ beforeEach(() => {
   process.env.SLACK_WORKSPACE_ALIAS = workspaceAlias;
   Object.keys(mockCollections).forEach((key) => delete mockCollections[key]);
   mockCheckPermission.mockResolvedValue({ allowed: true, reason: "OK" });
+  mockAuditQuery.mockResolvedValue([]);
   mockCheckOpenFgaTuple.mockResolvedValue({ allowed: true });
   mockCheckUniversalRebacRelationship.mockResolvedValue({ allowed: true });
   mockReadOpenFgaTuples.mockResolvedValue({ tuples: [], continuationToken: undefined });
@@ -640,7 +646,7 @@ describe("Slack channel ReBAC APIs", () => {
         users: { enabled: true, listen: "message" },
       },
     ]);
-    mockCollections.audit_events = createMockCollection([
+    mockAuditQuery.mockResolvedValue([
       {
         type: "slack_runtime",
         component: "slack_bot",
