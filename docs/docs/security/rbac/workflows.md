@@ -150,7 +150,7 @@ sequenceDiagram
     participant DA as Dynamic Agents
     participant Runtime as Agent Runtime
     participant AG as AgentGateway
-    participant MDB as MongoDB audit_events
+    participant Audit as audit-service
 
     Client->>WebUIBackend: POST /api/v1/chat/stream/start
     WebUIBackend->>WebUIBackend: authenticate session or bearer<br/>and attach bearer when cached
@@ -201,7 +201,7 @@ The same sequence applies to `POST /api/v1/chat/invoke`,
 `POST /api/v1/chat/stream/resume`, and `POST /api/v1/chat/stream/cancel` (cancel
 does not start runtime work, but it still requires agent use and conversation write authorization). The RBAC Audit tab
 surfaces Web UI backend and Dynamic Agents OpenFGA decisions as `OpenFGA ReBAC` rows with
-`pdp=openfga` and the checked tuple in `resource_ref`. MongoDB `audit_events`
+`pdp=openfga` and the checked tuple in `resource_ref`. audit-service
 is authoritative for compliance and history; Jaeger/OTel can still be enabled
 for request-flow debugging, but the Admin UI does not need it to show authz
 decisions.
@@ -1464,7 +1464,7 @@ Slack channel routing now separates "which team owns this channel?" from "which 
 
 The Slack YAML config still registers channels and remains the fallback route source in the default `db_prefer` mode. Runtime channel-agent authorization lives in OpenFGA; Mongo route rows are non-authoritative metadata and are deleted when the admin deletes the channel-agent association. The OpenFGA Policy Graph overlays `channel_team_mappings` as read-only `assigned_team` routing metadata edges so operators can see channel ownership next to OpenFGA grants without treating that ownership as a mutable tuple.
 
-The Slack Channels admin panel also includes **Slack Runtime Diagnostics** for the selected channel. It calls `/api/admin/slack/channels/{workspaceId}/{channelId}/diagnostics` to perform the same OpenFGA tuple read shape used by the Slack bot, compare tuple-backed agents with `slack_channel_agent_routes`, flag stale Mongo metadata that runtime ignores, flag listen-mode mismatches such as mention-only routes that will ignore plain messages, and show the latest `slack_bot` runtime error from `audit_events`.
+The Slack Channels admin panel also includes **Slack Runtime Diagnostics** for the selected channel. It calls `/api/admin/slack/channels/{workspaceId}/{channelId}/diagnostics` to perform the same OpenFGA tuple read shape used by the Slack bot, compare tuple-backed agents with `slack_channel_agent_routes`, flag stale Mongo metadata that runtime ignores, flag listen-mode mismatches such as mention-only routes that will ignore plain messages, and show the latest `slack_bot` runtime error from audit-service.
 
 Slack route misses fail closed without turning ambient channel chatter into bot noise. For plain channel messages, the bot still records OpenFGA read failures and listen-mode mismatches for Slack Runtime Diagnostics, but it does not post a route-miss notice unless the user explicitly invoked the bot. During initial setup, `SLACK_INTEGRATION_SILENCE_ENV=true` stops Slack handlers before they can send user-visible responses at all. Diagnostics remains the operator-facing path for common errors: stale metadata without an OpenFGA tuple can be removed, and mention-only/message-only routes can be updated to `listen: all`.
 

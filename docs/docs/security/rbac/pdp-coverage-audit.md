@@ -181,7 +181,7 @@ This is the supported pattern until team-membership tuples themselves live in Op
 
 ## How to read an `audit_event_id` row
 
-Every `requireRbacPermission()` and `requireResourcePermission()` call writes an audit row via `logAuthzDecision()` in `ui/src/lib/rbac/audit.ts`. Rows live in MongoDB `rbac_audit_events` and the structured Next.js log.
+Every `requireRbacPermission()` and `requireResourcePermission()` call writes an audit row via `logAuthzDecision()` in `ui/src/lib/rbac/audit.ts`. Rows are emitted to audit-service, which owns local/S3 storage, and the structured Next.js log.
 
 A typical allow row looks like:
 
