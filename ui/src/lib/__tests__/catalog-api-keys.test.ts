@@ -43,7 +43,7 @@ describe("catalog-api-keys", () => {
     expect(doc.owner_user_id).toBe("user-sub-1");
     expect(doc.scopes).toEqual(["catalog:read"]);
     const secret = key.slice(key_id.length + 1);
-    expect(doc.key_hash).toMatch(/^[a-f0-9]{64}$/);
+    expect(doc.key_hash).toMatch(/^scrypt:v1:[A-Za-z0-9_-]+$/);
     expect(doc.key_hash).not.toBe(secret);
   });
 
