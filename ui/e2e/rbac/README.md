@@ -10,6 +10,7 @@ CAIPE + Keycloak stack:
 | `expired-session.spec.ts` | An expired NextAuth cookie surfaces the standardized 401 toast (Spec 102 Phase 7) instead of a generic 500. |
 | `missing-role.spec.ts` | A user without `chat_user` gets a 403 toast on chat submit. |
 | `pdp-down.spec.ts` | When Keycloak is unreachable, the UI shows a 503 toast (no silent allow). |
+| `credential-team-sharing.spec.ts` | Live credential Team Access keeps concurrent share responses from dropping successful grants. |
 | `workflow-agent-access.spec.ts` | Mocked browser regression for workflow run access and denied agent-access grants. |
 | `rbac-admin-regression.spec.ts` | Mocked browser regression for the Permissions Tool and RBAC Audit export UX. |
 | `mcp-openfga-tuples.spec.ts` | Mocked browser regression for team MCP resource saves and MCP server list visibility. |
@@ -30,7 +31,7 @@ Use these from `ui/`:
 | `npm run test:e2e:all` | Full RBAC Playwright suite: mocked regressions plus live RBAC/OpenFGA specs. |
 | `npm run test:e2e:rbac-regression` | Fast mocked browser regression subset. |
 | `npm run test:e2e:rbac-live-resources` | Live resource lifecycle matrix only. |
-| `npm run test:e2e:rbac-live-full` | Live OpenFGA + MCP create + resource lifecycle target. |
+| `npm run test:e2e:rbac-live-full` | Live OpenFGA + MCP create + resource lifecycle + credential team sharing target. |
 | `npm run test:e2e:rbac -- --list` | Raw discovery/debug command for every RBAC spec. |
 
 Use `npm run test:e2e:all -- --list` to see exactly what the full command will
