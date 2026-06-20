@@ -6,9 +6,8 @@ getAuthFromBearerOrSession,
 successResponse,
 withErrorHandler,
 } from "@/lib/api-middleware";
-import { CREDENTIAL_COLLECTIONS } from "@/lib/credentials/collections";
+import { getAuditReader } from "@/lib/audit/reader";
 import { getCredentialFeatureConfig } from "@/lib/feature-flags/credentials";
-import { getCollection } from "@/lib/mongodb";
 
 function assertFeatureEnabled(): void {
   if (!getCredentialFeatureConfig().enabled) {
@@ -23,11 +22,11 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   if (!actorId) {
     throw new ApiError("Authenticated subject is required", 401, "UNAUTHORIZED");
   }
-  const audit = await getCollection(CREDENTIAL_COLLECTIONS.auditEvents);
-  const events = await audit
-    .find({ "actor.id": actorId })
-    .sort({ createdAt: -1 })
-    .limit(50)
-    .toArray();
+  const events = (await getAuditReader().query({ type: "credential_action", limit: 500 }))
+    .filter((event) => {
+      const actor = event.actor as { id?: unknown } | undefined;
+      return actor?.id === actorId;
+    })
+    .slice(0, 50);
   return successResponse(events);
 });

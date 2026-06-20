@@ -43,13 +43,9 @@ tokenValidation:
 
 audit:
   enabled: true
-  mongodbUri: ""
-  mongodbDatabase: caipe
+  serviceUrl: ""
   tenantId: default
   subjectSalt: caipe-098-audit
-  existingSecret:
-    name: ""
-    key: MONGODB_URI
 
 resources:
   requests:

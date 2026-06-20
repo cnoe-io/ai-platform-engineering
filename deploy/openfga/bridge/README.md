@@ -4,12 +4,12 @@ A small gRPC server that implements Envoy's `envoy.service.auth.v3.Authorization
 and translates Check requests into OpenFGA Check API calls.
 
 Used by AgentGateway (configured as an `ext_authz` target) to enforce ReBAC
-policies on agent traffic, with optional MongoDB audit logging.
+policies on agent traffic, with optional audit-service event forwarding.
 
 ## Source layout
 
 - `main.py` — gRPC server entrypoint
-- `audit.py` — optional MongoDB audit-log writer
+- `audit.py` — optional audit-service event writer
 - `tests/` — pytest suite for the chart and the bridge itself
 
 ## Local development

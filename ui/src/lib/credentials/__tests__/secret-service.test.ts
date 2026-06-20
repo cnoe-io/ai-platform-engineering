@@ -74,7 +74,6 @@ function createService() {
     rotateSecret: jest.fn(async () => undefined),
     deleteSecret: jest.fn(async () => undefined),
   };
-  const audit = { insertOne: jest.fn(async () => ({ acknowledged: true })) };
   const authorize = jest.fn(async () => undefined);
   const reconcileOwnerRelationships = jest.fn(async () => undefined);
   const reconcileShare = jest.fn(async () => undefined);
@@ -84,7 +83,6 @@ function createService() {
   return {
     refs,
     payloadStore,
-    audit,
     authorize,
     reconcileOwnerRelationships,
     reconcileShare,
@@ -93,7 +91,6 @@ function createService() {
     service: new SecretService({
       secretRefsCollection: refs,
       payloadStore,
-      auditCollection: audit,
       authorize,
       reconcileOwnerRelationships,
       reconcileShare,

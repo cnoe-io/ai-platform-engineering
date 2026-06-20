@@ -62,22 +62,14 @@ spec:
             - name: JWT_ALGORITHMS
               value: {{ join "," .Values.tokenValidation.algorithms | quote }}
             {{- if .Values.audit.enabled }}
-            - name: MONGODB_DATABASE
-              value: {{ .Values.audit.mongodbDatabase | quote }}
+            {{- if .Values.audit.serviceUrl }}
+            - name: AUDIT_SERVICE_URL
+              value: {{ tpl .Values.audit.serviceUrl . | quote }}
+            {{- end }}
             - name: TENANT_ID
               value: {{ .Values.audit.tenantId | quote }}
             - name: AUDIT_SUBJECT_SALT
               value: {{ .Values.audit.subjectSalt | quote }}
-            {{- if .Values.audit.existingSecret.name }}
-            - name: MONGODB_URI
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.audit.existingSecret.name | quote }}
-                  key: {{ .Values.audit.existingSecret.key | quote }}
-            {{- else if .Values.audit.mongodbUri }}
-            - name: MONGODB_URI
-              value: {{ .Values.audit.mongodbUri | quote }}
-            {{- end }}
             {{- end }}
           ports:
             - name: grpc

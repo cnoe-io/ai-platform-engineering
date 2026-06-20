@@ -467,11 +467,16 @@ explicit OpenFGA relationship. The older plain SSE proxy at
 the supervisor backend and applies the same implicit-or-explicit conversation
 write check before proxying.
 
-The Web UI backend emits a unified RBAC Audit event for every OpenFGA agent-use decision,
-and the Dynamic Agents runtime persists the same structured `openfga_rebac`
-event to MongoDB `audit_events` for direct bearer-token calls. Both use
-`pdp=openfga`; the Web UI backend stores the checked tuple in a resource reference shaped
-like:
+The Web UI backend emits a unified RBAC Audit event for every OpenFGA
+agent-use decision, and Python producers such as Dynamic Agents emit the same
+structured `openfga_rebac` event for direct bearer-token calls. These producers
+do not write audit storage directly. They buffer JSON events and submit batches
+to the lightweight `audit-service` (`AUDIT_LOG_BACKEND=service`, default),
+which owns the durable local/S3 storage backend and the read API used by the
+Admin UI. If `audit-service` is unavailable or audit is intentionally disabled,
+producers log a warning and drop the audit batch; authorization itself remains
+non-breaking. Both paths use `pdp=openfga`; the checked tuple is stored in a
+resource reference shaped like:
 
 ```text
 user:<sub> can_use agent:<agent_id>
@@ -480,12 +485,13 @@ user:<sub> can_use agent:<agent_id>
 This gives operators a single RBAC Audit view for runtime OpenFGA allows,
 denies, and PDP-unavailable failures alongside admin ReBAC graph/check actions.
 The Admin UI's RBAC Audit type filter uses `All` as a literal unfiltered view
-over MongoDB `audit_events`; selecting a specific type narrows the result to
+over audit-service events; selecting a specific type narrows the result to
 `auth`, `openfga_rebac`, `tool_action`, or `agent_delegation`. The AgentGateway
-`openfga-authz-bridge` also writes each external `ext_authz` decision into the
-same `audit_events` collection with `source=openfga_authz_bridge`, so
+`openfga-authz-bridge` also posts each external `ext_authz` decision through the
+same audit-service write path with `source=openfga_authz_bridge`, so
 gateway-level OpenFGA allow/deny/error decisions appear without a trace backend.
-MongoDB is the durable audit record and the Admin UI reads it directly.
+`audit-service` is the audit owner; UI, Dynamic Agents, and bridge processes are
+producers only.
 
 ### Personal DM Experience — Phase 2 (spec 2026-05-24)
 

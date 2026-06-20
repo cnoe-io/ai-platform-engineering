@@ -3,8 +3,8 @@
 """
 LangChain callback handler for unified audit logging.
 
-Records tool invocations (start / success / error) to the ``audit_events``
-MongoDB collection via :mod:`audit_logger`.  Follows the same pattern as
+Records tool invocations (start / success / error) through audit-service via
+:mod:`audit_logger`.  Follows the same pattern as
 :class:`MetricsCallbackHandler` so it can be attached to any
 ``RunnableConfig.callbacks`` list.
 """
@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 class AuditCallbackHandler(BaseCallbackHandler):
-    """Persist tool-level audit events to MongoDB.
+    """Persist tool-level audit events to audit-service.
 
     Usage::
 

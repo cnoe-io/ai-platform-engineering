@@ -13,6 +13,7 @@ CAIPE + Keycloak stack:
 | `credential-team-sharing.spec.ts` | Live credential Team Access keeps concurrent share responses from dropping successful grants. |
 | `workflow-agent-access.spec.ts` | Mocked browser regression for workflow run access and denied agent-access grants. |
 | `rbac-admin-regression.spec.ts` | Mocked browser regression for the Permissions Tool and RBAC Audit export UX. |
+| `audit-service-writers.spec.ts` | Mocked browser regression for audit-service-backed audit reads, filtering, downloads, and outage recovery. |
 | `mcp-openfga-tuples.spec.ts` | Mocked browser regression for team MCP resource saves and MCP server list visibility. |
 | `identity-sync-regression.spec.ts` | Mocked browser regression for the Identity Sync admin tab and manual Okta sync trigger path. |
 | `service-accounts.spec.ts` | Mocked browser regression for Service Accounts create, see-once credential reveal, scope manage, rotate, and revoke UX. |
@@ -95,7 +96,7 @@ Keycloak/OpenFGA fixture data:
 
        RUN_RBAC_REGRESSION=1 \
        CAIPE_UI_BASE_URL=http://localhost:3000 \
-       npx playwright test e2e/rbac/workflow-agent-access.spec.ts e2e/rbac/rbac-admin-regression.spec.ts e2e/rbac/mcp-openfga-tuples.spec.ts e2e/rbac/service-accounts.spec.ts e2e/rbac/admin-settings-regression.spec.ts e2e/rbac/identity-sync-regression.spec.ts e2e/rbac/slack-run-as.spec.ts --config=playwright.rbac.config.ts
+       npx playwright test e2e/rbac/workflow-agent-access.spec.ts e2e/rbac/rbac-admin-regression.spec.ts e2e/rbac/audit-service-writers.spec.ts e2e/rbac/mcp-openfga-tuples.spec.ts e2e/rbac/service-accounts.spec.ts e2e/rbac/admin-settings-regression.spec.ts e2e/rbac/identity-sync-regression.spec.ts e2e/rbac/slack-run-as.spec.ts --config=playwright.rbac.config.ts
 
 ## MCP OpenFGA tuple regression
 

@@ -1501,6 +1501,9 @@ services:
       #   APP_CONFIG_FILE=./config/app-config.local.yaml
       # config/*.local.yaml is gitignored (see .gitignore).
       - APP_CONFIG_PATH=/app/config/app-config.yaml
+      # Audit log storage is owned by the lightweight Python audit-service.
+      - AUDIT_LOG_BACKEND=${AUDIT_LOG_BACKEND:-service}
+      - AUDIT_SERVICE_URL=${AUDIT_SERVICE_URL:-http://audit-service:8010}
     volumes:
       # Override host path with CAIPE_APP_CONFIG_FILE (preferred; matches main's naming) or
       # legacy APP_CONFIG_FILE (kept for back-compat with existing .env files on this branch).
@@ -1533,6 +1536,9 @@ services:
       # calls Keycloak Admin APIs. Non-RBAC UI runs keep working because this
       # dependency is optional when the keycloak service is not selected.
       keycloak:
+        condition: service_healthy
+        required: false
+      audit-service:
         condition: service_healthy
         required: false
     profiles:
@@ -1686,6 +1692,9 @@ services:
       - WEBEX_BOT_ADMIN_AUDIENCE=${WEBEX_BOT_ADMIN_AUDIENCE:-caipe-webex-bot-admin}
       - WEBEX_BOT_ADMIN_TOKEN_URL=${WEBEX_BOT_ADMIN_TOKEN_URL:-http://keycloak:7080/realms/caipe/protocol/openid-connect/token}
       - APP_CONFIG_PATH=/app/config/app-config.yaml
+      # Audit log storage is owned by the lightweight Python audit-service.
+      - AUDIT_LOG_BACKEND=${AUDIT_LOG_BACKEND:-service}
+      - AUDIT_SERVICE_URL=${AUDIT_SERVICE_URL:-http://audit-service:8010}
     volumes:
       # App config only — NO source bind-mounts. The runner stage uses the
       # prebuilt .next/standalone bundle and ignores ./ui/src etc., so any
@@ -1702,8 +1711,64 @@ services:
       keycloak:
         condition: service_healthy
         required: false
+      audit-service:
+        condition: service_healthy
+        required: false
     profiles:
       - caipe-ui-prod
+
+  ####################################################################################################
+  #                                      Audit Service                                               #
+  ####################################################################################################
+  # Lightweight audit collector. caipe-ui can use it with AUDIT_LOG_BACKEND=service.
+  # It accepts JSON batches quickly, buffers with asyncio.Queue, flushes gzip
+  # NDJSON to local storage, and serves bounded read queries over the same data.
+  audit-service:
+    build:
+      context: .
+      dockerfile: build/Dockerfile.audit-service
+    image: ghcr.io/cnoe-io/caipe-audit-service:${IMAGE_TAG:-localtag}
+    container_name: audit-service
+    ports:
+      - "127.0.0.1:${AUDIT_SERVICE_PORT:-8010}:8010"
+    environment:
+      AUDIT_SERVICE_BACKEND: ${AUDIT_SERVICE_BACKEND:-local}
+      AUDIT_SERVICE_LOCAL_PATH: /var/lib/caipe-audit-service
+      AUDIT_SERVICE_LOCAL_GZIP: ${AUDIT_SERVICE_LOCAL_GZIP:-true}
+      AUDIT_SERVICE_LOCAL_RETENTION_DAYS: ${AUDIT_SERVICE_LOCAL_RETENTION_DAYS:-1}
+      AUDIT_SERVICE_S3_BUCKET: ${AUDIT_SERVICE_S3_BUCKET:-}
+      AUDIT_SERVICE_S3_PREFIX: ${AUDIT_SERVICE_S3_PREFIX:-audit}
+      AUDIT_SERVICE_S3_REGION: ${AUDIT_SERVICE_S3_REGION:-us-east-2}
+      AUDIT_SERVICE_S3_ENDPOINT_URL: ${AUDIT_SERVICE_S3_ENDPOINT_URL:-}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
+      AWS_REGION: ${AWS_REGION:-us-east-2}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-2}
+      AUDIT_SERVICE_QUEUE_MAX_SIZE: ${AUDIT_SERVICE_QUEUE_MAX_SIZE:-10000}
+      AUDIT_SERVICE_FLUSH_BATCH_SIZE: ${AUDIT_SERVICE_FLUSH_BATCH_SIZE:-500}
+      AUDIT_SERVICE_FLUSH_INTERVAL_SECONDS: ${AUDIT_SERVICE_FLUSH_INTERVAL_SECONDS:-1}
+      AUDIT_SERVICE_READ_DEFAULT_LIMIT: ${AUDIT_SERVICE_READ_DEFAULT_LIMIT:-1000}
+      AUDIT_SERVICE_READ_MAX_LIMIT: ${AUDIT_SERVICE_READ_MAX_LIMIT:-10000}
+      AUDIT_SERVICE_READ_MAX_DAYS: ${AUDIT_SERVICE_READ_MAX_DAYS:-31}
+    volumes:
+      - audit_service_data:/var/lib/caipe-audit-service
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import json,urllib.request,sys; r=urllib.request.urlopen('http://127.0.0.1:8010/readyz',timeout=3); sys.exit(0 if r.status==200 and json.load(r).get('status')=='ready' else 1)"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    profiles:
+      - audit-service
+      - caipe-ui
+      - caipe-ui-prod
+      - rbac
 
   ####################################################################################################
   #                                      Dynamic Agents                                              #
@@ -2204,52 +2269,6 @@ services:
     depends_on: [rag-server]
     profiles:
       - jira-ingestor
-
-  s3_ingestor:
-    build:
-      context: ./ai_platform_engineering/knowledge_bases/rag
-      dockerfile: ./build/Dockerfile.ingestors
-      args:
-        VARIANT: slim
-    image: ghcr.io/cnoe-io/caipe-rag-ingestors:${IMAGE_TAG:-localtag}
-    container_name: s3-ingestor
-    volumes:
-      - ./ai_platform_engineering/knowledge_bases/rag/ingestors/src/ingestors:/app/ingestors/src/ingestors
-      - ./ai_platform_engineering/knowledge_bases/rag/common/src/common:/app/common/src/common
-      - ${HOME}/.aws:/home/app/.aws:ro
-    environment:
-      - PYTHONPATH=/app/common/src:/app/ingestors/src
-      - INGESTOR_TYPE=s3
-      - AWS_CONFIG_FILE=/home/app/.aws/config
-      - AWS_SHARED_CREDENTIALS_FILE=/home/app/.aws/credentials
-      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
-      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
-      - AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN:-}
-      - AWS_REGION=${AWS_REGION:-}
-      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-us-east-2}
-      - AWS_ACCOUNT_LIST=${AWS_ACCOUNT_LIST:-}
-      - CROSS_ACCOUNT_ROLE_NAME=${CROSS_ACCOUNT_ROLE_NAME:-caipe-read-only}
-      - S3_BUCKETS=${S3_BUCKETS:-}
-      - S3_ALLOWED_FILES_AND_EXTENSIONS=${S3_ALLOWED_FILES_AND_EXTENSIONS:-}
-      - S3_IGNORE_PREFIXES=${S3_IGNORE_PREFIXES:-}
-      - S3_IGNORE_REGEX=${S3_IGNORE_REGEX:-}
-      - S3_MAX_FILES_PER_BUCKET=${S3_MAX_FILES_PER_BUCKET:-2000}
-      - RAG_SERVER_URL=${RAG_SERVER_URL:-http://rag-server:9446}
-      - SYNC_INTERVAL=${SYNC_INTERVAL:-86400}
-      - INIT_DELAY_SECONDS=${INIT_DELAY_SECONDS:-0}
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - EXIT_AFTER_FIRST_SYNC=${EXIT_AFTER_FIRST_SYNC:-false}
-      - MAX_DOCUMENTS_PER_INGEST=${MAX_DOCUMENTS_PER_INGEST:-1000}
-      - INGESTOR_OIDC_ISSUER=${INGESTOR_OIDC_ISSUER:-}
-      - INGESTOR_OIDC_CLIENT_ID=${INGESTOR_OIDC_CLIENT_ID:-}
-      - INGESTOR_OIDC_CLIENT_SECRET=${INGESTOR_OIDC_CLIENT_SECRET:-}
-      - INGESTOR_OIDC_DISCOVERY_URL=${INGESTOR_OIDC_DISCOVERY_URL:-}
-      - INGESTOR_OIDC_SCOPE=${INGESTOR_OIDC_SCOPE:-}
-    restart: no
-    env_file: [.env]
-    depends_on: [rag-server]
-    profiles:
-      - s3-ingestor
 
   # Dummy Graph Ingestor - for testing graph RAG with sample data
   # Requires RAG services to be running first: docker compose -f docker-compose.dev.yaml --profile graph_rag up -d
@@ -3083,8 +3102,7 @@ services:
       # set CAIPE_CALLER_TOOL_CHECK_ENABLED=true (in .env) to enforce the dual
       # agent+caller tool check for E2E.
       CAIPE_CALLER_TOOL_CHECK_ENABLED: ${CAIPE_CALLER_TOOL_CHECK_ENABLED:-false}
-      MONGODB_URI: ${MONGODB_URI:-mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin}
-      MONGODB_DATABASE: ${MONGODB_DATABASE:-caipe}
+      AUDIT_SERVICE_URL: ${AUDIT_SERVICE_URL:-http://audit-service:8010}
       TENANT_ID: ${TENANT_ID:-default}
       AUDIT_SUBJECT_SALT: ${AUDIT_SUBJECT_SALT:-caipe-098-audit}
     ports:
@@ -3103,6 +3121,9 @@ services:
         condition: service_completed_successfully
       openfga:
         condition: service_healthy
+      audit-service:
+        condition: service_healthy
+        required: false
 
   agentgateway-config-bridge:
     build:
@@ -3372,6 +3393,8 @@ volumes:
   openfga_postgres_data:
     driver: local
   agentgateway_config:
+    driver: local
+  audit_service_data:
     driver: local
   # Durable Keycloak state (users, role assignments, per-team client scopes,
   # `team_member:<slug>` realm roles, identity links, token-exchange grants).

@@ -142,6 +142,8 @@ export interface Config {
    * Enabled by default. Set ACTION_AUDIT_ENABLED=false to disable.
    */
   actionAuditEnabled: boolean;
+  /** Audit log emission backend. UI supports "service"; storage lives in audit-service. */
+  auditLogBackend: string;
   /** Default font size for new users: "small" | "medium" | "large" | "x-large" */
   defaultFontSize: string;
   /** Default font family for new users: "inter" | "source-sans" | "ibm-plex" | "system" */
@@ -254,6 +256,7 @@ const DEFAULT_CONFIG: Config = {
   allowBuiltinSkillMutation: false,
   auditLogsEnabled: false,
   actionAuditEnabled: true,
+  auditLogBackend: 'service',
   defaultFontSize: DEFAULT_FONT_SIZE,
   defaultFontFamily: DEFAULT_FONT_FAMILY,
   defaultTheme: DEFAULT_THEME,
@@ -376,6 +379,7 @@ export function getServerConfig(): Config {
   const allowBuiltinSkillMutation = env('ALLOW_BUILTIN_SKILL_MUTATION') === 'true';
   const auditLogsEnabled = env('AUDIT_LOGS_ENABLED') === 'true';
   const actionAuditEnabled = env('ACTION_AUDIT_ENABLED') !== 'false';
+  const auditLogBackend = env('AUDIT_LOG_BACKEND') || 'service';
   const dynamicAgentsEnabled = env('DYNAMIC_AGENTS_ENABLED') === 'true';
   const credentialsEnabled = env('CAIPE_CREDENTIALS_ENABLED') === 'true';
   // The user-facing Connections surface is gated independently of the SA token
@@ -458,6 +462,7 @@ export function getServerConfig(): Config {
     allowBuiltinSkillMutation,
     auditLogsEnabled,
     actionAuditEnabled,
+    auditLogBackend,
     defaultFontSize: validated(env('DEFAULT_FONT_SIZE'), VALID_FONT_SIZES, DEFAULT_FONT_SIZE),
     defaultFontFamily: validated(env('DEFAULT_FONT_FAMILY'), VALID_FONT_FAMILIES, DEFAULT_FONT_FAMILY),
     defaultTheme: validated(env('DEFAULT_THEME'), VALID_THEMES, DEFAULT_THEME),

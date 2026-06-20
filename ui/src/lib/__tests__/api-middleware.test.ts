@@ -45,6 +45,11 @@ jest.mock('@/lib/rbac/keycloak-authz', () => ({
   checkPermission: jest.fn().mockResolvedValue({ allowed: false, reason: 'DENY_NO_CAPABILITY' }),
 }));
 
+const mockAuditWrite = jest.fn();
+jest.mock('@/lib/audit', () => ({
+  getAuditBackend: () => ({ write: mockAuditWrite }),
+}));
+
 const mockGetServerSession = jest.requireMock('next-auth').getServerSession;
 const mockGetCollection = jest.requireMock('@/lib/mongodb').getCollection;
 const mockCheckOpenFgaTuple = jest.requireMock('@/lib/rbac/openfga').checkOpenFgaTuple;
@@ -52,6 +57,7 @@ const mockCheckPermission = jest.requireMock('@/lib/rbac/keycloak-authz').checkP
 
 beforeEach(() => {
   mockGetConfig.mockImplementation((key: string) => key === 'ssoEnabled');
+  mockAuditWrite.mockClear();
   delete process.env.CAIPE_UNSAFE_RBAC_BYPASS;
 });
 
@@ -975,15 +981,9 @@ describe('withAuth', () => {
     }
 
     function loggedCapabilities(): string[] {
-      return (console.log as jest.Mock).mock.calls
-        .map((call) => {
-          try {
-            return JSON.parse(String(call[0])) as { capability?: string };
-          } catch {
-            return {};
-          }
-        })
-        .map((event) => event.capability)
+      return mockAuditWrite.mock.calls
+        .map((call) => call[0] as { action?: string })
+        .map((event) => event.action)
         .filter((capability): capability is string => typeof capability === 'string');
     }
 

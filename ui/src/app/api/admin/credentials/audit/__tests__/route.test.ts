@@ -3,7 +3,7 @@
  */
 
 const mockGetAuthFromBearerOrSession = jest.fn();
-const mockGetCollection = jest.fn();
+const mockQuery = jest.fn();
 const mockRequireBaselineAdminSurfaceRead = jest.fn(async () => undefined);
 
 jest.mock("@/lib/api-middleware", () => {
@@ -18,8 +18,8 @@ jest.mock("@/lib/feature-flags/credentials", () => ({
   getCredentialFeatureConfig: jest.fn(() => ({ enabled: true })),
 }));
 
-jest.mock("@/lib/mongodb", () => ({
-  getCollection: mockGetCollection,
+jest.mock("@/lib/audit/reader", () => ({
+  getAuditReader: () => ({ query: mockQuery }),
 }));
 
 jest.mock("@/lib/rbac/require-openfga", () => ({
@@ -30,23 +30,15 @@ describe("/api/admin/credentials/audit", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockGetAuthFromBearerOrSession.mockResolvedValue({ session: { sub: "admin-sub" } });
-    mockGetCollection.mockResolvedValue({
-      find: jest.fn(() => ({
-        sort: jest.fn(() => ({
-          limit: jest.fn(() => ({
-            toArray: jest.fn(async () => [
-              {
-                action: "secret.retrieve",
-                actor: { type: "service", id: "dynamic-agents" },
-                resource: { type: "secret_ref", id: "secret-1" },
-                result: "denied",
-                details: { value: "***REDACTED***" },
-              },
-            ]),
-          })),
-        })),
-      })),
-    });
+    mockQuery.mockResolvedValue([
+      {
+        action: "secret.retrieve",
+        actor: { type: "service", id: "dynamic-agents" },
+        resource: { type: "secret_ref", id: "secret-1" },
+        result: "denied",
+        details: { value: "***REDACTED***" },
+      },
+    ]);
   });
 
   it("lists global credential audit events behind the credentials admin surface", async () => {
@@ -64,5 +56,6 @@ describe("/api/admin/credentials/audit", () => {
       { sub: "admin-sub" },
       "credentials",
     );
+    expect(mockQuery).toHaveBeenCalledWith({ type: "credential_action", limit: 100 });
   });
 });
