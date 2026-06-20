@@ -132,7 +132,7 @@ curl -sfS http://localhost:8000/.well-known/agent.json >/dev/null
 - Creates `.env` file with secrets from GitHub Actions secrets:
   - LLM provider credentials (Azure OpenAI)
   - Agent API tokens (ArgoCD, Backstage, Atlassian, GitHub, PagerDuty, Splunk, Komodor, Slack)
-  - A2A transport configuration (`A2A_TRANSPORT=p2p`)
+  - A2A peer-to-peer configuration
   - Tracing disabled (`ENABLE_TRACING=false`)
 
 #### 2. Detailed Sanity Integration Tests
@@ -195,8 +195,7 @@ curl -sfS http://localhost:8000/.well-known/agent.json >/dev/null
 6. **Security Contexts**: Validate security settings
 7. **Storage Classes**: Test persistent volume configurations
 8. **Multi-Agent Configurations**: Test different agent combinations
-9. **SLIM Integration**: Test SLIM transport configuration
-10. **External Secrets**: Validate external secrets integration
+9. **External Secrets**: Validate external secrets integration
 
 **Example Test**:
 ```bash

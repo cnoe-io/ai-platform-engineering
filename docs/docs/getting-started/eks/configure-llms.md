@@ -62,10 +62,6 @@ Direct agent-to-agent communication using the a2a (agent-to-agent) protocol:
 
 ```yaml
 # Default configuration in helm/values.yaml
-global:
-  slim:
-    enabled: false  # Peer-to-peer is default
-
 ai-platform-engineering:
   multiAgentConfig:
     protocol: "a2a"
@@ -75,28 +71,6 @@ ai-platform-engineering:
 - **Latency**: Lower latency for direct agent interactions
 - **Architecture**: Distributed, no central coordination point
 - **Network**: Requires mesh connectivity between agents
-
-#### Option 2: Centralized Communication via Agntcy Slim
-
-Centralized communication through the agntcy slim transport layer:
-
-```yaml
-# Enable slim transport in helm/values.yaml
-global:
-  slim:
-    enabled: true
-    endpoint: "http://ai-platform-engineering-slim:46357"
-    transport: "slim"
-
-ai-platform-engineering:
-  multiAgentConfig:
-    protocol: "a2a"  # Still uses a2a but routes through slim
-```
-
-**Characteristics:**
-- **Coordination**: Centralized message routing and coordination
-- **Network**: Simplified network topology (hub-and-spoke)
-- **Overhead**: Additional hop introduces minimal latency
 
 ## Step 3: Configure Secret Management
 

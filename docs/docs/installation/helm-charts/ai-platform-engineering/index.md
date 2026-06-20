@@ -289,9 +289,6 @@ helm show values oci://ghcr.io/cnoe-io/charts/ai-platform-engineering --version 
 | global.mcp.vpa.updateMode | string | `"InPlaceOrRecreate"` |  |
 | global.metrics.enabled | bool | `true` |  |
 | global.rag.enableGraphRag | bool | `true` |  |
-| global.slim.enabled | bool | `false` |  |
-| global.slim.endpoint | string | `"http://ai-platform-engineering-slim:46357"` |  |
-| global.slim.transport | string | `"slim"` |  |
 | global.vpa.controlledResources[0] | string | `"cpu"` |  |
 | global.vpa.controlledResources[1] | string | `"memory"` |  |
 | global.vpa.enabled | bool | `false` |  |
@@ -456,8 +453,6 @@ helm show values oci://ghcr.io/cnoe-io/charts/ai-platform-engineering --version 
 | agent-netutils (agent) | `0.2.38` | tags: agent-netutils, complete |
 | agent-weather (agent) | `0.2.38` | tags: agent-weather, complete |
 | agent-petstore (agent) | `0.2.38` | tags: agent-petstore, complete |
-| slim | `v0.1.8` | `global.slim.enabled` |
-| slim-control-plane | `v0.1.3` | `global.slim.enabled` |
 | rag-stack | `0.2.38` | tags: rag-stack, complete |
 | caipe-ui | `0.2.38` | tags: caipe-ui |
 | dynamic-agents | `0.2.38` | tags: dynamic-agents |

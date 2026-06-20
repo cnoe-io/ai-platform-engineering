@@ -122,7 +122,6 @@ Add `web_ingestor` when you want the web ingestion worker. Add `slack-bot` or
 | `web_ingestor` / `web-ingestor` | Web datasource ingestion worker |
 | `slack-bot` | Slack bot integration service |
 | `webex-bot` | Webex bot integration service |
-| `slim` | AGNTCY Slim dataplane (set `A2A_TRANSPORT=slim`) |
 | `tracing` | Langfuse distributed tracing (Clickhouse, Postgres) |
 
 Domain profiles such as `github`, `argocd`, `jira`, `slack`, and `webex` are
