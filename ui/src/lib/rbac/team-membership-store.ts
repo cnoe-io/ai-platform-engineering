@@ -317,39 +317,41 @@ export async function loadActiveTeamMembersPage(
     ? { $cond: [{ $eq: [{ $toLower: { $ifNull: ["$user_email", ""] } }, ownerEmail] }, 0, 1] }
     : 1;
 
-  const docs = await collection
-    .aggregate<{
-      total: { count: number }[];
-      rows: Array<{
+  // Run count and page as two pipelines sharing this prefix, NOT one $facet:
+  // $facet is unsupported on Amazon DocumentDB (our deploy target). The count
+  // runs over grouped identities, not the raw match, so members with multiple
+  // source rows are counted once.
+  const prefix: Record<string, unknown>[] = [
+    { $match: match },
+    groupStage,
+    { $match: { _id: { $ne: null } } },
+    { $addFields: { owner_rank: ownerRank, email_sort: { $toLower: { $ifNull: ["$user_email", ""] } } } },
+  ];
+
+  const [countDocs, rows] = await Promise.all([
+    collection
+      .aggregate<{ count: number }>([...prefix, { $count: "count" }])
+      .toArray(),
+    collection
+      .aggregate<{
         _id: string | null;
         user_subject?: string;
         user_email?: string;
         is_admin: number;
         source_types: TeamMembershipSource["source_type"][];
         added_at?: string;
-      }>;
-    }>([
-      { $match: match },
-      groupStage,
-      { $match: { _id: { $ne: null } } },
-      { $addFields: { owner_rank: ownerRank, email_sort: { $toLower: { $ifNull: ["$user_email", ""] } } } },
-      {
-        $facet: {
-          total: [{ $count: "count" }],
-          rows: [
-            { $sort: { owner_rank: 1, email_sort: 1, _id: 1 } },
-            { $skip: (page - 1) * pageSize },
-            { $limit: pageSize },
-          ],
-        },
-      },
-    ])
-    .toArray();
+      }>([
+        ...prefix,
+        { $sort: { owner_rank: 1, email_sort: 1, _id: 1 } },
+        { $skip: (page - 1) * pageSize },
+        { $limit: pageSize },
+      ])
+      .toArray(),
+  ]);
 
-  const facet = docs[0] ?? { total: [], rows: [] };
-  const total = facet.total[0]?.count ?? 0;
+  const total = countDocs[0]?.count ?? 0;
 
-  const members: TeamMemberPageRow[] = facet.rows.map((row) => {
+  const members: TeamMemberPageRow[] = rows.map((row) => {
     const sourceTypes = Array.isArray(row.source_types) ? row.source_types : [];
     const isOwner = Boolean(ownerEmail && (row.user_email ?? "").toLowerCase() === ownerEmail);
     return {
