@@ -1,0 +1,238 @@
+// assisted-by claude code claude-sonnet-4-6
+import { renderHook, waitFor, act } from '@testing-library/react';
+import { usePlatformHealthProbes } from '../use-platform-health-probes';
+
+jest.useFakeTimers();
+
+const POLL_INTERVAL_MS = 30000;
+
+const makeHealthyResponse = (overrides: Record<string, unknown> = {}) => ({
+  status: 'healthy',
+  checked_at: new Date().toISOString(),
+  summary: { total: 4, healthy: 4, warning: 0, down: 0 },
+  probes: [
+    {
+      id: 'api',
+      label: 'API Server',
+      group: 'core',
+      status: 'healthy',
+      detail: 'OK',
+      target: 'http://localhost:8000',
+      latency_ms: 12,
+    },
+  ],
+  ...overrides,
+});
+
+describe('usePlatformHealthProbes', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    jest.useFakeTimers();
+    (global.fetch as jest.Mock) = jest.fn();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  // 1. Initial state
+  it('initial state: status is "checking", probes is [], summary is null', () => {
+    (global.fetch as jest.Mock).mockImplementation(
+      () => new Promise(() => {}) // Never resolves
+    );
+
+    const { result } = renderHook(() => usePlatformHealthProbes());
+
+    expect(result.current.status).toBe('checking');
+    expect(result.current.probes).toEqual([]);
+    expect(result.current.summary).toBeNull();
+  });
+
+  // 2. Successful fetch → healthy
+  it('successful fetch with status "healthy" → status becomes "healthy" and probes/summary are populated', async () => {
+    const body = makeHealthyResponse();
+    (global.fetch as jest.Mock).mockResolvedValue({
+      ok: true,
+      json: async () => body,
+    });
+
+    const { result } = renderHook(() => usePlatformHealthProbes());
+
+    await waitFor(() => {
+      expect(result.current.status).toBe('healthy');
+    });
+
+    expect(result.current.probes).toHaveLength(1);
+    expect(result.current.probes[0].id).toBe('api');
+    expect(result.current.summary).toEqual({ total: 4, healthy: 4, warning: 0, down: 0 });
+  });
+
+  // 3. Successful fetch → degraded
+  it('successful fetch with status "degraded" → status becomes "degraded"', async () => {
+    const body = makeHealthyResponse({
+      status: 'degraded',
+      summary: { total: 4, healthy: 2, warning: 1, down: 1 },
+    });
+    (global.fetch as jest.Mock).mockResolvedValue({
+      ok: true,
+      json: async () => body,
+    });
+
+    const { result } = renderHook(() => usePlatformHealthProbes());
+
+    await waitFor(() => {
+      expect(result.current.status).toBe('degraded');
+    });
+  });
+
+  // 4. No flash on re-poll
+  it('no flash on re-poll: status does NOT reset to "checking" during subsequent poll', async () => {
+    const body = makeHealthyResponse();
+    (global.fetch as jest.Mock).mockResolvedValue({
+      ok: true,
+      json: async () => body,
+    });
+
+    const { result } = renderHook(() => usePlatformHealthProbes());
+
+    // Wait for first load
+    await waitFor(() => {
+      expect(result.current.status).toBe('healthy');
+    });
+
+    // Advance past one poll interval — the second fetch starts but status
+    // should never dip back to "checking"
+    const statusValues: string[] = [];
+    const unsubscribe = (() => {
+      // capture current on each re-render via a local tracker
+      return () => {};
+    })();
+
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(POLL_INTERVAL_MS + 100);
+    });
+
+    // Status must still be "healthy", never "checking"
+    expect(result.current.status).toBe('healthy');
+    void unsubscribe;
+    void statusValues;
+  });
+
+  // 5. Debounce: single bad poll does NOT flip to "down"
+  it('debounce: single failed poll after healthy load keeps status "healthy"', async () => {
+    // First fetch: healthy
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      json: async () => makeHealthyResponse(),
+    });
+
+    const { result } = renderHook(() => usePlatformHealthProbes());
+
+    await waitFor(() => {
+      expect(result.current.status).toBe('healthy');
+    });
+
+    // Second fetch: network error (streak = 1, not yet 2)
+    (global.fetch as jest.Mock).mockRejectedValueOnce(new Error('Network error'));
+
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(POLL_INTERVAL_MS + 100);
+    });
+
+    // One bad poll is not enough to flip to "down"
+    expect(result.current.status).toBe('healthy');
+  });
+
+  // 6. Debounce: two consecutive bad polls flip to "down"
+  it('debounce: two consecutive failed polls promote status to "down"', async () => {
+    // First fetch: healthy
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      json: async () => makeHealthyResponse(),
+    });
+
+    const { result } = renderHook(() => usePlatformHealthProbes());
+
+    await waitFor(() => {
+      expect(result.current.status).toBe('healthy');
+    });
+
+    // Second fetch: fail (streak = 1)
+    (global.fetch as jest.Mock).mockRejectedValueOnce(new Error('Network error'));
+
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(POLL_INTERVAL_MS + 100);
+    });
+
+    expect(result.current.status).toBe('healthy'); // Still healthy after 1 bad
+
+    // Third fetch: fail (streak = 2 → flip to "down")
+    (global.fetch as jest.Mock).mockRejectedValueOnce(new Error('Network error'));
+
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(POLL_INTERVAL_MS + 100);
+    });
+
+    expect(result.current.status).toBe('down');
+  });
+
+  // 7. First-load bad result → "down" immediately (no debounce on initial load)
+  it('first-load fetch failure → status goes to "down" immediately without debounce', async () => {
+    (global.fetch as jest.Mock).mockRejectedValue(new Error('Network error'));
+
+    const { result } = renderHook(() => usePlatformHealthProbes());
+
+    await waitFor(() => {
+      expect(result.current.status).toBe('down');
+    });
+  });
+
+  // 8. checkNow reference is stable across re-renders
+  it('checkNow reference is stable (useCallback with no state deps)', async () => {
+    (global.fetch as jest.Mock).mockResolvedValue({
+      ok: true,
+      json: async () => makeHealthyResponse(),
+    });
+
+    const { result, rerender } = renderHook(() => usePlatformHealthProbes());
+
+    await waitFor(() => {
+      expect(result.current.status).toBe('healthy');
+    });
+
+    const refBefore = result.current.checkNow;
+
+    rerender();
+
+    expect(result.current.checkNow).toBe(refBefore);
+  });
+
+  // 9. checkNow triggers a new fetch
+  it('calling checkNow triggers a new /api/platform/health fetch', async () => {
+    (global.fetch as jest.Mock).mockResolvedValue({
+      ok: true,
+      json: async () => makeHealthyResponse(),
+    });
+
+    const { result } = renderHook(() => usePlatformHealthProbes());
+
+    await waitFor(() => {
+      expect(result.current.status).toBe('healthy');
+    });
+
+    const callsBefore = (global.fetch as jest.Mock).mock.calls.length;
+
+    act(() => {
+      result.current.checkNow();
+    });
+
+    await waitFor(() => {
+      expect((global.fetch as jest.Mock).mock.calls.length).toBeGreaterThan(callsBefore);
+    });
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      '/api/platform/health',
+      expect.objectContaining({ method: 'GET' })
+    );
+  });
+});

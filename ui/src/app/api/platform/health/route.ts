@@ -38,6 +38,18 @@ function trimTrailingSlash(value: string): string {
   return value.replace(/\/$/, "");
 }
 
+// Kubernetes auto-injects {SERVICE}_PORT as "tcp://host:port" (a connection URL,
+// not a bare port number). Number("tcp://...") is NaN, which crashes net.createConnection.
+// This helper safely extracts a port from either "tcp://host:port" or a plain number string.
+function envPort(name: string, defaultPort: number): number {
+  const raw = env(name);
+  if (!raw) return defaultPort;
+  const tcpMatch = raw.match(/^tcp:\/\/[^:]+:(\d+)/);
+  if (tcpMatch) return Number(tcpMatch[1]);
+  const num = Number(raw);
+  return Number.isFinite(num) && num > 0 ? num : defaultPort;
+}
+
 async function probeHttp({
   id,
   label,
@@ -236,7 +248,7 @@ async function probeKeycloakBootstrap(): Promise<ProbeResult> {
         id: "keycloak-bootstrap",
         label: "Keycloak Bootstrap",
         group: "bootstrap",
-        status: "warning",
+        status: "down",
         detail: health.keycloak.probe_error || `Realm ${health.keycloak.realm} needs attention`,
         target: health.keycloak.realm,
         latency_ms: null,
@@ -248,7 +260,7 @@ async function probeKeycloakBootstrap(): Promise<ProbeResult> {
         id: "keycloak-bootstrap",
         label: "Keycloak Bootstrap",
         group: "bootstrap",
-        status: "warning",
+        status: "down",
         detail:
           health.schema_area.status !== "current"
             ? `Schema ${health.schema_area.current_version ?? "unknown"} → ${health.schema_area.target_version}`
@@ -272,7 +284,7 @@ async function probeKeycloakBootstrap(): Promise<ProbeResult> {
       id: "keycloak-bootstrap",
       label: "Keycloak Bootstrap",
       group: "bootstrap",
-      status: "warning",
+      status: "down",
       detail: error instanceof Error ? error.message : "bootstrap check failed",
       target: env("KEYCLOAK_REALM") || "caipe",
       latency_ms: null,
@@ -294,7 +306,7 @@ async function probeRebacMigrations(): Promise<ProbeResult> {
         id: "rebac-migrations",
         label: "RBAC Migrations",
         group: "bootstrap",
-        status: "warning",
+        status: "down",
         detail: `${status.blocking_required_count} blocking migration${status.blocking_required_count === 1 ? "" : "s"} pending`,
         target: status.release,
         latency_ms: null,
@@ -306,7 +318,7 @@ async function probeRebacMigrations(): Promise<ProbeResult> {
         id: "rebac-migrations",
         label: "RBAC Migrations",
         group: "bootstrap",
-        status: "warning",
+        status: "down",
         detail: `${status.version_bootstrap_required_count} schema area${status.version_bootstrap_required_count === 1 ? "" : "s"} need version metadata`,
         target: status.release,
         latency_ms: null,
@@ -327,7 +339,7 @@ async function probeRebacMigrations(): Promise<ProbeResult> {
       id: "rebac-migrations",
       label: "RBAC Migrations",
       group: "bootstrap",
-      status: "warning",
+      status: "down",
       detail: error instanceof Error ? error.message : "migration status unavailable",
       target: "schema_migrations",
       latency_ms: null,
@@ -362,6 +374,7 @@ export async function GET(): Promise<Response> {
   const keycloakRealm = env("KEYCLOAK_REALM") || "caipe";
   const openfgaUrl = trimTrailingSlash(env("OPENFGA_HTTP") || "http://openfga:8080");
   const ragServerUrl = trimTrailingSlash(env("RAG_SERVER_URL") || "http://rag-server:9446");
+  const dynamicAgentsUrl = trimTrailingSlash(env("DYNAMIC_AGENTS_URL") || env("DA_SERVER_BASE_URL") || "http://dynamic-agents:8001");
   const agentgatewayAdminUrl = trimTrailingSlash(
     env("AGENTGATEWAY_ADMIN_CONFIG_URL") || "http://agentgateway:15000/config",
   );
@@ -398,7 +411,7 @@ export async function GET(): Promise<Response> {
       label: "OpenFGA Bridge",
       group: "identity",
       host: env("OPENFGA_AUTHZ_BRIDGE_HOST") || "openfga-authz-bridge",
-      port: Number(env("OPENFGA_AUTHZ_BRIDGE_PORT") || 9100),
+      port: envPort("OPENFGA_AUTHZ_BRIDGE_PORT", 9100),
       remediation: {
         label: "OpenFGA",
         href: "/admin?cat=security&tab=openfga",
@@ -430,26 +443,37 @@ export async function GET(): Promise<Response> {
         description: "Check AgentGateway admin API and compose service logs.",
       },
     }),
+    probeHttp({
+      id: "dynamic-agents",
+      label: "Dynamic Agents",
+      group: "core",
+      target: `${dynamicAgentsUrl}/health`,
+      remediation: {
+        label: "Dynamic Agents",
+        href: "/agents",
+        description: "Check dynamic agents service logs and dependencies.",
+      },
+    }),
     probeTcp({
       id: "caipe-mongodb",
       label: "MongoDB",
       group: "storage",
       host: env("MONGODB_HOST") || "caipe-mongodb",
-      port: Number(env("MONGODB_PORT") || 27017),
+      port: envPort("MONGODB_PORT", 27017),
     }),
     probeTcp({
       id: "keycloak-postgres",
       label: "Keycloak Postgres",
       group: "storage",
       host: env("KEYCLOAK_POSTGRES_HOST") || "keycloak-postgres",
-      port: Number(env("KEYCLOAK_POSTGRES_PORT") || 5432),
+      port: envPort("KEYCLOAK_POSTGRES_PORT", 5432),
     }),
     probeTcp({
       id: "openfga-postgres",
       label: "OpenFGA Postgres",
       group: "storage",
       host: env("OPENFGA_POSTGRES_HOST") || "openfga-postgres",
-      port: Number(env("OPENFGA_POSTGRES_PORT") || 5432),
+      port: envPort("OPENFGA_POSTGRES_PORT", 5432),
     }),
     probeHttp({
       id: "rag-server",
@@ -467,7 +491,7 @@ export async function GET(): Promise<Response> {
       label: "RAG Redis",
       group: "rag",
       host: env("RAG_REDIS_HOST") || "rag-redis",
-      port: Number(env("RAG_REDIS_PORT") || 6379),
+      port: envPort("RAG_REDIS_PORT", 6379),
     }),
     probeHttp({
       id: "milvus",
@@ -480,14 +504,14 @@ export async function GET(): Promise<Response> {
       label: "Milvus MinIO",
       group: "rag",
       host: env("MILVUS_MINIO_HOST") || "milvus-minio",
-      port: Number(env("MILVUS_MINIO_PORT") || 9000),
+      port: envPort("MILVUS_MINIO_PORT", 9000),
     }),
     probeTcp({
       id: "etcd",
       label: "etcd",
       group: "rag",
       host: env("ETCD_HOST") || "etcd",
-      port: Number(env("ETCD_PORT") || 2379),
+      port: envPort("ETCD_PORT", 2379),
     }),
     probeOpenFgaBootstrap(openfgaUrl),
     probeKeycloakBootstrap(),
@@ -503,8 +527,15 @@ export async function GET(): Promise<Response> {
     ),
   );
 
-  const down = probes.filter((probe) => probe.status === "down").length;
-  const warning = probes.filter((probe) => probe.status === "warning").length;
+  // RAG is optional infrastructure — unavailable RAG degrades the platform but
+  // does not take it down. Cap rag-group failures at "warning" so the overall
+  // status only goes "down" when a critical service (identity/core/storage) fails.
+  const normalizedProbes = probes.map((p) =>
+    p.group === "rag" && p.status === "down" ? { ...p, status: "warning" as ProbeStatus } : p,
+  );
+
+  const down = normalizedProbes.filter((p) => p.status === "down").length;
+  const warning = normalizedProbes.filter((p) => p.status === "warning").length;
   const status = down > 0 ? "down" : warning > 0 ? "degraded" : "healthy";
 
   return NextResponse.json(
@@ -512,12 +543,12 @@ export async function GET(): Promise<Response> {
       status,
       checked_at: new Date().toISOString(),
       summary: {
-        total: probes.length,
-        healthy: probes.length - down - warning,
+        total: normalizedProbes.length,
+        healthy: normalizedProbes.length - down - warning,
         warning,
         down,
       },
-      probes,
+      probes: normalizedProbes,
     },
     { status: down > 0 ? 503 : 200 },
   );

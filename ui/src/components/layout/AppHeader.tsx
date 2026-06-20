@@ -708,8 +708,8 @@ export function AppHeader() {
                   <Loader2 className="h-3 w-3 animate-spin" />
                 ) : (
                   <div className={cn(
-                    "h-2 w-2 rounded-full shrink-0",
-                    combinedStatus === "connected" && "bg-green-400 animate-pulse",
+                    "h-2 w-2 rounded-full shrink-0 transition-colors duration-700",
+                    combinedStatus === "connected" && "bg-green-400",
                     combinedStatus === "degraded" && "bg-amber-400",
                     combinedStatus === "rag-disconnected" && "bg-amber-400",
                     combinedStatus === "disconnected" && "bg-red-400",
@@ -744,9 +744,9 @@ export function AppHeader() {
                     </div>
                     <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/20 backdrop-blur-sm">
                       <span className={cn(
-                        "inline-block w-2 h-2 rounded-full",
-                        combinedStatus === "connected" ? "bg-green-400 animate-pulse" :
-                        combinedStatus === "checking" ? "bg-amber-400 animate-pulse" :
+                        "inline-block w-2 h-2 rounded-full transition-colors duration-700",
+                        combinedStatus === "connected" ? "bg-green-400" :
+                        combinedStatus === "checking" ? "bg-amber-400" :
                         combinedStatus === "degraded" ? "bg-amber-400" :
                         combinedStatus === "rag-disconnected" ? "bg-amber-400" : "bg-red-400"
                       )} />
