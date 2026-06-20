@@ -4314,7 +4314,7 @@ Closes: #324
 - with latest changes
 - create protocol_bindings directory for acp/a2a/mcp
 - **external-secrets**: improve secret name handling and update configuration examples
-- **monorepo**: rename mas->multi_agents, use seperate mcp python project
+- **monorepo**: rename mas->multi_agents, use separate mcp python project
 - **agent-argocd**: collapse to ai-platform-engineering
 - clean-up old code and update docs (#38)
 - docker support, clean-up, new chat client interface (#13)
