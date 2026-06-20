@@ -282,6 +282,9 @@ describe("OpenFGA team resource tuple reconciliation", () => {
       expect(resourceRelationNames(modelPath, "llm_model")).toEqual(
         expect.arrayContaining(["owner", "can_read", "can_write", "can_delete"]),
       );
+      expect(resourceRelationNames(modelPath, "secret_ref")).toEqual(
+        expect.arrayContaining(["can_read_metadata", "can_use", "can_manage", "can_share", "can_audit"]),
+      );
       expect(resourceRelationNames(modelPath, "slack_channel")).toContain("owner");
       expect(resourceRelationNames(modelPath, "webex_space")).toContain("owner");
     }
@@ -351,6 +354,10 @@ describe("OpenFGA team resource tuple reconciliation", () => {
       expect(directlyRelatedUserTypes(modelPath, "admin_surface", "manager")).toContainEqual({
         type: "organization",
         relation: "admin",
+      });
+      expect(directlyRelatedUserTypes(modelPath, "secret_ref", "metadata_reader")).toContainEqual({
+        type: "team",
+        relation: "member",
       });
     }
   });

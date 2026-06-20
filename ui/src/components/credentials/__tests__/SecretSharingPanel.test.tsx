@@ -1,4 +1,6 @@
-import { render, screen } from "@testing-library/react";
+// assisted-by Codex Codex-sonnet-4-6
+
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { SecretSharingPanel } from "../SecretSharingPanel";
@@ -29,7 +31,10 @@ describe("SecretSharingPanel", () => {
 
   it("shares a secret with a team without exposing the value", async () => {
     const user = userEvent.setup();
-    render(<SecretSharingPanel secretId="secret-1" sharedWithTeams={[]} />);
+    const onSharingChange = jest.fn();
+    render(
+      <SecretSharingPanel secretId="secret-1" sharedWithTeams={[]} onSharingChange={onSharingChange} />,
+    );
 
     await screen.findByText("Platform Team");
     await user.selectOptions(await screen.findByLabelText(/team/i), "platform-team");
@@ -42,6 +47,8 @@ describe("SecretSharingPanel", () => {
         body: JSON.stringify({ action: "share", teamId: "platform-team" }),
       }),
     );
+    await waitFor(() => expect(onSharingChange).toHaveBeenCalledWith(["platform-team"]));
+    expect(screen.getByText("Shared with platform-team")).toBeInTheDocument();
     expect(JSON.stringify((global.fetch as jest.Mock).mock.calls)).not.toContain("secret-value");
   });
 
