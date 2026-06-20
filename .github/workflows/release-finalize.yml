@@ -91,6 +91,7 @@ jobs:
             "[CI][A2A] Supervisor Agent Docker Build and Push"
             "[CI] Dynamic Agents Build and Push"
             "[CI] CAIPE UI Build and Push"
+            "[CI] Audit Service Build and Push"
             "[CI] Slack Bot Build and Push"
             "[CI] Skill Scanner Build and Push"
             "[CI] Keycloak Init Build and Push"

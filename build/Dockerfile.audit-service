@@ -1,0 +1,34 @@
+# syntax=docker/dockerfile:1.7
+# assisted-by Codex Codex-sonnet-4-6
+
+FROM python:3.13-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    AUDIT_SERVICE_LOCAL_PATH=/var/lib/caipe-audit-service
+
+RUN pip install --no-cache-dir \
+      fastapi==0.135.3 \
+      "uvicorn[standard]==0.34.3" \
+      pydantic==2.12.5 \
+      boto3==1.42.7 \
+      pyarrow==23.0.1 \
+    && groupadd -r appuser \
+    && useradd -r -g appuser -u 1001 -m appuser
+
+WORKDIR /app
+
+COPY --chown=appuser:appuser ai_platform_engineering/__init__.py ./ai_platform_engineering/__init__.py
+COPY --chown=appuser:appuser ai_platform_engineering/audit_service ./ai_platform_engineering/audit_service
+
+RUN mkdir -p "${AUDIT_SERVICE_LOCAL_PATH}" \
+    && chown -R appuser:appuser "${AUDIT_SERVICE_LOCAL_PATH}"
+
+USER appuser
+
+EXPOSE 8010
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD python -c "import json,urllib.request,sys; r=urllib.request.urlopen('http://127.0.0.1:8010/readyz',timeout=3); sys.exit(0 if r.status==200 and json.load(r).get('status')=='ready' else 1)" || exit 1
+
+CMD ["python", "-m", "uvicorn", "ai_platform_engineering.audit_service.main:app", "--host", "0.0.0.0", "--port", "8010"]

@@ -20,6 +20,7 @@ PARENT_EXPECTED_IMAGE_NAMES = (
     "agent-argocd",
     "mcp-argocd",
     "caipe-ui",
+    "caipe-audit-service",
     "caipe-dynamic-agents",
     "caipe-slack-bot",
     "caipe-webex-bot",
