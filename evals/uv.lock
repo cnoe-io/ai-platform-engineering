@@ -48,7 +48,7 @@ wheels = [
 
 [[package]]
 name = "anthropic"
-version = "0.69.0"
+version = "0.111.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -60,9 +60,9 @@ dependencies = [
     { name = "sniffio" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c8/9d/9ad1778b95f15c5b04e7d328c1b5f558f1e893857b7c33cd288c19c0057a/anthropic-0.69.0.tar.gz", hash = "sha256:c604d287f4d73640f40bd2c0f3265a2eb6ce034217ead0608f6b07a8bc5ae5f2", size = 480622, upload-time = "2025-09-29T16:53:45.282Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b9/8a/9afc7305a2ce4b52b30e137f83cd2a6a90b918b3997073db11bb5a1de55a/anthropic-0.111.0.tar.gz", hash = "sha256:39cbda0ac17a6d423e5bf609811bd69b26eddf6299d7a468126e05bc711ce826", size = 934001, upload-time = "2026-06-18T17:31:44.733Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/9b/38/75129688de5637eb5b383e5f2b1570a5cc3aecafa4de422da8eea4b90a6c/anthropic-0.69.0-py3-none-any.whl", hash = "sha256:1f73193040f33f11e27c2cd6ec25f24fe7c3f193dc1c5cde6b7a08b18a16bcc5", size = 337265, upload-time = "2025-09-29T16:53:43.686Z" },
+    { url = "https://files.pythonhosted.org/packages/f1/bb/09e82a81885d787f350fb55ca9df865b63140dd28b3b5b3104c4ae261657/anthropic-0.111.0-py3-none-any.whl", hash = "sha256:c14edb36ed80da9099acbd26b5cec810d76606c31f32a0d56a4cf9d4fa9e25ae", size = 929774, upload-time = "2026-06-18T17:31:43.116Z" },
 ]
 
 [[package]]
@@ -867,16 +867,16 @@ wheels = [
 
 [[package]]
 name = "langchain-anthropic"
-version = "0.3.21"
+version = "1.4.6"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anthropic" },
     { name = "langchain-core" },
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/a0/26/5e02dee815a5b03b332ee2ba3a244a8266795d6bfa7a683845ae1689c991/langchain_anthropic-0.3.21.tar.gz", hash = "sha256:c6372fbc933171b2707d856215bb88e48bc480fbc8a23b3ff9652acd5646ad3e", size = 470812, upload-time = "2025-09-29T20:05:02.006Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/e1/f5/cd397b94aeed5fa0e8ab9595b9fb578ac99f424d42220defe6626e6a1a7b/langchain_anthropic-1.4.6.tar.gz", hash = "sha256:78942d4458d883b7d362438a095ed501ed84f44d402622404482481fc973b9da", size = 706540, upload-time = "2026-06-12T16:54:15.352Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/21/de/3b553f9a173dc6b57ec66f727ffed5131119b0ac23654e8c304decb8ded1/langchain_anthropic-0.3.21-py3-none-any.whl", hash = "sha256:459102b1bf223595d6ace70b771816c18f0adc29131151c789c1ea08f67d65e1", size = 32521, upload-time = "2025-09-29T20:05:00.545Z" },
+    { url = "https://files.pythonhosted.org/packages/26/af/927dbbc5a1f5fea1a69adc2883f034cbd1430004e36f4eacd302d500393a/langchain_anthropic-1.4.6-py3-none-any.whl", hash = "sha256:dbd412a956b6b8b0716d9d8460ef71f834a6731cdbfc59e6160482a4a9fb5200", size = 51797, upload-time = "2026-06-12T16:54:14.159Z" },
 ]
 
 [[package]]
@@ -896,7 +896,7 @@ wheels = [
 
 [[package]]
 name = "langchain-core"
-version = "1.4.0"
+version = "1.4.8"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "jsonpatch" },
@@ -909,9 +909,9 @@ dependencies = [
     { name = "typing-extensions" },
     { name = "uuid-utils" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/59/de/679a53472c25860837e32c0442c962fa86e95317a36460e2c9d5c91b17c2/langchain_core-1.4.0.tar.gz", hash = "sha256:1dc341eed802ed9c117c0df3923c991e5e9e226571e5725c194eeb5bd93d1a7f", size = 920260, upload-time = "2026-05-11T18:42:35.919Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/12/e3/bea6d0080acf183332f24dcd74c208aee5857cf8f783c3fb0bd86027d8fb/langchain_core-1.4.8.tar.gz", hash = "sha256:5bf1f8411077c904182ad8f975943d36adcbf579c4e017b3a118b719229ebf9a", size = 957974, upload-time = "2026-06-18T19:39:23.636Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/0f/1a/86c38c27b81913a1c6c12448cab55defb5a1097c7dc9a4cea83f55477a2d/langchain_core-1.4.0-py3-none-any.whl", hash = "sha256:23cbbdb46e38ddd1dd5247e6167e96013eae74bea4c5949c550809970a9e565c", size = 548120, upload-time = "2026-05-11T18:42:33.992Z" },
+    { url = "https://files.pythonhosted.org/packages/13/d6/bdf6f0481cc57ef300d6b1eb48cf1400c0409be715d6eb3cabadd1142a09/langchain_core-1.4.8-py3-none-any.whl", hash = "sha256:d84c28b05e3ba8d4271d0827aad5b592ccdaaf986e76768c23503f0a2045e8aa", size = 557416, upload-time = "2026-06-18T19:39:21.902Z" },
 ]
 
 [[package]]
@@ -980,14 +980,14 @@ wheels = [
 
 [[package]]
 name = "langchain-protocol"
-version = "0.0.15"
+version = "0.0.18"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/4f/24/9777489d6fbbee64af0c8f96d4f840239c408cf694f3394672807dafc490/langchain_protocol-0.0.15.tar.gz", hash = "sha256:9ab2d11ee73944754f10e037e717098d3a6796f0e58afa9cadda6154e7655ade", size = 5862, upload-time = "2026-05-01T22:30:04.748Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d2/59/b5959aea96faa9146e2e49a7a22882b3528c62efafe9a6a95beab30c2305/langchain_protocol-0.0.18.tar.gz", hash = "sha256:ec3e11782f1ed0c9db38e5a9ed01b0e7a0d3fba406faa8aef6594b73c56a63e6", size = 6150, upload-time = "2026-06-18T17:08:26.959Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/1d/7a/9c97a7b9cbe4c5dc6a44cdb1545450c28f0c8ce89b9c1f0ee7fbad896263/langchain_protocol-0.0.15-py3-none-any.whl", hash = "sha256:461eb794358f83d5e42635a5797799ffec7b4702314e34edf73ac21e75d3ef79", size = 6982, upload-time = "2026-05-01T22:30:03.877Z" },
+    { url = "https://files.pythonhosted.org/packages/99/2e/d82db9eec13ad0f72e7aaad5c4bc730ab111934fdc83c85523206eb9b0a0/langchain_protocol-0.0.18-py3-none-any.whl", hash = "sha256:70b53a86fbf9cedc863555effe44da192ab02d556ddbf2cf95b8873adcf41b5a", size = 7221, upload-time = "2026-06-18T17:08:25.996Z" },
 ]
 
 [[package]]
@@ -1013,7 +1013,7 @@ wheels = [
 
 [[package]]
 name = "langsmith"
-version = "0.8.5"
+version = "0.8.18"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
@@ -1023,12 +1023,13 @@ dependencies = [
     { name = "requests" },
     { name = "requests-toolbelt" },
     { name = "uuid-utils" },
+    { name = "websockets" },
     { name = "xxhash" },
     { name = "zstandard" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/17/eb/8883d1158c743d0aac350f09df7880714d27283497e8c80bb9fe3480f165/langsmith-0.8.5.tar.gz", hash = "sha256:3615243d99c12f4047f13042bdc05a373dce232d106a6511b3ca7b48c5af1c2c", size = 4462348, upload-time = "2026-05-15T21:31:41.093Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/9a/d9/a6681aa9847bbbc5ec21abe20a5e233b94e5edcfe39624db607ac7e8ccb4/langsmith-0.8.18.tar.gz", hash = "sha256:32dde9c0e67e053e0fb738921fc8ced768af7b8fa83d7a0e3fd63597cf8776dd", size = 4526988, upload-time = "2026-06-19T13:12:17.123Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/23/85/968c88a63e32a59b3e5c68afd2fe114ce0708a125db0be1a85efc25fb2ea/langsmith-0.8.5-py3-none-any.whl", hash = "sha256:efc779f9d450dcaf9d97bc8894f4926276509d6e730e05289af9a64debce06ae", size = 399564, upload-time = "2026-05-15T21:31:39.046Z" },
+    { url = "https://files.pythonhosted.org/packages/03/70/0e0cc80a3b064c8d6c8d697c3125ed86e39d5a7393ec6dc8b07cb1cf13c4/langsmith-0.8.18-py3-none-any.whl", hash = "sha256:3940183349993faef48e6c7d08e4822ee9cefd906b362d0e3c2d650314d2f282", size = 508108, upload-time = "2026-06-19T13:12:15.348Z" },
 ]
 
 [[package]]
@@ -1384,8 +1385,8 @@ requires-dist = [
     { name = "cnoe-agent-utils", specifier = "==0.4.0" },
     { name = "fastapi", specifier = "==0.135.3" },
     { name = "httpx", specifier = "==0.28.1" },
-    { name = "langchain-anthropic", specifier = "==0.3.21" },
-    { name = "langchain-core", specifier = "==1.4.0" },
+    { name = "langchain-anthropic", specifier = "==1.4.6" },
+    { name = "langchain-core", specifier = "==1.4.8" },
     { name = "langchain-openai", specifier = "==1.2.1" },
     { name = "langfuse", specifier = "==3.14.5" },
     { name = "mypy", marker = "extra == 'dev'", specifier = "==1.18.2" },

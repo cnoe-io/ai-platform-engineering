@@ -58,6 +58,8 @@
     },
     "js-yaml": "4.2.0",
     "webpack": "5.105.4",
-    "webpack-dev-server": "5.2.4"
+    "webpack-dev-server": "5.2.5",
+    "dompurify": "3.4.11",
+    "http-proxy-middleware": "3.0.7"
   }
 }

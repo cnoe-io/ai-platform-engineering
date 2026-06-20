@@ -28,9 +28,9 @@ dependencies = [
     "typing-extensions==4.14.1",
     "requests==2.33.0",
     "mcp==1.27.1",
-    "langchain-core==1.4.0",
+    "langchain-core==1.4.8",
     "langchain-mcp-adapters==0.2.1",
-    "langgraph==1.1.6",
+    "langgraph==1.2.6",
     "deepagents==0.3.0",
     "ai-platform-engineering-utils",
     "prometheus_client==0.23.1",
@@ -45,7 +45,7 @@ allow-direct-references = true
 
 [tool.uv]
 override-dependencies = ["protobuf==5.29.6"]
-constraint-dependencies = ["nltk==3.9.4", "pypdf==6.12.0"]
+constraint-dependencies = ["nltk==3.9.4", "pypdf==6.13.3"]
 
 [tool.uv.sources]
 ai-platform-engineering-utils = { path = "../../utils" }
