@@ -117,17 +117,18 @@ spec:
               mountPath: /models
           resources:
             requests:
-              cpu: "1000m"
-              memory: 5Gi
+              cpu: "500m"
+              memory: 2Gi
             limits:
               cpu: "4"
               memory: 8Gi
           startupProbe:
+            # assisted-by Codex Codex-sonnet-4-6
             httpGet:
               path: /api/tags
               port: 11434
             periodSeconds: 5
-            failureThreshold: 24    # 2 minutes for ollama serve to bind and start
+            failureThreshold: 60    # 5 minutes for ollama serve to bind and start
           readinessProbe:
             exec:
               # exec is used instead of httpGet because Kubernetes httpGet probes
@@ -143,7 +144,7 @@ spec:
                 - 'ollama show "${OPENAI_MODEL_NAME}"'
             initialDelaySeconds: 10
             periodSeconds: 30
-            failureThreshold: 3     # 90 seconds — model already pulled by init container
+            failureThreshold: 10    # 5 minutes — model already pulled by init container
           livenessProbe:
             httpGet:
               path: /api/tags

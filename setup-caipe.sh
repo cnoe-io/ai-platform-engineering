@@ -4144,6 +4144,8 @@ _apply_agent_patches_volume() {
 # Fall back to $PWD; the agent_fix function already handles missing files.
 if [[ -f "$0" ]]; then
   SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+elif [[ -n "${BASH_SOURCE[0]:-}" && -f "${BASH_SOURCE[0]}" ]]; then
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 else
   SCRIPT_DIR="$PWD"
 fi
@@ -8788,8 +8790,34 @@ BANNER
     kubectl apply -f "$_ollama_yaml" 2>&1 \
       | grep -v "^$" | while IFS= read -r line; do log "$line"; done
     log "Waiting for Ollama to be ready (model pull may take several minutes on first run)..."
-    kubectl rollout status deployment/ollama -n caipe --timeout=10m 2>&1 \
-      | while IFS= read -r line; do log "$line"; done
+    # assisted-by Codex Codex-sonnet-4-6
+    # Print pod status every 30 s in the background so the user can see whether
+    # the pod is Pending (resource constraint) vs. Running (probe / pull in progress).
+    local _ollama_watch_pid=""
+    ( set +e
+      while true; do
+        _pod_line=$(kubectl get pod -n caipe -l app=ollama --no-headers 2>/dev/null | head -1)
+        [[ -n "$_pod_line" ]] && log "  pod status: $_pod_line"
+        sleep 30
+      done ) &
+    _ollama_watch_pid=$!
+
+    local _ollama_rc=0
+    kubectl rollout status deployment/ollama -n caipe --timeout=30m 2>&1 \
+      | while IFS= read -r line; do log "$line"; done || _ollama_rc=$?
+
+    kill "$_ollama_watch_pid" 2>/dev/null || true
+    wait "$_ollama_watch_pid" 2>/dev/null || true
+
+    if [[ $_ollama_rc -ne 0 ]]; then
+      warn "Ollama rollout timed out after 30 minutes."
+      warn "Check pod status:         kubectl get pod -n caipe -l app=ollama"
+      warn "Check pod events:         kubectl describe pod -n caipe -l app=ollama"
+      warn "Watch init container logs: kubectl logs -n caipe deploy/ollama -c pull-model -f"
+      warn "Watch main container logs: kubectl logs -n caipe deploy/ollama -f"
+      err "Ollama did not become ready. If the pod is Pending, the kind node may not have enough free memory (need ~2 Gi)."
+      exit 1
+    fi
 
     # On re-runs that add RAG with Ollama embeddings, the Deployment spec is
     # unchanged so no new pod is created and the init container never re-runs.
