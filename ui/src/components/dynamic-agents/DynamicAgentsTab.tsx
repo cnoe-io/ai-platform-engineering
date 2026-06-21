@@ -1,5 +1,7 @@
 "use client";
 
+// assisted-by Codex Codex-sonnet-4-6
+
 import { LastReviewBadge } from "@/components/ai-review";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -185,7 +187,7 @@ export function DynamicAgentsTab() {
           <div>
             <CardTitle>Agents</CardTitle>
             <CardDescription>
-              Configure AI agents with custom instructions and MCP tool access.
+              Build agents and choose the instructions, tools, and model they use.
             </CardDescription>
           </div>
           <div className="flex items-center gap-2">
@@ -215,9 +217,9 @@ export function DynamicAgentsTab() {
         ) : agents.length === 0 ? (
           <div className="text-center py-12">
             <Bot className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-            <h3 className="text-lg font-semibold mb-2">No Agents Yet</h3>
+            <h3 className="text-lg font-semibold mb-2">No agents yet</h3>
             <p className="text-muted-foreground mb-4">
-              Create your first dynamic agent to get started.
+              Create an agent when you are ready to give your team a tailored assistant.
             </p>
             <Button onClick={() => setIsCreating(true)}>
               <Plus className="h-4 w-4 mr-2" />

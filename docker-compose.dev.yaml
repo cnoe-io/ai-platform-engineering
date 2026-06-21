@@ -1497,7 +1497,7 @@ services:
         # Local prod-parity rebuilds skip Next's duplicate typecheck; run
         # `npm run lint` / targeted tests separately when validating changes.
         - CAIPE_UI_FAST_BUILD=${CAIPE_UI_FAST_BUILD:-true}
-    image: ghcr.io/cnoe-io/caipe-ui:${IMAGE_TAG:-localtag}-prod
+    image: ghcr.io/cnoe-io/caipe-ui-prod:${IMAGE_TAG:-localtag}
     container_name: caipe-ui-prod
     # Same host port as caipe-ui — these two services are mutually exclusive.
     # Keycloak's caipe-ui client only allow-lists http://localhost:3000/*.
@@ -1585,6 +1585,7 @@ services:
       # the local key wrapper run despite production. INSECURE — never set true
       # in a real production deployment. See build/Dockerfile.caipe-ui header.
       - CREDENTIAL_ALLOW_INSECURE_LOCAL_KEY_WRAP=${CREDENTIAL_ALLOW_INSECURE_LOCAL_KEY_WRAP:-false}
+      - CREDENTIAL_ALLOW_LOCALHOST_OAUTH_REDIRECTS=${CREDENTIAL_ALLOW_LOCALHOST_OAUTH_REDIRECTS:-true}
       - CREDENTIAL_SERVICE_AUDIENCE=${CREDENTIAL_SERVICE_AUDIENCE:-caipe-credential-service}
       - CREDENTIAL_BOOTSTRAP_OAUTH_CONNECTORS=${CREDENTIAL_BOOTSTRAP_OAUTH_CONNECTORS:-false}
       - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID:-}
@@ -1775,9 +1776,8 @@ services:
       - CORS_ORIGINS=${DYNAMIC_AGENTS_CORS_ORIGINS:-["*"]}
       # Agent Gateway — MCP routing through AG for dynamic agents
       - AGENT_GATEWAY_URL=${AGENT_GATEWAY_URL:-http://agentgateway:4000}
-      # AgentGateway fronts MCP targets with one route/backend per server so one
-      # failing optional MCP does not break unrelated tools.
-      - AGENT_GATEWAY_MCP_SERVER_IDS=${AGENT_GATEWAY_MCP_SERVER_IDS:-all}
+      # AgentGateway fronts every network MCP target with one route/backend per
+      # server so one failing optional MCP does not break unrelated tools.
       # Optional shared secret for signed Dynamic Agent -> AgentGateway agent_id context.
       # Leave unset to keep only the coarse user-level AgentGateway/OpenFGA gate.
       - CAIPE_AGENT_CONTEXT_HMAC_SECRET=${CAIPE_AGENT_CONTEXT_HMAC_SECRET:-}

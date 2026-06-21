@@ -156,9 +156,9 @@ test.describe("RBAC live e2e — MCP server create visibility", () => {
       await dismissReleaseUpgradeDialog(page);
       await expect(page.getByText(/add mcp server/i)).toBeVisible({ timeout: 15_000 });
 
-      await page.getByPlaceholder(/github, filesystem, postgres/i).fill(inputId);
-      await page.getByPlaceholder(/GitHub MCP Server/i).fill(displayName);
-      await page.getByPlaceholder(/localhost:3000\/sse/i).fill("https://mcp.example.test/mcp");
+      await page.getByLabel(/server id/i).fill(inputId);
+      await page.getByLabel(/display name/i).fill(displayName);
+      await page.getByLabel(/endpoint url/i).fill("https://mcp.example.test/mcp");
 
       const createResponse = page.waitForResponse(
         (response) =>

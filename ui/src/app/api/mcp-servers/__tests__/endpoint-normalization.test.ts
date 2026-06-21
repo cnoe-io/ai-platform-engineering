@@ -150,7 +150,7 @@ describe("POST /api/mcp-servers — endpoint normalisation", () => {
     expect(persisted._id).toBe("mcp-confluence");
   });
 
-  it("leaves a direct upstream endpoint (non-gateway) untouched on create", async () => {
+  it("stores a direct upstream endpoint behind an AgentGateway route on create", async () => {
     mockFindOne.mockResolvedValue(null);
     mockInsertOne.mockResolvedValue({ acknowledged: true });
     const { POST } = await import("../route");
@@ -169,10 +169,35 @@ describe("POST /api/mcp-servers — endpoint normalisation", () => {
 
     expect(response.status).toBe(201);
     const persisted = mockInsertOne.mock.calls[0][0];
-    expect(persisted.endpoint).toBe("https://mcp.example.com/mcp");
+    expect(persisted.endpoint).toBe("http://agentgateway:4000/mcp/mcp-custom-thing");
+    expect(persisted.agentgateway_target_endpoint).toBe("https://mcp.example.com/mcp");
+    expect(persisted.source).toBe("agentgateway");
   });
 
-  it("keeps a correctly-qualified gateway endpoint untouched on create", async () => {
+  it("adds /mcp to direct HTTP upstream origins and stores the route on create", async () => {
+    mockFindOne.mockResolvedValue(null);
+    mockInsertOne.mockResolvedValue({ acknowledged: true });
+    const { POST } = await import("../route");
+
+    const response = await POST(
+      request("/api/mcp-servers", {
+        method: "POST",
+        body: JSON.stringify({
+          id: "test-argocd",
+          name: "test-argocd",
+          transport: "http",
+          endpoint: "http://mcp-argocd:8000",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    const persisted = mockInsertOne.mock.calls[0][0];
+    expect(persisted.endpoint).toBe("http://agentgateway:4000/mcp/mcp-test-argocd");
+    expect(persisted.agentgateway_target_endpoint).toBe("http://mcp-argocd:8000/mcp");
+  });
+
+  it("keeps a correctly-qualified gateway endpoint as the route on create", async () => {
     mockFindOne.mockResolvedValue(null);
     mockInsertOne.mockResolvedValue({ acknowledged: true });
     const { POST } = await import("../route");
@@ -192,6 +217,44 @@ describe("POST /api/mcp-servers — endpoint normalisation", () => {
     expect(response.status).toBe(201);
     const persisted = mockInsertOne.mock.calls[0][0];
     expect(persisted.endpoint).toBe("http://agentgateway:4000/mcp/mcp-jira");
+    expect(persisted.agentgateway_target_endpoint).toBeUndefined();
+  });
+
+  it("stores Authorization saved secrets as provider-token gateway headers", async () => {
+    mockFindOne.mockResolvedValue(null);
+    mockInsertOne.mockResolvedValue({ acknowledged: true });
+    const { POST } = await import("../route");
+
+    const response = await POST(
+      request("/api/mcp-servers", {
+        method: "POST",
+        body: JSON.stringify({
+          id: "test-argocd",
+          name: "test-argocd",
+          transport: "http",
+          endpoint: "http://mcp-argocd:8000/mcp",
+          credential_sources: [
+            {
+              kind: "secret_ref",
+              target: "header",
+              name: "Authorization",
+              secret_ref: "secret-argocd",
+            },
+          ],
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    const persisted = mockInsertOne.mock.calls[0][0];
+    expect(persisted.credential_sources).toEqual([
+      {
+        kind: "secret_ref",
+        target: "header",
+        name: "X-CAIPE-Provider-Token",
+        secret_ref: "secret-argocd",
+      },
+    ]);
   });
 });
 
@@ -227,9 +290,9 @@ describe("PUT /api/mcp-servers?id=<id> — endpoint normalisation", () => {
     const updatePayload = mockFindOneAndUpdate.mock.calls[0][1] as {
       $set: { endpoint: string };
     };
-    expect(updatePayload.$set.endpoint).toBe(
-      "http://agentgateway:4000/mcp/mcp-confluence",
-    );
+    expect(updatePayload.$set.endpoint).toBe("http://agentgateway:4000/mcp/mcp-confluence");
+    expect(updatePayload.$set.agentgateway_target_endpoint).toBeUndefined();
+    expect(updatePayload.$set.source).toBe("agentgateway");
   });
 
   it("does not touch the endpoint when the admin updates other fields", async () => {
@@ -258,8 +321,8 @@ describe("PUT /api/mcp-servers?id=<id> — endpoint normalisation", () => {
     const updatePayload = mockFindOneAndUpdate.mock.calls[0][1] as {
       $set: Record<string, unknown>;
     };
-    // No endpoint normalisation when the field wasn't sent.
-    expect(updatePayload.$set).not.toHaveProperty("endpoint");
+    // Network MCP rows are kept on the AgentGateway path whenever they are saved.
+    expect(updatePayload.$set.endpoint).toBe("http://agentgateway:4000/mcp/mcp-jira");
     expect(updatePayload.$set.name).toBe("Jira (renamed)");
   });
 
@@ -291,8 +354,6 @@ describe("PUT /api/mcp-servers?id=<id> — endpoint normalisation", () => {
     const updatePayload = mockFindOneAndUpdate.mock.calls[0][1] as {
       $set: { endpoint: string };
     };
-    expect(updatePayload.$set.endpoint).toBe(
-      "http://agentgateway:4000/mcp/mcp-confluence",
-    );
+    expect(updatePayload.$set.endpoint).toBe("http://agentgateway:4000/mcp/mcp-confluence");
   });
 });

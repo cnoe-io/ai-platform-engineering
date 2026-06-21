@@ -1,5 +1,7 @@
 "use client";
 
+// assisted-by Codex Codex-sonnet-4-6
+
 import {
 CategoryBreakdown,
 RunStatsTable,
@@ -1223,7 +1225,7 @@ function AdminPage() {
             {/* Header */}
             <div className="space-y-2">
               <div className="flex items-center gap-3">
-                <h1 className="text-3xl font-bold">Admin Dashboard</h1>
+                <h1 className="text-3xl font-bold">Admin</h1>
                 {!isAdmin && (
                   <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
                     <Eye className="h-3.5 w-3.5" />
@@ -1239,8 +1241,8 @@ function AdminPage() {
               </div>
               <p className="text-muted-foreground">
                 {isAdmin
-                  ? 'Manage users, teams, monitor usage, and track platform metrics'
-                  : 'View platform usage, users, teams, and metrics (read-only access)'}
+                  ? 'Manage access, teams, health, and platform settings'
+                  : 'View access, teams, health, and platform settings'}
               </p>
             </div>
 

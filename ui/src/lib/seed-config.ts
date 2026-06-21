@@ -942,13 +942,12 @@ export async function backfillBuiltinMcpCredentialSources(): Promise<number> {
 /**
  * First-run / post-wipe safety net for AgentGateway-discovered MCP servers.
  *
- * Discovered servers (`source: "agentgateway"`) are runtime-provisioned by an
- * explicit "Sync with AgentGateway" action — the YAML seed never declares them,
- * and `backfillBuiltinMcpCredentialSources` only UPDATES existing docs. So once
- * the `mcp_servers` collection loses its discovered rows (e.g. wiped by an
- * older build that lacked the cleanup guard), nothing repopulates them until a
- * human clicks Sync, leaving the MCP Servers tab empty (the recurring
- * "No MCP Servers Yet" / knowledge-base 401 symptom).
+ * Discovered servers (`source: "agentgateway"`) are runtime-provisioned from
+ * AgentGateway's live route table — the YAML seed never declares them, and
+ * `backfillBuiltinMcpCredentialSources` only UPDATES existing docs. So once the
+ * `mcp_servers` collection loses its discovered rows (e.g. wiped by an older
+ * build that lacked the cleanup guard), nothing repopulates them unless this
+ * repair pass runs, leaving built-in MCP routes absent from the UI.
  *
  * This runs ONE discovery pass at startup, but only when there are zero
  * discovered servers, so it self-heals an empty/wiped collection without

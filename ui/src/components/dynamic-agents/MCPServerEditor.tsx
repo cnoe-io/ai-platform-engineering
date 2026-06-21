@@ -1,11 +1,20 @@
 "use client";
 
+// assisted-by Codex Codex-sonnet-4-6
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card,CardContent,CardDescription,CardHeader,CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { TeamPicker,type TeamPickerOption } from "@/components/ui/team-picker";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import type {
 MCPCredentialSource,
 MCPServerConfig,
@@ -13,7 +22,7 @@ MCPServerConfigCreate,
 MCPServerConfigUpdate,
 TransportType,
 } from "@/types/dynamic-agent";
-import { ArrowLeft,Loader2,Plus,X } from "lucide-react";
+import { ArrowLeft,Info,Loader2,Plus,X } from "lucide-react";
 import React from "react";
 
 interface MCPServerEditorProps {
@@ -29,11 +38,146 @@ const TRANSPORT_OPTIONS: { value: TransportType; label: string; description: str
   { value: "http", label: "HTTP", description: "HTTP/REST endpoint" },
 ];
 
+const HEADER_NAME_OPTIONS = ["Authorization", "X-CAIPE-Token"] as const;
+const CUSTOM_HEADER_VALUE = "__custom__";
+
+interface EndpointProbeAttempt {
+  url: string;
+  ok: boolean;
+  status?: number;
+  error?: string;
+}
+
+interface EndpointProbeResult {
+  attempts: EndpointProbeAttempt[];
+  suggestedUrl?: string;
+}
+
+interface SecretReferenceOption {
+  id: string;
+  name: string;
+  type?: string;
+  maskedPreview?: string;
+}
+
+interface ProviderConnectionOption {
+  id: string;
+  connectorId?: string;
+  provider: string;
+  status?: string;
+  updatedAt?: string;
+}
+
+interface OAuthConnectorOption {
+  id: string;
+  name: string;
+  provider: string;
+}
+
+async function fetchCredentialOptions<T>(url: string): Promise<T[]> {
+  const response = await fetch(url);
+  if (!response.ok) return [];
+  const json = (await response.json()) as { data?: unknown };
+  return Array.isArray(json.data) ? (json.data as T[]) : [];
+}
+
+function providerName(provider: string): string {
+  return provider
+    .split(/[-_]/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function deriveServerIdFromDisplayName(displayName: string): string {
+  return displayName
+    .trim()
+    .toLowerCase()
+    .replace(/^mcp[-_\s]+/, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 64);
+}
+
+function secretOptionLabel(secret: SecretReferenceOption): string {
+  return secret.name;
+}
+
+function selectedSecretOption(
+  source: MCPCredentialSource,
+  secrets: SecretReferenceOption[],
+): SecretReferenceOption | undefined {
+  if (source.kind !== "secret_ref" || !source.secret_ref) return undefined;
+  return secrets.find((secret) => secret.id === source.secret_ref);
+}
+
+function providerConnectionLabel(
+  connection: ProviderConnectionOption,
+  connectors: OAuthConnectorOption[],
+): string {
+  const connector = connectors.find(
+    (candidate) =>
+      candidate.id === connection.connectorId ||
+      candidate.provider === connection.provider,
+  );
+  return [
+    connector?.name ?? providerName(connection.provider),
+    connection.status,
+    connection.id,
+  ].filter(Boolean).join(" · ");
+}
+
+function normalizedCredentialSource(
+  source: MCPCredentialSource,
+  providerConnections: ProviderConnectionOption[],
+): MCPCredentialSource | null {
+  const name = source.name.trim();
+  if (!name) return null;
+
+  if (source.kind === "secret_ref") {
+    const secretRef = source.secret_ref?.trim();
+    if (!secretRef) return null;
+    return {
+      kind: "secret_ref",
+      target: source.target,
+      name,
+      secret_ref: secretRef,
+    };
+  }
+
+  if (source.kind === "provider_connection") {
+    const providerConnectionId = source.provider_connection_id?.trim();
+    if (!providerConnectionId) return null;
+    const provider =
+      source.provider?.trim() ||
+      providerConnections.find((connection) => connection.id === providerConnectionId)?.provider;
+    return {
+      kind: "provider_connection",
+      target: source.target,
+      name,
+      provider_connection_id: providerConnectionId,
+      ...(provider ? { provider } : {}),
+    };
+  }
+
+  return {
+    kind: "caller_token",
+    target: source.target,
+    name,
+    ...(source.fallback_env ? { fallback_env: source.fallback_env } : {}),
+    ...(source.fallback_client_credentials
+      ? { fallback_client_credentials: source.fallback_client_credentials }
+      : {}),
+  };
+}
+
 export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServerEditorProps) {
   const isEditing = !!server;
 
   // Form state
   const [id, setId] = React.useState(server?._id || "");
+  const [idManuallyEdited, setIdManuallyEdited] = React.useState(Boolean(server?._id));
+  const [showGeneratedNameEditor, setShowGeneratedNameEditor] = React.useState(false);
   const [name, setName] = React.useState(server?.name || "");
   const [description, setDescription] = React.useState(server?.description || "");
   const [transport, setTransport] = React.useState<TransportType>(server?.transport || "sse");
@@ -49,6 +193,11 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
 
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [secretOptions, setSecretOptions] = React.useState<SecretReferenceOption[]>([]);
+  const [providerConnectionOptions, setProviderConnectionOptions] = React.useState<ProviderConnectionOption[]>([]);
+  const [oauthConnectorOptions, setOauthConnectorOptions] = React.useState<OAuthConnectorOption[]>([]);
+  const [endpointProbe, setEndpointProbe] = React.useState<EndpointProbeResult | null>(null);
+  const [endpointProbeLoading, setEndpointProbeLoading] = React.useState(false);
 
   // Arg input state
   const [newArg, setNewArg] = React.useState("");
@@ -66,6 +215,19 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
   };
   const [agentGatewayTargets, setAgentGatewayTargets] = React.useState<AgentGatewayTarget[]>([]);
   const [gatewayDiscoveryLoaded, setGatewayDiscoveryLoaded] = React.useState(false);
+  const agentGatewayTargetOptions = React.useMemo<TeamPickerOption[]>(
+    () =>
+      agentGatewayTargets.map((target) => ({
+        slug: target.id,
+        name: target.name ?? target.id,
+        description: target.target_endpoint ?? target.endpoint,
+      })),
+    [agentGatewayTargets],
+  );
+  const selectedAgentGatewayTargetId = React.useMemo(
+    () => agentGatewayTargets.find((target) => target.endpoint === endpoint)?.id ?? "",
+    [agentGatewayTargets, endpoint],
+  );
 
   React.useEffect(() => {
     let cancelled = false;
@@ -95,10 +257,36 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
     };
   }, []);
 
+  React.useEffect(() => {
+    let cancelled = false;
+    async function loadCredentialOptions() {
+      const [secrets, connections, connectors] = await Promise.all([
+        fetchCredentialOptions<SecretReferenceOption>("/api/credentials/secrets").catch(() => []),
+        fetchCredentialOptions<ProviderConnectionOption>("/api/credentials/connections").catch(() => []),
+        fetchCredentialOptions<OAuthConnectorOption>("/api/credentials/oauth-connectors").catch(() => []),
+      ]);
+      if (cancelled) return;
+      setSecretOptions(secrets);
+      setProviderConnectionOptions(connections);
+      setOauthConnectorOptions(connectors);
+    }
+    void loadCredentialOptions();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const handleAddArg = () => {
     if (newArg.trim()) {
       setArgs([...args, newArg.trim()]);
       setNewArg("");
+    }
+  };
+
+  const handleDisplayNameChange = (value: string) => {
+    setName(value);
+    if (!isEditing && !idManuallyEdited) {
+      setId(deriveServerIdFromDisplayName(value));
     }
   };
 
@@ -123,8 +311,19 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
   const handleAddCredentialSource = () => {
     setCredentialSources([
       ...credentialSources,
-      { kind: "secret_ref", target: transport === "stdio" ? "env" : "header", name: "", secret_ref: "" },
+      {
+        kind: "secret_ref",
+        target: transport === "stdio" ? "env" : "header",
+        name: transport === "stdio" ? "" : "Authorization",
+        secret_ref: "",
+      },
     ]);
+  };
+
+  const handleSetCredentialSource = (index: number, source: MCPCredentialSource) => {
+    const updated = [...credentialSources];
+    updated[index] = source;
+    setCredentialSources(updated);
   };
 
   const handleUpdateCredentialSource = (
@@ -132,13 +331,104 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
     field: keyof MCPCredentialSource,
     value: string,
   ) => {
-    const updated = [...credentialSources];
-    updated[index] = { ...updated[index], [field]: value };
-    setCredentialSources(updated);
+    if (field === "target") {
+      const current = credentialSources[index];
+      const nextTarget = value as MCPCredentialSource["target"];
+      const currentNameIsDefaultHeader = HEADER_NAME_OPTIONS.includes(
+        current.name as (typeof HEADER_NAME_OPTIONS)[number],
+      );
+      handleSetCredentialSource(index, {
+        ...current,
+        target: nextTarget,
+        name: nextTarget === "env" && currentNameIsDefaultHeader
+          ? ""
+          : nextTarget === "header" && !current.name.trim()
+          ? "Authorization"
+          : current.name,
+      });
+      return;
+    }
+    handleSetCredentialSource(index, { ...credentialSources[index], [field]: value });
+  };
+
+  const handleSelectCredentialHeader = (index: number, value: string) => {
+    if (value === CUSTOM_HEADER_VALUE) {
+      const current = credentialSources[index];
+      if (!HEADER_NAME_OPTIONS.includes(current.name as (typeof HEADER_NAME_OPTIONS)[number])) return;
+      handleUpdateCredentialSource(index, "name", "");
+      return;
+    }
+    handleUpdateCredentialSource(index, "name", value);
+  };
+
+  const handleUpdateCredentialKind = (index: number, kind: MCPCredentialSource["kind"]) => {
+    const current = credentialSources[index];
+    if (kind === "secret_ref") {
+      handleSetCredentialSource(index, {
+        kind,
+        target: current.target,
+        name: current.name,
+        secret_ref: current.secret_ref || "",
+      });
+      return;
+    }
+
+    if (kind === "provider_connection") {
+      const connection = providerConnectionOptions.find(
+        (candidate) => candidate.id === current.provider_connection_id,
+      );
+      handleSetCredentialSource(index, {
+        kind,
+        target: current.target,
+        name: current.name,
+        provider_connection_id: connection?.id ?? "",
+        ...(connection?.provider ? { provider: connection.provider } : {}),
+      });
+      return;
+    }
+
+    handleSetCredentialSource(index, {
+      kind,
+      target: current.target,
+      name: current.name,
+    });
+  };
+
+  const handleSelectProviderConnection = (index: number, providerConnectionId: string) => {
+    const current = credentialSources[index];
+    const connection = providerConnectionOptions.find((candidate) => candidate.id === providerConnectionId);
+    handleSetCredentialSource(index, {
+      ...current,
+      kind: "provider_connection",
+      provider_connection_id: providerConnectionId,
+      ...(connection?.provider ? { provider: connection.provider } : {}),
+    });
   };
 
   const handleRemoveCredentialSource = (index: number) => {
     setCredentialSources(credentialSources.filter((_, i) => i !== index));
+  };
+
+  const handleProbeEndpoint = async () => {
+    setEndpointProbeLoading(true);
+    setEndpointProbe(null);
+    setError(null);
+    try {
+      const response = await fetch("/api/mcp-servers/endpoint-probe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: endpoint, transport }),
+      });
+      const payload = (await response.json()) as { success?: boolean; data?: EndpointProbeResult; error?: string };
+      if (!response.ok || payload.success === false || !payload.data) {
+        throw new Error(payload.error || "Could not check endpoint");
+      }
+      setEndpointProbe(payload.data);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Could not check endpoint");
+    } finally {
+      setEndpointProbeLoading(false);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -156,6 +446,9 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
       });
 
       if (isEditing) {
+        const normalizedCredentialSources = credentialSources
+          .map((source) => normalizedCredentialSource(source, providerConnectionOptions))
+          .filter((source): source is MCPCredentialSource => source !== null);
         // Update existing server
         const updateData: MCPServerConfigUpdate = {
           name,
@@ -165,7 +458,7 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
           command: transport === "stdio" ? command : undefined,
           args: transport === "stdio" ? args : undefined,
           env: transport === "stdio" && Object.keys(env).length > 0 ? env : undefined,
-          credential_sources: credentialSources.length > 0 ? credentialSources : undefined,
+          credential_sources: normalizedCredentialSources.length > 0 ? normalizedCredentialSources : undefined,
         };
 
         const response = await fetch(`/api/mcp-servers?id=${server._id}`, {
@@ -179,9 +472,12 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
           throw new Error(data.error || "Failed to update server");
         }
       } else {
+        const normalizedCredentialSources = credentialSources
+          .map((source) => normalizedCredentialSource(source, providerConnectionOptions))
+          .filter((source): source is MCPCredentialSource => source !== null);
         // Create new server
         const createData: MCPServerConfigCreate = {
-          id: id.trim(),
+          id: (id.trim() || deriveServerIdFromDisplayName(name)),
           name,
           description: description || undefined,
           transport,
@@ -189,7 +485,7 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
           command: transport === "stdio" ? command : undefined,
           args: transport === "stdio" ? args : undefined,
           env: transport === "stdio" && Object.keys(env).length > 0 ? env : undefined,
-          credential_sources: credentialSources.length > 0 ? credentialSources : undefined,
+          credential_sources: normalizedCredentialSources.length > 0 ? normalizedCredentialSources : undefined,
         };
 
         const response = await fetch("/api/mcp-servers", {
@@ -214,8 +510,11 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
 
   const isValid =
     name.trim() &&
-    (isEditing || id.trim()) &&
-    (transport === "stdio" ? command.trim() : endpoint.trim());
+    (isEditing || id.trim() || deriveServerIdFromDisplayName(name)) &&
+    (transport === "stdio" ? command.trim() : endpoint.trim()) &&
+    credentialSources.every((source) =>
+      normalizedCredentialSource(source, providerConnectionOptions) !== null
+    );
 
   return (
     <Card>
@@ -243,39 +542,58 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
           <div className="space-y-4">
             <h3 className="text-sm font-medium">Basic Information</h3>
 
-            {!isEditing && (
-              <div className="space-y-2">
-                <Label htmlFor="id">
-                  Server ID <span className="text-destructive">*</span>
-                </Label>
-                <Input
-                  id="id"
-                  placeholder="e.g., github, filesystem, postgres"
-                  value={id}
-                  onChange={(e) => setId(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ""))}
-                  disabled={loading || readOnly}
-                  className="font-mono"
-                />
-                <p className="text-xs text-muted-foreground">
-                  Unique identifier for this server (lowercase, no spaces).
-                  {id && !id.startsWith("mcp-") && (
-                    <> Stored as: <code className="text-xs font-mono text-primary">mcp-{id}</code></>
-                  )}
-                </p>
-              </div>
-            )}
-
             <div className="space-y-2">
               <Label htmlFor="name">
                 Display Name <span className="text-destructive">*</span>
               </Label>
               <Input
                 id="name"
-                placeholder="e.g., GitHub MCP Server"
+                placeholder="e.g., Meraki Docs"
                 value={name}
-                onChange={(e) => setName(e.target.value)}
+                onChange={(e) => handleDisplayNameChange(e.target.value)}
                 disabled={loading || readOnly}
               />
+              {!isEditing && (
+                <div className="rounded-md border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span>
+                      Saved as{" "}
+                      <code className="font-mono text-primary">
+                        mcp-{id.trim() || deriveServerIdFromDisplayName(name) || "server-name"}
+                      </code>
+                    </span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-xs"
+                      onClick={() => setShowGeneratedNameEditor((current) => !current)}
+                      disabled={loading || readOnly}
+                    >
+                      {showGeneratedNameEditor ? "Hide" : "Edit generated name"}
+                    </Button>
+                  </div>
+                  {showGeneratedNameEditor && (
+                    <div className="mt-2 space-y-1.5">
+                      <Label htmlFor="id" className="text-xs">
+                        Generated name
+                      </Label>
+                      <Input
+                        id="id"
+                        aria-label="Generated name"
+                        placeholder="meraki-docs"
+                        value={id}
+                        onChange={(e) => {
+                          setIdManuallyEdited(true);
+                          setId(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ""));
+                        }}
+                        disabled={loading || readOnly}
+                        className="h-9 font-mono text-xs"
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -429,49 +747,113 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                   id="endpoint"
                   placeholder={`e.g., http://localhost:3000/${transport === "sse" ? "sse" : "mcp"}`}
                   value={endpoint}
-                  onChange={(e) => setEndpoint(e.target.value)}
+                  onChange={(e) => {
+                    setEndpoint(e.target.value);
+                    setEndpointProbe(null);
+                  }}
                   disabled={loading || readOnly}
                   className="font-mono"
                 />
+                {transport === "http" ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void handleProbeEndpoint()}
+                      disabled={loading || readOnly || endpointProbeLoading || !endpoint.trim()}
+                    >
+                      {endpointProbeLoading ? "Checking..." : "Check URL"}
+                    </Button>
+                    {endpointProbe?.suggestedUrl ? (
+                      <>
+                        <span className="text-xs text-muted-foreground">
+                          The MCP path looks available at <code className="font-mono">{endpointProbe.suggestedUrl}</code>.
+                        </span>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => {
+                            setEndpoint(endpointProbe.suggestedUrl ?? endpoint);
+                            setEndpointProbe(null);
+                          }}
+                        >
+                          Use suggested URL
+                        </Button>
+                      </>
+                    ) : endpointProbe ? (
+                      <span className="text-xs text-muted-foreground">
+                        {endpointProbe.attempts.some((attempt) => attempt.ok)
+                          ? "Endpoint responded."
+                          : "Endpoint did not respond successfully."}
+                      </span>
+                    ) : null}
+                  </div>
+                ) : null}
                 {gatewayDiscoveryLoaded && agentGatewayTargets.length > 0 ? (
                   <div className="space-y-1">
                     <p className="text-xs text-muted-foreground">
-                      Or pick an AgentGateway target — this fills the endpoint with the
-                      target-qualified URL (<code className="font-mono">/mcp/&lt;target&gt;</code>) so the
-                      gateway can route this server correctly.
+                      Pick an AgentGateway target to use its routed endpoint. Saved HTTP and SSE MCP
+                      servers always go through AgentGateway so tool access can be authorized.
                     </p>
-                    <div className="flex flex-wrap gap-2">
-                      {agentGatewayTargets.map((target) => (
-                        <Button
-                          key={target.id}
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          disabled={loading || readOnly}
-                          onClick={() => setEndpoint(target.endpoint)}
-                          title={
-                            target.target_endpoint
-                              ? `${target.endpoint} → ${target.target_endpoint}`
-                              : target.endpoint
-                          }
-                          className="font-mono"
-                        >
-                          {target.id}
-                        </Button>
-                      ))}
-                    </div>
+                    <TeamPicker
+                      value={selectedAgentGatewayTargetId}
+                      onChange={(targetId) => {
+                        const target = agentGatewayTargets.find((candidate) => candidate.id === targetId);
+                        if (target) setEndpoint(target.endpoint);
+                      }}
+                      options={agentGatewayTargetOptions}
+                      placeholder="Select an AgentGateway target"
+                      searchPlaceholder="Search targets..."
+                      emptyLabel="No targets match"
+                      disabled={loading || readOnly}
+                      hideSlugSuffix
+                      triggerClassName="max-w-md font-mono"
+                      contentClassName="min-w-[min(420px,90vw)]"
+                    />
                   </div>
                 ) : null}
               </div>
             )}
           </div>
 
-          <div className="space-y-4">
+          <div className="space-y-4 border-t border-border/60 pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-sm font-medium">Credential Sources</h3>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-medium">Credentials</h3>
+                  <TooltipProvider delayDuration={0}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          aria-label="Credentials help"
+                          className="inline-flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"
+                        >
+                          <Info className="h-3.5 w-3.5" aria-hidden="true" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent
+                        side="top"
+                        sideOffset={8}
+                        className="max-w-sm whitespace-normal p-3 text-left font-normal leading-relaxed"
+                      >
+                        <div className="space-y-2">
+                          <p className="font-medium text-foreground">Saved secret details</p>
+                          <p>
+                            Secret types such as bearer tokens or API keys describe how the
+                            server uses the value. The masked preview is only a short encrypted
+                            hint to help you pick the right secret; the full value stays on the
+                            server and is never shown here.
+                          </p>
+                        </div>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </div>
                 <p className="text-xs text-muted-foreground">
-                  Resolve Connections &amp; Secrets refs server-side when impersonation tokens are enabled.
+                  Choose saved secrets or connected apps. Secret values stay on the server.
                 </p>
               </div>
               <Button
@@ -487,17 +869,22 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
             </div>
             {credentialSources.length > 0 && (
               <div className="space-y-2">
-                {credentialSources.map((source, i) => (
+                {credentialSources.map((source, i) => {
+                  const selectedSecret = selectedSecretOption(source, secretOptions);
+
+                  return (
                   <div key={i} className="grid gap-2 md:grid-cols-[1fr_1fr_1fr_2fr_auto]">
                     <select
                       aria-label="Credential kind"
                       className="rounded-md border border-input bg-background px-3 py-2 text-sm"
                       value={source.kind}
-                      onChange={(event) => handleUpdateCredentialSource(i, "kind", event.target.value)}
+                      onChange={(event) =>
+                        handleUpdateCredentialKind(i, event.target.value as MCPCredentialSource["kind"])
+                      }
                       disabled={readOnly}
                     >
-                      <option value="secret_ref">Secret ref</option>
-                      <option value="provider_connection">Provider connection</option>
+                      <option value="secret_ref">Saved secret</option>
+                      <option value="provider_connection">Connected app</option>
                     </select>
                     <select
                       aria-label="Credential target"
@@ -509,26 +896,85 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                       <option value="env">Environment</option>
                       <option value="header">Header</option>
                     </select>
-                    <Input
-                      aria-label="Credential name"
-                      placeholder={source.target === "env" ? "GITHUB_TOKEN" : "Authorization"}
-                      value={source.name}
-                      onChange={(event) => handleUpdateCredentialSource(i, "name", event.target.value)}
-                      disabled={readOnly}
-                    />
-                    <Input
-                      aria-label="Credential reference"
-                      placeholder={source.kind === "secret_ref" ? "secret_ref id" : "provider_connection id"}
-                      value={source.kind === "secret_ref" ? source.secret_ref ?? "" : source.provider_connection_id ?? ""}
-                      onChange={(event) =>
-                        handleUpdateCredentialSource(
-                          i,
-                          source.kind === "secret_ref" ? "secret_ref" : "provider_connection_id",
-                          event.target.value,
-                        )
-                      }
-                      disabled={readOnly}
-                    />
+                    {source.target === "header" ? (
+                      <div className="space-y-1">
+                        <select
+                          aria-label="Credential header"
+                          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                          value={HEADER_NAME_OPTIONS.includes(source.name as (typeof HEADER_NAME_OPTIONS)[number])
+                            ? source.name
+                            : CUSTOM_HEADER_VALUE}
+                          onChange={(event) => handleSelectCredentialHeader(i, event.target.value)}
+                          disabled={readOnly}
+                        >
+                          {HEADER_NAME_OPTIONS.map((headerName) => (
+                            <option key={headerName} value={headerName}>
+                              {headerName}
+                            </option>
+                          ))}
+                          <option value={CUSTOM_HEADER_VALUE}>Custom header</option>
+                        </select>
+                        {!HEADER_NAME_OPTIONS.includes(source.name as (typeof HEADER_NAME_OPTIONS)[number]) ? (
+                          <Input
+                            aria-label="Custom header name"
+                            placeholder="Header name"
+                            value={source.name}
+                            onChange={(event) => handleUpdateCredentialSource(i, "name", event.target.value)}
+                            disabled={readOnly}
+                          />
+                        ) : null}
+                      </div>
+                    ) : (
+                      <Input
+                        aria-label="Credential name"
+                        placeholder="GITHUB_TOKEN"
+                        value={source.name}
+                        onChange={(event) => handleUpdateCredentialSource(i, "name", event.target.value)}
+                        disabled={readOnly}
+                      />
+                    )}
+                    {source.kind === "secret_ref" ? (
+                      <div className="space-y-1">
+                        <select
+                          aria-label="Secret"
+                          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                          value={source.secret_ref ?? ""}
+                          onChange={(event) => handleUpdateCredentialSource(i, "secret_ref", event.target.value)}
+                          disabled={readOnly || secretOptions.length === 0}
+                        >
+                          <option value="" disabled>
+                            {secretOptions.length === 0 ? "No saved secrets" : "Select a secret"}
+                          </option>
+                          {secretOptions.map((secret) => (
+                            <option key={secret.id} value={secret.id}>
+                              {secretOptionLabel(secret)}
+                            </option>
+                          ))}
+                        </select>
+                        {selectedSecret?.maskedPreview ? (
+                          <p className="inline-flex rounded bg-muted px-2 py-1 font-mono text-xs text-muted-foreground">
+                            Preview {selectedSecret.maskedPreview}
+                          </p>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <select
+                        aria-label="Provider connection"
+                        className="rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        value={source.provider_connection_id ?? ""}
+                        onChange={(event) => handleSelectProviderConnection(i, event.target.value)}
+                        disabled={readOnly || providerConnectionOptions.length === 0}
+                      >
+                        <option value="" disabled>
+                          {providerConnectionOptions.length === 0 ? "No connected apps" : "Select a connected app"}
+                        </option>
+                        {providerConnectionOptions.map((connection) => (
+                          <option key={connection.id} value={connection.id}>
+                            {providerConnectionLabel(connection, oauthConnectorOptions)}
+                          </option>
+                        ))}
+                      </select>
+                    )}
                     <Button
                       type="button"
                       variant="ghost"
@@ -539,7 +985,8 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                       <X className="h-4 w-4" />
                     </Button>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

@@ -165,9 +165,8 @@ def test_agent_context_headers_are_omitted_without_shared_secret(monkeypatch):
     assert build_agent_context_headers("agent-test-april-2025") == {}
 
 
-def test_gateway_routing_only_rewrites_declared_gateway_targets(monkeypatch):
-    """A shared AgentGateway MCP backend must not relabel Jira tools as KB tools."""
-    monkeypatch.setenv("AGENT_GATEWAY_MCP_SERVER_IDS", "jira")
+def test_gateway_routing_routes_all_network_servers_when_gateway_is_configured(monkeypatch):
+    """AgentGateway is the policy-enforcement point for all network MCP servers."""
     servers = [
         MCPServerConfig(
             id="jira",
@@ -192,12 +191,11 @@ def test_gateway_routing_only_rewrites_declared_gateway_targets(monkeypatch):
     )
 
     assert connections["jira"]["url"] == "http://agentgateway:4000/mcp/jira"
-    assert connections["knowledge-base"]["url"] == "http://rag-server:9446/mcp"
+    assert connections["knowledge-base"]["url"] == "http://agentgateway:4000/mcp/knowledge-base"
 
 
-def test_gateway_all_only_routes_gateway_managed_servers(monkeypatch):
-    """`all` should not send arbitrary manual MCP rows to missing AG routes."""
-    monkeypatch.setenv("AGENT_GATEWAY_MCP_SERVER_IDS", "all")
+def test_gateway_routes_manual_network_mcp_servers(monkeypatch):
+    """Manual network MCP rows route through AgentGateway too."""
     servers = [
         MCPServerConfig(
             id="knowledge-base",
@@ -224,4 +222,4 @@ def test_gateway_all_only_routes_gateway_managed_servers(monkeypatch):
     )
 
     assert connections["knowledge-base"]["url"] == "http://agentgateway:4000/mcp/knowledge-base"
-    assert connections["manual-tool"]["url"] == "http://mcp-manual:8000/mcp"
+    assert connections["manual-tool"]["url"] == "http://agentgateway:4000/mcp/manual-tool"

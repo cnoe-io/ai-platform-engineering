@@ -104,6 +104,8 @@ export interface MCPToolInfo {
   name: string;
   namespaced_name: string;
   description: string;
+  inputSchema?: unknown;
+  input_schema?: unknown;
 }
 
 export interface MCPServerProbeResult {

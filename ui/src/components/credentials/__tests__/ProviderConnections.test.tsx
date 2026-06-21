@@ -101,22 +101,84 @@ describe("ProviderConnections", () => {
     expect(screen.getByLabelText("Webex logo").querySelector("img")).not.toHaveAttribute("data-nimg");
     expect(screen.getByLabelText("PagerDuty logo")).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: /provider/i })).toBeInTheDocument();
-    expect(screen.getByRole("columnheader", { name: /token health/i })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: /connection health/i })).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: /actions/i })).toBeInTheDocument();
     expect(screen.getByText("healthy")).toBeInTheDocument();
     expect(screen.getAllByText("Never connected").length).toBeGreaterThan(0);
     expect(screen.getAllByText("No refresh yet").length).toBeGreaterThan(0);
-    expect(screen.getByRole("link", { name: /relink atlassian/i })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: /reconnect atlassian/i })).toHaveAttribute(
       "href",
       "/api/credentials/oauth/atlassian/connect",
     );
     expect(screen.queryByRole("button", { name: /check atlassian profile/i })).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Atlassian connected")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Atlassian connection status connected")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /test atlassian profile/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /test atlassian connection/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /connect github/i })).toHaveAttribute(
       "href",
       "/api/credentials/oauth/github/connect",
+    );
+  });
+
+  it("uses the newest connection when historical duplicate provider rows exist", async () => {
+    const fetchMock = jest.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/credentials/oauth-connectors") {
+        return response([
+          { id: "atlassian-connector", provider: "atlassian", name: "Atlassian", enabled: true },
+        ]);
+      }
+      if (url === "/api/credentials/connections") {
+        return response([
+          {
+            id: "new-atlassian-connection",
+            connectorId: "atlassian-connector",
+            provider: "atlassian",
+            status: "connected",
+            expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+            updatedAt: "2026-06-21T04:44:00.000Z",
+            grantedScopes: ["offline_access", "read:me", "read:jira-work", "read:jira-user"],
+          },
+          {
+            id: "old-atlassian-connection",
+            connectorId: "atlassian-connector",
+            provider: "atlassian",
+            status: "connected",
+            expiresAt: new Date(Date.now() - 60_000).toISOString(),
+            updatedAt: "2026-06-01T04:44:00.000Z",
+            grantedScopes: ["offline_access", "read:me", "read:jira-work"],
+          },
+        ]);
+      }
+      if (url === "/api/credentials/connections/new-atlassian-connection/profile") {
+        expect(init).toMatchObject({ method: "POST" });
+        return response({
+          ok: true,
+          provider: "atlassian",
+          profile: { name: "Alice" },
+          diagnostics: [],
+        });
+      }
+      return response({}, false, 404);
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    render(<ProviderConnections />);
+
+    expect(await screen.findByText("Atlassian")).toBeInTheDocument();
+    expect(screen.getByText("healthy")).toBeInTheDocument();
+    expect(screen.queryByText("expired")).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /test atlassian connection/i }));
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/credentials/connections/new-atlassian-connection/profile",
+        expect.objectContaining({ method: "POST" }),
+      ),
+    );
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      "/api/credentials/connections/old-atlassian-connection/profile",
+      expect.anything(),
     );
   });
 
@@ -256,15 +318,15 @@ describe("ProviderConnections", () => {
 
     render(<ProviderConnections />);
 
-    await userEvent.click(await screen.findByRole("button", { name: /Test GitHub profile/i }));
+    await userEvent.click(await screen.findByRole("button", { name: /Test GitHub connection/i }));
 
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/credentials/connections/github-connection/profile",
       expect.objectContaining({ method: "POST" }),
     );
-    expect(await screen.findByText(/GitHub profile check passed/i)).toBeInTheDocument();
+    expect(await screen.findByText(/GitHub connection test passed/i)).toBeInTheDocument();
     expect(screen.getByText(/alice/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /view github profile check details/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /view github connection details/i })).toBeInTheDocument();
   });
 
   it("opens PagerDuty diagnostics for PagerDuty instead of reusing GitHub diagnostics", async () => {
@@ -339,13 +401,13 @@ describe("ProviderConnections", () => {
 
     render(<ProviderConnections />);
 
-    await userEvent.click(await screen.findByRole("button", { name: /test github profile/i }));
-    expect(await screen.findByRole("dialog", { name: /GitHub token diagnostics/i })).toBeInTheDocument();
+    await userEvent.click(await screen.findByRole("button", { name: /test github connection/i }));
+    expect(await screen.findByRole("dialog", { name: /GitHub connection details/i })).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: /^close$/i }));
 
-    await userEvent.click(await screen.findByRole("button", { name: /test pagerduty profile/i }));
+    await userEvent.click(await screen.findByRole("button", { name: /test pagerduty connection/i }));
 
-    const dialog = await screen.findByRole("dialog", { name: /PagerDuty token diagnostics/i });
+    const dialog = await screen.findByRole("dialog", { name: /PagerDuty connection details/i });
     expect(within(dialog).getByText("PagerDuty user profile")).toBeInTheDocument();
     expect(within(dialog).queryByText(/GitHub/i)).not.toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith(
@@ -402,9 +464,9 @@ describe("ProviderConnections", () => {
 
     render(<ProviderConnections />);
 
-    await userEvent.click(await screen.findByRole("button", { name: /test pagerduty profile/i }));
+    await userEvent.click(await screen.findByRole("button", { name: /test pagerduty connection/i }));
 
-    const dialog = await screen.findByRole("dialog", { name: /PagerDuty token diagnostics/i });
+    const dialog = await screen.findByRole("dialog", { name: /PagerDuty connection details/i });
     expect(within(dialog).getByText("PagerDuty user profile")).toBeInTheDocument();
     expect(within(dialog).getByText("PagerDuty returned HTTP 403.")).toBeInTheDocument();
     expect(within(dialog).getAllByText(/Relink PagerDuty and try the profile check again/i)).toHaveLength(1);
@@ -463,9 +525,9 @@ describe("ProviderConnections", () => {
 
     render(<ProviderConnections />);
 
-    await userEvent.click(await screen.findByRole("button", { name: /test webex profile/i }));
+    await userEvent.click(await screen.findByRole("button", { name: /test webex connection/i }));
 
-    const dialog = await screen.findByRole("dialog", { name: /Webex token diagnostics/i });
+    const dialog = await screen.findByRole("dialog", { name: /Webex connection details/i });
     expect(within(dialog).getByText("Webex user profile")).toBeInTheDocument();
     expect(within(dialog).getAllByText(/spark:people_read/i)).toHaveLength(1);
     expect(within(dialog).getByText(/required scopes or the user is missing required roles or licenses/i)).toBeInTheDocument();
@@ -519,9 +581,9 @@ describe("ProviderConnections", () => {
 
     render(<ProviderConnections />);
 
-    await userEvent.click(await screen.findByRole("button", { name: /test github profile/i }));
+    await userEvent.click(await screen.findByRole("button", { name: /test github connection/i }));
 
-    const dialog = await screen.findByRole("dialog", { name: /GitHub token diagnostics/i });
+    const dialog = await screen.findByRole("dialog", { name: /GitHub connection details/i });
     expect(within(dialog).getByText("Token refresh")).toBeInTheDocument();
     expect(within(dialog).getByText("failed")).toBeInTheDocument();
     expect(within(dialog).getAllByText(/Relink GitHub to grant CAIPE a fresh refresh token/i)).toHaveLength(1);
@@ -586,18 +648,18 @@ describe("ProviderConnections", () => {
 
     render(<ProviderConnections />);
 
-    await userEvent.click(await screen.findByRole("button", { name: /Test Atlassian profile/i }));
+    await userEvent.click(await screen.findByRole("button", { name: /Test Atlassian connection/i }));
 
     expect(await screen.findByText(/Atlassian access check passed/i)).toBeInTheDocument();
     expect(screen.getAllByText(/CAIPE/i).length).toBeGreaterThan(0);
     expect(screen.queryByText(/profile endpoint returned HTTP 403/i)).not.toBeInTheDocument();
-    const dialog = await screen.findByRole("dialog", { name: /Atlassian token diagnostics/i });
+    const dialog = await screen.findByRole("dialog", { name: /Atlassian connection details/i });
     expect(within(dialog).getByText("Connection ownership")).toBeInTheDocument();
     expect(within(dialog).queryByText("Token refresh")).not.toBeInTheDocument();
     expect(within(dialog).queryByText("Atlassian user profile")).not.toBeInTheDocument();
     expect(within(dialog).queryByText(/Ask an Atlassian admin/i)).not.toBeInTheDocument();
     expect(within(dialog).getAllByText(/No action needed/i).length).toBeGreaterThan(0);
-    await userEvent.click(within(dialog).getByRole("button", { name: /run atlassian profile check again/i }));
+    await userEvent.click(within(dialog).getByRole("button", { name: /test atlassian again/i }));
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/credentials/connections/atlassian-connection/profile",
       expect.objectContaining({ method: "POST" }),
@@ -675,7 +737,7 @@ describe("ProviderConnections", () => {
 
     expect(await screen.findByText("expired")).toBeInTheDocument();
     expect(await screen.findByText(/Atlassian connection expired/i)).toBeInTheDocument();
-    expect(screen.getByText(/Relink Atlassian to restore access/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Reconnect Atlassian to restore access/i)).toHaveLength(2);
   });
 
   describe("advanced scope selection", () => {
@@ -714,8 +776,8 @@ describe("ProviderConnections", () => {
         expect.any(String),
       );
 
-      // Open advanced settings; all allowed scopes are pre-selected.
-      await userEvent.click(screen.getByRole("button", { name: /advanced settings/i }));
+      // Open permissions; all allowed scopes are pre-selected.
+      await userEvent.click(screen.getByRole("button", { name: /permissions/i }));
       const writeScope = screen.getByRole("checkbox", { name: /write:jira-work/i });
       expect(writeScope).toBeChecked();
       expect(screen.getByRole("checkbox", { name: /^read:jira-work/i })).toBeChecked();
@@ -758,14 +820,14 @@ describe("ProviderConnections", () => {
 
       render(<ProviderConnections />);
 
-      await userEvent.click(await screen.findByRole("button", { name: /advanced settings/i }));
+      await userEvent.click(await screen.findByRole("button", { name: /permissions/i }));
       expect(screen.getByRole("checkbox", { name: /^read:jira-work/i })).toBeChecked();
       expect(screen.getByRole("checkbox", { name: /write:jira-work/i })).not.toBeChecked();
-      expect(screen.getByText(/Connected with: read:jira-work, offline_access/i)).toBeInTheDocument();
-      expect(screen.getByText(/Relink Atlassian for scope changes to take effect/i)).toBeInTheDocument();
+      expect(screen.getByText(/Current permissions: read:jira-work, offline_access/i)).toBeInTheDocument();
+      expect(screen.getByText(/Reconnect Atlassian for permission changes to take effect/i)).toBeInTheDocument();
 
-      // Relink preserves the stored narrowing.
-      const relink = screen.getByRole("link", { name: /relink atlassian/i });
+      // Reconnect preserves the stored narrowing.
+      const relink = screen.getByRole("link", { name: /reconnect atlassian/i });
       relink.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
       expect(open).toHaveBeenLastCalledWith(
         `/api/credentials/oauth/atlassian/connect?scopes=${encodeURIComponent("read:jira-work,offline_access")}`,
@@ -802,7 +864,7 @@ describe("ProviderConnections", () => {
 
       render(<ProviderConnections />);
 
-      await userEvent.click(await screen.findByRole("button", { name: /advanced settings/i }));
+      await userEvent.click(await screen.findByRole("button", { name: /permissions/i }));
       expect(screen.queryByRole("checkbox", { name: /write:jira-work/i })).not.toBeInTheDocument();
       expect(screen.getByRole("checkbox", { name: /^read:jira-work/i })).toBeChecked();
     });
@@ -823,7 +885,7 @@ describe("ProviderConnections", () => {
 
       render(<ProviderConnections />);
 
-      await userEvent.click(await screen.findByRole("button", { name: /advanced settings/i }));
+      await userEvent.click(await screen.findByRole("button", { name: /permissions/i }));
       await userEvent.click(screen.getByRole("checkbox", { name: /^repo/i }));
       expect(screen.getByText(/Select at least one scope/i)).toBeInTheDocument();
       expect(screen.getByRole("link", { name: /connect github/i })).toHaveAttribute(

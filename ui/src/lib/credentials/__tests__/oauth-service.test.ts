@@ -58,6 +58,7 @@ function mockTokenClient(response: TokenResponse) {
 
 describe("OAuthConnectorService", () => {
   const originalNodeEnv = process.env.NODE_ENV;
+  const originalAllowLocalhostRedirects = process.env.CREDENTIAL_ALLOW_LOCALHOST_OAUTH_REDIRECTS;
 
   afterEach(() => {
     Object.defineProperty(process.env, "NODE_ENV", {
@@ -65,6 +66,11 @@ describe("OAuthConnectorService", () => {
       writable: true,
       configurable: true,
     });
+    if (originalAllowLocalhostRedirects === undefined) {
+      delete process.env.CREDENTIAL_ALLOW_LOCALHOST_OAUTH_REDIRECTS;
+    } else {
+      process.env.CREDENTIAL_ALLOW_LOCALHOST_OAUTH_REDIRECTS = originalAllowLocalhostRedirects;
+    }
   });
 
   it("creates a dynamic standard OAuth connector with secret material in the encrypted store", async () => {
@@ -175,7 +181,7 @@ describe("OAuthConnectorService", () => {
     });
   });
 
-  it("allows localhost redirect URIs outside production but rejects them in production", async () => {
+  it("allows localhost redirect URIs outside production and behind a production opt-in", async () => {
     const connectors = new MemoryCollection<OAuthConnectorDocument>();
     const payloadStore = { putSecret: mockPutSecret() };
     const service = new OAuthConnectorService({
@@ -220,6 +226,26 @@ describe("OAuthConnectorService", () => {
         redirectUri: "http://localhost:3000/api/credentials/oauth/github/callback",
       }),
     ).rejects.toMatchObject({ statusCode: 400 });
+
+    process.env.CREDENTIAL_ALLOW_LOCALHOST_OAUTH_REDIRECTS = "true";
+    const optedInProductionService = new OAuthConnectorService({
+      connectorsCollection: new MemoryCollection<OAuthConnectorDocument>(),
+      payloadStore,
+      idGenerator: () => "connector-3",
+    });
+
+    await expect(
+      optedInProductionService.createConnector({
+        name: "GitHub Local",
+        provider: "github",
+        clientId: "client-id",
+        clientSecret: "client-secret",
+        authorizationUrl: "https://github.com/login/oauth/authorize",
+        tokenUrl: "https://github.com/login/oauth/access_token",
+        scopes: ["repo"],
+        redirectUri: "http://localhost:3000/api/credentials/oauth/github/callback",
+      }),
+    ).resolves.toMatchObject({ provider: "github" });
   });
 });
 

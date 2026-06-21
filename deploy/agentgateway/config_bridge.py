@@ -161,12 +161,26 @@ def _upstream_url(document: dict[str, Any]) -> str | None:
     raw_url = document.get("agentgateway_target_endpoint") or document.get(
         "agentgateway_upstream_url"
     )
+    if raw_url is None and document.get("transport") in {"http", "sse"}:
+        raw_url = document.get("endpoint")
     if not isinstance(raw_url, str):
         return None
     upstream_url = raw_url.strip()
     if not upstream_url.startswith(("http://", "https://")):
         return None
+    if _is_agentgateway_route(upstream_url):
+        return None
     return upstream_url
+
+
+def _is_agentgateway_route(url: str) -> bool:
+    configured = os.environ.get("AGENT_GATEWAY_URL") or os.environ.get(
+        "AGENTGATEWAY_URL", "http://agentgateway:4000"
+    )
+    base = configured.rstrip("/")
+    if not base.endswith("/mcp"):
+        base = f"{base}/mcp"
+    return url.rstrip("/").startswith(base)
 
 
 def _credential_sources(document: dict[str, Any]) -> tuple[dict[str, Any], ...]:
@@ -177,16 +191,14 @@ def _credential_sources(document: dict[str, Any]) -> tuple[dict[str, Any], ...]:
 
 
 def select_gateway_targets(documents: Iterable[dict[str, Any]]) -> list[McpGatewayTarget]:
-    """Select enabled AgentGateway-managed MCP targets from persisted server documents."""
+    """Select enabled network MCP targets that AgentGateway should front."""
 
     targets: list[McpGatewayTarget] = []
     seen: set[str] = set()
     for document in documents:
         if not _as_bool(document.get("enabled"), default=True):
             continue
-        if document.get("source") != "agentgateway" and not document.get(
-            "agentgateway_discovered"
-        ):
+        if document.get("transport") not in {"http", "sse"}:
             continue
         target_id = _server_id(document)
         upstream_url = _upstream_url(document)
@@ -215,6 +227,7 @@ def select_gateway_targets_from_bff_payload(payload: dict[str, Any]) -> list[Mcp
         document = {
             "_id": item.get("id"),
             "enabled": True,
+            "transport": "http",
             "source": "agentgateway",
             "agentgateway_target_endpoint": item.get("target_endpoint"),
         }

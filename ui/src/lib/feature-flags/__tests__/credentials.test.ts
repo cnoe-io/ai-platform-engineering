@@ -38,7 +38,7 @@ describe("credential feature flags", () => {
     resetEnv();
   });
 
-  it("keeps Connections & Secrets disabled by default", () => {
+  it("keeps the Credentials surface disabled by default", () => {
     expect(isCredentialFeatureEnabled()).toBe(false);
     expect(getCredentialFeatureConfig()).toMatchObject({
       enabled: false,
@@ -79,7 +79,7 @@ describe("credential feature flags", () => {
   });
 });
 
-describe("credential sub-surface flags (Connections vs SA Tokens)", () => {
+describe("credential sub-surface flags (Credentials vs SA Tokens)", () => {
   afterAll(() => {
     process.env = ORIGINAL_ENV;
   });
@@ -105,7 +105,7 @@ describe("credential sub-surface flags (Connections vs SA Tokens)", () => {
     expect(isServiceAccountTokensEnabled()).toBe(true);
   });
 
-  it("hides user Connections independently while keeping SA Tokens on", () => {
+  it("hides user Credentials independently while keeping SA Tokens on", () => {
     resetEnv({
       CAIPE_CREDENTIALS_ENABLED: "true",
       CAIPE_USER_CONNECTIONS_ENABLED: "false",
@@ -115,7 +115,7 @@ describe("credential sub-surface flags (Connections vs SA Tokens)", () => {
     expect(isServiceAccountTokensEnabled()).toBe(true);
   });
 
-  it("hides SA Tokens independently while keeping user Connections on", () => {
+  it("hides SA Tokens independently while keeping user Credentials on", () => {
     resetEnv({
       CAIPE_CREDENTIALS_ENABLED: "true",
       CAIPE_SERVICE_ACCOUNT_TOKENS_ENABLED: "false",

@@ -28,13 +28,6 @@ from dynamic_agents.services.mcp_endpoint_normalizer import (
 logger = logging.getLogger(__name__)
 
 
-def _gateway_mcp_server_ids() -> set[str]:
-    """Return MCP server IDs that should be reached through AgentGateway."""
-    raw = os.getenv("AGENT_GATEWAY_MCP_SERVER_IDS", "jira")
-    values = {item.strip() for item in raw.split(",") if item.strip()}
-    return values or {"jira"}
-
-
 def _agent_gateway_base_url() -> str | None:
     """Resolve the AgentGateway base URL from env.
 
@@ -268,9 +261,6 @@ def build_mcp_connections(
     connections: dict[str, dict[str, Any]] = {}
 
     server_map = {s.id: s for s in servers}
-    gateway_ids = _gateway_mcp_server_ids() if agent_gateway_url else set()
-    gateway_all = "all" in gateway_ids
-
     for server_id in server_ids:
         server = server_map.get(server_id)
         if not server:
@@ -280,12 +270,12 @@ def build_mcp_connections(
             logger.warning(f"MCP server '{server_id}' is disabled, skipping")
             continue
 
+        # assisted-by Codex Codex-sonnet-4-6
+        # In normal product mode AgentGateway is the MCP policy enforcement
+        # point, so every network MCP server routes through it when configured.
         use_gateway = bool(
             agent_gateway_url
-            and (
-                server_id in gateway_ids
-                or (gateway_all and _is_gateway_managed_server(server, agent_gateway_url))
-            )
+            and server.transport in (TransportType.HTTP, TransportType.SSE)
         )
         connections[server_id] = build_mcp_connection_config(
             server,

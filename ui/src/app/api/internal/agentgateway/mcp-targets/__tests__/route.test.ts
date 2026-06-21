@@ -43,6 +43,7 @@ describe("internal AgentGateway MCP targets API", () => {
           {
             _id: "knowledge-base",
             enabled: true,
+            transport: "http",
             source: "agentgateway",
             agentgateway_target_endpoint: "http://rag-server:9446/mcp",
             credential_sources: [
@@ -56,18 +57,42 @@ describe("internal AgentGateway MCP targets API", () => {
           {
             _id: "manual-target",
             enabled: true,
+            transport: "http",
             source: "manual",
             agentgateway_target_endpoint: "http://manual:8000/mcp",
           },
           {
+            _id: "manual-endpoint-target",
+            enabled: true,
+            transport: "http",
+            source: "manual",
+            endpoint: "http://mcp-manual-endpoint:8000/mcp",
+          },
+          {
+            _id: "gateway-loop",
+            enabled: true,
+            transport: "http",
+            source: "manual",
+            endpoint: "http://agentgateway:4000/mcp/gateway-loop",
+          },
+          {
+            _id: "stdio-target",
+            enabled: true,
+            transport: "stdio",
+            source: "manual",
+            command: "node",
+          },
+          {
             _id: "disabled-target",
             enabled: false,
+            transport: "http",
             source: "agentgateway",
             agentgateway_target_endpoint: "http://disabled:8000/mcp",
           },
           {
             _id: "bad target",
             enabled: true,
+            transport: "http",
             source: "agentgateway",
             agentgateway_target_endpoint: "http://bad:8000/mcp",
           },
@@ -97,6 +122,14 @@ describe("internal AgentGateway MCP targets API", () => {
               name: "X-CAIPE-Provider-Token",
             },
           ],
+        },
+        {
+          id: "manual-target",
+          target_endpoint: "http://manual:8000/mcp",
+        },
+        {
+          id: "manual-endpoint-target",
+          target_endpoint: "http://mcp-manual-endpoint:8000/mcp",
         },
       ],
     });

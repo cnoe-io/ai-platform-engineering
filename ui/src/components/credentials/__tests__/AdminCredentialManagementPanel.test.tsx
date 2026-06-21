@@ -1,6 +1,8 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
+// assisted-by Codex Codex-sonnet-4-6
+
 import { AdminCredentialManagementPanel } from "../AdminCredentialManagementPanel";
 
 const replace = jest.fn();
@@ -13,17 +15,11 @@ jest.mock("next/navigation", () => ({
 }));
 
 jest.mock("../OAuthConnectorAdminPanel", () => ({
-  OAuthConnectorAdminPanel: () => <div>OAuth Providers content</div>,
+  OAuthConnectorAdminPanel: () => <div>Connected Apps content</div>,
 }));
 
 jest.mock("../AdminSecretsManager", () => ({
-  AdminSecretsManager: () => <div>Global Secrets content</div>,
-}));
-
-jest.mock("../CredentialAuditPanel", () => ({
-  CredentialAuditPanel: ({ endpoint }: { endpoint?: string }) => (
-    <div>Credential Audit content from {endpoint}</div>
-  ),
+  AdminSecretsManager: () => <div>Secrets content</div>,
 }));
 
 describe("AdminCredentialManagementPanel", () => {
@@ -36,11 +32,12 @@ describe("AdminCredentialManagementPanel", () => {
     const user = userEvent.setup();
     render(<AdminCredentialManagementPanel />);
 
-    expect(screen.getByText("OAuth Providers content")).toBeInTheDocument();
-    await user.click(screen.getByRole("tab", { name: /global secrets/i }));
+    expect(screen.queryByRole("tab", { name: /credential audit/i })).not.toBeInTheDocument();
+    expect(screen.getByText("Secrets content")).toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: /connected apps/i }));
 
     expect(replace).toHaveBeenCalledWith(
-      "/admin?tab=credentials&credentialsTab=secrets",
+      "/admin?tab=credentials&credentialsTab=oauth-providers",
       { scroll: false },
     );
   });
@@ -50,16 +47,15 @@ describe("AdminCredentialManagementPanel", () => {
 
     render(<AdminCredentialManagementPanel />);
 
-    expect(screen.getByText("Global Secrets content")).toBeInTheDocument();
+    expect(screen.getByText("Secrets content")).toBeInTheDocument();
   });
 
-  it("opens the deep-linked credential audit tab", () => {
+  it("falls back to secrets for legacy credential audit deep links", () => {
     searchParams = new URLSearchParams("tab=credentials&credentialsTab=audit");
 
     render(<AdminCredentialManagementPanel />);
 
-    expect(
-      screen.getByText("Credential Audit content from /api/admin/credentials/audit"),
-    ).toBeInTheDocument();
+    expect(screen.getByText("Secrets content")).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: /credential audit/i })).not.toBeInTheDocument();
   });
 });

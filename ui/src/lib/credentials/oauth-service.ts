@@ -123,6 +123,10 @@ function validateExternalHttpsUrl(value: string, field: string): string {
   return url.toString();
 }
 
+function enabled(value: string | undefined): boolean {
+  return value === "true" || value === "1";
+}
+
 function validateRedirectUri(value: string): string {
   const url = new URL(nonEmpty(value, "redirectUri"));
   const hostname = url.hostname.toLowerCase();
@@ -130,11 +134,18 @@ function validateRedirectUri(value: string): string {
   if (url.protocol === "https:") {
     return url.toString();
   }
-  if (process.env.NODE_ENV !== "production" && url.protocol === "http:" && isLocalhost) {
+  if (
+    url.protocol === "http:" &&
+    isLocalhost &&
+    (
+      process.env.NODE_ENV !== "production" ||
+      enabled(process.env.CREDENTIAL_ALLOW_LOCALHOST_OAUTH_REDIRECTS)
+    )
+  ) {
     return url.toString();
   }
   throw new ApiError(
-    "redirectUri must be HTTPS; localhost HTTP is allowed only outside production",
+    "redirectUri must be HTTPS; localhost HTTP requires CREDENTIAL_ALLOW_LOCALHOST_OAUTH_REDIRECTS=true under production",
     400,
     "VALIDATION_ERROR",
   );

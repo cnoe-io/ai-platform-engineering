@@ -149,17 +149,17 @@ describe("UnauthorizedPage", () => {
 
   // ── Static content ────────────────────────────────────────────────────────
 
-  it("renders Access Denied heading", () => {
+  it("renders Access Needed heading", () => {
     render(<UnauthorizedPage />);
     expect(
-      screen.getByRole("heading", { name: /access denied/i }),
+      screen.getByRole("heading", { name: /access needed/i }),
     ).toBeInTheDocument();
   });
 
   it("renders the sign-out button", () => {
     render(<UnauthorizedPage />);
     expect(
-      screen.getByRole("button", { name: /sign out/i }),
+      screen.getByRole("button", { name: /try another account/i }),
     ).toBeInTheDocument();
   });
 
@@ -187,7 +187,7 @@ describe("UnauthorizedPage", () => {
   it("calls signOut with callbackUrl '/login' when sign-out button is clicked", async () => {
     const user = userEvent.setup();
     render(<UnauthorizedPage />);
-    await user.click(screen.getByRole("button", { name: /sign out/i }));
+    await user.click(screen.getByRole("button", { name: /try another account/i }));
     expect(mockSignOut).toHaveBeenCalledWith({ callbackUrl: "/login" });
   });
 });

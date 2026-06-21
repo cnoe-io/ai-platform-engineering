@@ -2,7 +2,7 @@
  * Unit tests for CapabilityCards component
  *
  * Tests:
- * - Renders Chat, Agents, MCP Servers, Skills, Task Builder, and Knowledge Bases cards when RAG is enabled
+ * - Renders Chat, Agents, Tools, Skills, Task Builder, and Knowledge Bases cards when RAG is enabled
  * - Hides Knowledge Bases card when RAG is disabled
  * - Each card links to the correct route
  * - Each card renders title and description
@@ -12,6 +12,8 @@
 
 import React from 'react'
 import { render, screen } from '@testing-library/react'
+
+// assisted-by Codex Codex-sonnet-4-6
 
 // ============================================================================
 // Mocks
@@ -82,7 +84,7 @@ describe('CapabilityCards', () => {
       expect(screen.getByTestId('capability-card-agents')).toHaveAttribute('href', '/dynamic-agents')
     })
 
-    it('MCP Servers card links to the MCP Servers tab', () => {
+    it('Tools card links to the tools tab', () => {
       render(<CapabilityCards ragEnabled={true} />)
       expect(screen.getByTestId('capability-card-mcp-servers')).toHaveAttribute('href', '/dynamic-agents?tab=mcp-servers')
     })
@@ -115,10 +117,10 @@ describe('CapabilityCards', () => {
       expect(screen.getByText(/Create and manage custom AI agents/)).toBeInTheDocument()
     })
 
-    it('renders MCP Servers card title and description', () => {
+    it('renders Tools card title and description', () => {
       render(<CapabilityCards ragEnabled={true} />)
-      expect(screen.getByText('MCP Servers')).toBeInTheDocument()
-      expect(screen.getByText(/Configure tool servers/)).toBeInTheDocument()
+      expect(screen.getByText('Tools')).toBeInTheDocument()
+      expect(screen.getByText(/Connect agents to APIs/)).toBeInTheDocument()
     })
 
     it('renders Task Builder card title and description', () => {
@@ -135,7 +137,7 @@ describe('CapabilityCards', () => {
 
     it('renders the section heading', () => {
       render(<CapabilityCards ragEnabled={true} />)
-      expect(screen.getByText('Platform Capabilities')).toBeInTheDocument()
+      expect(screen.getByText('Start Here')).toBeInTheDocument()
     })
   })
 

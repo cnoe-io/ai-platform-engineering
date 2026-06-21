@@ -176,7 +176,7 @@ describe("/api/credentials/oauth/[provider_key]", () => {
     expect(text).not.toContain("Connecting GitHub to CAIPE");
     expect(text).not.toContain(">CAIPE / Grid<");
     expect(text).not.toContain("Saved");
-    expect(text).not.toContain("Return to Connections");
+    expect(text).not.toContain("Return to Credentials");
     expect(text).toContain("caipe.oauth.connection");
   });
 
@@ -195,7 +195,7 @@ describe("/api/credentials/oauth/[provider_key]", () => {
     expect(text).not.toContain("Connecting Webex to CAIPE");
     expect(text).not.toContain(">CAIPE / Grid<");
     expect(text).not.toContain("Action needed");
-    expect(text).not.toContain("Return to Connections");
+    expect(text).not.toContain("Return to Credentials");
     expect(text).toContain("Webex returned invalid_scope. You can close this window.");
     expect(text).not.toContain("try again");
   });

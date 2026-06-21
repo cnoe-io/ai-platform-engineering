@@ -3,12 +3,22 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card,CardContent,CardDescription,CardHeader,CardTitle } from "@/components/ui/card";
+import {
+Dialog,
+DialogContent,
+DialogDescription,
+DialogFooter,
+DialogHeader,
+DialogTitle,
+} from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 import { toYaml } from "@/lib/yaml-serializer";
 import type { MCPServerConfig,MCPToolInfo } from "@/types/dynamic-agent";
 import {
 AlertCircle,
 CheckCircle2,
 Download,
+FlaskConical,
 Globe,
 Loader2,
 Plus,
@@ -48,8 +58,19 @@ interface FetchServersOptions {
   preserveListOnError?: boolean;
 }
 
+interface ToolTestResult {
+  success: boolean;
+  status?: number;
+  result?: unknown;
+  error?: string;
+}
+
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
+}
+
+function isLockedConfigDrivenServer(server: MCPServerConfig | null | undefined): boolean {
+  return server?.config_driven === true && server.source !== "agentgateway";
 }
 
 export function MCPServersTab() {
@@ -65,6 +86,7 @@ export function MCPServersTab() {
   const [agentGatewaySyncing, setAgentGatewaySyncing] = React.useState(false);
   const [agentGatewayMessage, setAgentGatewayMessage] = React.useState<string | null>(null);
   const [agentGatewayError, setAgentGatewayError] = React.useState<string | null>(null);
+  const [testingServer, setTestingServer] = React.useState<MCPServerConfig | null>(null);
 
   const fetchServers = React.useCallback(async ({
     showLoading = true,
@@ -311,7 +333,7 @@ export function MCPServersTab() {
     return (
       <MCPServerEditor
         server={editingServer}
-        readOnly={editingServer?.config_driven}
+        readOnly={isLockedConfigDrivenServer(editingServer)}
         onSave={() => {
           setEditingServer(null);
           setIsCreating(false);
@@ -332,7 +354,7 @@ export function MCPServersTab() {
           <div>
             <CardTitle>MCP Servers</CardTitle>
             <CardDescription>
-              Configure MCP (Model Context Protocol) server connections for tool access.
+              Configure MCP server connections. HTTP and SSE servers are routed through AgentGateway so each tool call can be authorized before it reaches the server.
             </CardDescription>
           </div>
           <div className="flex items-center gap-2">
@@ -341,13 +363,14 @@ export function MCPServersTab() {
               size="sm"
               onClick={handleSyncAgentGateway}
               disabled={agentGatewaySyncing}
+              title="Admin repair: re-import built-in AgentGateway MCP routes and repair stale registrations"
             >
               {agentGatewaySyncing ? (
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
               ) : (
                 <Globe className="h-4 w-4 mr-2" />
               )}
-              Sync with AgentGateway
+              Repair AgentGateway
             </Button>
             <Button variant="outline" size="sm" onClick={() => fetchServers()} disabled={loading}>
               <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
@@ -504,10 +527,10 @@ export function MCPServersTab() {
 
                     <div className="col-span-2">
                       <button
-                        onClick={(e) => { e.stopPropagation(); if (!server.config_driven) handleToggleEnabled(server); }}
-                        className={`flex items-center gap-1.5 ${server.config_driven ? "cursor-not-allowed opacity-60" : ""}`}
-                        disabled={server.config_driven}
-                        title={server.config_driven ? "Config-driven servers cannot be modified" : undefined}
+                        onClick={(e) => { e.stopPropagation(); if (!isLockedConfigDrivenServer(server)) handleToggleEnabled(server); }}
+                        className={`flex items-center gap-1.5 ${isLockedConfigDrivenServer(server) ? "cursor-not-allowed opacity-60" : ""}`}
+                        disabled={isLockedConfigDrivenServer(server)}
+                        title={isLockedConfigDrivenServer(server) ? "Config-driven servers cannot be modified" : undefined}
                       >
                         {server.enabled ? (
                           <>
@@ -532,6 +555,7 @@ export function MCPServersTab() {
                         className="h-8 w-8"
                         onClick={() => handleProbe(server._id)}
                         disabled={probe?.loading}
+                        aria-label={`Probe tools for ${server.name}`}
                         title="Probe for tools"
                       >
                         {probe?.loading ? (
@@ -544,12 +568,28 @@ export function MCPServersTab() {
                         variant="ghost"
                         size="icon"
                         className="h-8 w-8"
+                        onClick={() => setTestingServer(server)}
+                        disabled={server.transport !== "http" || !server.enabled}
+                        aria-label={`Test MCP tools for ${server.name}`}
+                        title={
+                          server.transport === "http"
+                            ? "Test MCP tools"
+                            : "Tool testing currently supports HTTP MCP servers"
+                        }
+                      >
+                        <FlaskConical className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
                         onClick={() => handleExportYaml(server)}
+                        aria-label={`Export ${server.name} as YAML`}
                         title="Export as YAML"
                       >
                         <Download className="h-4 w-4" />
                       </Button>
-                      {server.config_driven && server.source !== "agentgateway" && (
+                      {isLockedConfigDrivenServer(server) && (
                         <Badge
                           variant="outline"
                           className="gap-1 bg-gray-500/10 text-gray-600 dark:text-gray-400 border-gray-500/30"
@@ -558,7 +598,7 @@ export function MCPServersTab() {
                           Config
                         </Badge>
                       )}
-                      {!server.config_driven && (
+                      {!isLockedConfigDrivenServer(server) && (
                         <Button
                           variant="ghost"
                           size="icon"
@@ -617,6 +657,451 @@ export function MCPServersTab() {
           </div>
         )}
       </CardContent>
+      <MCPToolTestDialog
+        server={testingServer}
+        open={Boolean(testingServer)}
+        onOpenChange={(open) => {
+          if (!open) setTestingServer(null);
+        }}
+      />
     </Card>
+  );
+}
+
+function preferredTool(tools: MCPToolInfo[]): string {
+  const safe = tools.find((tool) => /(version|health|ping|status|about|info)/i.test(tool.name));
+  return safe?.name ?? tools[0]?.name ?? "";
+}
+
+function prettyJson(value: unknown): string {
+  return JSON.stringify(value, null, 2);
+}
+
+interface ToolSchemaProperty {
+  name: string;
+  type: string;
+  description: string;
+  required: boolean;
+  enumValues?: string[];
+  defaultValue?: unknown;
+}
+
+function toolInputSchema(tool: MCPToolInfo | undefined): Record<string, unknown> | null {
+  const schema = tool?.inputSchema ?? tool?.input_schema;
+  return schema && typeof schema === "object" && !Array.isArray(schema)
+    ? (schema as Record<string, unknown>)
+    : null;
+}
+
+function schemaProperties(tool: MCPToolInfo | undefined): ToolSchemaProperty[] {
+  const schema = toolInputSchema(tool);
+  const rawProperties = schema?.properties;
+  if (!rawProperties || typeof rawProperties !== "object" || Array.isArray(rawProperties)) {
+    return [];
+  }
+
+  const required = new Set(Array.isArray(schema?.required) ? schema.required.filter((item) => typeof item === "string") : []);
+  return Object.entries(rawProperties as Record<string, unknown>).map(([name, raw]) => {
+    const property = raw && typeof raw === "object" && !Array.isArray(raw)
+      ? (raw as Record<string, unknown>)
+      : {};
+    const typeValue = Array.isArray(property.type) ? property.type[0] : property.type;
+    const enumValues = Array.isArray(property.enum)
+      ? property.enum.filter((item): item is string => typeof item === "string")
+      : undefined;
+    return {
+      name,
+      type: typeof typeValue === "string" ? typeValue : enumValues?.length ? "string" : "string",
+      description: typeof property.description === "string" ? property.description : "",
+      required: required.has(name),
+      enumValues,
+      defaultValue: property.default,
+    };
+  });
+}
+
+function isSimpleSchemaProperty(property: ToolSchemaProperty): boolean {
+  return ["string", "number", "integer", "boolean"].includes(property.type) || Boolean(property.enumValues?.length);
+}
+
+function defaultParamsForProperties(properties: ToolSchemaProperty[]): Record<string, string | boolean> {
+  const params: Record<string, string | boolean> = {};
+  for (const property of properties) {
+    if (typeof property.defaultValue === "boolean") {
+      params[property.name] = property.defaultValue;
+    } else if (typeof property.defaultValue === "number" || typeof property.defaultValue === "string") {
+      params[property.name] = String(property.defaultValue);
+    } else if (property.type === "boolean") {
+      params[property.name] = false;
+    } else {
+      params[property.name] = "";
+    }
+  }
+  return params;
+}
+
+function buildParamsFromFields(
+  properties: ToolSchemaProperty[],
+  values: Record<string, string | boolean>,
+): Record<string, unknown> {
+  const params: Record<string, unknown> = {};
+  for (const property of properties) {
+    const raw = values[property.name];
+    if (typeof raw === "boolean") {
+      params[property.name] = raw;
+      continue;
+    }
+    const text = String(raw ?? "").trim();
+    if (!text && !property.required) continue;
+    if (!text && property.required) {
+      throw new Error(`${property.name} is required`);
+    }
+    if (property.type === "number" || property.type === "integer") {
+      const value = Number(text);
+      if (!Number.isFinite(value)) throw new Error(`${property.name} must be a number`);
+      params[property.name] = property.type === "integer" ? Math.trunc(value) : value;
+    } else {
+      params[property.name] = text;
+    }
+  }
+  return params;
+}
+
+function MCPToolTestDialog({
+  server,
+  open,
+  onOpenChange,
+}: {
+  server: MCPServerConfig | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const [loadingTools, setLoadingTools] = React.useState(false);
+  const [tools, setTools] = React.useState<MCPToolInfo[]>([]);
+  const [selectedTool, setSelectedTool] = React.useState("");
+  const [paramsText, setParamsText] = React.useState("{}");
+  const [paramsMode, setParamsMode] = React.useState<"fields" | "json">("fields");
+  const [paramValues, setParamValues] = React.useState<Record<string, string | boolean>>({});
+  const [running, setRunning] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const [result, setResult] = React.useState<ToolTestResult | null>(null);
+
+  React.useEffect(() => {
+    if (!open || !server) return;
+    let cancelled = false;
+    setLoadingTools(true);
+    setTools([]);
+    setSelectedTool("");
+    setParamsText("{}");
+    setParamsMode("fields");
+    setParamValues({});
+    setResult(null);
+    setError(null);
+
+    async function loadTools() {
+      try {
+        const response = await fetch(`/api/mcp-servers/probe?id=${server?._id}`, {
+          method: "POST",
+        });
+        const data = await response.json();
+        if (!data.success || data.data?.success === false) {
+          throw new Error(data.data?.error || data.error || "Could not load tools");
+        }
+        const nextTools = Array.isArray(data.data?.tools) ? data.data.tools : [];
+        if (cancelled) return;
+        setTools(nextTools);
+        setSelectedTool(preferredTool(nextTools));
+      } catch (err: unknown) {
+        if (!cancelled) setError(errorMessage(err, "Could not load tools"));
+      } finally {
+        if (!cancelled) setLoadingTools(false);
+      }
+    }
+
+    void loadTools();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, server]);
+
+  const selectedToolDetails = tools.find((tool) => tool.name === selectedTool);
+  const selectedProperties = React.useMemo(
+    () => schemaProperties(selectedToolDetails),
+    [selectedToolDetails],
+  );
+  const canUseFieldMode = selectedProperties.length > 0 && selectedProperties.every(isSimpleSchemaProperty);
+  const hasRequiredParams = selectedProperties.some((property) => property.required);
+
+  React.useEffect(() => {
+    setResult(null);
+    setError(null);
+    setParamValues(defaultParamsForProperties(selectedProperties));
+    setParamsText("{}");
+    setParamsMode(canUseFieldMode ? "fields" : "json");
+  }, [canUseFieldMode, selectedTool, selectedProperties]);
+
+  function updateParamValue(name: string, value: string | boolean) {
+    setParamValues((current) => ({ ...current, [name]: value }));
+    setResult(null);
+  }
+
+  async function runTool() {
+    if (!server || !selectedTool) return;
+    setError(null);
+    setResult(null);
+
+    let params: Record<string, unknown>;
+    if (paramsMode === "fields" && canUseFieldMode) {
+      try {
+        params = buildParamsFromFields(selectedProperties, paramValues);
+      } catch (err: unknown) {
+        setError(errorMessage(err, "Check the required fields"));
+        return;
+      }
+    } else {
+      try {
+        const parsed = JSON.parse(paramsText || "{}") as unknown;
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+          throw new Error("Params must be a JSON object");
+        }
+        params = parsed as Record<string, unknown>;
+      } catch (err: unknown) {
+        setError(errorMessage(err, "Params must be valid JSON"));
+        return;
+      }
+    }
+
+    setRunning(true);
+    try {
+      const response = await fetch("/api/mcp-servers/test-tool", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          serverId: server._id,
+          toolName: selectedTool,
+          params,
+        }),
+      });
+      const data = await response.json();
+      if (!data.success) {
+        throw new Error(data.error || "Tool test failed");
+      }
+      setResult(data.data as ToolTestResult);
+    } catch (err: unknown) {
+      setError(errorMessage(err, "Tool test failed"));
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[85vh] max-w-3xl overflow-hidden">
+        <DialogHeader>
+          <DialogTitle>Test MCP tools</DialogTitle>
+          <DialogDescription>
+            {server
+              ? `Run a saved tool from ${server.name}. Requests use the same AgentGateway route and authorization checks as agents.`
+              : "Run a saved MCP tool."}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="grid gap-4 overflow-y-auto pr-1">
+          {loadingTools ? (
+            <div className="flex items-center gap-2 rounded-md border p-4 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Loading tools...
+            </div>
+          ) : tools.length > 0 ? (
+            <>
+              <div className="grid gap-2">
+                <label htmlFor="mcp-test-tool" className="text-sm font-medium">
+                  Tool
+                </label>
+                <select
+                  id="mcp-test-tool"
+                  value={selectedTool}
+                  onChange={(event) => {
+                    setSelectedTool(event.target.value);
+                    setResult(null);
+                  }}
+                  className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+                >
+                  {tools.map((tool) => (
+                    <option key={tool.namespaced_name || tool.name} value={tool.name}>
+                      {tool.name}
+                    </option>
+                  ))}
+                </select>
+                {selectedToolDetails?.description && (
+                  <p className="text-xs text-muted-foreground">{selectedToolDetails.description}</p>
+                )}
+              </div>
+
+              <div className="grid gap-2">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <label htmlFor={paramsMode === "json" ? "mcp-test-params" : undefined} className="text-sm font-medium">
+                      Parameters
+                    </label>
+                    <p className="text-xs text-muted-foreground">
+                      {selectedProperties.length === 0
+                        ? "This tool does not define any parameters."
+                        : hasRequiredParams
+                          ? "Fill the required fields before running the tool."
+                          : "Optional fields can be left blank."}
+                    </p>
+                  </div>
+                  <div className="flex rounded-md bg-muted p-1" aria-label="Parameter entry mode">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={paramsMode === "fields" ? "secondary" : "ghost"}
+                      className="h-7 px-2 text-xs"
+                      disabled={!canUseFieldMode}
+                      onClick={() => setParamsMode("fields")}
+                    >
+                      Fields
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={paramsMode === "json" ? "secondary" : "ghost"}
+                      className="h-7 px-2 text-xs"
+                      onClick={() => {
+                        if (paramsMode === "fields" && canUseFieldMode) {
+                          try {
+                            setParamsText(prettyJson(buildParamsFromFields(selectedProperties, paramValues)));
+                          } catch {
+                            setParamsText("{}");
+                          }
+                        }
+                        setParamsMode("json");
+                      }}
+                    >
+                      JSON
+                    </Button>
+                  </div>
+                </div>
+
+                {paramsMode === "fields" && canUseFieldMode ? (
+                  <div className="grid gap-3 rounded-md border p-3">
+                    {selectedProperties.length === 0 ? (
+                      <div className="rounded-md bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+                        No parameters needed.
+                      </div>
+                    ) : (
+                      selectedProperties.map((property) => (
+                        <div key={property.name} className="grid gap-1.5">
+                          <div className="flex items-center justify-between gap-2">
+                            <label htmlFor={`mcp-test-param-${property.name}`} className="text-sm font-medium">
+                              {property.name}
+                            </label>
+                            {property.required ? (
+                              <Badge variant="outline" className="text-[10px] uppercase">
+                                Required
+                              </Badge>
+                            ) : null}
+                          </div>
+                          {property.type === "boolean" ? (
+                            <label className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
+                              <input
+                                id={`mcp-test-param-${property.name}`}
+                                type="checkbox"
+                                checked={Boolean(paramValues[property.name])}
+                                onChange={(event) => updateParamValue(property.name, event.target.checked)}
+                                className="h-4 w-4 accent-primary"
+                              />
+                              Enabled
+                            </label>
+                          ) : property.enumValues?.length ? (
+                            <select
+                              id={`mcp-test-param-${property.name}`}
+                              value={String(paramValues[property.name] ?? "")}
+                              onChange={(event) => updateParamValue(property.name, event.target.value)}
+                              className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+                            >
+                              <option value="">Select {property.name}</option>
+                              {property.enumValues.map((value) => (
+                                <option key={value} value={value}>
+                                  {value}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <input
+                              id={`mcp-test-param-${property.name}`}
+                              value={String(paramValues[property.name] ?? "")}
+                              type={property.type === "number" || property.type === "integer" ? "number" : "text"}
+                              onChange={(event) => updateParamValue(property.name, event.target.value)}
+                              placeholder={property.required ? `Enter ${property.name}` : "Optional"}
+                              className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+                            />
+                          )}
+                          {property.description ? (
+                            <p className="text-xs text-muted-foreground">{property.description}</p>
+                          ) : null}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                ) : (
+                  <>
+                    <Textarea
+                      id="mcp-test-params"
+                      value={paramsText}
+                      onChange={(event) => setParamsText(event.target.value)}
+                      className="min-h-28 font-mono text-xs"
+                      spellCheck={false}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Use <code className="font-mono">{"{}"}</code> for tools that do not take arguments.
+                    </p>
+                  </>
+                )}
+              </div>
+            </>
+          ) : (
+            <div className="rounded-md border p-4 text-sm text-muted-foreground">
+              No tools were found for this MCP server.
+            </div>
+          )}
+
+          {error && (
+            <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+              {error}
+            </div>
+          )}
+
+          {result && (
+            <div className="grid gap-2">
+              <div className="flex items-center gap-2 text-sm">
+                {result.success ? (
+                  <CheckCircle2 className="h-4 w-4 text-green-500" />
+                ) : (
+                  <AlertCircle className="h-4 w-4 text-destructive" />
+                )}
+                <span className={result.success ? "text-green-600 dark:text-green-400" : "text-destructive"}>
+                  {result.success ? "Tool call succeeded" : "Tool call failed"}
+                </span>
+              </div>
+              <pre className="max-h-72 overflow-auto rounded-md border bg-muted/40 p-3 text-xs">
+                {prettyJson(result.result ?? result.error ?? result)}
+              </pre>
+            </div>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Close
+          </Button>
+          <Button onClick={() => void runTool()} disabled={running || loadingTools || !selectedTool || tools.length === 0}>
+            {running ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FlaskConical className="mr-2 h-4 w-4" />}
+            Run tool
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

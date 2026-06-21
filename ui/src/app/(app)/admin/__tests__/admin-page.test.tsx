@@ -381,7 +381,7 @@ describe('Admin Dashboard Page', () => {
       setupFetchMock();
       render(<AdminPage />);
 
-      expect(await screen.findByText('Admin Dashboard')).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { name: 'Admin' })).toBeInTheDocument();
       expect(screen.queryByTestId('spinner')).not.toBeInTheDocument();
     });
 
@@ -397,7 +397,7 @@ describe('Admin Dashboard Page', () => {
       render(<AdminPage />);
 
       await waitFor(() => {
-        expect(screen.getByText('Admin Dashboard')).toBeInTheDocument();
+        expect(screen.getByRole('heading', { name: 'Admin' })).toBeInTheDocument();
       });
 
       const userListCalls = fetchMock.mock.calls.filter(([url]) => {
@@ -458,7 +458,7 @@ describe('Admin Dashboard Page', () => {
 
       await waitFor(() => {
         expect(
-          screen.getByText(/view platform usage.*read-only access/i)
+          screen.getByText(/view access.*teams.*health.*platform settings/i)
         ).toBeInTheDocument();
       });
     });
@@ -565,7 +565,7 @@ describe('Admin Dashboard Page', () => {
       render(<AdminPage />);
 
       await waitFor(() => {
-        expect(screen.getByText('Admin Dashboard')).toBeInTheDocument();
+        expect(screen.getByRole('heading', { name: 'Admin' })).toBeInTheDocument();
       });
 
       expect(screen.queryByText('Read-Only')).not.toBeInTheDocument();
@@ -576,7 +576,7 @@ describe('Admin Dashboard Page', () => {
 
       await waitFor(() => {
         expect(
-          screen.getByText(/manage users.*teams.*monitor usage/i)
+          screen.getByText(/manage access.*teams.*health.*platform settings/i)
         ).toBeInTheDocument();
       });
     });

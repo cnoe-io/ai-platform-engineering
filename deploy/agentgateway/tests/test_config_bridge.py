@@ -72,12 +72,13 @@ def _baseline_config() -> dict:
     }
 
 
-def test_select_gateway_targets_uses_enabled_agentgateway_rows_only() -> None:
+def test_select_gateway_targets_uses_enabled_network_rows() -> None:
     targets = bridge.select_gateway_targets(
         [
             {
                 "_id": "knowledge-base",
                 "enabled": True,
+                "transport": "http",
                 "source": "agentgateway",
                 "agentgateway_target_endpoint": "http://rag-server:9446/mcp",
                 "credential_sources": [
@@ -91,24 +92,42 @@ def test_select_gateway_targets_uses_enabled_agentgateway_rows_only() -> None:
             {
                 "_id": "disabled-target",
                 "enabled": False,
+                "transport": "http",
                 "source": "agentgateway",
                 "agentgateway_target_endpoint": "http://disabled:8000/mcp",
             },
             {
                 "_id": "manual-target",
                 "enabled": True,
+                "transport": "http",
                 "source": "manual",
                 "endpoint": "http://mcp-manual:8000/mcp",
             },
             {
+                "_id": "gateway-loop",
+                "enabled": True,
+                "transport": "http",
+                "source": "manual",
+                "endpoint": "http://agentgateway:4000/mcp/gateway-loop",
+            },
+            {
+                "_id": "stdio-target",
+                "enabled": True,
+                "transport": "stdio",
+                "source": "manual",
+                "command": "node",
+            },
+            {
                 "_id": "bad target",
                 "enabled": True,
+                "transport": "http",
                 "source": "agentgateway",
                 "agentgateway_target_endpoint": "http://bad:8000/mcp",
             },
             {
                 "_id": "missing-upstream",
                 "enabled": True,
+                "transport": "http",
                 "source": "agentgateway",
             },
         ]
@@ -125,7 +144,12 @@ def test_select_gateway_targets_uses_enabled_agentgateway_rows_only() -> None:
                     "name": "X-CAIPE-Provider-Token",
                 },
             ),
-        )
+        ),
+        bridge.McpGatewayTarget(
+            id="manual-target",
+            upstream_url="http://mcp-manual:8000/mcp",
+            credential_sources=(),
+        ),
     ]
 
 

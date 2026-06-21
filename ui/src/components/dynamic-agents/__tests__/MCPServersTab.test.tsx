@@ -28,7 +28,7 @@ const agentGatewayRagServer = {
   updated_at: "2026-05-17T00:00:00.000Z",
 };
 
-describe("MCPServersTab AgentGateway sync", () => {
+describe("MCPServersTab AgentGateway repair", () => {
   let serverItems: Record<string, unknown>[];
 
   beforeEach(() => {
@@ -67,15 +67,60 @@ describe("MCPServersTab AgentGateway sync", () => {
           }),
         } as Response);
       }
+      if (url === "/api/mcp-servers/probe?id=jira" && init?.method === "POST") {
+        return Promise.resolve({
+          json: async () => ({
+            success: true,
+            data: {
+              server_id: "jira",
+              success: true,
+              tools: [
+                {
+                  name: "version",
+                  namespaced_name: "version",
+                  description: "Return the MCP server version.",
+                },
+                {
+                  name: "project_list",
+                  namespaced_name: "project_list",
+                  description: "List projects.",
+                  inputSchema: {
+                    type: "object",
+                    properties: {
+                      keyword: {
+                        type: "string",
+                        description: "Search text.",
+                      },
+                    },
+                    required: ["keyword"],
+                  },
+                },
+              ],
+            },
+          }),
+        } as Response);
+      }
+      if (url === "/api/mcp-servers/test-tool" && init?.method === "POST") {
+        return Promise.resolve({
+          json: async () => ({
+            success: true,
+            data: {
+              success: true,
+              status: 200,
+              result: { content: [{ type: "text", text: "1.2.3" }] },
+            },
+          }),
+        } as Response);
+      }
       throw new Error(`Unexpected fetch: ${url}`);
     }) as unknown as typeof fetch;
   });
 
-  it("syncs AgentGateway MCP servers in one click and shows migration conflicts", async () => {
+  it("repairs AgentGateway MCP server registrations and shows migration conflicts", async () => {
     render(<MCPServersTab />);
 
     await screen.findByText("Jira");
-    fireEvent.click(screen.getByRole("button", { name: /Sync with AgentGateway/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Repair AgentGateway/i }));
 
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledWith(
@@ -109,6 +154,62 @@ describe("MCPServersTab AgentGateway sync", () => {
 
     expect(screen.getByText("AgentGateway")).toBeInTheDocument();
     expect(screen.getByText(/Target: http:\/\/rag-server:9446\/mcp/i)).toBeInTheDocument();
+  });
+
+  it("opens a test modal and invokes a saved MCP tool", async () => {
+    render(<MCPServersTab />);
+
+    await screen.findByText("Jira");
+    fireEvent.click(screen.getByRole("button", { name: /test mcp tools for jira/i }));
+
+    expect(await screen.findByRole("dialog")).toHaveTextContent(/Test MCP tools/i);
+    expect(await screen.findByRole("option", { name: "version" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /run tool/i }));
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/mcp-servers/test-tool",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({
+            serverId: "jira",
+            toolName: "version",
+            params: {},
+          }),
+        }),
+      );
+    });
+    expect(await screen.findByText(/Tool call succeeded/i)).toBeInTheDocument();
+    expect(screen.getByText(/1.2.3/i)).toBeInTheDocument();
+  });
+
+  it("renders schema parameters as fields and sends them as JSON", async () => {
+    render(<MCPServersTab />);
+
+    await screen.findByText("Jira");
+    fireEvent.click(screen.getByRole("button", { name: /test mcp tools for jira/i }));
+
+    const toolSelect = await screen.findByLabelText("Tool");
+    fireEvent.change(toolSelect, { target: { value: "project_list" } });
+
+    expect(await screen.findByLabelText("keyword")).toBeInTheDocument();
+    expect(screen.getByText("Required")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("keyword"), { target: { value: "meraki" } });
+    fireEvent.click(screen.getByRole("button", { name: /run tool/i }));
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/mcp-servers/test-tool",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({
+            serverId: "jira",
+            toolName: "project_list",
+            params: { keyword: "meraki" },
+          }),
+        }),
+      );
+    });
   });
 
   it("refreshes the mounted list when servers are added outside the tab", async () => {
