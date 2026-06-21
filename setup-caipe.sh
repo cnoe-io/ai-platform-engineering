@@ -8263,10 +8263,25 @@ cmd_docker_compose() {
   _ensure_compose_env_file "$env_file"
   _update_compose_image_tag "$env_file"
 
-  if ! command -v docker &>/dev/null; then
-    err "docker is required for Docker Compose setup"
-    exit 1
+  if [[ "$(uname -s)" == "Darwin" && -x "/usr/local/bin/docker" && ! "$(command -v docker 2>/dev/null)" ]]; then
+    export PATH="/usr/local/bin:$PATH"
   fi
+  if ! command -v docker &>/dev/null; then
+    warn "Docker is not installed — it is required for Docker Compose setup."
+    local os; os="$(uname -s)"
+    if [[ "$os" == "Linux" || "$os" == "Darwin" ]] && ask_yn "Install Docker now?" "y"; then
+      step "Installing Docker"
+      if [[ "$os" == "Linux" ]]; then
+        _install_docker_linux
+      else
+        _install_docker_macos
+      fi
+    else
+      err "Docker is required. Install it from https://docs.docker.com/engine/install/ and re-run."
+      exit 1
+    fi
+  fi
+  _check_docker_access
 
   COMPOSE_PROFILES="${COMPOSE_PROFILES:-$(_env_get "$env_file" COMPOSE_PROFILES)}"
   COMPOSE_PROFILES="${COMPOSE_PROFILES:-$COMPOSE_PROFILES_DEFAULT}"
