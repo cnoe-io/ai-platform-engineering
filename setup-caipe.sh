@@ -190,6 +190,7 @@ CAIPE_DOMAIN_DEFAULT="${CAIPE_DOMAIN_DEFAULT:-caipe.local.me}"
 CAIPE_DOMAIN=""
 TLS_CERT_FILE=""
 TLS_KEY_FILE=""
+TLS_SELF_SIGNED=""
 OIDC_VERIFY_SSL="${OIDC_VERIFY_SSL:-}"
 INGESTOR_OIDC_VERIFY_SSL="${INGESTOR_OIDC_VERIFY_SSL:-}"
 ENV_FILE=""
@@ -2126,6 +2127,7 @@ setup_tls() {
       -subj "/CN=${CAIPE_DOMAIN}/O=CAIPE" \
       -addext "subjectAltName=${_san}" \
       2>/dev/null
+    TLS_SELF_SIGNED=true
     log "Self-signed cert generated (valid 365 days)"
   fi
 
@@ -6091,22 +6093,23 @@ deploy_caipe() {
   # surprised by H2-backed Keycloak losing realm state on restart.
   _warn_if_chart_lacks_keycloak_db
 
-  # Determine Node TLS validation settings based on OIDC_VERIFY_SSL.
-  # If OIDC_VERIFY_SSL is explicitly set (e.g. false/0), we map that to the
-  # Node.js NODE_TLS_REJECT_UNAUTHORIZED variable (0 disables verification).
-  # If OIDC_VERIFY_SSL is unset/empty, we automatically disable verification
-  # (reject_unauthorized="0") if self-signed certificates are in use for local Kind/ingress.
-  local reject_unauthorized=""
+  # Determine Node TLS validation settings based on OIDC_VERIFY_SSL and self-signed certs.
+  # If OIDC_VERIFY_SSL is explicitly set to false/0/no, or if we generated a self-signed
+  # certificate, we mount the caipe-tls secret to the caipe-ui pod and set NODE_EXTRA_CA_CERTS
+  # to point to it, rather than disabling TLS validation globally via NODE_TLS_REJECT_UNAUTHORIZED.
+  local trust_self_signed_cert="false"
+  local oidc_verify_ssl_normalized=""
   if [[ -n "$OIDC_VERIFY_SSL" ]]; then
-    if [[ "$OIDC_VERIFY_SSL" == "false" || "$OIDC_VERIFY_SSL" == "0" ]]; then
-      reject_unauthorized="0"
-    else
-      reject_unauthorized="1"
+    case "$(printf '%s' "$OIDC_VERIFY_SSL" | tr '[:upper:]' '[:lower:]')" in
+      true|1|yes) oidc_verify_ssl_normalized="true" ;;
+      false|0|no) oidc_verify_ssl_normalized="false" ;;
+      *) err "OIDC_VERIFY_SSL must be true/false, 1/0, or yes/no"; exit 1 ;;
+    esac
+    if [[ "$oidc_verify_ssl_normalized" == "false" ]]; then
+      trust_self_signed_cert="true"
     fi
-  else
-    if [[ -z "$TLS_CERT_FILE" || -z "$TLS_KEY_FILE" ]]; then
-      reject_unauthorized="0"
-    fi
+  elif [[ "${TLS_SELF_SIGNED:-false}" == "true" ]]; then
+    trust_self_signed_cert="true"
   fi
 
   local helm_args=(
@@ -6115,7 +6118,6 @@ deploy_caipe() {
     --set tags.caipe-ui=true
     --set tags.agent-weather=false
     --set tags.agent-netutils=true
-    ${reject_unauthorized:+--set "caipe-ui.config.NODE_TLS_REJECT_UNAUTHORIZED=${reject_unauthorized}"}
     # A2A_BASE_URL: server-side only (Next.js API routes fetching /tools, the
     # /api/a2a health probe, etc.). Must use the internal k8s service URL to
     # avoid hairpin routing failures through the nginx ingress when the pod calls
@@ -6138,6 +6140,23 @@ deploy_caipe() {
     # client machine rather than the cluster host.
     ${CAIPE_DOMAIN:+--set "caipe-ui.config.NEXT_PUBLIC_A2A_BASE_URL=https://${CAIPE_DOMAIN}/supervisor"}
   )
+
+  # Mount the generated self-signed certificate into the caipe-ui pod and set NODE_EXTRA_CA_CERTS
+  # so Node.js trusts the local cert specifically.
+  if [[ "$trust_self_signed_cert" == "true" ]]; then
+    if kubectl get secret caipe-tls -n caipe &>/dev/null; then
+      helm_args+=(
+        --set "caipe-ui.volumes[0].name=caipe-tls"
+        --set "caipe-ui.volumes[0].secret.secretName=caipe-tls"
+        --set "caipe-ui.volumeMounts[0].name=caipe-tls"
+        --set "caipe-ui.volumeMounts[0].mountPath=/etc/caipe-tls"
+        --set "caipe-ui.volumeMounts[0].readOnly=true"
+        --set "caipe-ui.config.NODE_EXTRA_CA_CERTS=/etc/caipe-tls/tls.crt"
+      )
+    else
+      warn "OIDC_VERIFY_SSL is disabled, but 'caipe-tls' secret was not found. Cannot mount certificate."
+    fi
+  fi
 
   # SSO: enable when a public domain is configured (NEXTAUTH_URL is already
   # patched in provision_ui_secret; here we flip the server-side flag too)

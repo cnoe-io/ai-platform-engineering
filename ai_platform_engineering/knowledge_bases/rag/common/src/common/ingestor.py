@@ -49,7 +49,13 @@ class Client:
     # Scope is optional - if not set, don't send any scope (many providers don't need it for client credentials)
     self.oidc_scope = os.getenv("INGESTOR_OIDC_SCOPE", "")
     # Verify SSL option
-    self.oidc_verify_ssl = os.getenv("INGESTOR_OIDC_VERIFY_SSL", "true").lower() == "true"
+    raw_verify_ssl = os.getenv("INGESTOR_OIDC_VERIFY_SSL", "true").strip().lower()
+    if raw_verify_ssl in {"true", "1", "yes"}:
+      self.oidc_verify_ssl = True
+    elif raw_verify_ssl in {"false", "0", "no"}:
+      self.oidc_verify_ssl = False
+    else:
+      raise ValueError("INGESTOR_OIDC_VERIFY_SSL must be one of: true, false, 1, 0, yes, no")
 
     # Token cache
     self._access_token: Optional[str] = None
