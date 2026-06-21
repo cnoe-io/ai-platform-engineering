@@ -67,7 +67,7 @@ class TestServiceBackend:
 class TestAuditBackendFactory:
     @pytest.fixture(autouse=True)
     def reset_singleton(self, monkeypatch):
-        from ai_platform_engineering.utils import audit_backend as module
+        import ai_platform_engineering.utils.audit_backend as module
 
         monkeypatch.setattr(module, "_backend", None)
         yield

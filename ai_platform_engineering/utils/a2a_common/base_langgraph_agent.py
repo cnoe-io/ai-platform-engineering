@@ -1966,7 +1966,7 @@ Use this as the reference point for all date calculations. When users say "today
         callbacks = list(config.get("callbacks") or [])
         callbacks.append(MetricsCallbackHandler(agent_name=agent_name))
 
-        # Add audit callback handler to persist tool actions to audit_events.
+      # Add audit callback handler to submit tool actions to audit-service.
         # Audit-callback registration is optional — if the import or constructor
         # fails (e.g. MongoDB driver missing, audit_callback module absent in
         # slim builds), log a warning and continue. We deliberately swallow the

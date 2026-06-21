@@ -141,7 +141,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 cleanup_task.cancel()
                 with suppress(asyncio.CancelledError):
                     await cleanup_task
-                _ = cleanup_task.cancelled()
             await queue_service.stop()
 
     app = FastAPI(title="CAIPE Audit Service", version="0.1.0", lifespan=lifespan)

@@ -4,7 +4,7 @@
 # For setup instructions and agent orchestration details, refer to:
 #   https://cnoe-io.github.io/ai-platform-engineering/getting-started/quick-start
 #
-# This docker-compose file uses direct A2A peer-to-peer agent transport.
+# This docker-compose file supports P2P and SLIM transport via profiles.
 # Agent selection and configuration are controlled through environment variables
 # in the .env file—see documentation for full list and descriptions.
 # ============================================================================
@@ -28,10 +28,13 @@ services:
     environment:
       - AWS_CONFIG_FILE=/home/appuser/.aws/config
       - AWS_SHARED_CREDENTIALS_FILE=/home/appuser/.aws/credentials
-      # A2A transport configuration
-      - A2A_TRANSPORT=p2p
+      # A2A transport configuration (p2p or slim)
+      - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
       # Prompt configuration file path
       - PROMPT_CONFIG_PATH=${PROMPT_CONFIG_PATH:-./prompt_config.yaml}
+
+      # Slim dataplane endpoint configuration
+      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
 
       # Agent connectivity configuration
       - AGENT_CONNECTIVITY_ENABLE_BACKGROUND=${AGENT_CONNECTIVITY_ENABLE_BACKGROUND:-true}
@@ -119,6 +122,33 @@ services:
         required: false
     profiles:
       - caipe-supervisor
+
+  ####################################################################################################
+  #                                      SLIM Transport                                              #
+  ####################################################################################################
+  slim-dataplane:
+    image: ghcr.io/agntcy/slim:0.6.1
+    container_name: slim-dataplane
+    ports: ["46357:46357"]
+    environment:
+      - PASSWORD=${SLIM_GATEWAY_PASSWORD:-dummy_password}
+      - CONFIG_PATH=/config.yaml
+    volumes: ["./slim-config.yaml:/config.yaml"]
+    command: ["/slim", "--config", "/config.yaml"]
+    profiles:
+      - slim
+
+  slim-control-plane:
+    image: ghcr.io/agntcy/slim/control-plane:0.0.1
+    container_name: slim-control-plane
+    ports: ["50051:50051", "50052:50052"]
+    environment:
+      - PASSWORD=${SLIM_GATEWAY_PASSWORD:-dummy_password}
+      - CONFIG_PATH=/config.yaml
+    volumes: ["./slim-config.yaml:/config.yaml"]
+    command: ["/slim", "--config", "/config.yaml"]
+    profiles:
+      - slim
 
   ####################################################################################################
   #                                         MCP Servers                                              #

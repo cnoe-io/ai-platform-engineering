@@ -83,8 +83,11 @@ services:
       # Disable cache so UI edits are reflected immediately in the agent
       - TASK_CONFIG_CACHE_TTL=${TASK_CONFIG_CACHE_TTL:-0}
 
-      # A2A transport configuration
-      - A2A_TRANSPORT=p2p
+      # A2A transport configuration (p2p or slim)
+      - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
+
+      # Slim dataplane endpoint configuration
+      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
 
       # Agent connectivity configuration
       - AGENT_CONNECTIVITY_ENABLE_BACKGROUND=${AGENT_CONNECTIVITY_ENABLE_BACKGROUND:-true}
@@ -301,6 +304,33 @@ services:
       - caipe-ui-mongo-express
 
   ####################################################################################################
+  #                                      SLIM Transport                                              #
+  ####################################################################################################
+  slim-dataplane:
+    image: ghcr.io/agntcy/slim:0.6.1
+    container_name: slim-dataplane
+    ports: ["46357:46357"]
+    environment:
+      - PASSWORD=${SLIM_GATEWAY_PASSWORD:-dummy_password}
+      - CONFIG_PATH=/config.yaml
+    volumes: ["./slim-config.yaml:/config.yaml"]
+    command: ["/slim", "--config", "/config.yaml"]
+    profiles:
+      - slim
+
+  slim-control-plane:
+    image: ghcr.io/agntcy/slim/control-plane:0.0.1
+    container_name: slim-control-plane
+    ports: ["50051:50051", "50052:50052"]
+    environment:
+      - PASSWORD=${SLIM_GATEWAY_PASSWORD:-dummy_password}
+      - CONFIG_PATH=/config.yaml
+    volumes: ["./slim-config.yaml:/config.yaml"]
+    command: ["/slim", "--config", "/config.yaml"]
+    profiles:
+      - slim
+
+  ####################################################################################################
   #                                         Sub-Agents                                               #
   ####################################################################################################
   # Shared Dockerfile.a2a / Dockerfile.mcp no longer install aws-cli / kubectl /
@@ -330,8 +360,9 @@ services:
     env_file: [.env]
     ports: ["8012:8000"]
     environment:
-      - A2A_TRANSPORT=p2p
+      - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
       - MCP_MODE=http
+      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
       - AWS_AGENT_BACKEND=${AWS_AGENT_BACKEND:-langgraph}
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
@@ -386,11 +417,12 @@ services:
     env_file: [.env]
     ports: ["8013:8000"]
     environment:
-      - A2A_TRANSPORT=p2p
+      - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
       - MCP_MODE=http
       - MCP_PORT=443
       - MCP_HOST=petstore.outshift.io
       - PETSTORE_API_KEY=${PETSTORE_API_KEY}
+      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
@@ -412,6 +444,22 @@ services:
       - petstore
       - all-agents
 
+  # GitHub
+  # Official GitHub MCP server (HTTP mode) — provides full GitHub tool coverage
+  # via the github-mcp-server Go binary served over streamable-http.
+  # agent-github connects to this via GITHUB_MCP_HOST/PORT instead of localhost.
+  github-mcp-server:
+    image: ghcr.io/github/github-mcp-server:latest
+    container_name: github-mcp-server
+    command: ["http", "--port", "8082", "--toolsets", "all"]
+    environment:
+      - GITHUB_PERSONAL_ACCESS_TOKEN=${GITHUB_PERSONAL_ACCESS_TOKEN}
+    ports: ["8082:8082"]
+    profiles:
+      - github
+      - all-agents
+      - mcp-servers
+
   agent-github:
     build:
       context: .
@@ -428,7 +476,11 @@ services:
     env_file: [.env]
     ports: ["8001:8000"]
     environment:
-      - A2A_TRANSPORT=p2p
+      - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
+      - MCP_MODE=http
+      - GITHUB_MCP_HOST=github-mcp-server
+      - GITHUB_MCP_PORT=8082
+      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
@@ -452,6 +504,8 @@ services:
       - GITHUB_APP_PRIVATE_KEY=${GITHUB_APP_PRIVATE_KEY:-}
       - GITHUB_APP_PRIVATE_KEY_PATH=${GITHUB_APP_PRIVATE_KEY_PATH:-}
       - GITHUB_APP_INSTALLATION_ID=${GITHUB_APP_INSTALLATION_ID:-}
+    depends_on:
+      - github-mcp-server
     profiles:
       - github
       - all-agents
@@ -473,10 +527,11 @@ services:
     env_file: [.env]
     ports: ["8014:8000"]
     environment:
-      - A2A_TRANSPORT=p2p
+      - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
       - MCP_MODE=stdio
       - MCP_HOST=mcp-gitlab
       - MCP_PORT=8000
+      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
       - ENABLE_TRACING=${ENABLE_TRACING:-false}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
@@ -566,10 +621,11 @@ services:
     env_file: [.env]
     ports: ["8002:8000"]
     environment:
-      - A2A_TRANSPORT=p2p
+      - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
       - MCP_MODE=http
       - MCP_HOST=weather.outshift.io
       - MCP_PORT=8000
+      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
     profiles:
       - weather
       - all-agents
@@ -590,10 +646,11 @@ services:
     env_file: [.env]
     ports: ["8003:8000"]
     environment:
-      - A2A_TRANSPORT=p2p
+      - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
       - MCP_MODE=http
       - MCP_HOST=mcp-backstage
       - MCP_PORT=8000
+      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
     depends_on:
       mcp-backstage:
         condition: service_healthy
@@ -644,10 +701,11 @@ services:
     env_file: [.env]
     ports: ["8004:8000"]
     environment:
-      - A2A_TRANSPORT=p2p
+      - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
       - MCP_MODE=http
       - MCP_HOST=mcp-argocd
       - MCP_PORT=8000
+      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
     depends_on:
       mcp-argocd:
         condition: service_healthy
@@ -698,10 +756,11 @@ services:
     env_file: [.env]
     ports: ["8005:8000"]
     environment:
-      - A2A_TRANSPORT=p2p
+      - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
       - MCP_MODE=http
       - MCP_HOST=mcp-confluence
       - MCP_PORT=8000
+      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
     depends_on:
       mcp-confluence:
         condition: service_started
@@ -739,10 +798,11 @@ services:
       - ./ai_platform_engineering/utils:/app/ai_platform_engineering/utils
     ports: ["8006:8000"]
     environment:
-      - A2A_TRANSPORT=p2p
+      - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
       - MCP_MODE=http
       - MCP_HOST=mcp-jira
       - MCP_PORT=8000
+      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
     depends_on:
       mcp-jira:
         condition: service_healthy
@@ -809,10 +869,11 @@ services:
     env_file: [.env]
     ports: ["8007:8000"]
     environment:
-      - A2A_TRANSPORT=p2p
+      - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
       - MCP_MODE=http
       - MCP_HOST=mcp-komodor
       - MCP_PORT=8000
+      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
     depends_on:
       mcp-komodor:
         condition: service_healthy
@@ -860,10 +921,11 @@ services:
     env_file: [.env]
     ports: ["8008:8000"]
     environment:
-      - A2A_TRANSPORT=p2p
+      - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
       - MCP_MODE=http
       - MCP_HOST=mcp-pagerduty
       - MCP_PORT=8000
+      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
     depends_on:
       mcp-pagerduty:
         condition: service_healthy
@@ -914,10 +976,11 @@ services:
     env_file: [.env]
     ports: ["8009:8000"]
     environment:
-      - A2A_TRANSPORT=p2p
+      - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
       - MCP_MODE=http
       - MCP_HOST=mcp-slack
       - MCP_PORT=3001
+      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
     depends_on:
       mcp-slack:
         condition: service_healthy
@@ -968,10 +1031,11 @@ services:
     env_file: [.env]
     ports: ["8010:8000"]
     environment:
-      - A2A_TRANSPORT=p2p
+      - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
       - MCP_MODE=http
       - MCP_HOST=mcp-splunk
       - MCP_PORT=8000
+      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
     depends_on:
       mcp-splunk:
         condition: service_healthy
@@ -1022,10 +1086,11 @@ services:
     env_file: [.env]
     ports: ["8011:8000"]
     environment:
-      - A2A_TRANSPORT=p2p
+      - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
       - MCP_MODE=http
       - MCP_HOST=mcp-webex
       - MCP_PORT=8000
+      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
     depends_on:
       mcp-webex:
         condition: service_healthy
@@ -1077,10 +1142,11 @@ services:
     env_file: [.env]
     ports: ["8016:8000"]
     environment:
-      - A2A_TRANSPORT=p2p
+      - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
       - MCP_MODE=http
       - MCP_HOST=mcp-victorops
       - MCP_PORT=8000
+      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
     depends_on:
       mcp-victorops:
         condition: service_healthy
@@ -1134,10 +1200,11 @@ services:
     env_file: [.env]
     ports: ["8015:8000"]
     environment:
-      - A2A_TRANSPORT=p2p
+      - A2A_TRANSPORT=${A2A_TRANSPORT:-p2p}
       - MCP_MODE=http
       - MCP_HOST=mcp-netutils
       - MCP_PORT=8000
+      - SLIM_ENDPOINT=${SLIM_ENDPOINT:-http://slim-dataplane:46357}
     depends_on:
       mcp-netutils:
         condition: service_healthy

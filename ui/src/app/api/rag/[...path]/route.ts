@@ -42,7 +42,7 @@ import { NextRequest,NextResponse } from 'next/server';
  * authoritative source (OIDC provider's userinfo endpoint).
  *
  * Example:
- *   /api/rag/healthz -> RAG_SERVER_URL/healthz (readiness probe, no Bearer token)
+ *   /api/rag/healthz -> RAG_SERVER_URL/healthz (with Bearer token)
  *   /api/rag/v1/query -> RAG_SERVER_URL/v1/query (with Bearer token)
  *
  * The Web UI backend enforces coarse RAG access before proxying and

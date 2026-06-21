@@ -83,15 +83,6 @@ Keycloak realm roles are **not created for CAIPE permissions**. New deployments 
 
 Rule of thumb: **Keycloak owns identity and JWT claims; OpenFGA owns who is related to which organization, team, or resource.**
 
-### Web UI BFF RBAC Caches
-
-The Web UI backend uses short-lived in-process caches to keep repeated navigation from turning into repeated OpenFGA, MongoDB, and platform-health probes:
-
-- OpenFGA store discovery is cached per BFF process. `OPENFGA_STORE_ID` still wins when set; otherwise the process discovers `OPENFGA_STORE_NAME` once and reuses that store id for tuple reads, tuple writes, and checks.
-- Selected JSON API responses such as admin tab gates, platform health, authorization stats, dynamic-agent availability, and platform config are cached by request URL plus caller headers. This keeps one browser refresh or a 1000-user benchmark from fanning out identical backend probes.
-- Cache entries are short-lived, bounded, and process-local. They are an availability/performance optimization only; Keycloak JWT validation, OpenFGA relationship data, MongoDB records, and the downstream services remain the sources of truth.
-- Endpoints that need fresh data can bypass the cache with `refresh=true`, and mutating routes still perform live authorization and persistence work.
-
 The user-facing Connections & Secrets surface is hidden unless credential
 features are enabled and the signed-in Keycloak subject has
 `can_use_credentials organization:<org_key>` in OpenFGA (granted by organization
@@ -476,16 +467,11 @@ explicit OpenFGA relationship. The older plain SSE proxy at
 the supervisor backend and applies the same implicit-or-explicit conversation
 write check before proxying.
 
-The Web UI backend emits a unified RBAC Audit event for every OpenFGA
-agent-use decision, and Python producers such as Dynamic Agents emit the same
-structured `openfga_rebac` event for direct bearer-token calls. These producers
-do not write audit storage directly. They buffer JSON events and submit batches
-to the lightweight `audit-service` (`AUDIT_LOG_BACKEND=service`, default),
-which owns the durable local/S3 storage backend and the read API used by the
-Admin UI. If `audit-service` is unavailable or audit is intentionally disabled,
-producers log a warning and drop the audit batch; authorization itself remains
-non-breaking. Both paths use `pdp=openfga`; the checked tuple is stored in a
-resource reference shaped like:
+The Web UI backend emits a unified RBAC Audit event for every OpenFGA agent-use decision,
+and the Dynamic Agents runtime emits the same structured `openfga_rebac`
+event to audit-service for direct bearer-token calls. Both use
+`pdp=openfga`; the Web UI backend stores the checked tuple in a resource reference shaped
+like:
 
 ```text
 user:<sub> can_use agent:<agent_id>
@@ -496,11 +482,10 @@ denies, and PDP-unavailable failures alongside admin ReBAC graph/check actions.
 The Admin UI's RBAC Audit type filter uses `All` as a literal unfiltered view
 over audit-service events; selecting a specific type narrows the result to
 `auth`, `openfga_rebac`, `tool_action`, or `agent_delegation`. The AgentGateway
-`openfga-authz-bridge` also posts each external `ext_authz` decision through the
-same audit-service write path with `source=openfga_authz_bridge`, so
+`openfga-authz-bridge` also writes each external `ext_authz` decision into the
+same stream with `source=openfga_authz_bridge`, so
 gateway-level OpenFGA allow/deny/error decisions appear without a trace backend.
-`audit-service` is the audit owner; UI, Dynamic Agents, and bridge processes are
-producers only.
+audit-service owns durable local/S3 audit storage and the Admin UI reads it through its API.
 
 ### Personal DM Experience — Phase 2 (spec 2026-05-24)
 

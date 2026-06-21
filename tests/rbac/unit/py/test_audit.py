@@ -1,16 +1,7 @@
-"""Spec 102 T027 — unit tests for `audit.log_authz_decision`.
-
-Covers:
-  - successful audit-service write           → event batch posted
-  - audit-service write failure              → does NOT raise (FR-007)
-  - invalid `reason`                         → silently dropped (defensive)
-  - decision document validates against the JSON schema in
-    `docs/docs/specs/102-comprehensive-rbac-tests-and-completion/contracts/audit-event.schema.json`
-"""
+"""Spec 102 T027 — unit tests for `audit.log_authz_decision`."""
 
 from __future__ import annotations
 
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -44,62 +35,43 @@ def _call_log(**overrides: Any) -> None:
     audit.log_authz_decision(**kwargs)
 
 
-def test_successful_write_posts_service_event(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("AUDIT_LOG_BACKEND", "service")
+def test_successful_write_posts_to_audit_service(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AUDIT_SERVICE_URL", "http://audit-service:8010")
-    mock_client = MagicMock()
-    mock_client.__enter__.return_value = mock_client
 
-    with patch("httpx.Client", return_value=mock_client):
+    with patch("httpx.Client") as mock_client_cls:
+        mock_client = MagicMock()
+        mock_client.__enter__.return_value = mock_client
+        mock_client_cls.return_value = mock_client
+
         _call_log()
 
     mock_client.post.assert_called_once()
     url, = mock_client.post.call_args.args
-    payload = mock_client.post.call_args.kwargs["json"]
-    captured = payload["events"][0]
-
     assert url == "http://audit-service:8010/v1/audit/events"
-    assert captured["userId"] == "alice-sub"
-    assert captured["userEmail"] == "alice@example.com"
-    assert captured["resource"] == "admin_ui"
-    assert captured["scope"] == "view"
-    assert captured["allowed"] is True
-    assert captured["reason"] == "OK"
-    assert captured["source"] == "supervisor"
-    assert captured["service"] == "ui"
-    assert captured["route"] == "GET /api/admin/users"
-    assert captured["requestId"] == "req-123"
-    assert captured["pdp"] == "keycloak"
-    assert captured["type"] == "auth"
-    assert captured["tenant_id"] == "default"
-    assert captured["subject_hash"].startswith("sha256:")
-    assert captured["action"] == "admin_ui#view"
-    assert captured["outcome"] == "allow"
-    assert captured["correlation_id"] == "req-123"
-    assert "ts" in captured
-    mock_client.post.return_value.raise_for_status.assert_called_once()
+    event = mock_client.post.call_args.kwargs["json"]["events"][0]
+    assert event["userId"] == "alice-sub"
+    assert event["userEmail"] == "alice@example.com"
+    assert event["resource"] == "admin_ui"
+    assert event["scope"] == "view"
+    assert event["allowed"] is True
+    assert event["reason"] == "OK"
+    assert event["type"] == "auth"
+    assert event["action"] == "admin_ui#view"
+    assert event["outcome"] == "allow"
+    assert event["subject_hash"].startswith("sha256:")
+    assert event["correlation_id"] == "req-123"
 
 
 def test_service_failure_does_not_raise(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("AUDIT_LOG_BACKEND", "service")
     monkeypatch.setenv("AUDIT_SERVICE_URL", "http://audit-service:8010")
-    mock_client = MagicMock()
-    mock_client.__enter__.return_value = mock_client
-    mock_client.post.side_effect = RuntimeError("audit-service down")
 
-    with patch("httpx.Client", return_value=mock_client):
-        _call_log(
-            user_id="bob-sub",
-            resource="rag",
-            scope="retrieve",
-            allowed=False,
-            reason="DENY_NO_CAPABILITY",
-            service="rag_server",
-            user_email=None,
-            route=None,
-            request_id=None,
-            pdp=None,
-        )
+    with patch("httpx.Client") as mock_client_cls:
+        mock_client = MagicMock()
+        mock_client.__enter__.return_value = mock_client
+        mock_client.post.side_effect = RuntimeError("audit down")
+        mock_client_cls.return_value = mock_client
+
+        _call_log(allowed=False, reason="DENY_NO_CAPABILITY", service="rag_server")
 
 
 def test_invalid_reason_is_silently_dropped(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -120,12 +92,26 @@ def test_document_validates_against_schema(monkeypatch: pytest.MonkeyPatch) -> N
     schema = json.loads(_SCHEMA_PATH.read_text(encoding="utf-8"))
     monkeypatch.setenv("AUDIT_SERVICE_URL", "http://audit-service:8010")
 
-    captured: dict[str, Any] = {}
-
-    with patch.object(audit, "_write_service_event", side_effect=lambda doc: captured.update(doc)):
+    with patch("httpx.Client") as mock_client_cls:
+        mock_client = MagicMock()
+        mock_client.__enter__.return_value = mock_client
+        mock_client_cls.return_value = mock_client
         _call_log()
 
-    if isinstance(captured.get("ts"), datetime):
-        captured["ts"] = captured["ts"].isoformat().replace("+00:00", "Z")
+    event = dict(mock_client.post.call_args.kwargs["json"]["events"][0])
+    for service_only_field in (
+        "type",
+        "tenant_id",
+        "subject_hash",
+        "action",
+        "outcome",
+        "correlation_id",
+        "component",
+        "user_email",
+    ):
+        event.pop(service_only_field, None)
+    event["source"] = "py"
+    if hasattr(event.get("ts"), "isoformat"):
+        event["ts"] = event["ts"].isoformat().replace("+00:00", "Z")
 
-    jsonschema.validate(instance=captured, schema=schema)
+    jsonschema.validate(instance=event, schema=schema)

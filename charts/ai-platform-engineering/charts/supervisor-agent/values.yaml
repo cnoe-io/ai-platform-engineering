@@ -231,12 +231,20 @@ env:
   MODEL_CALL_LIMIT_EXIT_BEHAVIOR: "end"
 
 multiAgentConfig:
-  # -- Agent-to-agent protocol
+  # -- Agent-to-agent protocol (`a2a` or `slim`)
   protocol: "a2a"
   # -- Port advertised to peer agents
   port: "8000"
   # -- Explicit agent list. Auto-discovered when empty
   agents: []
+
+slim:
+  # -- Enable SLIM transport (standalone fallback; in production provided by global.slim)
+  enabled: false
+  # -- SLIM endpoint URL
+  endpoint: ""
+  # -- Transport label passed to agents
+  transport: "slim"
 
 metrics:
   # -- Expose /metrics endpoint for Prometheus scraping

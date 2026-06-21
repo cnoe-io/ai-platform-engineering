@@ -3,27 +3,17 @@
 from __future__ import annotations
 
 import asyncio
-from abc import abstractmethod
 from datetime import datetime, timezone
 from typing import Any, Protocol
 
 
 class AuditStore(Protocol):
     @property
-    @abstractmethod
-    def backend_name(self) -> str:
-        """Storage backend identifier."""
-        raise NotImplementedError
+    def backend_name(self) -> str: ...
 
-    @abstractmethod
-    def readiness_check(self) -> None:
-        """Raise if the backing storage cannot accept audit records."""
-        raise NotImplementedError
+    def readiness_check(self) -> None: ...
 
-    @abstractmethod
-    def write_batch(self, records: list[dict[str, Any]]) -> str | None:
-        """Persist one batch and return a storage reference when available."""
-        raise NotImplementedError
+    def write_batch(self, records: list[dict[str, Any]]) -> str | None: ...
 
 
 def _utc_now_iso() -> str:
@@ -122,8 +112,9 @@ class AuditQueueService:
                     batch.append(self.queue.get_nowait())
                     continue
                 except asyncio.QueueEmpty:
-                    # Empty queue is expected; wait until the batch deadline for another event.
-                    timeout = deadline - asyncio.get_running_loop().time()
+                    pass
+
+                timeout = deadline - asyncio.get_running_loop().time()
                 if timeout <= 0:
                     break
                 try:

@@ -544,7 +544,7 @@ class AIPlatformEngineerA2ABinding:
       # model + tools cycles). Match the multi-node agent's limit of 100.
       config['recursion_limit'] = int(os.getenv("LANGGRAPH_RECURSION_LIMIT", "500"))
 
-      # Attach audit callback so tool invocations are logged to audit_events
+      # Attach audit callback so tool invocations are submitted to audit-service.
       try:
           from ai_platform_engineering.utils.audit_callback import AuditCallbackHandler
           _audit_cb = AuditCallbackHandler(
