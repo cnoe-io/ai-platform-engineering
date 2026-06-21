@@ -87,13 +87,24 @@ docker compose --profile k8s up --build k8s_ingestor
 
 ### Running with EKS clusters (requires AWS authentication)
 
-EKS clusters use AWS IAM for authentication, which requires the AWS CLI to be available in the container. To run the K8s ingestor with EKS:
+EKS clusters use AWS IAM for authentication, which requires the AWS CLI to be available in the container. The default published ingestors image does not include AWS CLI because the upstream installer ships a bundled Python runtime with separate security findings. Build an EKS-specific image when your kubeconfig uses `aws eks get-token`:
+
+```bash
+docker build \
+  -f build/Dockerfile.ingestors \
+  --build-arg INSTALL_AWS_CLI=true \
+  -t caipe-rag-ingestors:eks \
+  .
+```
+
+To run the K8s ingestor with EKS:
 
 1. Create a `docker-compose.override.yaml` file:
 
 ```yaml
 services:
   k8s_ingestor:
+    image: caipe-rag-ingestors:eks
     volumes:
       # Mount AWS credentials for EKS authentication
       - ~/.aws:/home/app/.aws:ro
@@ -129,4 +140,3 @@ The K8s ingestor requires:
 - Entity types are created in Pascal case format (e.g., `K8sDeployment`, `K8sService`, `K8sCustomResource`)
 - When running in-cluster, ensure the ServiceAccount has proper RBAC permissions
 - **For EKS clusters:** AWS credentials must be available in the container (see EKS-specific instructions above)
-

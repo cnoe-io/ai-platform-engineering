@@ -1,5 +1,6 @@
 # Copyright 2025 CNOE
 # SPDX-License-Identifier: Apache-2.0
+# assisted-by Codex Codex-sonnet-4-6
 
 """LangGraph-based AWS Agent with AWS CLI tool support."""
 
@@ -111,7 +112,9 @@ Use `aws ce` commands for cost analysis:
 
 Example - Get last month's costs by service:
 ```
-ce get-cost-and-usage --time-period Start=2024-11-01,End=2024-12-01 --granularity MONTHLY --metrics BlendedCost --group-by Type=DIMENSION,Key=SERVICE
+ce get-cost-and-usage --time-period Start=2024-11-01,End=2024-12-01 \
+  --granularity MONTHLY --metrics BlendedCost \
+  --group-by Type=DIMENSION,Key=SERVICE
 ```
 
 **⏰ WHEN TO USE CURRENT DATE:**
@@ -869,7 +872,8 @@ When listing ANY AWS resources, ALWAYS include these columns:
 
 **HOW TO GET INSTANCE NAME:**
 - Name is stored in Tags: `.Tags[] | select(.Key=="Name") | .Value`
-- Use jq_filter to extract: `jq_filter: ".Reservations[].Instances[] | {{Name: (.Tags[]? | select(.Key==\"Name\") | .Value), ID: .InstanceId}}"`
+- Use jq_filter to extract names and IDs:
+  `jq_filter: ".Reservations[].Instances[] | {{Name: (.Tags[]? | select(.Key==\"Name\") | .Value), ID: .InstanceId}}"`
 - If no Name tag exists, show "unnamed" or the Instance ID
 
 **HOW TO GET ACCOUNT INFO:**
@@ -891,7 +895,7 @@ When listing ANY AWS resources, ALWAYS include these columns:
 Large outputs cause context overflow! ALWAYS use --query to get only needed fields:
 
 **GOOD (filtered - small output):**
-`ec2 describe-instances --query 'Reservations[].Instances[].{{Name:Tags[?Key==Name].Value|[0],ID:InstanceId,State:State.Name,Type:InstanceType}}'`
+`ec2 describe-instances --query 'Reservations[].Instances[].{{Name:Tags[?Key==Name].Value|[0],ID:InstanceId,State:State.Name}}'`
 `eks list-clusters --query 'clusters'`
 `eks describe-cluster --name CLUSTER --query 'cluster.{{Name:name,Status:status,Version:version,Endpoint:endpoint}}'`
 `ecr describe-repositories --query 'repositories[].repositoryName'`
@@ -1061,7 +1065,8 @@ Other repositories containing 'myapp': services/myapp-api, tools/myapp-helper"
    `ecr describe-images --profile <account-name> --region <region> --repository-name REPO_NAME`
 
 4. **Find latest images (sorted by push date):**
-   `ecr describe-images --profile <account-name> --region <region> --repository-name REPO_NAME --query 'sort_by(imageDetails, &imagePushedAt)[-5:]'`
+   `ecr describe-images --profile <account-name> --region <region> --repository-name REPO_NAME \
+     --query 'sort_by(imageDetails, &imagePushedAt)[-5:]'`
 
 5. **Get specific image by tag:**
    `ecr describe-images --profile <account-name> --region <region> --repository-name REPO_NAME --image-ids imageTag=latest`
@@ -1322,7 +1327,10 @@ Always structure your final answer with:
             tools.append(aws_cli_tool)
             logger.info(f"✅ {agent_name}: Added AWS CLI tool (aws_cli_execute)")
         else:
-            logger.warning(f"⚠️  {agent_name}: AWS CLI tool not enabled. Set USE_AWS_CLI_AS_TOOL=true to enable.")
+            logger.warning(
+                f"⚠️  {agent_name}: AWS CLI tool unavailable. "
+                "Set USE_AWS_CLI_AS_TOOL=true and ensure aws is installed on PATH to enable it."
+            )
 
         # Add EKS kubectl tool for Kubernetes resource inspection
         eks_kubectl_tool = get_eks_kubectl_tool()
@@ -1333,7 +1341,7 @@ Always structure your final answer with:
         if not tools:
             raise RuntimeError(
                 f"{agent_name}: No tools available. "
-                "Please set USE_AWS_CLI_AS_TOOL=true to enable the AWS CLI tool."
+                "Please set USE_AWS_CLI_AS_TOOL=true and ensure aws is installed on PATH."
             )
 
         logger.info(f"✅ {agent_name}: Total tools available: {len(tools)}")

@@ -41,6 +41,7 @@ RUN BEDROCK_PY=".venv/lib/python3.13/site-packages/langchain_aws/chat_models/bed
 FROM cgr.dev/chainguard/wolfi-base
 
 ARG TERRAFORM_VERSION=1.15.4
+ARG INSTALL_AWS_CLI=false
 
 # Override APK repo to public Wolfi OS packages (no auth required).
 RUN echo "https://packages.wolfi.dev/os" > /etc/apk/repositories
@@ -65,16 +66,20 @@ RUN mkdir -p /usr/local/bin \
     && ln -sf /usr/bin/python3.13 /usr/local/bin/python3 \
     && ln -sf /usr/bin/python3.13 /usr/local/bin/python
 
-# AWS CLI v2 — used by aws_cli_execute tool in single-node AWS subagent
+# AWS CLI v2 is opt-in because the upstream installer bundles its own Python
+# runtime, which shows up as separate binary CVEs in the default image.
 RUN ARCH=$(uname -m) && \
-    if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then \
-        curl -sfL --retry 5 --retry-delay 3 "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o "awscliv2.zip"; \
-    else \
-        curl -sfL --retry 5 --retry-delay 3 "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"; \
+    if [ "$INSTALL_AWS_CLI" = "true" ]; then \
+        if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then \
+            curl -sfL --retry 5 --retry-delay 3 "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o "awscliv2.zip"; \
+        else \
+            curl -sfL --retry 5 --retry-delay 3 "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"; \
+        fi && \
+        unzip -q awscliv2.zip && \
+        ./aws/install && \
+        rm -rf awscliv2.zip aws; \
     fi && \
-    unzip -q awscliv2.zip && \
-    ./aws/install && \
-    rm -rf awscliv2.zip aws
+    true
 
 # Terraform CLI — used by terraform_fmt tool for HCL formatting in self-service tasks
 RUN ARCH=$(uname -m) && \
@@ -94,6 +99,7 @@ WORKDIR /app
 # imports like 'from agent_github.tools import ...' work in single-node mode.
 # Only include dirs with agent_* packages; pure MCP-server dirs (e.g. agents/litellm/)
 # must be omitted to avoid shadowing PyPI packages with same-named subdirectories.
+ENV PYTHONPATH=""
 ENV UV_PROJECT_ENVIRONMENT=/app/.venv \
     GOPATH="/home/appuser/go" \
     PATH="/app/.venv/bin:/home/appuser/go/bin:${PATH}" \

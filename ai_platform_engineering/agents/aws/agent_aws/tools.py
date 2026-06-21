@@ -1,5 +1,6 @@
 # Copyright 2025 CNOE
 # SPDX-License-Identifier: Apache-2.0
+# assisted-by Codex Codex-sonnet-4-6
 
 """Custom tools for AWS Agent including AWS CLI execution."""
 
@@ -8,6 +9,7 @@ import logging
 import os
 import re
 import shlex
+import shutil
 from typing import Any, Optional
 
 from langchain_core.tools import BaseTool
@@ -115,6 +117,15 @@ _kubectl_semaphore = asyncio.Semaphore(MAX_CONCURRENT_KUBECTL_CALLS)
 
 # AWS profiles configuration
 _aws_profiles_configured = False
+
+
+def _has_executable(name: str) -> bool:
+    """Return whether a required local CLI is available on PATH."""
+    if shutil.which(name):
+        return True
+
+    logger.warning("%s executable is not installed or not on PATH", name)
+    return False
 
 
 def setup_aws_profiles() -> list[dict]:
@@ -256,7 +267,8 @@ class AWSCLIToolInput(BaseModel):
         default=None,
         description=(
             "Optional jq filter to process JSON output. Use this to extract specific fields. "
-            "Examples: '.Reservations[].Instances[] | {Name: .Tags[]? | select(.Key==\"Name\") | .Value, ID: .InstanceId, State: .State.Name}', "
+            "Examples: '.Reservations[].Instances[] | {Name: .Tags[]? | "
+            "select(.Key==\"Name\") | .Value, ID: .InstanceId, State: .State.Name}', "
             "'.clusters[]', '.DBInstances[] | {Name: .DBInstanceIdentifier, Status: .DBInstanceStatus}'. "
             "The filter is applied to the raw JSON output from AWS CLI."
         )
@@ -551,6 +563,10 @@ def get_aws_cli_tool() -> Optional[AWSCLITool]:
 
     if not use_aws_cli:
         logger.info("AWS CLI tool is disabled (USE_AWS_CLI_AS_TOOL=false)")
+        return None
+
+    if not _has_executable("aws"):
+        logger.info("AWS CLI tool is disabled because the aws executable is unavailable")
         return None
 
     # Setup AWS profiles for cross-account access
@@ -975,12 +991,18 @@ class EKSKubectlTool(BaseTool):
             )
 
 
-def get_eks_kubectl_tool() -> EKSKubectlTool:
+def get_eks_kubectl_tool() -> Optional[EKSKubectlTool]:
     """Get the EKS kubectl tool instance."""
+    if not _has_executable("aws"):
+        logger.info("EKS kubectl tool is disabled because the aws executable is unavailable")
+        return None
+    if not _has_executable("kubectl"):
+        logger.info("EKS kubectl tool is disabled because the kubectl executable is unavailable")
+        return None
+
     return EKSKubectlTool()
 
 
 def get_reflection_tool() -> ReflectionTool:
     """Get the reflection tool instance."""
     return ReflectionTool()
-
