@@ -358,7 +358,7 @@ The RBAC Audit tab records OpenFGA results as `OpenFGA ReBAC`. Filter by type
 `OpenFGA ReBAC` to see `webui_backend` `dynamic_agent#use` checks, Dynamic Agents
 runtime `dynamic_agent#use` checks, AgentGateway bridge `mcp#can_call` checks, and
 admin graph/check/relationship activity from the OpenFGA ReBAC panel. The Admin UI
-reads MongoDB `audit_events`, so this view works without Jaeger. To keep the
+reads audit-service, so this view works without Jaeger. To keep the
 default feed useful, routine `admin_ui#view` checks are hidden unless the user
 explicitly selects the `Authorization` type filter. The same default filter
 applies to `admin_ui#audit.view` checks generated while viewing the audit page.

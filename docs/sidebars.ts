@@ -364,6 +364,7 @@ const sidebars: SidebarsConfig = {
                 { type: 'doc', id: 'security/rbac/roles-scopes-comparison', label: 'Roles vs Scopes' },
                 { type: 'doc', id: 'security/rbac/helm-install-upgrade', label: 'Helm Install and Upgrade' },
                 { type: 'doc', id: 'security/rbac/caipe-rbac-migration', label: 'CAIPE RBAC Migration' },
+                { type: 'doc', id: 'security/rbac/audit-log-performance', label: 'Audit Log Performance' },
                 { type: 'doc', id: 'security/rbac/secrets-bootstrap', label: 'Secrets Bootstrap' },
                 { type: 'doc', id: 'security/rbac/file-map', label: 'File Map' },
               ],
@@ -380,6 +381,9 @@ const sidebars: SidebarsConfig = {
             { type: 'doc', id: 'evaluations/distributed-tracing-info', label: 'Distributed Tracing' },
             { type: 'doc', id: 'evaluations/tracing-implementation-guide', label: 'Tracing Implementation Guide' },
             { type: 'doc', id: 'evaluations/slack-streaming-conformance', label: 'Slack Streaming Conformance' },
+            // assisted-by Codex Codex-sonnet-4-6
+            { type: 'doc', id: 'evaluations/ui-performance-benchmark-results', label: 'UI Performance Benchmarks' },
+            { type: 'doc', id: 'evaluations/persistence-backend-benchmark', label: 'Persistence Backend Benchmark' },
           ],
         },
         { type: 'doc', id: 'agent-ops/index', label: 'AgentOps' },
