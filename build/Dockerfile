@@ -41,7 +41,7 @@ RUN BEDROCK_PY=".venv/lib/python3.13/site-packages/langchain_aws/chat_models/bed
 FROM cgr.dev/chainguard/wolfi-base
 
 ARG TERRAFORM_VERSION=1.15.4
-ARG INSTALL_AWS_CLI=false
+ARG INSTALL_AWS_CLI=true
 
 # Override APK repo to public Wolfi OS packages (no auth required).
 RUN echo "https://packages.wolfi.dev/os" > /etc/apk/repositories
@@ -66,8 +66,9 @@ RUN mkdir -p /usr/local/bin \
     && ln -sf /usr/bin/python3.13 /usr/local/bin/python3 \
     && ln -sf /usr/bin/python3.13 /usr/local/bin/python
 
-# AWS CLI v2 is opt-in because the upstream installer bundles its own Python
-# runtime, which shows up as separate binary CVEs in the default image.
+# AWS CLI v2 is installed by default because the all-in-one image currently
+# exposes AWS agent tools that depend on it. Custom hardened builds can opt out
+# because the upstream installer bundles its own Python runtime with binary CVEs.
 RUN ARCH=$(uname -m) && \
     if [ "$INSTALL_AWS_CLI" = "true" ]; then \
         if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then \
