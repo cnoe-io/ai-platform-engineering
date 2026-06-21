@@ -411,7 +411,7 @@ services:
   #   - Configure via MONGODB_* environment variables
   #   - See mongodb service configuration above
   caipe-ui:
-    image: ghcr.io/cnoe-io/caipe-ui:${IMAGE_TAG:-0.5.16}-prod
+    image: ghcr.io/cnoe-io/caipe-ui:${IMAGE_TAG:-0.5.16}
     container_name: caipe-ui
     ports: ["3000:3000"]
     env_file:
@@ -486,7 +486,7 @@ services:
         condition: service_healthy
         required: false
     profiles:
-      - caipe-ui-prod
+      - caipe-ui
 
   ####################################################################################################
   #                                      Audit Service                                               #
@@ -537,7 +537,7 @@ services:
     profiles:
       - audit-service
       - caipe-supervisor
-      - caipe-ui-prod
+      - caipe-ui
       - dynamic-agents
       - slack-bot
       - webex-bot
