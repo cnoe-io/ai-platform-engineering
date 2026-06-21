@@ -11,7 +11,8 @@ jest.mock("../resource-authz", () => ({
   requireResourcePermission: jest.fn(async () => undefined),
 }));
 
-const { requireResourcePermission } = jest.requireMock("../resource-authz") as {
+const { filterResourcesByPermission, requireResourcePermission } = jest.requireMock("../resource-authz") as {
+  filterResourcesByPermission: jest.Mock;
   requireResourcePermission: jest.Mock;
 };
 
@@ -50,6 +51,18 @@ describe("conversation implicit authorization", () => {
     );
 
     expect(visible.map((conversation) => conversation._id)).toEqual(["owned-sub", "owned-email", "shared"]);
+    expect(filterResourcesByPermission).toHaveBeenCalledWith(
+      { sub: "alice-sub" },
+      [
+        { _id: "shared", owner_id: "carol@example.com" },
+        { _id: "denied", owner_id: "dave@example.com" },
+      ],
+      expect.objectContaining({
+        type: "conversation",
+        action: "discover",
+      }),
+      { bypassForOrgAdmin: true },
+    );
   });
 
   it("requires OpenFGA only when caller is not the implicit owner", async () => {
@@ -70,6 +83,7 @@ describe("conversation implicit authorization", () => {
     expect(requireResourcePermission).toHaveBeenCalledWith(
       { sub: "bob-sub" },
       { type: "conversation", id: "shared", action: "write" },
+      { bypassForOrgAdmin: true },
     );
   });
 });

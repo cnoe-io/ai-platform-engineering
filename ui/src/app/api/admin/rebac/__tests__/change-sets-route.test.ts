@@ -103,7 +103,6 @@ beforeEach(() => {
   mockCollections.policy_change_sets = createMockCollection([]);
   mockCollections.rebac_relationships = createMockCollection([]);
   mockCollections.policy_rules = createMockCollection([]);
-  mockCollections.audit_events = createMockCollection([]);
 });
 
 describe("ReBAC change-set routes", () => {

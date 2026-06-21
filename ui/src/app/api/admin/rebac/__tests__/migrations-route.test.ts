@@ -262,6 +262,53 @@ describe("admin ReBAC migrations API", () => {
     );
   });
 
+  it("keeps a completed run actionable when the schema version is still behind", async () => {
+    collections.schema_migrations = createCollection([
+      {
+        _id: "rbac_indexes_v1",
+        release: "0.5.1",
+        schema_area: "rbac_indexes",
+        status: "completed",
+        completed_at: "2026-06-19T12:00:00.000Z",
+      },
+    ]);
+    collections.data_schema_versions = createCollection([
+      { _id: "rbac_indexes", version: 1, last_migration_id: "schema_version_bootstrap_v1" },
+    ]);
+    const { GET } = await import("../migrations/route");
+
+    const response = await GET(request("/api/admin/rebac/migrations"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.migrations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "rbac_indexes_v1",
+          schema_area: "rbac_indexes",
+          current_version: 1,
+          target_version: 2,
+          status: "not_started",
+        }),
+      ]),
+    );
+    expect(body.data.completed_migrations).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "rbac_indexes_v1" }),
+      ]),
+    );
+    expect(body.data.schema_versions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          schema_area: "rbac_indexes",
+          current_version: 1,
+          target_version: 2,
+          status: "behind",
+        }),
+      ]),
+    );
+  });
+
   it("returns blocking migration status and records super-admin overrides", async () => {
     collections.data_schema_versions = createCollection([{ _id: "conversations", version: 1 }]);
     const statusRoute = await import("../migrations/status/route");
@@ -694,7 +741,7 @@ describe("admin ReBAC migrations API", () => {
     const response = await POST(
       request("/api/admin/rebac/migrations/rbac_indexes_v1/apply", {
         method: "POST",
-        body: JSON.stringify({ confirmation: "MIGRATE audit_events TO v2" }),
+        body: JSON.stringify({ confirmation: "MIGRATE rbac_indexes TO v2" }),
       }),
       { params: Promise.resolve({ migrationId: "rbac_indexes_v1" }) },
     );
