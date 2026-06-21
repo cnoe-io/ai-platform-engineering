@@ -3,17 +3,17 @@
 // GET /api/admin/authz/stats — CAS health + decision statistics.
 //
 //   engine    — live, per-replica adapter snapshot (circuit state, cache).
-//   decisions — durable aggregation over `audit_events` (cas_decision) in a
-//               time window: totals, deny rate, by-reason, top-denied.
+//   decisions — durable aggregation over audit-service cas_decision events in
+//               a time window: totals, deny rate, by-reason, top-denied.
 //
 // Gated by the same baseline "metrics" admin surface as /api/admin/metrics.
 
 import { NextRequest, NextResponse } from "next/server";
 
-import { getAuthFromBearerOrSession, withErrorHandler, ApiError } from "@/lib/api-middleware";
-import { requireBaselineAdminSurfaceRead } from "@/lib/rbac/require-openfga";
-import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
+import { ApiError, getAuthFromBearerOrSession, withErrorHandler } from "@/lib/api-middleware";
+import { getAuditReader } from "@/lib/audit/reader";
 import { getEngineStats } from "@/lib/authz";
+import { requireBaselineAdminSurfaceRead } from "@/lib/rbac/require-openfga";
 
 const WINDOWS: Record<string, number> = {
   "1h": 60 * 60 * 1000,
@@ -21,9 +21,15 @@ const WINDOWS: Record<string, number> = {
   "7d": 7 * 24 * 60 * 60 * 1000,
 };
 
-interface CountRow {
-  _id: string;
-  count: number;
+function increment(map: Map<string, number>, key: string | undefined): void {
+  map.set(key ?? "UNKNOWN", (map.get(key ?? "UNKNOWN") ?? 0) + 1);
+}
+
+function topCounts(map: Map<string, number>, label: "reason" | "resource"): Record<string, string | number>[] {
+  return Array.from(map.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, label === "resource" ? 10 : undefined)
+    .map(([key, count]) => ({ [label]: key || "unknown", count }));
 }
 
 export const GET = withErrorHandler(async (request: NextRequest): Promise<NextResponse> => {
@@ -38,42 +44,33 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
   }
 
   const engine = getEngineStats();
+  const until = new Date();
+  const since = new Date(until.getTime() - windowMs);
+  const org = (session as { org?: string } | null)?.org;
+  const rows = await getAuditReader().query({
+    since,
+    until,
+    type: "cas_decision",
+    tenantId: org,
+    limit: 10_000,
+  });
 
-  if (!isMongoDBConfigured) {
-    // Live engine stats still work without Mongo; decision history does not.
-    return NextResponse.json(
-      { engine, decisions: null, window: windowKey, persistence: false },
-      { headers: { "Cache-Control": "no-store" } },
-    );
+  let allow = 0;
+  let deny = 0;
+  const byReason = new Map<string, number>();
+  const topDenied = new Map<string, number>();
+
+  for (const row of rows) {
+    const outcome = row.outcome;
+    if (outcome === "allow") allow += 1;
+    if (outcome === "deny") {
+      deny += 1;
+      increment(topDenied, typeof row.resource_ref === "string" ? row.resource_ref : undefined);
+    }
+    increment(byReason, typeof row.reason_code === "string" ? row.reason_code : undefined);
   }
 
-  const from = new Date(Date.now() - windowMs);
-  const baseFilter: Record<string, unknown> = { type: "cas_decision", ts: { $gte: from } };
-  const org = (session as { org?: string } | null)?.org;
-  if (org) baseFilter.tenant_id = org;
-
-  const coll = await getCollection<Record<string, unknown>>("audit_events");
-
-  const [total, allow, deny, byReasonRaw, topDeniedRaw] = await Promise.all([
-    coll.countDocuments(baseFilter),
-    coll.countDocuments({ ...baseFilter, outcome: "allow" }),
-    coll.countDocuments({ ...baseFilter, outcome: "deny" }),
-    coll
-      .aggregate<CountRow>([
-        { $match: baseFilter },
-        { $group: { _id: "$reason_code", count: { $sum: 1 } } },
-        { $sort: { count: -1 } },
-      ])
-      .toArray(),
-    coll
-      .aggregate<CountRow>([
-        { $match: { ...baseFilter, outcome: "deny" } },
-        { $group: { _id: "$resource_ref", count: { $sum: 1 } } },
-        { $sort: { count: -1 } },
-        { $limit: 10 },
-      ])
-      .toArray(),
-  ]);
+  const total = rows.length;
 
   return NextResponse.json(
     {
@@ -85,8 +82,8 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
         allow,
         deny,
         denyRate: total > 0 ? deny / total : 0,
-        byReason: byReasonRaw.map((r) => ({ reason: r._id ?? "UNKNOWN", count: r.count })),
-        topDenied: topDeniedRaw.map((r) => ({ resource: r._id ?? "unknown", count: r.count })),
+        byReason: topCounts(byReason, "reason"),
+        topDenied: topCounts(topDenied, "resource"),
       },
     },
     { headers: { "Cache-Control": "no-store" } },

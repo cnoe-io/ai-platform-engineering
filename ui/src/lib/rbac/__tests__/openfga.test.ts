@@ -29,6 +29,7 @@ import {
   checkUniversalRebacRelationship,
   isOpenFgaReconciliationEnabled,
   readOpenFgaTuples,
+  resetOpenFgaStoreIdCacheForTests,
   writeOpenFgaTupleDiff,
   writeUniversalRebacTupleDiff,
 } from "../openfga";
@@ -95,6 +96,7 @@ describe("OpenFGA team resource tuple reconciliation", () => {
 
   afterEach(() => {
     global.fetch = originalFetch;
+    resetOpenFgaStoreIdCacheForTests();
     mockGetCollection.mockClear();
     mockTeamsCollection.find.mockClear();
     delete process.env.OPENFGA_RECONCILE_ENABLED;

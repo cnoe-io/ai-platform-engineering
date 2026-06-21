@@ -363,25 +363,37 @@ export function buildUniversalRebacTupleDiff(
   return buildOpenFgaTupleDiff(input);
 }
 
+// Module-level singleton: one HTTP round-trip per process lifetime.
+// Reset to null on failure so the next call retries.
+let _storeIdPromise: Promise<string> | null = null;
+
+export function resetOpenFgaStoreIdCacheForTests(): void {
+  if (process.env.NODE_ENV === "test") {
+    _storeIdPromise = null;
+  }
+}
+
 export async function getOpenFgaStoreId(): Promise<string> {
   const explicitStoreId = process.env.OPENFGA_STORE_ID?.trim();
   if (explicitStoreId) return explicitStoreId;
 
-  const baseUrl = openFgaHttpUrl();
-  if (!baseUrl) {
-    throw new Error("OPENFGA_HTTP is not set");
+  if (!_storeIdPromise) {
+    const baseUrl = openFgaHttpUrl();
+    if (!baseUrl) throw new Error("OPENFGA_HTTP is not set");
+    _storeIdPromise = fetch(`${baseUrl}/stores`, { method: "GET", headers: openFgaHeaders() })
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`OpenFGA store discovery failed: ${res.status}`);
+        const body = (await res.json()) as { stores?: Array<{ id?: string; name?: string }> };
+        const store = body.stores?.find((c) => c.name === openFgaStoreName());
+        if (!store?.id) throw new Error(`OpenFGA store ${openFgaStoreName()} was not found`);
+        return store.id;
+      })
+      .catch((err: unknown) => {
+        _storeIdPromise = null;
+        throw err;
+      });
   }
-
-  const response = await fetch(`${baseUrl}/stores`, { method: "GET", headers: openFgaHeaders() });
-  if (!response.ok) {
-    throw new Error(`OpenFGA store discovery failed: ${response.status}`);
-  }
-  const body = (await response.json()) as { stores?: Array<{ id?: string; name?: string }> };
-  const store = body.stores?.find((candidate) => candidate.name === openFgaStoreName());
-  if (!store?.id) {
-    throw new Error(`OpenFGA store ${openFgaStoreName()} was not found`);
-  }
-  return store.id;
+  return _storeIdPromise;
 }
 
 function tupleKeysEqual(a: OpenFgaTupleKey, b: OpenFgaTupleKey): boolean {
@@ -439,6 +451,40 @@ function tupleKeyFilter(tuple?: Partial<OpenFgaTupleKey>): Partial<OpenFgaTupleK
   if (tuple.relation?.trim()) out.relation = tuple.relation.trim();
   if (tuple.object?.trim()) out.object = tuple.object.trim();
   return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/**
+ * Send multiple Check requests in a single HTTP call via the OpenFGA
+ * /batch-check endpoint (available since OpenFGA v1.8). Returns a boolean
+ * array in the same order as the input tuples. Falls back gracefully: if
+ * OPENFGA_HTTP is unset or batch-check is unavailable, callers should use
+ * checkOpenFgaTuple() instead.
+ */
+export async function batchCheckOpenFgaTuples(tuples: OpenFgaTupleKey[]): Promise<boolean[]> {
+  if (tuples.length === 0) return [];
+  if (isUnsafeRbacBypassEnabled()) {
+    warnUnsafeRbacBypassEnabled("openfga.batch-check");
+    return tuples.map(() => true);
+  }
+  const baseUrl = openFgaHttpUrl();
+  if (!baseUrl) throw new Error("OPENFGA_HTTP is not set");
+  const storeId = await getOpenFgaStoreId();
+
+  const checks = tuples.map((tuple, i) => ({
+    tuple_key: tuple,
+    correlation_id: String(i),
+  }));
+
+  const response = await fetch(`${baseUrl}/stores/${storeId}/batch-check`, {
+    method: "POST",
+    headers: openFgaHeaders(),
+    body: JSON.stringify({ checks }),
+  });
+  if (!response.ok) {
+    throw new Error(`OpenFGA batch-check failed: ${response.status}`);
+  }
+  const body = (await response.json()) as { result: Record<string, { allowed?: boolean }> };
+  return tuples.map((_, i) => Boolean(body.result[String(i)]?.allowed));
 }
 
 export async function checkOpenFgaTuple(tuple: OpenFgaTupleKey): Promise<OpenFgaCheckResult> {
