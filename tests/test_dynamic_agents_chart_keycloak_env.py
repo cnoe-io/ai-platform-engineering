@@ -239,17 +239,14 @@ def test_notes_warns_when_agent_gateway_enabled_without_hmac_secret() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_umbrella_chart_sets_keycloak_url_by_default() -> None:
-    """The parent chart MUST pre-populate ``dynamic-agents.config.KEYCLOAK_URL``
-    so a vanilla ``helm install ai-platform-engineering`` works without the
-    operator having to know about the env-var contract. ``OIDC_ISSUER`` is
-    intentionally left empty in the parent chart (it depends on the
-    deployment's public hostname), but KEYCLOAK_URL points at the bundled
-    Keycloak service.
+def test_umbrella_chart_documents_keycloak_env_contract() -> None:
+    """The parent chart values file documents KEYCLOAK_URL / OIDC_ISSUER under
+    dynamic-agents.config so operators know where to override them.
 
-    We assert the umbrella chart values file contains the wiring rather
-    than re-rendering the full umbrella chart (which pulls in dozens of
-    subcharts and would slow these tests by an order of magnitude).
+    The in-cluster default is applied in the subchart deployment template
+    (``http://<release>-keycloak:8080``) when config.KEYCLOAK_URL is empty —
+    we assert that wiring via ``helm template`` rather than a literal in the
+    umbrella values file (which intentionally leaves KEYCLOAK_URL blank).
     """
     umbrella_values = (
         REPO_ROOT
@@ -258,13 +255,10 @@ def test_umbrella_chart_sets_keycloak_url_by_default() -> None:
         / "values.yaml"
     ).read_text()
 
-    # Crude but sufficient: the dynamic-agents block must mention both
-    # KEYCLOAK_URL and OIDC_ISSUER under its config: section. We look
-    # for the literal strings to avoid pulling in the full YAML parser
-    # (the umbrella values.yaml has Helm template substitutions that
-    # PyYAML would choke on).
     assert "KEYCLOAK_URL:" in umbrella_values
     assert "OIDC_ISSUER:" in umbrella_values
-    assert "ai-platform-engineering-keycloak:8080" in umbrella_values, (
-        "Umbrella chart must default KEYCLOAK_URL to the bundled Keycloak service"
-    )
+
+    docs = _helm_template()
+    deployment = _find_deployment(docs)
+    kc_env = next(e for e in _container_env(deployment) if e.get("name") == "KEYCLOAK_URL")
+    assert kc_env["value"] == "http://test-keycloak:8080"
