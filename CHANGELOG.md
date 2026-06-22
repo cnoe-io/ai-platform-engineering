@@ -1,7 +1,16 @@
+## 0.5.19 (2026-06-22)
+
+### Fix
+
+- **identity-sync**: remove proactive Okta credential health check on page load (#1975)
+
+## 0.5.18-dev.1 (2026-06-22)
+
 ## 0.5.18 (2026-06-22)
 
 ### Fix
 
+- **charts**: default AUDIT_SERVICE_URL to release-scoped audit-service
 - **workflows**: allow workflow CRUD with view permission at BFF gate
 - **workflows**: let non-admins save workflows without global agent grants
 
