@@ -522,4 +522,65 @@ test.describe("RBAC e2e — MCP AgentGateway picker and test modal", () => {
       }
     });
   });
+
+  test.describe("Generic user team-shared secret resolution", () => {
+    test("resolves a team-shared PAT for get_me and surfaces secret_ref in the modal", async ({
+      page,
+    }) => {
+      const mocks = await installMcpBrowserMocks(page, {
+        isAdmin: false,
+        session: MCP_BROWSER_GENERIC_USER_SESSION,
+        servers: [DEFAULT_GITHUB_MCP_SERVER],
+        probeTools: GITHUB_MCP_GET_ME_TOOLS,
+        secrets: [
+          {
+            id: "secret-github-shared",
+            name: "Shared GitHub PAT",
+            type: "bearer_token",
+            maskedPreview: "ghp_...team",
+            sharedWithTeams: ["platform-team"],
+          },
+        ],
+        testToolResponder: (body) => ({
+          success: true,
+          application_success: true,
+          status: 200,
+          result: {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({ login: "generic-user", id: 12345 }),
+              },
+            ],
+          },
+          credential_resolution: [
+            {
+              name: "Authorization",
+              kind: "secret_ref",
+              origin: "secret_ref",
+            },
+          ],
+        }),
+      });
+
+      await gotoMcpServersTab(page);
+      await openMcpTestModal(page, "GitHub MCP");
+      await waitForMcpTestToolsLoaded(page);
+
+      await page.locator("#mcp-test-tool").selectOption("get_me");
+      await page.getByRole("button", { name: "Run tool" }).click();
+
+      await expect.poll(() => mocks.testToolRequests.length).toBe(1);
+      expect(mocks.testToolRequests[0]).toMatchObject({
+        serverId: "mcp-github",
+        toolName: "get_me",
+        params: {},
+      });
+
+      await expect(page.getByText("Tool call succeeded")).toBeVisible();
+      await expect(page.getByText("Credential resolution")).toBeVisible();
+      await expect(page.getByText(/Authorization: secret_ref/i)).toBeVisible();
+      await expect(page.getByText(/generic-user/i)).toBeVisible();
+    });
+  });
 });

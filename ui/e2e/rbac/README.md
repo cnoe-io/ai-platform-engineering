@@ -22,6 +22,12 @@ CAIPE + Keycloak stack:
 | `audit-service-writers.spec.ts` | Mocked browser regression for audit-service-backed audit reads, filtering, downloads, and outage recovery. |
 | `audit-log.spec.ts` | Mocked browser regression for the audit-service reader UI: storage status, time windows, custom ranges, ZIP export, and outage badges. |
 | `mcp-openfga-tuples.spec.ts` | Mocked browser regression for team MCP resource saves and MCP server list visibility. |
+| `mcp-credential-editor.spec.ts` | Mocked regression for MCP credential editor: clear bindings, reload persistence, team-shared secret picker, read-only gating. |
+| `mcp-test-modal-and-agentgateway.spec.ts` | Mocked regression for AgentGateway target picker, MCP test modal, schema-driven tools, and team-shared `secret_ref` resolution for generic users. |
+| `chat-navigation-regression.spec.ts` | Mocked regression for chat tab navigation: resume last conversation, slow-list race, localStorage pointer, single create when empty. |
+| `chat-workflow-run-card.spec.ts` | Mocked regression for workflow run cards in chat showing step outputs when terminal. |
+| `workflow-run-detail.spec.ts` | Mocked regression for workflow run detail page: failed/completed status, step errors, and `step.response` in the timeline. |
+| `chat-auto-create.spec.ts` | Live-stack regression: `/chat` must not create duplicate conversations when one already exists (requires `RUN_RBAC_E2E=1`). |
 | `credentials-workspace-regression.spec.ts` | Mocked browser regression for admin credentials (protection details, usage, inline audit), personal secrets workspace (when SSR session available), and MCP credential binding. |
 | `credential-secrets-management.spec.ts` | Live-stack + mocked API hybrid for full credentials UX (requires `RUN_RBAC_E2E=1`). |
 | `identity-sync-regression.spec.ts` | Mocked browser regression for the Identity Sync admin tab and manual Okta sync trigger path. |
