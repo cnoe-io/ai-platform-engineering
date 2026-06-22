@@ -223,6 +223,14 @@ def test_merge_agentgateway_mcp_routes_adds_missing_route_without_mutating_basel
             bridge.McpGatewayTarget(
                 id="knowledge-base",
                 upstream_url="http://rag-server:9446/mcp",
+                credential_sources=(
+                    {
+                        "kind": "caller_token",
+                        "target": "header",
+                        "name": "X-CAIPE-Provider-Token",
+                        "fallback_client_credentials": True,
+                    },
+                ),
             )
         ],
     )
@@ -362,6 +370,11 @@ def test_merge_agentgateway_mcp_routes_drops_stale_backend_auth_for_transform_se
             )
         ],
     )
+    route = next(
+        route
+        for route in rendered["binds"][0]["listeners"][0]["routes"]
+        if route["matches"][0]["path"]["pathPrefix"] == "/mcp/github"
+    )
     target = route["backends"][0]["mcp"]["targets"][0]
     assert target["mcp"]["host"] == "http://github-mcp-server:8082/mcp"
     assert "policies" not in target
@@ -495,6 +508,54 @@ def test_merge_agentgateway_mcp_routes_uses_header_credential_sources() -> None:
     assert transform["x-api-key"] == 'default(request.headers["x-api-key"], "")'
     assert "secret_ref" not in str(route)
     assert "cred-custom-docs" not in str(route)
+
+
+def test_merge_agentgateway_mcp_routes_skips_credential_transforms_when_cleared() -> None:
+    baseline = _baseline_config()
+    builtins = {
+        "jira": {
+            "matches": [{"path": {"pathPrefix": "/mcp/jira"}}],
+            "policies": copy.deepcopy(bridge.DEFAULT_MCP_ROUTE_POLICY_OVERRIDES["jira"])
+            | copy.deepcopy(bridge.DEFAULT_MCP_ROUTE_POLICIES),
+            "backends": [{"mcp": {"targets": [{"name": "jira", "mcp": {"host": "http://mcp-jira:8000/mcp"}}]}}],
+        }
+    }
+
+    rendered = bridge.merge_agentgateway_mcp_routes(
+        baseline,
+        [bridge.McpGatewayTarget(id="jira", upstream_url="http://mcp-jira:8000/mcp")],
+        builtin_routes=builtins,
+    )
+
+    route = next(
+        route
+        for route in rendered["binds"][0]["listeners"][0]["routes"]
+        if route["matches"][0]["path"]["pathPrefix"] == "/mcp/jira"
+    )
+    assert "transformations" not in route["policies"]
+    assert "extAuthz" in route["policies"]
+
+
+def test_merge_agentgateway_mcp_routes_skips_dynamic_credential_transforms_when_cleared() -> None:
+    baseline = _baseline_config()
+
+    rendered = bridge.merge_agentgateway_mcp_routes(
+        baseline,
+        [
+            bridge.McpGatewayTarget(
+                id="custom-jira",
+                upstream_url="http://custom-jira:8000/mcp",
+            )
+        ],
+    )
+
+    route = next(
+        route
+        for route in rendered["binds"][0]["listeners"][0]["routes"]
+        if route["matches"][0]["path"]["pathPrefix"] == "/mcp/custom-jira"
+    )
+    assert "transformations" not in route.get("policies", {})
+    assert "extAuthz" in route["policies"]
 
 
 def test_merge_agentgateway_mcp_routes_uses_provider_token_source_for_authorization() -> None:
