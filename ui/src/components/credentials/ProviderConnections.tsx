@@ -4,6 +4,11 @@
 
 import React from "react";
 
+import {
+  describeProviderConnectionHealth,
+  formatRelativeRefreshLabel,
+} from "@/lib/credentials/provider-connection-display";
+
 interface ProviderConnection {
   id: string;
   connectorId?: string;
@@ -12,8 +17,14 @@ interface ProviderConnection {
   updatedAt?: string | Date;
   connectedAt?: string | Date;
   expiresAt?: string | Date;
+  profileSummary?: string;
   requestedScopes?: string[];
   grantedScopes?: string[];
+  owner?: {
+    email?: string;
+    name?: string;
+    displayName?: string;
+  };
 }
 
 interface OAuthConnector {
@@ -274,7 +285,12 @@ export function ProviderConnections() {
 
   const connectionForConnector = React.useMemo(() => {
     const byKey = new Map<string, ProviderConnection>();
-    for (const connection of connections) {
+    const sorted = [...connections].sort((left, right) => {
+      const leftTime = new Date(left.updatedAt ?? left.connectedAt ?? 0).getTime();
+      const rightTime = new Date(right.updatedAt ?? right.connectedAt ?? 0).getTime();
+      return rightTime - leftTime;
+    });
+    for (const connection of sorted) {
       if (connection.connectorId && !byKey.has(`id:${connection.connectorId}`)) {
         byKey.set(`id:${connection.connectorId}`, connection);
       }
@@ -332,7 +348,7 @@ export function ProviderConnections() {
               <tbody className="divide-y divide-border/70">
                 {connectionRows.map(({ connector, connection }) => {
                   const connected = Boolean(connection);
-                  const tokenHealth = describeTokenHealth(connection);
+                  const tokenHealth = describeProviderConnectionHealth(connection);
                   const profileCheck = connection ? profileChecks[connection.id] : undefined;
                   const autoRefreshState = connection ? autoRefreshStates[connection.id] : undefined;
                   const profileLabel = profileProviderLabel(connector.provider, connector.name);
@@ -375,7 +391,11 @@ export function ProviderConnections() {
                           </span>
                           <div className="min-w-0">
                             <p className="truncate font-semibold text-foreground">{connector.name}</p>
-                            <p className="truncate text-xs text-muted-foreground">{connector.provider}</p>
+                            <p className="truncate text-xs text-muted-foreground">
+                              {connection?.profileSummary?.trim() ||
+                                connection?.owner?.email?.trim() ||
+                                connector.provider}
+                            </p>
                           </div>
                         </div>
                       </td>
@@ -396,7 +416,8 @@ export function ProviderConnections() {
                           </p>
                           {connected && (
                             <p className="text-xs text-muted-foreground/80">
-                              {formatDateTime(connection?.updatedAt)}
+                              {formatRelativeRefreshLabel(connection?.updatedAt ?? connection?.connectedAt) ??
+                                formatDateTime(connection?.updatedAt)}
                             </p>
                           )}
                         </div>
@@ -553,7 +574,7 @@ export function ProviderConnections() {
                 const profileCheck = connection ? profileChecks[connection.id] : undefined;
                 const autoRefreshState = connection ? autoRefreshStates[connection.id] : undefined;
                 const profileLabel = profileProviderLabel(connector.provider, connector.name);
-                const tokenHealth = describeTokenHealth(connection);
+                const tokenHealth = describeProviderConnectionHealth(connection);
                 const isExpired = tokenHealth === "expired";
                 if (!profileCheck?.result && !profileCheck?.error && !autoRefreshState?.error && !isExpired) return null;
                 return (
@@ -792,17 +813,6 @@ function summarizeProfile(profile: Record<string, unknown> | undefined): string 
   const emails = profile.emails;
   if (Array.isArray(emails) && typeof emails[0] === "string") return emails[0];
   return "";
-}
-
-function describeTokenHealth(connection: ProviderConnection | null): string {
-  if (!connection) return "not linked";
-  if (connection.status !== "connected") return "relink required";
-  if (!connection.expiresAt) return "connected";
-  const expiresAt = new Date(connection.expiresAt).getTime();
-  if (Number.isNaN(expiresAt)) return "connected";
-  if (expiresAt <= Date.now()) return "expired";
-  if (expiresAt - Date.now() <= 15 * 60 * 1000) return "expiring soon";
-  return "healthy";
 }
 
 function needsAutoRefresh(connection: ProviderConnection): boolean {

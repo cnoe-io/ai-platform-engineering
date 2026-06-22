@@ -1,10 +1,10 @@
 import { NextRequest } from "next/server";
 
 import {
-ApiError,
-getAuthFromBearerOrSession,
-successResponse,
-withErrorHandler,
+  ApiError,
+  getAuthFromBearerOrSession,
+  successResponse,
+  withErrorHandler,
 } from "@/lib/api-middleware";
 import { getProviderConnectionService } from "@/lib/credentials/oauth-service-factory";
 import { getCredentialFeatureConfig } from "@/lib/feature-flags/credentials";
@@ -19,7 +19,7 @@ function assertFeatureEnabled(): void {
   }
 }
 
-export const POST = withErrorHandler(async (request: NextRequest, context: RouteContext) => {
+export const DELETE = withErrorHandler(async (request: NextRequest, context: RouteContext) => {
   assertFeatureEnabled();
   const { connection_id: connectionId } = await context.params;
   if (!connectionId?.trim()) {
@@ -33,19 +33,9 @@ export const POST = withErrorHandler(async (request: NextRequest, context: Route
   }
 
   const service = await getProviderConnectionService();
-  const connection = await service.getConnection(connectionId);
-  if (connection.owner.type !== "user" || connection.owner.id !== ownerId) {
-    throw new ApiError("Provider connection was not found", 404, "CREDENTIAL_NOT_FOUND");
-  }
-  if (connection.status !== "connected") {
-    throw new ApiError("Provider connection requires re-authentication", 401, "CREDENTIAL_REAUTH_REQUIRED");
-  }
-
-  const token = await service.refreshConnection(connection.id);
-  return successResponse({
-    id: connection.id,
-    provider: connection.provider,
-    ok: true,
-    expires_in: token.expiresIn,
+  const revoked = await service.revokeConnection({
+    connectionId,
+    owner: { type: "user", id: ownerId },
   });
+  return successResponse(revoked);
 });

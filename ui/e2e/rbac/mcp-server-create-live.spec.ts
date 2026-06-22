@@ -155,7 +155,6 @@ test.describe("RBAC live e2e — MCP server create visibility", () => {
 
       await page.getByRole("button", { name: /add server/i }).first().click();
       await dismissReleaseUpgradeDialog(page);
-      await expect(page.getByText(/add mcp server/i)).toBeVisible({ timeout: 15_000 });
 
       await fillNewMcpServerBasics(page, {
         displayName,

@@ -326,4 +326,52 @@ describe("POST /api/mcp-servers/test-tool", () => {
     const initializeHeaders = (global.fetch as jest.Mock).mock.calls[0][1].headers;
     expect(initializeHeaders["X-CAIPE-Provider-Token"]).toBe("atlassian-user-token");
   });
+
+  it("forwards only caller Authorization when credential_sources is empty", async () => {
+    mockGetCollection.mockResolvedValue({
+      findOne: jest.fn().mockResolvedValue({
+        _id: "jira",
+        name: "Jira",
+        transport: "http",
+        endpoint: "http://agentgateway:4000/mcp/jira",
+        source: "agentgateway",
+        enabled: true,
+        credential_sources: [],
+      }),
+    });
+
+    global.fetch = jest.fn().mockImplementation(
+      async () =>
+        new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: "tools-call-1",
+            result: { content: [{ type: "text", text: "account-123" }] },
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+              "mcp-session-id": "mcp-session-1",
+            },
+          },
+        ),
+    ) as unknown as typeof fetch;
+
+    const { POST } = await import("../route");
+
+    const response = await POST(
+      request({ serverId: "jira", toolName: "get_current_user_account_id", params: {} }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.credential_resolution).toEqual([]);
+    expect(mockRetrieve).not.toHaveBeenCalled();
+    expect(mockRefreshConnection).not.toHaveBeenCalled();
+
+    const initializeHeaders = (global.fetch as jest.Mock).mock.calls[0][1].headers;
+    expect(initializeHeaders.Authorization).toBe("Bearer user-keycloak-token");
+    expect(initializeHeaders["X-CAIPE-Provider-Token"]).toBeUndefined();
+  });
 });

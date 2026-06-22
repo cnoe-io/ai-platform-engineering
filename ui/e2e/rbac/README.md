@@ -23,6 +23,7 @@ CAIPE + Keycloak stack:
 | `audit-log.spec.ts` | Mocked browser regression for the audit-service reader UI: storage status, time windows, custom ranges, ZIP export, and outage badges. |
 | `mcp-openfga-tuples.spec.ts` | Mocked browser regression for team MCP resource saves and MCP server list visibility. |
 | `mcp-credential-editor.spec.ts` | Mocked regression for MCP credential editor: clear bindings, reload persistence, team-shared secret picker, read-only gating. |
+| `mcp-empty-credential-sources.spec.ts` | Mocked upstream-only credential regression (test modal without credential resolution) and live AgentGateway bridge contract for `credential_sources: []`. |
 | `mcp-test-modal-and-agentgateway.spec.ts` | Mocked regression for AgentGateway target picker, MCP test modal, schema-driven tools, and team-shared `secret_ref` resolution for generic users. |
 | `chat-navigation-regression.spec.ts` | Mocked regression for chat tab navigation: resume last conversation, slow-list race, localStorage pointer, single create when empty. |
 | `chat-workflow-run-card.spec.ts` | Mocked regression for workflow run cards in chat showing step outputs when terminal. |

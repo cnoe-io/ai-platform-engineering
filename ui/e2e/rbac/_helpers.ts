@@ -149,23 +149,43 @@ export async function installChatBootMocks(
 }
 
 export async function dismissReleaseUpgradeDialog(page: Page): Promise<void> {
-  const dialog = page.getByRole("dialog", { name: /what's new/i });
-  if (!(await dialog.isVisible({ timeout: 3_000 }).catch(() => false))) return;
+  const dialog = page.getByRole("dialog", { name: /what'?s new/i });
 
-  await page.keyboard.press("Escape").catch(() => undefined);
-  if (await dialog.isHidden({ timeout: 1_000 }).catch(() => false)) return;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    if (!(await dialog.isVisible({ timeout: 1_000 }).catch(() => false))) {
+      return;
+    }
 
-  const closeButton = dialog.getByRole("button", { name: /^close$/i });
-  if (await closeButton.isVisible().catch(() => false)) {
-    await closeButton.click({ force: true });
-    await expect(dialog).toBeHidden({ timeout: 5_000 });
-    return;
-  }
+    const skipButton = dialog.getByRole("button", { name: /skip until next login/i });
+    if (await skipButton.isVisible().catch(() => false)) {
+      await skipButton.click({ force: true });
+      if (await dialog.isHidden({ timeout: 3_000 }).catch(() => false)) {
+        return;
+      }
+    }
 
-  const skipButton = dialog.getByRole("button", { name: /skip until next login|do not show again/i });
-  if (await skipButton.isVisible().catch(() => false)) {
-    await skipButton.click({ force: true });
-    await expect(dialog).toBeHidden({ timeout: 5_000 });
+    const dismissButton = dialog.getByRole("button", { name: /do not show again/i });
+    if (await dismissButton.isVisible().catch(() => false)) {
+      await dismissButton.click({ force: true });
+      if (await dialog.isHidden({ timeout: 5_000 }).catch(() => false)) {
+        return;
+      }
+    }
+
+    const closeButton = dialog.getByRole("button", { name: /^close$/i });
+    if (await closeButton.isVisible().catch(() => false)) {
+      await closeButton.click({ force: true });
+      if (await dialog.isHidden({ timeout: 3_000 }).catch(() => false)) {
+        return;
+      }
+    }
+
+    await page.keyboard.press("Escape").catch(() => undefined);
+    if (await dialog.isHidden({ timeout: 1_000 }).catch(() => false)) {
+      return;
+    }
+
+    await page.waitForTimeout(250);
   }
 }
 
@@ -173,20 +193,27 @@ export async function expectChatComposerReady(
   page: Page,
   timeoutMs = 30_000,
 ): Promise<void> {
-  const textbox = page.getByRole("textbox");
+  const composer = page.locator("textarea").first();
   const deadline = Date.now() + timeoutMs;
 
   while (Date.now() < deadline) {
     await dismissReleaseUpgradeDialog(page);
-    if (await textbox.isVisible({ timeout: 500 }).catch(() => false)) {
-      await expect(textbox).toBeVisible();
+
+    const pathname = new URL(page.url()).pathname;
+    if (pathname === "/chat") {
+      await page.waitForURL(/\/chat\/[^/]+/, { timeout: 2_000 }).catch(() => undefined);
+    }
+
+    if (await composer.isVisible({ timeout: 500 }).catch(() => false)) {
+      await expect(composer).toBeVisible();
       return;
     }
+
     await page.waitForTimeout(250);
   }
 
   await dismissReleaseUpgradeDialog(page);
-  await expect(textbox).toBeVisible({ timeout: 1_000 });
+  await expect(composer).toBeVisible({ timeout: 1_000 });
 }
 
 export function isDuoSecurityHost(hostname: string): boolean {

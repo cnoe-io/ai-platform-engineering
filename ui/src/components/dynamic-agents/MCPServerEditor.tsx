@@ -20,6 +20,7 @@ import {
   SUPPRESS_PASSWORD_MANAGER_INPUT_PROPS,
   SUPPRESS_SECRET_LIKE_INPUT_PROPS,
 } from "@/lib/suppress-password-manager";
+import { formatProviderConnectionOptionLabel } from "@/lib/credentials/provider-connection-display";
 import type {
 MCPCredentialSource,
 MCPServerConfig,
@@ -71,6 +72,14 @@ interface ProviderConnectionOption {
   provider: string;
   status?: string;
   updatedAt?: string;
+  connectedAt?: string;
+  expiresAt?: string;
+  profileSummary?: string;
+  owner?: {
+    email?: string;
+    name?: string;
+    displayName?: string;
+  };
 }
 
 interface OAuthConnectorOption {
@@ -125,11 +134,10 @@ function providerConnectionLabel(
       candidate.id === connection.connectorId ||
       candidate.provider === connection.provider,
   );
-  return [
+  return formatProviderConnectionOptionLabel(
     connector?.name ?? providerName(connection.provider),
-    connection.status,
-    connection.id,
-  ].filter(Boolean).join(" · ");
+    connection,
+  );
 }
 
 function normalizedCredentialSource(
@@ -1037,7 +1045,11 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                           {providerConnectionOptions.length === 0 ? "No connected apps" : "Select a connected app"}
                         </option>
                         {providerConnectionOptions.map((connection) => (
-                          <option key={connection.id} value={connection.id}>
+                          <option
+                            key={connection.id}
+                            value={connection.id}
+                            title={connection.id}
+                          >
                             {providerConnectionLabel(connection, oauthConnectorOptions)}
                           </option>
                         ))}

@@ -1,7 +1,8 @@
 // assisted-by Codex Codex-sonnet-4-6
 
-import { type Page } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 
+import { dismissReleaseUpgradeDialog } from "./_helpers";
 import {
   fulfillJson,
   installMockedRbacApp,
@@ -211,6 +212,12 @@ export const DEFAULT_JIRA_MCP_SERVER: McpServerRow = {
   permissions: FULL_MCP_ROW_PERMISSIONS,
 };
 
+/** Jira MCP server with operator-cleared credentials — upstream pod/env auth only. */
+export const JIRA_MCP_UPSTREAM_ONLY_SERVER: McpServerRow = {
+  ...DEFAULT_JIRA_MCP_SERVER,
+  credential_sources: [],
+};
+
 export function mcpServersListPayload(
   items: McpServerRow[],
   capabilities: { repair_agentgateway: boolean } = { repair_agentgateway: false },
@@ -231,13 +238,21 @@ export function mcpServersListPayload(
   };
 }
 
+export async function waitForAddMcpServerFormReady(page: Page): Promise<void> {
+  await dismissReleaseUpgradeDialog(page);
+  await expect(page.getByText(/add mcp server/i)).toBeVisible({ timeout: 15_000 });
+  await dismissReleaseUpgradeDialog(page);
+  await expect(page.getByLabel(/Display Name/i)).toBeVisible({ timeout: 15_000 });
+}
+
 export async function fillNewMcpServerBasics(
   page: Page,
   options: { displayName: string; serverId?: string; endpoint?: string },
 ): Promise<void> {
+  await waitForAddMcpServerFormReady(page);
   await page.getByLabel(/Display Name/i).fill(options.displayName);
   if (options.serverId) {
-    await page.getByRole("button", { name: /Edit generated name/i }).click();
+    await page.getByRole("button", { name: /Edit generated name/i }).click({ force: true });
     await page.getByLabel(/Generated name/i).fill(options.serverId);
   }
   if (options.endpoint) {

@@ -9,7 +9,7 @@ test.describe("RBAC e2e — sign-in", () => {
     await signIn(page, env);
     await page.goto("/chat");
     await expect(page).toHaveURL(/\/chat/);
-    // The chat composer textarea is the canonical "I'm in" signal.
+    // /chat redirects to /chat/<id>; the composer textarea is the canonical "I'm in" signal.
     await expectChatComposerReady(page);
   });
 });

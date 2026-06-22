@@ -145,4 +145,40 @@ describe("internal AgentGateway MCP targets API", () => {
     expect(response.status).toBe(401);
     expect(mockGetCollection).not.toHaveBeenCalled();
   });
+
+  it("returns an explicit empty credential_sources array for operator-cleared servers", async () => {
+    mockGetCollection.mockResolvedValue({
+      find: jest.fn().mockReturnValue({
+        toArray: jest.fn().mockResolvedValue([
+          {
+            _id: "jira",
+            enabled: true,
+            transport: "http",
+            source: "agentgateway",
+            agentgateway_target_endpoint: "http://mcp-jira:8000/mcp",
+            credential_sources: [],
+          },
+        ]),
+      }),
+    });
+    const { GET } = await import("../route");
+
+    const response = await GET(
+      request({
+        headers: { authorization: "Bearer bridge-token" },
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toEqual({
+      targets: [
+        {
+          id: "jira",
+          target_endpoint: "http://mcp-jira:8000/mcp",
+          credential_sources: [],
+        },
+      ],
+    });
+  });
 });
