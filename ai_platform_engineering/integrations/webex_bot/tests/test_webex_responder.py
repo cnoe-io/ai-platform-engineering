@@ -178,7 +178,10 @@ def test_unlinked_user_does_not_get_duplicate_linking_cards_within_cooldown(
 def test_unlinked_user_dm_failure_does_not_post_signed_link_publicly(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from ai_platform_engineering.integrations.webex_bot import webex_responder as responder_module
+
     monkeypatch.setenv("APP_NAME", "Grid")
+    responder_module._recent_linking_cards_sent.clear()
 
     class FailingDirectMessageApi(FakeWebexApi):
         def create_message(self, **kwargs: Any) -> str:

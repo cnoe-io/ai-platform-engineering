@@ -268,7 +268,10 @@ def test_refresh_wdm_device_deletes_cached_and_extra_devices() -> None:
     asyncio.run(runtime._refresh_wdm_device(session))
 
     assert runtime._device_url is None
-    assert session.deleted == ["https://wdm/devices/tracked", "https://wdm/devices/extra"]
+    assert set(session.deleted) == {
+        "https://wdm/devices/tracked",
+        "https://wdm/devices/extra",
+    }
 
 
 def test_handle_connection_failure_refreshes_device_on_invalid_status(

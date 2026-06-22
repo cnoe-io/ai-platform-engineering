@@ -217,7 +217,7 @@ async def test_get_env_skips_jwt_shaped_authorization(monkeypatch):
     client = importlib.import_module("mcp_jira.api.client")
     importlib.reload(client)
 
-    jwt_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyIn0.signature"
+    jwt_token = "unit-test.jwt-shaped.not-a-real-token"
     monkeypatch.setattr(client, "get_request_token", lambda _name: jwt_token)
     monkeypatch.setenv("ATLASSIAN_TOKEN", "env-atlassian-token")
 
