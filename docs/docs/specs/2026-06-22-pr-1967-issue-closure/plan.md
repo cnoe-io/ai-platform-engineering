@@ -39,7 +39,7 @@
 - OpenFGA authz bridge verifies signature for per-tool `can_call`.
 - Compose wires secret to **dynamic-agents** and **openfga-authz-bridge**.
 - Unit tests: `test_mcp_client_token_forwarding.py`, bridge tests.
-- **G1 + G2 (done):** Helm `agentContext.existingSecret` on dynamic-agents, `.env.example` + `setup-caipe.sh` bootstrap, startup warning. See [Agent context HMAC](../../../security/rbac/agent-context-hmac.md).
+- **G1 + G2 (done):** Helm `agentContext.existingSecret` on dynamic-agents, `.env.example` + `setup-caipe.sh` bootstrap, startup warning. See [Agent context HMAC](../../security/rbac/agent-context-hmac.md).
 
 **What the secret does (short):** shared HMAC key so dynamic-agents / caipe-ui can sign *which agent* is calling an MCP tool through AgentGateway; the bridge verifies the signature and enforces `user can_use agent` + `agent can_call tool` instead of only the coarse `mcp_gateway:list` gate.
 
@@ -73,7 +73,7 @@
 4. `setup-caipe.sh` Helm `--set` for bridge **and** dynamic-agents → `caipe-ui-secret`.
 5. Chart tests in `tests/test_dynamic_agents_chart_keycloak_env.py`.
 
-**Blip:** same shared secret as the bridge — signs `X-CAIPE-Agent-Context` so per-agent `allowed_tools` enforcement works at AgentGateway. [Docs](../../../security/rbac/agent-context-hmac.md).
+**Blip:** same shared secret as the bridge — signs `X-CAIPE-Agent-Context` so per-agent `allowed_tools` enforcement works at AgentGateway. [Docs](../../security/rbac/agent-context-hmac.md).
 
 ### G2 — HMAC secret missing from local bootstrap (#1920 / #1928) — **Done**
 
@@ -85,7 +85,7 @@
 2. `setup-caipe.sh` idempotent patch into `caipe-ui-secret` when AgentGateway is enabled.
 3. `warn_if_agent_gateway_missing_hmac()` at dynamic-agents startup when `AGENT_GATEWAY_URL` is set but secret is empty.
 
-**Blip:** without this env var, AgentGateway still does coarse user-level checks; `tools/call` may 403 when you expect per-agent tool policy. Set the secret in `.env` for local dev. [Docs](../../../security/rbac/agent-context-hmac.md).
+**Blip:** without this env var, AgentGateway still does coarse user-level checks; `tools/call` may 403 when you expect per-agent tool policy. Set the secret in `.env` for local dev. [Docs](../../security/rbac/agent-context-hmac.md).
 
 ### G3 — jwtAuth-disabled regression guard (#1929 / #1942) — **P2**
 
@@ -161,7 +161,7 @@ Relates to #1931 — workflow user-bearer delegation landed; live Webex bot → 
 ## Verification checklist (post-merge)
 
 - [x] `CAIPE_AGENT_CONTEXT_HMAC_SECRET` set in Helm for **both** dynamic-agents and openfga-authz-bridge (G1 — `agentContext.existingSecret`, `setup-caipe.sh`)
-- [x] Documented in `.env.example` + [Agent context HMAC](../../../security/rbac/agent-context-hmac.md) (G2)
+- [x] Documented in `.env.example` + [Agent context HMAC](../../security/rbac/agent-context-hmac.md) (G2)
 - [ ] Jira MCP test-tool: credential resolution shows `provider_connection` or `secret_ref`, not CAIPE JWT on upstream
 - [ ] Admin: Service Accounts visible with `credentialsEnabled=false`
 - [ ] Admin: Credentials hidden with `credentialsEnabled=false`

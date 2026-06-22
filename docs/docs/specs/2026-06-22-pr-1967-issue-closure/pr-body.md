@@ -3,7 +3,7 @@
 * **Credentials & secrets**: Enriches secret metadata with usage references, storage/encryption details, and creator attribution; adds `SecretProtectionDetails` UI; removes standalone audit panel in favor of inline protection context; extends BFF routes and `secret-service` for usage lookup and masked previews.
 * **MCP + AgentGateway**: Fronts all enabled HTTP/SSE MCP servers through AgentGateway (config bridge, mcp-targets BFF, endpoint normalization); adds endpoint probe and test-tool APIs; per-row OpenFGA permissions on the MCP Servers tab; full edit path for AgentGateway-managed rows (supersedes #1960); rewrites `Authorization` credential headers to `X-CAIPE-Provider-Token`.
 * **Agents & workflows**: Tightens dynamic-agent team grants (use vs manage); reconciles platform MCP/agent OpenFGA tuples on startup; delegates workflow BFF calls to the invoking user's bearer for Webex/Slack agents.
-* **Agent context HMAC (G1/G2, #1920/#1928)**: Wires `CAIPE_AGENT_CONTEXT_HMAC_SECRET` through Helm for **dynamic-agents** and **openfga-authz-bridge** (`agentContext.existingSecret`), documents it in `.env.example`, patches it in `setup-caipe.sh` → `caipe-ui-secret`, and logs a startup warning when AgentGateway is on without the secret. See [Agent context HMAC](docs/docs/security/rbac/agent-context-hmac.md).
+* **Agent context HMAC (G1/G2, #1920/#1928)**: Wires `CAIPE_AGENT_CONTEXT_HMAC_SECRET` through Helm for **dynamic-agents** and **openfga-authz-bridge** (`agentContext.existingSecret`), documents it in `.env.example`, patches it in `setup-caipe.sh` → `caipe-ui-secret`, and logs a startup warning when AgentGateway is on without the secret. See [Agent context HMAC](../../security/rbac/agent-context-hmac.md).
 * **Platform wiring**: Updates dynamic-agents MCP client token forwarding, dev compose (OpenFGA reconcile default, workflow OAuth2), Webex WDM reconnect hardening, and RBAC E2E specs.
 
 ## Commits (incremental)
@@ -37,7 +37,7 @@ Without it, only the coarse user-level `mcp_gateway:list` gate runs — per-agen
 **G1 (Helm):** `dynamic-agents.agentContext.existingSecret` + bridge wiring via `caipe-ui-secret`; chart `NOTES.txt` warning.  
 **G2 (bootstrap):** `.env.example`, `setup-caipe.sh` patch/generate, dynamic-agents startup warning.
 
-Full doc: [docs/docs/security/rbac/agent-context-hmac.md](docs/docs/security/rbac/agent-context-hmac.md)
+Full doc: [Agent context HMAC](../../security/rbac/agent-context-hmac.md)
 
 ## Test plan
 
@@ -64,4 +64,4 @@ Supersedes closed PR #1960.
 
 ## Follow-up gaps (post-merge)
 
-See `docs/docs/specs/2026-06-22-pr-1967-issue-closure/plan.md` for jwtAuth guardrails (G3, P2), admin FGA tab parity (G4, P2), #1931 live E2E (G5, P3), and workflow image rollout (#1968, G6, P4). **G1/G2 (HMAC Helm + bootstrap) are done** — see [Agent context HMAC](docs/docs/security/rbac/agent-context-hmac.md).
+See `docs/docs/specs/2026-06-22-pr-1967-issue-closure/plan.md` for jwtAuth guardrails (G3, P2), admin FGA tab parity (G4, P2), #1931 live E2E (G5, P3), and workflow image rollout (#1968, G6, P4). **G1/G2 (HMAC Helm + bootstrap) are done** — see [Agent context HMAC](../../security/rbac/agent-context-hmac.md).
