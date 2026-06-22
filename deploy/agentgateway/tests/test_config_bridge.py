@@ -655,7 +655,7 @@ def test_load_builtin_mcp_routes_parses_shipped_config() -> None:
     builtins = bridge.load_builtin_mcp_routes(SHIPPED_CONFIG_PATH)
 
     # Every shipped /mcp/<id> route must be recognised as a protected built-in.
-    assert {"argocd", "gitlab", "jira", "knowledge-base", "slack"} <= set(builtins)
+    assert {"argocd", "confluence", "gitlab", "jira", "knowledge-base", "slack"} <= set(builtins)
     assert "github" not in builtins
     # gitlab carries its per-request provider-token transform straight from the
     # bootstrap definition (YAML anchors/aliases resolved by the parser).
@@ -671,6 +671,10 @@ def test_load_builtin_mcp_routes_parses_shipped_config() -> None:
     assert jira_transform["x-caipe-provider-token"] == (
         'default(request.headers["x-caipe-provider-token"], "")'
     )
+    confluence = builtins["confluence"]
+    confluence_transform = confluence["policies"]["transformations"]["request"]["set"]
+    assert confluence_transform["authorization"] == jira_transform["authorization"]
+    assert confluence_transform["x-caipe-provider-token"] == jira_transform["x-caipe-provider-token"]
 
 
 def test_load_builtin_mcp_routes_missing_path_returns_empty() -> None:

@@ -42,6 +42,14 @@ export const BUILTIN_MCP_CREDENTIAL_SOURCES: Record<string, MCPCredentialSource[
       target: "header",
     },
   ],
+  confluence: [
+    {
+      kind: "provider_connection",
+      name: "X-CAIPE-Provider-Token",
+      provider: "atlassian",
+      target: "header",
+    },
+  ],
   pagerduty: [
     {
       kind: "provider_connection",

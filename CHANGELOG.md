@@ -1,3 +1,139 @@
+## 0.5.19 (2026-06-22)
+
+### Fix
+
+- **identity-sync**: remove proactive Okta credential health check on page load (#1975)
+
+## 0.5.18-dev.1 (2026-06-22)
+
+## 0.5.18 (2026-06-22)
+
+### Fix
+
+- **charts**: default AUDIT_SERVICE_URL to release-scoped audit-service
+- **workflows**: allow workflow CRUD with view permission at BFF gate
+- **workflows**: let non-admins save workflows without global agent grants
+
+## 0.5.17-dev.11 (2026-06-22)
+
+### Feat
+
+- **credentials**: fail closed on caller-scoped MCP OAuth with chat warnings
+- **credentials**: pin provider connections on custom MCP servers
+- **credentials**: improve provider connection profile and OAuth lifecycle
+- **rbac**: wire agent context HMAC for Helm and document follow-up gaps
+- **workflows**: include run_url in workflow status tool responses
+- **workflows**: poll run status and harden chat workflow UX
+- **workflows**: improve Webex workflow run tool responses and guidance
+- **credentials**: harden secret dialog and add workspace regression e2e
+- **workflows**: delegate workflow BFF calls to invoking user bearer
+- **rbac**: reconcile platform MCP and agent OpenFGA tuples on startup
+- **agents**: scope ownership checks and tighten team member grants
+- **mcp**: add list permissions and gate MCP server actions in UI
+- **agentgateway**: propagate MCP credential headers through bridge
+- **mcp**: add AgentGateway upstream resolver and credential helpers
+- **credentials**: integrate secrets UX with AgentGateway MCP routing
+
+### Fix
+
+- **ci**: address github-code-quality findings on PR #1967
+- **credentials**: guard OAuth callback when auth user metadata is absent
+- **ci**: align UI tests and e2e lint with login and chat nav changes
+- **ui**: satisfy TypeScript checks in dynamic-agents list route
+- **agentgateway**: repair config bridge tests after credential gating
+- **ci**: stabilize workflow e2e probes and agentgateway credential forwarding
+- **ci**: stabilize webex tests and gitleaks for jira JWT fixture
+- **mcp**: revert #1926 AgentGateway routing opt-out
+- **webex**: reduce duplicate pairing prompts and harden identity lookup
+- **jira**: harden MCP API client error handling
+- **webex**: improve WDM reconnection and device registration handling
+- **ui**: flip popovers when viewport space is limited
+- **rbac**: allow team workflow owners to run without team membership
+- **mcp**: promote custom servers to agentgateway routes (#1926)
+- **mcp**: promote custom servers to agentgateway routes
+- **mcp**: cover agentgateway acceptance gaps
+- **mcp**: promote custom servers to agentgateway routes
+- **compose**: use canonical caipe-ui image tag
+- **rbac**: address admin and chat regressions (#1950)
+
+## 0.5.17-dev.10 (2026-06-21)
+
+### Fix
+
+- **deps**: update torch for rag embeddings (#1962)
+
+## 0.5.17-dev.9 (2026-06-21)
+
+### Perf
+
+- **ui**: cache health and RBAC gate checks (#1949)
+
+## 0.5.17-dev.8 (2026-06-20)
+
+### Feat
+
+- **audit**: read connector diagnostics from audit service
+- **audit**: add audit-service read UI
+
+### Fix
+
+- **security**: remove agntcy slim sdk usage (#1955)
+- **helm**: keep MCP servers while disabling A2A agents
+
+## 0.5.17-dev.7 (2026-06-20)
+
+### Fix
+
+- **deps**: resolve dependabot security alerts (#1872)
+
+## 0.5.17-dev.6 (2026-06-20)
+
+### Fix
+
+- **ci**: satisfy zizmor security scan
+
+### Refactor
+
+- **audit**: route producers through audit service
+
+## 0.5.17-dev.5 (2026-06-20)
+
+### Feat
+
+- **github**: use gh cli-backed file contents tool (#1721)
+
+## 0.5.17-dev.4 (2026-06-20)
+
+### Feat
+
+- **audit**: add lightweight audit service runtime (#1946)
+
+## 0.5.17-dev.3 (2026-06-20)
+
+## 0.5.17-dev.2 (2026-06-20)
+
+### Fix
+
+- **credentials**: allow team sharing authz
+- **ui**: address platform health review comments
+
+## 0.5.17-dev.1 (2026-06-19)
+
+### Feat
+
+- **rag**: add S3 document ingestor (#1875)
+- **ui**: add dynamic agents probe; make RAG group non-critical
+- **ui**: remove NPS score page, survey, and settings (#1919)
+
+### Fix
+
+- **setup-caipe**: Missing AGENTGATEWAY_TARGETS_TOKEN (#1914)
+- **rbac**: replace unsupported $facet in team members pagination for DocumentDB (#1924)
+- **ui**: stable health badge — no pulse, no flicker, debounced bad status
+- **ui**: handle Kubernetes tcp:// port env vars in health probes
+- **ci**: drop GitHub App token from release-finalize
+- **ci**: use GITHUB_TOKEN for release publish steps
+
 ## 0.5.17 (2026-06-18)
 
 ### Feat
@@ -4314,7 +4450,7 @@ Closes: #324
 - with latest changes
 - create protocol_bindings directory for acp/a2a/mcp
 - **external-secrets**: improve secret name handling and update configuration examples
-- **monorepo**: rename mas->multi_agents, use separate mcp python project
+- **monorepo**: rename mas->multi_agents, use seperate mcp python project
 - **agent-argocd**: collapse to ai-platform-engineering
 - clean-up old code and update docs (#38)
 - docker support, clean-up, new chat client interface (#13)

@@ -46,6 +46,8 @@ spec:
               value: {{ index .Values.config "CAIPE_API_URL" | default (printf "http://%s-caipe-ui:3000" .Release.Name) | quote }}
             - name: KEYCLOAK_URL
               value: {{ index .Values.config "KEYCLOAK_URL" | default (printf "http://%s-keycloak:8080" .Release.Name) | quote }}
+            - name: AUDIT_SERVICE_URL
+              value: {{ index .Values.config "AUDIT_SERVICE_URL" | default (printf "http://%s-audit-service:8010" .Release.Name) | quote }}
             {{- if .Values.botConfig }}
             - name: SLACK_INTEGRATION_BOT_CONFIG
               value: "/etc/caipe/bot-config.yaml"

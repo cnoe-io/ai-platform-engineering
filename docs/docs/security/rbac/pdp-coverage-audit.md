@@ -53,6 +53,7 @@ return withAuth(request, async (req, user, session) => { ... });
 | `/api/files`                                          | `user_files#read/write`        |
 | `/api/ai`                                             | `ai_assist#invoke`             |
 | `/api/credentials`                                    | `credential_vault#use` plus concrete `secret_ref` checks |
+| `/api/workflow-configs` (all methods)                 | `dynamic_agent#view` |
 | `/api/workflow-runs` (`GET` / non-`GET`)              | `dynamic_agent#view` / `invoke` |
 | `/api/catalog-api-keys`                               | `skill#configure`              |
 | `/api/skills/seed`                                    | `admin_ui#admin`               |

@@ -43,7 +43,10 @@ tokenValidation:
 
 audit:
   enabled: true
-  serviceUrl: ""
+  # Release-name-derived default for the audit-service singleton. Rendered with
+  # tpl, so {{ .Release.Name }} resolves at install time. Override with a literal
+  # URL when audit-service runs under a different name/namespace.
+  serviceUrl: "http://{{ .Release.Name }}-audit-service:8010"
   tenantId: default
   subjectSalt: caipe-098-audit
 

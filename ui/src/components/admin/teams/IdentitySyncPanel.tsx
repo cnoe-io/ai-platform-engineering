@@ -17,19 +17,12 @@ interface IdpConnectorDescriptor {
   implemented: boolean;
 }
 
-interface IdpSyncHealth {
-  ok: boolean;
-  mode: string;
-  error?: string;
-}
-
 interface IdpSyncStatus {
   provider: string;
   connectors: IdpConnectorDescriptor[];
   settings: IdpSyncSettings;
   recent_runs: IdpSyncRun[];
   provider_configured: boolean;
-  health: IdpSyncHealth | null;
 }
 
 function formatDuration(startedAt: string, completedAt?: string): string {
@@ -370,18 +363,6 @@ export function IdentitySyncPanel({ isAdmin }: IdentitySyncPanelProps) {
             </div>
           )}
 
-          {/* Credential health: creds present but a live probe failed
-              (bad token / expired key / missing scopes / network). */}
-          {status?.provider_configured && status.health && !status.health.ok && (
-            <div className="flex items-start gap-2 rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-900">
-              <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
-              <div>
-                <span className="font-medium">{connectorLabel} credential check failed.</span>{" "}
-                {status.health.error ?? "The configured credentials could not authenticate."}
-              </div>
-            </div>
-          )}
-
           {/* Connector status */}
           <Card>
             <CardHeader>
@@ -401,12 +382,6 @@ export function IdentitySyncPanel({ isAdmin }: IdentitySyncPanelProps) {
                   <div className="mt-1 font-medium text-sm">
                     {!status?.provider_configured ? (
                       <span className="text-amber-600">Not set</span>
-                    ) : status.health?.ok === false ? (
-                      <span className="text-red-600">Invalid</span>
-                    ) : status.health?.ok ? (
-                      <span className="text-green-600">
-                        Verified{status.health.mode === "oauth" ? " (OAuth)" : ""}
-                      </span>
                     ) : (
                       <span className="text-green-600">Configured</span>
                     )}

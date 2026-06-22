@@ -1169,7 +1169,8 @@ describe('withAuth', () => {
 
     it.each([
       ['/api/workflow-configs', 'GET', 'can_use', 'dynamic_agent#view'],
-      ['/api/workflow-configs', 'POST', 'can_manage', 'dynamic_agent#manage'],
+      ['/api/workflow-configs', 'POST', 'can_use', 'dynamic_agent#view'],
+      ['/api/workflow-configs', 'PUT', 'can_use', 'dynamic_agent#view'],
       ['/api/workflow-runs', 'GET', 'can_use', 'dynamic_agent#view'],
       ['/api/unclassified-feature', 'GET', 'can_audit', 'admin_ui#view'],
       ['/api/unclassified-feature', 'POST', 'can_manage', 'admin_ui#manage'],

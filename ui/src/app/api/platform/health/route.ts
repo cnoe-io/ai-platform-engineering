@@ -40,6 +40,16 @@ function env(name: string): string | undefined {
   return process.env[name] || process.env[`NEXT_PUBLIC_${name}`] || undefined;
 }
 
+// Kubernetes auto-injects {SERVICE}_PORT as "tcp://host:port" (a connection URL,
+// not a bare port number). Number("tcp://...") is NaN, which crashes net.createConnection.
+function envPort(name: string, defaultPort: number): number {
+  const raw = env(name);
+  if (!raw) return defaultPort;
+  const tcpMatch = raw.match(/^tcp:\/\/[^:]+:(\d+)/);
+  if (tcpMatch) return Number(tcpMatch[1]);
+  return Number(raw) || defaultPort;
+}
+
 function trimTrailingSlash(value: string): string {
   return value.replace(/\/$/, "");
 }
@@ -407,6 +417,7 @@ async function getPlatformHealth(): Promise<NextResponse> {
   const keycloakRealm = env("KEYCLOAK_REALM") || "caipe";
   const openfgaUrl = trimTrailingSlash(env("OPENFGA_HTTP") || "http://openfga:8080");
   const ragServerUrl = trimTrailingSlash(env("RAG_SERVER_URL") || "http://rag-server:9446");
+  const dynamicAgentsUrl = trimTrailingSlash(env("DYNAMIC_AGENTS_URL") || env("DA_SERVER_BASE_URL") || "http://dynamic-agents:8001");
   const agentgatewayAdminUrl = trimTrailingSlash(
     env("AGENTGATEWAY_ADMIN_CONFIG_URL") || "http://agentgateway:15000/config",
   );
@@ -461,11 +472,22 @@ async function getPlatformHealth(): Promise<NextResponse> {
       label: "OpenFGA Bridge",
       group: "identity",
       host: env("OPENFGA_AUTHZ_BRIDGE_HOST") || "openfga-authz-bridge",
-      port: Number(env("OPENFGA_AUTHZ_BRIDGE_PORT") || 9100),
+      port: envPort("OPENFGA_AUTHZ_BRIDGE_PORT", 9100),
       remediation: {
         label: "OpenFGA",
         href: "/admin?cat=security&tab=openfga",
         description: "Check OpenFGA bridge logs and authz configuration.",
+      },
+    }),
+    probeHttp({
+      id: "dynamic-agents",
+      label: "Dynamic Agents",
+      group: "core",
+      target: `${dynamicAgentsUrl}/health`,
+      remediation: {
+        label: "Dynamic Agents",
+        href: "/agents",
+        description: "Check dynamic agents service logs and dependencies.",
       },
     }),
     probeHttp({
@@ -498,7 +520,7 @@ async function getPlatformHealth(): Promise<NextResponse> {
       label: "MongoDB",
       group: "storage",
       host: env("MONGODB_HOST") || "caipe-mongodb",
-      port: Number(env("MONGODB_PORT") || 27017),
+      port: envPort("MONGODB_PORT", 27017),
     }),
     auditProbe,
     probeTcp({
@@ -506,14 +528,14 @@ async function getPlatformHealth(): Promise<NextResponse> {
       label: "Keycloak Postgres",
       group: "storage",
       host: env("KEYCLOAK_POSTGRES_HOST") || "keycloak-postgres",
-      port: Number(env("KEYCLOAK_POSTGRES_PORT") || 5432),
+      port: envPort("KEYCLOAK_POSTGRES_PORT", 5432),
     }),
     probeTcp({
       id: "openfga-postgres",
       label: "OpenFGA Postgres",
       group: "storage",
       host: env("OPENFGA_POSTGRES_HOST") || "openfga-postgres",
-      port: Number(env("OPENFGA_POSTGRES_PORT") || 5432),
+      port: envPort("OPENFGA_POSTGRES_PORT", 5432),
     }),
     probeHttp({
       id: "rag-server",
@@ -531,7 +553,7 @@ async function getPlatformHealth(): Promise<NextResponse> {
       label: "RAG Redis",
       group: "rag",
       host: env("RAG_REDIS_HOST") || "rag-redis",
-      port: Number(env("RAG_REDIS_PORT") || 6379),
+      port: envPort("RAG_REDIS_PORT", 6379),
     }),
     probeHttp({
       id: "milvus",
@@ -544,14 +566,14 @@ async function getPlatformHealth(): Promise<NextResponse> {
       label: "Milvus MinIO",
       group: "rag",
       host: env("MILVUS_MINIO_HOST") || "milvus-minio",
-      port: Number(env("MILVUS_MINIO_PORT") || 9000),
+      port: envPort("MILVUS_MINIO_PORT", 9000),
     }),
     probeTcp({
       id: "etcd",
       label: "etcd",
       group: "rag",
       host: env("ETCD_HOST") || "etcd",
-      port: Number(env("ETCD_PORT") || 2379),
+      port: envPort("ETCD_PORT", 2379),
     }),
     probeOpenFgaBootstrap(openfgaUrl),
     probeKeycloakBootstrap(),
