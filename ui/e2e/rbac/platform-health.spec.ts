@@ -121,9 +121,12 @@ async function setupWithHealth(
   await page.waitForLoadState("networkidle");
 }
 
-async function openHealthPopover(page: Parameters<typeof setupWithHealth>[0]) {
+async function openHealthPopover(
+  page: Parameters<typeof setupWithHealth>[0],
+  statusPattern: RegExp = /system status: connected/i,
+) {
   await dismissReleaseUpgradeDialog(page);
-  const badge = page.getByRole("button", { name: /system status:/i });
+  const badge = page.getByRole("button", { name: statusPattern });
   await expect(badge).toBeVisible();
   await badge.click({ force: true });
   await expect(page.getByTestId("platform-health-scroll")).toBeVisible();
@@ -142,14 +145,13 @@ test.describe("Platform Health widget", () => {
 
   test("status badge is visible in the header", async ({ page }) => {
     await setupWithHealth(page, healthResponse());
-    // The aria-label on the popover trigger button contains "System status"
-    await expect(page.getByRole("button", { name: /system status/i })).toBeVisible();
+    await expect(page.getByRole("button", { name: /system status: connected/i })).toBeVisible();
   });
 
   test("healthy response → badge shows green dot, no 'Down' label", async ({ page }) => {
     await setupWithHealth(page, healthResponse());
 
-    const badge = page.getByRole("button", { name: /system status/i });
+    const badge = page.getByRole("button", { name: /system status: connected/i });
     await expect(badge).toBeVisible();
 
     // When healthy the badge shows only a dot (no expanded label text)
@@ -182,7 +184,7 @@ test.describe("Platform Health widget", () => {
     // Badge should not show "Down" text
     await expect(badge).not.toContainText("Down");
 
-    await openHealthPopover(page);
+    await openHealthPopover(page, /system status: needs attention/i);
     const popover = page.getByTestId("platform-health-scroll");
     await expect(popover.getByText(/issues detected/i)).not.toBeVisible();
   });
@@ -194,7 +196,7 @@ test.describe("Platform Health widget", () => {
     await setupWithHealth(page, healthResponse(probes));
 
     const badge = page.getByRole("button", { name: /system status: disconnected/i });
-    await openHealthPopover(page);
+    await openHealthPopover(page, /system status: disconnected/i);
 
     await expect(page.getByText("Issues Detected")).toBeVisible();
   });
@@ -202,7 +204,7 @@ test.describe("Platform Health widget", () => {
   test("status dot has no animate-pulse class (no continuous flashing)", async ({ page }) => {
     await setupWithHealth(page, healthResponse());
 
-    const badge = page.getByRole("button", { name: /system status/i });
+    const badge = page.getByRole("button", { name: /system status: connected/i });
     await expect(badge).toBeVisible();
 
     // Assert the specific badge dot class does not contain animate-pulse.

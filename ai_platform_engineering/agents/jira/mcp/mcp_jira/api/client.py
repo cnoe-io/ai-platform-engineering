@@ -133,7 +133,8 @@ def get_provider_header_token() -> Optional[str]:
         req = get_http_request()
         token = req.headers.get("x-caipe-provider-token", "").strip()
         return token or None
-    except Exception:
+    except RuntimeError:
+        # No active HTTP request (STDIO mode).
         return None
 
 
@@ -144,7 +145,7 @@ def _request_has_caipe_provider_header() -> bool:
 
         req = get_http_request()
         return "x-caipe-provider-token" in req.headers
-    except Exception:
+    except RuntimeError:
         return False
 
 
@@ -165,9 +166,9 @@ def _request_has_caipe_mcp_auth_jwt() -> bool:
         if auth.lower().startswith("bearer "):
             token = auth[7:].strip()
             return bool(token) and _looks_like_jwt(token)
-    except Exception:
-        pass
-    return False
+        return False
+    except RuntimeError:
+        return False
 
 
 def _looks_like_jwt(value: str) -> bool:
