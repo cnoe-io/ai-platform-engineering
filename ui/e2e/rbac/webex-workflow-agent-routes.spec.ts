@@ -195,7 +195,7 @@ test.describe("mocked Webex workflow agent routing regression", () => {
   }) => {
     const defaultsRequests: unknown[] = [];
     const routeWrites: unknown[] = [];
-    let routes: unknown[] = [];
+    const routes: unknown[] = [];
 
     await installMockedRbacApp(page, {
       isAdmin: true,
@@ -229,7 +229,7 @@ test.describe("mocked Webex workflow agent routing regression", () => {
     page,
   }) => {
     const routeWrites: unknown[] = [];
-    let routes: unknown[] = [
+    const routes: unknown[] = [
       {
         agent_id: workflowAgent.id,
         enabled: true,
@@ -262,7 +262,7 @@ test.describe("mocked Webex workflow agent routing regression", () => {
     page,
   }) => {
     const routeWrites: unknown[] = [];
-    let routes: unknown[] = [
+    const routes: unknown[] = [
       {
         agent_id: workflowAgent.id,
         enabled: true,

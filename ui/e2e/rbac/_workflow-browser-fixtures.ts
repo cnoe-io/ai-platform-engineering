@@ -393,7 +393,7 @@ export async function installWorkflowBrowserMocks(
     { name: "get_issue", description: "Get issue details" },
   ];
 
-  let workflows =
+  const workflows =
     options.isAdmin === true
       ? allWorkflows
       : filterWorkflowsForPersona(allWorkflows, session.email, teamSlugs);
