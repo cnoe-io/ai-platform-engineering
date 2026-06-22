@@ -1787,6 +1787,8 @@ services:
       - CAIPE_CREDENTIALS_ENABLED=${CAIPE_CREDENTIALS_ENABLED:-false}
       - CREDENTIAL_API_URL=${CREDENTIAL_API_URL:-http://caipe-ui:3000/api/credentials}
       - CAIPE_API_URL=${CAIPE_API_URL:-http://caipe-ui:3000}
+      # Browser-reachable Grid URL for workflow run links returned by workflow tools.
+      - CAIPE_UI_PUBLIC_URL=${CAIPE_UI_PUBLIC_URL:-${CAIPE_UI_BASE_URL:-${NEXTAUTH_URL:-http://localhost:3000}}}
       # WorkflowApiClient (builtin start_workflow_run / list / status tools) calls the
       # BFF /api/workflow-runs* routes. When SSO_ENABLED=true on the UI, those routes
       # require a Bearer JWT — client_credentials against Keycloak (not the caller's OBO).

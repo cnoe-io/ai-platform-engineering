@@ -158,6 +158,7 @@ def test_get_workflow_run_status_includes_step_output_summary() -> None:
         ],
     }
     client.get.return_value = response
+    client.base_url = "http://caipe-ui:3000"
 
     tools = create_workflow_tools(
         client,
@@ -170,6 +171,48 @@ def test_get_workflow_run_status_includes_step_output_summary() -> None:
     assert payload["workflow_name"] == "SRI Custom workflow"
     assert payload["steps"][0]["output"] == "Found 3 ArgoCD projects."
     assert "Found 3 ArgoCD projects." in payload["final_output_summary"]
+    assert payload["run_url"] == "http://caipe-ui:3000/workflows/run/wfrun-abc"
+
+
+def test_get_workflow_run_status_run_url_uses_public_ui_base(monkeypatch: pytest.MonkeyPatch) -> None:
+    create_workflow_tools = getattr(_load_builtin_tools(), "create_workflow_tools")
+    monkeypatch.setenv("CAIPE_UI_PUBLIC_URL", "https://grid.example.com")
+
+    client = MagicMock()
+    client.base_url = "http://caipe-ui:3000"
+    response = MagicMock()
+    response.ok = True
+    response.json.return_value = {
+        "_id": "wfrun-abc",
+        "workflow_config_id": "wf-sri",
+        "status": "completed",
+        "steps": [],
+    }
+    client.get.return_value = response
+
+    tools = create_workflow_tools(client, ["wf-sri"])
+    status_tool = next(tool for tool in tools if tool.name == "get_workflow_run_status")
+    payload = json.loads(status_tool.invoke({"thought": "link", "run_id": "wfrun-abc"}))
+
+    assert payload["run_url"] == "https://grid.example.com/workflows/run/wfrun-abc"
+
+
+def test_start_workflow_run_includes_run_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    create_workflow_tools = getattr(_load_builtin_tools(), "create_workflow_tools")
+    monkeypatch.setenv("CAIPE_UI_PUBLIC_URL", "http://localhost:3000")
+
+    client = MagicMock()
+    client.base_url = "http://caipe-ui:3000"
+    response = MagicMock()
+    response.ok = True
+    response.json.return_value = {"run_id": "wfrun-abc", "status": "running"}
+    client.post.return_value = response
+
+    tools = create_workflow_tools(client, ["wf-allowed"])
+    start_tool = next(tool for tool in tools if tool.name == "start_workflow_run")
+    payload = json.loads(start_tool.invoke({"thought": "go", "workflow_config_id": "wf-allowed"}))
+
+    assert payload["run_url"] == "http://localhost:3000/workflows/run/wfrun-abc"
 
 
 @patch("dynamic_agents.services.builtin_tools.time.sleep", return_value=None)
@@ -202,6 +245,7 @@ def test_get_workflow_run_status_waits_for_completion(mock_sleep: MagicMock) -> 
         ],
     }
     client.get.side_effect = [running, completed]
+    client.base_url = "http://caipe-ui:3000"
 
     tools = create_workflow_tools(client, ["wf-sri"], workflow_labels={"wf-sri": "SRI Custom workflow"})
     status_tool = next(tool for tool in tools if tool.name == "get_workflow_run_status")
@@ -237,6 +281,7 @@ def test_get_workflow_run_status_wait_times_out(mock_monotonic: MagicMock, mock_
         "steps": [],
     }
     client.get.return_value = running
+    client.base_url = "http://caipe-ui:3000"
     mock_monotonic.side_effect = [0.0, 0.0, 121.0]
 
     tools = create_workflow_tools(client, ["wf-sri"])

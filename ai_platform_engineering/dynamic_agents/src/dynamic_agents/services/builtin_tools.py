@@ -7,13 +7,14 @@ configured per-agent with access controls (e.g., domain restrictions).
 import ipaddress
 import json
 import logging
+import os
 import shlex
 import socket
 import subprocess
 import time
 from datetime import datetime, timezone
 from typing import Literal, Optional
-from urllib.parse import urljoin, urlparse
+from urllib.parse import quote, urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup
@@ -1012,13 +1013,32 @@ _WORKFLOW_STATUS_POLL_INTERVAL_SECONDS = 3.0
 _WORKFLOW_STATUS_MAX_WAIT_SECONDS = 300
 
 
+def _workflow_ui_public_base_url(api_base_url: str) -> str:
+    """Resolve a browser-reachable Grid base URL for workflow run links."""
+    for env_key in ("CAIPE_UI_PUBLIC_URL", "CAIPE_UI_BASE_URL", "NEXTAUTH_URL"):
+        candidate = os.environ.get(env_key, "").strip().rstrip("/")
+        if candidate:
+            return candidate
+    return api_base_url.rstrip("/")
+
+
+def _workflow_run_detail_url(ui_base_url: str, run_id: object) -> str | None:
+    """Build the Grid workflow run detail page URL for end users."""
+    rid = str(run_id or "").strip()
+    if not rid:
+        return None
+    return f"{ui_base_url.rstrip('/')}/workflows/run/{quote(rid, safe='')}"
+
+
 def _build_workflow_run_status_payload(
     run: dict,
     *,
     labels: dict[str, str],
+    ui_public_base_url: str,
 ) -> dict[str, object]:
     """Build agent-facing workflow status JSON including per-step outputs."""
     config_id = run.get("workflow_config_id", "")
+    run_id = run.get("_id")
     steps_summary = []
     final_output_parts: list[str] = []
     for s in run.get("steps", []):
@@ -1040,7 +1060,7 @@ def _build_workflow_run_status_payload(
         steps_summary.append(step_info)
 
     payload: dict[str, object] = {
-        "run_id": run.get("_id"),
+        "run_id": run_id,
         "workflow_config_id": config_id,
         "workflow_name": _workflow_display_name(config_id, labels),
         "status": run.get("status"),
@@ -1048,6 +1068,9 @@ def _build_workflow_run_status_payload(
         "completed_at": run.get("completed_at"),
         "steps": steps_summary,
     }
+    run_url = _workflow_run_detail_url(ui_public_base_url, run_id)
+    if run_url:
+        payload["run_url"] = run_url
     if final_output_parts:
         payload["final_output_summary"] = "\n\n".join(final_output_parts)
     return payload
@@ -1072,6 +1095,7 @@ def create_workflow_tools(
 
     allowed_set = set(allowed_config_ids)
     labels = workflow_labels or {}
+    ui_public_base_url = _workflow_ui_public_base_url(client.base_url)
 
     @tool
     def list_workflow_runs(
@@ -1150,7 +1174,8 @@ def create_workflow_tools(
                 is true (capped at 300).
 
         Returns:
-            JSON object with run status, step details, step outputs, errors, and timestamps.
+            JSON object with run status, step details, step outputs, errors, timestamps,
+            and run_url (Grid UI link to open the run detail page).
         """
         if not run_id:
             return "ERROR: run_id is required"
@@ -1174,7 +1199,11 @@ def create_workflow_tools(
                         f"ERROR: This run belongs to workflow '{config_id}' which you are not allowed to access."
                     )
 
-                payload = _build_workflow_run_status_payload(run, labels=labels)
+                payload = _build_workflow_run_status_payload(
+                    run,
+                    labels=labels,
+                    ui_public_base_url=ui_public_base_url,
+                )
                 status = str(run.get("status") or "")
 
                 if not wait_for_completion or status in _TERMINAL_WORKFLOW_STATUSES:
@@ -1235,20 +1264,22 @@ def create_workflow_tools(
 
             result = resp.json()
             workflow_name = _workflow_display_name(workflow_config_id, labels)
-            return json.dumps(
-                {
-                    "run_id": result.get("run_id"),
-                    "workflow_config_id": workflow_config_id,
-                    "workflow_name": workflow_name,
-                    "status": result.get("status", "running"),
-                    "message": (
-                        f"Started workflow '{workflow_name}'. "
-                        "Call get_workflow_run_status with this run_id and "
-                        "wait_for_completion=true when the user wants progress or final output."
-                    ),
-                },
-                indent=2,
-            )
+            run_id = result.get("run_id")
+            start_payload: dict[str, object] = {
+                "run_id": run_id,
+                "workflow_config_id": workflow_config_id,
+                "workflow_name": workflow_name,
+                "status": result.get("status", "running"),
+                "message": (
+                    f"Started workflow '{workflow_name}'. "
+                    "Call get_workflow_run_status with this run_id and "
+                    "wait_for_completion=true when the user wants progress or final output."
+                ),
+            }
+            run_url = _workflow_run_detail_url(ui_public_base_url, run_id)
+            if run_url:
+                start_payload["run_url"] = run_url
+            return json.dumps(start_payload, indent=2)
         except Exception as e:
             return f"ERROR: Failed to start workflow run: {e}"
 
