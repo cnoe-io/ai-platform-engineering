@@ -132,6 +132,20 @@ spec:
             - name: AGENT_GATEWAY_URL
               value: {{ index .Values.config "AGENT_GATEWAY_URL" | default (printf "http://%s:%v" $agwMcpHost $agwMcpPort) | quote }}
             {{- end }}
+            {{- /* Platform health probe env vars — wire Kubernetes service names so the
+                   /api/platform/health route resolves hosts without docker-compose defaults. */}}
+            - name: AGENTGATEWAY_ADMIN_CONFIG_URL
+              value: {{ index .Values.config "AGENTGATEWAY_ADMIN_CONFIG_URL" | default (printf "http://%s-agentgateway:15000/config" .Release.Name) | quote }}
+            - name: AGENTGATEWAY_TARGETS_URL
+              value: {{ index .Values.config "AGENTGATEWAY_TARGETS_URL" | default (printf "http://%s-caipe-ui:3000/api/internal/agentgateway/mcp-targets" .Release.Name) | quote }}
+            - name: OPENFGA_AUTHZ_BRIDGE_HOST
+              value: {{ index .Values.config "OPENFGA_AUTHZ_BRIDGE_HOST" | default (printf "%s-openfga-authz-bridge" .Release.Name) | quote }}
+            - name: ETCD_HOST
+              value: {{ index .Values.config "ETCD_HOST" | default (printf "%s-etcd" .Release.Name) | quote }}
+            - name: MILVUS_HEALTH_URL
+              value: {{ index .Values.config "MILVUS_HEALTH_URL" | default (printf "http://%s-milvus:9091/healthz" .Release.Name) | quote }}
+            - name: MILVUS_MINIO_HOST
+              value: {{ index .Values.config "MILVUS_MINIO_HOST" | default (printf "%s-minio" .Release.Name) | quote }}
           envFrom:
             # Mount ConfigMap as environment variables (non-sensitive config)
             - configMapRef:
