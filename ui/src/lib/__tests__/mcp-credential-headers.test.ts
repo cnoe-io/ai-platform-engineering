@@ -93,33 +93,33 @@ describe("mcp-credential-headers", () => {
     expect(mockRefreshConnection).toHaveBeenCalledWith("atlassian-conn-1");
   });
 
-  it("reports origin none when no connected provider is available", async () => {
+  it("throws when caller-scoped provider connection is not connected", async () => {
     mockListConnections.mockResolvedValue([]);
     const request = new NextRequest("http://localhost:3000/api/mcp-servers/test-tool", { method: "POST" });
 
-    const resolution = await resolveMcpHeaderCredentials({
-      request,
-      session: { sub: "user-sub", accessToken: "user-jwt" },
-      viaAgentGateway: true,
-      server: {
-        _id: "jira",
-        id: "jira",
-        name: "Jira",
-        transport: "http",
-        enabled: true,
-        credential_sources: [
-          {
-            kind: "provider_connection",
-            target: "header",
-            name: "X-CAIPE-Provider-Token",
-            provider: "atlassian",
-          },
-        ],
-      },
-    });
-
-    expect(resolution.headers["X-CAIPE-Provider-Token"]).toBeUndefined();
-    expect(resolution.sources[0]?.origin).toBe("none");
+    await expect(
+      resolveMcpHeaderCredentials({
+        request,
+        session: { sub: "user-sub", accessToken: "user-jwt" },
+        viaAgentGateway: true,
+        server: {
+          _id: "jira",
+          id: "jira",
+          name: "Jira",
+          transport: "http",
+          enabled: true,
+          credential_sources: [
+            {
+              kind: "provider_connection",
+              target: "header",
+              name: "X-CAIPE-Provider-Token",
+              provider: "atlassian",
+              connection_scope: "caller",
+            },
+          ],
+        },
+      }),
+    ).rejects.toThrow("Provider connection is not connected");
   });
 
   it("detects nested application failures in MCP tool payloads", () => {

@@ -45,6 +45,12 @@ jest.mock('react-markdown', () => {
 // Mock remark-gfm
 jest.mock('remark-gfm', () => () => {})
 
+jest.mock('@/components/shared/timeline/MarkdownRenderer', () => ({
+  MarkdownRenderer: ({ content }: { content: string }) => (
+    <div data-testid="markdown-renderer">{content}</div>
+  ),
+}))
+
 // Mock AgentLogos
 jest.mock('@/components/shared/AgentLogos', () => ({
   AgentLogo: ({ agent }: any) => <div data-testid={`agent-logo-${agent}`}>{agent}</div>,
