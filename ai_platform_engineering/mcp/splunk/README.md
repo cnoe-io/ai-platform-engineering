@@ -75,4 +75,4 @@ This MCP server is designed to be used by the Splunk AI Agent. The agent automat
 
 ## API Reference
 
-The server exposes Splunk APIs as MCP tools. Refer to the MCP server implementation in `mcp_splunk/` for detailed tool documentation. 
+The server exposes Splunk APIs as MCP tools. Refer to the MCP server implementation in this directory for detailed tool documentation.
