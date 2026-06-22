@@ -212,6 +212,30 @@ async def test_oauth_request_rewrites_site_url_to_gateway(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_get_env_skips_jwt_shaped_authorization(monkeypatch):
+    """Keycloak JWT on Authorization must not be treated as an Atlassian API token."""
+    client = importlib.import_module("mcp_jira.api.client")
+    importlib.reload(client)
+
+    jwt_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyIn0.signature"
+    monkeypatch.setattr(client, "get_request_token", lambda _name: jwt_token)
+    monkeypatch.setenv("ATLASSIAN_TOKEN", "env-atlassian-token")
+
+    assert client.get_env() == "env-atlassian-token"
+
+
+def test_get_env_returns_api_token_from_authorization(monkeypatch):
+    """Non-JWT Authorization values are still accepted as Atlassian API tokens."""
+    client = importlib.import_module("mcp_jira.api.client")
+    importlib.reload(client)
+
+    monkeypatch.setattr(client, "get_request_token", lambda _name: "plain-api-token")
+    monkeypatch.delenv("ATLASSIAN_TOKEN", raising=False)
+
+    assert client.get_env() == "plain-api-token"
+
+
+@pytest.mark.asyncio
 async def test_resolve_oauth_base_url_uses_accessible_resources(monkeypatch):
     """resolve_oauth_base_url queries accessible-resources and builds the gateway URL."""
     client = importlib.import_module("mcp_jira.api.client")

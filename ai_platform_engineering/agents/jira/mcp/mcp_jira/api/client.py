@@ -119,17 +119,34 @@ def get_provider_header_token() -> Optional[str]:
         return None
 
 
+def _looks_like_jwt(value: str) -> bool:
+    parts = value.split(".")
+    return len(parts) == 3 and all(part.strip() for part in parts)
+
+
 def get_env() -> Optional[str]:
     """Retrieve the Atlassian API token from request header or environment."""
-    token = (
+    header_token = (
         get_request_token("ATLASSIAN_TOKEN")
         or get_request_token("ATLASSIAN_API_TOKEN")
         or get_request_token("JIRA_API_TOKEN")
         or get_request_token("JIRA_TOKEN")
     )
-    if not token:
-        logger.warning("ATLASSIAN_TOKEN is not set and no Authorization header provided.")
-    return token
+    if header_token:
+        if _looks_like_jwt(header_token):
+            logger.debug(
+                "Skipping JWT-shaped Authorization header when resolving Atlassian API token"
+            )
+        else:
+            return header_token
+
+    for env_name in ("ATLASSIAN_TOKEN", "ATLASSIAN_API_TOKEN", "JIRA_API_TOKEN", "JIRA_TOKEN"):
+        env_token = os.getenv(env_name)
+        if env_token:
+            return env_token
+
+    logger.warning("ATLASSIAN_TOKEN is not set and no Authorization header provided.")
+    return None
 
 
 def _is_atlassian_gateway_url(url: str) -> bool:
