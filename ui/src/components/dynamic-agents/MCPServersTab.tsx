@@ -566,13 +566,21 @@ export function MCPServersTab() {
                         <div>
                           <div className="flex items-center gap-2">
                             <div className="font-medium text-sm">{server.name}</div>
-                            {server.source === "agentgateway" && (
+                            {server.source === "agentgateway" ? (
                               <Badge
                                 variant="outline"
                                 className="gap-1 bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/30"
-                                title="Registered from AgentGateway discovery"
+                                title="Routed through AgentGateway; the bridge reconciles a /mcp/<server-id> route for this server"
                               >
                                 AgentGateway
+                              </Badge>
+                            ) : (
+                              <Badge
+                                variant="outline"
+                                className="gap-1 bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-500/30"
+                                title="Direct/manual MCP server; AgentGateway does not reconcile a route for this row"
+                              >
+                                Direct
                               </Badge>
                             )}
                           </div>
@@ -621,7 +629,9 @@ export function MCPServersTab() {
                         disabled={isLockedConfigDrivenServer(server) || !serverCanManage(server)}
                         title={
                           isLockedConfigDrivenServer(server)
-                            ? "Config-driven servers cannot be modified"
+                            ? server.source === "agentgateway"
+                              ? "AgentGateway-managed route status is controlled by AgentGateway sync"
+                              : "Config-driven servers cannot be modified"
                             : !serverCanManage(server)
                               ? "You do not have permission to modify this server"
                               : undefined

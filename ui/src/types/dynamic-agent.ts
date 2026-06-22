@@ -96,6 +96,7 @@ export interface MCPServerConfigCreate {
   description?: string;
   transport: TransportType;
   endpoint?: string;
+  route_through_agentgateway?: boolean;
   /** Upstream MCP URL when the form endpoint is an AgentGateway route from the picker. */
   agentgateway_target_endpoint?: string;
   command?: string;
@@ -111,6 +112,7 @@ export interface MCPServerConfigUpdate {
   description?: string;
   transport?: TransportType;
   endpoint?: string;
+  route_through_agentgateway?: boolean;
   agentgateway_target_endpoint?: string;
   command?: string;
   args?: string[];

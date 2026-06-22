@@ -186,7 +186,14 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
   const [name, setName] = React.useState(server?.name || "");
   const [description, setDescription] = React.useState(server?.description || "");
   const [transport, setTransport] = React.useState<TransportType>(server?.transport || "sse");
-  const [endpoint, setEndpoint] = React.useState(server?.endpoint || "");
+  const [routeThroughAgentGateway, setRouteThroughAgentGateway] = React.useState(
+    server ? server.source === "agentgateway" : true,
+  );
+  const [endpoint, setEndpoint] = React.useState(
+    server?.source === "agentgateway"
+      ? server.agentgateway_target_endpoint || server.endpoint || ""
+      : server?.endpoint || "",
+  );
   const [pickedAgentGatewayUpstream, setPickedAgentGatewayUpstream] = React.useState(
     server?.agentgateway_target_endpoint?.trim() || "",
   );
@@ -463,9 +470,11 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
           description: description || undefined,
           transport,
           endpoint: transport !== "stdio" ? endpoint : undefined,
-          ...(transport !== "stdio" && pickedAgentGatewayUpstream.trim()
-            ? { agentgateway_target_endpoint: pickedAgentGatewayUpstream.trim() }
-            : {}),
+          route_through_agentgateway: transport !== "stdio" ? routeThroughAgentGateway : false,
+          agentgateway_target_endpoint:
+            transport !== "stdio" && routeThroughAgentGateway
+              ? (pickedAgentGatewayUpstream.trim() || endpoint.trim())
+              : undefined,
           command: transport === "stdio" ? command : undefined,
           args: transport === "stdio" ? args : undefined,
           env: transport === "stdio" && Object.keys(env).length > 0 ? env : undefined,
@@ -495,9 +504,11 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
           description: description || undefined,
           transport,
           endpoint: transport !== "stdio" ? endpoint : undefined,
-          ...(transport !== "stdio" && pickedAgentGatewayUpstream.trim()
-            ? { agentgateway_target_endpoint: pickedAgentGatewayUpstream.trim() }
-            : {}),
+          route_through_agentgateway: transport !== "stdio" ? routeThroughAgentGateway : false,
+          agentgateway_target_endpoint:
+            transport !== "stdio" && routeThroughAgentGateway
+              ? (pickedAgentGatewayUpstream.trim() || endpoint.trim())
+              : undefined,
           command: transport === "stdio" ? command : undefined,
           args: transport === "stdio" ? args : undefined,
           env: transport === "stdio" && Object.keys(env).length > 0 ? env : undefined,
@@ -771,8 +782,9 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                   <div className="space-y-2">
                     <Label htmlFor="agentgateway-target">AgentGateway target</Label>
                     <p className="text-xs text-muted-foreground">
-                      Pick a routed MCP target from AgentGateway. Saved HTTP and SSE MCP servers
-                      always go through AgentGateway so tool access can be authorized.
+                      Pick a routed MCP target from AgentGateway. When routing is enabled,
+                      HTTP and SSE MCP servers use AgentGateway so each tool call can be
+                      authorized.
                     </p>
                     <TeamPicker
                       id="agentgateway-target"
@@ -780,8 +792,10 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                       onChange={(targetId) => {
                         const target = agentGatewayTargets.find((candidate) => candidate.id === targetId);
                         if (target) {
-                          setEndpoint(target.endpoint);
-                          setPickedAgentGatewayUpstream(target.target_endpoint?.trim() || "");
+                          const upstream = target.target_endpoint?.trim() || target.endpoint;
+                          setEndpoint(upstream);
+                          setPickedAgentGatewayUpstream(upstream);
+                          setRouteThroughAgentGateway(true);
                           setEndpointProbe(null);
                         }
                       }}
@@ -799,64 +813,117 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                   </div>
                 ) : null}
                 <div className="space-y-2">
-                <Label htmlFor="endpoint">
-                  Endpoint URL <span className="text-destructive">*</span>
-                </Label>
-                <Input
-                  id="endpoint"
-                  name="mcp-endpoint"
-                  placeholder={`e.g., http://localhost:3000/${transport === "sse" ? "sse" : "mcp"}`}
-                  value={endpoint}
-                  onChange={(e) => {
-                    const nextEndpoint = e.target.value;
-                    setEndpoint(nextEndpoint);
-                    setEndpointProbe(null);
-                    const matchingTarget = agentGatewayTargets.find(
-                      (candidate) => candidate.endpoint === nextEndpoint.trim(),
-                    );
-                    setPickedAgentGatewayUpstream(matchingTarget?.target_endpoint?.trim() || "");
-                  }}
-                  disabled={loading || readOnly}
-                  className="font-mono"
-                  {...SUPPRESS_PASSWORD_MANAGER_INPUT_PROPS}
-                />
-                {transport === "http" ? (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => void handleProbeEndpoint()}
-                      disabled={loading || readOnly || endpointProbeLoading || !endpoint.trim()}
-                    >
-                      {endpointProbeLoading ? "Checking..." : "Check URL"}
-                    </Button>
-                    {endpointProbe?.suggestedUrl ? (
-                      <>
+                  <Label htmlFor="endpoint">
+                    {routeThroughAgentGateway ? "Upstream URL" : "Endpoint URL"}{" "}
+                    <span className="text-destructive">*</span>
+                  </Label>
+                  <Input
+                    id="endpoint"
+                    name="mcp-endpoint"
+                    placeholder={`e.g., http://localhost:3000/${transport === "sse" ? "sse" : "mcp"}`}
+                    value={endpoint}
+                    onChange={(e) => {
+                      const nextEndpoint = e.target.value;
+                      setEndpoint(nextEndpoint);
+                      setEndpointProbe(null);
+                      const matchingTarget = agentGatewayTargets.find(
+                        (candidate) =>
+                          candidate.endpoint === nextEndpoint.trim() ||
+                          candidate.target_endpoint?.trim() === nextEndpoint.trim(),
+                      );
+                      setPickedAgentGatewayUpstream(
+                        matchingTarget?.target_endpoint?.trim() || nextEndpoint.trim(),
+                      );
+                    }}
+                    disabled={loading || readOnly}
+                    className="font-mono"
+                    {...SUPPRESS_PASSWORD_MANAGER_INPUT_PROPS}
+                  />
+                  {transport === "http" && (
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={routeThroughAgentGateway}
+                        onChange={(event) => setRouteThroughAgentGateway(event.target.checked)}
+                        disabled={loading || readOnly}
+                        className="h-4 w-4 rounded border-input"
+                      />
+                      Route through AgentGateway
+                    </label>
+                  )}
+                  {transport === "http" ? (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void handleProbeEndpoint()}
+                        disabled={loading || readOnly || endpointProbeLoading || !endpoint.trim()}
+                      >
+                        {endpointProbeLoading ? "Checking..." : "Check URL"}
+                      </Button>
+                      {endpointProbe?.suggestedUrl ? (
+                        <>
+                          <span className="text-xs text-muted-foreground">
+                            The MCP path looks available at{" "}
+                            <code className="font-mono">{endpointProbe.suggestedUrl}</code>.
+                          </span>
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => {
+                              setEndpoint(endpointProbe.suggestedUrl ?? endpoint);
+                              setPickedAgentGatewayUpstream(endpointProbe.suggestedUrl ?? endpoint);
+                              setEndpointProbe(null);
+                            }}
+                          >
+                            Use suggested URL
+                          </Button>
+                        </>
+                      ) : endpointProbe ? (
                         <span className="text-xs text-muted-foreground">
-                          The MCP path looks available at <code className="font-mono">{endpointProbe.suggestedUrl}</code>.
+                          {endpointProbe.attempts.some((attempt) => attempt.ok)
+                            ? "Endpoint responded."
+                            : "Endpoint did not respond successfully."}
                         </span>
-                        <Button
-                          type="button"
-                          variant="secondary"
-                          size="sm"
-                          onClick={() => {
-                            setEndpoint(endpointProbe.suggestedUrl ?? endpoint);
-                            setEndpointProbe(null);
-                          }}
-                        >
-                          Use suggested URL
-                        </Button>
-                      </>
-                    ) : endpointProbe ? (
-                      <span className="text-xs text-muted-foreground">
-                        {endpointProbe.attempts.some((attempt) => attempt.ok)
-                          ? "Endpoint responded."
-                          : "Endpoint did not respond successfully."}
-                      </span>
-                    ) : null}
-                  </div>
-                ) : null}
+                      ) : null}
+                    </div>
+                  ) : null}
+                  {gatewayDiscoveryLoaded && agentGatewayTargets.length > 0 ? (
+                    <div className="space-y-1">
+                      <p className="text-xs text-muted-foreground">
+                        Or pick a quick target — this fills the upstream URL and enables
+                        AgentGateway routing.
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {agentGatewayTargets.map((target) => (
+                          <Button
+                            key={target.id}
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            disabled={loading || readOnly}
+                            onClick={() => {
+                              const upstream = target.target_endpoint?.trim() || target.endpoint;
+                              setEndpoint(upstream);
+                              setPickedAgentGatewayUpstream(upstream);
+                              setRouteThroughAgentGateway(true);
+                              setEndpointProbe(null);
+                            }}
+                            title={
+                              target.target_endpoint
+                                ? `${target.endpoint} → ${target.target_endpoint}`
+                                : target.endpoint
+                            }
+                            className="font-mono"
+                          >
+                            {target.name ?? target.id}
+                          </Button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             )}

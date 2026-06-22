@@ -92,7 +92,7 @@ describe("MCPServerEditor credential sources", () => {
     render(<MCPServerEditor server={null} onSave={jest.fn()} onCancel={jest.fn()} />);
 
     await user.type(screen.getByLabelText(/display name/i), "GitHub MCP");
-    await user.type(screen.getByLabelText(/endpoint url/i), "https://mcp.example.com/sse");
+    await user.type(screen.getByLabelText(/upstream url|endpoint url/i), "https://mcp.example.com/sse");
 
     await user.click(screen.getByRole("button", { name: /add credential/i }));
     await screen.findByRole("option", { name: "Jira token" });
@@ -134,7 +134,7 @@ describe("MCPServerEditor credential sources", () => {
     render(<MCPServerEditor server={null} onSave={jest.fn()} onCancel={jest.fn()} />);
 
     await user.type(screen.getByLabelText(/display name/i), "Token Test");
-    await user.type(screen.getByLabelText(/endpoint url/i), "https://mcp.example.com/mcp");
+    await user.type(screen.getByLabelText(/upstream url|endpoint url/i), "https://mcp.example.com/mcp");
     await user.click(screen.getByRole("button", { name: /add credential/i }));
     await screen.findByRole("option", { name: "Jira token" });
 
@@ -155,7 +155,7 @@ describe("MCPServerEditor credential sources", () => {
     render(<MCPServerEditor server={null} onSave={jest.fn()} onCancel={jest.fn()} />);
 
     await user.type(screen.getByLabelText(/display name/i), "Custom Token Test");
-    await user.type(screen.getByLabelText(/endpoint url/i), "https://mcp.example.com/mcp");
+    await user.type(screen.getByLabelText(/upstream url|endpoint url/i), "https://mcp.example.com/mcp");
     await user.click(screen.getByRole("button", { name: /add credential/i }));
     await screen.findByRole("option", { name: "Jira token" });
 
@@ -177,12 +177,12 @@ describe("MCPServerEditor credential sources", () => {
     render(<MCPServerEditor server={null} onSave={jest.fn()} onCancel={jest.fn()} />);
 
     await user.click(screen.getByRole("button", { name: /http http\/rest endpoint/i }));
-    await user.type(screen.getByLabelText(/endpoint url/i), "http://mcp-argocd:8000");
+    await user.type(screen.getByLabelText(/upstream url|endpoint url/i), "http://mcp-argocd:8000");
     await user.click(screen.getByRole("button", { name: /check url/i }));
 
     expect(await screen.findByText(/http:\/\/mcp-argocd:8000\/mcp/i)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /use suggested url/i }));
-    expect(screen.getByLabelText(/endpoint url/i)).toHaveValue("http://mcp-argocd:8000/mcp");
+    expect(screen.getByLabelText(/upstream url|endpoint url/i)).toHaveValue("http://mcp-argocd:8000/mcp");
   });
 
   it("derives the saved MCP server name from the display name", async () => {
@@ -191,7 +191,7 @@ describe("MCPServerEditor credential sources", () => {
 
     await user.type(screen.getByLabelText(/display name/i), "Meraki Docs");
     expect(screen.getByText(/mcp-meraki-docs/i)).toBeInTheDocument();
-    await user.type(screen.getByLabelText(/endpoint url/i), "https://mcp.example.com/mcp");
+    await user.type(screen.getByLabelText(/upstream url|endpoint url/i), "https://mcp.example.com/mcp");
     await user.click(screen.getByRole("button", { name: /create server/i }));
 
     await waitFor(() => expect(createBody()).toEqual(
@@ -210,7 +210,7 @@ describe("MCPServerEditor credential sources", () => {
     await user.click(screen.getByRole("button", { name: /edit generated name/i }));
     await user.clear(screen.getByLabelText(/generated name/i));
     await user.type(screen.getByLabelText(/generated name/i), "meraki-devnet-docs");
-    await user.type(screen.getByLabelText(/endpoint url/i), "https://mcp.example.com/mcp");
+    await user.type(screen.getByLabelText(/upstream url|endpoint url/i), "https://mcp.example.com/mcp");
     await user.click(screen.getByRole("button", { name: /create server/i }));
 
     await waitFor(() => expect(createBody()).toEqual(
@@ -265,9 +265,9 @@ describe("MCPServerEditor credential sources", () => {
 
     await user.click(await screen.findByRole("button", { name: /agentgateway target/i }));
     await user.type(screen.getByPlaceholderText(/search targets/i), "test");
-    await user.click(screen.getByText("Test ArgoCD"));
+    await user.click(screen.getByRole("option", { name: /Test ArgoCD/i }));
 
-    expect(screen.getByLabelText(/endpoint url/i)).toHaveValue("http://agentgateway:4000/mcp/mcp-test-argocd");
+    expect(screen.getByLabelText(/upstream url|endpoint url/i)).toHaveValue("http://mcp-argocd:8000/mcp");
   });
 
   it("submits the picked AgentGateway upstream when creating a new server", async () => {
@@ -300,14 +300,15 @@ describe("MCPServerEditor credential sources", () => {
     await user.clear(screen.getByLabelText(/generated name/i));
     await user.type(screen.getByLabelText(/generated name/i), "jira-gu");
     await user.click(await screen.findByRole("button", { name: /agentgateway target/i }));
-    await user.click(screen.getByText("Jira"));
+    await user.click(screen.getByRole("option", { name: /^Jira$/i }));
     await user.click(screen.getByRole("button", { name: /HTTP HTTP\/REST endpoint/i }));
     await user.click(screen.getByRole("button", { name: /create server/i }));
 
     await waitFor(() =>
       expect(createBody()).toMatchObject({
         id: "jira-gu",
-        endpoint: "http://agentgateway:4000/mcp/jira",
+        endpoint: "http://mcp-jira:8000/mcp",
+        route_through_agentgateway: true,
         agentgateway_target_endpoint: "http://mcp-jira:8000/mcp",
       }),
     );
@@ -318,7 +319,7 @@ describe("MCPServerEditor credential sources", () => {
     render(<MCPServerEditor server={null} onSave={jest.fn()} onCancel={jest.fn()} />);
 
     await user.type(screen.getByLabelText(/display name/i), "Atlassian MCP");
-    await user.type(screen.getByLabelText(/endpoint url/i), "https://mcp.example.com/mcp");
+    await user.type(screen.getByLabelText(/upstream url|endpoint url/i), "https://mcp.example.com/mcp");
     await user.click(screen.getByRole("button", { name: /add credential/i }));
 
     await user.selectOptions(screen.getByLabelText(/credential kind/i), "provider_connection");
@@ -379,5 +380,31 @@ describe("MCPServerEditor credential sources", () => {
     await user.click(screen.getByRole("button", { name: /save changes/i }));
 
     await waitFor(() => expect(updateBody().credential_sources).toEqual([]));
+  });
+
+  it("sends AgentGateway routing metadata for custom HTTP MCP servers", async () => {
+    const user = userEvent.setup();
+    render(<MCPServerEditor server={null} onSave={jest.fn()} onCancel={jest.fn()} />);
+
+    await user.type(screen.getByLabelText(/display name/i), "Custom MCP");
+    await user.click(screen.getByRole("button", { name: /edit generated name/i }));
+    await user.type(screen.getByLabelText(/generated name/i), "custom");
+    await user.click(screen.getByRole("button", { name: /HTTP/i }));
+    await user.type(screen.getByLabelText(/upstream url|endpoint url/i), "https://mcp.example.com/mcp");
+    await user.click(screen.getByRole("button", { name: /create server/i }));
+
+    const calls = (global.fetch as jest.Mock).mock.calls;
+    const createCall = calls.find(
+      ([url, init]: [string, RequestInit | undefined]) =>
+        url === "/api/mcp-servers" && init?.method === "POST",
+    );
+    expect(createCall).toBeDefined();
+    const body = JSON.parse(String(createCall?.[1]?.body));
+    expect(body).toMatchObject({
+      transport: "http",
+      endpoint: "https://mcp.example.com/mcp",
+      route_through_agentgateway: true,
+      agentgateway_target_endpoint: "https://mcp.example.com/mcp",
+    });
   });
 });
