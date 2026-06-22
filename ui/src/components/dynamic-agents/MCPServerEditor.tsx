@@ -37,7 +37,14 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
   const [name, setName] = React.useState(server?.name || "");
   const [description, setDescription] = React.useState(server?.description || "");
   const [transport, setTransport] = React.useState<TransportType>(server?.transport || "sse");
-  const [endpoint, setEndpoint] = React.useState(server?.endpoint || "");
+  const [routeThroughAgentGateway, setRouteThroughAgentGateway] = React.useState(
+    server?.source === "agentgateway"
+  );
+  const [endpoint, setEndpoint] = React.useState(
+    server?.source === "agentgateway"
+      ? server.agentgateway_target_endpoint || server.endpoint || ""
+      : server?.endpoint || ""
+  );
   const [command, setCommand] = React.useState(server?.command || "");
   const [args, setArgs] = React.useState<string[]>(server?.args || []);
   const [envVars, setEnvVars] = React.useState<{ key: string; value: string }[]>(
@@ -162,6 +169,9 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
           description: description || undefined,
           transport,
           endpoint: transport !== "stdio" ? endpoint : undefined,
+          route_through_agentgateway: transport !== "stdio" ? routeThroughAgentGateway : false,
+          agentgateway_target_endpoint:
+            transport !== "stdio" && routeThroughAgentGateway ? endpoint : undefined,
           command: transport === "stdio" ? command : undefined,
           args: transport === "stdio" ? args : undefined,
           env: transport === "stdio" && Object.keys(env).length > 0 ? env : undefined,
@@ -186,6 +196,9 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
           description: description || undefined,
           transport,
           endpoint: transport !== "stdio" ? endpoint : undefined,
+          route_through_agentgateway: transport !== "stdio" ? routeThroughAgentGateway : false,
+          agentgateway_target_endpoint:
+            transport !== "stdio" && routeThroughAgentGateway ? endpoint : undefined,
           command: transport === "stdio" ? command : undefined,
           args: transport === "stdio" ? args : undefined,
           env: transport === "stdio" && Object.keys(env).length > 0 ? env : undefined,
@@ -421,24 +434,38 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                 </div>
               </>
             ) : (
-              <div className="space-y-2">
-                <Label htmlFor="endpoint">
-                  Endpoint URL <span className="text-destructive">*</span>
-                </Label>
-                <Input
-                  id="endpoint"
-                  placeholder={`e.g., http://localhost:3000/${transport === "sse" ? "sse" : "mcp"}`}
-                  value={endpoint}
-                  onChange={(e) => setEndpoint(e.target.value)}
-                  disabled={loading || readOnly}
-                  className="font-mono"
-                />
+              <div className="space-y-3">
+                <div className="space-y-2">
+                  <Label htmlFor="endpoint">
+                    {routeThroughAgentGateway ? "Upstream URL" : "Endpoint URL"}{" "}
+                    <span className="text-destructive">*</span>
+                  </Label>
+                  <Input
+                    id="endpoint"
+                    placeholder={`e.g., http://localhost:3000/${transport === "sse" ? "sse" : "mcp"}`}
+                    value={endpoint}
+                    onChange={(e) => setEndpoint(e.target.value)}
+                    disabled={loading || readOnly}
+                    className="font-mono"
+                  />
+                </div>
+                {transport === "http" && (
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={routeThroughAgentGateway}
+                      onChange={(event) => setRouteThroughAgentGateway(event.target.checked)}
+                      disabled={loading || readOnly}
+                      className="h-4 w-4 rounded border-input"
+                    />
+                    Route through AgentGateway
+                  </label>
+                )}
                 {gatewayDiscoveryLoaded && agentGatewayTargets.length > 0 ? (
                   <div className="space-y-1">
                     <p className="text-xs text-muted-foreground">
-                      Or pick an AgentGateway target — this fills the endpoint with the
-                      target-qualified URL (<code className="font-mono">/mcp/&lt;target&gt;</code>) so the
-                      gateway can route this server correctly.
+                      Or pick an AgentGateway target — this fills the upstream URL and enables
+                      AgentGateway routing.
                     </p>
                     <div className="flex flex-wrap gap-2">
                       {agentGatewayTargets.map((target) => (
@@ -448,7 +475,10 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                           variant="outline"
                           size="sm"
                           disabled={loading || readOnly}
-                          onClick={() => setEndpoint(target.endpoint)}
+                          onClick={() => {
+                            setEndpoint(target.target_endpoint || target.endpoint);
+                            setRouteThroughAgentGateway(true);
+                          }}
                           title={
                             target.target_endpoint
                               ? `${target.endpoint} → ${target.target_endpoint}`

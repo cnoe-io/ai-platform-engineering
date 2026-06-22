@@ -121,6 +121,13 @@ describe("AgentGateway MCP server discovery API", () => {
   it("auto-imports new AgentGateway MCP targets and migrates legacy direct registrations", async () => {
     const insertOne = jest.fn();
     const updateOne = jest.fn();
+    const findOne = jest.fn().mockResolvedValue({
+      _id: "jira",
+      name: "Jira",
+      transport: "http",
+      endpoint: "http://mcp-jira:8000/mcp",
+      enabled: true,
+    });
     mockGetCollection.mockResolvedValue({
       find: jest.fn().mockReturnValue({
         toArray: jest.fn().mockResolvedValue([
@@ -135,6 +142,7 @@ describe("AgentGateway MCP server discovery API", () => {
       }),
       insertOne,
       updateOne,
+      findOne,
     });
     const { POST } = await import("../sync/route");
 
@@ -202,6 +210,61 @@ describe("AgentGateway MCP server discovery API", () => {
       conflicts: [],
       migration_warnings: [],
     });
+  });
+
+  it("preserves existing credential sources when migrating a legacy direct registration", async () => {
+    const insertOne = jest.fn();
+    const updateOne = jest.fn();
+    const existingCredentialSources = [
+      {
+        kind: "secret_ref",
+        target: "header",
+        name: "Authorization",
+        secret_ref: "jira-existing-token",
+      },
+    ];
+    mockGetCollection.mockResolvedValue({
+      find: jest.fn().mockReturnValue({
+        toArray: jest.fn().mockResolvedValue([
+          {
+            _id: "jira",
+            name: "Jira",
+            transport: "http",
+            endpoint: "http://mcp-jira:8000/mcp",
+            enabled: true,
+            credential_sources: existingCredentialSources,
+          },
+        ]),
+      }),
+      insertOne,
+      updateOne,
+      findOne: jest.fn().mockResolvedValue({
+        _id: "jira",
+        credential_sources: existingCredentialSources,
+      }),
+    });
+    const { POST } = await import("../sync/route");
+
+    const response = await POST(
+      request("/api/mcp-servers/agentgateway/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: ["jira"] }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(updateOne).toHaveBeenCalledWith(
+      { _id: "jira" },
+      {
+        $set: expect.objectContaining({
+          source: "agentgateway",
+          agentgateway_target_endpoint: "http://mcp-jira:8000/mcp",
+          credential_sources: existingCredentialSources,
+        }),
+      },
+    );
+    expect(insertOne).not.toHaveBeenCalled();
   });
 
   it("repairs OpenFGA grants for existing AgentGateway-managed MCP servers during sync", async () => {

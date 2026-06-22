@@ -15,7 +15,10 @@ withErrorHandler,
 } from "@/lib/api-middleware";
 import { getCollection } from "@/lib/mongodb";
 import { agentGatewayMcpEndpointUrl } from "@/lib/rbac/agentgateway-mcp-discovery";
-import { normalizeMcpEndpointForServer } from "@/lib/rbac/mcp-endpoint-normalizer";
+import {
+isAgentGatewayBaseEndpoint,
+normalizeMcpEndpointForServer,
+} from "@/lib/rbac/mcp-endpoint-normalizer";
 import { caipeOrgKey } from "@/lib/rbac/organization";
 import {
 deleteAllMcpServerRelationshipTuples,
@@ -100,6 +103,60 @@ function pickMutableFields(
 function agentGatewayBaseForNormalizer(): string {
   const withMcp = agentGatewayMcpEndpointUrl();
   return withMcp.replace(/\/mcp$/, "");
+}
+
+function agentGatewayEndpointForServer(serverId: string): string {
+  return agentGatewayMcpEndpointUrl(`/mcp/${serverId}`);
+}
+
+function wantsAgentGatewayRouting(body: Record<string, unknown>): boolean {
+  return (
+    body.route_through_agentgateway === true ||
+    (body.route_through_agentgateway !== false &&
+      normalizeString(body.agentgateway_target_endpoint) !== null)
+  );
+}
+
+function agentGatewayFieldsForServer(
+  body: Record<string, unknown>,
+  serverId: string,
+  transport: TransportType | undefined,
+): Record<string, unknown> | null {
+  if (
+    body.route_through_agentgateway !== undefined &&
+    typeof body.route_through_agentgateway !== "boolean"
+  ) {
+    throw new ApiError("'route_through_agentgateway' must be a boolean", 400);
+  }
+  if (!wantsAgentGatewayRouting(body)) return null;
+  if (transport !== "http") {
+    throw new ApiError("AgentGateway routing is only supported for HTTP MCP servers", 400);
+  }
+
+  const targetEndpoint =
+    normalizeString(body.agentgateway_target_endpoint) ??
+    normalizeString(body.endpoint);
+  if (!targetEndpoint) {
+    throw new ApiError(
+      "'agentgateway_target_endpoint' or 'endpoint' is required when routing through AgentGateway",
+      400,
+    );
+  }
+  if (isAgentGatewayBaseEndpoint(targetEndpoint, agentGatewayBaseForNormalizer())) {
+    throw new ApiError(
+      "AgentGateway-routed MCP servers must use the upstream MCP endpoint, not the AgentGateway base URL",
+      400,
+    );
+  }
+
+  return {
+    endpoint: agentGatewayEndpointForServer(serverId),
+    source: "agentgateway",
+    agentgateway_discovered: true,
+    agentgateway_endpoint: agentGatewayEndpointForServer(serverId),
+    agentgateway_target_endpoint: targetEndpoint,
+    config_driven: false,
+  };
 }
 
 /**
@@ -228,7 +285,8 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     validateTransportConfig(
       body.transport as TransportType,
       body.command as string | undefined,
-      body.endpoint as string | undefined,
+      (body.endpoint as string | undefined) ??
+        (body.agentgateway_target_endpoint as string | undefined),
     );
 
     // Normalise AgentGateway endpoints. If the admin (or the editor)
@@ -242,6 +300,11 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       serverId,
       agentGatewayBaseUrl: agentGatewayBaseForNormalizer(),
     });
+    const agentGatewayFields = agentGatewayFieldsForServer(
+      body,
+      serverId,
+      body.transport as TransportType,
+    );
 
     // Build document with explicit field allowlist (Security VII)
     const now = new Date();
@@ -263,6 +326,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       config_driven: false,
       created_at: now.toISOString(),
       updated_at: now.toISOString(),
+      ...agentGatewayFields,
     };
 
     const ownerSubjectKind =
@@ -330,6 +394,7 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
 
     // Build update with explicit field allowlist
     const updateData = pickMutableFields(body);
+    const unsetData: Record<string, ""> = {};
     if (Object.keys(updateData).length === 0) {
       // No fields to update — return current state
       return successResponse(server);
@@ -348,11 +413,26 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
       });
     }
 
+    const effectiveTransport = (body.transport as TransportType | undefined) ?? server.transport;
+    const agentGatewayFields = agentGatewayFieldsForServer(body, String(id), effectiveTransport);
+    if (agentGatewayFields) {
+      Object.assign(updateData, agentGatewayFields);
+    } else if (body.route_through_agentgateway === false) {
+      updateData.source = "manual";
+      updateData.agentgateway_discovered = false;
+      updateData.config_driven = false;
+      unsetData.agentgateway_endpoint = "";
+      unsetData.agentgateway_target_endpoint = "";
+    }
+
     updateData.updated_at = new Date().toISOString();
 
     const updated = await collection.findOneAndUpdate(
       { _id: id },
-      { $set: updateData },
+      {
+        $set: updateData,
+        ...(Object.keys(unsetData).length > 0 ? { $unset: unsetData } : {}),
+      },
       { returnDocument: "after" },
     );
 
