@@ -28,6 +28,21 @@ from dynamic_agents.services.mcp_endpoint_normalizer import (
 logger = logging.getLogger(__name__)
 
 
+class McpCredentialUnavailableError(RuntimeError):
+    """Pinned provider connection could not be resolved."""
+
+
+def _effective_connection_scope(source: Any) -> str:
+    scope = getattr(source, "connection_scope", None)
+    if scope in ("caller", "pinned"):
+        return scope
+    provider_connection_id = (getattr(source, "provider_connection_id", None) or "").strip()
+    provider = (getattr(source, "provider", None) or "").strip()
+    if provider_connection_id and not provider:
+        return "pinned"
+    return "caller"
+
+
 def _agent_gateway_base_url() -> str | None:
     """Resolve the AgentGateway base URL from env.
 
@@ -432,22 +447,49 @@ async def resolve_mcp_credential_refs(
                 if credential:
                     origin = "secret_ref"
             elif source.kind == "provider_connection":
-                if source.provider:
-                    exchanged = await credential_client.exchange_provider_connection_by_provider(
-                        source.provider,
-                        intended_use="mcp_server",
+                scope = _effective_connection_scope(source)
+                pinned = scope == "pinned"
+                exchanged: dict[str, Any] = {}
+                try:
+                    if pinned and source.provider_connection_id:
+                        exchanged = await credential_client.exchange_provider_connection(
+                            source.provider_connection_id,
+                            intended_use="mcp_server",
+                            mcp_server_id=server.id,
+                        )
+                    elif source.provider:
+                        exchanged = await credential_client.exchange_provider_connection_by_provider(
+                            source.provider,
+                            intended_use="mcp_server",
+                            mcp_server_id=server.id,
+                        )
+                    elif source.provider_connection_id:
+                        exchanged = await credential_client.exchange_provider_connection(
+                            source.provider_connection_id,
+                            intended_use="mcp_server",
+                            mcp_server_id=server.id,
+                        )
+                except Exception as exc:
+                    if pinned:
+                        raise McpCredentialUnavailableError(
+                            f"Pinned provider connection unavailable for server={server.id}"
+                        ) from exc
+                    logger.debug(
+                        "credential exchange for server=%s source=%s failed (%s); "
+                        "falling back to static credential if configured",
+                        server.id,
+                        source.name,
+                        type(exc).__name__,
                     )
-                elif source.provider_connection_id:
-                    exchanged = await credential_client.exchange_provider_connection(
-                        source.provider_connection_id,
-                        intended_use="mcp_server",
-                    )
-                else:
                     exchanged = {}
                 access_token = exchanged.get("access_token")
                 if isinstance(access_token, str) and access_token:
                     credential = access_token
-                    origin = "per_user_oauth"
+                    origin = "per_user_oauth" if not pinned else "pinned_provider_connection"
+                elif pinned:
+                    raise McpCredentialUnavailableError(
+                        f"Pinned provider connection unavailable for server={server.id}"
+                    )
             elif source.kind == "caller_token":
                 # Forward the caller's own Keycloak JWT so the backend can enforce
                 # per-user RBAC (e.g. RAG group-based access). Prefer the explicitly
@@ -470,7 +512,7 @@ async def resolve_mcp_credential_refs(
 
         # Static service-account fallback: keeps shared-token MCP servers
         # (e.g. GitHub/GitLab) working for callers without a personal connection.
-        if not credential and source.fallback_env:
+        if not credential and source.fallback_env and _effective_connection_scope(source) != "pinned":
             env_value = os.getenv(source.fallback_env, "").strip()
             if env_value:
                 credential = env_value
@@ -486,6 +528,10 @@ async def resolve_mcp_credential_refs(
                 origin = "client_credentials"
 
         if not credential:
+            if source.kind == "provider_connection" and _effective_connection_scope(source) == "pinned":
+                raise McpCredentialUnavailableError(
+                    f"Pinned provider connection unavailable for server={server.id}"
+                )
             logger.info(
                 "MCP credential resolve: server=%s source=%s -> no credential "
                 "(per-user not connected and no fallback)",

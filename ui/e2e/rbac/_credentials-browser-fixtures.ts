@@ -461,7 +461,6 @@ export async function installCredentialsBrowserMocks(
     set providerConnections(next: Array<Record<string, unknown>>) {
       providerConnections = next;
     },
-    connectionRevokeRequests,
   };
 
   await forceCredentialsFeatureFlags(page);

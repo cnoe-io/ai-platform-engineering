@@ -81,6 +81,6 @@ export const ATLASSIAN_OPTION_LABEL =
   "Atlassian Cloud · healthy · refreshed 30m ago · cisco-eti";
 
 export const ATLASSIAN_OPTION_LABEL_NO_PROFILE =
-  "Atlassian Cloud · healthy · refreshed 30m ago · sraradhy@cisco.com";
+  "Atlassian Cloud · healthy · refreshed 30m ago · Platform Admin";
 
 export const EXPIRED_OPTION_LABEL_PATTERN = /Atlassian Cloud · expired · refreshed \d+d ago · cisco-eti/;

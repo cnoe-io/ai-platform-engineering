@@ -411,8 +411,8 @@ test.describe("mocked credentials workspace browser regression", () => {
           kind: "provider_connection",
           target: "header",
           name: "Authorization",
+          connection_scope: "pinned",
           provider_connection_id: "conn-atlassian",
-          provider: "atlassian",
         },
       ]);
     });

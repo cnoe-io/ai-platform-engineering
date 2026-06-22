@@ -4,13 +4,16 @@
 
 // assisted-by Codex Codex-sonnet-4-6
 
-import { getProviderConnectionService } from "@/lib/credentials/oauth-service-factory";
 import { getCredentialRetrievalService } from "@/lib/credentials/retrieval-service-factory";
-import { isCredentialFeatureEnabled } from "@/lib/feature-flags/credentials";
-import { requireResourcePermission } from "@/lib/rbac/resource-authz";
-import type { ResourceAuthzSession } from "@/lib/rbac/resource-authz";
+import {
+  effectiveConnectionScope,
+  isMcpCredentialUnavailableError,
+  McpCredentialUnavailableError,
+  resolveProviderConnectionCredential,
+} from "@/lib/mcp-credential-resolution";
 import type { MCPCredentialSource, MCPServerConfig } from "@/types/dynamic-agent";
 import type { NextRequest } from "next/server";
+import type { ResourceAuthzSession } from "@/lib/rbac/resource-authz";
 
 export type McpCredentialOrigin = "secret_ref" | "provider_connection" | "fallback_env" | "none";
 
@@ -20,12 +23,19 @@ export interface McpCredentialSourceDebug {
   origin: McpCredentialOrigin;
   provider?: string;
   provider_connection_id?: string;
+  connection_scope?: MCPCredentialSource["connection_scope"];
 }
 
 export interface McpCredentialResolution {
   headers: Record<string, string>;
   sources: McpCredentialSourceDebug[];
 }
+
+export {
+  MCP_CREDENTIAL_UNAVAILABLE,
+  McpCredentialUnavailableError,
+  isMcpCredentialUnavailableError,
+} from "@/lib/mcp-credential-resolution";
 
 function isProviderBearerSource(headerName: string): boolean {
   const normalized = headerName.trim().toLowerCase();
@@ -63,51 +73,10 @@ function credentialServiceHeaders(caller: string): Headers {
   });
 }
 
-async function resolveProviderConnectionCredential(
-  session: ResourceAuthzSession,
-  source: MCPCredentialSource,
-): Promise<{ token: string; provider: string; providerConnectionId: string } | null> {
-  if (!isCredentialFeatureEnabled()) return null;
-
-  const subject = typeof session.sub === "string" ? session.sub.trim() : "";
-  if (!subject) return null;
-
-  const service = await getProviderConnectionService();
-  const ownerType = session.isServiceAccount === true ? "service_account" : "user";
-  const providerConnectionId = source.provider_connection_id?.trim() ?? "";
-  const providerKey = source.provider?.trim() ?? "";
-
-  const connection = providerConnectionId
-    ? await service.getConnection(providerConnectionId)
-    : (await service.listConnections({ type: ownerType, id: subject })).find(
-        (candidate) => candidate.provider === providerKey && candidate.status === "connected",
-      );
-
-  if (!connection || connection.status !== "connected") return null;
-
-  const callerOwnsConnection =
-    connection.owner.type === ownerType && connection.owner.id === subject;
-  if (!callerOwnsConnection) {
-    await requireResourcePermission(session, {
-      type: "secret_ref",
-      id: `provider_connection:${connection.id}`,
-      action: "use",
-    });
-  }
-
-  const token = await service.refreshConnection(connection.id);
-  if (!token.accessToken?.trim()) return null;
-
-  return {
-    token: token.accessToken.trim(),
-    provider: connection.provider,
-    providerConnectionId: connection.id,
-  };
-}
-
 async function resolveSourceCredential(
   session: ResourceAuthzSession,
   source: MCPCredentialSource,
+  server: MCPServerConfig,
   viaAgentGateway: boolean,
   retrievalCaller: string,
 ): Promise<{ credential: string; origin: McpCredentialOrigin; debug: McpCredentialSourceDebug } | null> {
@@ -116,10 +85,12 @@ async function resolveSourceCredential(
   const name = typeof source.name === "string" ? source.name.trim() : "";
   if (!name) return null;
 
+  const scope = effectiveConnectionScope(source);
   const baseDebug: McpCredentialSourceDebug = {
     name,
     kind: source.kind,
     origin: "none",
+    connection_scope: scope,
     ...(source.provider ? { provider: source.provider } : {}),
     ...(source.provider_connection_id ? { provider_connection_id: source.provider_connection_id } : {}),
   };
@@ -139,8 +110,13 @@ async function resolveSourceCredential(
   }
 
   if (source.kind === "provider_connection") {
+    const pinned = scope === "pinned";
     try {
-      const exchanged = await resolveProviderConnectionCredential(session, source);
+      const exchanged = await resolveProviderConnectionCredential({
+        session,
+        source,
+        mcpServer: server,
+      });
       if (exchanged) {
         return {
           credential: exchanged.token,
@@ -150,11 +126,18 @@ async function resolveSourceCredential(
             origin: "provider_connection",
             provider: exchanged.provider,
             provider_connection_id: exchanged.providerConnectionId,
+            connection_scope: scope,
           },
         };
       }
-    } catch {
-      // Fall through to static env fallback when configured.
+    } catch (error) {
+      if (pinned || isMcpCredentialUnavailableError(error)) {
+        throw error;
+      }
+    }
+
+    if (pinned) {
+      throw new McpCredentialUnavailableError("Pinned provider connection is unavailable");
     }
 
     const fallbackEnv = source.fallback_env?.trim();
@@ -207,13 +190,19 @@ export async function resolveMcpHeaderCredentials(input: {
     const resolved = await resolveSourceCredential(
       input.session,
       source,
+      input.server,
       input.viaAgentGateway,
       retrievalCaller,
     );
     if (!resolved) continue;
 
     sources.push(resolved.debug);
-    if (resolved.origin === "none" || !resolved.credential) continue;
+    if (resolved.origin === "none" || !resolved.credential) {
+      if (source.kind === "provider_connection" && effectiveConnectionScope(source) === "pinned") {
+        throw new McpCredentialUnavailableError("Pinned provider credential did not resolve");
+      }
+      continue;
+    }
 
     const headerName = providerCredentialHeader(source.name, input.viaAgentGateway);
     headers[headerName] = providerCredentialValue(

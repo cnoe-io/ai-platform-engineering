@@ -313,6 +313,31 @@ describe("MCPServerEditor credential sources", () => {
     );
   });
 
+  it("creates caller-scoped provider credentials when connection scope is changed", async () => {
+    const user = userEvent.setup();
+    render(<MCPServerEditor server={null} onSave={jest.fn()} onCancel={jest.fn()} />);
+
+    await user.type(screen.getByLabelText(/display name/i), "Caller Atlassian MCP");
+    await user.type(screen.getByLabelText(/upstream url|endpoint url/i), "https://mcp.example.com/mcp");
+    await user.click(screen.getByRole("button", { name: /add credential/i }));
+    await user.selectOptions(screen.getByLabelText(/credential kind/i), "provider_connection");
+    await user.selectOptions(screen.getByLabelText(/connection scope/i), "caller");
+    await user.selectOptions(screen.getByLabelText(/^provider$/i), "atlassian");
+    await user.click(screen.getByRole("button", { name: /create server/i }));
+
+    await waitFor(() =>
+      expect(createBody().credential_sources).toEqual([
+        {
+          kind: "provider_connection",
+          target: "header",
+          name: "Authorization",
+          connection_scope: "caller",
+          provider: "atlassian",
+        },
+      ]),
+    );
+  });
+
   it("creates provider connection sources from selectable connected apps", async () => {
     const user = userEvent.setup();
     render(<MCPServerEditor server={null} onSave={jest.fn()} onCancel={jest.fn()} />);
@@ -332,8 +357,8 @@ describe("MCPServerEditor credential sources", () => {
         kind: "provider_connection",
         target: "header",
         name: "Authorization",
+        connection_scope: "pinned",
         provider_connection_id: "conn-atlassian",
-        provider: "atlassian",
       },
     ]));
   });

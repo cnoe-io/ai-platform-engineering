@@ -84,6 +84,8 @@ export interface MCPCredentialSource {
   secret_ref?: string;
   provider_connection_id?: string;
   provider?: string;
+  /** Custom MCP servers: pinned uses provider_connection_id for all callers; caller resolves per JWT sub. */
+  connection_scope?: 'caller' | 'pinned';
   /** provider_connection: env var holding the shared fallback token (e.g. PAT). */
   fallback_env?: string;
   /** caller_token: mint a service client-credentials token when no user JWT. */

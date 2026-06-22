@@ -518,7 +518,7 @@ test.describe("RBAC e2e — MCP AgentGateway picker and test modal", () => {
       expect(mocks.createRequests[0].credential_sources).toEqual([
         expect.objectContaining({
           kind: "provider_connection",
-          provider: "atlassian",
+          connection_scope: "pinned",
           provider_connection_id: "conn-atlassian",
         }),
       ]);

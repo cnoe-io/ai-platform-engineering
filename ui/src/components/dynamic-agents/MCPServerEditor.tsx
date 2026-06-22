@@ -21,6 +21,10 @@ import {
   SUPPRESS_SECRET_LIKE_INPUT_PROPS,
 } from "@/lib/suppress-password-manager";
 import { formatProviderConnectionOptionLabel } from "@/lib/credentials/provider-connection-display";
+import {
+  effectiveConnectionScope,
+  normalizeCustomProviderCredentialSource,
+} from "@/lib/mcp-credential-scope";
 import type {
 MCPCredentialSource,
 MCPServerConfig,
@@ -159,18 +163,7 @@ function normalizedCredentialSource(
   }
 
   if (source.kind === "provider_connection") {
-    const providerConnectionId = source.provider_connection_id?.trim();
-    if (!providerConnectionId) return null;
-    const provider =
-      source.provider?.trim() ||
-      providerConnections.find((connection) => connection.id === providerConnectionId)?.provider;
-    return {
-      kind: "provider_connection",
-      target: source.target,
-      name,
-      provider_connection_id: providerConnectionId,
-      ...(provider ? { provider } : {}),
-    };
+    return normalizeCustomProviderCredentialSource(source, providerConnections);
   }
 
   return {
@@ -186,6 +179,7 @@ function normalizedCredentialSource(
 
 export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServerEditorProps) {
   const isEditing = !!server;
+  const isCustomEditableServer = !server?.config_driven;
 
   // Form state
   const [id, setId] = React.useState(server?._id || "");
@@ -403,12 +397,28 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
       const connection = providerConnectionOptions.find(
         (candidate) => candidate.id === current.provider_connection_id,
       );
+      const scope = effectiveConnectionScope({
+        ...current,
+        connection_scope: current.connection_scope ?? "pinned",
+      });
       handleSetCredentialSource(index, {
         kind,
         target: current.target,
         name: current.name,
-        provider_connection_id: connection?.id ?? "",
-        ...(connection?.provider ? { provider: connection.provider } : {}),
+        connection_scope: scope === "caller" ? "caller" : "pinned",
+        ...(scope === "pinned"
+          ? {
+              provider_connection_id: connection?.id ?? current.provider_connection_id ?? "",
+              provider: undefined,
+            }
+          : {
+              provider:
+                connection?.provider ??
+                current.provider ??
+                oauthConnectorOptions[0]?.provider ??
+                "",
+              provider_connection_id: undefined,
+            }),
       });
       return;
     }
@@ -423,11 +433,44 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
   const handleSelectProviderConnection = (index: number, providerConnectionId: string) => {
     const current = credentialSources[index];
     const connection = providerConnectionOptions.find((candidate) => candidate.id === providerConnectionId);
+    const scope = effectiveConnectionScope(current);
     handleSetCredentialSource(index, {
       ...current,
       kind: "provider_connection",
+      connection_scope: "pinned",
       provider_connection_id: providerConnectionId,
-      ...(connection?.provider ? { provider: connection.provider } : {}),
+      provider: undefined,
+    });
+  };
+
+  const handleUpdateConnectionScope = (
+    index: number,
+    scope: NonNullable<MCPCredentialSource["connection_scope"]>,
+  ) => {
+    const current = credentialSources[index];
+    const connection = providerConnectionOptions.find(
+      (candidate) => candidate.id === current.provider_connection_id,
+    );
+    if (scope === "pinned") {
+      handleSetCredentialSource(index, {
+        ...current,
+        kind: "provider_connection",
+        connection_scope: "pinned",
+        provider_connection_id: current.provider_connection_id ?? connection?.id ?? "",
+        provider: undefined,
+      });
+      return;
+    }
+    handleSetCredentialSource(index, {
+      ...current,
+      kind: "provider_connection",
+      connection_scope: "caller",
+      provider:
+        current.provider ??
+        connection?.provider ??
+        providerConnectionOptions[0]?.provider ??
+        "",
+      provider_connection_id: undefined,
     });
   };
 
@@ -1033,27 +1076,73 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                         ) : null}
                       </div>
                     ) : (
-                      <select
-                        aria-label="Provider connection"
-                        className="rounded-md border border-input bg-background px-3 py-2 text-sm"
-                        value={source.provider_connection_id ?? ""}
-                        onChange={(event) => handleSelectProviderConnection(i, event.target.value)}
-                        disabled={readOnly || providerConnectionOptions.length === 0}
-                        {...SUPPRESS_SECRET_LIKE_INPUT_PROPS}
-                      >
-                        <option value="" disabled>
-                          {providerConnectionOptions.length === 0 ? "No connected apps" : "Select a connected app"}
-                        </option>
-                        {providerConnectionOptions.map((connection) => (
-                          <option
-                            key={connection.id}
-                            value={connection.id}
-                            title={connection.id}
+                      <div className="space-y-2">
+                        {isCustomEditableServer ? (
+                          <select
+                            aria-label="Connection scope"
+                            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                            value={effectiveConnectionScope(source)}
+                            onChange={(event) =>
+                              handleUpdateConnectionScope(
+                                i,
+                                event.target.value as NonNullable<MCPCredentialSource["connection_scope"]>,
+                              )
+                            }
+                            disabled={readOnly}
+                            {...SUPPRESS_PASSWORD_MANAGER_INPUT_PROPS}
                           >
-                            {providerConnectionLabel(connection, oauthConnectorOptions)}
-                          </option>
-                        ))}
-                      </select>
+                            <option value="pinned">Use this connection for all callers</option>
+                            <option value="caller">Use each caller&apos;s connection</option>
+                          </select>
+                        ) : null}
+                        {effectiveConnectionScope(source) === "pinned" || !isCustomEditableServer ? (
+                          <select
+                            aria-label="Provider connection"
+                            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                            value={source.provider_connection_id ?? ""}
+                            onChange={(event) => handleSelectProviderConnection(i, event.target.value)}
+                            disabled={readOnly || providerConnectionOptions.length === 0}
+                            {...SUPPRESS_SECRET_LIKE_INPUT_PROPS}
+                          >
+                            <option value="" disabled>
+                              {providerConnectionOptions.length === 0
+                                ? "No connected apps"
+                                : "Select a connected app"}
+                            </option>
+                            {providerConnectionOptions.map((connection) => (
+                              <option
+                                key={connection.id}
+                                value={connection.id}
+                                title={connection.id}
+                              >
+                                {providerConnectionLabel(connection, oauthConnectorOptions)}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <select
+                            aria-label="Provider"
+                            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                            value={source.provider ?? ""}
+                            onChange={(event) =>
+                              handleUpdateCredentialSource(i, "provider", event.target.value)
+                            }
+                            disabled={readOnly || oauthConnectorOptions.length === 0}
+                            {...SUPPRESS_PASSWORD_MANAGER_INPUT_PROPS}
+                          >
+                            <option value="" disabled>
+                              {oauthConnectorOptions.length === 0
+                                ? "No OAuth providers"
+                                : "Select a provider"}
+                            </option>
+                            {oauthConnectorOptions.map((connector) => (
+                              <option key={connector.id} value={connector.provider}>
+                                {connector.name}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                      </div>
                     )}
                     <Button
                       type="button"

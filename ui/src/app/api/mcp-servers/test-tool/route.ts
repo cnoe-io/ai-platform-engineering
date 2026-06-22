@@ -16,6 +16,7 @@ import { getCollection } from "@/lib/mongodb";
 import {
   readMcpToolApplicationSuccess,
   resolveMcpHeaderCredentials,
+  isMcpCredentialUnavailableError,
 } from "@/lib/mcp-credential-headers";
 import { writeOpenFgaTuples, type OpenFgaTupleKey } from "@/lib/rbac/openfga";
 import { requireResourcePermission } from "@/lib/rbac/resource-authz";
@@ -216,6 +217,13 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
           "A signed-in user token is required to test AgentGateway-routed MCP tools",
           401,
           "MCP_TEST_AUTH_REQUIRED",
+        );
+      }
+      if (isMcpCredentialUnavailableError(error)) {
+        throw new ApiError(
+          error instanceof Error ? error.message : "MCP provider credential is unavailable",
+          401,
+          "MCP_CREDENTIAL_UNAVAILABLE",
         );
       }
       throw error;
