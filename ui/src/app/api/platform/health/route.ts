@@ -417,6 +417,7 @@ async function getPlatformHealth(): Promise<NextResponse> {
   const keycloakRealm = env("KEYCLOAK_REALM") || "caipe";
   const openfgaUrl = trimTrailingSlash(env("OPENFGA_HTTP") || "http://openfga:8080");
   const ragServerUrl = trimTrailingSlash(env("RAG_SERVER_URL") || "http://rag-server:9446");
+  const dynamicAgentsUrl = trimTrailingSlash(env("DYNAMIC_AGENTS_URL") || env("DA_SERVER_BASE_URL") || "http://dynamic-agents:8001");
   const agentgatewayAdminUrl = trimTrailingSlash(
     env("AGENTGATEWAY_ADMIN_CONFIG_URL") || "http://agentgateway:15000/config",
   );
@@ -476,6 +477,17 @@ async function getPlatformHealth(): Promise<NextResponse> {
         label: "OpenFGA",
         href: "/admin?cat=security&tab=openfga",
         description: "Check OpenFGA bridge logs and authz configuration.",
+      },
+    }),
+    probeHttp({
+      id: "dynamic-agents",
+      label: "Dynamic Agents",
+      group: "core",
+      target: `${dynamicAgentsUrl}/health`,
+      remediation: {
+        label: "Dynamic Agents",
+        href: "/agents",
+        description: "Check dynamic agents service logs and dependencies.",
       },
     }),
     probeHttp({
