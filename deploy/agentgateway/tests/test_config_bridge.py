@@ -395,6 +395,9 @@ def test_merge_agentgateway_mcp_routes_applies_provider_token_transform() -> Non
     assert transform["authorization"] == (
         '"Bearer " + default(request.headers["x-caipe-provider-token"], "")'
     )
+    assert transform["x-caipe-provider-token"] == (
+        'default(request.headers["x-caipe-provider-token"], "")'
+    )
     # The per-route transform override must NOT drop the base extAuthz body
     # forwarding (#36) — it's only shallow-merged on top, so includeRequestBody
     # is inherited and the caller-keyed per-tool check still works on this route.
@@ -580,6 +583,14 @@ def test_load_builtin_mcp_routes_parses_shipped_config() -> None:
     gitlab = builtins["gitlab"]
     assert gitlab["policies"]["transformations"]["request"]["set"]["authorization"] == (
         '"Bearer " + default(request.headers["x-caipe-provider-token"], "")'
+    )
+    jira = builtins["jira"]
+    jira_transform = jira["policies"]["transformations"]["request"]["set"]
+    assert jira_transform["authorization"] == (
+        '"Bearer " + default(request.headers["x-caipe-provider-token"], "")'
+    )
+    assert jira_transform["x-caipe-provider-token"] == (
+        'default(request.headers["x-caipe-provider-token"], "")'
     )
 
 

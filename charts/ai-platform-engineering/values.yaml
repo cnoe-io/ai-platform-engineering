@@ -990,7 +990,7 @@ caipe-ui:
     # OpenFGA is installed and the authorization model has been initialized.
     OPENFGA_HTTP: ""
     OPENFGA_STORE_NAME: "caipe-openfga"
-    OPENFGA_RECONCILE_ENABLED: "false"
+    OPENFGA_RECONCILE_ENABLED: "true"
     # Unsafe dev/emergency escape hatch: when true, UI RBAC checks allow all
     # requests without consulting OpenFGA. Do not enable in staging or prod.
     CAIPE_UNSAFE_RBAC_BYPASS: "false"

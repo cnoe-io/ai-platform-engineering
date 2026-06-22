@@ -100,6 +100,11 @@ PROVIDER_TOKEN_BEARER_TRANSFORM: dict[str, Any] = {
                 "authorization": (
                     '"Bearer " + default(request.headers["x-caipe-provider-token"], "")'
                 ),
+                # Jira MCP reads Atlassian OAuth from this header directly; GitHub/GitLab
+                # consume Authorization. Forward the provider token for both patterns.
+                "x-caipe-provider-token": (
+                    'default(request.headers["x-caipe-provider-token"], "")'
+                ),
             },
         },
     },
@@ -112,6 +117,8 @@ PROVIDER_TOKEN_BEARER_TRANSFORM: dict[str, Any] = {
 DEFAULT_MCP_ROUTE_POLICY_OVERRIDES: dict[str, dict[str, Any]] = {
     "github": PROVIDER_TOKEN_BEARER_TRANSFORM,
     "gitlab": PROVIDER_TOKEN_BEARER_TRANSFORM,
+    "jira": PROVIDER_TOKEN_BEARER_TRANSFORM,
+    "pagerduty": PROVIDER_TOKEN_BEARER_TRANSFORM,
     "knowledge-base": PROVIDER_TOKEN_BEARER_TRANSFORM,
 }
 
@@ -372,10 +379,13 @@ def _credential_source_transformations(
         outgoing_header = incoming_header
         expression = f'default(request.headers["{incoming_header}"], "")'
         if incoming_header == "x-caipe-provider-token":
-            outgoing_header = "authorization"
-            expression = (
+            transformations["authorization"] = (
                 '"Bearer " + default(request.headers["x-caipe-provider-token"], "")'
             )
+            transformations["x-caipe-provider-token"] = (
+                'default(request.headers["x-caipe-provider-token"], "")'
+            )
+            continue
         transformations[outgoing_header] = expression
     return transformations
 
