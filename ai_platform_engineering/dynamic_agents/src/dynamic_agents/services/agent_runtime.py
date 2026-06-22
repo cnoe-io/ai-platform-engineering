@@ -600,8 +600,14 @@ class AgentRuntime:
                         "- When the user names a workflow, match it to the list above by **exact name** "
                         "(case-insensitive) and pass that entry's `workflow_config_id` to `start_workflow_run`.\n"
                         "- After starting a run, remember the returned `run_id` for this conversation.\n"
-                        "- When the user asks for status, progress, or output, call `get_workflow_run_status` "
-                        "and summarize the result in plain language. Never tell the user to call tools themselves.\n"
+                        "- When the user asks for status, progress, summary, or output, **always** call "
+                        "`get_workflow_run_status` again (even if you checked earlier in this thread). Use "
+                        "`wait_for_completion=true` (up to 120s) and summarize the fresh result in plain language. "
+                        "Include `final_output_summary` and per-step `output` when present. Never claim outputs "
+                        "are unavailable without a fresh tool result. Never describe API limitations — call the tool. "
+                        "Never tell the user to call tools themselves.\n"
+                        "- Do not report a workflow as completed until `status` is `completed`, `failed`, or "
+                        "`cancelled` in the status tool result.\n"
                         "- Report the `workflow_name` from tool results, not a different workflow."
                     )
                     self._workflow_prompt_addendum = "\n".join(lines)

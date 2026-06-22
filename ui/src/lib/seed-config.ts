@@ -902,8 +902,8 @@ export async function bootstrapDefaultIdentityGroupSyncRuleIfEmpty(): Promise<bo
  * This runs automatically on every server startup, so an operator's only
  * "migration" step is rolling out the new image (e.g. `helm upgrade`). It is
  * idempotent and non-destructive:
- *   - Only matches docs where `credential_sources` is absent OR an empty array,
- *     so re-runs are no-ops and an admin's customized sources are never clobbered.
+ *   - Only matches docs where `credential_sources` is absent. An explicit empty
+ *     array means the operator cleared credentials and must not be backfilled.
  *   - Keyed by the same {@link BUILTIN_MCP_CREDENTIAL_SOURCES} map used by fresh
  *     discovery, so the backfill and insert paths cannot drift.
  *
@@ -917,10 +917,7 @@ export async function backfillBuiltinMcpCredentialSources(): Promise<number> {
     const result = await collection.updateOne(
       {
         _id: id,
-        $or: [
-          { credential_sources: { $exists: false } },
-          { credential_sources: { $size: 0 } },
-        ],
+        credential_sources: { $exists: false },
       },
       {
         $set: {

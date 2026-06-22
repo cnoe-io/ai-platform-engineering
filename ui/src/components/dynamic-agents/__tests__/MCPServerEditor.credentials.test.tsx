@@ -21,6 +21,15 @@ function createBody(): Record<string, unknown> {
   return JSON.parse(String(createCall?.[1]?.body)) as Record<string, unknown>;
 }
 
+function updateBody(): Record<string, unknown> {
+  const updateCall = (global.fetch as jest.Mock).mock.calls.find(
+    ([url, init]: [string, RequestInit | undefined]) =>
+      typeof url === "string" && url.startsWith("/api/mcp-servers?id=") && init?.method === "PUT",
+  );
+  expect(updateCall).toBeDefined();
+  return JSON.parse(String(updateCall?.[1]?.body)) as Record<string, unknown>;
+}
+
 describe("MCPServerEditor credential sources", () => {
   beforeEach(() => {
     global.fetch = jest.fn(async (url: string, init?: RequestInit) => {
@@ -327,5 +336,48 @@ describe("MCPServerEditor credential sources", () => {
         provider: "atlassian",
       },
     ]));
+  });
+
+  it("sends an empty credential_sources array when all credentials are removed on edit", async () => {
+    global.fetch = jest.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/mcp-servers/agentgateway/discover") {
+        return response({ targets: [] });
+      }
+      if (url === "/api/credentials/secrets" || url === "/api/credentials/connections" || url === "/api/credentials/oauth-connectors") {
+        return response([]);
+      }
+      if (typeof url === "string" && url.startsWith("/api/mcp-servers?id=jira") && init?.method === "PUT") {
+        return response({ _id: "jira" }, true);
+      }
+      return response({});
+    });
+
+    const user = userEvent.setup();
+    render(
+      <MCPServerEditor
+        server={{
+          _id: "jira",
+          name: "Jira",
+          transport: "http",
+          endpoint: "http://agentgateway:4000/mcp/jira",
+          credential_sources: [
+            {
+              kind: "provider_connection",
+              target: "header",
+              name: "X-CAIPE-Provider-Token",
+              provider_connection_id: "conn-atlassian",
+              provider: "atlassian",
+            },
+          ],
+        }}
+        onSave={jest.fn()}
+        onCancel={jest.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /remove credential/i }));
+    await user.click(screen.getByRole("button", { name: /save changes/i }));
+
+    await waitFor(() => expect(updateBody().credential_sources).toEqual([]));
   });
 });

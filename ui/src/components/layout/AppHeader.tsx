@@ -29,7 +29,7 @@ import { useReleaseUpgradePrompt } from "@/hooks/use-release-upgrade-prompt";
 import { useVersion } from "@/hooks/use-version";
 import { config,getLogoFilterClass } from "@/lib/config";
 import { cn } from "@/lib/utils";
-import { useChatStore } from "@/store/chat-store";
+import { resolveChatNavigationPath,useChatStore } from "@/store/chat-store";
 import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
 import { AnimatePresence,motion } from "framer-motion";
 import {
@@ -148,7 +148,11 @@ export function AppHeader() {
   const pathname = usePathname();
   const { data: session } = useSession();
   const { isAdmin } = useAdminRole();
-  const { streamingConversations, unviewedConversations, inputRequiredConversations } = useChatStore();
+  const { streamingConversations, unviewedConversations, inputRequiredConversations, conversations, activeConversationId } = useChatStore();
+  const chatHref = React.useMemo(
+    () => resolveChatNavigationPath({ conversations, activeConversationId }),
+    [conversations, activeConversationId],
+  );
   const {
     hasUnsavedChanges,
     pendingNavigationHref,
@@ -618,7 +622,7 @@ export function AppHeader() {
               return (
                 <GuardedLink
                   key="chat"
-                  href="/chat"
+                  href={chatHref}
                   prefetch={true}
                   className={cn(
                     "relative flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-all",

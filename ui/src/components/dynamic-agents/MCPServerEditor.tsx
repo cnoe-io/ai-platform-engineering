@@ -469,7 +469,9 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
           command: transport === "stdio" ? command : undefined,
           args: transport === "stdio" ? args : undefined,
           env: transport === "stdio" && Object.keys(env).length > 0 ? env : undefined,
-          credential_sources: normalizedCredentialSources.length > 0 ? normalizedCredentialSources : undefined,
+          // Always send credential_sources on update (including []) so the BFF can
+          // clear previously saved bindings; omitting the field is a no-op.
+          credential_sources: normalizedCredentialSources,
         };
 
         const response = await fetch(`/api/mcp-servers?id=${server._id}`, {
@@ -1028,6 +1030,7 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                       type="button"
                       variant="ghost"
                       size="icon"
+                      aria-label="Remove credential"
                       onClick={() => handleRemoveCredentialSource(i)}
                       disabled={loading || readOnly}
                     >

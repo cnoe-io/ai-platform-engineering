@@ -22,17 +22,24 @@ type TestCredentials = {
 type ChatBootMocksOptions = {
   conversationId?: string;
   ownerEmail?: string;
+  /** When true (default), GET /api/chat/conversations returns the fixture conversation. */
+  seedExistingConversation?: boolean;
+  /** Artificial delay for the conversation list GET (simulates Sidebar + /chat racing). */
+  conversationListDelayMs?: number;
+  /** When set, seeds an agent participant on the conversation fixture. */
+  agentId?: string;
   onConversationListRequest?: (url: URL) => void;
+  onConversationCreate?: () => void;
 };
 
-function chatConversationFixture(id: string, ownerEmail: string) {
+function chatConversationFixture(id: string, ownerEmail: string, agentId?: string) {
   const now = new Date().toISOString();
   return {
     _id: id,
     title: "RBAC E2E Conversation",
     client_type: "webui",
     owner_id: ownerEmail,
-    participants: [],
+    participants: agentId ? [{ type: "agent", id: agentId }] : [],
     created_at: now,
     updated_at: now,
     metadata: { client_type: "webui", total_messages: 0 },
@@ -56,8 +63,10 @@ export async function installChatBootMocks(
 ): Promise<void> {
   const conversationId = options.conversationId ?? "rbac-e2e-conversation";
   const ownerEmail = options.ownerEmail ?? env.user.email;
-  const conversation = chatConversationFixture(conversationId, ownerEmail);
-  let created = false;
+  const conversation = chatConversationFixture(conversationId, ownerEmail, options.agentId);
+  const seedExistingConversation = options.seedExistingConversation !== false;
+  const conversationListDelayMs = options.conversationListDelayMs ?? 0;
+  let created = seedExistingConversation;
 
   await page.route("**/api/admin/platform-config", async (route) => {
     await route.fulfill({
@@ -75,7 +84,10 @@ export async function installChatBootMocks(
 
     if (path === "/api/chat/conversations" && method === "GET") {
       options.onConversationListRequest?.(requestUrl);
-      const items = created ? [conversation] : [];
+      if (conversationListDelayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, conversationListDelayMs));
+      }
+      const items = created || seedExistingConversation ? [conversation] : [];
       await route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -94,6 +106,7 @@ export async function installChatBootMocks(
     }
 
     if (path === "/api/chat/conversations" && method === "POST") {
+      options.onConversationCreate?.();
       created = true;
       await route.fulfill({
         status: 201,

@@ -151,6 +151,45 @@ export const JIRA_MCP_PROBE_TOOLS: McpToolFixture[] = [
   },
 ];
 
+export const GITHUB_MCP_GET_ME_TOOLS: McpToolFixture[] = [
+  {
+    name: "get_me",
+    namespaced_name: "github-get_me",
+    description: "Return the authenticated GitHub user",
+  },
+];
+
+export const MCP_BROWSER_GENERIC_USER_SESSION = {
+  email: "generic-user@caipe.local",
+  name: "Generic User",
+  role: "user" as const,
+  canViewAdmin: false,
+};
+
+export const DEFAULT_GITHUB_MCP_SERVER: McpServerRow = {
+  _id: "mcp-github",
+  name: "GitHub MCP",
+  description: "GitHub via AgentGateway with team-shared PAT",
+  transport: "http",
+  endpoint: "http://agentgateway:4000/mcp/mcp-test-github",
+  enabled: true,
+  source: "agentgateway",
+  agentgateway_target_endpoint: "http://mcp-github:8000/mcp",
+  credential_sources: [
+    {
+      kind: "secret_ref",
+      target: "header",
+      name: "Authorization",
+      secret_ref: "secret-github-shared",
+    },
+  ],
+  permissions: {
+    can_manage: false,
+    can_invoke: true,
+    can_discover: true,
+  },
+};
+
 export const DEFAULT_JIRA_MCP_SERVER: McpServerRow = {
   _id: "mcp-jira",
   name: "Jira MCP",
@@ -210,6 +249,7 @@ export type InstalledMcpBrowserMocks = {
   testToolRequests: TestToolRequestBody[];
   probeRequests: string[];
   createRequests: Array<Record<string, unknown>>;
+  updateRequests: Array<{ serverId: string; body: Record<string, unknown> }>;
   endpointProbeRequests: string[];
   discoverRequests: number;
   setTestToolResponder: (responder: (body: TestToolRequestBody) => TestToolResponseBody) => void;
@@ -317,6 +357,7 @@ export async function installMcpBrowserMocks(
   const testToolRequests: TestToolRequestBody[] = [];
   const probeRequests: string[] = [];
   const createRequests: Array<Record<string, unknown>> = [];
+  const updateRequests: Array<{ serverId: string; body: Record<string, unknown> }> = [];
   const endpointProbeRequests: string[] = [];
   let discoverRequests = 0;
 
@@ -413,6 +454,40 @@ export async function installMcpBrowserMocks(
           return true;
         }
 
+        if (path === "/api/mcp-servers" && method === "PUT") {
+          const serverId = new URL(route.request().url()).searchParams.get("id") ?? "";
+          const body = (await postJson(route)) as Record<string, unknown>;
+          updateRequests.push({ serverId, body });
+          const existing = servers.find((server) => server._id === serverId);
+          const updated: McpServerRow = {
+            ...(existing ?? {
+              _id: serverId,
+              name: "Browser Fixture MCP",
+              transport: "http",
+              endpoint: "",
+              enabled: true,
+            }),
+            name: typeof body.name === "string" ? body.name : (existing?.name ?? "Browser Fixture MCP"),
+            description:
+              typeof body.description === "string" ? body.description : existing?.description,
+            transport:
+              typeof body.transport === "string" ? body.transport : (existing?.transport ?? "http"),
+            endpoint: typeof body.endpoint === "string" ? body.endpoint : (existing?.endpoint ?? ""),
+            agentgateway_target_endpoint:
+              typeof body.agentgateway_target_endpoint === "string"
+                ? body.agentgateway_target_endpoint
+                : existing?.agentgateway_target_endpoint,
+            credential_sources: Array.isArray(body.credential_sources)
+              ? (body.credential_sources as Array<Record<string, unknown>>)
+              : body.credential_sources === undefined
+                ? existing?.credential_sources
+                : [],
+          };
+          servers = servers.map((server) => (server._id === serverId ? updated : server));
+          await fulfillJson(route, { success: true, data: updated });
+          return true;
+        }
+
         if (path === "/api/mcp-servers/probe" && method === "POST") {
           const serverId = new URL(route.request().url()).searchParams.get("id") ?? "";
           probeRequests.push(serverId);
@@ -469,6 +544,9 @@ export async function installMcpBrowserMocks(
     get createRequests() {
       return createRequests;
     },
+    get updateRequests() {
+      return updateRequests;
+    },
     get endpointProbeRequests() {
       return endpointProbeRequests;
     },
@@ -494,6 +572,11 @@ export async function gotoMcpServersTab(page: Page): Promise<void> {
 export async function openAddMcpServerEditor(page: Page): Promise<void> {
   await page.getByRole("button", { name: "Add Server" }).first().click();
   await page.getByText("Add MCP Server").waitFor({ state: "visible" });
+}
+
+export async function openMcpServerEditor(page: Page, serverName: string): Promise<void> {
+  await page.getByText(serverName, { exact: true }).click();
+  await page.getByText(/Edit MCP Server|View MCP Server/).waitFor({ state: "visible" });
 }
 
 export async function openMcpTestModal(page: Page, serverName: string): Promise<void> {

@@ -131,7 +131,7 @@ describe("Chat Redirect Page", () => {
       },
       {
         id: "conv-2",
-        owner_id: "test@example.com",
+        owner_id: "other@example.com",
         updatedAt: new Date("2026-05-18T08:00:00Z"),
       },
     ];

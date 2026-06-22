@@ -70,10 +70,12 @@ function ChatRedirectPage() {
         ? currentConversations.filter((c) => !c.owner_id || c.owner_id === userEmail)
         : currentConversations;
 
-      // 1. Resume the last active conversation if it still exists and is owned
+      // 1. Resume the last active conversation when it still exists in the loaded list.
+      // Prefer owned entries for auto-pick below, but an explicit last-active id from
+      // this browser should win to avoid spawning duplicate empty chats on /chat.
       if (lastActiveConversationId) {
-        const stillOwned = ownedConversations.some((c) => c.id === lastActiveConversationId);
-        if (stillOwned) {
+        const stillExists = currentConversations.some((c) => c.id === lastActiveConversationId);
+        if (stillExists) {
           redirected.current = true;
           router.replace(`/chat/${lastActiveConversationId}`);
           return;

@@ -1007,6 +1007,52 @@ def _truncate_workflow_text(value: str | None, *, max_len: int = 4000) -> str | 
     return f"{text[: max_len - 3]}..."
 
 
+_TERMINAL_WORKFLOW_STATUSES = frozenset({"completed", "failed", "cancelled"})
+_WORKFLOW_STATUS_POLL_INTERVAL_SECONDS = 3.0
+_WORKFLOW_STATUS_MAX_WAIT_SECONDS = 300
+
+
+def _build_workflow_run_status_payload(
+    run: dict,
+    *,
+    labels: dict[str, str],
+) -> dict[str, object]:
+    """Build agent-facing workflow status JSON including per-step outputs."""
+    config_id = run.get("workflow_config_id", "")
+    steps_summary = []
+    final_output_parts: list[str] = []
+    for s in run.get("steps", []):
+        step_info = {
+            "index": s.get("index"),
+            "display_text": s.get("display_text"),
+            "agent_id": s.get("agent_id"),
+            "status": s.get("status"),
+            "started_at": s.get("started_at"),
+            "completed_at": s.get("completed_at"),
+        }
+        if s.get("error"):
+            step_info["error"] = s["error"]
+        output = _truncate_workflow_text(s.get("response"))
+        if output:
+            step_info["output"] = output
+            label = s.get("display_text") or f"Step {s.get('index')}"
+            final_output_parts.append(f"**{label}**\n{output}")
+        steps_summary.append(step_info)
+
+    payload: dict[str, object] = {
+        "run_id": run.get("_id"),
+        "workflow_config_id": config_id,
+        "workflow_name": _workflow_display_name(config_id, labels),
+        "status": run.get("status"),
+        "started_at": run.get("started_at"),
+        "completed_at": run.get("completed_at"),
+        "steps": steps_summary,
+    }
+    if final_output_parts:
+        payload["final_output_summary"] = "\n\n".join(final_output_parts)
+    return payload
+
+
 def create_workflow_tools(
     client: WorkflowApiClient,
     allowed_config_ids: list[str],
@@ -1083,16 +1129,25 @@ def create_workflow_tools(
     def get_workflow_run_status(
         thought: str = "",
         run_id: str = "",
+        wait_for_completion: bool = False,
+        max_wait_seconds: int = 120,
     ) -> str:
         """Get the detailed status of a specific workflow run.
 
-        Use this when the user asks for workflow status, progress, or output.
+        Use this when the user asks for workflow status, progress, summary, or output.
+        Call again on every follow-up — do not assume earlier results still apply.
+        Set wait_for_completion=true to poll until the run finishes (or times out)
+        so you can return final_output_summary in one reply.
         Summarize the returned JSON for the user in plain language — do not
         tell them to call tools themselves.
 
         Args:
             thought: Brief reasoning for why you want to check this run.
             run_id: The ID of the workflow run to check.
+            wait_for_completion: When true, poll until the run reaches a terminal
+                status (completed, failed, cancelled) or max_wait_seconds elapses.
+            max_wait_seconds: Maximum seconds to poll when wait_for_completion
+                is true (capped at 300).
 
         Returns:
             JSON object with run status, step details, step outputs, errors, and timestamps.
@@ -1100,54 +1155,40 @@ def create_workflow_tools(
         if not run_id:
             return "ERROR: run_id is required"
 
+        wait_seconds = max(0, min(int(max_wait_seconds), _WORKFLOW_STATUS_MAX_WAIT_SECONDS))
+        deadline = time.monotonic() + wait_seconds if wait_for_completion else time.monotonic()
+
         try:
-            resp = client.get(
-                "/api/workflow-runs",
-                params={"run_id": run_id},
-            )
-            if not resp.ok:
-                return f"ERROR: Failed to get run status: HTTP {resp.status_code} - {resp.text[:200]}"
+            while True:
+                resp = client.get(
+                    "/api/workflow-runs",
+                    params={"run_id": run_id},
+                )
+                if not resp.ok:
+                    return f"ERROR: Failed to get run status: HTTP {resp.status_code} - {resp.text[:200]}"
 
-            run = resp.json()
-            # Validate this run belongs to an allowed workflow
-            config_id = run.get("workflow_config_id", "")
-            if config_id not in allowed_set:
-                return f"ERROR: This run belongs to workflow '{config_id}' which you are not allowed to access."
+                run = resp.json()
+                config_id = run.get("workflow_config_id", "")
+                if config_id not in allowed_set:
+                    return (
+                        f"ERROR: This run belongs to workflow '{config_id}' which you are not allowed to access."
+                    )
 
-            # Return a clean summary with step outputs for user-facing status replies.
-            steps_summary = []
-            final_output_parts: list[str] = []
-            for s in run.get("steps", []):
-                step_info = {
-                    "index": s.get("index"),
-                    "display_text": s.get("display_text"),
-                    "agent_id": s.get("agent_id"),
-                    "status": s.get("status"),
-                    "started_at": s.get("started_at"),
-                    "completed_at": s.get("completed_at"),
-                }
-                if s.get("error"):
-                    step_info["error"] = s["error"]
-                output = _truncate_workflow_text(s.get("response"))
-                if output:
-                    step_info["output"] = output
-                    label = s.get("display_text") or f"Step {s.get('index')}"
-                    final_output_parts.append(f"**{label}**\n{output}")
-                steps_summary.append(step_info)
+                payload = _build_workflow_run_status_payload(run, labels=labels)
+                status = str(run.get("status") or "")
 
-            payload: dict[str, object] = {
-                "run_id": run.get("_id"),
-                "workflow_config_id": config_id,
-                "workflow_name": _workflow_display_name(config_id, labels),
-                "status": run.get("status"),
-                "started_at": run.get("started_at"),
-                "completed_at": run.get("completed_at"),
-                "steps": steps_summary,
-            }
-            if final_output_parts:
-                payload["final_output_summary"] = "\n\n".join(final_output_parts)
+                if not wait_for_completion or status in _TERMINAL_WORKFLOW_STATUSES:
+                    return json.dumps(payload, indent=2)
 
-            return json.dumps(payload, indent=2)
+                if time.monotonic() >= deadline:
+                    payload["wait_timed_out"] = True
+                    payload["message"] = (
+                        "Workflow still running after wait. Call get_workflow_run_status again "
+                        "with wait_for_completion=true for more updates."
+                    )
+                    return json.dumps(payload, indent=2)
+
+                time.sleep(_WORKFLOW_STATUS_POLL_INTERVAL_SECONDS)
         except Exception as e:
             return f"ERROR: Failed to get workflow run status: {e}"
 
@@ -1161,8 +1202,8 @@ def create_workflow_tools(
 
         Use this tool to trigger a workflow. Pick workflow_config_id from the
         Available Workflows section by matching the user's requested name.
-        After starting, call get_workflow_run_status when the user asks for
-        progress or output.
+        After starting, call get_workflow_run_status with wait_for_completion=true
+        when the user wants progress or final output.
 
         Args:
             thought: Brief reasoning for why you want to start this workflow.
@@ -1202,7 +1243,8 @@ def create_workflow_tools(
                     "status": result.get("status", "running"),
                     "message": (
                         f"Started workflow '{workflow_name}'. "
-                        "Call get_workflow_run_status with this run_id when the user asks for progress or output."
+                        "Call get_workflow_run_status with this run_id and "
+                        "wait_for_completion=true when the user wants progress or final output."
                     ),
                 },
                 indent=2,

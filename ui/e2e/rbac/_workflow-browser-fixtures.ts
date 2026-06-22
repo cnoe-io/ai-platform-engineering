@@ -319,6 +319,28 @@ export function buildSreAgentWithWorkflowsFixture(
   };
 }
 
+export type WorkflowRunFixture = {
+  _id: string;
+  workflow_config_id: string;
+  workflow_name?: string;
+  status: "pending" | "running" | "completed" | "failed" | "cancelled" | "waiting_for_input";
+  current_step_index?: number;
+  started_at?: string;
+  completed_at?: string;
+  trigger_info?: { triggered_by?: string; user_email?: string };
+  steps: Array<{
+    type: "step";
+    index: number;
+    display_text: string;
+    agent_id: string;
+    status: "pending" | "running" | "completed" | "failed" | "skipped" | "waiting_for_input";
+    error?: string | null;
+    response?: string | null;
+    attempts: number;
+  }>;
+  events?: Record<string, unknown[]>;
+};
+
 export type InstallWorkflowBrowserMocksOptions = {
   session?: {
     email: string;
@@ -347,6 +369,8 @@ export type InstallWorkflowBrowserMocksOptions = {
     teamsWithoutAccess: string[];
   }> | null;
   mcpProbeTools?: Array<{ name: string; description?: string }>;
+  /** Returned by GET /api/workflow-runs?run_id=… for workflow run detail pages. */
+  workflowRun?: WorkflowRunFixture;
 };
 
 export async function installWorkflowBrowserMocks(
@@ -490,12 +514,24 @@ export async function installWorkflowBrowserMocks(
       method === "GET" &&
       (url.searchParams.get("run_id") || url.searchParams.get("id"))
     ) {
+      const runId = url.searchParams.get("run_id") || url.searchParams.get("id") || "wfrun-playwright-rbac";
+      const fixture =
+        options.workflowRun ??
+        ({
+          _id: runId,
+          workflow_config_id: workflows[0]?._id ?? "wf-playwright",
+          workflow_name: workflows[0]?.name ?? "Playwright workflow",
+          status: "running",
+          current_step_index: 0,
+          started_at: new Date().toISOString(),
+          trigger_info: { triggered_by: "webui", user_email: session.email },
+          steps: [],
+          events: {},
+        } satisfies WorkflowRunFixture);
       await fulfillJson(route, {
-        _id: "wfrun-playwright-rbac",
-        workflow_config_id: workflows[0]?._id ?? "wf-playwright",
-        status: "running",
-        steps: [],
-        events: {},
+        ...fixture,
+        _id: fixture._id || runId,
+        events: fixture.events ?? {},
       });
       return true;
     }

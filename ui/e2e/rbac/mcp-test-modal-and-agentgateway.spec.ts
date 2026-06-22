@@ -4,7 +4,10 @@ import { expect, test } from "@playwright/test";
 
 import {
   DEFAULT_AGENTGATEWAY_TARGETS,
+  DEFAULT_GITHUB_MCP_SERVER,
   DEFAULT_JIRA_MCP_SERVER,
+  GITHUB_MCP_GET_ME_TOOLS,
+  MCP_BROWSER_GENERIC_USER_SESSION,
   fillNewMcpServerBasics,
   gotoMcpServersTab,
   installMcpBrowserMocks,

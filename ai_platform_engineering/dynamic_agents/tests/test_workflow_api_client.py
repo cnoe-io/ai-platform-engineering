@@ -170,3 +170,87 @@ def test_get_workflow_run_status_includes_step_output_summary() -> None:
     assert payload["workflow_name"] == "SRI Custom workflow"
     assert payload["steps"][0]["output"] == "Found 3 ArgoCD projects."
     assert "Found 3 ArgoCD projects." in payload["final_output_summary"]
+
+
+@patch("dynamic_agents.services.builtin_tools.time.sleep", return_value=None)
+def test_get_workflow_run_status_waits_for_completion(mock_sleep: MagicMock) -> None:
+    create_workflow_tools = getattr(_load_builtin_tools(), "create_workflow_tools")
+    client = MagicMock()
+
+    running = MagicMock()
+    running.ok = True
+    running.json.return_value = {
+        "_id": "wfrun-abc",
+        "workflow_config_id": "wf-sri",
+        "status": "running",
+        "steps": [{"index": 0, "display_text": "Step 1", "status": "running"}],
+    }
+
+    completed = MagicMock()
+    completed.ok = True
+    completed.json.return_value = {
+        "_id": "wfrun-abc",
+        "workflow_config_id": "wf-sri",
+        "status": "completed",
+        "steps": [
+            {
+                "index": 0,
+                "display_text": "Summarize",
+                "status": "completed",
+                "response": "All systems green.",
+            }
+        ],
+    }
+    client.get.side_effect = [running, completed]
+
+    tools = create_workflow_tools(client, ["wf-sri"], workflow_labels={"wf-sri": "SRI Custom workflow"})
+    status_tool = next(tool for tool in tools if tool.name == "get_workflow_run_status")
+    payload = json.loads(
+        status_tool.invoke(
+            {
+                "thought": "wait",
+                "run_id": "wfrun-abc",
+                "wait_for_completion": True,
+                "max_wait_seconds": 30,
+            }
+        )
+    )
+
+    assert client.get.call_count == 2
+    mock_sleep.assert_called_once()
+    assert payload["status"] == "completed"
+    assert "All systems green." in payload["final_output_summary"]
+
+
+@patch("dynamic_agents.services.builtin_tools.time.sleep", return_value=None)
+@patch("dynamic_agents.services.builtin_tools.time.monotonic")
+def test_get_workflow_run_status_wait_times_out(mock_monotonic: MagicMock, mock_sleep: MagicMock) -> None:
+    create_workflow_tools = getattr(_load_builtin_tools(), "create_workflow_tools")
+    client = MagicMock()
+
+    running = MagicMock()
+    running.ok = True
+    running.json.return_value = {
+        "_id": "wfrun-abc",
+        "workflow_config_id": "wf-sri",
+        "status": "running",
+        "steps": [],
+    }
+    client.get.return_value = running
+    mock_monotonic.side_effect = [0.0, 0.0, 121.0]
+
+    tools = create_workflow_tools(client, ["wf-sri"])
+    status_tool = next(tool for tool in tools if tool.name == "get_workflow_run_status")
+    payload = json.loads(
+        status_tool.invoke(
+            {
+                "thought": "wait",
+                "run_id": "wfrun-abc",
+                "wait_for_completion": True,
+                "max_wait_seconds": 120,
+            }
+        )
+    )
+
+    assert payload["status"] == "running"
+    assert payload["wait_timed_out"] is True
