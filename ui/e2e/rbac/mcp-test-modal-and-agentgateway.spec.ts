@@ -61,7 +61,7 @@ test.describe("RBAC e2e — MCP AgentGateway picker and test modal", () => {
       await page.getByRole("option", { name: /Jira/i }).click();
 
       await expect(page.getByLabel(/Endpoint URL/i)).toHaveValue(
-        "http://agentgateway:4000/mcp/jira",
+        "http://mcp-jira:8000/mcp",
       );
     });
 
@@ -73,12 +73,12 @@ test.describe("RBAC e2e — MCP AgentGateway picker and test modal", () => {
 
       await selectAgentGatewayTarget(page, /Jira/i);
       await expect(page.getByLabel(/Endpoint URL/i)).toHaveValue(
-        "http://agentgateway:4000/mcp/jira",
+        "http://mcp-jira:8000/mcp",
       );
 
       await selectAgentGatewayTarget(page, /ArgoCD/i);
       await expect(page.getByLabel(/Endpoint URL/i)).toHaveValue(
-        "http://agentgateway:4000/mcp/argocd",
+        "http://mcp-argocd:8000/mcp",
       );
     });
 
@@ -101,10 +101,43 @@ test.describe("RBAC e2e — MCP AgentGateway picker and test modal", () => {
         id: "jira-via-ag",
         name: "Jira via AG",
         transport: "http",
-        endpoint: "http://agentgateway:4000/mcp/jira",
+        endpoint: "http://mcp-jira:8000/mcp",
         agentgateway_target_endpoint: "http://mcp-jira:8000/mcp",
       });
+      expect(mocks.createRequests[0]).not.toHaveProperty("route_through_agentgateway");
       await expect(page.getByText("Jira via AG")).toBeVisible();
+    });
+
+    test("does not expose a direct AgentGateway bypass control on the create form", async ({
+      page,
+    }) => {
+      const mocks = await installMcpBrowserMocks(page, { servers: [] });
+
+      await gotoMcpServersTab(page);
+      await openAddMcpServerEditor(page);
+      await page.getByRole("button", { name: /HTTP HTTP\/REST endpoint/i }).click();
+
+      await expect(
+        page.getByText(/always go through AgentGateway so tool access can be authorized/i),
+      ).toBeVisible();
+      await expect(page.getByText(/Bypass AgentGateway routing/i)).toHaveCount(0);
+      await expect(page.getByLabel(/Route through AgentGateway/i)).toHaveCount(0);
+
+      await fillNewMcpServerBasics(page, {
+        displayName: "Custom HTTP MCP",
+        serverId: "custom-http",
+      });
+      await page.getByLabel(/Endpoint URL/i).fill("https://mcp.example.test/custom/mcp");
+      await page.getByRole("button", { name: "Create Server" }).click();
+
+      await expect.poll(() => mocks.createRequests.length).toBe(1);
+      expect(mocks.createRequests[0]).toMatchObject({
+        id: "custom-http",
+        transport: "http",
+        endpoint: "https://mcp.example.test/custom/mcp",
+        agentgateway_target_endpoint: "https://mcp.example.test/custom/mcp",
+      });
+      expect(mocks.createRequests[0]).not.toHaveProperty("route_through_agentgateway");
     });
 
     test("hides the picker when discovery returns no targets", async ({ page }) => {

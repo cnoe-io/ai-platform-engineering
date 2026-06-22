@@ -305,28 +305,15 @@ async function installMcpServerMocks(
             typeof body.id === "string" && body.id.startsWith("mcp-")
               ? body.id
               : `mcp-${String(body.id ?? "ops-tools")}`;
-          const routeThroughAgentGateway = body.route_through_agentgateway === true;
-          const upstreamEndpoint = String(
-            body.agentgateway_target_endpoint ?? body.endpoint ?? "",
-          );
-          const gatewayEndpoint = `http://agentgateway:4000/mcp/${serverId}`;
           servers = [
             {
               _id: serverId,
               name: String(body.name ?? "Ops Tools"),
               description: String(body.description ?? ""),
               transport: String(body.transport ?? "sse"),
-              endpoint: routeThroughAgentGateway ? gatewayEndpoint : String(body.endpoint ?? ""),
+              endpoint: String(body.endpoint ?? ""),
               enabled: true,
               config_driven: false,
-              ...(routeThroughAgentGateway
-                ? {
-                    source: "agentgateway" as const,
-                    agentgateway_discovered: true,
-                    agentgateway_endpoint: gatewayEndpoint,
-                    agentgateway_target_endpoint: upstreamEndpoint,
-                  }
-                : {}),
               ...(Array.isArray(body.credential_sources)
                 ? { credential_sources: body.credential_sources }
                 : {}),
@@ -708,11 +695,11 @@ test.describe("mocked MCP OpenFGA tuple browser regression", () => {
       serverId: "test-netutils",
     });
     await page.getByRole("button", { name: /HTTP HTTP\/REST endpoint/i }).click();
-    await page.getByLabel(/Upstream URL/i).fill("http://mcp-netutils:8000");
+    await page.getByLabel(/Endpoint URL/i).fill("http://mcp-netutils:8000");
     await page.getByRole("button", { name: /check url/i }).click();
     await expect(page.getByText(/http:\/\/mcp-netutils:8000\/mcp/i)).toBeVisible();
     await page.getByRole("button", { name: /use suggested url/i }).click();
-    await expect(page.getByLabel(/Upstream URL/i)).toHaveValue("http://mcp-netutils:8000/mcp");
+    await expect(page.getByLabel(/Endpoint URL/i)).toHaveValue("http://mcp-netutils:8000/mcp");
 
     await page.getByRole("button", { name: "Add Credential" }).click();
     await page.getByLabel(/Credential header/i).selectOption("X-CAIPE-Token");
@@ -728,7 +715,6 @@ test.describe("mocked MCP OpenFGA tuple browser regression", () => {
       name: "Test Netutils",
       transport: "http",
       endpoint: "http://mcp-netutils:8000/mcp",
-      route_through_agentgateway: true,
     });
     expect(mocks.createRequests[0].credential_sources).toEqual([
       {
@@ -797,75 +783,6 @@ test.describe("mocked MCP OpenFGA tuple browser regression", () => {
     ]);
   });
 
-  test("custom HTTP MCP servers can be routed through AgentGateway and remain user-managed", async ({
-    page,
-  }) => {
-    const mocks = await installMcpServerMocks(page);
-
-    await page.goto("/dynamic-agents?tab=mcp-servers", { waitUntil: "domcontentloaded" });
-    await expect(page.getByText("No MCP Servers Yet")).toBeVisible();
-
-    await page.getByRole("button", { name: "Add Server" }).first().click();
-    await expect(page.getByText("Add MCP Server")).toBeVisible();
-
-    await page.getByLabel(/Server ID/i).fill("gateway-tools");
-    await page.getByLabel(/Display Name/i).fill("Gateway Tools");
-    await page.getByRole("button", { name: /HTTP/i }).click();
-    await page.getByLabel(/Upstream URL/i).fill("https://mcp.example.test/gateway/mcp");
-    await page.getByLabel(/Route through AgentGateway/i).check();
-    await page.getByRole("button", { name: /Add Credential/i }).click();
-    await page.getByLabel(/Credential name/i).fill("X-API-TOKEN");
-    await page.getByLabel(/Credential reference/i).fill("secret-ref-playwright");
-
-    await page.getByRole("button", { name: "Create Server" }).click();
-
-    await expect.poll(() => mocks.createRequests.length).toBe(1);
-    expect(mocks.createRequests[0]).toMatchObject({
-      id: "gateway-tools",
-      name: "Gateway Tools",
-      transport: "http",
-      endpoint: "https://mcp.example.test/gateway/mcp",
-      route_through_agentgateway: true,
-      agentgateway_target_endpoint: "https://mcp.example.test/gateway/mcp",
-      credential_sources: [
-        {
-          kind: "secret_ref",
-          target: "header",
-          name: "X-API-TOKEN",
-          secret_ref: "secret-ref-playwright",
-        },
-      ],
-    });
-
-    await expect(page.getByText("Gateway Tools")).toBeVisible();
-    await expect(page.getByText("mcp-gateway-tools", { exact: true })).toBeVisible();
-    await expect(
-      page.getByTitle("Routed through AgentGateway; the bridge reconciles a /mcp/<server-id> route for this server"),
-    ).toBeVisible();
-    await expect(page.getByText(/Target: https:\/\/mcp\.example\.test\/gateway\/mcp/i)).toBeVisible();
-
-    const gatewayRow = page
-      .locator(".grid")
-      .filter({ hasText: "Gateway Tools" })
-      .filter({ hasText: "mcp-gateway-tools" })
-      .first();
-    await expect(gatewayRow.getByRole("button", { name: /Probe for tools/i })).toBeVisible();
-    await expect(gatewayRow.getByRole("button", { name: /Export as YAML/i })).toBeVisible();
-
-    page.once("dialog", (dialog) => dialog.accept());
-    const [deleteResponse] = await Promise.all([
-      page.waitForResponse(
-        (response) =>
-          response.request().method() === "DELETE" &&
-          new URL(response.url()).pathname === "/api/mcp-servers" &&
-          new URL(response.url()).searchParams.get("id") === "mcp-gateway-tools",
-      ),
-      gatewayRow.getByRole("button").last().click(),
-    ]);
-    expect(deleteResponse.status()).toBe(200);
-    await expect(page.getByText("Gateway Tools")).toHaveCount(0);
-  });
-
   test("mounted MCP server list refreshes when servers change outside the tab", async ({ page }) => {
     const mocks = await installMcpServerMocks(page);
 
@@ -896,9 +813,7 @@ test.describe("mocked MCP OpenFGA tuple browser regression", () => {
 
     await expect(page.getByText("knowledge-base", { exact: true })).toBeVisible();
     await expect(page.getByText("mcp-knowledge-base")).toBeVisible();
-    await expect(
-      page.getByTitle("Routed through AgentGateway; the bridge reconciles a /mcp/<server-id> route for this server"),
-    ).toBeVisible();
+    await expect(page.getByTitle("Registered from AgentGateway discovery")).toBeVisible();
     await expect(page.getByText("No MCP Servers Yet")).toHaveCount(0);
   });
 

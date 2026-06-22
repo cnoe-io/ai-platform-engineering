@@ -186,13 +186,8 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
   const [name, setName] = React.useState(server?.name || "");
   const [description, setDescription] = React.useState(server?.description || "");
   const [transport, setTransport] = React.useState<TransportType>(server?.transport || "sse");
-  const [routeThroughAgentGateway, setRouteThroughAgentGateway] = React.useState(
-    server ? server.source === "agentgateway" : true,
-  );
   const [endpoint, setEndpoint] = React.useState(
-    server?.source === "agentgateway"
-      ? server.agentgateway_target_endpoint || server.endpoint || ""
-      : server?.endpoint || "",
+    server?.agentgateway_target_endpoint || server?.endpoint || "",
   );
   const [pickedAgentGatewayUpstream, setPickedAgentGatewayUpstream] = React.useState(
     server?.agentgateway_target_endpoint?.trim() || "",
@@ -239,10 +234,18 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
       })),
     [agentGatewayTargets],
   );
-  const selectedAgentGatewayTargetId = React.useMemo(
-    () => agentGatewayTargets.find((target) => target.endpoint === endpoint)?.id ?? "",
-    [agentGatewayTargets, endpoint],
-  );
+  const selectedAgentGatewayTargetId = React.useMemo(() => {
+    const trimmedEndpoint = endpoint.trim();
+    const trimmedUpstream = pickedAgentGatewayUpstream.trim();
+    return (
+      agentGatewayTargets.find(
+        (target) =>
+          target.endpoint === trimmedEndpoint ||
+          target.target_endpoint?.trim() === trimmedEndpoint ||
+          (trimmedUpstream.length > 0 && target.target_endpoint?.trim() === trimmedUpstream),
+      )?.id ?? ""
+    );
+  }, [agentGatewayTargets, endpoint, pickedAgentGatewayUpstream]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -470,11 +473,9 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
           description: description || undefined,
           transport,
           endpoint: transport !== "stdio" ? endpoint : undefined,
-          route_through_agentgateway: transport !== "stdio" ? routeThroughAgentGateway : false,
-          agentgateway_target_endpoint:
-            transport !== "stdio" && routeThroughAgentGateway
-              ? (pickedAgentGatewayUpstream.trim() || endpoint.trim())
-              : undefined,
+          ...(transport !== "stdio" && pickedAgentGatewayUpstream.trim()
+            ? { agentgateway_target_endpoint: pickedAgentGatewayUpstream.trim() }
+            : {}),
           command: transport === "stdio" ? command : undefined,
           args: transport === "stdio" ? args : undefined,
           env: transport === "stdio" && Object.keys(env).length > 0 ? env : undefined,
@@ -504,11 +505,9 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
           description: description || undefined,
           transport,
           endpoint: transport !== "stdio" ? endpoint : undefined,
-          route_through_agentgateway: transport !== "stdio" ? routeThroughAgentGateway : false,
-          agentgateway_target_endpoint:
-            transport !== "stdio" && routeThroughAgentGateway
-              ? (pickedAgentGatewayUpstream.trim() || endpoint.trim())
-              : undefined,
+          ...(transport !== "stdio" && pickedAgentGatewayUpstream.trim()
+            ? { agentgateway_target_endpoint: pickedAgentGatewayUpstream.trim() }
+            : {}),
           command: transport === "stdio" ? command : undefined,
           args: transport === "stdio" ? args : undefined,
           env: transport === "stdio" && Object.keys(env).length > 0 ? env : undefined,
@@ -782,9 +781,8 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                   <div className="space-y-2">
                     <Label htmlFor="agentgateway-target">AgentGateway target</Label>
                     <p className="text-xs text-muted-foreground">
-                      Pick a routed MCP target from AgentGateway. When routing is enabled,
-                      HTTP and SSE MCP servers use AgentGateway so each tool call can be
-                      authorized.
+                      Pick a routed MCP target from AgentGateway. Saved HTTP and SSE MCP servers
+                      always go through AgentGateway so tool access can be authorized.
                     </p>
                     <TeamPicker
                       id="agentgateway-target"
@@ -795,7 +793,6 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                           const upstream = target.target_endpoint?.trim() || target.endpoint;
                           setEndpoint(upstream);
                           setPickedAgentGatewayUpstream(upstream);
-                          setRouteThroughAgentGateway(true);
                           setEndpointProbe(null);
                         }
                       }}
@@ -814,8 +811,7 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                 ) : null}
                 <div className="space-y-2">
                   <Label htmlFor="endpoint">
-                    {routeThroughAgentGateway ? "Upstream URL" : "Endpoint URL"}{" "}
-                    <span className="text-destructive">*</span>
+                    Endpoint URL <span className="text-destructive">*</span>
                   </Label>
                   <Input
                     id="endpoint"
@@ -839,18 +835,6 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                     className="font-mono"
                     {...SUPPRESS_PASSWORD_MANAGER_INPUT_PROPS}
                   />
-                  {transport === "http" && (
-                    <label className="flex items-center gap-2 text-sm">
-                      <input
-                        type="checkbox"
-                        checked={routeThroughAgentGateway}
-                        onChange={(event) => setRouteThroughAgentGateway(event.target.checked)}
-                        disabled={loading || readOnly}
-                        className="h-4 w-4 rounded border-input"
-                      />
-                      Route through AgentGateway
-                    </label>
-                  )}
                   {transport === "http" ? (
                     <div className="flex flex-wrap items-center gap-2">
                       <Button
@@ -888,40 +872,6 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                             : "Endpoint did not respond successfully."}
                         </span>
                       ) : null}
-                    </div>
-                  ) : null}
-                  {gatewayDiscoveryLoaded && agentGatewayTargets.length > 0 ? (
-                    <div className="space-y-1">
-                      <p className="text-xs text-muted-foreground">
-                        Or pick a quick target — this fills the upstream URL and enables
-                        AgentGateway routing.
-                      </p>
-                      <div className="flex flex-wrap gap-2">
-                        {agentGatewayTargets.map((target) => (
-                          <Button
-                            key={target.id}
-                            type="button"
-                            variant="secondary"
-                            size="sm"
-                            disabled={loading || readOnly}
-                            onClick={() => {
-                              const upstream = target.target_endpoint?.trim() || target.endpoint;
-                              setEndpoint(upstream);
-                              setPickedAgentGatewayUpstream(upstream);
-                              setRouteThroughAgentGateway(true);
-                              setEndpointProbe(null);
-                            }}
-                            title={
-                              target.target_endpoint
-                                ? `${target.endpoint} → ${target.target_endpoint}`
-                                : target.endpoint
-                            }
-                            className="font-mono"
-                          >
-                            {target.name ?? target.id}
-                          </Button>
-                        ))}
-                      </div>
                     </div>
                   ) : null}
                 </div>

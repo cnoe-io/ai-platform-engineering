@@ -308,7 +308,6 @@ describe("MCPServerEditor credential sources", () => {
       expect(createBody()).toMatchObject({
         id: "jira-gu",
         endpoint: "http://mcp-jira:8000/mcp",
-        route_through_agentgateway: true,
         agentgateway_target_endpoint: "http://mcp-jira:8000/mcp",
       }),
     );
@@ -380,31 +379,5 @@ describe("MCPServerEditor credential sources", () => {
     await user.click(screen.getByRole("button", { name: /save changes/i }));
 
     await waitFor(() => expect(updateBody().credential_sources).toEqual([]));
-  });
-
-  it("sends AgentGateway routing metadata for custom HTTP MCP servers", async () => {
-    const user = userEvent.setup();
-    render(<MCPServerEditor server={null} onSave={jest.fn()} onCancel={jest.fn()} />);
-
-    await user.type(screen.getByLabelText(/display name/i), "Custom MCP");
-    await user.click(screen.getByRole("button", { name: /edit generated name/i }));
-    await user.type(screen.getByLabelText(/generated name/i), "custom");
-    await user.click(screen.getByRole("button", { name: /HTTP/i }));
-    await user.type(screen.getByLabelText(/upstream url|endpoint url/i), "https://mcp.example.com/mcp");
-    await user.click(screen.getByRole("button", { name: /create server/i }));
-
-    const calls = (global.fetch as jest.Mock).mock.calls;
-    const createCall = calls.find(
-      ([url, init]: [string, RequestInit | undefined]) =>
-        url === "/api/mcp-servers" && init?.method === "POST",
-    );
-    expect(createCall).toBeDefined();
-    const body = JSON.parse(String(createCall?.[1]?.body));
-    expect(body).toMatchObject({
-      transport: "http",
-      endpoint: "https://mcp.example.com/mcp",
-      route_through_agentgateway: true,
-      agentgateway_target_endpoint: "https://mcp.example.com/mcp",
-    });
   });
 });

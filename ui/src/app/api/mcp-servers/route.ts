@@ -15,14 +15,10 @@ withErrorHandler,
 import { getCollection } from "@/lib/mongodb";
 import { agentGatewayMcpEndpointUrl } from "@/lib/rbac/agentgateway-mcp-discovery";
 import {
-  directUpstreamEndpoint,
   isAgentGatewayManagedEndpoint,
   resolveAgentGatewayUpstreamEndpoint,
 } from "@/lib/rbac/agentgateway-upstream-resolver";
-import {
-  isAgentGatewayBaseEndpoint,
-  normalizeMcpEndpointForServer,
-} from "@/lib/rbac/mcp-endpoint-normalizer";
+import { normalizeMcpEndpointForServer } from "@/lib/rbac/mcp-endpoint-normalizer";
 import { caipeOrgKey } from "@/lib/rbac/organization";
 import {
 deleteAllMcpServerRelationshipTuples,
@@ -116,72 +112,6 @@ function agentGatewayBaseForNormalizer(): string {
   return withMcp.replace(/\/mcp$/, "");
 }
 
-
-function wantsAgentGatewayRouting(
-  body: Record<string, unknown>,
-  transport?: TransportType,
-): boolean {
-  if (body.route_through_agentgateway === false) return false;
-  if (body.route_through_agentgateway === true) return true;
-  if (normalizeString(body.agentgateway_target_endpoint) !== null) return true;
-  if (transport && isNetworkTransport(transport)) return true;
-  return false;
-}
-
-function wantsAgentGatewayRoutingOnUpdate(
-  body: Record<string, unknown>,
-  server: MCPServerConfig,
-  transport: TransportType,
-): boolean {
-  if (body.route_through_agentgateway === false) return false;
-  if (body.route_through_agentgateway === true) return true;
-  if (body.agentgateway_target_endpoint !== undefined) return true;
-  if (body.endpoint !== undefined) return true;
-  if (server.source === "agentgateway") return true;
-  return false;
-}
-
-function assertAgentGatewayRoutingAllowed(
-  body: Record<string, unknown>,
-  transport: TransportType,
-): void {
-  if (
-    body.route_through_agentgateway !== undefined &&
-    typeof body.route_through_agentgateway !== "boolean"
-  ) {
-    throw new ApiError("'route_through_agentgateway' must be a boolean", 400);
-  }
-  if (body.route_through_agentgateway === true && transport !== "http") {
-    throw new ApiError("AgentGateway routing is only supported for HTTP MCP servers", 400);
-  }
-
-  const directUpstream =
-    directUpstreamEndpoint(body.agentgateway_target_endpoint) ??
-    directUpstreamEndpoint(body.endpoint);
-  if (!directUpstream) {
-    if (body.route_through_agentgateway === true) {
-      const rawEndpoint = normalizeString(body.endpoint);
-      if (
-        rawEndpoint &&
-        isAgentGatewayBaseEndpoint(rawEndpoint, agentGatewayBaseForNormalizer())
-      ) {
-        throw new ApiError(
-          "AgentGateway-routed MCP servers must use the upstream MCP endpoint, not the AgentGateway base URL",
-          400,
-        );
-      }
-    }
-    return;
-  }
-
-  if (isAgentGatewayBaseEndpoint(directUpstream, agentGatewayBaseForNormalizer())) {
-    throw new ApiError(
-      "AgentGateway-routed MCP servers must use the upstream MCP endpoint, not the AgentGateway base URL",
-      400,
-    );
-  }
-}
-
 /**
  * Validate transport-specific required fields.
  *
@@ -226,7 +156,6 @@ async function normalizeNetworkServerForAgentGateway(input: {
 }): Promise<{
   endpoint?: string;
   agentgateway_target_endpoint?: string;
-  agentgateway_endpoint?: string;
   source?: "agentgateway";
   agentgateway_discovered?: boolean;
   credential_sources?: MCPCredentialSource[];
@@ -254,9 +183,8 @@ async function normalizeNetworkServerForAgentGateway(input: {
   return {
     endpoint: agentGatewayRouteFor(input.serverId),
     agentgateway_target_endpoint: upstreamEndpoint,
-    agentgateway_endpoint: agentGatewayRouteFor(input.serverId),
     source: "agentgateway",
-    agentgateway_discovered: true,
+    agentgateway_discovered: false,
     credential_sources: normalizeCredentialSourcesForAgentGateway(input.credentialSources),
   };
 }
@@ -403,32 +331,23 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       );
     }
 
-    const transport = body.transport as TransportType;
-
     // Transport validation
     validateTransportConfig(
-      transport,
+      body.transport as TransportType,
       body.command as string | undefined,
-      (body.endpoint as string | undefined) ??
-        (body.agentgateway_target_endpoint as string | undefined),
+      body.endpoint as string | undefined,
     );
 
-    const routeThroughGateway = wantsAgentGatewayRouting(body, transport);
-    let gatewayManaged: Awaited<ReturnType<typeof normalizeNetworkServerForAgentGateway>> | null =
-      null;
-    if (routeThroughGateway) {
-      assertAgentGatewayRoutingAllowed(body, transport);
-      gatewayManaged = await normalizeNetworkServerForAgentGateway({
-        serverId,
-        transport,
-        endpoint: body.endpoint as string | undefined,
-        pickedTargetEndpoint:
-          typeof body.agentgateway_target_endpoint === "string"
-            ? body.agentgateway_target_endpoint
-            : undefined,
-        credentialSources: body.credential_sources,
-      });
-    }
+    const gatewayManaged = await normalizeNetworkServerForAgentGateway({
+      serverId,
+      transport: body.transport as TransportType,
+      endpoint: body.endpoint as string | undefined,
+      pickedTargetEndpoint:
+        typeof body.agentgateway_target_endpoint === "string"
+          ? body.agentgateway_target_endpoint
+          : undefined,
+      credentialSources: body.credential_sources,
+    });
 
     // Build document with explicit field allowlist (Security VII)
     const now = new Date();
@@ -436,18 +355,16 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       _id: serverId,
       name: body.name as string,
       description: (body.description as string) ?? "",
-      transport,
-      endpoint: gatewayManaged?.endpoint ?? (body.endpoint as string | undefined),
+      transport: body.transport as TransportType,
+      endpoint: gatewayManaged.endpoint,
       command: body.command as string | undefined,
       args: body.args as string[] | undefined,
       env: body.env as Record<string, string> | undefined,
-      credential_sources: gatewayManaged?.credential_sources ??
-        normalizeCredentialSourcesForAgentGateway(body.credential_sources),
+      credential_sources: gatewayManaged.credential_sources,
       enabled: (body.enabled as boolean) ?? true,
-      source: gatewayManaged?.source ?? "manual",
-      agentgateway_discovered: gatewayManaged?.agentgateway_discovered,
-      agentgateway_endpoint: gatewayManaged?.agentgateway_endpoint,
-      agentgateway_target_endpoint: gatewayManaged?.agentgateway_target_endpoint,
+      source: gatewayManaged.source ?? "manual",
+      agentgateway_discovered: gatewayManaged.agentgateway_discovered,
+      agentgateway_target_endpoint: gatewayManaged.agentgateway_target_endpoint,
       owner_id: user.email,
       owner_subject: ownerSubject,
       owner_team_slug: ownerTeamSlug ?? undefined,
@@ -522,29 +439,13 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
 
     // Build update with explicit field allowlist
     const updateData = pickMutableFields(body);
-    const unsetData: Record<string, ""> = {};
     if (Object.keys(updateData).length === 0) {
       // No fields to update — return current state
       return successResponse(server);
     }
 
     const nextTransport = (updateData.transport as TransportType | undefined) ?? server.transport;
-
-    if (body.route_through_agentgateway === false) {
-      updateData.source = "manual";
-      updateData.agentgateway_discovered = false;
-      updateData.config_driven = false;
-      unsetData.agentgateway_endpoint = "";
-      unsetData.agentgateway_target_endpoint = "";
-    } else if (wantsAgentGatewayRoutingOnUpdate(body, server, nextTransport)) {
-      const directUpstream =
-        directUpstreamEndpoint(body.agentgateway_target_endpoint) ??
-        directUpstreamEndpoint(
-          typeof updateData.endpoint === "string" ? updateData.endpoint : undefined,
-        );
-      if (directUpstream || body.route_through_agentgateway === true) {
-        assertAgentGatewayRoutingAllowed(body, nextTransport);
-      }
+    if (isNetworkTransport(nextTransport)) {
       const gatewayManaged = await normalizeNetworkServerForAgentGateway({
         serverId: String(id),
         transport: nextTransport,
@@ -562,13 +463,8 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
       updateData.endpoint = gatewayManaged.endpoint;
       updateData.source = gatewayManaged.source;
       updateData.agentgateway_discovered = gatewayManaged.agentgateway_discovered;
-      updateData.agentgateway_endpoint = gatewayManaged.agentgateway_endpoint;
       updateData.agentgateway_target_endpoint = gatewayManaged.agentgateway_target_endpoint;
       updateData.credential_sources = gatewayManaged.credential_sources;
-    } else if (isNetworkTransport(nextTransport)) {
-      updateData.credential_sources = normalizeCredentialSourcesForAgentGateway(
-        updateData.credential_sources ?? server.credential_sources,
-      );
     } else if (updateData.credential_sources !== undefined) {
       updateData.credential_sources = normalizeCredentialSourcesForAgentGateway(updateData.credential_sources);
     }
@@ -577,10 +473,7 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
 
     const updated = await collection.findOneAndUpdate(
       { _id: id },
-      {
-        $set: updateData,
-        ...(Object.keys(unsetData).length > 0 ? { $unset: unsetData } : {}),
-      },
+      { $set: updateData },
       { returnDocument: "after" },
     );
 
