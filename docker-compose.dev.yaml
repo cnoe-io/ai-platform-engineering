@@ -761,7 +761,7 @@ services:
     env_file: [.env]
     ports: ["18004:8000"]
     volumes:
-      - ./ai_platform_engineering/agents/jira/mcp/mcp_jira:/app/mcp_jira
+      - ./ai_platform_engineering/agents/jira/mcp/mcp_jira:/app/ai_platform_engineering/agents/jira/mcp/mcp_jira
     environment:
       - MCP_MODE=http
       - MCP_HOST=0.0.0.0

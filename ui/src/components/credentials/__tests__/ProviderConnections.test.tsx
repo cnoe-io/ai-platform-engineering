@@ -120,6 +120,52 @@ describe("ProviderConnections", () => {
     );
   });
 
+  it("clears a connected app via DELETE and reloads connections", async () => {
+    const user = userEvent.setup();
+    let connections = [
+      {
+        id: "atlassian-connection",
+        connectorId: "connector-2",
+        provider: "atlassian",
+        status: "connected",
+        updatedAt: "2026-05-21T16:00:00.000Z",
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+      },
+    ];
+    const fetchMock = jest.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/credentials/oauth-connectors") {
+        return response([
+          { id: "connector-2", name: "Atlassian", provider: "atlassian", enabled: true },
+        ]);
+      }
+      if (url === "/api/credentials/connections" && (!init || init.method === undefined)) {
+        return response(connections);
+      }
+      if (url === "/api/credentials/connections/atlassian-connection" && init?.method === "DELETE") {
+        connections = [];
+        return response({ id: "atlassian-connection", provider: "atlassian", status: "disabled" });
+      }
+      return response({}, false, 404);
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    render(<ProviderConnections />);
+
+    expect(await screen.findByRole("link", { name: /reconnect atlassian/i })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /clear atlassian connection/i }));
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/credentials/connections/atlassian-connection",
+        expect.objectContaining({ method: "DELETE" }),
+      ),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("link", { name: /connect atlassian/i })).toBeInTheDocument(),
+    );
+    expect(screen.queryByRole("button", { name: /clear atlassian connection/i })).not.toBeInTheDocument();
+  });
+
   it("uses the newest connection when historical duplicate provider rows exist", async () => {
     const fetchMock = jest.fn(async (url: string, init?: RequestInit) => {
       if (url === "/api/credentials/oauth-connectors") {

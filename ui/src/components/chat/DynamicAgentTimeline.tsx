@@ -1001,7 +1001,14 @@ function WarningSegmentView({ segment, isNested = false }: { segment: WarningSeg
       isNested ? "text-[10px] px-2 py-1" : "text-xs px-3 py-2"
     )}>
       <AlertTriangle className={cn("shrink-0 mt-0.5", isNested ? "h-2.5 w-2.5" : "h-3.5 w-3.5")} />
-      <span>{segment.message}</span>
+      <div
+        className={cn(
+          "min-w-0 [&_.streaming-markdown]:text-inherit [&_.md-link]:font-semibold",
+          "[&_.md-link]:text-cyan-300 [&_.md-link]:underline [&_.md-link:hover]:text-cyan-200",
+        )}
+      >
+        <MarkdownRenderer content={segment.message} variant="user" />
+      </div>
     </div>
   );
 }

@@ -53,7 +53,25 @@ def validate_prerequisites(
 ) -> Tuple[bool, Dict[str, Any]]:
     """Validate required Jira credentials and reject placeholder URLs."""
     provider_header_token = get_provider_header_token()
-    resolved_token = token or provider_header_token or get_env()
+    caipe_gateway_caller = _caipe_provider_oauth_required() and not token
+
+    if caipe_gateway_caller:
+        logger.error(
+            "Caller-scoped Atlassian OAuth required but X-CAIPE-Provider-Token is missing."
+        )
+        return (
+            False,
+            {
+                "error": (
+                    "Atlassian account not connected. Connect Atlassian in CAIPE Credentials, "
+                    "then start a new chat."
+                )
+            },
+        )
+
+    resolved_token = token or provider_header_token
+    if not resolved_token:
+        resolved_token = get_env()
     resolved_email = str(
         email or os.getenv("ATLASSIAN_EMAIL") or os.getenv("JIRA_EMAIL") or os.getenv("JIRA_USER") or ""
     )
@@ -117,6 +135,39 @@ def get_provider_header_token() -> Optional[str]:
         return token or None
     except Exception:
         return None
+
+
+def _request_has_caipe_provider_header() -> bool:
+    """True when AgentGateway forwarded the provider-token route (value may be empty)."""
+    try:
+        from fastmcp.server.dependencies import get_http_request
+
+        req = get_http_request()
+        return "x-caipe-provider-token" in req.headers
+    except Exception:
+        return False
+
+
+def _caipe_provider_oauth_required() -> bool:
+    """Caller OAuth is required but no exchanged token was forwarded."""
+    if get_provider_header_token():
+        return False
+    return _request_has_caipe_provider_header()
+
+
+def _request_has_caipe_mcp_auth_jwt() -> bool:
+    """True when AgentGateway forwarded a Keycloak JWT on Authorization (caller context)."""
+    try:
+        from fastmcp.server.dependencies import get_http_request
+
+        req = get_http_request()
+        auth = req.headers.get("authorization", "").strip()
+        if auth.lower().startswith("bearer "):
+            token = auth[7:].strip()
+            return bool(token) and _looks_like_jwt(token)
+    except Exception:
+        pass
+    return False
 
 
 def _looks_like_jwt(value: str) -> bool:

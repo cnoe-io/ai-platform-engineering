@@ -299,3 +299,22 @@ async def test_resolve_oauth_base_url_honours_explicit_cloud_id(monkeypatch):
     base_url = await client.resolve_oauth_base_url("provider-oauth-token")
 
     assert base_url == "https://api.atlassian.com/ex/jira/pinned-cloud"
+
+
+def test_validate_prerequisites_rejects_gateway_caller_without_provider_token(monkeypatch):
+    """AgentGateway caller path without provider token must not fall back to env PAT."""
+    client = importlib.import_module("mcp_jira.api.client")
+    importlib.reload(client)
+    monkeypatch.setenv("ATLASSIAN_TOKEN", "shared-env-pat")
+    monkeypatch.setenv("ATLASSIAN_API_URL", "https://test.atlassian.net")
+    monkeypatch.setattr(client, "get_provider_header_token", lambda: None)
+    monkeypatch.setattr(
+        client,
+        "_request_has_caipe_provider_header",
+        lambda: True,
+    )
+
+    ok, payload = client.validate_prerequisites()
+
+    assert ok is False
+    assert "Atlassian account not connected" in payload["error"]

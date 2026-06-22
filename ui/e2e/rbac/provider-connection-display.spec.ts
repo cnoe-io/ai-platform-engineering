@@ -337,9 +337,8 @@ test.describe("RBAC e2e — provider connection display and cleanup", () => {
       expect(response.ok).toBe(true);
       expect(mocks.connectionRevokeRequests).toEqual([OLD_ATLASSIAN_CONNECTION.id]);
       expect(
-        mocks.providerConnections.find((connection) => connection.id === OLD_ATLASSIAN_CONNECTION.id)
-          ?.status,
-      ).toBe("disabled");
+        mocks.providerConnections.find((connection) => connection.id === OLD_ATLASSIAN_CONNECTION.id),
+      ).toBeUndefined();
       expect(
         mocks.providerConnections.filter((connection) => connection.status === "connected"),
       ).toHaveLength(1);

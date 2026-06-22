@@ -120,6 +120,7 @@ export function ProviderConnections() {
   // In-session scope overrides keyed by connector id; set only when the user
   // toggles a checkbox. Absent ⇒ derive from the stored/default selection.
   const [scopeOverrides, setScopeOverrides] = React.useState<Record<string, string[]>>({});
+  const [revokingConnections, setRevokingConnections] = React.useState<Record<string, boolean>>({});
   const [diagnosticModal, setDiagnosticModal] = React.useState<{
     connector: OAuthConnector;
     connection: ProviderConnection;
@@ -260,6 +261,45 @@ export function ProviderConnections() {
       }));
     }
   }, []);
+
+  const handleClearConnection = React.useCallback(
+    async (connection: ProviderConnection, providerLabel: string) => {
+      setRevokingConnections((current) => ({ ...current, [connection.id]: true }));
+      try {
+        const response = await fetch(`/api/credentials/connections/${connection.id}`, {
+          method: "DELETE",
+        });
+        if (!response.ok) {
+          throw new Error(`Could not clear ${providerLabel} connection`);
+        }
+        setProfileChecks((current) => {
+          const next = { ...current };
+          delete next[connection.id];
+          return next;
+        });
+        setAutoRefreshStates((current) => {
+          const next = { ...current };
+          delete next[connection.id];
+          return next;
+        });
+        autoRefreshAttempted.current.delete(connection.id);
+        await load();
+      } catch (err) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : `Could not clear ${providerLabel} connection`,
+        );
+      } finally {
+        setRevokingConnections((current) => {
+          const next = { ...current };
+          delete next[connection.id];
+          return next;
+        });
+      }
+    },
+    [load],
+  );
 
   const handleOAuthConnect = React.useCallback(
     (
@@ -493,6 +533,19 @@ export function ProviderConnections() {
                               {connected ? `Reconnect ${profileLabel}` : `Connect ${profileLabel}`}
                             </span>
                           </a>
+                          {connected && connection && (
+                            <button
+                              type="button"
+                              className="inline-flex min-w-[140px] items-center justify-center rounded-xl border border-border/80 bg-card/70 px-4 py-2 text-sm font-medium text-muted-foreground transition hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive disabled:cursor-not-allowed disabled:opacity-60"
+                              disabled={Boolean(revokingConnections[connection.id])}
+                              aria-label={`Clear ${profileLabel} connection`}
+                              onClick={() => void handleClearConnection(connection, profileLabel)}
+                            >
+                              {revokingConnections[connection.id]
+                                ? "Clearing…"
+                                : "Clear connection"}
+                            </button>
+                          )}
                           {allowedScopes.length > 0 && (
                             <button
                               type="button"

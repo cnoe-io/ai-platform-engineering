@@ -120,6 +120,8 @@ async def test_agent_runtime_initialize_wires_user_bearer_into_workflow_client(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """initialize() must pass request-entry JWT into WorkflowApiClient."""
+    from dynamic_agents.services import mcp_client
+
     captured: dict = {}
 
     def capturing_client(**kwargs):
@@ -143,7 +145,7 @@ async def test_agent_runtime_initialize_wires_user_bearer_into_workflow_client(
     )
     monkeypatch.setattr(
         "dynamic_agents.services.agent_runtime.resolve_mcp_connections_credential_refs",
-        lambda *args, **kwargs: {},
+        lambda *args, **kwargs: mcp_client.McpCredentialResolutionResult(connections={}),
     )
     monkeypatch.setattr(
         "dynamic_agents.services.agent_runtime.get_llm",

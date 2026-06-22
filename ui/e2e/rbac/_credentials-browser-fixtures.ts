@@ -369,13 +369,15 @@ function credentialSecretsHandler(
     if (connectionMatch && method === "DELETE") {
       const connectionId = decodeURIComponent(connectionMatch[1] ?? "");
       state.connectionRevokeRequests.push(connectionId);
-      state.providerConnections = state.providerConnections.map((connection) =>
-        connection.id === connectionId ? { ...connection, status: "disabled" } : connection,
-      );
       const revoked = state.providerConnections.find((connection) => connection.id === connectionId);
+      state.providerConnections = state.providerConnections.filter(
+        (connection) => connection.id !== connectionId,
+      );
       await fulfillJson(route, {
         success: true,
-        data: revoked ?? { id: connectionId, status: "disabled" },
+        data: revoked
+          ? { ...revoked, status: "disabled" }
+          : { id: connectionId, status: "disabled" },
       });
       return true;
     }
