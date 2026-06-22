@@ -19,16 +19,20 @@ allowedToolsFromAgent,
 deleteAllAgentToolTuples,
 reconcileAgentRelationships,
 } from "@/lib/rbac/openfga-agent-tools";
+import { filterAgentsByOwnershipScopeForSession } from "@/lib/rbac/agent-ownership-scope";
 import { caipeOrgKey } from "@/lib/rbac/organization";
-import { isPlatformDefaultAgent } from "@/lib/rbac/platform-default";
+import { getPlatformDefaultAgentId,isPlatformDefaultAgent } from "@/lib/rbac/platform-default";
 import {
 filterResourcesByPermission,
 requireAgentPermission,
 requireResourcePermission,
+agentRowPermissionsOrDefault,
+resolveAgentListPermissions,
 } from "@/lib/rbac/resource-authz";
 import { resolveShareableOwnershipWrite } from "@/lib/rbac/shareable-resource";
 import type {
 DynamicAgentConfig,
+DynamicAgentConfigWithPermissions,
 LegacyVisibilityType,
 SubAgentRef,
 VisibilityType,
@@ -291,21 +295,9 @@ async function canUseTeamSlug(
 async function requireAgentWritePermission(
   session: Parameters<typeof requireAgentPermission>[0],
   agentId: string,
-  agent: DynamicAgentConfig,
+  _agent: DynamicAgentConfig,
 ): Promise<void> {
-  try {
-    await requireAgentPermission(session, agentId, "write");
-    return;
-  } catch (error) {
-    const ownerSlug = normalizeString(agent.owner_team_slug);
-    if (ownerSlug && (await canUseTeamSlug(session, ownerSlug))) return;
-
-    const { slugs: sharedTeamSlugs } = await resolveSharedTeamSlugs(agent.shared_with_teams);
-    for (const slug of sharedTeamSlugs) {
-      if (await canUseTeamSlug(session, slug)) return;
-    }
-    throw error;
-  }
+  await requireAgentPermission(session, agentId, "write");
 }
 
 /**
@@ -380,29 +372,37 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       ? { $or: [{ enabled: true }, { enabled: { $exists: false } }] }
       : {};
 
-    const [items, total] = await Promise.all([
-      collection
-        .find(query)
-        .sort({ created_at: -1 })
-        .skip(skip)
-        .limit(pageSize)
-        .toArray(),
-      collection.countDocuments(query),
-    ]);
+    const allItems = await collection.find(query).sort({ created_at: -1 }).toArray();
 
     // Normalize legacy documents
-    const normalizedItems = items.map((item) =>
+    const normalizedItems = allItems.map((item) =>
       normalizeAgentDoc(item as unknown as Record<string, unknown>),
+    ) as DynamicAgentConfig[];
+    const platformDefaultAgentId = await getPlatformDefaultAgentId();
+    const scopedItems = await filterAgentsByOwnershipScopeForSession(
+      session,
+      normalizedItems,
+      platformDefaultAgentId,
     );
-    const visibleItems = await filterResourcesByPermission(session, normalizedItems, {
-      type: "agent",
-      action: enabledOnly ? "use" : "discover",
-      id: (agent) => String(agent._id),
-    });
+    const listTarget = {
+      type: "agent" as const,
+      action: (enabledOnly ? "use" : "discover") as const,
+      id: (agent: DynamicAgentConfig) => String(agent._id),
+    };
+    const visibleItems = await filterResourcesByPermission(session, scopedItems, listTarget);
+    const pageItems = visibleItems.slice(skip, skip + pageSize);
+    const { rows } = await resolveAgentListPermissions(
+      session,
+      pageItems.map((agent) => String(agent._id)),
+    );
+    const items: DynamicAgentConfigWithPermissions[] = pageItems.map((agent) => ({
+      ...(agent as DynamicAgentConfig),
+      permissions: agentRowPermissionsOrDefault(rows, String(agent._id)),
+    }));
 
     return paginatedResponse(
-      visibleItems,
-      visibleItems.length < normalizedItems.length ? visibleItems.length : total,
+      items,
+      visibleItems.length,
       page,
       pageSize,
     );

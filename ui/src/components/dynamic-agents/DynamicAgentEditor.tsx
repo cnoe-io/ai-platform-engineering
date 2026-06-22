@@ -82,7 +82,7 @@ const VISIBILITY_OPTIONS: { value: VisibilityType; label: string; icon: React.Re
     value: "team",
     label: "Team",
     icon: <Users className="h-4 w-4" />,
-    description: "Owner-team members can use; admins can manage. Optionally share with other teams.",
+    description: "Team members can use; you manage as creator; team admins can manage. Optionally share with other teams.",
   },
   {
     value: "global",
@@ -1499,22 +1499,29 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                       ? `${team.name} (${team.user_role})`
                       : team.name,
                     _id: team._id,
-                    disabled: !team.can_own_agents,
+                    disabled: team.can_own_agents === false,
                   }))}
+                ownerHelpText={
+                  <>
+                    Select a team you belong to as the owner. You manage this
+                    agent as its creator; team members can use it; team admins
+                    can manage it.
+                  </>
+                }
                 shareHelpText={
                   <>
-                    Select which teams can access this agent. Each selected
-                    team gets <code>can_use</code> and <code>can_write</code> on
-                    the agent in OpenFGA, so every member can edit it, DM it,
-                    and use it in any Slack channel or Webex space mapped to
-                    that team.
+                    Select which additional teams can access this agent. Each
+                    selected team gets <code>can_use</code> on the agent in
+                    OpenFGA, so members can DM it and use it in any Slack
+                    channel or Webex space mapped to that team. Team admins can
+                    manage shared agents.
                   </>
                 }
                 renderGrantDetail={(slug) => (
                   <>
-                    every member of <code>team:{slug}</code> can edit this
-                    agent, DM it in a 1:1 chat, and use it in any Slack channel
-                    or Webex space that is mapped to <code>team:{slug}</code>.
+                    every member of <code>team:{slug}</code> can use this agent
+                    in chat; team admins of <code>team:{slug}</code> can manage
+                    it.
                   </>
                 )}
                 extraGrantPreviewItems={
@@ -1541,10 +1548,9 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, onSave, onCance
                     : undefined
                 }
                 ownerExtra={
-                  !isEditing &&
-                  availableTeams.every((team) => !team.can_own_agents) ? (
+                  !isEditing && availableTeams.length === 0 ? (
                     <p className="text-xs text-destructive">
-                      You need to be a platform admin or a team admin to create a team-owned agent.
+                      You must belong to at least one team to create a team-owned agent.
                     </p>
                   ) : null
                 }
