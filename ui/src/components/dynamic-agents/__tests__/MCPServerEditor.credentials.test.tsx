@@ -100,7 +100,7 @@ describe("MCPServerEditor credential sources", () => {
     expect(screen.queryByRole("option", { name: /bearer_token|fingerprint|preview/i })).not.toBeInTheDocument();
     expect(screen.queryByText(/Preview j\.\.\.a/i)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /create server/i })).toBeDisabled();
-    expect(screen.getByLabelText(/credential header/i)).toHaveValue("Authorization");
+    expect(screen.getByLabelText(/credential header/i)).toHaveValue("X-CAIPE-Provider-Token");
     await user.selectOptions(screen.getByLabelText(/^secret$/i), "secret-jira");
     expect(screen.getByText("Preview j...a")).toBeInTheDocument();
 
@@ -116,7 +116,7 @@ describe("MCPServerEditor credential sources", () => {
       {
         kind: "secret_ref",
         target: "header",
-        name: "Authorization",
+        name: "X-CAIPE-Provider-Token",
         secret_ref: "secret-jira",
       },
       {
@@ -138,16 +138,32 @@ describe("MCPServerEditor credential sources", () => {
     await user.click(screen.getByRole("button", { name: /add credential/i }));
     await screen.findByRole("option", { name: "Jira token" });
 
-    await user.selectOptions(screen.getByLabelText(/credential header/i), "X-CAIPE-Token");
+    await user.selectOptions(screen.getByLabelText(/credential header/i), "X-CAIPE-Provider-Token");
     await user.selectOptions(screen.getByLabelText(/^secret$/i), "secret-jira");
     await user.click(screen.getByRole("button", { name: /create server/i }));
 
     await waitFor(() => expect(createBody().credential_sources).toEqual([
       expect.objectContaining({
         target: "header",
-        name: "X-CAIPE-Token",
+        name: "X-CAIPE-Provider-Token",
       }),
     ]));
+  });
+
+  it("warns when Authorization is selected for AgentGateway-routed servers", async () => {
+    const user = userEvent.setup();
+    render(<MCPServerEditor server={null} onSave={jest.fn()} onCancel={jest.fn()} />);
+
+    await user.type(screen.getByLabelText(/display name/i), "Auth Warning Test");
+    await user.type(screen.getByLabelText(/upstream url|endpoint url/i), "https://mcp.example.com/mcp");
+    await user.click(screen.getByRole("button", { name: /add credential/i }));
+
+    expect(screen.getByText(/route through AgentGateway/i)).toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText(/credential header/i), "Authorization");
+    expect(
+      screen.getByText(/Authorization is not forwarded to the upstream MCP server via AgentGateway/i),
+    ).toBeInTheDocument();
   });
 
   it("lets users type a custom header name", async () => {
@@ -330,7 +346,7 @@ describe("MCPServerEditor credential sources", () => {
         {
           kind: "provider_connection",
           target: "header",
-          name: "Authorization",
+          name: "X-CAIPE-Provider-Token",
           connection_scope: "caller",
           provider: "atlassian",
         },
@@ -348,7 +364,7 @@ describe("MCPServerEditor credential sources", () => {
 
     await user.selectOptions(screen.getByLabelText(/credential kind/i), "provider_connection");
     await screen.findByRole("option", { name: /Atlassian Cloud/ });
-    expect(screen.getByLabelText(/credential header/i)).toHaveValue("Authorization");
+    expect(screen.getByLabelText(/credential header/i)).toHaveValue("X-CAIPE-Provider-Token");
     await user.selectOptions(screen.getByLabelText(/provider connection/i), "conn-atlassian");
     await user.click(screen.getByRole("button", { name: /create server/i }));
 
@@ -356,7 +372,7 @@ describe("MCPServerEditor credential sources", () => {
       {
         kind: "provider_connection",
         target: "header",
-        name: "Authorization",
+        name: "X-CAIPE-Provider-Token",
         connection_scope: "pinned",
         provider_connection_id: "conn-atlassian",
       },

@@ -702,7 +702,7 @@ test.describe("mocked MCP OpenFGA tuple browser regression", () => {
     await expect(page.getByLabel(/Endpoint URL/i)).toHaveValue("http://mcp-netutils:8000/mcp");
 
     await page.getByRole("button", { name: "Add Credential" }).click();
-    await page.getByLabel(/Credential header/i).selectOption("X-CAIPE-Token");
+    await page.getByLabel(/Credential header/i).selectOption("X-CAIPE-Provider-Token");
     await page.getByLabel(/^Secret$/).selectOption("secret-netutils-token");
     await expect(page.getByText("Preview net_...oken")).toBeVisible();
 
@@ -720,7 +720,7 @@ test.describe("mocked MCP OpenFGA tuple browser regression", () => {
       {
         kind: "secret_ref",
         target: "header",
-        name: "X-CAIPE-Token",
+        name: "X-CAIPE-Provider-Token",
         secret_ref: "secret-netutils-token",
       },
     ]);

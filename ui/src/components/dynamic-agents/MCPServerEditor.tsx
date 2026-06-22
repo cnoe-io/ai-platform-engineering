@@ -48,8 +48,31 @@ const TRANSPORT_OPTIONS: { value: TransportType; label: string; description: str
   { value: "http", label: "HTTP", description: "HTTP/REST endpoint" },
 ];
 
-const HEADER_NAME_OPTIONS = ["Authorization", "X-CAIPE-Token"] as const;
+const MCP_PROVIDER_CREDENTIAL_HEADER = "X-CAIPE-Provider-Token";
+const HEADER_NAME_OPTIONS = [MCP_PROVIDER_CREDENTIAL_HEADER, "Authorization"] as const;
 const CUSTOM_HEADER_VALUE = "__custom__";
+
+function normalizeCredentialHeaderName(name: string): string {
+  const trimmed = name.trim();
+  if (/^(authorization|x-caipe-token)$/i.test(trimmed)) {
+    return MCP_PROVIDER_CREDENTIAL_HEADER;
+  }
+  return trimmed;
+}
+
+function normalizeCredentialSourcesForEditor(
+  sources: MCPCredentialSource[] | undefined,
+): MCPCredentialSource[] {
+  return (sources ?? []).map((source) =>
+    source.target === "header"
+      ? { ...source, name: normalizeCredentialHeaderName(source.name) }
+      : source,
+  );
+}
+
+function usesAgentGatewayRouting(transportType: TransportType): boolean {
+  return transportType !== "stdio";
+}
 
 interface EndpointProbeAttempt {
   url: string;
@@ -200,7 +223,7 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
     server?.env ? Object.entries(server.env).map(([key, value]) => ({ key, value })) : []
   );
   const [credentialSources, setCredentialSources] = React.useState<MCPCredentialSource[]>(
-    server?.credential_sources || []
+    normalizeCredentialSourcesForEditor(server?.credential_sources),
   );
 
   const [loading, setLoading] = React.useState(false);
@@ -334,7 +357,7 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
       {
         kind: "secret_ref",
         target: transport === "stdio" ? "env" : "header",
-        name: transport === "stdio" ? "" : "Authorization",
+        name: transport === "stdio" ? "" : MCP_PROVIDER_CREDENTIAL_HEADER,
         secret_ref: "",
       },
     ]);
@@ -363,7 +386,7 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
         name: nextTarget === "env" && currentNameIsDefaultHeader
           ? ""
           : nextTarget === "header" && !current.name.trim()
-          ? "Authorization"
+          ? MCP_PROVIDER_CREDENTIAL_HEADER
           : current.name,
       });
       return;
@@ -967,6 +990,15 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                 <p className="text-xs text-muted-foreground">
                   Choose saved secrets or connected apps. Secret values stay on the server.
                 </p>
+                {usesAgentGatewayRouting(transport) ? (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    HTTP and SSE MCP servers route through AgentGateway. The{" "}
+                    <code className="font-mono">Authorization</code> header is reserved for the
+                    caller JWT — use{" "}
+                    <code className="font-mono">{MCP_PROVIDER_CREDENTIAL_HEADER}</code> for provider
+                    OAuth tokens, API keys, and saved secrets.
+                  </p>
+                ) : null}
               </div>
               <Button
                 type="button"
@@ -1038,6 +1070,13 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                             disabled={readOnly}
                             {...SUPPRESS_PASSWORD_MANAGER_INPUT_PROPS}
                           />
+                        ) : null}
+                        {usesAgentGatewayRouting(transport) &&
+                        source.name.trim().toLowerCase() === "authorization" ? (
+                          <p className="text-xs text-amber-700 dark:text-amber-400">
+                            Authorization is not forwarded to the upstream MCP server via
+                            AgentGateway. Use {MCP_PROVIDER_CREDENTIAL_HEADER} instead.
+                          </p>
                         ) : null}
                       </div>
                     ) : (

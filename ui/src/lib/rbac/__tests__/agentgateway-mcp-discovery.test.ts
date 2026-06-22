@@ -302,6 +302,17 @@ describe("AgentGateway MCP discovery", () => {
     ]);
   });
 
+  it("attaches built-in provider_connection credential source for confluence", () => {
+    expect(builtinCredentialSourcesFor("confluence")).toEqual([
+      {
+        kind: "provider_connection",
+        name: "X-CAIPE-Provider-Token",
+        provider: "atlassian",
+        target: "header",
+      },
+    ]);
+  });
+
   it("omits credential_sources for targets with no built-in mapping", () => {
     const target: AgentGatewayMcpDiscoveryTarget = {
       id: "argocd",
