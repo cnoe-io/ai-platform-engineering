@@ -994,10 +994,24 @@ class WorkflowApiClient:
         return requests.post(url, json=json_data, headers=self._headers(), timeout=30)
 
 
+def _workflow_display_name(config_id: str, labels: dict[str, str]) -> str:
+    return labels.get(config_id, config_id)
+
+
+def _truncate_workflow_text(value: str | None, *, max_len: int = 4000) -> str | None:
+    if not value or not str(value).strip():
+        return None
+    text = str(value).strip()
+    if len(text) <= max_len:
+        return text
+    return f"{text[: max_len - 3]}..."
+
+
 def create_workflow_tools(
     client: WorkflowApiClient,
     allowed_config_ids: list[str],
     trigger_context: dict | None = None,
+    workflow_labels: dict[str, str] | None = None,
 ) -> list:
     """Create the 3 workflow built-in tools.
 
@@ -1005,11 +1019,13 @@ def create_workflow_tools(
         client: WorkflowApiClient for making authenticated HTTP calls.
         allowed_config_ids: Workflow config IDs this agent is allowed to interact with.
         trigger_context: Optional dict with agent/user context for trigger_info.
+        workflow_labels: Optional map of workflow_config_id → human-readable name.
     Returns:
         List of 3 LangChain tools: list_workflow_runs, get_workflow_run_status, start_workflow_run.
     """
 
     allowed_set = set(allowed_config_ids)
+    labels = workflow_labels or {}
 
     @tool
     def list_workflow_runs(
@@ -1070,15 +1086,16 @@ def create_workflow_tools(
     ) -> str:
         """Get the detailed status of a specific workflow run.
 
-        Use this tool to check on a running or completed workflow run,
-        see step-by-step progress, errors, and timing.
+        Use this when the user asks for workflow status, progress, or output.
+        Summarize the returned JSON for the user in plain language — do not
+        tell them to call tools themselves.
 
         Args:
             thought: Brief reasoning for why you want to check this run.
             run_id: The ID of the workflow run to check.
 
         Returns:
-            JSON object with run status, step details, errors, and timestamps.
+            JSON object with run status, step details, step outputs, errors, and timestamps.
         """
         if not run_id:
             return "ERROR: run_id is required"
@@ -1097,8 +1114,9 @@ def create_workflow_tools(
             if config_id not in allowed_set:
                 return f"ERROR: This run belongs to workflow '{config_id}' which you are not allowed to access."
 
-            # Return a clean summary
+            # Return a clean summary with step outputs for user-facing status replies.
             steps_summary = []
+            final_output_parts: list[str] = []
             for s in run.get("steps", []):
                 step_info = {
                     "index": s.get("index"),
@@ -1110,19 +1128,26 @@ def create_workflow_tools(
                 }
                 if s.get("error"):
                     step_info["error"] = s["error"]
+                output = _truncate_workflow_text(s.get("response"))
+                if output:
+                    step_info["output"] = output
+                    label = s.get("display_text") or f"Step {s.get('index')}"
+                    final_output_parts.append(f"**{label}**\n{output}")
                 steps_summary.append(step_info)
 
-            return json.dumps(
-                {
-                    "run_id": run.get("_id"),
-                    "workflow_config_id": config_id,
-                    "status": run.get("status"),
-                    "started_at": run.get("started_at"),
-                    "completed_at": run.get("completed_at"),
-                    "steps": steps_summary,
-                },
-                indent=2,
-            )
+            payload: dict[str, object] = {
+                "run_id": run.get("_id"),
+                "workflow_config_id": config_id,
+                "workflow_name": _workflow_display_name(config_id, labels),
+                "status": run.get("status"),
+                "started_at": run.get("started_at"),
+                "completed_at": run.get("completed_at"),
+                "steps": steps_summary,
+            }
+            if final_output_parts:
+                payload["final_output_summary"] = "\n\n".join(final_output_parts)
+
+            return json.dumps(payload, indent=2)
         except Exception as e:
             return f"ERROR: Failed to get workflow run status: {e}"
 
@@ -1134,8 +1159,10 @@ def create_workflow_tools(
     ) -> str:
         """Start a new workflow run.
 
-        Use this tool to trigger a workflow. The workflow will run in the
-        background — use get_workflow_run_status to monitor its progress.
+        Use this tool to trigger a workflow. Pick workflow_config_id from the
+        Available Workflows section by matching the user's requested name.
+        After starting, call get_workflow_run_status when the user asks for
+        progress or output.
 
         Args:
             thought: Brief reasoning for why you want to start this workflow.
@@ -1145,7 +1172,7 @@ def create_workflow_tools(
                 This will be available to each step as {{ user_context }}.
 
         Returns:
-            JSON object with the new run_id and initial status.
+            JSON object with run_id, workflow name, and initial status.
         """
         if not workflow_config_id:
             return "ERROR: workflow_config_id is required"
@@ -1166,11 +1193,17 @@ def create_workflow_tools(
                 return f"ERROR: Failed to start workflow: HTTP {resp.status_code} - {resp.text[:200]}"
 
             result = resp.json()
+            workflow_name = _workflow_display_name(workflow_config_id, labels)
             return json.dumps(
                 {
                     "run_id": result.get("run_id"),
+                    "workflow_config_id": workflow_config_id,
+                    "workflow_name": workflow_name,
                     "status": result.get("status", "running"),
-                    "message": "Workflow started successfully. Use get_workflow_run_status to monitor progress.",
+                    "message": (
+                        f"Started workflow '{workflow_name}'. "
+                        "Call get_workflow_run_status with this run_id when the user asks for progress or output."
+                    ),
                 },
                 indent=2,
             )

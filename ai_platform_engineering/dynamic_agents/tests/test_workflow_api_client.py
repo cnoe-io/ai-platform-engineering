@@ -114,3 +114,59 @@ def test_start_workflow_run_tool_success_parses_run_id() -> None:
     payload = json.loads(result)
     assert payload["run_id"] == "wfrun-abc"
     assert payload["status"] == "running"
+    assert payload["workflow_config_id"] == "wf-allowed"
+    assert payload["workflow_name"] == "wf-allowed"
+
+
+def test_start_workflow_run_tool_includes_configured_workflow_name() -> None:
+    create_workflow_tools = getattr(_load_builtin_tools(), "create_workflow_tools")
+    client = MagicMock()
+    response = MagicMock()
+    response.ok = True
+    response.json.return_value = {"run_id": "wfrun-sri", "status": "running"}
+    client.post.return_value = response
+
+    tools = create_workflow_tools(
+        client,
+        ["wf-sri"],
+        workflow_labels={"wf-sri": "SRI Custom workflow"},
+    )
+    start_tool = next(tool for tool in tools if tool.name == "start_workflow_run")
+    payload = json.loads(
+        start_tool.invoke({"thought": "go", "workflow_config_id": "wf-sri"}),
+    )
+    assert payload["workflow_name"] == "SRI Custom workflow"
+
+
+def test_get_workflow_run_status_includes_step_output_summary() -> None:
+    create_workflow_tools = getattr(_load_builtin_tools(), "create_workflow_tools")
+    client = MagicMock()
+    response = MagicMock()
+    response.ok = True
+    response.json.return_value = {
+        "_id": "wfrun-abc",
+        "workflow_config_id": "wf-sri",
+        "status": "completed",
+        "steps": [
+            {
+                "index": 0,
+                "display_text": "List projects",
+                "agent_id": "agent-argocd",
+                "status": "completed",
+                "response": "Found 3 ArgoCD projects.",
+            }
+        ],
+    }
+    client.get.return_value = response
+
+    tools = create_workflow_tools(
+        client,
+        ["wf-sri"],
+        workflow_labels={"wf-sri": "SRI Custom workflow"},
+    )
+    status_tool = next(tool for tool in tools if tool.name == "get_workflow_run_status")
+    payload = json.loads(status_tool.invoke({"thought": "output", "run_id": "wfrun-abc"}))
+
+    assert payload["workflow_name"] == "SRI Custom workflow"
+    assert payload["steps"][0]["output"] == "Found 3 ArgoCD projects."
+    assert "Found 3 ArgoCD projects." in payload["final_output_summary"]

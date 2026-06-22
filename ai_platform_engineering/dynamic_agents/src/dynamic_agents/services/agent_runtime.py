@@ -577,6 +577,10 @@ class AgentRuntime:
                     self._failed_workflows_error = f"Workflow config IDs not found in database: {', '.join(missing)}"
                     logger.warning(f"Agent '{self.config.name}': {self._failed_workflows_error}")
                 self._valid_workflow_configs = [wid for wid in requested_ids if wid in found_ids]
+                workflow_labels = {
+                    str(doc["_id"]): str(doc.get("name") or doc["_id"]) for doc in found_docs
+                }
+                self._workflow_labels = workflow_labels
                 # Build system prompt addendum with workflow details
                 if found_docs:
                     lines = ["\n\n## Available Workflows\n"]
@@ -592,7 +596,13 @@ class AgentRuntime:
                         if step_summary:
                             lines.append(f"  Steps: {step_summary}")
                     lines.append(
-                        "\nUse `start_workflow_run` to trigger a workflow, `list_workflow_runs` to see past runs, and `get_workflow_run_status` to check progress."
+                        "\nWorkflow rules:\n"
+                        "- When the user names a workflow, match it to the list above by **exact name** "
+                        "(case-insensitive) and pass that entry's `workflow_config_id` to `start_workflow_run`.\n"
+                        "- After starting a run, remember the returned `run_id` for this conversation.\n"
+                        "- When the user asks for status, progress, or output, call `get_workflow_run_status` "
+                        "and summarize the result in plain language. Never tell the user to call tools themselves.\n"
+                        "- Report the `workflow_name` from tool results, not a different workflow."
                     )
                     self._workflow_prompt_addendum = "\n".join(lines)
             except Exception as e:
@@ -621,6 +631,7 @@ class AgentRuntime:
                     "user_context": self._user.model_dump(exclude={"raw_claims"}) if self._user else None,
                     "client_context": self._client_context.model_dump() if self._client_context else None,
                 },
+                workflow_labels=getattr(self, "_workflow_labels", None),
             )
             tools.extend(wf_tools)
             logger.info(
