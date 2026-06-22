@@ -50,10 +50,12 @@ jobs:
     runs-on: ubuntu-latest
     needs: load-config
     outputs:
-      should_build: ${{ steps.set-outputs.outputs.should_build }}
-      should_retag: ${{ steps.set-outputs.outputs.should_retag }}
+      should_build: ${{ steps.set-matrix.outputs.should_build }}
+      should_retag: ${{ steps.set-matrix.outputs.should_retag }}
       tag_version: ${{ steps.version.outputs.tag_version }}
-      image_prefix: ${{ steps.set-outputs.outputs.image_prefix }}
+      image_prefix: ${{ steps.set-matrix.outputs.image_prefix }}
+      build_matrix: ${{ steps.set-matrix.outputs.build_matrix }}
+      retag_matrix: ${{ steps.set-matrix.outputs.retag_matrix }}
     steps:
       - name: 🔑 Generate GitHub App token
         id: app-token
@@ -81,73 +83,98 @@ jobs:
         uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4
         with:
           filters: |
-            rag:
-              - 'ai_platform_engineering/knowledge_bases/rag/**'
+            shared:
+              - 'ai_platform_engineering/knowledge_bases/rag/common/**'
+            agent-ontology:
+              - 'ai_platform_engineering/knowledge_bases/rag/agent_ontology/**'
+              - 'ai_platform_engineering/knowledge_bases/rag/build/Dockerfile.agent-ontology'
+            server:
+              - 'ai_platform_engineering/knowledge_bases/rag/server/**'
+              - 'ai_platform_engineering/knowledge_bases/rag/build/Dockerfile.server'
+            ingestors:
+              - 'ai_platform_engineering/knowledge_bases/rag/ingestors/**'
+              - 'ai_platform_engineering/knowledge_bases/rag/build/Dockerfile.ingestors'
 
-      - name: Set Outputs
-        id: set-outputs
+      # Build only the components whose own sources (or the shared `common/`
+      # library) changed, instead of rebuilding all three on any rag/** edit.
+      # First pre-release / final release / manual dispatch / force_build still
+      # build everything; on incremental pre-releases unchanged components are
+      # retagged from the previous version.
+      - name: Compute build & retag matrices
+        id: set-matrix
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
-          RAG_CHANGED: ${{ steps.filter.outputs.rag }}
           TAG_VERSION: ${{ steps.version.outputs.tag_version }}
+          EVENT_NAME: ${{ github.event_name }}
           FORCE_BUILD: ${{ inputs.force_build }}
-        run: |
-          SHOULD_BUILD="false"
-          SHOULD_RETAG="false"
-          TAG_VERSION="${{ env.TAG_VERSION }}"
+          ALL_COMPONENTS: ${{ needs.load-config.outputs.rag_components }}
+          SHARED_CHANGED: ${{ steps.filter.outputs.shared }}
+          CHANGED_AGENT_ONTOLOGY: ${{ steps.filter.outputs.agent-ontology }}
+          CHANGED_SERVER: ${{ steps.filter.outputs.server }}
+          CHANGED_INGESTORS: ${{ steps.filter.outputs.ingestors }}
+        with:
+          script: |
+            const allComponents = JSON.parse(process.env.ALL_COMPONENTS);
+            // Extra image variants per component (must mirror the build matrix below).
+            const variantMap = {
+              'agent-ontology': ['default'],
+              'server': ['default', 'huggingface'],
+              'ingestors': ['default', 'slim'],
+            };
+            const expand = (comps) =>
+              comps.flatMap(c => (variantMap[c] || ['default']).map(v => ({ component: c, variant: v })));
 
-          # Chart-only tag: skip image builds entirely
-          if [[ "$TAG_VERSION" =~ -chart\.[0-9]+$ ]]; then
-            echo "📊 Chart-only tag: skipping image builds"
-            echo "should_build=false" >> $GITHUB_OUTPUT
-            echo "should_retag=false" >> $GITHUB_OUTPUT
-            echo "image_prefix=" >> $GITHUB_OUTPUT
-            exit 0
-          fi
+            const tag = process.env.TAG_VERSION || '';
+            const event = process.env.EVENT_NAME || '';
+            const forceBuild = process.env.FORCE_BUILD === 'true';
+            const sharedChanged = process.env.SHARED_CHANGED === 'true';
+            const changed = allComponents.filter(
+              c => process.env['CHANGED_' + c.toUpperCase().replace(/-/g, '_')] === 'true'
+            );
+            // A change in the shared common/ library forces all components.
+            const changedSet = sharedChanged ? allComponents : changed;
 
-          # Determine pre-release type and number
-          if [[ "$TAG_VERSION" =~ -(dev|rc|hotfix)\.([0-9]+)$ ]]; then
-            IS_PRERELEASE="true"
-            PRERELEASE_NUM="${BASH_REMATCH[2]}"
-          else
-            IS_PRERELEASE="false"
-            PRERELEASE_NUM=0
-          fi
+            let buildComponents = [];
+            let retagComponents = [];
+            let imagePrefix = '';
 
-          # GHCR prefix: -rc.N and -hotfix.N go to pre-release/
-          if [[ "$TAG_VERSION" =~ -(rc|hotfix)\.[0-9]+ ]]; then
-            IMAGE_PREFIX="pre-release/"
-          else
-            IMAGE_PREFIX=""
-          fi
+            if (/-chart\.\d+$/.test(tag)) {
+              console.log('📊 Chart-only tag: skipping image builds');
+            } else {
+              if (/-(rc|hotfix)\.\d+$/.test(tag)) imagePrefix = 'pre-release/';
+              const pre = tag.match(/-(dev|rc|hotfix)\.(\d+)$/);
+              const preNum = pre ? parseInt(pre[2], 10) : 0;
 
-          if [ "$FORCE_BUILD" == "true" ]; then
-            # Coordinated release / manual override: always build fresh so every
-            # component is published at this tag (bypasses change-detect + retag).
-            SHOULD_BUILD="true"
-            SHOULD_RETAG="false"
-            echo "🔁 force_build requested: building fresh regardless of changes"
-          elif [ -n "$TAG_VERSION" ]; then
-            if [ "$IS_PRERELEASE" == "true" ] && [ "$PRERELEASE_NUM" -gt 1 ]; then
-              if [ "$RAG_CHANGED" == "true" ]; then
-                SHOULD_BUILD="true"
-                echo "🔨 Pre-release tag with RAG changes: building"
-              else
-                SHOULD_RETAG="true"
-                echo "🏷️ Pre-release tag without RAG changes: retagging"
-              fi
-            else
-              SHOULD_BUILD="true"
-              echo "🚀 Build all: first pre-release or final release"
-            fi
-          elif [ "$RAG_CHANGED" == "true" ] || [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-            SHOULD_BUILD="true"
-            echo "📦 RAG files changed or manual trigger: building"
-          fi
+              if (forceBuild) {
+                // Coordinated release / manual override: build every component fresh.
+                buildComponents = allComponents;
+                console.log('🔁 force_build requested: building all');
+              } else if (tag) {
+                if (pre && preNum > 1) {
+                  // Incremental pre-release: build changed components, retag the rest.
+                  buildComponents = changedSet;
+                  retagComponents = allComponents.filter(c => !changedSet.includes(c));
+                  console.log(`🔨 Incremental pre-release: build [${buildComponents}], retag [${retagComponents}]`);
+                } else {
+                  // First pre-release or final release: build everything.
+                  buildComponents = allComponents;
+                  console.log('🚀 First pre-release or final release: building all');
+                }
+              } else if (event === 'workflow_dispatch') {
+                buildComponents = allComponents;
+                console.log('🔧 Manual trigger: building all');
+              } else {
+                // PR / push without a tag: build only changed components.
+                buildComponents = changedSet;
+                console.log(`📦 Changed components: [${buildComponents}]`);
+              }
+            }
 
-          echo "should_build=$SHOULD_BUILD" >> $GITHUB_OUTPUT
-          echo "should_retag=$SHOULD_RETAG" >> $GITHUB_OUTPUT
-          echo "image_prefix=$IMAGE_PREFIX" >> $GITHUB_OUTPUT
-          echo "Outputs: build=$SHOULD_BUILD, retag=$SHOULD_RETAG, prefix=$IMAGE_PREFIX"
+            core.setOutput('build_matrix', JSON.stringify({ include: expand(buildComponents) }));
+            core.setOutput('retag_matrix', JSON.stringify({ include: expand(retagComponents) }));
+            core.setOutput('should_build', String(buildComponents.length > 0));
+            core.setOutput('should_retag', String(retagComponents.length > 0));
+            core.setOutput('image_prefix', imagePrefix);
 
   build-and-push:
     runs-on: ubuntu-latest
@@ -158,16 +185,7 @@ jobs:
       packages: write
 
     strategy:
-      matrix:
-        component: ${{ fromJson(needs.load-config.outputs.rag_components) }}
-        variant: [default]
-        include:
-          # Add slim variant for ingestors (no Playwright, ~1.5GB smaller)
-          - component: ingestors
-            variant: slim
-          # Add HuggingFace variant for server (with PyTorch, ~900MB larger)
-          - component: server
-            variant: huggingface
+      matrix: ${{ fromJson(needs.determine-changes.outputs.build_matrix) }}
       fail-fast: false
 
     env:
@@ -281,16 +299,7 @@ jobs:
       packages: write
 
     strategy:
-      matrix:
-        component: ${{ fromJson(needs.load-config.outputs.rag_components) }}
-        variant: [default]
-        include:
-          # Add slim variant for ingestors
-          - component: ingestors
-            variant: slim
-          # Add HuggingFace variant for server
-          - component: server
-            variant: huggingface
+      matrix: ${{ fromJson(needs.determine-changes.outputs.retag_matrix) }}
       fail-fast: false
 
     env:

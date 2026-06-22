@@ -75,6 +75,9 @@ jobs:
             server:
               - 'ai_platform_engineering/knowledge_bases/rag/server/**'
               - 'ai_platform_engineering/knowledge_bases/rag/build/Dockerfile.server'
+            ingestors:
+              - 'ai_platform_engineering/knowledge_bases/rag/ingestors/**'
+              - 'ai_platform_engineering/knowledge_bases/rag/build/Dockerfile.ingestors'
 
 
       - name: Set matrix based on changes
@@ -82,9 +85,9 @@ jobs:
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           BUILD_ALL: ${{ steps.filter.outputs.shared == 'true' }}
-          CHANGED_AGENT_RAG: ${{ steps.filter.outputs.agent-rag }}
           CHANGED_AGENT_ONTOLOGY: ${{ steps.filter.outputs.agent-ontology }}
           CHANGED_SERVER: ${{ steps.filter.outputs.server }}
+          CHANGED_INGESTORS: ${{ steps.filter.outputs.ingestors }}
         with:
           script: |
             const allComponents = ['agent-ontology', 'server', 'ingestors'];
