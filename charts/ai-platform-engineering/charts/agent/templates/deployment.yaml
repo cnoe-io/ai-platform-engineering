@@ -80,6 +80,13 @@ spec:
           env:
             - name: METRICS_ENABLED
               value: {{ include "agent.metrics.enabled" . | quote }}
+            {{- /* Release-name-derived default for the audit-service singleton.
+                   Skipped when an operator supplies it via .Values.env so the
+                   explicit override wins and no duplicate env key is emitted. */}}
+            {{- if not (hasKey (.Values.env | default dict) "AUDIT_SERVICE_URL") }}
+            - name: AUDIT_SERVICE_URL
+              value: {{ printf "http://%s-audit-service:8010" .Release.Name | quote }}
+            {{- end }}
             {{- if .Values.env }}
             {{- range $key, $value := .Values.env }}
             - name: {{ $key }}
