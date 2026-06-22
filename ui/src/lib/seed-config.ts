@@ -15,7 +15,7 @@
 
 import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
 import { BUILTIN_MCP_CREDENTIAL_SOURCES } from "@/lib/rbac/agentgateway-mcp-discovery";
-import { writeOpenFgaTuples } from "@/lib/rbac/openfga";
+import { writeOpenFgaTuples, isOpenFgaReconciliationEnabled } from "@/lib/rbac/openfga";
 import { reconcileAgentRelationships } from "@/lib/rbac/openfga-agent-tools";
 import {
 reconcileConfigDrivenLlmModelRelationships,
@@ -991,6 +991,94 @@ export async function selfHealDiscoveredMcpServersIfEmpty(): Promise<number> {
 }
 
 /**
+ * Reconcile OpenFGA tuples for platform-managed MCP servers already in Mongo.
+ * Applies policy changes (e.g. revoking org-wide invoker) on every UI restart
+ * without requiring a manual AgentGateway sync.
+ */
+export async function reconcileExistingPlatformMcpServerOpenFgaTuples(): Promise<number> {
+  if (!isMongoDBConfigured || !isOpenFgaReconciliationEnabled()) return 0;
+
+  const collection = await getCollection<MCPServerConfig>("mcp_servers");
+  const servers = await collection
+    .find(
+      { $or: [{ config_driven: true }, { source: "agentgateway" }] } as never,
+      { projection: { _id: 1 } },
+    )
+    .toArray();
+
+  const orgId = caipeOrgKey();
+  for (const server of servers) {
+    const serverId = String(server._id ?? "").trim();
+    if (!serverId) continue;
+    await reconcileConfigDrivenMcpServerRelationships({ serverId, organizationId: orgId });
+  }
+
+  if (servers.length > 0) {
+    console.log(
+      `[seed-config] Reconciled OpenFGA tuples for ${servers.length} platform MCP server(s)`,
+    );
+  }
+  return servers.length;
+}
+
+/**
+ * Reconcile OpenFGA tuples for all dynamic agents in Mongo so policy changes
+ * (e.g. revoking team-member writer grants) apply on UI restart.
+ */
+export async function reconcileExistingAgentOpenFgaTuples(): Promise<number> {
+  if (!isMongoDBConfigured || !isOpenFgaReconciliationEnabled()) return 0;
+
+  const { getPlatformDefaultAgentId } = await import("@/lib/rbac/platform-default");
+  const platformDefaultAgentId = await getPlatformDefaultAgentId();
+
+  const collection = await getCollection<DynamicAgentConfig>("dynamic_agents");
+  const agents = await collection
+    .find({}, {
+      projection: {
+        _id: 1,
+        allowed_tools: 1,
+        owner_subject: 1,
+        owner_id: 1,
+        owner_team_slug: 1,
+        shared_with_teams: 1,
+        visibility: 1,
+      },
+    })
+    .toArray();
+
+  const orgId = caipeOrgKey();
+  for (const agent of agents) {
+    const agentId = String(agent._id ?? "").trim();
+    if (!agentId) continue;
+    const allowedTools = agent.allowed_tools ?? {};
+    const sharedSlugs = agent.shared_with_teams ?? [];
+    const isGlobal = agent.visibility === "global";
+    const retainPlatformDefaultGrant =
+      platformDefaultAgentId !== null && agentId === platformDefaultAgentId;
+    await reconcileAgentRelationships({
+      agentId,
+      previousAllowedTools: allowedTools,
+      nextAllowedTools: allowedTools,
+      ownerSubject: agent.owner_subject ?? agent.owner_id,
+      organizationId: orgId,
+      ownerTeamSlug: agent.owner_team_slug,
+      nextSharedTeamSlugs: sharedSlugs,
+      previousSharedTeamSlugs: sharedSlugs,
+      globalUserAccess: isGlobal,
+      // Sweep stale org-wide chat grants on team agents (including agents
+      // demoted from global before reconcile carried delete flags).
+      previousGlobalUserAccess: !isGlobal && !retainPlatformDefaultGrant,
+      failClosed: false,
+    });
+  }
+
+  if (agents.length > 0) {
+    console.log(`[seed-config] Reconciled OpenFGA tuples for ${agents.length} dynamic agent(s)`);
+  }
+  return agents.length;
+}
+
+/**
  * Load and apply seed configuration from YAML.
  *
  * Called at server startup via instrumentation.ts to ensure config-driven
@@ -1089,6 +1177,19 @@ export async function applySeedConfig(): Promise<void> {
         "[seed-config] AgentGateway MCP server self-heal threw:",
         err,
       );
+    }
+    try {
+      await reconcileExistingPlatformMcpServerOpenFgaTuples();
+    } catch (err) {
+      console.error(
+        "[seed-config] Platform MCP server OpenFGA reconcile threw:",
+        err,
+      );
+    }
+    try {
+      await reconcileExistingAgentOpenFgaTuples();
+    } catch (err) {
+      console.error("[seed-config] Dynamic agent OpenFGA reconcile threw:", err);
     }
   }
 
