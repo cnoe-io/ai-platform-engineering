@@ -1159,6 +1159,12 @@ AgentGateway uses `jwtAuth` for authentication and `extAuthz` for authorization.
 The `openfga-authz-bridge` adapts Envoy's gRPC authorization check into an
 OpenFGA `Check`, so gateway authorization is maintained through ReBAC tuples
 rather than CEL policy authoring.
+
+On MCP `tools/call`, when `CAIPE_AGENT_CONTEXT_HMAC_SECRET` is configured, the
+bridge also requires a signed `X-CAIPE-Agent-Context` header so it can enforce
+per-agent tool allowlists (`agent:<id> can_call tool:<server>/<tool>`). See
+[Agent context HMAC](./agent-context-hmac.md).
+
 For observability and compliance, the bridge also writes a best-effort
 `openfga_rebac` event to audit-service for every terminal
 authorization result: missing subject, OpenFGA allow, OpenFGA deny, and
@@ -1535,6 +1541,9 @@ both relationships before allowing the call:
 user:<sub> can_use agent:<agent_id>
 agent:<agent_id> can_call tool:<server_id>/<tool_name>
 ```
+
+See [Agent context HMAC](./agent-context-hmac.md) for what the secret does, which
+components must share it, and Helm/Compose wiring (including G1/G2 from PR #1967).
 
 The Web UI backend reconciles the second tuple family from each agent's
 `allowed_tools` whenever an agent is created, updated, or deleted. Empty

@@ -111,6 +111,22 @@ def build_agent_context_headers(agent_id: str, *, now: int | None = None) -> dic
     }
 
 
+def warn_if_agent_gateway_missing_hmac() -> None:
+    """Log when AgentGateway routing is enabled without the shared HMAC secret."""
+    gateway_url = _agent_gateway_base_url()
+    if not gateway_url:
+        return
+    if os.getenv("CAIPE_AGENT_CONTEXT_HMAC_SECRET", "").strip():
+        return
+    logger.warning(
+        "AGENT_GATEWAY_URL is set (%s) but CAIPE_AGENT_CONTEXT_HMAC_SECRET is unset; "
+        "AgentGateway will enforce only coarse mcp_gateway:list checks and per-agent "
+        "tool calls may 403. Set the same shared secret on dynamic-agents and "
+        "openfga-authz-bridge.",
+        gateway_url,
+    )
+
+
 def build_httpx_client_factory() -> Callable[..., httpx.AsyncClient]:
     """Build an httpx.AsyncClient factory that injects the per-request user JWT.
 

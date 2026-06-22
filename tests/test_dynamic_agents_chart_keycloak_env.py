@@ -138,6 +138,41 @@ def test_partial_set_only_includes_set_keys() -> None:
     assert "OIDC_ISSUER" not in data
 
 
+def _find_deployment(docs: list[dict[str, Any]]) -> dict[str, Any]:
+    for doc in docs:
+        if doc.get("kind") == "Deployment":
+            return doc
+    raise AssertionError("Deployment not found in render")
+
+
+def _container_env(deployment: dict[str, Any]) -> list[dict[str, Any]]:
+    return deployment["spec"]["template"]["spec"]["containers"][0]["env"]
+
+
+# ---------------------------------------------------------------------------
+# Agent context HMAC secret wiring
+# ---------------------------------------------------------------------------
+
+
+def test_hmac_secret_wired_when_agent_context_secret_set() -> None:
+    docs = _helm_template(
+        "agentContext.existingSecret.name=shared-agent-context-secret",
+        "agentContext.existingSecret.key=CAIPE_AGENT_CONTEXT_HMAC_SECRET",
+    )
+    deployment = _find_deployment(docs)
+    env = _container_env(deployment)
+    hmac_env = next(e for e in env if e.get("name") == "CAIPE_AGENT_CONTEXT_HMAC_SECRET")
+    assert hmac_env["valueFrom"]["secretKeyRef"]["name"] == "shared-agent-context-secret"
+    assert hmac_env["valueFrom"]["secretKeyRef"]["key"] == "CAIPE_AGENT_CONTEXT_HMAC_SECRET"
+
+
+def test_hmac_secret_omitted_when_agent_context_secret_empty() -> None:
+    docs = _helm_template()
+    deployment = _find_deployment(docs)
+    env_names = {e.get("name") for e in _container_env(deployment)}
+    assert "CAIPE_AGENT_CONTEXT_HMAC_SECRET" not in env_names
+
+
 # ---------------------------------------------------------------------------
 # NOTES.txt warning behaviour
 # ---------------------------------------------------------------------------
@@ -181,12 +216,22 @@ def test_notes_quiet_when_both_keycloak_envs_are_set() -> None:
     output = _helm_install_dry_run(
         "config.KEYCLOAK_URL=http://caipe-keycloak:8080",
         "config.OIDC_ISSUER=https://idp.public.example.com/realms/caipe",
+        "agentContext.existingSecret.name=shared-agent-context-secret",
     )
     assert "WARNING" not in output, (
         "NOTES.txt must NOT warn when both Keycloak/OIDC env vars are set"
     )
     # NOTES.txt should still print the success line.
     assert "dynamic-agents installed." in output
+
+
+def test_notes_warns_when_agent_gateway_enabled_without_hmac_secret() -> None:
+    output = _helm_install_dry_run(
+        "config.KEYCLOAK_URL=http://caipe-keycloak:8080",
+        "config.OIDC_ISSUER=https://idp.public.example.com/realms/caipe",
+        "config.AGENT_GATEWAY_MCP_SERVER_IDS=all",
+    )
+    assert "CAIPE_AGENT_CONTEXT_HMAC_SECRET is NOT wired for dynamic-agents." in output
 
 
 # ---------------------------------------------------------------------------

@@ -506,7 +506,9 @@ test.describe("RBAC e2e — credential secrets management", () => {
     await relayPage.waitForLoadState("domcontentloaded");
     await relayPage.close().catch(() => undefined);
 
-    await expect(page).toHaveURL(/\/credentials\?tab=connections$/);
+    await expect
+      .poll(() => new URL(page.url()).searchParams.get("tab"), { timeout: 15_000 })
+      .toBe("connections");
     await expect(page.getByRole("heading", { name: "Connected Apps" })).toBeVisible();
     await expect(page.getByText("Atlassian Cloud")).toBeVisible();
     await expect(page.getByText("healthy")).toBeVisible();

@@ -3658,6 +3658,22 @@ create_namespace_and_secrets() {
     kubectl patch secret caipe-ui-secret -n caipe --type='json' \
       -p="[{\"op\":\"add\",\"path\":\"/data/AGENTGATEWAY_TARGETS_TOKEN\",\"value\":\"$(echo -n "$_ag_token" | base64 -w0)\"}]" &>/dev/null
     log "AGENTGATEWAY_TARGETS_TOKEN patched into caipe-ui-secret"
+
+    # Shared HMAC for signed agent_id context (dynamic-agents + openfga-authz-bridge).
+    # Prefer an existing value in the secret or .env; generate once when missing.
+    local _hmac_secret
+    _hmac_secret=$(kubectl get secret caipe-ui-secret -n caipe \
+      -o jsonpath='{.data.CAIPE_AGENT_CONTEXT_HMAC_SECRET}' 2>/dev/null | base64 -d 2>/dev/null || true)
+    if [[ -z "$_hmac_secret" && -n "${ENV_FILE:-}" ]]; then
+      _hmac_secret=$(_env_get "$ENV_FILE" "CAIPE_AGENT_CONTEXT_HMAC_SECRET" || true)
+    fi
+    if [[ -z "$_hmac_secret" && -n "${UI_ENV_FILE:-}" ]]; then
+      _hmac_secret=$(_env_get "$UI_ENV_FILE" "CAIPE_AGENT_CONTEXT_HMAC_SECRET" || true)
+    fi
+    [[ -z "$_hmac_secret" ]] && _hmac_secret="$(openssl rand -hex 32)"
+    kubectl patch secret caipe-ui-secret -n caipe --type='json' \
+      -p="[{\"op\":\"add\",\"path\":\"/data/CAIPE_AGENT_CONTEXT_HMAC_SECRET\",\"value\":\"$(echo -n "$_hmac_secret" | base64 -w0)\"}]" &>/dev/null
+    log "CAIPE_AGENT_CONTEXT_HMAC_SECRET patched into caipe-ui-secret"
   fi
 
   # Chat-bot surfaces (slack-bot / webex-bot). Token secrets are created here;
@@ -6383,6 +6399,8 @@ deploy_caipe() {
   if $ENABLE_AGENTGATEWAY; then
     helm_args+=(
       --set "global.agentgateway.static.configBridge.bff.existingSecret.name=caipe-ui-secret"
+      --set "openfga-authz-bridge.agentContext.existingSecret.name=caipe-ui-secret"
+      --set "dynamic-agents.agentContext.existingSecret.name=caipe-ui-secret"
     )
   fi
 

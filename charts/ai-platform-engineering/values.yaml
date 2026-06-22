@@ -1256,6 +1256,10 @@ dynamic-agents:
     # MCP server IDs routed through AgentGateway. "all" only applies to
     # gateway-managed MCP rows; manual/direct MCP rows keep their stored endpoint.
     AGENT_GATEWAY_MCP_SERVER_IDS: "all"
+  agentContext:
+    existingSecret:
+      name: ""
+      key: CAIPE_AGENT_CONTEXT_HMAC_SECRET
     # LLM configuration (override if needed)
     # LLM_PROVIDER: "openai"
     # LLM_MODEL: "gpt-4o"

@@ -24,6 +24,7 @@ from dynamic_agents.services.mcp_client import (
     build_httpx_client_factory,
     build_mcp_connection_config,
     build_mcp_connections,
+    warn_if_agent_gateway_missing_hmac,
 )
 
 
@@ -223,3 +224,26 @@ def test_gateway_routes_manual_network_mcp_servers(monkeypatch):
 
     assert connections["knowledge-base"]["url"] == "http://agentgateway:4000/mcp/knowledge-base"
     assert connections["manual-tool"]["url"] == "http://agentgateway:4000/mcp/manual-tool"
+
+
+def test_warn_if_agent_gateway_missing_hmac_logs_when_gateway_set_without_secret(
+    monkeypatch, caplog
+):
+    monkeypatch.setenv("AGENT_GATEWAY_URL", "http://agentgateway:4000")
+    monkeypatch.delenv("CAIPE_AGENT_CONTEXT_HMAC_SECRET", raising=False)
+
+    with caplog.at_level("WARNING"):
+        warn_if_agent_gateway_missing_hmac()
+
+    assert "CAIPE_AGENT_CONTEXT_HMAC_SECRET is unset" in caplog.text
+
+
+def test_warn_if_agent_gateway_missing_hmac_is_quiet_without_gateway(monkeypatch, caplog):
+    monkeypatch.delenv("AGENT_GATEWAY_URL", raising=False)
+    monkeypatch.delenv("AGENTGATEWAY_URL", raising=False)
+    monkeypatch.delenv("CAIPE_AGENT_CONTEXT_HMAC_SECRET", raising=False)
+
+    with caplog.at_level("WARNING"):
+        warn_if_agent_gateway_missing_hmac()
+
+    assert caplog.text == ""
