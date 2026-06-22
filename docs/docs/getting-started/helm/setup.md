@@ -170,9 +170,9 @@ For production clusters, Karpenter provisions right-sized nodes on demand and co
 | NodePool | Workloads | Instance strategy |
 |---|---|---|
 | `agents` | All `agent-*` subcharts | Spot-preferred, compute-optimised |
-| `rag` | `rag-server`, `agent-ontology`, `neo4j`, `milvus` | On-demand, memory-optimised |
+| `rag` | `rag-server`, `agent-ontology`, `rag-redis`, `neo4j` | On-demand, memory-optimised |
 
-Workloads not matching either tier (supervisor, UI, Redis) will land on the cluster's default pool.
+Workloads not matching either tier (supervisor, UI, langgraph-redis) will land on the cluster's default pool.
 
 ### EKS (supported)
 
