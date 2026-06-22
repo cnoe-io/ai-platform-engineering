@@ -162,7 +162,7 @@ test.describe("mocked identity sync browser regression", () => {
       "true",
     );
     await expect(page.getByText("Okta Connector Status")).toBeVisible();
-    await expect(page.getByText("Verified")).toBeVisible();
+    await expect(page.getByText("Configured")).toBeVisible();
     await expect(page.getByText("Every hour").first()).toBeVisible();
 
     await page.getByRole("button", { name: "Run sync now" }).click();
