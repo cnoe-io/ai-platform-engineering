@@ -200,7 +200,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     }
 
     validateSteps(body.steps);
-    const visibility: WorkflowConfigVisibility = body.visibility || "global";
+    const visibility: WorkflowConfigVisibility = body.visibility || "private";
     const sharedWithTeams =
       visibility === "team"
         ? await normalizeSharedWithTeamSlugs(body.shared_with_teams)

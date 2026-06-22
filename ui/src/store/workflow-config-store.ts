@@ -57,6 +57,12 @@ function parseWorkflowConfigList(data: unknown): WorkflowConfig[] {
   return [];
 }
 
+function workflowConfigApiError(payload: Record<string, unknown>, fallback: string): string {
+  const message = typeof payload.message === "string" ? payload.message.trim() : "";
+  const error = typeof payload.error === "string" ? payload.error.trim() : "";
+  return message || error || fallback;
+}
+
 export const useWorkflowConfigStore = create<WorkflowConfigState>()((set, get) => ({
   configs: [],
   isLoading: false,
@@ -104,8 +110,10 @@ export const useWorkflowConfigStore = create<WorkflowConfigState>()((set, get) =
     });
 
     if (!response.ok) {
-      const err = await response.json().catch(() => ({}));
-      throw new Error(err.error || `Failed to create workflow config: ${response.status}`);
+      const err = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+      throw new Error(
+        workflowConfigApiError(err, `Failed to create workflow config: ${response.status}`),
+      );
     }
 
     const result = await response.json();
@@ -121,8 +129,10 @@ export const useWorkflowConfigStore = create<WorkflowConfigState>()((set, get) =
     });
 
     if (!response.ok) {
-      const err = await response.json().catch(() => ({}));
-      throw new Error(err.error || `Failed to update workflow config: ${response.status}`);
+      const err = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+      throw new Error(
+        workflowConfigApiError(err, `Failed to update workflow config: ${response.status}`),
+      );
     }
 
     await get().loadConfigs();

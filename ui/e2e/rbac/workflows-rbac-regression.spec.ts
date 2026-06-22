@@ -209,6 +209,52 @@ test.describe("mocked workflows RBAC and MCP regression", () => {
     await expect.poll(() => mocks.saveRequests.length).toBe(0);
   });
 
+  test("saves as private when a non-manager cannot grant global agent access", async ({ page }) => {
+    const privateAgent = buildPrivateAgentFixture();
+    const scenario: WorkflowScenario = {
+      workflowId: "wf-playwright-global-save-private",
+      workflowName: "Global workflow save private fallback",
+      visibility: "global",
+      gapTarget: GLOBAL_ACCESS_LABEL,
+      expectedGrant: {
+        resource: { type: "agent", id: privateAgent.id },
+        grantee: { type: "everyone" },
+        capability: "use",
+      },
+    };
+
+    const mocks = await installWorkflowBrowserMocks(page, {
+      session: WORKFLOW_TEAM_MEMBER_SESSION,
+      teamSlugs: [WORKFLOW_PLATFORM_TEAM.slug],
+      workflows: [
+        workflowFixtureFromScenario(
+          scenario,
+          privateAgent.id,
+          WORKFLOW_TEAM_MEMBER_SESSION.email,
+        ),
+      ],
+      agents: [privateAgent],
+      agentAccessGaps: [
+        {
+          agentId: privateAgent.id,
+          agentName: privateAgent.name,
+          teamsWithoutAccess: [GLOBAL_ACCESS_LABEL],
+        },
+      ],
+    });
+
+    await openWorkflowEditor(page, scenario.workflowName);
+    await page.getByRole("button", { name: /^Save$/ }).click();
+
+    const dialog = page.getByRole("dialog", { name: /agent access required/i });
+    await expect(dialog).toBeVisible();
+    await page.getByRole("button", { name: /save as private instead/i }).click();
+
+    await expect.poll(() => mocks.saveRequests.length).toBe(1);
+    expect(mocks.saveRequests[0]).toMatchObject({ visibility: "private" });
+    await expect(dialog).toHaveCount(0);
+  });
+
   test("lists MCP-backed and team workflows together for org admins", async ({ page }) => {
     await installWorkflowBrowserMocks(page, {
       session: WORKFLOW_ORG_ADMIN_SESSION,
