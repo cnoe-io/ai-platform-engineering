@@ -45,11 +45,7 @@ global:
     # their MCP servers to install via broad tags such as complete.
     enabled: false
 
-  # When deploymentMode is single-node, in-cluster MCP Services/Deployments/SAs use
-  # {mcpResourcePrefix}-agent-<name>-mcp. Leave mcpResourcePrefix unset (empty) to use the
-  # Helm release name; set to "single-node" for stable, readable resource names.
-  singleNode:
-    mcpResourcePrefix: ""
+  singleNode: {}
 
   createLlmSecret: false # if true, llm secret will be created by the parent chart. Otherwise, expect existing llm secret
   llmSecrets:

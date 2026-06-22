@@ -124,21 +124,6 @@ In multi-node mode reads from global.enabledSubAgents for non-A2A exports such a
 {{- end -}}
 {{- end -}}
 
-{{/*
-Prefix for single-node in-cluster MCP Kubernetes names: {prefix}-agent-<name>[-mcp].
-When global.singleNode.mcpResourcePrefix is non-empty, use it (e.g. "single-node" for readable kubectl).
-When empty, use .Release.Name so legacy DNS like <release>-agent-jira-mcp stays stable.
-*/}}
-{{- define "ai-platform-engineering.singleNodeMcpResourcePrefix" -}}
-{{- $g := .Values.global | default dict }}
-{{- $sn := index $g "singleNode" | default dict }}
-{{- $p := index $sn "mcpResourcePrefix" | default "" }}
-{{- if ne $p "" -}}
-{{- $p -}}
-{{- else -}}
-{{- .Release.Name -}}
-{{- end -}}
-{{- end -}}
 
 {{- define "ai-platform-engineering.appVersion" -}}
 {{- .Values.global.image.tag | default .Chart.AppVersion -}}
@@ -197,7 +182,7 @@ global.agentgateway.knowledgeBaseTarget, global.agentgateway.extraMcpTargets.
 {{- $mcp := $agentValues.mcp | default dict -}}
 {{- $sub := $mcp.agentgateway | default dict -}}
 {{- if $sub.enabled -}}
-{{- $entry := dict "id" $name "pathPrefix" (printf "/mcp/%s" $name) "host" (printf "%s-agent-%s-mcp.%s.svc.cluster.local" $root.Release.Name $name $ns) "port" ($mcp.port | default 8000) "protocol" ($sub.protocol | default "StreamableHTTP") -}}
+{{- $entry := dict "id" $name "pathPrefix" (printf "/mcp/%s" $name) "host" (printf "mcp-%s.%s.svc.cluster.local" $name $ns) "port" ($mcp.port | default 8000) "protocol" ($sub.protocol | default "StreamableHTTP") -}}
 {{- if eq (include "ai-platform-engineering.agentgatewayProviderTokenAuth" $sub) "true" -}}
 {{- $_ := set $entry "providerTokenAuth" true -}}
 {{- end -}}
