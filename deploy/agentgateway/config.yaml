@@ -64,7 +64,26 @@ binds:
           - name: backstage
             mcp: { host: http://mcp-backstage:8000/mcp }
     - matches: [{ path: { pathPrefix: /mcp/confluence } }]
-      policies: *mcpAuthzPolicy
+      policies:
+        extAuthz:
+          host: openfga-authz-bridge:9100
+          failureMode: { denyWithStatus: 403 }
+          includeRequestBody:
+            maxRequestBytes: 65536
+            allowPartialMessage: false
+            packAsBytes: true
+          protocol:
+            grpc:
+              metadata:
+                caipe.auth: '{"sub": jwt.sub, "preferred_username": jwt.preferred_username}'
+        authorization:
+          rules:
+          - allow: 'true'
+        transformations:
+          request:
+            set:
+              authorization: '"Bearer " + default(request.headers["x-caipe-provider-token"], "")'
+              x-caipe-provider-token: 'default(request.headers["x-caipe-provider-token"], "")'
       backends:
       - mcp:
           targets:
