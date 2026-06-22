@@ -172,10 +172,12 @@ export type InstalledCredentialsBrowserMocks = {
   shareRequests: Array<{ action?: string; teamId?: string }>;
   rotateRequests: Array<{ action?: string; value?: string }>;
   deleteRequests: string[];
+  connectionRevokeRequests: string[];
   personalCreateRequests: Array<{ name?: string; type?: string; value?: string }>;
   adminPatchRequests: Array<{ id: string; body: Record<string, unknown> }>;
   adminDeleteRequests: string[];
   get secrets(): CredentialSecretFixture[];
+  get providerConnections(): Array<Record<string, unknown>>;
 };
 
 export async function forceCredentialsFeatureFlags(page: Page): Promise<void> {
@@ -209,6 +211,7 @@ function credentialSecretsHandler(
     auditEvents: CredentialAuditFixture[];
     oauthConnectors: Array<Record<string, unknown>>;
     providerConnections: Array<Record<string, unknown>>;
+    connectionRevokeRequests: string[];
   },
 ): MockRouteHandler {
   return async ({ route, path, method }) => {
@@ -362,6 +365,21 @@ function credentialSecretsHandler(
       return true;
     }
 
+    const connectionMatch = path.match(/^\/api\/credentials\/connections\/([^/]+)$/);
+    if (connectionMatch && method === "DELETE") {
+      const connectionId = decodeURIComponent(connectionMatch[1] ?? "");
+      state.connectionRevokeRequests.push(connectionId);
+      state.providerConnections = state.providerConnections.map((connection) =>
+        connection.id === connectionId ? { ...connection, status: "disabled" } : connection,
+      );
+      const revoked = state.providerConnections.find((connection) => connection.id === connectionId);
+      await fulfillJson(route, {
+        success: true,
+        data: revoked ?? { id: connectionId, status: "disabled" },
+      });
+      return true;
+    }
+
     if (path.match(/^\/api\/credentials\/connections\/[^/]+\/refresh$/) && method === "POST") {
       await fulfillJson(route, { success: false, data: { ok: false } }, 404);
       return true;
@@ -401,6 +419,7 @@ export async function installCredentialsBrowserMocks(
   const shareRequests: Array<{ action?: string; teamId?: string }> = [];
   const rotateRequests: Array<{ action?: string; value?: string }> = [];
   const deleteRequests: string[] = [];
+  const connectionRevokeRequests: string[] = [];
   const personalCreateRequests: Array<{ name?: string; type?: string; value?: string }> = [];
   const adminPatchRequests: Array<{ id: string; body: Record<string, unknown> }> = [];
   const adminDeleteRequests: string[] = [];
@@ -420,6 +439,7 @@ export async function installCredentialsBrowserMocks(
     shareRequests,
     rotateRequests,
     deleteRequests,
+    connectionRevokeRequests,
     personalCreateRequests,
     adminPatchRequests,
     adminDeleteRequests,
@@ -441,6 +461,7 @@ export async function installCredentialsBrowserMocks(
     set providerConnections(next: Array<Record<string, unknown>>) {
       providerConnections = next;
     },
+    connectionRevokeRequests,
   };
 
   await forceCredentialsFeatureFlags(page);
@@ -464,11 +485,15 @@ export async function installCredentialsBrowserMocks(
     shareRequests,
     rotateRequests,
     deleteRequests,
+    connectionRevokeRequests,
     personalCreateRequests,
     adminPatchRequests,
     adminDeleteRequests,
     get secrets() {
       return secrets;
+    },
+    get providerConnections() {
+      return providerConnections;
     },
   };
 }
