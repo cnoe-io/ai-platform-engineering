@@ -609,6 +609,7 @@ class AgentRuntime:
                 client_secret=self.settings.oauth2_client_secret,
                 scope=self.settings.oauth2_scope,
                 audience=self.settings.oauth2_audience,
+                user_bearer=self._auth_bearer,
             )
             wf_tools = create_workflow_tools(
                 client,

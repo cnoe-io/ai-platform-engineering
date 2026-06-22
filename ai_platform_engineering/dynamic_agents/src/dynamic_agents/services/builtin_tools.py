@@ -890,12 +890,23 @@ def create_format_file_tool(store, namespace_factory):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-class WorkflowApiClient:
-    """HTTP client for calling the CAIPE UI workflow API with OAuth2 client credentials.
+def _format_bearer_authorization(token: str | None) -> str | None:
+    """Normalize a raw JWT or ``Bearer …`` value for outbound Authorization headers."""
+    if not token or not str(token).strip():
+        return None
+    raw = str(token).strip()
+    if raw.lower().startswith("bearer "):
+        return raw
+    return f"Bearer {raw}"
 
-    Handles token acquisition, caching, and auto-refresh.
-    If no credentials are configured, requests are made without auth headers
-    (suitable for development / same-cluster without auth gateway).
+
+class WorkflowApiClient:
+    """HTTP client for calling the CAIPE UI workflow API.
+
+    Prefers the end-user bearer captured at request entry (Webex/Slack OBO,
+    browser session JWT) so workflow start/run authz matches the invoking user.
+    Falls back to OAuth2 client credentials for system-only triggers with no user
+    token (scheduled jobs, background automation).
     """
 
     def __init__(
@@ -906,6 +917,7 @@ class WorkflowApiClient:
         client_secret: str = "",
         scope: str = "",
         audience: str = "",
+        user_bearer: str | None = None,
     ):
         self.base_url = base_url.rstrip("/")
         self.token_url = token_url
@@ -913,11 +925,14 @@ class WorkflowApiClient:
         self.client_secret = client_secret
         self.scope = scope
         self.audience = audience
+        self.user_bearer = user_bearer
         self._caipe_api_auth_enabled = bool(token_url and client_id and client_secret)
         self._cached_token: Optional[str] = None
         self._token_expires_at: float = 0
 
-        if self._caipe_api_auth_enabled:
+        if _format_bearer_authorization(user_bearer):
+            logger.info("WorkflowApiClient: using delegated user bearer for BFF workflow calls")
+        elif self._caipe_api_auth_enabled:
             logger.info(f"WorkflowApiClient: OAuth2 configured (token_url={token_url})")
         else:
             logger.warning("WorkflowApiClient: No OAuth2 credentials configured, requests will be unauthenticated")
@@ -959,6 +974,10 @@ class WorkflowApiClient:
     def _headers(self) -> dict[str, str]:
         """Build request headers with optional auth."""
         headers = {"Content-Type": "application/json"}
+        user_auth = _format_bearer_authorization(self.user_bearer)
+        if user_auth:
+            headers["Authorization"] = user_auth
+            return headers
         token = self._get_token()
         if token:
             headers["Authorization"] = f"Bearer {token}"
