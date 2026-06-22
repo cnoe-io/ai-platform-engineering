@@ -541,7 +541,9 @@ test.describe("mocked MCP OpenFGA tuple browser regression", () => {
 
     await expect(page.getByText("knowledge-base", { exact: true })).toBeVisible();
     await expect(page.getByText("mcp-knowledge-base")).toBeVisible();
-    await expect(page.getByTitle("Registered from AgentGateway discovery")).toBeVisible();
+    await expect(
+      page.getByTitle("Routed through AgentGateway; the bridge reconciles a /mcp/<server-id> route for this server"),
+    ).toBeVisible();
     await expect(page.getByText("No MCP Servers Yet")).toHaveCount(0);
   });
 
