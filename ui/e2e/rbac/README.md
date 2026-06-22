@@ -12,7 +12,7 @@ CAIPE + Keycloak stack:
 | `pdp-down.spec.ts` | When Keycloak is unreachable, the UI shows a 503 toast (no silent allow). |
 | `credential-team-sharing.spec.ts` | Live credential Team Access keeps concurrent share responses from dropping successful grants. |
 | `workflow-agent-access.spec.ts` | Mocked browser regression for workflow run access and denied agent-access grants. |
-| `workflows-rbac-regression.spec.ts` | Mocked browser regression for team/global/private workflow visibility, MCP step tool overrides, grant/save paths, and non-admin run access. |
+| `workflows-rbac-regression.spec.ts` | Mocked browser regression for team/global/private workflow visibility, MCP step tool overrides, grant/save paths, save-as-private fallback when agent grants are denied, and non-admin run access. |
 | `webex-workflow-agent-routes.spec.ts` | Mocked browser regression for Webex space onboarding and routing to workflow/MCP agents (bot dispatch path). |
 | `workflow-agent-service-auth.spec.ts` | Mocked regression for agent→BFF workflow run auth (401 without Bearer, 201 with Bearer) and agent workflow wiring. |
 | `workflow-agent-user-delegation.spec.ts` | Mocked regression for run-as-user workflow delegation (user OBO bearer vs service account on team/global/private workflows). |

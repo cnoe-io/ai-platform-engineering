@@ -343,9 +343,10 @@ function resolveLegacyWithAuthRbacPolicy(request: NextRequest): RouteRbacPolicy 
       : { resource: 'dynamic_agent', scope: 'manage' };
   }
   if (pathname.startsWith('/api/workflow-configs')) {
-    return method === 'GET'
-      ? { resource: 'dynamic_agent', scope: 'view' }
-      : { resource: 'dynamic_agent', scope: 'manage' };
+    // Workflow CRUD is gated in route handlers (owner / task#write). The legacy
+    // gate only requires workflow discovery access so non-admin users can create
+    // and edit their own private workflows without dynamic_agent#manage.
+    return { resource: 'dynamic_agent', scope: 'view' };
   }
   if (pathname.startsWith('/api/workflow-runs')) {
     return method === 'GET'
