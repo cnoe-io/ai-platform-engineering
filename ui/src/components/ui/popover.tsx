@@ -166,9 +166,19 @@ export function PopoverContent({
     let top = 0;
     let left = 0;
 
-    if (side === "top") {
+    let effectiveSide = side;
+    const spaceBelow = vh - tRect.bottom - sideOffset - VIEWPORT_PADDING;
+    const spaceAbove = tRect.top - sideOffset - VIEWPORT_PADDING;
+
+    if (side === "bottom" && cRect.height > spaceBelow && spaceAbove > spaceBelow) {
+      effectiveSide = "top";
+    } else if (side === "top" && cRect.height > spaceAbove && spaceBelow > spaceAbove) {
+      effectiveSide = "bottom";
+    }
+
+    if (effectiveSide === "top") {
       top = tRect.top - cRect.height - sideOffset;
-    } else if (side === "bottom") {
+    } else if (effectiveSide === "bottom") {
       top = tRect.bottom + sideOffset;
     } else if (side === "left") {
       left = tRect.left - cRect.width - sideOffset;
@@ -176,7 +186,7 @@ export function PopoverContent({
       left = tRect.right + sideOffset;
     }
 
-    if (side === "top" || side === "bottom") {
+    if (effectiveSide === "top" || effectiveSide === "bottom") {
       if (align === "start") left = tRect.left + alignOffset;
       else if (align === "end") left = tRect.right - cRect.width - alignOffset;
       else left = tRect.left + tRect.width / 2 - cRect.width / 2;
@@ -196,6 +206,15 @@ export function PopoverContent({
       VIEWPORT_PADDING,
       Math.min(top, vh - cRect.height - VIEWPORT_PADDING),
     );
+
+    const availableHeight = vh - 2 * VIEWPORT_PADDING;
+    if (cRect.height > availableHeight) {
+      content.style.maxHeight = `${availableHeight}px`;
+      content.style.overflowY = "auto";
+    } else {
+      content.style.maxHeight = "";
+      content.style.overflowY = "";
+    }
 
     setCoords({ top, left });
   }, [align, alignOffset, side, sideOffset, triggerRef]);

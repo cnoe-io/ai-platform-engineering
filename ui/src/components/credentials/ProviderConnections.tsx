@@ -1,6 +1,13 @@
 "use client";
 
+// assisted-by Codex Codex-sonnet-4-6
+
 import React from "react";
+
+import {
+  describeProviderConnectionHealth,
+  formatRelativeRefreshLabel,
+} from "@/lib/credentials/provider-connection-display";
 
 interface ProviderConnection {
   id: string;
@@ -10,8 +17,14 @@ interface ProviderConnection {
   updatedAt?: string | Date;
   connectedAt?: string | Date;
   expiresAt?: string | Date;
+  profileSummary?: string;
   requestedScopes?: string[];
   grantedScopes?: string[];
+  owner?: {
+    email?: string;
+    name?: string;
+    displayName?: string;
+  };
 }
 
 interface OAuthConnector {
@@ -107,6 +120,7 @@ export function ProviderConnections() {
   // In-session scope overrides keyed by connector id; set only when the user
   // toggles a checkbox. Absent ⇒ derive from the stored/default selection.
   const [scopeOverrides, setScopeOverrides] = React.useState<Record<string, string[]>>({});
+  const [revokingConnections, setRevokingConnections] = React.useState<Record<string, boolean>>({});
   const [diagnosticModal, setDiagnosticModal] = React.useState<{
     connector: OAuthConnector;
     connection: ProviderConnection;
@@ -197,7 +211,7 @@ export function ProviderConnections() {
           error:
             err instanceof Error
               ? err.message
-              : `${connector.name} profile check failed`,
+              : `${connector.name} connection test failed`,
         },
       }));
     }
@@ -248,6 +262,45 @@ export function ProviderConnections() {
     }
   }, []);
 
+  const handleClearConnection = React.useCallback(
+    async (connection: ProviderConnection, providerLabel: string) => {
+      setRevokingConnections((current) => ({ ...current, [connection.id]: true }));
+      try {
+        const response = await fetch(`/api/credentials/connections/${connection.id}`, {
+          method: "DELETE",
+        });
+        if (!response.ok) {
+          throw new Error(`Could not clear ${providerLabel} connection`);
+        }
+        setProfileChecks((current) => {
+          const next = { ...current };
+          delete next[connection.id];
+          return next;
+        });
+        setAutoRefreshStates((current) => {
+          const next = { ...current };
+          delete next[connection.id];
+          return next;
+        });
+        autoRefreshAttempted.current.delete(connection.id);
+        await load();
+      } catch (err) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : `Could not clear ${providerLabel} connection`,
+        );
+      } finally {
+        setRevokingConnections((current) => {
+          const next = { ...current };
+          delete next[connection.id];
+          return next;
+        });
+      }
+    },
+    [load],
+  );
+
   const handleOAuthConnect = React.useCallback(
     (
       event: React.MouseEvent<HTMLAnchorElement>,
@@ -272,9 +325,18 @@ export function ProviderConnections() {
 
   const connectionForConnector = React.useMemo(() => {
     const byKey = new Map<string, ProviderConnection>();
-    for (const connection of connections) {
-      if (connection.connectorId) byKey.set(`id:${connection.connectorId}`, connection);
-      byKey.set(`provider:${connection.provider}`, connection);
+    const sorted = [...connections].sort((left, right) => {
+      const leftTime = new Date(left.updatedAt ?? left.connectedAt ?? 0).getTime();
+      const rightTime = new Date(right.updatedAt ?? right.connectedAt ?? 0).getTime();
+      return rightTime - leftTime;
+    });
+    for (const connection of sorted) {
+      if (connection.connectorId && !byKey.has(`id:${connection.connectorId}`)) {
+        byKey.set(`id:${connection.connectorId}`, connection);
+      }
+      if (!byKey.has(`provider:${connection.provider}`)) {
+        byKey.set(`provider:${connection.provider}`, connection);
+      }
     }
     return byKey;
   }, [connections]);
@@ -303,9 +365,9 @@ export function ProviderConnections() {
   return (
     <section className="space-y-4">
       <div>
-        <h2 className="text-xl font-semibold">My Connections</h2>
+        <h2 className="text-xl font-semibold">Connected Apps</h2>
         <p className="text-sm text-muted-foreground">
-          OAuth provider connections available for impersonation-enabled MCP servers.
+          Connect apps like Atlassian so agents can use approved account access.
         </p>
       </div>
       {error && <p className="text-sm text-destructive">{error}</p>}
@@ -316,9 +378,9 @@ export function ProviderConnections() {
               <thead className="bg-gradient-to-r from-muted/55 via-muted/35 to-muted/55 text-[11px] uppercase tracking-[0.24em] text-muted-foreground">
                 <tr>
                   <th className="w-[24%] px-5 py-4 font-semibold">Provider</th>
-                  <th className="w-[14%] px-4 py-4 font-semibold">Token health</th>
+                  <th className="w-[14%] px-4 py-4 font-semibold">Connection health</th>
                   <th className="w-[18%] px-4 py-4 font-semibold">Last successful</th>
-                  <th className="w-[16%] px-4 py-4 font-semibold">Refresh status</th>
+                  <th className="w-[16%] px-4 py-4 font-semibold">Last refresh</th>
                   <th className="w-[10%] px-4 py-4 font-semibold">Status</th>
                   <th className="w-[18%] px-5 py-4 text-right font-semibold">Actions</th>
                 </tr>
@@ -326,7 +388,7 @@ export function ProviderConnections() {
               <tbody className="divide-y divide-border/70">
                 {connectionRows.map(({ connector, connection }) => {
                   const connected = Boolean(connection);
-                  const tokenHealth = describeTokenHealth(connection);
+                  const tokenHealth = describeProviderConnectionHealth(connection);
                   const profileCheck = connection ? profileChecks[connection.id] : undefined;
                   const autoRefreshState = connection ? autoRefreshStates[connection.id] : undefined;
                   const profileLabel = profileProviderLabel(connector.provider, connector.name);
@@ -369,7 +431,11 @@ export function ProviderConnections() {
                           </span>
                           <div className="min-w-0">
                             <p className="truncate font-semibold text-foreground">{connector.name}</p>
-                            <p className="truncate text-xs text-muted-foreground">{connector.provider}</p>
+                            <p className="truncate text-xs text-muted-foreground">
+                              {connection?.profileSummary?.trim() ||
+                                connection?.owner?.email?.trim() ||
+                                connector.provider}
+                            </p>
                           </div>
                         </div>
                       </td>
@@ -390,7 +456,8 @@ export function ProviderConnections() {
                           </p>
                           {connected && (
                             <p className="text-xs text-muted-foreground/80">
-                              {formatDateTime(connection?.updatedAt)}
+                              {formatRelativeRefreshLabel(connection?.updatedAt ?? connection?.connectedAt) ??
+                                formatDateTime(connection?.updatedAt)}
                             </p>
                           )}
                         </div>
@@ -412,13 +479,13 @@ export function ProviderConnections() {
                               disabled={Boolean(profileCheck?.loading)}
                               aria-label={
                                 profileCheck?.result
-                                  ? `View ${profileLabel} profile check details`
-                                  : `Test ${profileLabel} profile`
+                                  ? `View ${profileLabel} connection details`
+                                  : `Test ${profileLabel} connection`
                               }
                               title={
                                 profileCheck?.result
-                                  ? `View ${profileLabel} profile check details`
-                                  : `Test ${profileLabel} profile`
+                                  ? `View ${profileLabel} connection details`
+                                  : `Test ${profileLabel} connection`
                               }
                               onClick={() => {
                                 if (profileCheck?.result) {
@@ -463,9 +530,22 @@ export function ProviderConnections() {
                             }
                           >
                             <span className="truncate whitespace-nowrap">
-                              {connected ? `Relink ${profileLabel}` : `Connect ${profileLabel}`}
+                              {connected ? `Reconnect ${profileLabel}` : `Connect ${profileLabel}`}
                             </span>
                           </a>
+                          {connected && connection && (
+                            <button
+                              type="button"
+                              className="inline-flex min-w-[140px] items-center justify-center rounded-xl border border-border/80 bg-card/70 px-4 py-2 text-sm font-medium text-muted-foreground transition hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive disabled:cursor-not-allowed disabled:opacity-60"
+                              disabled={Boolean(revokingConnections[connection.id])}
+                              aria-label={`Clear ${profileLabel} connection`}
+                              onClick={() => void handleClearConnection(connection, profileLabel)}
+                            >
+                              {revokingConnections[connection.id]
+                                ? "Clearing…"
+                                : "Clear connection"}
+                            </button>
+                          )}
                           {allowedScopes.length > 0 && (
                             <button
                               type="button"
@@ -479,7 +559,7 @@ export function ProviderConnections() {
                                 }))
                               }
                             >
-                              {advancedOpen ? "Hide advanced settings" : "Advanced settings"}
+                              {advancedOpen ? "Hide permissions" : "Permissions"}
                             </button>
                           )}
                         </div>
@@ -490,11 +570,11 @@ export function ProviderConnections() {
                         <td colSpan={6} className="px-5 py-4" id={`advanced-scopes-${connector.id}`}>
                           <fieldset className="space-y-3">
                             <legend className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                              {profileLabel} scopes requested
+                              {profileLabel} permissions requested
                             </legend>
                             <p className="text-xs text-muted-foreground">
-                              Choose which permissions to request for your connection. You can only
-                              narrow within what this connector allows.
+                              Choose which permissions this app can request. You can only pick from
+                              what this connection allows.
                             </p>
                             <div className="flex flex-wrap gap-2">
                               {allowedScopes.map((scope) => {
@@ -522,12 +602,12 @@ export function ProviderConnections() {
                             </div>
                             {connection?.requestedScopes && connection.requestedScopes.length > 0 && (
                               <p className="text-xs text-muted-foreground">
-                                Connected with: {connection.requestedScopes.join(", ")}
+                                Current permissions: {connection.requestedScopes.join(", ")}
                               </p>
                             )}
                             {connected && (
                               <p className="text-xs text-amber-700 dark:text-amber-300">
-                                Relink {profileLabel} for scope changes to take effect.
+                                Reconnect {profileLabel} for permission changes to take effect.
                               </p>
                             )}
                             {selectionEmpty && (
@@ -547,19 +627,19 @@ export function ProviderConnections() {
                 const profileCheck = connection ? profileChecks[connection.id] : undefined;
                 const autoRefreshState = connection ? autoRefreshStates[connection.id] : undefined;
                 const profileLabel = profileProviderLabel(connector.provider, connector.name);
-                const tokenHealth = describeTokenHealth(connection);
+                const tokenHealth = describeProviderConnectionHealth(connection);
                 const isExpired = tokenHealth === "expired";
                 if (!profileCheck?.result && !profileCheck?.error && !autoRefreshState?.error && !isExpired) return null;
                 return (
                   <div key={`${connector.id}-profile-check`}>
                     {isExpired && (
                       <p className="text-xs font-medium text-rose-700 dark:text-rose-300">
-                        {profileLabel} connection expired. Relink {profileLabel} to restore access.
+                        {profileLabel} connection expired. Reconnect {profileLabel} to restore access.
                       </p>
                     )}
                     {autoRefreshState?.error && (
                       <p className="text-xs text-destructive">
-                        {profileLabel} automatic refresh failed. Use Relink {profileLabel} to reconnect.
+                        {profileLabel} could not refresh. Reconnect {profileLabel} to restore access.
                       </p>
                     )}
                     {profileCheck?.result && (
@@ -578,7 +658,7 @@ export function ProviderConnections() {
                     )}
                     {profileCheck?.error && (
                       <p className="text-xs text-destructive">
-                        {profileLabel} profile check failed: {profileCheck.error}
+                        {profileLabel} connection test failed: {profileCheck.error}
                       </p>
                     )}
                   </div>
@@ -596,7 +676,7 @@ export function ProviderConnections() {
             ))}
           </ul>
         ) : (
-          <p className="p-4 text-sm text-muted-foreground">No provider connections yet.</p>
+          <p className="p-4 text-sm text-muted-foreground">No apps connected yet.</p>
         )}
       </div>
       {diagnosticModal && (
@@ -625,8 +705,8 @@ function ProfileCheckResult({
     result.ok && atlassianResourceSummary
       ? `${connectorName} access check passed`
       : result.ok
-        ? `${connectorName} profile check passed`
-        : `${connectorName} profile check failed`;
+        ? `${connectorName} connection test passed`
+        : `${connectorName} connection test failed`;
   const details =
     result.ok && atlassianResourceSummary
       ? atlassianResourceSummary
@@ -700,10 +780,10 @@ function TokenDiagnosticsModal({
           <div className="flex items-start justify-between gap-4">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-200">
-                Provider token validation
+                Connection test
               </p>
               <h3 id={headingId} className="mt-1 text-xl font-semibold">
-                {connectorName} token diagnostics
+                {connectorName} connection details
               </h3>
             </div>
             <button
@@ -717,7 +797,7 @@ function TokenDiagnosticsModal({
         </div>
         <div className="space-y-5 px-6 py-5">
           <div className="flex flex-wrap items-center gap-3">
-            <StatusPill tone={overallTone}>{result.ok ? "token usable" : "action needed"}</StatusPill>
+            <StatusPill tone={overallTone}>{result.ok ? "ready to use" : "action needed"}</StatusPill>
             {result.next_action && diagnostics.length === 0 && (
               <p className="text-sm text-muted-foreground">{result.next_action}</p>
             )}
@@ -726,7 +806,7 @@ function TokenDiagnosticsModal({
               className="ml-auto rounded-full border border-cyan-400/40 px-3 py-1.5 text-sm font-semibold text-cyan-700 transition hover:bg-cyan-400/10 dark:text-cyan-200"
               onClick={onRunAgain}
             >
-              Run {connectorName} profile check again
+              Test {connectorName} again
             </button>
           </div>
           <div className="space-y-3">
@@ -754,7 +834,7 @@ function TokenDiagnosticsModal({
           </div>
           {diagnostics.length === 0 && (
             <p className="rounded-2xl border border-border bg-muted/40 p-4 text-sm text-muted-foreground">
-              No detailed diagnostics were returned for this provider check.
+              No detailed diagnostics were returned for this connection test.
             </p>
           )}
         </div>
@@ -786,17 +866,6 @@ function summarizeProfile(profile: Record<string, unknown> | undefined): string 
   const emails = profile.emails;
   if (Array.isArray(emails) && typeof emails[0] === "string") return emails[0];
   return "";
-}
-
-function describeTokenHealth(connection: ProviderConnection | null): string {
-  if (!connection) return "not linked";
-  if (connection.status !== "connected") return "relink required";
-  if (!connection.expiresAt) return "connected";
-  const expiresAt = new Date(connection.expiresAt).getTime();
-  if (Number.isNaN(expiresAt)) return "connected";
-  if (expiresAt <= Date.now()) return "expired";
-  if (expiresAt - Date.now() <= 15 * 60 * 1000) return "expiring soon";
-  return "healthy";
 }
 
 function needsAutoRefresh(connection: ProviderConnection): boolean {

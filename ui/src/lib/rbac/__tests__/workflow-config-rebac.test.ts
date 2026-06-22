@@ -129,6 +129,20 @@ describe("workflow-config-rebac", () => {
       ).toBe(false);
     });
 
+    it("allows team workflow owner even when not on the shared team", () => {
+      expect(
+        workflowRunAllowedByVisibility(
+          {
+            visibility: "team",
+            shared_with_teams: ["eti-sre-admin-jenkins"],
+            owner_id: "owner@example.com",
+          },
+          "owner@example.com",
+          [],
+        ),
+      ).toBe(true);
+    });
+
     it("resolves legacy Mongo team _id refs via teamRefToSlug map", () => {
       const teamRefToSlug = new Map<string, string>([
         ["507f1f77bcf86cd799439011", "platform-eng"],

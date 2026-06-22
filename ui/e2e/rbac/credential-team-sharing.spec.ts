@@ -3,10 +3,11 @@
 import { expect, test, type Route } from "@playwright/test";
 
 import { rbacEnvOrSkip } from "./_env";
-import { signIn } from "./_helpers";
+import { dismissReleaseUpgradeDialog, signIn } from "./_helpers";
 
 type PendingShare = {
   route: Route;
+  action: string;
   teamId: string;
 };
 
@@ -18,10 +19,25 @@ async function fulfillJson(route: Route, body: unknown, status = 200): Promise<v
   });
 }
 
+const secretFixture = {
+  id: "secret-race",
+  name: "GitHub token",
+  type: "bearer_token",
+  maskedPreview: "ghp_...abcd",
+  sharedWithTeams: ["platform-team"],
+};
+
 test.describe("RBAC e2e — credential team sharing", () => {
-  test("keeps out-of-order share responses from dropping earlier team access", async ({ page }) => {
+  test("uses inline common team picker and shows the selected shared team", async ({ page }) => {
     const env = rbacEnvOrSkip();
     const pendingShares: PendingShare[] = [];
+
+    await page.route("**/api/admin/platform-config", async (route) => {
+      await fulfillJson(route, {
+        success: true,
+        data: { release_notes: { enabled: false, release_version: "0.5.16" } },
+      });
+    });
 
     await page.route("**/api/admin/teams", async (route) => {
       await fulfillJson(route, {
@@ -42,25 +58,14 @@ test.describe("RBAC e2e — credential team sharing", () => {
       const method = request.method();
 
       if (requestUrl.pathname === "/api/credentials/secrets" && method === "GET") {
-        await fulfillJson(route, {
-          success: true,
-          data: [
-            {
-              id: "secret-race",
-              name: "GitHub token",
-              type: "bearer_token",
-              maskedPreview: "ghp_...abcd",
-              sharedWithTeams: ["platform-team"],
-            },
-          ],
-        });
+        await fulfillJson(route, { success: true, data: [secretFixture] });
         return;
       }
 
       if (requestUrl.pathname === "/api/credentials/secrets/secret-race" && method === "PATCH") {
         const payload = route.request().postDataJSON() as { action?: string; teamId?: string };
-        if (payload.action === "share" && payload.teamId) {
-          pendingShares.push({ route, teamId: payload.teamId });
+        if (payload.action && payload.teamId) {
+          pendingShares.push({ route, action: payload.action, teamId: payload.teamId });
           return;
         }
       }
@@ -69,43 +74,60 @@ test.describe("RBAC e2e — credential team sharing", () => {
     });
 
     await signIn(page, env);
-    await page.goto("/credentials?tab=secrets");
+    await page.goto("/credentials?tab=secrets", { waitUntil: "domcontentloaded" });
+    await dismissReleaseUpgradeDialog(page);
 
-    await expect(page.getByRole("heading", { name: "My Secrets" })).toBeVisible({
+    await expect(page.getByRole("heading", { name: "Saved Secrets" })).toBeVisible({
       timeout: 30_000,
     });
     await page.getByRole("button", { name: /share github token/i }).click();
 
-    const dialog = page.getByRole("dialog", { name: /share github token/i });
-    await expect(dialog).toBeVisible();
-    await expect(dialog.getByText("Shared with platform-team")).toBeVisible();
+    const panel = page.getByRole("region", { name: /github token team access/i });
+    await expect(panel).toBeVisible();
+    await expect(page.getByRole("dialog", { name: /share github token/i })).toHaveCount(0);
+    await expect(panel.getByText(/Choose a team that can use this saved secret/)).toBeVisible();
+    await expect(panel.getByLabel("Team access")).toContainText("Platform Team");
+    await expect(panel.getByLabel("Team access")).toContainText("team:platform-team");
 
-    await dialog.getByLabel(/team/i).selectOption("observability-team");
-    await dialog.getByRole("button", { name: /^share$/i }).click();
+    await panel.getByRole("button", { name: /team access/i }).click();
+    await page.getByLabel("Search teams...").fill("observ");
+    await page.getByRole("option", { name: /Observability Team.*team:observability-team/i }).click();
+    await panel.getByRole("button", { name: /grant access/i }).click();
     await expect.poll(() => pendingShares.map((share) => share.teamId)).toContain(
       "observability-team",
     );
 
-    await dialog.getByLabel(/team/i).selectOption("security-team");
-    await dialog.getByRole("button", { name: /^share$/i }).click();
-    await expect.poll(() => pendingShares.map((share) => share.teamId).sort()).toEqual([
-      "observability-team",
-      "security-team",
+    await panel.getByRole("button", { name: /team access/i }).click();
+    await page.getByLabel("Search teams...").fill("security");
+    await page.getByRole("option", { name: /Security Team.*team:security-team/i }).click();
+    await panel.getByRole("button", { name: /grant access/i }).click();
+    await expect.poll(() => pendingShares.map((share) => `${share.action}:${share.teamId}`).sort()).toEqual([
+      "share:observability-team",
+      "share:security-team",
     ]);
 
     const securityShare = pendingShares.find((share) => share.teamId === "security-team");
-    if (!securityShare) {
-      throw new Error("security-team share request was not captured");
-    }
+    if (!securityShare) throw new Error("security-team share request was not captured");
     await fulfillJson(securityShare.route, { success: true, data: { ok: true } });
-    await expect(dialog.getByText("Shared with security-team")).toBeVisible();
 
     const observabilityShare = pendingShares.find((share) => share.teamId === "observability-team");
-    if (!observabilityShare) {
-      throw new Error("observability-team share request was not captured");
-    }
+    if (!observabilityShare) throw new Error("observability-team share request was not captured");
     await fulfillJson(observabilityShare.route, { success: true, data: { ok: true } });
-    await expect(dialog.getByText("Shared with observability-team")).toBeVisible();
-    await expect(dialog.getByText("Shared with security-team")).toBeVisible();
+
+    await expect(panel.getByText(/Could not update sharing/i)).toHaveCount(0);
+    await expect(panel.getByLabel("Team access")).toContainText(/Observability Team|Security Team/);
+
+    await panel.getByRole("button", { name: /team access/i }).click();
+    await page.getByLabel("Search teams...").fill("platform");
+    await page.getByRole("option", { name: /Platform Team.*team:platform-team/i }).click();
+    await panel.getByRole("button", { name: /revoke access/i }).click();
+    await expect.poll(() => pendingShares.map((share) => `${share.action}:${share.teamId}`)).toContain(
+      "revoke:platform-team",
+    );
+
+    const platformRevoke = pendingShares.find((share) => share.action === "revoke");
+    if (!platformRevoke) throw new Error("platform-team revoke request was not captured");
+    await fulfillJson(platformRevoke.route, { success: true, data: { ok: true } });
+    await expect(panel.getByText(/Could not update sharing/i)).toHaveCount(0);
   });
 });

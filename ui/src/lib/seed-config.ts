@@ -15,7 +15,7 @@
 
 import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
 import { BUILTIN_MCP_CREDENTIAL_SOURCES } from "@/lib/rbac/agentgateway-mcp-discovery";
-import { writeOpenFgaTuples } from "@/lib/rbac/openfga";
+import { writeOpenFgaTuples, isOpenFgaReconciliationEnabled } from "@/lib/rbac/openfga";
 import { reconcileAgentRelationships } from "@/lib/rbac/openfga-agent-tools";
 import {
 reconcileConfigDrivenLlmModelRelationships,
@@ -902,8 +902,8 @@ export async function bootstrapDefaultIdentityGroupSyncRuleIfEmpty(): Promise<bo
  * This runs automatically on every server startup, so an operator's only
  * "migration" step is rolling out the new image (e.g. `helm upgrade`). It is
  * idempotent and non-destructive:
- *   - Only matches docs where `credential_sources` is absent OR an empty array,
- *     so re-runs are no-ops and an admin's customized sources are never clobbered.
+ *   - Only matches docs where `credential_sources` is absent. An explicit empty
+ *     array means the operator cleared credentials and must not be backfilled.
  *   - Keyed by the same {@link BUILTIN_MCP_CREDENTIAL_SOURCES} map used by fresh
  *     discovery, so the backfill and insert paths cannot drift.
  *
@@ -917,10 +917,7 @@ export async function backfillBuiltinMcpCredentialSources(): Promise<number> {
     const result = await collection.updateOne(
       {
         _id: id,
-        $or: [
-          { credential_sources: { $exists: false } },
-          { credential_sources: { $size: 0 } },
-        ],
+        credential_sources: { $exists: false },
       },
       {
         $set: {
@@ -942,13 +939,12 @@ export async function backfillBuiltinMcpCredentialSources(): Promise<number> {
 /**
  * First-run / post-wipe safety net for AgentGateway-discovered MCP servers.
  *
- * Discovered servers (`source: "agentgateway"`) are runtime-provisioned by an
- * explicit "Sync with AgentGateway" action — the YAML seed never declares them,
- * and `backfillBuiltinMcpCredentialSources` only UPDATES existing docs. So once
- * the `mcp_servers` collection loses its discovered rows (e.g. wiped by an
- * older build that lacked the cleanup guard), nothing repopulates them until a
- * human clicks Sync, leaving the MCP Servers tab empty (the recurring
- * "No MCP Servers Yet" / knowledge-base 401 symptom).
+ * Discovered servers (`source: "agentgateway"`) are runtime-provisioned from
+ * AgentGateway's live route table — the YAML seed never declares them, and
+ * `backfillBuiltinMcpCredentialSources` only UPDATES existing docs. So once the
+ * `mcp_servers` collection loses its discovered rows (e.g. wiped by an older
+ * build that lacked the cleanup guard), nothing repopulates them unless this
+ * repair pass runs, leaving built-in MCP routes absent from the UI.
  *
  * This runs ONE discovery pass at startup, but only when there are zero
  * discovered servers, so it self-heals an empty/wiped collection without
@@ -989,6 +985,94 @@ export async function selfHealDiscoveredMcpServersIfEmpty(): Promise<number> {
     );
     return 0;
   }
+}
+
+/**
+ * Reconcile OpenFGA tuples for platform-managed MCP servers already in Mongo.
+ * Applies policy changes (e.g. revoking org-wide invoker) on every UI restart
+ * without requiring a manual AgentGateway sync.
+ */
+export async function reconcileExistingPlatformMcpServerOpenFgaTuples(): Promise<number> {
+  if (!isMongoDBConfigured || !isOpenFgaReconciliationEnabled()) return 0;
+
+  const collection = await getCollection<MCPServerConfig>("mcp_servers");
+  const servers = await collection
+    .find(
+      { $or: [{ config_driven: true }, { source: "agentgateway" }] } as never,
+      { projection: { _id: 1 } },
+    )
+    .toArray();
+
+  const orgId = caipeOrgKey();
+  for (const server of servers) {
+    const serverId = String(server._id ?? "").trim();
+    if (!serverId) continue;
+    await reconcileConfigDrivenMcpServerRelationships({ serverId, organizationId: orgId });
+  }
+
+  if (servers.length > 0) {
+    console.log(
+      `[seed-config] Reconciled OpenFGA tuples for ${servers.length} platform MCP server(s)`,
+    );
+  }
+  return servers.length;
+}
+
+/**
+ * Reconcile OpenFGA tuples for all dynamic agents in Mongo so policy changes
+ * (e.g. revoking team-member writer grants) apply on UI restart.
+ */
+export async function reconcileExistingAgentOpenFgaTuples(): Promise<number> {
+  if (!isMongoDBConfigured || !isOpenFgaReconciliationEnabled()) return 0;
+
+  const { getPlatformDefaultAgentId } = await import("@/lib/rbac/platform-default");
+  const platformDefaultAgentId = await getPlatformDefaultAgentId();
+
+  const collection = await getCollection<DynamicAgentConfig>("dynamic_agents");
+  const agents = await collection
+    .find({}, {
+      projection: {
+        _id: 1,
+        allowed_tools: 1,
+        owner_subject: 1,
+        owner_id: 1,
+        owner_team_slug: 1,
+        shared_with_teams: 1,
+        visibility: 1,
+      },
+    })
+    .toArray();
+
+  const orgId = caipeOrgKey();
+  for (const agent of agents) {
+    const agentId = String(agent._id ?? "").trim();
+    if (!agentId) continue;
+    const allowedTools = agent.allowed_tools ?? {};
+    const sharedSlugs = agent.shared_with_teams ?? [];
+    const isGlobal = agent.visibility === "global";
+    const retainPlatformDefaultGrant =
+      platformDefaultAgentId !== null && agentId === platformDefaultAgentId;
+    await reconcileAgentRelationships({
+      agentId,
+      previousAllowedTools: allowedTools,
+      nextAllowedTools: allowedTools,
+      ownerSubject: agent.owner_subject ?? agent.owner_id,
+      organizationId: orgId,
+      ownerTeamSlug: agent.owner_team_slug,
+      nextSharedTeamSlugs: sharedSlugs,
+      previousSharedTeamSlugs: sharedSlugs,
+      globalUserAccess: isGlobal,
+      // Sweep stale org-wide chat grants on team agents (including agents
+      // demoted from global before reconcile carried delete flags).
+      previousGlobalUserAccess: !isGlobal && !retainPlatformDefaultGrant,
+      failClosed: false,
+    });
+  }
+
+  if (agents.length > 0) {
+    console.log(`[seed-config] Reconciled OpenFGA tuples for ${agents.length} dynamic agent(s)`);
+  }
+  return agents.length;
 }
 
 /**
@@ -1090,6 +1174,19 @@ export async function applySeedConfig(): Promise<void> {
         "[seed-config] AgentGateway MCP server self-heal threw:",
         err,
       );
+    }
+    try {
+      await reconcileExistingPlatformMcpServerOpenFgaTuples();
+    } catch (err) {
+      console.error(
+        "[seed-config] Platform MCP server OpenFGA reconcile threw:",
+        err,
+      );
+    }
+    try {
+      await reconcileExistingAgentOpenFgaTuples();
+    } catch (err) {
+      console.error("[seed-config] Dynamic agent OpenFGA reconcile threw:", err);
     }
   }
 

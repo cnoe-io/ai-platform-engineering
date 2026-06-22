@@ -1,12 +1,15 @@
 import { createCipheriv,createDecipheriv,randomBytes } from "crypto";
 
-import { createCredentialError } from "./errors";
+// assisted-by Codex Codex-sonnet-4-6
+
+import { CredentialError,createCredentialError } from "./errors";
 import { DataKeyContext,KeyWrapper } from "./key-wrapper";
 
 interface EncryptedPayloadDocument {
   secretRefId: string;
   algorithm: "AES-256-GCM";
   ciphertext: string;
+  maskedPreviewCiphertext?: string;
   encryptedDek: string;
   keyProvider: string;
   cmkId: string | null;
@@ -38,6 +41,7 @@ export interface MongoEnvelopeCredentialStoreOptions {
 export interface PutSecretInput {
   secretRefId: string;
   plaintext: string;
+  maskedPreview?: string;
 }
 
 function encodeJson(value: unknown): string {
@@ -128,6 +132,15 @@ export class MongoEnvelopeCredentialStore {
         wrappedDataKey.plaintextDataKey,
         input.secretRefId,
       ),
+      ...(input.maskedPreview !== undefined
+        ? {
+            maskedPreviewCiphertext: encryptPayload(
+              input.maskedPreview,
+              wrappedDataKey.plaintextDataKey,
+              input.secretRefId,
+            ),
+          }
+        : {}),
       encryptedDek: wrappedDataKey.encryptedDataKey,
       keyProvider: wrappedDataKey.keyProvider,
       cmkId: wrappedDataKey.cmkId,
@@ -141,7 +154,7 @@ export class MongoEnvelopeCredentialStore {
     );
   }
 
-  async getSecret(secretRefId: string): Promise<string> {
+  private async getPayload(secretRefId: string): Promise<EncryptedPayloadDocument> {
     const document = await this.payloadCollection.findOne({ secretRefId });
     if (!document) {
       throw createCredentialError({
@@ -151,14 +164,21 @@ export class MongoEnvelopeCredentialStore {
       });
     }
 
-    const payload = asEncryptedPayload(document);
+    return asEncryptedPayload(document);
+  }
+
+  private async decryptPayloadField(
+    secretRefId: string,
+    payload: EncryptedPayloadDocument,
+    ciphertextEnvelope: string,
+  ): Promise<string> {
     const dataKey = await this.getKeyWrapper().unwrapDataKey(
       payload.encryptedDek,
       dataKeyContext(secretRefId),
     );
 
     try {
-      return decryptPayload(payload.ciphertext, dataKey, secretRefId);
+      return decryptPayload(ciphertextEnvelope, dataKey, secretRefId);
     } catch {
       throw createCredentialError({
         reasonCode: "decrypt_failed",
@@ -168,9 +188,37 @@ export class MongoEnvelopeCredentialStore {
     }
   }
 
+  async getSecret(secretRefId: string): Promise<string> {
+    const payload = await this.getPayload(secretRefId);
+    return this.decryptPayloadField(secretRefId, payload, payload.ciphertext);
+  }
+
+  async getMaskedPreview(secretRefId: string): Promise<string> {
+    const payload = await this.getPayload(secretRefId);
+    if (!payload.maskedPreviewCiphertext) {
+      throw createCredentialError({
+        reasonCode: "credential_preview_not_found",
+        message: "Credential preview payload was not found",
+        status: 404,
+      });
+    }
+    return this.decryptPayloadField(secretRefId, payload, payload.maskedPreviewCiphertext);
+  }
+
   async rotateSecret(secretRefId: string): Promise<void> {
     const plaintext = await this.getSecret(secretRefId);
-    await this.putSecret({ secretRefId, plaintext });
+    let maskedPreview: string | undefined;
+    try {
+      maskedPreview = await this.getMaskedPreview(secretRefId);
+    } catch (error) {
+      if (
+        !(error instanceof CredentialError) ||
+        error.reasonCode !== "credential_preview_not_found"
+      ) {
+        throw error;
+      }
+    }
+    await this.putSecret({ secretRefId, plaintext, maskedPreview });
   }
 
   async deleteSecret(secretRefId: string): Promise<void> {

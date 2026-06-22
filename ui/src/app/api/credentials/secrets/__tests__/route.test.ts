@@ -16,7 +16,7 @@ jest.mock("@/lib/api-middleware", () => {
     ApiError,
     getAuthFromBearerOrSession: jest.fn(async () => ({
       user: { email: "alice@example.test", name: "Alice", role: "user" },
-      session: { sub: "alice-sub", user: { email: "alice@example.test" } },
+      session: { sub: "alice-sub", user: { email: "alice@example.test", name: "Alice Example" } },
     })),
     successResponse: (data: unknown, status = 200) => ({
       status,
@@ -58,6 +58,7 @@ describe("/api/credentials/secrets", () => {
       {
         id: "secret-1",
         name: "GitHub token",
+        owner: { type: "user", id: "alice-sub" },
         maskedPreview: "ghp_...abcd",
       },
     ]);
@@ -70,13 +71,24 @@ describe("/api/credentials/secrets", () => {
         {
           id: "secret-1",
           name: "GitHub token",
+          owner: {
+            type: "user",
+            id: "alice-sub",
+            email: "alice@example.test",
+            name: "Alice Example",
+          },
           maskedPreview: "ghp_...abcd",
         },
       ],
     });
     expect(mockListSecrets).toHaveBeenCalledWith({
-      session: { sub: "alice-sub", user: { email: "alice@example.test" } },
-      owner: { type: "user", id: "alice-sub" },
+      session: { sub: "alice-sub", user: { email: "alice@example.test", name: "Alice Example" } },
+      owner: {
+        type: "user",
+        id: "alice-sub",
+        email: "alice@example.test",
+        name: "Alice Example",
+      },
     });
   });
 
@@ -107,6 +119,16 @@ describe("/api/credentials/secrets", () => {
       },
     });
     expect(JSON.stringify(mockCreateSecret.mock.calls)).toContain("ghp_raw_token_value");
+    expect(mockCreateSecret).toHaveBeenCalledWith(
+      expect.objectContaining({
+        owner: expect.objectContaining({
+          type: "user",
+          id: "alice-sub",
+          email: "alice@example.test",
+          name: "Alice Example",
+        }),
+      }),
+    );
     expect(JSON.stringify(json)).not.toContain("ghp_raw_token_value");
   });
 
@@ -129,7 +151,7 @@ describe("/api/credentials/secrets", () => {
     );
 
     expect(mockRequireResourcePermission).toHaveBeenCalledWith(
-      { sub: "alice-sub", user: { email: "alice@example.test" } },
+      { sub: "alice-sub", user: { email: "alice@example.test", name: "Alice Example" } },
       { type: "team", id: "platform-team", action: "manage" },
     );
   });

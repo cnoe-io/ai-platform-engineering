@@ -199,6 +199,20 @@ async function installSessionAndOpenHome(page: Page, env: RbacEnv): Promise<void
   test.skip(!process.env.NEXTAUTH_SECRET, "NEXTAUTH_SECRET is required for deterministic local session e2e.");
   test.skip(!env.user.sub, "RBAC_USER_SUB is required for deterministic local session e2e.");
 
+  await page.route("**/api/admin/platform-config", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        success: true,
+        data: {
+          default_agent_id: null,
+          release_notes: { enabled: false },
+        },
+      }),
+    });
+  });
+
   await installTestSession(page, env, {
     email: env.user.email,
     subject: env.user.sub,
@@ -212,7 +226,8 @@ async function openSystemStatus(page: Page) {
   await dismissReleaseUpgradeDialog(page);
   const trigger = page.getByRole("button", { name: /system status:/i });
   await expect(trigger).toBeVisible({ timeout: 15_000 });
-  await trigger.click();
+  await dismissReleaseUpgradeDialog(page);
+  await trigger.click({ force: true });
 }
 
 async function expectGroupTooltip(page: Page, label: string, expectedProbe: string, expectedTarget: string) {

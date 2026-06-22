@@ -5,7 +5,10 @@ import { assertCredentialServiceCaller } from "@/lib/credentials/internal-caller
 import { getProviderConnectionService } from "@/lib/credentials/oauth-service-factory";
 import { getCredentialFeatureConfig } from "@/lib/feature-flags/credentials";
 import { validateBearerJWT } from "@/lib/jwt-validation";
+import { findPinnedCredentialSource } from "@/lib/mcp-credential-resolution";
+import { getCollection } from "@/lib/mongodb";
 import { requireResourcePermission } from "@/lib/rbac/resource-authz";
+import type { MCPServerConfig } from "@/types/dynamic-agent";
 
 function assertFeatureEnabled(): void {
   if (!getCredentialFeatureConfig().enabled) {
@@ -26,17 +29,15 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   const providerConnectionId =
     typeof body.provider_connection_id === "string" ? body.provider_connection_id.trim() : "";
   const provider = typeof body.provider === "string" ? body.provider.trim() : "";
+  const mcpServerId = typeof body.mcp_server_id === "string" ? body.mcp_server_id.trim() : "";
   if (!providerConnectionId && !provider) {
     throw new ApiError("provider_connection_id or provider is required", 400, "VALIDATION_ERROR");
   }
 
-  // Determine the owner type for subject-keyed lookup: Keycloak service-account
-  // tokens carry `preferred_username = "service-account-<clientId>"` and have
-  // identity.isServiceAccount === true (see jwt-validation.ts:247).
   const ownerType = identity.isServiceAccount === true ? "service_account" : "user";
 
   const service = await getProviderConnectionService();
-  const connection = providerConnectionId
+  let connection = providerConnectionId
     ? await service.getConnection(providerConnectionId)
     : (await service.listConnections({ type: ownerType, id: identity.sub })).find(
         (candidate) => candidate.provider === provider && candidate.status === "connected",
@@ -44,17 +45,29 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   if (!connection) {
     throw new ApiError("Provider connection was not found", 404, "CREDENTIAL_NOT_FOUND");
   }
-  // Owner guard: the connection must belong to the calling subject. An SA caller
-  // must own a service_account-typed connection; a user caller must own a
-  // user-typed connection. If the types/ids differ the caller is fetching
-  // another principal's connection — require explicit `use` permission instead.
+
   const callerOwnsConnection =
     connection.owner.type === ownerType && connection.owner.id === identity.sub;
   if (!callerOwnsConnection) {
-    await requireResourcePermission(
-      { sub: identity.sub, user: { email: identity.email }, isServiceAccount: identity.isServiceAccount },
-      { type: "secret_ref", id: `provider_connection:${connection.id}`, action: "use" },
-    );
+    let pinnedOnRequestedServer = false;
+    if (mcpServerId && providerConnectionId) {
+      const collection = await getCollection<MCPServerConfig>("mcp_servers");
+      const server = await collection.findOne({ _id: mcpServerId });
+      pinnedOnRequestedServer = Boolean(
+        findPinnedCredentialSource(server?.credential_sources, providerConnectionId),
+      );
+    }
+    if (pinnedOnRequestedServer) {
+      await requireResourcePermission(
+        { sub: identity.sub, user: { email: identity.email }, isServiceAccount: identity.isServiceAccount },
+        { type: "mcp_server", id: mcpServerId, action: "use" },
+      );
+    } else {
+      await requireResourcePermission(
+        { sub: identity.sub, user: { email: identity.email }, isServiceAccount: identity.isServiceAccount },
+        { type: "secret_ref", id: `provider_connection:${connection.id}`, action: "use" },
+      );
+    }
   }
   const token = await service.refreshConnection(connection.id);
 

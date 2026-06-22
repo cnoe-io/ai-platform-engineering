@@ -69,11 +69,17 @@ let mockStreamingConversations = new Map<string, any>()
 let mockUnviewedConversations = new Set<string>()
 let mockInputRequiredConversations = new Set<string>()
 jest.mock('@/store/chat-store', () => ({
+  resolveChatNavigationPath: jest.fn(
+    ({ activeConversationId }: { activeConversationId?: string | null }) =>
+      activeConversationId ? `/chat/${activeConversationId}` : '/chat',
+  ),
   useChatStore: jest.fn(() => ({
     isStreaming: mockStreamingConversations.size > 0,
     streamingConversations: mockStreamingConversations,
     unviewedConversations: mockUnviewedConversations,
     inputRequiredConversations: mockInputRequiredConversations,
+    conversations: [],
+    activeConversationId: null,
   })),
 }))
 

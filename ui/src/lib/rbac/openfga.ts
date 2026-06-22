@@ -108,8 +108,15 @@ export function isOpenFgaConfigured(): boolean {
   return Boolean(openFgaHttpUrl());
 }
 
+function parseOpenFgaReconcileEnabledFlag(): boolean {
+  const raw = process.env.OPENFGA_RECONCILE_ENABLED?.trim().toLowerCase();
+  if (!raw) return true;
+  if (["false", "0", "no", "off"].includes(raw)) return false;
+  return ["true", "1", "yes", "on"].includes(raw);
+}
+
 export function isOpenFgaReconciliationEnabled(): boolean {
-  return process.env.OPENFGA_RECONCILE_ENABLED?.trim().toLowerCase() === "true" && Boolean(openFgaHttpUrl());
+  return parseOpenFgaReconcileEnabledFlag() && Boolean(openFgaHttpUrl());
 }
 
 function uniqueTuples(tuples: OpenFgaTupleKey[]): OpenFgaTupleKey[] {

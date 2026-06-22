@@ -3,8 +3,9 @@
  * 
  * This returns agents that the user can chat with:
  * - Global agents (visibility: 'global')
- * - Team agents (visibility: 'team') for teams the user belongs to
- * - Private agents (visibility: 'private') owned by the user
+ * - Team agents for teams the user belongs to (owner or shared)
+ * - Agents owned directly by the user
+ * - The configured platform default agent
  * 
  * Only returns enabled agents.
  */
@@ -15,6 +16,7 @@ successResponse,
 withErrorHandler,
 } from "@/lib/api-middleware";
 import { getCollection } from "@/lib/mongodb";
+import { filterAgentsByOwnershipScopeForSession } from "@/lib/rbac/agent-ownership-scope";
 import { baselineBootstrapTuples,getBaselineFgaProfile } from "@/lib/rbac/baseline-access";
 import { writeOpenFgaTuples } from "@/lib/rbac/openfga";
 import { filterResourcesByPermission } from "@/lib/rbac/resource-authz";
@@ -156,7 +158,13 @@ async function getAvailableAgents(request: NextRequest) {
     .toArray();
   await ensureAllUsersAgentGrants(agents, defaultAgentId);
 
-  const visibleAgents = await filterResourcesByPermission(session, agents, {
+  const scopedAgents = await filterAgentsByOwnershipScopeForSession(
+    session,
+    agents,
+    defaultAgentId,
+  );
+
+  const visibleAgents = await filterResourcesByPermission(session, scopedAgents, {
     type: "agent",
     action: "use",
     id: (agent) => String(agent._id),

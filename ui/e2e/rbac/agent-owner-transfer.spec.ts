@@ -33,6 +33,12 @@ const existingAgent = {
   enabled: true,
   owner_id: "admin@example.com",
   is_system: false,
+  config_driven: false,
+  permissions: {
+    can_manage: true,
+    can_write: true,
+    can_discover: true,
+  },
   created_at: "2026-06-17T00:00:00.000Z",
   updated_at: "2026-06-17T00:00:00.000Z",
 };

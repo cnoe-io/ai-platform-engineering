@@ -61,6 +61,22 @@ export interface MCPServerConfig {
   updated_at: string;
 }
 
+/** Per-row OpenFGA decisions returned by GET /api/mcp-servers (batch-checked). */
+export interface MCPServerRowPermissions {
+  can_manage: boolean;
+  can_invoke: boolean;
+  can_discover: boolean;
+}
+
+/** List-level capabilities returned once per GET /api/mcp-servers response. */
+export interface MCPServerListCapabilities {
+  repair_agentgateway: boolean;
+}
+
+export interface MCPServerConfigWithPermissions extends MCPServerConfig {
+  permissions: MCPServerRowPermissions;
+}
+
 export interface MCPCredentialSource {
   kind: 'secret_ref' | 'provider_connection' | 'caller_token';
   target: 'env' | 'header';
@@ -68,6 +84,8 @@ export interface MCPCredentialSource {
   secret_ref?: string;
   provider_connection_id?: string;
   provider?: string;
+  /** Custom MCP servers: pinned uses provider_connection_id for all callers; caller resolves per JWT sub. */
+  connection_scope?: 'caller' | 'pinned';
   /** provider_connection: env var holding the shared fallback token (e.g. PAT). */
   fallback_env?: string;
   /** caller_token: mint a service client-credentials token when no user JWT. */
@@ -80,7 +98,7 @@ export interface MCPServerConfigCreate {
   description?: string;
   transport: TransportType;
   endpoint?: string;
-  route_through_agentgateway?: boolean;
+  /** Upstream MCP URL when the form endpoint is an AgentGateway route from the picker. */
   agentgateway_target_endpoint?: string;
   command?: string;
   args?: string[];
@@ -95,7 +113,6 @@ export interface MCPServerConfigUpdate {
   description?: string;
   transport?: TransportType;
   endpoint?: string;
-  route_through_agentgateway?: boolean;
   agentgateway_target_endpoint?: string;
   command?: string;
   args?: string[];
@@ -108,6 +125,8 @@ export interface MCPToolInfo {
   name: string;
   namespaced_name: string;
   description: string;
+  inputSchema?: unknown;
+  input_schema?: unknown;
 }
 
 export interface MCPServerProbeResult {
@@ -397,6 +416,17 @@ export interface DynamicAgentConfig {
   last_review?: import("./ai-review").LastReview;
   created_at: string;
   updated_at: string;
+}
+
+/** Per-row OpenFGA decisions returned by GET /api/dynamic-agents (batch-checked). */
+export interface AgentRowPermissions {
+  can_manage: boolean;
+  can_write: boolean;
+  can_discover: boolean;
+}
+
+export interface DynamicAgentConfigWithPermissions extends DynamicAgentConfig {
+  permissions: AgentRowPermissions;
 }
 
 export interface DynamicAgentConfigCreate {

@@ -1,6 +1,7 @@
 // assisted-by Codex Codex-sonnet-4-6
 
 import { getCollection } from "@/lib/mongodb";
+import { agentGatewayMcpEndpointUrl } from "@/lib/rbac/agentgateway-mcp-discovery";
 import type { MCPCredentialSource, MCPServerConfig } from "@/types/dynamic-agent";
 import { timingSafeEqual } from "crypto";
 import { NextRequest } from "next/server";
@@ -35,22 +36,47 @@ function authorizeBridgeRequest(request: NextRequest): Response | null {
   return null;
 }
 
-function toBridgeTarget(server: MCPServerConfig): AgentGatewayBridgeTarget | null {
-  if ((server as { source?: unknown }).source !== "agentgateway" || server.enabled === false) return null;
+function isNetworkTransport(server: MCPServerConfig): boolean {
+  return server.transport === "http" || server.transport === "sse";
+}
 
-  const id = typeof server._id === "string" ? server._id.trim() : "";
+function isAgentGatewayEndpoint(endpoint: string): boolean {
+  const gatewayBase = agentGatewayMcpEndpointUrl();
+  try {
+    const endpointUrl = new URL(endpoint);
+    const gatewayUrl = new URL(gatewayBase);
+    const endpointPath = endpointUrl.pathname.replace(/\/+$/, "");
+    const gatewayPath = gatewayUrl.pathname.replace(/\/+$/, "");
+    return endpointUrl.origin === gatewayUrl.origin && endpointPath.startsWith(gatewayPath || "/mcp");
+  } catch {
+    return false;
+  }
+}
+
+function upstreamEndpointFor(server: MCPServerConfig): string {
   const targetEndpoint =
     typeof server.agentgateway_target_endpoint === "string"
       ? server.agentgateway_target_endpoint.trim()
       : "";
+  if (targetEndpoint) return targetEndpoint;
+
+  const endpoint = typeof server.endpoint === "string" ? server.endpoint.trim() : "";
+  return endpoint && !isAgentGatewayEndpoint(endpoint) ? endpoint : "";
+}
+
+function toBridgeTarget(server: MCPServerConfig): AgentGatewayBridgeTarget | null {
+  if (server.enabled === false || !isNetworkTransport(server)) return null;
+
+  const id = typeof server._id === "string" ? server._id.trim() : "";
+  const targetEndpoint = upstreamEndpointFor(server);
   if (!id || !SAFE_TARGET_ID.test(id) || !targetEndpoint) return null;
 
   return {
     id,
     target_endpoint: targetEndpoint,
-    ...(Array.isArray(server.credential_sources)
-      ? { credential_sources: server.credential_sources }
-      : {}),
+    // Always send the array so the config bridge can tell "no credentials" ([])
+    // from servers that should use their own upstream configuration.
+    credential_sources: Array.isArray(server.credential_sources) ? server.credential_sources : [],
   };
 }
 
@@ -61,8 +87,8 @@ export async function GET(request: NextRequest): Promise<Response> {
   const collection = await getCollection<MCPServerConfig>(COLLECTION_NAME);
   const servers = await collection
     .find({
-      source: "agentgateway",
       enabled: { $ne: false },
+      transport: { $in: ["http", "sse"] },
     } as never)
     .toArray();
   const targets = servers.flatMap((server) => {

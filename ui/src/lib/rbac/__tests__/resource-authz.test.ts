@@ -14,7 +14,9 @@ import { ApiError } from "@/lib/api-error";
 
 import {
   filterResourcesByPermission,
+  mcpServerRowPermissionsOrDefault,
   openFgaRelationForResourceAction,
+  resolveMcpServerListPermissions,
   resourceObject,
   resourcePermissionActionToCasAction,
   requireResourcePermission,
@@ -357,6 +359,71 @@ describe("resource-authz", () => {
         "mcp_server",
         ["visible", "hidden"],
       );
+    });
+
+    it("batch-resolves MCP list row permissions and repair capability", async () => {
+      mockAuthorize.mockReset();
+      mockAuthorizeMany.mockReset();
+      mockAuthorizeMany
+        .mockResolvedValueOnce(
+          new Map([
+            ["jira", { decision: "ALLOW", reason: "OK", retriable: false }],
+            ["github", { decision: "DENY", reason: "NO_CAPABILITY", retriable: false }],
+          ]),
+        )
+        .mockResolvedValueOnce(
+          new Map([
+            ["jira", { decision: "DENY", reason: "NO_CAPABILITY", retriable: false }],
+            ["github", { decision: "ALLOW", reason: "OK", retriable: false }],
+          ]),
+        )
+        .mockResolvedValueOnce(
+          new Map([
+            ["jira", { decision: "ALLOW", reason: "OK", retriable: false }],
+            ["github", { decision: "DENY", reason: "NO_CAPABILITY", retriable: false }],
+          ]),
+        );
+      mockAuthorize.mockImplementation(async (req) => {
+        if (req.resource.type === "mcp_server" && req.resource.id === "agentgateway" && req.action === "manage") {
+          return { decision: "ALLOW", reason: "OK", retriable: false };
+        }
+        return { decision: "DENY", reason: "NO_CAPABILITY", retriable: false };
+      });
+
+      const { rows, capabilities } = await resolveMcpServerListPermissions(
+        { sub: "alice-sub" },
+        ["jira", "github"],
+      );
+
+      expect(rows.get("jira")).toEqual({ can_manage: true, can_invoke: false, can_discover: true });
+      expect(rows.get("github")).toEqual({ can_manage: false, can_invoke: true, can_discover: false });
+      expect(capabilities).toEqual({ repair_agentgateway: true });
+      expect(mcpServerRowPermissionsOrDefault(rows, "missing")).toEqual({
+        can_manage: false,
+        can_invoke: false,
+        can_discover: false,
+      });
+    });
+
+    it("grants full permissions to org admins when bypassForOrgAdmin is enabled", async () => {
+      mockAuthorize.mockReset();
+      mockAuthorizeMany.mockReset();
+      mockAuthorize.mockResolvedValue({
+        decision: "ALLOW",
+        reason: "OK",
+        retriable: false,
+      });
+
+      const { rows, capabilities } = await resolveMcpServerListPermissions(
+        { sub: "admin-sub" },
+        ["jira", "github"],
+        { bypassForOrgAdmin: true },
+      );
+
+      expect(mockAuthorizeMany).not.toHaveBeenCalled();
+      expect(rows.get("jira")).toEqual({ can_manage: true, can_invoke: true, can_discover: true });
+      expect(rows.get("github")).toEqual({ can_manage: true, can_invoke: true, can_discover: true });
+      expect(capabilities).toEqual({ repair_agentgateway: true });
     });
   });
 });

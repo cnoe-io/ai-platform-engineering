@@ -1,5 +1,7 @@
 "use client";
 
+// assisted-by Codex Codex-sonnet-4-6
+
 import { IntegrationOrbit } from "@/components/gallery/IntegrationOrbit";
 import { LoadingScreen } from "@/components/loading-screen";
 import { Button } from "@/components/ui/button";
@@ -197,10 +199,10 @@ function LoginContent() {
                   <AlertCircle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
                   <div>
                     <p className="text-sm font-medium text-destructive">
-                      Session Reset
+                      Session reset
                     </p>
                     <p className="text-xs text-destructive/80 mt-1">
-                      A login loop was detected and your session has been reset. Please sign in again.
+                      We reset your session to fix a sign-in loop. Please sign in again.
                     </p>
                   </div>
                 </motion.div>
@@ -216,10 +218,10 @@ function LoginContent() {
                   <AlertCircle className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
                   <div>
                     <p className="text-sm font-medium text-amber-500">
-                      Session Expired
+                      Session expired
                     </p>
                     <p className="text-xs text-amber-500/80 mt-1">
-                      Your authentication session has expired. Please sign in again to continue.
+                      Please sign in again to continue.
                     </p>
                   </div>
                 </motion.div>
@@ -235,14 +237,14 @@ function LoginContent() {
                   <AlertCircle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
                   <div>
                     <p className="text-sm font-medium text-destructive">
-                      Authentication Failed
+                      Sign-in failed
                     </p>
                     <p className="text-xs text-destructive/80 mt-1">
-                      {error === "OAuthSignin" && "Failed to start authentication flow."}
-                      {error === "OAuthCallback" && "Failed to complete authentication."}
-                      {error === "OAuthCreateAccount" && "Failed to create account."}
-                      {error === "Callback" && "Authentication callback error."}
-                      {error === "AccessDenied" && "Access denied. You may not have permission."}
+                      {error === "OAuthSignin" && "We could not start sign-in."}
+                      {error === "OAuthCallback" && "We could not finish sign-in."}
+                      {error === "OAuthCreateAccount" && "We could not create your account."}
+                      {error === "Callback" && "We could not finish sign-in."}
+                      {error === "AccessDenied" && "This account does not have access."}
                       {!["OAuthSignin", "OAuthCallback", "OAuthCreateAccount", "Callback", "AccessDenied"].includes(error) &&
                         "An unexpected error occurred. Please try again."}
                     </p>

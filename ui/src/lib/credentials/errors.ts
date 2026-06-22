@@ -1,4 +1,7 @@
+// assisted-by Codex Codex-sonnet-4-6
+
 export const CREDENTIAL_REASON_CODES = {
+  credentialPreviewNotFound: "credential_preview_not_found",
   browserRequestDenied: "browser_request_denied",
   credentialStoreUnavailable: "credential_store_unavailable",
   deniedByPolicy: "denied_by_policy",

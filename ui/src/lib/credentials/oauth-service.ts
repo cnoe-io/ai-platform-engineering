@@ -9,6 +9,10 @@ interface Collection<T extends object> {
   findOne(query: Record<string, unknown>): Promise<T | null>;
   find?(): { sort(sort: Record<string, 1 | -1>): { toArray(): Promise<T[]> } };
   updateOne?(query: Record<string, unknown>, update: Record<string, unknown>): Promise<unknown>;
+  updateMany?(
+    query: Record<string, unknown>,
+    update: Record<string, unknown>,
+  ): Promise<{ matchedCount?: number }>;
 }
 
 interface PayloadStore {
@@ -44,7 +48,10 @@ export interface ProviderConnectionDocument {
   refreshTokenRef: string;
   accessTokenRef: string;
   expiresAt?: Date;
+  connectedAt?: Date;
   updatedAt?: Date;
+  profileSummary?: string;
+  profileCheckedAt?: Date;
   // What this user asked for at connect time (a subset of the connector's
   // scopes). Absent on legacy connections ⇒ "used the connector default".
   requestedScopes?: string[];
@@ -59,7 +66,10 @@ export interface ProviderConnectionMetadata {
   owner: CredentialOwnerRef;
   status: ProviderConnectionDocument["status"];
   expiresAt?: Date;
+  connectedAt?: Date;
   updatedAt?: Date;
+  profileSummary?: string;
+  profileCheckedAt?: Date;
   requestedScopes?: string[];
   grantedScopes?: string[];
 }
@@ -123,6 +133,10 @@ function validateExternalHttpsUrl(value: string, field: string): string {
   return url.toString();
 }
 
+function enabled(value: string | undefined): boolean {
+  return value === "true" || value === "1";
+}
+
 function validateRedirectUri(value: string): string {
   const url = new URL(nonEmpty(value, "redirectUri"));
   const hostname = url.hostname.toLowerCase();
@@ -130,11 +144,18 @@ function validateRedirectUri(value: string): string {
   if (url.protocol === "https:") {
     return url.toString();
   }
-  if (process.env.NODE_ENV !== "production" && url.protocol === "http:" && isLocalhost) {
+  if (
+    url.protocol === "http:" &&
+    isLocalhost &&
+    (
+      process.env.NODE_ENV !== "production" ||
+      enabled(process.env.CREDENTIAL_ALLOW_LOCALHOST_OAUTH_REDIRECTS)
+    )
+  ) {
     return url.toString();
   }
   throw new ApiError(
-    "redirectUri must be HTTPS; localhost HTTP is allowed only outside production",
+    "redirectUri must be HTTPS; localhost HTTP requires CREDENTIAL_ALLOW_LOCALHOST_OAUTH_REDIRECTS=true under production",
     400,
     "VALIDATION_ERROR",
   );
@@ -369,6 +390,127 @@ export class ProviderConnectionService {
     return { authorizationUrl: url.toString(), connectorId: connector.id, requestedScopes };
   }
 
+  private async findOwnerDocuments(owner: CredentialOwnerRef): Promise<ProviderConnectionDocument[]> {
+    if (!this.providerConnectionsCollection.find) {
+      return [];
+    }
+    const docs = await this.providerConnectionsCollection.find().sort({ updatedAt: -1 }).toArray();
+    return docs.filter((doc) => doc.owner.type === owner.type && doc.owner.id === owner.id);
+  }
+
+  private async disableConnection(connectionId: string): Promise<void> {
+    if (!this.providerConnectionsCollection.updateOne) return;
+    await this.providerConnectionsCollection.updateOne(
+      { id: connectionId },
+      { $set: { status: "disabled", updatedAt: this.now() } },
+    );
+  }
+
+  private async disableSupersededConnections(
+    owner: CredentialOwnerRef,
+    provider: string,
+    keepId: string,
+  ): Promise<void> {
+    const docs = await this.findOwnerDocuments(owner);
+    await Promise.all(
+      docs
+        .filter(
+          (doc) =>
+            (doc.provider ?? doc.connectorId) === provider &&
+            doc.id !== keepId &&
+            (doc.status === "connected" || doc.status === "needs_reauth"),
+        )
+        .map((doc) => this.disableConnection(doc.id)),
+    );
+  }
+
+  /**
+   * Keep the newest active connection per provider and disable older duplicates.
+   * Idempotent and safe to run on every list call.
+   */
+  async pruneStaleConnections(owner: CredentialOwnerRef): Promise<number> {
+    const docs = await this.findOwnerDocuments(owner);
+    const grouped = new Map<string, ProviderConnectionDocument[]>();
+    for (const doc of docs) {
+      const provider = doc.provider ?? doc.connectorId;
+      const bucket = grouped.get(provider) ?? [];
+      bucket.push(doc);
+      grouped.set(provider, bucket);
+    }
+
+    let pruned = 0;
+    for (const group of grouped.values()) {
+      const active = group.filter((doc) => doc.status === "connected" || doc.status === "needs_reauth");
+      if (active.length <= 1) continue;
+      active.sort((left, right) => {
+        const leftTime = left.updatedAt?.getTime() ?? left.connectedAt?.getTime() ?? 0;
+        const rightTime = right.updatedAt?.getTime() ?? right.connectedAt?.getTime() ?? 0;
+        return rightTime - leftTime;
+      });
+      for (const stale of active.slice(1)) {
+        await this.disableConnection(stale.id);
+        pruned += 1;
+      }
+    }
+    return pruned;
+  }
+
+  async revokeConnection(input: {
+    connectionId: string;
+    owner: CredentialOwnerRef;
+  }): Promise<ProviderConnectionMetadata> {
+    const connection = await this.providerConnectionsCollection.findOne({
+      id: nonEmpty(input.connectionId, "connectionId"),
+    });
+    if (!connection) {
+      throw new ApiError("Provider connection was not found", 404, "CREDENTIAL_NOT_FOUND");
+    }
+    if (
+      connection.owner.type !== input.owner.type ||
+      connection.owner.id !== input.owner.id
+    ) {
+      throw new ApiError("Provider connection was not found", 404, "CREDENTIAL_NOT_FOUND");
+    }
+    if (connection.status === "disabled") {
+      return toProviderConnectionMetadata(connection);
+    }
+    await this.disableConnection(connection.id);
+    return toProviderConnectionMetadata({
+      ...connection,
+      status: "disabled",
+      updatedAt: this.now(),
+    });
+  }
+
+  async updateConnectionProfileSummary(input: {
+    connectionId: string;
+    owner: CredentialOwnerRef;
+    profileSummary?: string;
+  }): Promise<void> {
+    const connection = await this.providerConnectionsCollection.findOne({
+      id: nonEmpty(input.connectionId, "connectionId"),
+    });
+    if (
+      !connection ||
+      connection.owner.type !== input.owner.type ||
+      connection.owner.id !== input.owner.id
+    ) {
+      return;
+    }
+    if (!this.providerConnectionsCollection.updateOne) return;
+    const now = this.now();
+    await this.providerConnectionsCollection.updateOne(
+      { id: connection.id },
+      {
+        $set: {
+          ...(input.profileSummary ? { profileSummary: input.profileSummary } : {}),
+          profileCheckedAt: now,
+          updatedAt: now,
+        },
+      },
+    );
+  }
+
   async completeConnection(input: {
     providerKey: string;
     owner: CredentialOwnerRef;
@@ -422,10 +564,12 @@ export class ProviderConnectionService {
       accessTokenRef,
       refreshTokenRef,
       expiresAt: token.expires_in ? new Date(now.getTime() + token.expires_in * 1000) : undefined,
+      connectedAt: now,
       updatedAt: now,
       ...(requestedScopes ? { requestedScopes } : {}),
       ...(grantedScopes ? { grantedScopes } : {}),
     };
+    await this.disableSupersededConnections(input.owner, connector.provider, id);
     await this.providerConnectionsCollection.insertOne(doc);
     return toProviderConnectionMetadata(doc);
   }
@@ -485,20 +629,23 @@ export class ProviderConnectionService {
       // an OAuth refresh grant. refreshConnection already handles this case.
       refreshTokenRef: "",
       // No expiresAt — caller manages token lifecycle out-of-band.
+      connectedAt: now,
       updatedAt: now,
       ...(requestedScopes ? { requestedScopes } : {}),
     };
+    await this.disableSupersededConnections(input.owner, provider, id);
     await this.providerConnectionsCollection.insertOne(doc);
     return toProviderConnectionMetadata(doc);
   }
 
-  async listConnections(owner: CredentialOwnerRef): Promise<ProviderConnectionMetadata[]> {
-    if (!this.providerConnectionsCollection.find) {
-      return [];
-    }
-    const docs = await this.providerConnectionsCollection.find().sort({ updatedAt: -1 }).toArray();
+  async listConnections(
+    owner: CredentialOwnerRef,
+    options?: { includeDisabled?: boolean },
+  ): Promise<ProviderConnectionMetadata[]> {
+    await this.pruneStaleConnections(owner);
+    const docs = await this.findOwnerDocuments(owner);
     return docs
-      .filter((doc) => doc.owner.type === owner.type && doc.owner.id === owner.id)
+      .filter((doc) => options?.includeDisabled || doc.status === "connected")
       .map(toProviderConnectionMetadata);
   }
 
@@ -636,7 +783,10 @@ function toProviderConnectionMetadata(
     owner: doc.owner,
     status: doc.status,
     expiresAt: doc.expiresAt,
+    connectedAt: doc.connectedAt ?? doc.updatedAt,
     updatedAt: doc.updatedAt,
+    ...(doc.profileSummary ? { profileSummary: doc.profileSummary } : {}),
+    ...(doc.profileCheckedAt ? { profileCheckedAt: doc.profileCheckedAt } : {}),
     ...(doc.requestedScopes ? { requestedScopes: doc.requestedScopes } : {}),
     ...(doc.grantedScopes ? { grantedScopes: doc.grantedScopes } : {}),
   };

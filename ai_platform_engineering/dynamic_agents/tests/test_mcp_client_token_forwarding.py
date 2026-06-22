@@ -24,6 +24,7 @@ from dynamic_agents.services.mcp_client import (
     build_httpx_client_factory,
     build_mcp_connection_config,
     build_mcp_connections,
+    warn_if_agent_gateway_missing_hmac,
 )
 
 
@@ -165,9 +166,8 @@ def test_agent_context_headers_are_omitted_without_shared_secret(monkeypatch):
     assert build_agent_context_headers("agent-test-april-2025") == {}
 
 
-def test_gateway_routing_only_rewrites_declared_gateway_targets(monkeypatch):
-    """A shared AgentGateway MCP backend must not relabel Jira tools as KB tools."""
-    monkeypatch.setenv("AGENT_GATEWAY_MCP_SERVER_IDS", "jira")
+def test_gateway_routing_routes_all_network_servers_when_gateway_is_configured(monkeypatch):
+    """AgentGateway is the policy-enforcement point for all network MCP servers."""
     servers = [
         MCPServerConfig(
             id="jira",
@@ -192,12 +192,11 @@ def test_gateway_routing_only_rewrites_declared_gateway_targets(monkeypatch):
     )
 
     assert connections["jira"]["url"] == "http://agentgateway:4000/mcp/jira"
-    assert connections["knowledge-base"]["url"] == "http://rag-server:9446/mcp"
+    assert connections["knowledge-base"]["url"] == "http://agentgateway:4000/mcp/knowledge-base"
 
 
-def test_gateway_all_only_routes_gateway_managed_servers(monkeypatch):
-    """`all` should not send arbitrary manual MCP rows to missing AG routes."""
-    monkeypatch.setenv("AGENT_GATEWAY_MCP_SERVER_IDS", "all")
+def test_gateway_routes_manual_network_mcp_servers(monkeypatch):
+    """Manual network MCP rows route through AgentGateway too."""
     servers = [
         MCPServerConfig(
             id="knowledge-base",
@@ -224,4 +223,27 @@ def test_gateway_all_only_routes_gateway_managed_servers(monkeypatch):
     )
 
     assert connections["knowledge-base"]["url"] == "http://agentgateway:4000/mcp/knowledge-base"
-    assert connections["manual-tool"]["url"] == "http://mcp-manual:8000/mcp"
+    assert connections["manual-tool"]["url"] == "http://agentgateway:4000/mcp/manual-tool"
+
+
+def test_warn_if_agent_gateway_missing_hmac_logs_when_gateway_set_without_secret(
+    monkeypatch, caplog
+):
+    monkeypatch.setenv("AGENT_GATEWAY_URL", "http://agentgateway:4000")
+    monkeypatch.delenv("CAIPE_AGENT_CONTEXT_HMAC_SECRET", raising=False)
+
+    with caplog.at_level("WARNING"):
+        warn_if_agent_gateway_missing_hmac()
+
+    assert "CAIPE_AGENT_CONTEXT_HMAC_SECRET is unset" in caplog.text
+
+
+def test_warn_if_agent_gateway_missing_hmac_is_quiet_without_gateway(monkeypatch, caplog):
+    monkeypatch.delenv("AGENT_GATEWAY_URL", raising=False)
+    monkeypatch.delenv("AGENTGATEWAY_URL", raising=False)
+    monkeypatch.delenv("CAIPE_AGENT_CONTEXT_HMAC_SECRET", raising=False)
+
+    with caplog.at_level("WARNING"):
+        warn_if_agent_gateway_missing_hmac()
+
+    assert caplog.text == ""

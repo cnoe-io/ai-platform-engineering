@@ -2,6 +2,7 @@
 
 import { expect, test } from "@playwright/test";
 import { readFile } from "node:fs/promises";
+import JSZip from "jszip";
 
 import {
   fulfillJson,
@@ -58,7 +59,7 @@ function serviceAuditRecords(): AuditRecord[] {
       source: "cas",
       component: "cas",
       pdp: "openfga",
-      decision_via: "openfga",
+      decision_via: "tuple",
       resource_ref: "conversation:conv-001",
       resource_type: "conversation",
       resource_id: "conv-001",
@@ -181,25 +182,26 @@ test.describe("audit-service-backed admin audit browser flows", () => {
 
     await expect(page.getByText("RBAC Audit Log", { exact: true })).toBeVisible();
     await expect(page.getByText("3 events found")).toBeVisible();
-    await expect(page.getByText("Denied to discover conversation conv-001")).toBeVisible();
+    await expect(page.getByText("Denied to discover conversation conv-001").first()).toBeVisible();
     await expect(page.getByText("Granted use on agent platform-engineer")).toBeVisible();
     await expect(page.getByText("Allowed to invoke MCP tool argocd_list_applications")).toBeVisible();
 
-    await page.getByText("Denied to discover conversation conv-001").click();
+    await page.getByText("Denied to discover conversation conv-001").first().click();
     await expect(page.getByText(/Correlation ID:\s*corr-denied-conversation/)).toBeVisible();
-    await expect(page.getByText(/Decision Path:\s*OpenFGA/)).toBeVisible();
+    await expect(page.getByText(/Decision Path:\s*OpenFGA tuple/i)).toBeVisible();
     await expect(page.getByText(/Source:\s*cas/)).toBeVisible();
-    await expect(page.getByText(/Subject Hash:\s*sha256:alice/)).toBeVisible();
+    await expect(page.getByText(/Subject:\s*alice@caipe.local/i)).toBeVisible();
 
-    await page.locator("select").first().selectOption("cas_decision");
-    await page.locator("select").nth(1).selectOption("deny");
+    await page.locator("select").nth(1).selectOption("cas_decision");
+    await page.locator("select").nth(2).selectOption("deny");
     await page.getByPlaceholder("User email...").fill("alice@caipe.local");
+    await page.locator("select").first().selectOption("custom");
     await page.locator('input[type="datetime-local"]').first().fill("2026-06-20T08:00");
     await page.locator('input[type="datetime-local"]').nth(1).fill("2026-06-20T14:00");
     await page.getByRole("button", { name: /^Search$/ }).click();
 
     await expect(page.getByText("1 event found")).toBeVisible();
-    await expect(page.getByText("Denied to discover conversation conv-001")).toBeVisible();
+    await expect(page.getByText("Denied to discover conversation conv-001").first()).toBeVisible();
     await expect(page.getByText("Granted use on agent platform-engineer")).toHaveCount(0);
 
     const filteredQuery = auditQueries.at(-1);
@@ -248,16 +250,18 @@ test.describe("audit-service-backed admin audit browser flows", () => {
     const downloadPromise = page.waitForEvent("download");
     await page.getByRole("button", { name: /download audit log/i }).click();
     const download = await downloadPromise;
-    expect(download.suggestedFilename()).toMatch(/^rbac-audit-log-.*\.json$/);
+    expect(download.suggestedFilename()).toMatch(/^rbac-audit-log-.*\.zip$/);
 
     const downloadPath = await download.path();
     expect(downloadPath).toBeTruthy();
-    const payload = JSON.parse(await readFile(downloadPath!, "utf8"));
-    expect(payload.total).toBe(205);
-    expect(payload.record_count).toBe(205);
-    expect(payload.records).toHaveLength(205);
-    expect(payload.records[0].correlation_id).toBe("corr-bulk-0");
-    expect(payload.records[204].correlation_id).toBe("corr-bulk-204");
+    const zip = await JSZip.loadAsync(await readFile(downloadPath!));
+    const exportedRecords = JSON.parse(await zip.file("audit-events.json")!.async("string"));
+    const manifest = JSON.parse(await zip.file("manifest.json")!.async("string"));
+    expect(manifest.total).toBe(205);
+    expect(manifest.record_count).toBe(205);
+    expect(exportedRecords).toHaveLength(205);
+    expect(exportedRecords[0].correlation_id).toBe("corr-bulk-0");
+    expect(exportedRecords[204].correlation_id).toBe("corr-bulk-204");
 
     const exportQueries = auditQueries.filter((url) => url.searchParams.get("limit") === "200");
     expect(exportQueries.map((url) => url.searchParams.get("page"))).toEqual(["1", "2"]);
@@ -303,7 +307,7 @@ test.describe("audit-service-backed admin audit browser flows", () => {
 
     await page.getByRole("button", { name: /^Refresh$/ }).click();
     await expect(page.getByText("1 event found")).toBeVisible();
-    await expect(page.getByText("Denied to discover conversation conv-001")).toBeVisible();
+    await expect(page.getByText("Denied to discover conversation conv-001").first()).toBeVisible();
     expect(auditQueries).toHaveLength(2);
   });
 });

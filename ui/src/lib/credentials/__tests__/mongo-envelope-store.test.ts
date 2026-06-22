@@ -241,10 +241,14 @@ describe("MongoEnvelopeCredentialStore", () => {
     await store.putSecret({
       secretRefId: "secret-1",
       plaintext: "github-token-value",
+      maskedPreview: "gith...alue",
     });
     const firstPayload = payloadCollection.docs.get("secret-1");
     expect(JSON.stringify(firstPayload)).not.toContain("github-token-value");
+    expect(JSON.stringify(firstPayload)).not.toContain("gith...alue");
+    expect(firstPayload?.maskedPreviewCiphertext).toEqual(expect.any(String));
     await expect(store.getSecret("secret-1")).resolves.toBe("github-token-value");
+    await expect(store.getMaskedPreview("secret-1")).resolves.toBe("gith...alue");
 
     const createdAt = firstPayload?.createdAt;
     await store.rotateSecret("secret-1");
@@ -252,7 +256,9 @@ describe("MongoEnvelopeCredentialStore", () => {
 
     expect(rotatedPayload?.createdAt).toEqual(createdAt);
     expect(rotatedPayload?.ciphertext).not.toEqual(firstPayload?.ciphertext);
+    expect(rotatedPayload?.maskedPreviewCiphertext).not.toEqual(firstPayload?.maskedPreviewCiphertext);
     expect(rotatedPayload?.encryptedDek).not.toEqual(firstPayload?.encryptedDek);
     await expect(store.getSecret("secret-1")).resolves.toBe("github-token-value");
+    await expect(store.getMaskedPreview("secret-1")).resolves.toBe("gith...alue");
   });
 });

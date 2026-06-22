@@ -1,7 +1,11 @@
 import { getAuditBackend } from "@/lib/audit";
 import { writeCredentialAuditEvent } from "@/lib/credentials/audit";
 import { getCredentialDependencyHealth } from "@/lib/credentials/health";
-import { maskCredentialValue, redactCredentialDetails } from "@/lib/credentials/masking";
+import {
+  isOpaqueMaskedPreview,
+  maskCredentialValue,
+  redactCredentialDetails,
+} from "@/lib/credentials/masking";
 
 jest.mock("@/lib/audit", () => ({
   getAuditBackend: jest.fn(),
@@ -10,7 +14,11 @@ jest.mock("@/lib/audit", () => ({
 describe("credential masking", () => {
   it("masks credential values without exposing the full value", () => {
     expect(maskCredentialValue("ghp_1234567890abcdef")).toBe("ghp_...cdef");
-    expect(maskCredentialValue("short")).toBe("*****");
+    expect(maskCredentialValue("short")).toBe("s...t");
+    expect(maskCredentialValue("abcd")).toBe("a***");
+    expect(maskCredentialValue("a")).toBe("*");
+    expect(isOpaqueMaskedPreview("*****")).toBe(true);
+    expect(isOpaqueMaskedPreview("s...t")).toBe(false);
   });
 
   it("redacts sensitive detail keys before audit persistence", () => {

@@ -407,3 +407,154 @@ export async function filterResourcesByPermission<T>(
 
   return resources.filter((resource) => results.get(target.id(resource))?.decision === "ALLOW");
 }
+
+export interface McpServerRowPermissions {
+  can_manage: boolean;
+  can_invoke: boolean;
+  can_discover: boolean;
+}
+
+export interface McpServerListCapabilities {
+  repair_agentgateway: boolean;
+}
+
+const DEFAULT_MCP_SERVER_ROW_PERMISSIONS: McpServerRowPermissions = {
+  can_manage: false,
+  can_invoke: false,
+  can_discover: false,
+};
+
+/**
+ * Batch-resolve MCP server row actions for the list UI without per-row OpenFGA
+ * round-trips from the browser. Org admins receive full row permissions when
+ * {@link ResourcePermissionOptions.bypassForOrgAdmin} is enabled.
+ */
+export async function resolveMcpServerListPermissions(
+  session: ResourceAuthzSession,
+  serverIds: string[],
+  options: ResourcePermissionOptions = {},
+): Promise<{
+  rows: Map<string, McpServerRowPermissions>;
+  capabilities: McpServerListCapabilities;
+}> {
+  const subject = subjectFromSession(session);
+  const casSubject = casSubjectFromSession(session);
+  if (!subject || !casSubject) {
+    return { rows: new Map(), capabilities: { repair_agentgateway: false } };
+  }
+
+  if (options.bypassForOrgAdmin && (await isOrgAdmin(subject, casSubject, options))) {
+    const rows = new Map(
+      serverIds.map((id) => [
+        id,
+        { can_manage: true, can_invoke: true, can_discover: true } satisfies McpServerRowPermissions,
+      ]),
+    );
+    return { rows, capabilities: { repair_agentgateway: true } };
+  }
+
+  const uniqueIds = [...new Set(serverIds.filter((id) => id.trim().length > 0))];
+  const [manageResults, invokeResults, discoverResults, repairResult] = await Promise.all([
+    uniqueIds.length > 0
+      ? authorizeMany(casSubject, "manage", "mcp_server", uniqueIds)
+      : Promise.resolve(new Map<string, Awaited<ReturnType<typeof authorize>>>()),
+    uniqueIds.length > 0
+      ? authorizeMany(casSubject, "invoke", "mcp_server", uniqueIds)
+      : Promise.resolve(new Map<string, Awaited<ReturnType<typeof authorize>>>()),
+    uniqueIds.length > 0
+      ? authorizeMany(casSubject, "discover", "mcp_server", uniqueIds)
+      : Promise.resolve(new Map<string, Awaited<ReturnType<typeof authorize>>>()),
+    resourceAllowed(subject, casSubject, { type: "mcp_server", id: "agentgateway", action: "admin" }, options),
+  ]);
+
+  const rows = new Map<string, McpServerRowPermissions>();
+  for (const id of uniqueIds) {
+    rows.set(id, {
+      can_manage: manageResults.get(id)?.decision === "ALLOW",
+      can_invoke: invokeResults.get(id)?.decision === "ALLOW",
+      can_discover: discoverResults.get(id)?.decision === "ALLOW",
+    });
+  }
+
+  return {
+    rows,
+    capabilities: { repair_agentgateway: repairResult },
+  };
+}
+
+export function mcpServerRowPermissionsOrDefault(
+  rows: Map<string, McpServerRowPermissions>,
+  serverId: string,
+): McpServerRowPermissions {
+  return rows.get(serverId) ?? DEFAULT_MCP_SERVER_ROW_PERMISSIONS;
+}
+
+export interface AgentRowPermissions {
+  can_manage: boolean;
+  can_write: boolean;
+  can_discover: boolean;
+}
+
+const DEFAULT_AGENT_ROW_PERMISSIONS: AgentRowPermissions = {
+  can_manage: false,
+  can_write: false,
+  can_discover: false,
+};
+
+/**
+ * Batch-resolve dynamic agent row actions for the list UI without per-row
+ * OpenFGA round-trips from the browser. Org admins receive full row permissions
+ * when {@link ResourcePermissionOptions.bypassForOrgAdmin} is enabled.
+ */
+export async function resolveAgentListPermissions(
+  session: ResourceAuthzSession,
+  agentIds: string[],
+  options: ResourcePermissionOptions = {},
+): Promise<{ rows: Map<string, AgentRowPermissions> }> {
+  const subject = subjectFromSession(session);
+  const casSubject = casSubjectFromSession(session);
+  if (!subject || !casSubject) {
+    return { rows: new Map() };
+  }
+
+  if (options.bypassForOrgAdmin && (await isOrgAdmin(subject, casSubject, options))) {
+    const rows = new Map(
+      agentIds.map((id) => [
+        id,
+        { can_manage: true, can_write: true, can_discover: true } satisfies AgentRowPermissions,
+      ]),
+    );
+    return { rows };
+  }
+
+  const uniqueIds = [...new Set(agentIds.filter((id) => id.trim().length > 0))];
+  const [manageResults, writeResults, discoverResults] = await Promise.all([
+    uniqueIds.length > 0
+      ? authorizeMany(casSubject, "manage", "agent", uniqueIds)
+      : Promise.resolve(new Map<string, Awaited<ReturnType<typeof authorize>>>()),
+    uniqueIds.length > 0
+      ? authorizeMany(casSubject, "write", "agent", uniqueIds)
+      : Promise.resolve(new Map<string, Awaited<ReturnType<typeof authorize>>>()),
+    uniqueIds.length > 0
+      ? authorizeMany(casSubject, "discover", "agent", uniqueIds)
+      : Promise.resolve(new Map<string, Awaited<ReturnType<typeof authorize>>>()),
+  ]);
+
+  const rows = new Map<string, AgentRowPermissions>();
+  for (const id of uniqueIds) {
+    rows.set(id, {
+      can_manage: manageResults.get(id)?.decision === "ALLOW",
+      can_write: writeResults.get(id)?.decision === "ALLOW",
+      can_discover: discoverResults.get(id)?.decision === "ALLOW",
+    });
+  }
+
+  return { rows };
+}
+
+export function agentRowPermissionsOrDefault(
+  rows: Map<string, AgentRowPermissions>,
+  agentId: string,
+): AgentRowPermissions {
+  return rows.get(agentId) ?? DEFAULT_AGENT_ROW_PERMISSIONS;
+}

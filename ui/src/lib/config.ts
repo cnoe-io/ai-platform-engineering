@@ -48,7 +48,7 @@ export interface Config {
   mongodbEnabled: boolean;
   /** Whether the credential subsystem (master switch) is enabled */
   credentialsEnabled: boolean;
-  /** Whether the user-facing Connections & Secrets surface (nav + /credentials page) is enabled */
+  /** Whether the user-facing Credentials surface (nav + /credentials page) is enabled */
   userConnectionsEnabled: boolean;
   /** Main tagline displayed throughout the UI */
   tagline: string;
@@ -382,7 +382,7 @@ export function getServerConfig(): Config {
   const auditLogBackend = env('AUDIT_LOG_BACKEND') || 'service';
   const dynamicAgentsEnabled = env('DYNAMIC_AGENTS_ENABLED') === 'true';
   const credentialsEnabled = env('CAIPE_CREDENTIALS_ENABLED') === 'true';
-  // The user-facing Connections surface is gated independently of the SA token
+  // The user-facing Credentials surface is gated independently of the SA token
   // surface. It defaults to the master flag (backward-compatible) and can be
   // explicitly turned off with CAIPE_USER_CONNECTIONS_ENABLED=false. Mirrors
   // subFeatureEnabled() in feature-flags/credentials.ts (kept inline here so

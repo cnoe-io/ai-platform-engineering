@@ -8,7 +8,7 @@ import { checkOpenFgaTuple } from "@/lib/rbac/openfga";
 import { organizationObjectId } from "@/lib/rbac/organization";
 
 export default async function CredentialsPage() {
-  // Gated on the user-facing Connections surface flag (independent of the SA
+  // Gated on the user-facing Credentials surface flag (independent of the SA
   // token surface). False when CAIPE_USER_CONNECTIONS_ENABLED=false even if the
   // credential subsystem is on for service-account tokens.
   if (!isUserConnectionsEnabled()) {
