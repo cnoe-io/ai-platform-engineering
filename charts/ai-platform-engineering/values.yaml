@@ -878,6 +878,18 @@ caipe-ui:
     secretName: "caipe-platform-secret"
     secretKey: "OIDC_CLIENT_SECRET"
     clientId: "caipe-platform"
+  # Scheduled-run minting client (scheduled-job-auth Approach 2). Point
+  # secretName at the Secret holding the caipe-scheduler-runner client_secret —
+  # the keycloak chart auto-creates "<RELEASE>-keycloak-scheduler-runner"
+  # (key KC_SCHEDULER_CLIENT_SECRET) when keycloak.schedulerTokenExchange.
+  # secretRef is empty. Set it here to enable BFF scheduled-run owner-token
+  # minting; leave empty to keep the cron path failing closed.
+  #     schedulerRunnerClient:
+  #       secretName: "<RELEASE>-keycloak-scheduler-runner"
+  schedulerRunnerClient:
+    secretName: ""
+    secretKey: "KC_SCHEDULER_CLIENT_SECRET"
+    clientId: "caipe-scheduler-runner"
   image:
     repository: "ghcr.io/cnoe-io/caipe-ui"
     # tag defaults to .Chart.AppVersion when not specified
@@ -1551,6 +1563,18 @@ keycloak:
   webexTokenExchange:
     enabled: true
     botClientId: "caipe-webex-bot"
+  # Scheduled-run minting client (scheduled-job-auth Approach 2). Provisions the
+  # caipe-scheduler-runner client + its secret in Keycloak. To let the BFF
+  # actually mint owner bearers, also wire `caipe-ui.schedulerRunnerClient.
+  # secretName` to the same Secret (see the caipe-ui block below). Until then
+  # the scheduled-run path fails closed.
+  schedulerTokenExchange:
+    enabled: true
+    botClientId: "caipe-scheduler-runner"
+    # Auto-generates "<release>-keycloak-scheduler-runner" when left empty. Set
+    # to a fixed Secret name (and mirror it in caipe-ui.schedulerRunnerClient.
+    # secretName) to consume an operator-provided / ESO-emitted secret.
+    secretRef: ""
 
   # CAIPE platform OIDC client (the supervisor confidential client).
   #

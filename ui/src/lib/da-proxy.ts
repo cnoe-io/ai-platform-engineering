@@ -14,7 +14,6 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { timingSafeEqual } from "crypto";
 import { getServerConfig } from "@/lib/config";
 import {
   ApiError,
@@ -64,58 +63,6 @@ export interface ProxyRbacPermission {
   scope: RbacScope;
 }
 
-function schedulerTokenMatches(actual: string, expected: string): boolean {
-  const actualBuffer = Buffer.from(actual);
-  const expectedBuffer = Buffer.from(expected);
-  if (actualBuffer.length !== expectedBuffer.length) return false;
-  return timingSafeEqual(actualBuffer, expectedBuffer);
-}
-
-function authenticateSchedulerRunner(request: NextRequest): AuthResult | NextResponse | null {
-  const schedulerToken = request.headers.get("X-Scheduler-Token");
-  const ownerUser = request.headers.get("X-CAIPE-User");
-
-  if (!schedulerToken && !ownerUser) return null;
-
-  const expectedToken =
-    process.env.SCHEDULER_SERVICE_TOKEN ||
-    process.env.CAIPE_SCHEDULER_SERVICE_TOKEN ||
-    "";
-
-  if (!expectedToken) {
-    console.error("[gateway] Scheduler auth requested but SCHEDULER_SERVICE_TOKEN is not configured");
-    return NextResponse.json(
-      { success: false, error: "Scheduler service token is not configured" },
-      { status: 500 },
-    );
-  }
-
-  if (!schedulerToken || !ownerUser || !schedulerTokenMatches(schedulerToken, expectedToken)) {
-    return NextResponse.json(
-      { success: false, error: "Invalid scheduler authentication" },
-      { status: 401 },
-    );
-  }
-
-  const userContext = {
-    email: ownerUser,
-    name: ownerUser,
-    is_admin: false,
-    is_authorized: true,
-    can_view_admin: false,
-    can_access_dynamic_agents: true,
-    scheduler_run: true,
-  };
-
-  console.log(
-    `[gateway] ${request.method} ${request.nextUrl.pathname} — auth=scheduler user=${ownerUser} client=caipe-cron-runner`,
-  );
-
-  return {
-    userContextHeader: Buffer.from(JSON.stringify(userContext)).toString("base64"),
-  };
-}
-
 /**
  * Resolve user identity from the request (session cookie or Bearer token).
  *
@@ -141,8 +88,12 @@ export async function authenticateRequest(
     ?? "unknown";
   const ua = request.headers.get("user-agent") ?? "unknown";
 
-  const schedulerAuth = authenticateSchedulerRunner(request);
-  if (schedulerAuth) return schedulerAuth;
+  // NOTE: scheduled cron runs are no longer authenticated here. They used to
+  // short-circuit on a trusted `X-CAIPE-User` header (the rejected "trusted
+  // header" variant). Under scheduled-job-auth Approach 2 the invoke route
+  // detects a validated scheduler call, mints a real owner bearer via Keycloak
+  // token exchange, and runs the normal owner gates — see
+  // `@/lib/scheduled-run-auth` and `app/api/v1/chat/invoke/route.ts`.
 
   try {
     let auth = null as Awaited<ReturnType<typeof getAuthFromBearerOrSession>> | null;

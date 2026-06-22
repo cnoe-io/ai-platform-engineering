@@ -292,20 +292,15 @@ class CronJobOps:
                                         "name": "runner",
                                         "image": s.cron_runner_image,
                                         "imagePullPolicy": s.cron_runner_image_pull_policy,
+                                        # The runner authenticates to the BFF
+                                        # with the shared scheduler token only;
+                                        # the BFF mints the owner bearer. No
+                                        # chat-API token is mounted (Approach 2).
                                         "env": [
                                             {"name": "SCHEDULE_ID", "value": schedule_id},
                                             {"name": "SCHEDULER_INTERNAL_URL", "value": s.scheduler_internal_url},
                                             {"name": "CAIPE_API_URL", "value": s.caipe_api_url},
                                             {"name": "CAIPE_CHAT_PATH", "value": s.caipe_chat_path},
-                                            {
-                                                "name": "CAIPE_API_TOKEN",
-                                                "valueFrom": {
-                                                    "secretKeyRef": {
-                                                        "name": s.caipe_api_token_secret,
-                                                        "key": s.caipe_api_token_secret_key,
-                                                    }
-                                                },
-                                            },
                                             {
                                                 "name": "SCHEDULER_SERVICE_TOKEN",
                                                 "valueFrom": {

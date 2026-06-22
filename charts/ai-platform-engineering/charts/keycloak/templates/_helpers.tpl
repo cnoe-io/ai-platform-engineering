@@ -195,6 +195,34 @@ true
 {{- end -}}
 {{- end -}}
 
+{{/*
+Scheduler-runner client-secret K8s Secret name (parallel to
+keycloak.webexBotSecretName). Consumed by the keycloak init-token-exchange Job
+(KC_SCHEDULER_CLIENT_SECRET) and by the caipe-ui BFF deployment
+(KEYCLOAK_SCHEDULER_CLIENT_SECRET) via cross-chart secretKeyRef.
+*/}}
+{{- define "keycloak.schedulerRunnerSecretName" -}}
+{{- if .Values.schedulerTokenExchange.secretRef }}
+{{- .Values.schedulerTokenExchange.secretRef }}
+{{- else }}
+{{- include "keycloak.fullname" . }}-scheduler-runner
+{{- end }}
+{{- end }}
+
+{{- define "keycloak.schedulerTokenExchangeEnabled" -}}
+{{- if hasKey .Values.schedulerTokenExchange "enabled" -}}
+{{- .Values.schedulerTokenExchange.enabled -}}
+{{- else -}}
+{{- .Values.tokenExchange.enabled -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "keycloak.shouldCreateSchedulerRunnerSecret" -}}
+{{- if and (eq (include "keycloak.schedulerTokenExchangeEnabled" .) "true") (not .Values.schedulerTokenExchange.secretRef) -}}
+true
+{{- end -}}
+{{- end -}}
+
 {/*
 Resolve maintained CAIPE image repositories for release vs pre-release channels.
 

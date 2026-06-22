@@ -8,8 +8,10 @@ daemon; it exits after a single attempt.
 ```
 SCHEDULE_ID env ──▶ GET scheduler-svc/v1/schedules/<id>
                 ──▶ exit 0 without chat if schedule.enabled is false and this is a recurring fire
-                ──▶ POST <CAIPE_API_URL><CAIPE_CHAT_PATH>  (as schedule.owner_user_id)
-                    gateway creates a Web UI conversation for History
+                ──▶ POST <CAIPE_API_URL><CAIPE_CHAT_PATH>  (auth: X-Scheduler-Token only)
+                    BFF resolves the owner from the schedule DB record, mints a
+                    real owner bearer via Keycloak token exchange, runs agent#use
+                    as the owner, and creates a Web UI conversation for History
                 ──▶ POST scheduler-svc/v1/schedules/<id>/runs  (status report)
 ```
 
@@ -27,7 +29,6 @@ target agent can schedule another delayed retry or honor moved-meeting context.
 | `SCHEDULER_INTERNAL_URL` | yes      | e.g. `http://caipe-scheduler:8080`            |
 | `SCHEDULER_SERVICE_TOKEN`| yes      | Mounted from `caipe-scheduler-service-token` Secret. |
 | `CAIPE_API_URL`          | yes      | e.g. `http://caipe-ui:3000`                   |
-| `CAIPE_API_TOKEN`        | yes      | Mounted from `caipe-cron-runner-token` Secret. |
 | `CAIPE_CHAT_PATH`        | no       | Default `/api/v1/chat/invoke`.                |
 | `ONE_OFF_RUN_ID`         | no       | Set only for delayed one-off Jobs.            |
 | `RETRY_NUM`              | no       | Optional retry attempt metadata.              |
@@ -41,16 +42,23 @@ target agent can schedule another delayed retry or honor moved-meeting context.
 ## Chat API contract
 
 The runner POSTs `{ agent_id, message, conversation_id, owner_user_id, trace_id,
-client_context, pod_id? }` with `Authorization: Bearer <CAIPE_API_TOKEN>`,
-`X-Scheduler-Token: <SCHEDULER_SERVICE_TOKEN>`, and `X-CAIPE-User:
-<owner_user_id>`.
+client_context, pod_id? }` with **only** `X-Scheduler-Token:
+<SCHEDULER_SERVICE_TOKEN>` and `X-Client-Source: caipe-cron-runner`. It sends no
+`Authorization` bearer and no trusted owner header — the runner does not assert
+the owner's identity (scheduled-job-auth Approach 2).
 
-The Next.js gateway only trusts `X-CAIPE-User` when `X-Scheduler-Token`
-matches its configured `SCHEDULER_SERVICE_TOKEN`; it then injects the
-gateway-trusted `X-User-Context` header for Dynamic Agents.
+The Next.js gateway (BFF) authenticates the call by the scheduler token, then:
 
-For scheduler-authenticated requests, the gateway rewrites the generated
-`scheduled-...` runner conversation id to a server UUID, upserts a normal
-Web UI conversation owned by `owner_user_id`, persists the user/assistant
-messages returned by invoke, and stores `client_context.schedule_id` in
-conversation metadata so the UI History list can label the run.
+1. resolves the immutable owner from the schedule DB record (by
+   `client_context.schedule_id`), never from `owner_user_id` in the request;
+2. mints a real owner-user bearer via Keycloak token exchange
+   (`requested_subject` impersonation, using the scoped `caipe-scheduler-runner`
+   client) and forwards it to Dynamic Agents as `Authorization: Bearer …`;
+3. enforces `agent#use` as the owner — the run fails closed if the owner has
+   lost access, exactly like an interactive run;
+4. rewrites the generated `scheduled-...` conversation id to a server UUID,
+   upserts a Web UI conversation owned by the resolved owner, persists the
+   user/assistant messages, and stores `client_context.schedule_id` in
+   conversation metadata so the UI History list can label the run.
+
+See `docs/scheduled-job-auth-approaches.md` for the design rationale.

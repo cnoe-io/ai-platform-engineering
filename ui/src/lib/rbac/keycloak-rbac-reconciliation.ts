@@ -3,6 +3,8 @@ import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
 import {
 ensureBotServiceAccountImpersonationRoles,
 ensureCaipePlatformTokenExchangeDecisionStrategy,
+ensureSchedulerRunnerClient,
+ensureSchedulerRunnerOboPermissions,
 ensureSlackBotOboPermissions,
 ensureWebexBotOboPermissions,
 isValidTeamSlug,
@@ -311,10 +313,38 @@ export async function runKeycloakRbacStartupMigration(input: {
     await ensureBotServiceAccountImpersonationRoles(["caipe-slack-bot", "caipe-webex-bot"]);
     counts.bot_service_accounts_reconciled = 2;
 
+    // The scheduler-runner client mints schedule-owner bearers via the same
+    // requested_subject impersonation as the bots (scheduled-job-auth
+    // Approach 2), so it gets the identical OBO permission wiring. This is
+    // BEST-EFFORT and isolated in its own try/catch: the client ships via the
+    // keycloak chart (realm-config + init-token-exchange.sh), which may roll
+    // out after this BFF image. Until the client exists in the realm the
+    // underlying helpers throw "client not found" — we must NOT let that fail
+    // the whole RBAC reconciliation (which also wires the Slack/Webex bots,
+    // bootstrap admins, and the unlinked SA). Scheduled runs fail closed at
+    // mint time until the client lands; everything else stays healthy.
+    try {
+      // Create the client if a pre-existing realm never imported it (realm
+      // import is create-only; a chart upgrade won't add a new realm-config
+      // client to an existing realm). Self-heals every already-provisioned env.
+      await ensureSchedulerRunnerClient();
+      await ensureSchedulerRunnerOboPermissions();
+      await ensureBotServiceAccountImpersonationRoles(["caipe-scheduler-runner"]);
+      counts.obo_permission_sets_reconciled = 3;
+      counts.bot_service_accounts_reconciled = 3;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      warnings.push(
+        `scheduler-runner OBO wiring skipped (client not provisioned yet?): ${message}`,
+      );
+    }
+
     await ensureCaipePlatformTokenExchangeDecisionStrategy("AFFIRMATIVE");
-    // 1 shared audience + 2 per-bot (Slack, Webex) — ensureBotOboPermissions
-    // now sets AFFIRMATIVE on the bot's own token-exchange permission as well.
-    counts.token_exchange_permissions_reconciled = 3;
+    // 1 shared audience + per-client (Slack, Webex, and scheduler-runner when
+    // present) — ensureBotOboPermissions sets AFFIRMATIVE on each client's own
+    // token-exchange permission as well.
+    counts.token_exchange_permissions_reconciled =
+      counts.obo_permission_sets_reconciled === 3 ? 4 : 3;
 
     bootstrapAdmins = await reconcileBootstrapAdmins({ actor });
     counts.bootstrap_admins_resolved = bootstrapAdmins.resolved_count;

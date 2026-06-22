@@ -272,6 +272,34 @@ else
   echo "${TAG} KC_WEBEX_BOT_CLIENT_SECRET not set — leaving Webex client_secret unchanged."
 fi
 
+# Reconcile the scheduler-runner client secret (scheduled-job-auth Approach 2).
+# This client is used by the BFF to mint schedule-owner bearers via
+# requested_subject impersonation; the BFF authenticates with
+# KEYCLOAK_SCHEDULER_CLIENT_SECRET, so Keycloak's stored secret must match.
+SCHEDULER_CLIENT_ID="${KC_SCHEDULER_CLIENT_ID:-}"
+if [ -n "${KC_SCHEDULER_CLIENT_SECRET:-}" ] && [ -n "${SCHEDULER_CLIENT_ID}" ]; then
+  echo "${TAG} Reconciling client_secret on '${SCHEDULER_CLIENT_ID}' from KC_SCHEDULER_CLIENT_SECRET ..."
+  SCHEDULER_CLIENTS_RESP=$(curl -sf -H "${AUTH}" \
+    "${KC_URL}/admin/realms/${REALM}/clients?clientId=${SCHEDULER_CLIENT_ID}" 2>/dev/null || echo "[]")
+  SCHEDULER_INTERNAL_ID=$(json_field "${SCHEDULER_CLIENTS_RESP}" "id")
+  if [ -z "${SCHEDULER_INTERNAL_ID}" ]; then
+    echo "${TAG}   WARNING: client '${SCHEDULER_CLIENT_ID}' not found — skipping scheduler secret reconciliation." >&2
+  else
+    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+      -X PUT -H "${AUTH}" -H "Content-Type: application/json" \
+      "${KC_URL}/admin/realms/${REALM}/clients/${SCHEDULER_INTERNAL_ID}" \
+      -d "{\"clientId\":\"${SCHEDULER_CLIENT_ID}\",\"secret\":\"${KC_SCHEDULER_CLIENT_SECRET}\"}" 2>/dev/null || echo "000")
+    if [ "${HTTP_CODE}" = "204" ] || [ "${HTTP_CODE}" = "200" ]; then
+      echo "${TAG}   scheduler-runner client_secret reconciled (HTTP ${HTTP_CODE})."
+    else
+      echo "${TAG}   ERROR: failed to set scheduler-runner client_secret (HTTP ${HTTP_CODE})." >&2
+      exit 1
+    fi
+  fi
+else
+  echo "${TAG} KC_SCHEDULER_CLIENT_SECRET not set — leaving scheduler-runner client_secret unchanged."
+fi
+
 # ------------------------------------------------------------------
 # 5. Get service account users + assign impersonation role
 # ------------------------------------------------------------------
@@ -347,6 +375,15 @@ if [ -n "${WEBEX_BOT_CLIENT_ID}" ]; then
     WEBEX_INTERNAL_ID=$(json_field "${WEBEX_CLIENTS_RESP}" "id")
   fi
   ensure_service_account_impersonation_role "${WEBEX_BOT_CLIENT_ID}" "${WEBEX_INTERNAL_ID}"
+fi
+
+if [ -n "${SCHEDULER_CLIENT_ID}" ]; then
+  if [ -z "${SCHEDULER_INTERNAL_ID:-}" ]; then
+    SCHEDULER_CLIENTS_RESP=$(curl -sf -H "${AUTH}" \
+      "${KC_URL}/admin/realms/${REALM}/clients?clientId=${SCHEDULER_CLIENT_ID}" 2>/dev/null || echo "[]")
+    SCHEDULER_INTERNAL_ID=$(json_field "${SCHEDULER_CLIENTS_RESP}" "id")
+  fi
+  ensure_service_account_impersonation_role "${SCHEDULER_CLIENT_ID}" "${SCHEDULER_INTERNAL_ID}"
 fi
 
 # ------------------------------------------------------------------
@@ -536,6 +573,7 @@ if [ -n "${RM_CLIENT_ID:-}" ]; then
       }
       _attach_bot_to_obo_target "caipe-slack-bot-token-exchange-policy" "${BOT_INTERNAL_ID:-}" "caipe-slack-bot"
       _attach_bot_to_obo_target "caipe-webex-bot-token-exchange-policy" "${WEBEX_INTERNAL_ID:-}" "caipe-webex-bot"
+      _attach_bot_to_obo_target "caipe-scheduler-runner-token-exchange-policy" "${SCHEDULER_INTERNAL_ID:-}" "caipe-scheduler-runner"
     fi
   fi
 fi
@@ -696,14 +734,15 @@ _assert_dev_placeholders_rejected() {
     return 0
   fi
 
-  echo "${TAG} Strict mode: verifying caipe-slack-bot + caipe-webex-bot reject their dev placeholders ..."
+  echo "${TAG} Strict mode: verifying caipe-slack-bot + caipe-webex-bot + caipe-scheduler-runner reject their dev placeholders ..."
 
   KC_TOKEN_URL="${KC_URL}/realms/${REALM}/protocol/openid-connect/token"
   violations=0
 
   # Pairs: "<clientId>|<dev-placeholder-secret>"
   pairs="caipe-slack-bot|caipe-slack-bot-dev-secret
-caipe-webex-bot|caipe-webex-bot-dev-secret"
+caipe-webex-bot|caipe-webex-bot-dev-secret
+caipe-scheduler-runner|caipe-scheduler-runner-dev-secret"
 
   IFS_OLD="${IFS}"
   IFS='

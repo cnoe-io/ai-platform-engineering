@@ -15,8 +15,6 @@ data:
   SCHEDULER_INTERNAL_URL: "http://{{ include "scheduler.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}"
   CAIPE_API_URL: {{ .Values.caipe.apiUrl | quote }}
   CAIPE_CHAT_PATH: {{ (.Values.CAIPE_CHAT_PATH | default .Values.caipe.chatPath) | quote }}
-  CAIPE_API_TOKEN_SECRET: {{ .Values.caipe.apiTokenSecret | quote }}
-  CAIPE_API_TOKEN_SECRET_KEY: {{ .Values.caipe.apiTokenSecretKey | quote }}
   MAX_SCHEDULES_PER_OWNER: {{ .Values.limits.maxSchedulesPerOwner | quote }}
   MAX_MESSAGE_CHARS: {{ .Values.limits.maxMessageChars | quote }}
   ONE_OFF_DISPATCH_ENABLED: {{ .Values.oneOff.dispatchEnabled | quote }}

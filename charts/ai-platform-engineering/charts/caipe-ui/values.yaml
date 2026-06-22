@@ -407,6 +407,23 @@ keycloakAdminClient:
   # no reason to change this in a vanilla install.
   clientId: "caipe-platform"
 
+# Scheduled-run minting client (scheduled-job-auth Approach 2). The BFF uses
+# this dedicated, tightly-scoped confidential client to mint a schedule owner's
+# bearer via Keycloak token exchange (requested_subject impersonation) for cron
+# fires. Leave secretName empty to disable scheduled-run token minting (the
+# /api/v1/chat/invoke scheduler path then fails closed). The umbrella wires
+# this to the keycloak.schedulerTokenExchange secret.
+schedulerRunnerClient:
+  # Name of the K8s Secret holding the caipe-scheduler-runner client_secret.
+  secretName: ""
+  # Key inside `secretName` holding the client_secret value. Matches the
+  # keycloak chart's generated key (KC_SCHEDULER_CLIENT_SECRET).
+  secretKey: "KC_SCHEDULER_CLIENT_SECRET"
+  # Client ID used for the token exchange. The realm ships
+  # `caipe-scheduler-runner` (service-accounts-enabled, token-exchange enabled)
+  # — see realm-config.json.
+  clientId: "caipe-scheduler-runner"
+
 # External Secrets configuration for sensitive data (OIDC, NextAuth, MongoDB/DocumentDB)
 # Secrets are fetched from your secret store (Vault, AWS Secrets Manager, etc.)
 # To enable: set externalSecrets.enabled=true and configure data section

@@ -115,13 +115,13 @@ mongo:
   existingSecret: ""
   existingSecretKey: "uri"
 
-# Where the runner POSTs the chat message.
+# Where the runner POSTs the chat message. The runner authenticates to the BFF
+# with the shared X-Scheduler-Token only; the BFF mints the schedule owner's
+# bearer via Keycloak token exchange (scheduled-job-auth Approach 2), so the
+# runner no longer needs a chat-API token of its own.
 caipe:
   apiUrl: "http://caipe-ui:3000"
   chatPath: "/api/v1/chat/invoke"
-  # Existing Secret holding the chat API token under key "token".
-  apiTokenSecret: "caipe-cron-runner-token"
-  apiTokenSecretKey: "token"
 
 # Shared X-Scheduler-Token. Set existingSecret in production.
 serviceToken:

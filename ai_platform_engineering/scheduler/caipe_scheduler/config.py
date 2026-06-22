@@ -70,17 +70,6 @@ class Settings(BaseModel):
             "CAIPE_CHAT_PATH", "/api/v1/chat/invoke"
         )
     )
-    # Secret name + key holding the runner's CAIPE API token.
-    caipe_api_token_secret: str = Field(
-        default_factory=lambda: os.environ.get(
-            "CAIPE_API_TOKEN_SECRET", "caipe-cron-runner-token"
-        )
-    )
-    caipe_api_token_secret_key: str = Field(
-        default_factory=lambda: os.environ.get(
-            "CAIPE_API_TOKEN_SECRET_KEY", "token"
-        )
-    )
 
     # Limits
     max_schedules_per_owner: int = Field(

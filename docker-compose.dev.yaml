@@ -1589,6 +1589,10 @@ services:
       # 098 Enterprise RBAC — Keycloak Admin API (US6: role/mapping CRUD from Admin UI)
       - KEYCLOAK_ADMIN_CLIENT_ID=${KEYCLOAK_ADMIN_CLIENT_ID:-admin-cli}
       - KEYCLOAK_ADMIN_CLIENT_SECRET=${KEYCLOAK_ADMIN_CLIENT_SECRET:-}
+      # Scheduled-run minting client (scheduled-job-auth Approach 2). The BFF
+      # mints schedule-owner bearers via Keycloak token exchange for cron fires.
+      - KEYCLOAK_SCHEDULER_CLIENT_ID=${KEYCLOAK_SCHEDULER_CLIENT_ID:-caipe-scheduler-runner}
+      - KEYCLOAK_SCHEDULER_CLIENT_SECRET=${KEYCLOAK_SCHEDULER_CLIENT_SECRET:-caipe-scheduler-runner-dev-secret}
       # Production-safety gate (R1) for the BFF admin/admin fallback in
       # `ui/src/lib/rbac/keycloak-admin.ts`. Default-on in dev so a fresh
       # docker-compose stack still boots before the operator wires a real
@@ -1792,6 +1796,8 @@ services:
       - RBAC_CACHE_TTL_SECONDS=${RBAC_CACHE_TTL_SECONDS:-60}
       - KEYCLOAK_ADMIN_CLIENT_ID=${KEYCLOAK_ADMIN_CLIENT_ID:-admin-cli}
       - KEYCLOAK_ADMIN_CLIENT_SECRET=${KEYCLOAK_ADMIN_CLIENT_SECRET:-}
+      - KEYCLOAK_SCHEDULER_CLIENT_ID=${KEYCLOAK_SCHEDULER_CLIENT_ID:-caipe-scheduler-runner}
+      - KEYCLOAK_SCHEDULER_CLIENT_SECRET=${KEYCLOAK_SCHEDULER_CLIENT_SECRET:-caipe-scheduler-runner-dev-secret}
       - ALLOW_KEYCLOAK_ADMIN_PASSWORD_FALLBACK=${ALLOW_KEYCLOAK_ADMIN_PASSWORD_FALLBACK:-true}
       - SLACK_LINK_HMAC_SECRET=${SLACK_LINK_HMAC_SECRET:-${SLACK_SIGNING_SECRET:-}}
       - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN:-}

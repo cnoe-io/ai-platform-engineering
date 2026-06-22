@@ -89,6 +89,18 @@ spec:
                   name: {{ .Values.keycloakAdminClient.secretName | quote }}
                   key: {{ .Values.keycloakAdminClient.secretKey | default "OIDC_CLIENT_SECRET" | quote }}
             {{- end }}
+            {{- /* Scheduled-run minting client secret (scheduled-job-auth
+                   Approach 2). Injected only when the operator wired
+                   schedulerRunnerClient.secretName; otherwise the BFF's
+                   scheduled-run token minting is disabled and cron fires fail
+                   closed at /api/v1/chat/invoke. */ -}}
+            {{- if .Values.schedulerRunnerClient.secretName }}
+            - name: KEYCLOAK_SCHEDULER_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.schedulerRunnerClient.secretName | quote }}
+                  key: {{ .Values.schedulerRunnerClient.secretKey | default "KC_SCHEDULER_CLIENT_SECRET" | quote }}
+            {{- end }}
             {{- /* Service URL defaults: env: takes precedence over envFrom (ConfigMap),
                    so these entries provide release-name-derived defaults while still
                    allowing operators to override via .Values.config. */}}

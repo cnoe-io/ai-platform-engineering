@@ -269,6 +269,26 @@ webexTokenExchange:
       key: ""
       property: ""
 
+# ---------- Token exchange for the scheduler runner (RFC 8693 / impersonation) ----------
+# Mirrors tokenExchange above. Used by the BFF to mint a schedule owner's bearer
+# for cron fires (scheduled-job-auth Approach 2). The generated Secret key is
+# KC_SCHEDULER_CLIENT_SECRET. When `enabled` is omitted, inherits
+# tokenExchange.enabled.
+schedulerTokenExchange:
+  enabled: true
+  botClientId: "caipe-scheduler-runner"
+  botClientSecret: ""
+  secretRef: ""
+  externalSecret:
+    enabled: false
+    refreshInterval: "1h"
+    secretStoreRef:
+      name: "vault"
+      kind: "ClusterSecretStore"
+    remoteRef:
+      key: ""
+      property: ""
+
 # ---------- User profile ----------
 userProfile:
   unmanagedAttributePolicy: "ADMIN_EDIT"

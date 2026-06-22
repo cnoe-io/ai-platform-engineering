@@ -29,7 +29,12 @@ Helm chart for **caipe-scheduler** — the cron schedule registry + k8s
 |---|---|
 | `serviceToken.existingSecret` *or* `serviceToken.value` | The chart will refuse to render without one. |
 | `mongo.existingSecret` *or* `mongo.uri` | Pick one. Prefer the Secret in any non-dev. |
-| `caipe.apiTokenSecret` | Pre-existing Secret holding the chat-API bearer used by cron-runner. The chart does **not** create this; create it out-of-band. |
+
+The cron-runner no longer carries a chat-API bearer. It authenticates to the
+BFF with the shared `X-Scheduler-Token`; the BFF mints the schedule owner's
+bearer via Keycloak token exchange (scheduled-job-auth Approach 2). Enable that
+on the BFF side via `keycloak.schedulerTokenExchange` +
+`caipe-ui.schedulerRunnerClient.secretName`.
 
 ## Notes
 
