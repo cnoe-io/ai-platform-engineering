@@ -2,6 +2,7 @@
 
 import { expect, test, type Page } from "@playwright/test";
 
+import { fillNewMcpServerBasics } from "./_mcp-browser-fixtures";
 import { rbacEnvOrSkip } from "./_env";
 import { dismissReleaseUpgradeDialog, installTestSession } from "./_helpers";
 
@@ -156,9 +157,11 @@ test.describe("RBAC live e2e — MCP server create visibility", () => {
       await dismissReleaseUpgradeDialog(page);
       await expect(page.getByText(/add mcp server/i)).toBeVisible({ timeout: 15_000 });
 
-      await page.getByLabel(/server id/i).fill(inputId);
-      await page.getByLabel(/display name/i).fill(displayName);
-      await page.getByLabel(/endpoint url/i).fill("https://mcp.example.test/mcp");
+      await fillNewMcpServerBasics(page, {
+        displayName,
+        serverId: inputId,
+        endpoint: "https://mcp.example.test/mcp",
+      });
 
       const createResponse = page.waitForResponse(
         (response) =>

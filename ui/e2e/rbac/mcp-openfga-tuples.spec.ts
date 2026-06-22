@@ -16,6 +16,42 @@ const adminSession = {
   canViewAdmin: true,
 };
 
+const DEFAULT_MCP_ROW_PERMISSIONS = { can_manage: true, can_invoke: true, can_discover: true };
+
+async function fillNewMcpServerBasics(
+  page: Page,
+  options: { displayName: string; serverId?: string; endpoint?: string },
+): Promise<void> {
+  await page.getByLabel(/Display Name/i).fill(options.displayName);
+  if (options.serverId) {
+    await page.getByRole("button", { name: /Edit generated name/i }).click();
+    await page.getByLabel(/Generated name/i).fill(options.serverId);
+  }
+  if (options.endpoint) {
+    await page.getByLabel(/Endpoint URL/i).fill(options.endpoint);
+  }
+}
+
+function mcpServersListPayload(
+  items: Array<Record<string, unknown>>,
+  capabilities: { repair_agentgateway: boolean } = { repair_agentgateway: true },
+) {
+  return {
+    success: true,
+    data: {
+      items: items.map((item) => ({
+        ...item,
+        permissions: (item.permissions as typeof DEFAULT_MCP_ROW_PERMISSIONS | undefined) ?? DEFAULT_MCP_ROW_PERMISSIONS,
+      })),
+      capabilities,
+      total: items.length,
+      page: 1,
+      page_size: 100,
+      has_more: false,
+    },
+  };
+}
+
 const platformTeam = {
   _id: "team-platform",
   name: "Platform Engineering",
@@ -253,16 +289,7 @@ async function installMcpServerMocks(
 
         if (path === "/api/mcp-servers" && method === "GET") {
           listRequests += 1;
-          await fulfillJson(route, {
-            success: true,
-            data: {
-              items: servers,
-              total: servers.length,
-              page: 1,
-              page_size: 100,
-              has_more: false,
-            },
-          });
+          await fulfillJson(route, mcpServersListPayload(servers));
           return true;
         }
 
@@ -358,28 +385,22 @@ async function installKnowledgeBaseMcpMocks(page: Page): Promise<void> {
     handlers: [
       async ({ route, path, method }) => {
         if (path === "/api/mcp-servers" && method === "GET") {
-          await fulfillJson(route, {
-            success: true,
-            data: {
-              items: [
-                {
-                  _id: "mcp-knowledge-base",
-                  name: "knowledge-base",
-                  description: "Knowledge Base RAG MCP",
-                  transport: "http",
-                  endpoint: "http://agentgateway:8080/mcp/knowledge-base",
-                  enabled: true,
-                  config_driven: false,
-                  source: "agentgateway",
-                  agentgateway_target_endpoint: "http://rag-server:8000/mcp",
-                },
-              ],
-              total: 1,
-              page: 1,
-              page_size: 100,
-              has_more: false,
-            },
-          });
+          await fulfillJson(
+            route,
+            mcpServersListPayload([
+              {
+                _id: "mcp-knowledge-base",
+                name: "knowledge-base",
+                description: "Knowledge Base RAG MCP",
+                transport: "http",
+                endpoint: "http://agentgateway:8080/mcp/knowledge-base",
+                enabled: true,
+                config_driven: false,
+                source: "agentgateway",
+                agentgateway_target_endpoint: "http://rag-server:8000/mcp",
+              },
+            ]),
+          );
           return true;
         }
 
@@ -538,9 +559,11 @@ test.describe("mocked MCP OpenFGA tuple browser regression", () => {
     await page.getByRole("button", { name: "Add Server" }).first().click();
     await expect(page.getByText("Add MCP Server")).toBeVisible();
 
-    await page.getByLabel(/Server ID/i).fill("ops-tools");
-    await page.getByLabel(/Display Name/i).fill("Ops Tools");
-    await page.getByLabel(/Endpoint URL/i).fill("https://mcp.example.test/mcp");
+    await fillNewMcpServerBasics(page, {
+      displayName: "Ops Tools",
+      serverId: "ops-tools",
+      endpoint: "https://mcp.example.test/mcp",
+    });
     await page.getByRole("button", { name: "Create Server" }).click();
 
     await expect.poll(() => mocks.createRequests.length).toBe(1);
@@ -589,9 +612,11 @@ test.describe("mocked MCP OpenFGA tuple browser regression", () => {
     await page.getByRole("button", { name: "Add Server" }).first().click();
     await expect(page.getByText("Add MCP Server")).toBeVisible();
 
-    await page.getByLabel(/Server ID/i).fill("jira-tools");
-    await page.getByLabel(/Display Name/i).fill("Jira Tools");
-    await page.getByLabel(/Endpoint URL/i).fill("https://mcp.example.test/jira");
+    await fillNewMcpServerBasics(page, {
+      displayName: "Jira Tools",
+      serverId: "jira-tools",
+      endpoint: "https://mcp.example.test/jira",
+    });
 
     await page.getByRole("button", { name: "Add Credential" }).click();
     await expect(page.getByLabel(/^Secret$/).first()).toContainText("Jira token");
@@ -600,7 +625,7 @@ test.describe("mocked MCP OpenFGA tuple browser regression", () => {
 
     await page.getByRole("button", { name: "Add Credential" }).click();
     await page.getByLabel(/Credential target/i).nth(1).selectOption("env");
-    await page.getByLabel(/Credential name/i).nth(1).fill("JIRA_TOKEN");
+    await page.getByLabel(/Credential name/i).fill("JIRA_TOKEN");
     await page.getByLabel(/^Secret$/).nth(1).selectOption(secretIds.pagerduty);
 
     await page.getByRole("button", { name: "Create Server" }).click();
@@ -650,8 +675,10 @@ test.describe("mocked MCP OpenFGA tuple browser regression", () => {
     await page.getByRole("button", { name: "Add Server" }).first().click();
     await expect(page.getByText("Add MCP Server")).toBeVisible();
 
-    await page.getByLabel(/Server ID/i).fill("test-netutils");
-    await page.getByLabel(/Display Name/i).fill("Test Netutils");
+    await fillNewMcpServerBasics(page, {
+      displayName: "Test Netutils",
+      serverId: "test-netutils",
+    });
     await page.getByRole("button", { name: /HTTP HTTP\/REST endpoint/i }).click();
     await page.getByLabel(/Endpoint URL/i).fill("http://mcp-netutils:8000");
     await page.getByRole("button", { name: /check url/i }).click();
@@ -716,14 +743,15 @@ test.describe("mocked MCP OpenFGA tuple browser regression", () => {
     await page.getByRole("button", { name: "Add Server" }).first().click();
     await expect(page.getByText("Add MCP Server")).toBeVisible();
 
-    await page.getByLabel(/Server ID/i).fill("atlassian-tools");
-    await page.getByLabel(/Display Name/i).fill("Atlassian Tools");
-    await page.getByLabel(/Endpoint URL/i).fill("https://mcp.example.test/atlassian");
+    await fillNewMcpServerBasics(page, {
+      displayName: "Atlassian Tools",
+      serverId: "atlassian-tools",
+      endpoint: "https://mcp.example.test/atlassian",
+    });
 
     await page.getByRole("button", { name: "Add Credential" }).click();
     await page.getByLabel(/Credential kind/i).selectOption("provider_connection");
     await expect(page.getByLabel(/Provider connection/i)).toContainText("Atlassian Cloud");
-    await page.getByLabel(/Credential name/i).fill("Authorization");
     await page.getByLabel(/Provider connection/i).selectOption("conn-atlassian");
 
     await page.getByRole("button", { name: "Create Server" }).click();

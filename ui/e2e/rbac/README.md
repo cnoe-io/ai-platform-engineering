@@ -12,10 +12,18 @@ CAIPE + Keycloak stack:
 | `pdp-down.spec.ts` | When Keycloak is unreachable, the UI shows a 503 toast (no silent allow). |
 | `credential-team-sharing.spec.ts` | Live credential Team Access keeps concurrent share responses from dropping successful grants. |
 | `workflow-agent-access.spec.ts` | Mocked browser regression for workflow run access and denied agent-access grants. |
+| `workflows-rbac-regression.spec.ts` | Mocked browser regression for team/global/private workflow visibility, MCP step tool overrides, grant/save paths, and non-admin run access. |
+| `webex-workflow-agent-routes.spec.ts` | Mocked browser regression for Webex space onboarding and routing to workflow/MCP agents (bot dispatch path). |
+| `workflow-agent-service-auth.spec.ts` | Mocked regression for agent→BFF workflow run auth (401 without Bearer, 201 with Bearer) and agent workflow wiring. |
+| `workflow-agent-user-delegation.spec.ts` | Mocked regression for run-as-user workflow delegation (user OBO bearer vs service account on team/global/private workflows). |
+| `workflow-agent-oauth-live.spec.ts` | Live-stack regression for Keycloak client-credentials → `/api/workflow-runs` (401 unauthenticated, 201 global workflow). |
+| `workflow-agent-user-delegation-live.spec.ts` | Live-stack regression: service account 403 on team workflow; session owner 201; global fallback for SA. |
 | `rbac-admin-regression.spec.ts` | Mocked browser regression for the Permissions Tool and RBAC Audit export UX. |
 | `audit-service-writers.spec.ts` | Mocked browser regression for audit-service-backed audit reads, filtering, downloads, and outage recovery. |
 | `audit-log.spec.ts` | Mocked browser regression for the audit-service reader UI: storage status, time windows, custom ranges, ZIP export, and outage badges. |
 | `mcp-openfga-tuples.spec.ts` | Mocked browser regression for team MCP resource saves and MCP server list visibility. |
+| `credentials-workspace-regression.spec.ts` | Mocked browser regression for admin credentials (protection details, usage, inline audit), personal secrets workspace (when SSR session available), and MCP credential binding. |
+| `credential-secrets-management.spec.ts` | Live-stack + mocked API hybrid for full credentials UX (requires `RUN_RBAC_E2E=1`). |
 | `identity-sync-regression.spec.ts` | Mocked browser regression for the Identity Sync admin tab and manual Okta sync trigger path. |
 | `service-accounts.spec.ts` | Mocked browser regression for Service Accounts create, see-once credential reveal, scope manage, rotate, and revoke UX. |
 | `slack-run-as.spec.ts` | Mocked browser regression for Slack route “Run as Service Account” selection and route-save payload. |
@@ -33,7 +41,7 @@ Use these from `ui/`:
 | `npm run test:e2e:all` | Full RBAC Playwright suite: mocked regressions plus live RBAC/OpenFGA specs. |
 | `npm run test:e2e:rbac-regression` | Fast mocked browser regression subset. |
 | `npm run test:e2e:rbac-live-resources` | Live resource lifecycle matrix only. |
-| `npm run test:e2e:rbac-live-full` | Live OpenFGA + MCP create + resource lifecycle + credential team sharing target. |
+| `npm run test:e2e:rbac-live-workflow-oauth` | Live workflow service-account OAuth contract only. |
 | `npm run test:e2e:rbac -- --list` | Raw discovery/debug command for every RBAC spec. |
 
 Use `npm run test:e2e:all -- --list` to see exactly what the full command will

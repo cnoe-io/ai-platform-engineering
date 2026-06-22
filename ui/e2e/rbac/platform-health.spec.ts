@@ -19,6 +19,7 @@ import {
   installMockedRbacApp,
   mockedRbacEnabled,
 } from "./_mocked-rbac";
+import { dismissReleaseUpgradeDialog } from "./_helpers";
 
 // ---------------------------------------------------------------------------
 // Shared probe fixtures
@@ -42,24 +43,24 @@ function makeProbe(
 }
 
 const ALL_HEALTHY_PROBES = [
-  makeProbe("keycloak", "identity", "healthy"),
-  makeProbe("openfga", "identity", "healthy"),
-  makeProbe("openfga-authz-bridge", "identity", "healthy"),
-  makeProbe("agentgateway", "core", "healthy"),
-  makeProbe("agentgateway-config-bridge", "core", "healthy"),
-  makeProbe("dynamic-agents", "core", "healthy"),
-  makeProbe("caipe-mongodb", "storage", "healthy"),
-  makeProbe("keycloak-postgres", "storage", "healthy"),
-  makeProbe("openfga-postgres", "storage", "healthy"),
-  makeProbe("rag-server", "rag", "healthy"),
-  makeProbe("rag-redis", "rag", "healthy"),
-  makeProbe("milvus", "rag", "healthy"),
-  makeProbe("milvus-minio", "rag", "healthy"),
-  makeProbe("etcd", "rag", "healthy"),
-  makeProbe("openfga-bootstrap", "bootstrap", "healthy"),
-  makeProbe("keycloak-bootstrap", "bootstrap", "healthy"),
-  makeProbe("rebac-migrations", "bootstrap", "healthy"),
-  makeProbe("web-ingestor", "rag", "healthy"),
+  makeProbe("keycloak", "identity", "healthy", "Keycloak"),
+  makeProbe("openfga", "identity", "healthy", "OpenFGA"),
+  makeProbe("openfga-authz-bridge", "identity", "healthy", "OpenFGA AuthZ Bridge"),
+  makeProbe("agentgateway", "core", "healthy", "AgentGateway"),
+  makeProbe("agentgateway-config-bridge", "core", "healthy", "AgentGateway Config Bridge"),
+  makeProbe("dynamic-agents", "core", "healthy", "Dynamic Agents"),
+  makeProbe("caipe-mongodb", "storage", "healthy", "MongoDB"),
+  makeProbe("keycloak-postgres", "storage", "healthy", "Keycloak Postgres"),
+  makeProbe("openfga-postgres", "storage", "healthy", "OpenFGA Postgres"),
+  makeProbe("rag-server", "rag", "healthy", "RAG Server"),
+  makeProbe("rag-redis", "rag", "healthy", "RAG Redis"),
+  makeProbe("milvus", "rag", "healthy", "Milvus"),
+  makeProbe("milvus-minio", "rag", "healthy", "Milvus MinIO"),
+  makeProbe("etcd", "rag", "healthy", "etcd"),
+  makeProbe("openfga-bootstrap", "bootstrap", "healthy", "OpenFGA Bootstrap"),
+  makeProbe("keycloak-bootstrap", "bootstrap", "healthy", "Keycloak Bootstrap"),
+  makeProbe("rebac-migrations", "bootstrap", "healthy", "ReBAC Migrations"),
+  makeProbe("web-ingestor", "rag", "healthy", "Web Ingestor"),
 ];
 
 function healthResponse(
@@ -97,13 +98,35 @@ async function setupWithHealth(
           await fulfillJson(route, healthBody, healthBody.summary.down > 0 ? 503 : 200);
           return true;
         }
+        if (path === "/api/rag/healthz" || path === "/api/rag/health") {
+          await fulfillJson(route, {
+            status: "healthy",
+            config: {
+              graph_rag_enabled: false,
+              cleanup: {
+                enabled: true,
+                interval_seconds: 86400,
+                last_cleanup: null,
+              },
+            },
+          });
+          return true;
+        }
         return false;
       },
     ],
   });
   await page.goto("/");
-  // Wait for the header to stabilise before asserting
+  await dismissReleaseUpgradeDialog(page);
   await page.waitForLoadState("networkidle");
+}
+
+async function openHealthPopover(page: Parameters<typeof setupWithHealth>[0]) {
+  await dismissReleaseUpgradeDialog(page);
+  const badge = page.getByRole("button", { name: /system status:/i });
+  await expect(badge).toBeVisible();
+  await badge.click({ force: true });
+  await expect(page.getByTestId("platform-health-scroll")).toBeVisible();
 }
 
 // ---------------------------------------------------------------------------
@@ -139,14 +162,12 @@ test.describe("Platform Health widget", () => {
   test("clicking badge opens the probes popover", async ({ page }) => {
     await setupWithHealth(page, healthResponse());
 
-    await page.getByRole("button", { name: /system status/i }).click();
-
-    // Popover header
+    await openHealthPopover(page);
     await expect(page.getByText("System Status")).toBeVisible();
-    // At least one probe row is visible
-    await expect(page.getByText("Keycloak")).toBeVisible();
-    await expect(page.getByText("OpenFGA")).toBeVisible();
-    await expect(page.getByText("Dynamic Agents")).toBeVisible();
+    const popover = page.getByTestId("platform-health-scroll");
+    await expect(popover.getByText("Keycloak", { exact: true }).first()).toBeVisible();
+    await expect(popover.getByText("OpenFGA", { exact: true }).first()).toBeVisible();
+    await expect(popover.getByText("Dynamic Agents", { exact: true }).first()).toBeVisible();
   });
 
   test("RAG failure → overall status is 'degraded' (amber), not 'down' (red)", async ({ page }) => {
@@ -155,17 +176,14 @@ test.describe("Platform Health widget", () => {
     );
     await setupWithHealth(page, healthResponse(probes));
 
-    const badge = page.getByRole("button", { name: /system status/i });
+    const badge = page.getByRole("button", { name: /system status: needs attention/i });
     await expect(badge).toBeVisible();
 
     // Badge should not show "Down" text
     await expect(badge).not.toContainText("Down");
 
-    // Open popover — should show "Action Needed" or "RAG Offline", not "Issues Detected"
-    await badge.click();
-    const popover = page.locator("[data-radix-popper-content-wrapper]");
-    await expect(popover).toBeVisible();
-    // RAG probes appear warning (amber) — the platform header should not say Issues Detected
+    await openHealthPopover(page);
+    const popover = page.getByTestId("platform-health-scroll");
     await expect(popover.getByText(/issues detected/i)).not.toBeVisible();
   });
 
@@ -175,11 +193,10 @@ test.describe("Platform Health widget", () => {
     );
     await setupWithHealth(page, healthResponse(probes));
 
-    const badge = page.getByRole("button", { name: /system status/i });
-    await badge.click();
+    const badge = page.getByRole("button", { name: /system status: disconnected/i });
+    await openHealthPopover(page);
 
-    const popover = page.locator("[data-radix-popper-content-wrapper]");
-    await expect(popover.getByText(/issues detected/i)).toBeVisible();
+    await expect(page.getByText("Issues Detected")).toBeVisible();
   });
 
   test("status dot has no animate-pulse class (no continuous flashing)", async ({ page }) => {
@@ -228,14 +245,11 @@ test.describe("Platform Health widget", () => {
   test("probes popover lists all expected groups", async ({ page }) => {
     await setupWithHealth(page, healthResponse());
 
-    await page.getByRole("button", { name: /system status/i }).click();
+    await openHealthPopover(page);
 
-    const popover = page.locator("[data-radix-popper-content-wrapper]");
-    await expect(popover).toBeVisible();
-
-    // All four groups should be represented
+    const popover = page.getByTestId("platform-health-scroll");
     for (const label of ["Keycloak", "OpenFGA", "MongoDB", "RAG Server", "Dynamic Agents"]) {
-      await expect(popover.getByText(label)).toBeVisible();
+      await expect(popover.getByText(label, { exact: true }).first()).toBeVisible();
     }
   });
 });

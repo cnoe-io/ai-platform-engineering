@@ -512,7 +512,7 @@ test.describe("RBAC live e2e — resource lifecycle matrix", () => {
         resourceType: "agent",
         resourceId: agentId,
         action: "write",
-      }, "ALLOW");
+      }, "DENY");
       await expectDecision(page, {
         subjectId: outsiderSubject,
         resourceType: "agent",
@@ -534,7 +534,7 @@ test.describe("RBAC live e2e — resource lifecycle matrix", () => {
       const teamMemberAgentEdit = await putJson(page, `/api/dynamic-agents?id=${encodeURIComponent(agentId)}`, {
         description: "Updated by shared team member in RBAC matrix",
       });
-      expect(teamMemberAgentEdit.status, JSON.stringify(teamMemberAgentEdit.body)).toBe(200);
+      expect(teamMemberAgentEdit.status, JSON.stringify(teamMemberAgentEdit.body)).toBe(403);
 
       await installSession(page, env, {
         email: delegatedManagerEmail,
@@ -683,7 +683,7 @@ test.describe("RBAC live e2e — resource lifecycle matrix", () => {
     }
   });
 
-  test("repairs legacy shared-agent writer tuples on first non-admin team edit", async ({ page }) => {
+  test("does not restore legacy shared-agent writer tuples on non-admin team edit", async ({ page }) => {
     const env = rbacEnvOrSkip({ requireUserSub: true });
     const run = suffix();
     const cleanups: Cleanup[] = [];
@@ -749,18 +749,18 @@ test.describe("RBAC live e2e — resource lifecycle matrix", () => {
         role: "user",
       });
       const sharedMemberEdit = await putJson(page, `/api/dynamic-agents?id=${encodeURIComponent(agentId)}`, {
-        description: "Updated by a shared-team member while repairing a legacy writer tuple",
+        description: "Shared-team member edit should stay denied without writer rights",
       });
-      expect(sharedMemberEdit.status, JSON.stringify(sharedMemberEdit.body)).toBe(200);
+      expect(sharedMemberEdit.status, JSON.stringify(sharedMemberEdit.body)).toBe(403);
 
       await installSession(page, env, { email: env.user.email, subject: adminSubject, role: "admin" });
-      await expectTuple(page, missingWriterTuple, true);
+      await expectTuple(page, missingWriterTuple, false);
       await expectDecisionEventually(page, {
         subjectId: sharedMemberSubject,
         resourceType: "agent",
         resourceId: agentId,
         action: "write",
-      }, "ALLOW");
+      }, "DENY");
     } finally {
       await bestEffort(cleanups);
     }
@@ -894,7 +894,7 @@ test.describe("RBAC live e2e — resource lifecycle matrix", () => {
         resourceType: "agent",
         resourceId: adminAgentId,
         action: "write",
-      }, "ALLOW");
+      }, "DENY");
       await expectDecisionEventually(page, {
         subjectId: ownerMemberSubject,
         resourceType: "agent",
@@ -920,9 +920,9 @@ test.describe("RBAC live e2e — resource lifecycle matrix", () => {
         role: "user",
       });
       const ownerMemberEdit = await putJson(page, `/api/dynamic-agents?id=${encodeURIComponent(adminAgentId)}`, {
-        description: "Updated by owner-team member in lifecycle matrix",
+        description: "Owner-team member update should stay denied without manage rights",
       });
-      expect(ownerMemberEdit.status, JSON.stringify(ownerMemberEdit.body)).toBe(200);
+      expect(ownerMemberEdit.status, JSON.stringify(ownerMemberEdit.body)).toBe(403);
       const ownerMemberDelete = await deleteJson(page, `/api/dynamic-agents?id=${encodeURIComponent(adminAgentId)}`);
       expect(ownerMemberDelete.status, JSON.stringify(ownerMemberDelete.body)).toBe(403);
 
@@ -952,7 +952,7 @@ test.describe("RBAC live e2e — resource lifecycle matrix", () => {
         resourceType: "agent",
         resourceId: adminAgentId,
         action: "write",
-      }, "ALLOW");
+      }, "DENY");
 
       await installSession(page, env, {
         email: sharedMemberEmail,
@@ -960,9 +960,9 @@ test.describe("RBAC live e2e — resource lifecycle matrix", () => {
         role: "user",
       });
       const sharedMemberEdit = await putJson(page, `/api/dynamic-agents?id=${encodeURIComponent(adminAgentId)}`, {
-        description: "Updated by shared-team member in lifecycle matrix",
+        description: "Shared-team member update should stay denied without manage rights",
       });
-      expect(sharedMemberEdit.status, JSON.stringify(sharedMemberEdit.body)).toBe(200);
+      expect(sharedMemberEdit.status, JSON.stringify(sharedMemberEdit.body)).toBe(403);
       const sharedMemberDelete = await deleteJson(page, `/api/dynamic-agents?id=${encodeURIComponent(adminAgentId)}`);
       expect(sharedMemberDelete.status, JSON.stringify(sharedMemberDelete.body)).toBe(403);
 
