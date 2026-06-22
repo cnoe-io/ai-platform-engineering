@@ -464,9 +464,8 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                 {gatewayDiscoveryLoaded && agentGatewayTargets.length > 0 ? (
                   <div className="space-y-1">
                     <p className="text-xs text-muted-foreground">
-                      Or pick an AgentGateway target — this fills the endpoint with the
-                      target-qualified URL (<code className="font-mono">/mcp/&lt;target&gt;</code>) so the
-                      gateway can route this server correctly.
+                      Or pick an AgentGateway target — this fills the upstream URL and enables
+                      AgentGateway routing.
                     </p>
                     <div className="flex flex-wrap gap-2">
                       {agentGatewayTargets.map((target) => (

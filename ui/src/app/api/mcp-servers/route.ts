@@ -15,7 +15,10 @@ withErrorHandler,
 } from "@/lib/api-middleware";
 import { getCollection } from "@/lib/mongodb";
 import { agentGatewayMcpEndpointUrl } from "@/lib/rbac/agentgateway-mcp-discovery";
-import { normalizeMcpEndpointForServer } from "@/lib/rbac/mcp-endpoint-normalizer";
+import {
+isAgentGatewayBaseEndpoint,
+normalizeMcpEndpointForServer,
+} from "@/lib/rbac/mcp-endpoint-normalizer";
 import { caipeOrgKey } from "@/lib/rbac/organization";
 import {
 deleteAllMcpServerRelationshipTuples,
@@ -107,14 +110,28 @@ function agentGatewayEndpointForServer(serverId: string): string {
 }
 
 function wantsAgentGatewayRouting(body: Record<string, unknown>): boolean {
-  return body.route_through_agentgateway === true || normalizeString(body.agentgateway_target_endpoint) !== null;
+  return (
+    body.route_through_agentgateway === true ||
+    (body.route_through_agentgateway !== false &&
+      normalizeString(body.agentgateway_target_endpoint) !== null)
+  );
 }
 
 function agentGatewayFieldsForServer(
   body: Record<string, unknown>,
   serverId: string,
+  transport: TransportType | undefined,
 ): Record<string, unknown> | null {
+  if (
+    body.route_through_agentgateway !== undefined &&
+    typeof body.route_through_agentgateway !== "boolean"
+  ) {
+    throw new ApiError("'route_through_agentgateway' must be a boolean", 400);
+  }
   if (!wantsAgentGatewayRouting(body)) return null;
+  if (transport !== "http") {
+    throw new ApiError("AgentGateway routing is only supported for HTTP MCP servers", 400);
+  }
 
   const targetEndpoint =
     normalizeString(body.agentgateway_target_endpoint) ??
@@ -122,6 +139,12 @@ function agentGatewayFieldsForServer(
   if (!targetEndpoint) {
     throw new ApiError(
       "'agentgateway_target_endpoint' or 'endpoint' is required when routing through AgentGateway",
+      400,
+    );
+  }
+  if (isAgentGatewayBaseEndpoint(targetEndpoint, agentGatewayBaseForNormalizer())) {
+    throw new ApiError(
+      "AgentGateway-routed MCP servers must use the upstream MCP endpoint, not the AgentGateway base URL",
       400,
     );
   }
@@ -277,7 +300,11 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       serverId,
       agentGatewayBaseUrl: agentGatewayBaseForNormalizer(),
     });
-    const agentGatewayFields = agentGatewayFieldsForServer(body, serverId);
+    const agentGatewayFields = agentGatewayFieldsForServer(
+      body,
+      serverId,
+      body.transport as TransportType,
+    );
 
     // Build document with explicit field allowlist (Security VII)
     const now = new Date();
@@ -386,7 +413,8 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
       });
     }
 
-    const agentGatewayFields = agentGatewayFieldsForServer(body, String(id));
+    const effectiveTransport = (body.transport as TransportType | undefined) ?? server.transport;
+    const agentGatewayFields = agentGatewayFieldsForServer(body, String(id), effectiveTransport);
     if (agentGatewayFields) {
       Object.assign(updateData, agentGatewayFields);
     } else if (body.route_through_agentgateway === false) {
