@@ -377,7 +377,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     // Normalize legacy documents
     const normalizedItems = allItems.map((item) =>
       normalizeAgentDoc(item as unknown as Record<string, unknown>),
-    ) as DynamicAgentConfig[];
+    ) as unknown as DynamicAgentConfig[];
     const platformDefaultAgentId = await getPlatformDefaultAgentId();
     const scopedItems = await filterAgentsByOwnershipScopeForSession(
       session,
@@ -386,7 +386,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     );
     const listTarget = {
       type: "agent" as const,
-      action: (enabledOnly ? "use" : "discover") as const,
+      action: enabledOnly ? ("use" as const) : ("discover" as const),
       id: (agent: DynamicAgentConfig) => String(agent._id),
     };
     const visibleItems = await filterResourcesByPermission(session, scopedItems, listTarget);
