@@ -276,7 +276,7 @@ test.describe("RBAC e2e — provider connection display and cleanup", () => {
         {
           kind: "provider_connection",
           target: "header",
-          name: "Authorization",
+          name: "X-CAIPE-Provider-Token",
           connection_scope: "pinned",
           provider_connection_id: NEW_ATLASSIAN_CONNECTION.id,
         },

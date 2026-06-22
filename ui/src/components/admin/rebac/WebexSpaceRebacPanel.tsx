@@ -1,5 +1,8 @@
 "use client";
 
+import { HelpCircle } from "lucide-react";
+
+import { Tooltip,TooltipContent,TooltipTrigger } from "@/components/ui/tooltip";
 import { ConnectorAdminPanel } from "./ConnectorAdminPanel";
 import type {
 ConnectorAdminAdapter,
@@ -8,6 +11,41 @@ ItemAgentRoute,
 ItemDiagnostics,
 ItemSummary,
 } from "./connector-admin-adapter";
+
+function WebexAccessNote() {
+  return (
+    <div className="flex max-w-4xl items-start gap-2 rounded-md border border-border/60 bg-background/50 px-3 py-2 text-sm text-muted-foreground">
+      <span>
+        Members of the assigned team can manage this Webex space&apos;s bot routing. The space and the
+        assigned team must both be allowed to use an agent before the bot will call it.
+      </span>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            aria-label="Webex access details"
+            className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <HelpCircle className="h-4 w-4" aria-hidden="true" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="top" className="max-w-md whitespace-normal break-words text-xs">
+          <div className="space-y-2">
+            <p>
+              Team assignment controls who can manage this space&apos;s integration. Before dispatch,
+              the Webex bot checks that the space has <code className="mx-0.5">can_use agent:&lt;id&gt;</code>{" "}
+              and the user&apos;s active team has the same permission.
+            </p>
+            <p>
+              Adding an agent to a team-assigned space grants every member of that team permission to
+              invoke the agent in the space, even if they were never granted the agent directly.
+            </p>
+          </div>
+        </TooltipContent>
+      </Tooltip>
+    </div>
+  );
+}
 
 function apiData<T>(payload: { data?: T } & T): T {
   return (payload.data ?? payload) as T;
@@ -37,10 +75,10 @@ const WEBEX_ADAPTER: ConnectorAdminAdapter = {
 
   api: {
     list: "/api/admin/webex/spaces",
-    discoveryUrl: (page, cursor) => {
-      const p = new URLSearchParams({ limit: "500" });
-      if (page === 0) p.set("refresh", "1");
+    discoveryUrl: (_page, cursor, q) => {
+      const p = new URLSearchParams({ limit: "200" });
       if (cursor) p.set("cursor", cursor);
+      if (q) p.set("q", q);
       return `/api/admin/webex/available-spaces?${p.toString()}`;
     },
     defaults: "/api/admin/webex/spaces/defaults",
@@ -64,6 +102,7 @@ const WEBEX_ADAPTER: ConnectorAdminAdapter = {
       item_id: String(r.space_id),
       item_name: String(r.space_name ?? r.space_id),
       team_slug: r.team_slug ? String(r.team_slug) : undefined,
+      primary_agent_id: r.primary_agent_id ? String(r.primary_agent_id) : undefined,
       active_grants: Number(r.active_grants ?? 0),
       can_manage: Boolean(r.can_manage),
       health: r.health as ItemSummary["health"],
@@ -83,6 +122,7 @@ const WEBEX_ADAPTER: ConnectorAdminAdapter = {
       })),
       nextCursor: d.next_cursor ?? null,
       hasMore: Boolean(d.has_more),
+      totalMatches: typeof d.total_matches === "number" ? d.total_matches : undefined,
     };
   },
   parseRuntimeStatus: (json) => {
@@ -118,12 +158,13 @@ const WEBEX_ADAPTER: ConnectorAdminAdapter = {
     advancedTabDescription: "One-time YAML import and Webex bot runtime status. Most admins won't need this.",
     advancedHeading: "Advanced Setup - Import/Sync with Webex Bot",
     botNameInLegend: "Webex bot",
-    discoveryDescription: "Find Webex spaces where the bot is already installed, then choose what to import.",
-    discoveryFindLabel: "Find Webex Spaces with Bot Integration",
-    discoveryRefreshLabel: "Refresh Webex Spaces with Bot Integration",
-    discoveryLoadingLabel: "Finding Webex spaces...",
+    discoveryDescription: "Find Webex spaces where the bot is already installed. Spaces the bot has not joined will not appear.",
+    discoveryFindLabel: "Find spaces",
+    discoveryRefreshLabel: "Refresh spaces",
+    discoveryLoadingLabel: "Finding spaces…",
     discoveryEmptyLabel: "No bot-visible Webex spaces were discovered.",
     discoveryDiscoveredLabel: "bot-visible space",
+    advancedSectionDescription: "Preview Webex bot YAML seed data before importing space routes and agent settings into the database.",
     selfServiceTitle: "My Webex Space Settings",
     selfServiceDescription: "Manage bot routing behavior only for Webex spaces where OpenFGA grants you space admin access.",
   },
@@ -133,12 +174,10 @@ const WEBEX_ADAPTER: ConnectorAdminAdapter = {
     advancedRegion: "Advanced Setup - Import/Sync with Webex Bot",
   },
 
-  discoveryStatusText: ({ discoveredCount, newCount, configuredCount, unassignedCount }) => {
-    const base = discoveredCount > 0
-      ? `${discoveredCount} bot-visible found · ${newCount} new`
-      : `${configuredCount} managed in CAIPE`;
-    return `${base} · ${unassignedCount} missing team`;
-  },
+  discoveryStatusText: ({ discoveredCount, newCount, configuredCount, unassignedCount }) =>
+    discoveredCount > 0
+      ? `${discoveredCount} bot-visible found · ${newCount} new · ${configuredCount} in CAIPE · ${unassignedCount} missing team`
+      : `${configuredCount} in CAIPE · ${unassignedCount} missing team`,
 
   staticConfigLabel: ({ items, routes }) => `${items} spaces / ${routes} routes`,
   routeCacheLabel: (count) => `${count} cached space${count === 1 ? "" : "s"}`,
@@ -154,24 +193,7 @@ const WEBEX_ADAPTER: ConnectorAdminAdapter = {
     },
   ],
 
-  authzDisclaimer: (
-    <>
-      <div>
-        Webex authorization has two checks before dispatch: the space must have
-        <code className="mx-1">can_use agent:&lt;id&gt;</code>, and the user&apos;s active
-        team must also have <code className="mx-1">can_use agent:&lt;id&gt;</code>.
-        If either check fails, the Webex bot denies the request before calling the agent.
-      </div>
-      <div className="rounded-md border border-amber-300/60 bg-amber-50 p-2 text-amber-950 dark:bg-amber-950/30 dark:text-amber-200">
-        <span className="font-medium">Sharing model:</span> Adding an agent to a
-        space that is assigned to a team transitively grants <em>every member of
-        that team</em> permission to invoke the agent in this space — even members
-        who were never granted the agent directly. If that is not what you want, share
-        the agent with a smaller subgroup (or with individual users) instead of the
-        space&apos;s team.
-      </div>
-    </>
-  ),
+  authzDisclaimer: <WebexAccessNote />,
 
   diagnosticRouteIsFixable: (route: DiagnosticRoute) =>
     (route.route_metadata && !route.openfga_tuple) ||
@@ -235,6 +257,8 @@ const WEBEX_ADAPTER: ConnectorAdminAdapter = {
   },
 
   discoveryAutoSelectNewItems: true,
+  discoveryPaginated: true,
+  discoveryServerSearch: true,
 
   missingRouteableAgentAutoFix: {
     title: "Auto-fix missing Webex association",
