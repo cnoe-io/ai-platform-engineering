@@ -177,8 +177,8 @@ export const GET = withErrorHandler(async (request: NextRequest, context?: { par
       owner: {
         type: "user",
         id: ownerId,
-        ...(user.email ? { email: user.email } : {}),
-        ...(user.name ? { name: user.name } : {}),
+        ...(user?.email ? { email: user.email } : {}),
+        ...(user?.name ? { name: user.name } : {}),
       },
       code,
       codeVerifier: parsedState.codeVerifier,
