@@ -27,6 +27,8 @@ jest.mock('next-auth', () => ({
 
 jest.mock('@/lib/auth-config', () => ({
   authOptions: {},
+  isBootstrapAdmin: jest.fn().mockReturnValue(false),
+  REQUIRED_ADMIN_GROUP: '',
 }));
 
 jest.mock('@/lib/config', () => ({
@@ -44,6 +46,44 @@ const mockGetCollection = jest.fn((name: string) => {
 jest.mock('@/lib/mongodb', () => ({
   getCollection: (...args: any[]) => mockGetCollection(...args),
   isMongoDBConfigured: true,
+}));
+
+jest.mock('@/lib/rbac/keycloak-authz', () => ({
+  checkPermission: jest.fn().mockResolvedValue({ allowed: true }),
+}));
+
+// `requireConversationResourcePermission` falls through to OpenFGA only
+// when the session is NOT the implicit conversation owner. In this suite
+// we want the route's own `access_level === 'shared_readonly'` check and
+// owner-only branches in `share/route.ts` to drive the outcome, not the
+// PDP. Default to allow non-privileged actions (`can_read`/`can_discover`/
+// `can_write`) plus the `/api/chat/*` compatibility wrapper's org-level
+// `can_chat` gate so the route reaches its own logic; deny `can_share` /
+// `can_manage` / `can_delete` so non-owner privileged actions return 403.
+const mockCheckOpenFgaTuple = jest.fn().mockImplementation(async (tuple: { relation?: string }) => {
+  const allowed = new Set(['can_read', 'can_discover', 'can_write', 'can_use', 'can_chat']);
+  return { allowed: allowed.has(tuple?.relation ?? '') };
+});
+jest.mock('@/lib/rbac/openfga', () => ({
+  checkOpenFgaTuple: (...args: unknown[]) => mockCheckOpenFgaTuple(...args),
+}));
+
+jest.mock('@/lib/rbac/resource-authz', () => ({
+  filterResourcesByPermission: jest.fn(async (_session, resources: unknown[]) => resources),
+  requireResourcePermission: jest.fn(async (_session, target: { action: string; type: string }) => {
+    const relation = target.action === 'list' || target.action === 'discover'
+      ? 'can_discover'
+      : `can_${target.action.replace('-', '_')}`;
+    const result = await mockCheckOpenFgaTuple({ relation });
+    if (result.allowed === true) return;
+    const error = new Error('You do not have permission to access this resource.') as Error & {
+      statusCode: number;
+      code: string;
+    };
+    error.statusCode = 403;
+    error.code = `${target.type}#${target.action}`;
+    throw error;
+  }),
 }));
 
 jest.mock('uuid', () => ({
@@ -386,6 +426,8 @@ describe('POST /api/chat/conversations/[id]/messages — readonly sharing', () =
 
     mockGetServerSession.mockResolvedValue({
       user: { email: VIEWER_EMAIL, name: 'Viewer' },
+      accessToken: 'test-access-token',
+      sub: 'viewer-sub',
     });
 
     const { POST } = await import('@/app/api/chat/conversations/[id]/messages/route');
@@ -425,6 +467,8 @@ describe('POST /api/chat/conversations/[id]/messages — readonly sharing', () =
 
     mockGetServerSession.mockResolvedValue({
       user: { email: EDITOR_EMAIL, name: 'Editor' },
+      accessToken: 'test-access-token',
+      sub: 'editor-sub',
     });
 
     const { POST } = await import('@/app/api/chat/conversations/[id]/messages/route');
@@ -458,6 +502,7 @@ describe('PATCH /api/chat/conversations/[id]/share — permission updates', () =
 
     mockGetServerSession.mockResolvedValue({
       user: { email: OWNER_EMAIL, name: 'Owner' },
+      sub: 'owner-sub',
     });
 
     const { PATCH } = await import('@/app/api/chat/conversations/[id]/share/route');
@@ -494,6 +539,7 @@ describe('PATCH /api/chat/conversations/[id]/share — permission updates', () =
 
     mockGetServerSession.mockResolvedValue({
       user: { email: OWNER_EMAIL, name: 'Owner' },
+      sub: 'owner-sub',
     });
 
     const { PATCH } = await import('@/app/api/chat/conversations/[id]/share/route');
@@ -516,6 +562,7 @@ describe('PATCH /api/chat/conversations/[id]/share — permission updates', () =
   it('rejects PATCH with invalid permission value', async () => {
     mockGetServerSession.mockResolvedValue({
       user: { email: OWNER_EMAIL, name: 'Owner' },
+      sub: 'owner-sub',
     });
 
     const { PATCH } = await import('@/app/api/chat/conversations/[id]/share/route');
@@ -542,6 +589,7 @@ describe('PATCH /api/chat/conversations/[id]/share — permission updates', () =
 
     mockGetServerSession.mockResolvedValue({
       user: { email: VIEWER_EMAIL, name: 'Viewer' },
+      sub: 'viewer-sub',
     });
 
     const { PATCH } = await import('@/app/api/chat/conversations/[id]/share/route');
@@ -575,6 +623,7 @@ describe('POST /api/chat/conversations/[id]/share — permission storage', () =>
 
     mockGetServerSession.mockResolvedValue({
       user: { email: OWNER_EMAIL, name: 'Owner' },
+      sub: 'owner-sub',
     });
 
     const { POST } = await import('@/app/api/chat/conversations/[id]/share/route');
@@ -617,6 +666,7 @@ describe('POST /api/chat/conversations/[id]/share — permission storage', () =>
 
     mockGetServerSession.mockResolvedValue({
       user: { email: OWNER_EMAIL, name: 'Owner' },
+      sub: 'owner-sub',
     });
 
     const { POST } = await import('@/app/api/chat/conversations/[id]/share/route');

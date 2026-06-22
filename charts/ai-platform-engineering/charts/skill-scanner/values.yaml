@@ -60,12 +60,22 @@ resources:
     # -- Memory limit — leaves headroom for unzipped skill trees up to 200MB.
     memory: 1Gi
 
+# -- Startup probe — gates liveness/readiness until the process is up.
+startupProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 18
+
 # -- Liveness probe — hits the FastAPI /health endpoint.
 livenessProbe:
   httpGet:
     path: /health
     port: http
-  initialDelaySeconds: 15
+  initialDelaySeconds: 0
   periodSeconds: 20
   timeoutSeconds: 3
   failureThreshold: 3
@@ -75,7 +85,7 @@ readinessProbe:
   httpGet:
     path: /health
     port: http
-  initialDelaySeconds: 5
+  initialDelaySeconds: 0
   periodSeconds: 10
   timeoutSeconds: 3
   failureThreshold: 3

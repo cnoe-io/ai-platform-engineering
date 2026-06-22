@@ -12,6 +12,7 @@ import re
 from pathlib import Path
 from ruamel.yaml import YAML
 
+# assisted-by Codex Codex-sonnet-4-6
 yaml = YAML()
 yaml.preserve_quotes = True
 yaml.width = 4096  # Prevent line wrapping
@@ -253,8 +254,8 @@ def add_to_external_secrets_file(values_file, agent_name):
     
     match = re.search(external_secrets_pattern, content)
     if match:
-        # Add new secret configuration after Slack
-        new_secret_section = \
+        # Add new ExternalSecret reference configuration after Slack.
+        external_ref_section = \
 f'''
     # {agent_name.title()} configuration
     - name: {agent_name}-secret
@@ -274,7 +275,7 @@ f'''
         #     property: {agent_name.upper()}_API_KEY
 '''
         
-        new_content = content + new_secret_section
+        new_content = content + external_ref_section
         
         with open(values_file, 'w') as f:
             f.write(new_content)

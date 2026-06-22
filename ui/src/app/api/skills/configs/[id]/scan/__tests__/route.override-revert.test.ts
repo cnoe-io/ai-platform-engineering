@@ -85,6 +85,16 @@ jest.mock("@/lib/skill-scan-override-history", () => ({
     mockRecordOverrideEvent(event),
 }));
 
+const mockRequireSkillPermission = jest.fn();
+jest.mock("@/lib/rbac/resource-authz", () => ({
+  requireSkillPermission: (...args: unknown[]) => mockRequireSkillPermission(...args),
+}));
+
+jest.mock("@/lib/rbac/skill-team-grants", () => ({
+  readSkillSharedTeamSlugsFromOpenFga: jest.fn().mockResolvedValue([]),
+  reconcileSkillTeamShares: jest.fn().mockResolvedValue(undefined),
+}));
+
 jest.spyOn(console, "warn").mockImplementation(() => {});
 jest.spyOn(console, "error").mockImplementation(() => {});
 
@@ -101,6 +111,8 @@ function adminSession() {
   return {
     user: { email: "admin@example.com", name: "Admin" },
     role: "admin",
+    // OpenFGA gates need a stable subject id.
+    sub: "admin-sub",
   };
 }
 
@@ -154,6 +166,7 @@ describe("POST /api/skills/configs/[id]/scan — does not touch scan_override", 
 
   beforeEach(async () => {
     jest.resetModules();
+    mockRequireSkillPermission.mockResolvedValue(undefined);
     const mod = await import("@/app/api/skills/configs/[id]/scan/route");
     POST = mod.POST as typeof POST;
   });

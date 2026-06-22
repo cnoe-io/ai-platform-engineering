@@ -1,23 +1,23 @@
 "use client";
 
-import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import { useTheme } from "next-themes";
 import { SigmaContainer } from "@react-sigma/core";
 import { MultiDirectedGraph } from "graphology";
 import forceAtlas2 from "graphology-layout-forceatlas2";
-import { Loader2, RefreshCw, Settings, Filter, RotateCcw, Trash2, X } from 'lucide-react';
+import { Filter,Loader2,RefreshCw,RotateCcw,Settings,Trash2,X } from 'lucide-react';
+import { useTheme } from "next-themes";
+import { useCallback,useEffect,useMemo,useRef,useState } from 'react';
 import '../shared/sigma-styles.css';
 
-import OntologyNodeHoverCard from './OntologyNodeHoverCard';
+import { Permission,useRagPermissions } from '@/hooks/useRagPermissions';
+import { clearOntology,getOntologyAgentStatus,getOntologyEntitiesBatch,getOntologyGraphStats,getOntologyRelationsBatch,regenerateOntology } from '../../api';
+import { CameraController,GraphDragController,GraphEventsController,GraphSettingsController,SigmaInstanceCapture } from '../shared/SigmaGraph';
+import { EvaluationResult,getColorForNode,getEvaluationResult } from '../shared/graphStyles';
+import { extractRelationId,generateEdgeKey,generateNodeId } from '../shared/graphUtils';
+import OntologyGraphDataController,{ OntologyFilters } from './OntologyGraphDataController';
 import OntologyNodeDetailsCard from './OntologyNodeDetailsCard';
-import OntologyGraphDataController, { OntologyFilters } from './OntologyGraphDataController';
-import { CameraController, SigmaInstanceCapture, GraphDragController, GraphEventsController, GraphSettingsController } from '../shared/SigmaGraph';
-import { getColorForNode, getSigmaEdgeStyle, EvaluationResult, getEvaluationResult } from '../shared/graphStyles';
-import { generateNodeId, generateRelationId, extractRelationId, generateEdgeKey } from '../shared/graphUtils';
-import { getOntologyGraphStats, getOntologyEntitiesBatch, getOntologyRelationsBatch, regenerateOntology, clearOntology, getOntologyAgentStatus } from '../../api';
-import { useRagPermissions, Permission } from '@/hooks/useRagPermissions';
+import OntologyNodeHoverCard from './OntologyNodeHoverCard';
 
-interface OntologyGraphProps {}
+type OntologyGraphProps = Record<string, never>;
 
 // Helper function to truncate long labels
 const truncateLabel = (label: string, maxLength: number = 30): string => {
@@ -27,6 +27,8 @@ const truncateLabel = (label: string, maxLength: number = 30): string => {
 
 export default function OntologyGraphSigma({}: OntologyGraphProps) {
     const { hasPermission } = useRagPermissions();
+    const canIngest = hasPermission(Permission.INGEST);
+    const canDelete = hasPermission(Permission.DELETE);
     
     // Theme detection for label colors
     const { resolvedTheme } = useTheme();
@@ -521,15 +523,17 @@ export default function OntologyGraphSigma({}: OntologyGraphProps) {
                                         <p className="text-muted-foreground">
                                             No ontology data found. Use Data Sources to ingest entities, then analyze the ontology.
                                         </p>
+                                        {canIngest && (
                                         <button
                                             onClick={handleReanalyze}
-                                            disabled={isReanalyzing || !hasPermission(Permission.INGEST)}
+                                            disabled={isReanalyzing}
                                             className="mt-4 px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 flex items-center gap-2 mx-auto disabled:opacity-50 disabled:cursor-not-allowed"
-                                            title={!hasPermission(Permission.INGEST) ? 'Insufficient permissions to analyse ontology' : 'Analyse ontology relationships'}
+                                            title="Analyse ontology relationships"
                                         >
                                             <RotateCcw className={`h-4 w-4 ${isReanalyzing ? 'animate-spin' : ''}`} />
                                             Analyse
                                         </button>
+                                        )}
                                     </>
                                 )}
                             </div>
@@ -623,24 +627,28 @@ export default function OntologyGraphSigma({}: OntologyGraphProps) {
                                                 <RefreshCw className="h-3 w-3" />
                                                 Refresh
                                             </button>
+                                            {canIngest && (
                                             <button
                                                 onClick={handleReanalyze}
-                                                disabled={isReanalyzing || !hasPermission(Permission.INGEST)}
+                                                disabled={isReanalyzing}
                                                 className="px-2 py-1 text-xs rounded-md bg-purple-500 hover:bg-purple-600 text-white font-medium flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
-                                                title={!hasPermission(Permission.INGEST) ? 'Insufficient permissions to re-analyse ontology' : 'Re-analyse ontology relationships'}
+                                                title="Re-analyse ontology relationships"
                                             >
                                                 <RotateCcw className={`h-3 w-3 ${isReanalyzing ? 'animate-spin' : ''}`} />
                                                 Re-analyse
                                             </button>
+                                            )}
+                                            {canDelete && (
                                             <button
                                                 onClick={handleDelete}
-                                                disabled={isDeleting || !hasPermission(Permission.DELETE)}
+                                                disabled={isDeleting}
                                                 className="px-2 py-1 text-xs rounded-md bg-red-500 hover:bg-red-600 text-white font-medium flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
-                                                title={!hasPermission(Permission.DELETE) ? 'Insufficient permissions to delete ontology' : 'Delete ontology'}
+                                                title="Delete ontology"
                                             >
                                                 <Trash2 className="h-3 w-3" />
                                                 Delete
                                             </button>
+                                            )}
                                         </div>
                                         <span className="text-xs ml-2 shrink-0">
                                             {visibleStats.nodes}/{graphStats?.node_count ?? 0} nodes

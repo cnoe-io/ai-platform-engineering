@@ -15,26 +15,27 @@
 // Safari compatibility: the @a2a-js/sdk uses response.body.pipeThrough(new TextDecoderStream())
 // internally, which fails on Safari. On Safari, we bypass the SDK's streaming
 // and use our own reader-based SSE parser instead.
-import { isSafariBrowser, parseSseStreamSafari } from "./streaming-polyfill";
+import { isSafariBrowser,parseSseStreamSafari } from "./streaming-polyfill";
 
 import {
-  JsonRpcTransport,
-  createAuthenticatingFetchWithRetry,
-  type AuthenticationHandler,
+JsonRpcTransport,
+createAuthenticatingFetchWithRetry,
+type AuthenticationHandler,
 } from "@a2a-js/sdk/client";
 
 import type {
-  Message,
-  Task,
-  TaskStatusUpdateEvent,
-  TaskArtifactUpdateEvent,
-  MessageSendParams,
-  TextPart,
-  DataPart,
-  FilePart,
+DataPart,
+FilePart,
+Message,
+MessageSendParams,
+Task,
+TaskArtifactUpdateEvent,
+TaskStatusUpdateEvent,
+TextPart,
 } from "@a2a-js/sdk";
 
 import { v4 as uuidv4 } from "uuid";
+import { getConfig } from "./config";
 
 // Re-export types for convenience
 export type A2AStreamEvent = Message | Task | TaskStatusUpdateEvent | TaskArtifactUpdateEvent;
@@ -223,11 +224,14 @@ export class A2ASDKClient {
 
     const messageId = uuidv4();
 
-    // Prepend user context if email is available
-    // This enables agents to track which user is making the request
-    const messageWithContext = this.userEmail
-      ? `by user: ${this.userEmail}\n\n${message}`
-      : message;
+    // Prepend user context if email is available and server-side JWT extraction
+    // is not enabled. When userInfoToolEnabled is true, the server extracts
+    // user identity from the JWT token directly — no text prefix needed.
+    const skipUserPrefix = getConfig("userInfoToolEnabled");
+    const messageWithContext =
+      this.userEmail && !skipUserPrefix
+        ? `by user: ${this.userEmail}\n\n${message}`
+        : message;
 
     // Build message parts - include metadata as DataPart if provided (HITL resume)
     const parts: Array<{ kind: string; text?: string; data?: Record<string, unknown> }> = [

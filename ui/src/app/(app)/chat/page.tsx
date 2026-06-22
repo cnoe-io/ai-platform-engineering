@@ -1,12 +1,23 @@
 "use client";
 
-import React, { useEffect, useRef } from "react";
-import { useRouter } from "next/navigation";
-import { useSession } from "next-auth/react";
-import { useChatStore } from "@/store/chat-store";
-import { getStorageMode } from "@/lib/storage-config";
 import { AuthGuard } from "@/components/auth-guard";
 import { CAIPESpinner } from "@/components/ui/caipe-spinner";
+import { getStorageMode } from "@/lib/storage-config";
+import { getLastActiveConversationId,useChatStore } from "@/store/chat-store";
+import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
+import { useEffect,useRef } from "react";
+
+async function resolveDefaultAgentId(): Promise<string | undefined> {
+  try {
+    const response = await fetch("/api/admin/platform-config");
+    const data = await response.json();
+    const agentId = data?.success ? data.data?.default_agent_id : null;
+    return typeof agentId === "string" && agentId.trim() ? agentId.trim() : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 /**
  * /chat landing page — resumes the last active conversation, falls back to
@@ -26,13 +37,14 @@ import { CAIPESpinner } from "@/components/ui/caipe-spinner";
  */
 function ChatRedirectPage() {
   const router = useRouter();
-  const { data: session } = useSession();
+  const { data: session, status } = useSession();
   const redirected = useRef(false);
 
   const createConversation = useChatStore((s) => s.createConversation);
   const loadConversationsFromServer = useChatStore((s) => s.loadConversationsFromServer);
 
   useEffect(() => {
+    if (status === "loading") return;
     if (redirected.current) return;
 
     const resolve = async () => {
@@ -46,6 +58,7 @@ function ChatRedirectPage() {
       // Re-read from the store after potential server load
       const state = useChatStore.getState();
       const { conversations: currentConversations, activeConversationId } = state;
+      const lastActiveConversationId = activeConversationId ?? getLastActiveConversationId();
       const userEmail = session?.user?.email;
 
       // Only consider conversations OWNED by the current user for auto-redirect.
@@ -57,12 +70,14 @@ function ChatRedirectPage() {
         ? currentConversations.filter((c) => !c.owner_id || c.owner_id === userEmail)
         : currentConversations;
 
-      // 1. Resume the last active conversation if it still exists and is owned
-      if (activeConversationId) {
-        const stillOwned = ownedConversations.some((c) => c.id === activeConversationId);
-        if (stillOwned) {
+      // 1. Resume the last active conversation when it still exists in the loaded list.
+      // Prefer owned entries for auto-pick below, but an explicit last-active id from
+      // this browser should win to avoid spawning duplicate empty chats on /chat.
+      if (lastActiveConversationId) {
+        const stillExists = currentConversations.some((c) => c.id === lastActiveConversationId);
+        if (stillExists) {
           redirected.current = true;
-          router.replace(`/chat/${activeConversationId}`);
+          router.replace(`/chat/${lastActiveConversationId}`);
           return;
         }
       }
@@ -74,7 +89,7 @@ function ChatRedirectPage() {
         router.replace(`/chat/${latestId}`);
       } else {
         // 3. No owned conversations — create a new one
-        const newId = await createConversation();
+        const newId = await createConversation(await resolveDefaultAgentId());
         redirected.current = true;
         router.replace(`/chat/${newId}`);
       }
@@ -84,13 +99,13 @@ function ChatRedirectPage() {
       console.error("[ChatRedirect] Failed to resolve conversation:", error);
       // Fallback: create a new conversation
       if (!redirected.current) {
-        const newId = await createConversation();
+        const newId = await createConversation(await resolveDefaultAgentId());
         redirected.current = true;
         router.replace(`/chat/${newId}`);
       }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [status]);
 
   return (
     <div className="flex-1 flex items-center justify-center h-full bg-background">

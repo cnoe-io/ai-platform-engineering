@@ -93,7 +93,8 @@ helm show values oci://ghcr.io/cnoe-io/charts/ai-platform-engineering --version 
 | agent-confluence.nameOverride | string | `"agent-confluence"` |  |
 | agent-github.image.pullPolicy | string | `"Always"` |  |
 | agent-github.image.repository | string | `"ghcr.io/cnoe-io/agent-github"` |  |
-| agent-github.mcp.useRemoteMcpServer | bool | `true` |  |
+| agent-github.mcp.mode | string | `"stdio"` |  |
+| agent-github.mcp.useRemoteMcpServer | bool | `false` |  |
 | agent-github.nameOverride | string | `"agent-github"` |  |
 | agent-gitlab.env.GIT_AUTHOR_EMAIL | string | `"ai-agent@cnoe.io"` |  |
 | agent-gitlab.env.GIT_AUTHOR_NAME | string | `"AI Agent"` |  |
@@ -211,7 +212,7 @@ helm show values oci://ghcr.io/cnoe-io/charts/ai-platform-engineering --version 
 | caipe-ui.config.SHOW_POWERED_BY | string | `"false"` |  |
 | caipe-ui.config.SSO_ENABLED | string | `"false"` |  |
 | caipe-ui.config.TAGLINE | string | `"Multi-Agent Workflow Automation"` |  |
-| caipe-ui.env.A2A_BASE_URL | string | `"http://ai-platform-engineering-supervisor-agent:8000"` |  |
+| caipe-ui.env.A2A_BASE_URL | string | `"http://{{ .Release.Name }}-supervisor-agent:8000"` |  |
 | caipe-ui.env.SKILLS_DIR | string | `"/app/data/skills"` |  |
 | caipe-ui.existingSecret | string | `""` |  |
 | caipe-ui.externalSecrets.apiVersion | string | `"v1beta1"` |  |
@@ -267,6 +268,7 @@ helm show values oci://ghcr.io/cnoe-io/charts/ai-platform-engineering --version 
 | dynamic-agents.service.port | int | `8001` |  |
 | extraDeploy | list | `[]` |  |
 | global.agentgateway.enabled | bool | `false` |  |
+| global.agentgateway.routingMode | string | `"static"` | How chart-managed MCP routing is provisioned. `static` (default) renders no custom resources and writes routes into the standalone proxy config (no CRDs needed); `gateway-api` renders Gateway API/AgentGateway custom resources (requires those CRDs + a controller). |
 | global.createLlmSecret | bool | `false` |  |
 | global.deploymentMode | string | `"multi-node"` |  |
 | global.externalSecrets.apiVersion | string | `"v1beta1"` |  |
@@ -276,9 +278,6 @@ helm show values oci://ghcr.io/cnoe-io/charts/ai-platform-engineering --version 
 | global.llmSecrets.secretName | string | `"llm-secret"` |  |
 | global.metrics.enabled | bool | `false` |  |
 | global.rag.enableGraphRag | bool | `true` |  |
-| global.slim.enabled | bool | `false` |  |
-| global.slim.endpoint | string | `"http://ai-platform-engineering-slim:46357"` |  |
-| global.slim.transport | string | `"slim"` |  |
 | metrics.grafanaDashboard.enabled | bool | `true` |  |
 | metrics.grafanaDashboard.labels.grafana_dashboard | string | `"1"` |  |
 | metrics.path | string | `"/metrics"` |  |
@@ -317,7 +316,7 @@ helm show values oci://ghcr.io/cnoe-io/charts/ai-platform-engineering --version 
 | slack-bot.auth.tokenUrl | string | `""` |  |
 | slack-bot.botConfig | object | `{}` |  |
 | slack-bot.botMode | string | `"socket"` |  |
-| slack-bot.env.CAIPE_URL | string | `"http://ai-platform-engineering-supervisor-agent:8000"` |  |
+| slack-bot.env.CAIPE_URL | string | `"http://{{ .Release.Name }}-supervisor-agent:8000"` |  |
 | slack-bot.externalSecrets.apiVersion | string | `"v1beta1"` |  |
 | slack-bot.externalSecrets.data | list | `[]` |  |
 | slack-bot.externalSecrets.enabled | bool | `false` |  |
@@ -436,8 +435,6 @@ helm show values oci://ghcr.io/cnoe-io/charts/ai-platform-engineering --version 
 | agent-netutils (agent) | `0.2.38` | tags: agent-netutils, complete |
 | agent-weather (agent) | `0.2.38` | tags: agent-weather, complete |
 | agent-petstore (agent) | `0.2.38` | tags: agent-petstore, complete |
-| slim | `v0.1.8` | `global.slim.enabled` |
-| slim-control-plane | `v0.1.3` | `global.slim.enabled` |
 | rag-stack | `0.2.38` | tags: rag-stack, complete |
 | caipe-ui | `0.2.38` | tags: caipe-ui |
 | dynamic-agents | `0.2.38` | tags: dynamic-agents |

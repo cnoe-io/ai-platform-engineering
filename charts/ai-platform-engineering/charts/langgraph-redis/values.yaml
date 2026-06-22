@@ -47,13 +47,23 @@ resources:
     # -- Memory limit
     memory: 512Mi
 
+# -- Startup probe configuration
+startupProbe:
+  exec:
+    command:
+      - redis-cli
+      - ping
+  initialDelaySeconds: 5
+  periodSeconds: 5
+  failureThreshold: 12
+
 # -- Liveness probe configuration
 livenessProbe:
   exec:
     command:
       - redis-cli
       - ping
-  initialDelaySeconds: 15
+  initialDelaySeconds: 0
   periodSeconds: 10
 
 # -- Readiness probe configuration
@@ -62,7 +72,7 @@ readinessProbe:
     command:
       - redis-cli
       - ping
-  initialDelaySeconds: 5
+  initialDelaySeconds: 0
   periodSeconds: 5
 
 serviceAccount:

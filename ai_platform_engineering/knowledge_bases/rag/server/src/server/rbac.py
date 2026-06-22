@@ -2,29 +2,25 @@
 Role-Based Access Control (RBAC) implementation for the RAG API.
 
 Role Hierarchy:
-- READONLY: Can view/query all data
-- INGESTONLY: READONLY + can ingest data and manage ingestion jobs
-- ADMIN: INGESTONLY + can delete resources and perform bulk operations
+- READONLY: Authenticated human users and read-only service clients
+- INGESTONLY: Ingestor service clients
+- ADMIN: Administrative service clients
 
 This module provides:
 - User context extraction from JWT tokens (Bearer authentication)
-- Trusted network access (IP-based or header-based)
-- Role determination from group membership
-- Groups caching via Redis (fetched from OIDC userinfo endpoint)
+- Service role determination for client-credentials tokens
+- Fine-grained knowledge-base and datasource authorization via OpenFGA
 - FastAPI dependencies for role-based endpoint protection
 """
 
 import os
 import re
-import json
-import ipaddress
-from dataclasses import dataclass
 from typing import List, Dict, Any, Optional
 from fastapi import Depends, HTTPException, Request
 from jwt.exceptions import PyJWTError as JWTError
-import redis.asyncio as redis
+import httpx
 from common.models.rbac import Role, UserContext
-from common.constants import REDIS_USERINFO_CACHE_PREFIX
+from common.models.server import QueryRequest
 from common import utils
 from server.auth import get_auth_manager, AuthManager
 
@@ -32,176 +28,33 @@ logger = utils.get_logger(__name__)
 
 # Email validation regex (RFC 5322 simplified)
 EMAIL_REGEX = re.compile(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")
+OPENFGA_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
+DEFAULT_OPENFGA_STORE_NAME = "caipe-openfga"
+DEFAULT_ORG_KEY = "caipe"
 
 # ============================================================================
 # Configuration
 # ============================================================================
 
-# Environment variables for RBAC configuration
-RBAC_READONLY_GROUPS = os.getenv("RBAC_READONLY_GROUPS", "").split(",")
-RBAC_INGESTONLY_GROUPS = os.getenv("RBAC_INGESTONLY_GROUPS", "").split(",")
-RBAC_ADMIN_GROUPS = os.getenv("RBAC_ADMIN_GROUPS", "").split(",")
-
-# Default role for authenticated users (those with OAuth headers) who don't match any group
-RBAC_DEFAULT_AUTHENTICATED_ROLE = os.getenv("RBAC_DEFAULT_AUTHENTICATED_ROLE", Role.READONLY)
-
 # Default role for client credentials tokens (machine-to-machine)
 # These tokens don't have user/group information, so we assign a fixed role
 RBAC_CLIENT_CREDENTIALS_ROLE = os.getenv("RBAC_CLIENT_CREDENTIALS_ROLE", Role.INGESTONLY)
 
-# Trusted network configuration (replaces RBAC_DEFAULT_UNAUTHENTICATED_ROLE)
-ALLOW_TRUSTED_NETWORK = os.getenv("ALLOW_TRUSTED_NETWORK", "false").lower() in ("true", "1", "yes")
-TRUSTED_NETWORK_CIDRS_STR = os.getenv("TRUSTED_NETWORK_CIDRS", "127.0.0.0/8,172.16.0.0/12,10.0.0.0/8,192.168.0.0/16")
-TRUSTED_NETWORK_TOKEN = os.getenv("TRUSTED_NETWORK_TOKEN", "")
-TRUSTED_NETWORK_DEFAULT_ROLE = os.getenv("TRUSTED_NETWORK_DEFAULT_ROLE", Role.ADMIN)
-
-# Parse CIDR ranges for trusted networks
-TRUSTED_NETWORK_CIDRS = []
-if ALLOW_TRUSTED_NETWORK and TRUSTED_NETWORK_CIDRS_STR:
-  for cidr_str in TRUSTED_NETWORK_CIDRS_STR.split(","):
-    cidr_str = cidr_str.strip()
-    if cidr_str:
-      try:
-        TRUSTED_NETWORK_CIDRS.append(ipaddress.ip_network(cidr_str))
-      except ValueError as e:
-        logger.error("Invalid CIDR in TRUSTED_NETWORK_CIDRS: [redacted] - %s", type(e).__name__)
-
-# Group claim configuration (matches UI configuration)
-OIDC_GROUP_CLAIM = os.getenv("OIDC_GROUP_CLAIM", "")
-
 # Validate roles at startup
 VALID_ROLES = {Role.READONLY, Role.INGESTONLY, Role.ADMIN}
-
-if RBAC_DEFAULT_AUTHENTICATED_ROLE not in VALID_ROLES:
-  logger.error(f"Invalid RBAC_DEFAULT_AUTHENTICATED_ROLE: '{RBAC_DEFAULT_AUTHENTICATED_ROLE}'. Must be one of: {VALID_ROLES}")
-  raise ValueError(f"Invalid RBAC_DEFAULT_AUTHENTICATED_ROLE: '{RBAC_DEFAULT_AUTHENTICATED_ROLE}'. Valid values are: {', '.join(VALID_ROLES)}")
 
 if RBAC_CLIENT_CREDENTIALS_ROLE not in VALID_ROLES:
   logger.error(f"Invalid RBAC_CLIENT_CREDENTIALS_ROLE: '{RBAC_CLIENT_CREDENTIALS_ROLE}'. Must be one of: {VALID_ROLES}")
   raise ValueError(f"Invalid RBAC_CLIENT_CREDENTIALS_ROLE: '{RBAC_CLIENT_CREDENTIALS_ROLE}'. Valid values are: {', '.join(VALID_ROLES)}")
 
-if TRUSTED_NETWORK_DEFAULT_ROLE not in VALID_ROLES:
-  logger.error("Invalid TRUSTED_NETWORK_DEFAULT_ROLE: [redacted]. Must be one of: %s", VALID_ROLES)
-  raise ValueError(f"Invalid TRUSTED_NETWORK_DEFAULT_ROLE. Valid values are: {', '.join(VALID_ROLES)}")
-
 logger.info("RBAC Configuration:")
-logger.info(f"  RBAC_READONLY_GROUPS: {[g for g in RBAC_READONLY_GROUPS if g.strip()]}")
-logger.info(f"  RBAC_INGESTONLY_GROUPS: {[g for g in RBAC_INGESTONLY_GROUPS if g.strip()]}")
-logger.info(f"  RBAC_ADMIN_GROUPS: {[g for g in RBAC_ADMIN_GROUPS if g.strip()]}")
-logger.info(f"  RBAC_DEFAULT_AUTHENTICATED_ROLE: {RBAC_DEFAULT_AUTHENTICATED_ROLE}")
+logger.info("  Human coarse roles: authenticated identity only")
+logger.info("  RAG authorization: OpenFGA ReBAC")
 logger.info(f"  RBAC_CLIENT_CREDENTIALS_ROLE: {RBAC_CLIENT_CREDENTIALS_ROLE}")
-logger.info("  ALLOW_TRUSTED_NETWORK: %s", "enabled" if ALLOW_TRUSTED_NETWORK else "disabled")
-if ALLOW_TRUSTED_NETWORK:
-  logger.info("  TRUSTED_NETWORK_CIDRS: %d ranges configured", len(TRUSTED_NETWORK_CIDRS))
-  logger.info("  TRUSTED_NETWORK_TOKEN: %s", "(set)" if TRUSTED_NETWORK_TOKEN else "(not set)")
-  logger.info("  TRUSTED_NETWORK_DEFAULT_ROLE: [configured]")
-logger.info(f"  OIDC_GROUP_CLAIM: {OIDC_GROUP_CLAIM if OIDC_GROUP_CLAIM else '(auto-detect)'}")
-
-# ============================================================================
-# Groups Cache (Redis-backed)
-# ============================================================================
-
-# Userinfo cache TTL in seconds (default: 30 minutes)
-# User info (email, groups) is fetched from OIDC userinfo endpoint and cached to reduce load
-USERINFO_CACHE_TTL_SECONDS = int(os.getenv("USERINFO_CACHE_TTL_SECONDS", 1800))
-
-logger.info(f"  USERINFO_CACHE_TTL_SECONDS: {USERINFO_CACHE_TTL_SECONDS}")
 
 
-@dataclass
-class CachedUserInfo:
-  """Cached user information from OIDC userinfo endpoint."""
-
-  email: str
-  groups: List[str]
-
-
-class UserInfoCache:
-  """
-  Redis-backed cache for user info fetched from OIDC userinfo endpoint.
-
-  This cache reduces load on the OIDC provider by caching user information
-  (email and groups) for a configurable TTL. Data is keyed by the user's
-  'sub' claim from the access token.
-  """
-
-  def __init__(self, redis_client: redis.Redis):
-    """
-    Initialize userinfo cache with Redis client.
-
-    Args:
-        redis_client: Async Redis client instance
-    """
-    self.redis_client = redis_client
-    self._ttl = USERINFO_CACHE_TTL_SECONDS
-
-  async def get(self, sub: str) -> Optional[CachedUserInfo]:
-    """
-    Get cached user info for a user.
-
-    Args:
-        sub: User's subject identifier from access token
-
-    Returns:
-        CachedUserInfo if cached and not expired, None otherwise
-    """
-    try:
-      data = await self.redis_client.get(f"{REDIS_USERINFO_CACHE_PREFIX}{sub}")
-      if data:
-        parsed = json.loads(data)
-        user_info = CachedUserInfo(email=parsed["email"], groups=parsed["groups"])
-        logger.debug(f"Userinfo cache hit for sub={sub[:16]}..., email={user_info.email}, groups_count={len(user_info.groups)}")
-        return user_info
-      logger.debug(f"Userinfo cache miss for sub={sub[:16]}...")
-      return None
-    except Exception as e:
-      logger.warning(f"Userinfo cache get failed for sub={sub[:16]}...: {e}")
-      return None
-
-  async def set(self, sub: str, user_info: CachedUserInfo) -> None:
-    """
-    Cache user info with TTL.
-
-    Args:
-        sub: User's subject identifier from access token
-        user_info: User information to cache
-    """
-    try:
-      data = json.dumps({"email": user_info.email, "groups": user_info.groups})
-      await self.redis_client.setex(f"{REDIS_USERINFO_CACHE_PREFIX}{sub}", self._ttl, data)
-      logger.debug(f"Userinfo cached for sub={sub[:16]}..., email={user_info.email}, groups_count={len(user_info.groups)}, ttl={self._ttl}s")
-    except Exception as e:
-      logger.warning(f"Userinfo cache set failed for sub={sub[:16]}...: {e}")
-
-  async def delete(self, sub: str) -> None:
-    """
-    Delete cached user info.
-
-    Args:
-        sub: User's subject identifier from access token
-    """
-    try:
-      await self.redis_client.delete(f"{REDIS_USERINFO_CACHE_PREFIX}{sub}")
-      logger.debug(f"Userinfo cache deleted for sub={sub[:16]}...")
-    except Exception as e:
-      logger.warning(f"Userinfo cache delete failed for sub={sub[:16]}...: {e}")
-
-
-# Global userinfo cache instance (set by restapi.py on startup)
-_userinfo_cache: Optional[UserInfoCache] = None
-
-
-def set_userinfo_cache(cache: UserInfoCache) -> None:
-  """Set the global userinfo cache instance."""
-  global _userinfo_cache
-  _userinfo_cache = cache
-  logger.info("Userinfo cache initialized")
-
-
-def get_userinfo_cache() -> Optional[UserInfoCache]:
-  """Get the global userinfo cache instance."""
-  return _userinfo_cache
-
+def _unsafe_rbac_bypass_enabled() -> bool:
+  return os.getenv("CAIPE_UNSAFE_RBAC_BYPASS", "").strip().lower() in ("1", "true", "yes", "on")
 
 # ============================================================================
 # Role Hierarchy and Permission Logic
@@ -209,7 +62,6 @@ def get_userinfo_cache() -> Optional[UserInfoCache]:
 
 # Define role hierarchy (higher number = more permissions, inherits lower)
 _ROLE_HIERARCHY = {
-  Role.ANONYMOUS: 0,
   Role.READONLY: 1,
   Role.INGESTONLY: 2,
   Role.ADMIN: 3,
@@ -244,7 +96,6 @@ def get_permissions(user_role: str) -> List[str]:
   Get all permissions the user has based on their role.
 
   Permissions are hierarchical based on role:
-  - ANONYMOUS: [] (no permissions)
   - READONLY: ["read"]
   - INGESTONLY: ["read", "ingest"]
   - ADMIN: ["read", "ingest", "delete"]
@@ -256,16 +107,11 @@ def get_permissions(user_role: str) -> List[str]:
       List of permission strings (without "can_" prefix)
 
   Examples:
-      get_permissions(Role.ANONYMOUS) -> []
       get_permissions(Role.READONLY) -> ["read"]
       get_permissions(Role.INGESTONLY) -> ["read", "ingest"]
       get_permissions(Role.ADMIN) -> ["read", "ingest", "delete"]
   """
   permissions = []
-
-  # Anonymous users have no permissions
-  if user_role == Role.ANONYMOUS:
-    return []
 
   # All authenticated roles can read
   if has_permission(user_role, Role.READONLY):
@@ -282,45 +128,12 @@ def get_permissions(user_role: str) -> List[str]:
   return permissions
 
 
-def determine_role_from_groups(user_groups: List[str]) -> str:
-  """
-  Determine user's role based on their group membership.
+_KB_SCOPE_RANK = {"read": 1, "ingest": 2, "admin": 3}
 
-  Priority order (most permissive wins):
-  1. ADMIN groups
-  2. INGESTONLY groups
-  3. READONLY groups
-  4. Default role
 
-  Args:
-      user_groups: List of groups the user belongs to
-
-  Returns:
-      Role string (Role.READONLY, Role.INGESTONLY, or Role.ADMIN)
-  """
-  # Clean up empty strings from config
-  readonly_groups = [g.strip() for g in RBAC_READONLY_GROUPS if g.strip()]
-  ingestonly_groups = [g.strip() for g in RBAC_INGESTONLY_GROUPS if g.strip()]
-  admin_groups = [g.strip() for g in RBAC_ADMIN_GROUPS if g.strip()]
-
-  # Most permissive role wins
-  if any(group in admin_groups for group in user_groups):
-    matching_groups = [g for g in user_groups if g in admin_groups]
-    logger.info(f"Role determination: Assigned ADMIN role based on group membership: {matching_groups}")
-    return Role.ADMIN
-
-  if any(group in ingestonly_groups for group in user_groups):
-    matching_groups = [g for g in user_groups if g in ingestonly_groups]
-    logger.info(f"Role determination: Assigned INGESTONLY role based on group membership: {matching_groups}")
-    return Role.INGESTONLY
-
-  if any(group in readonly_groups for group in user_groups):
-    matching_groups = [g for g in user_groups if g in readonly_groups]
-    logger.info(f"Role determination: Assigned READONLY role based on group membership: {matching_groups}")
-    return Role.READONLY
-
-  logger.info(f"Role determination: No group match found, assigned default authenticated role: {RBAC_DEFAULT_AUTHENTICATED_ROLE}")
-  return RBAC_DEFAULT_AUTHENTICATED_ROLE
+def kb_scope_satisfies(perm_scope: str, required: str) -> bool:
+  """Return True if a KB permission scope meets the required access level."""
+  return _KB_SCOPE_RANK.get(perm_scope, 0) >= _KB_SCOPE_RANK.get(required, 0)
 
 
 # ============================================================================
@@ -349,8 +162,15 @@ def is_client_credentials_token(claims: Dict[str, Any]) -> bool:
     logger.debug(f"Client credentials detected via grant_type: {grant_type}")
     return True
 
-  # Check for client_id without typical user claims
+  # Keycloak client-credentials tokens include `preferred_username` in the
+  # form `service-account-<client_id>`, which is not a human user claim.
   has_client_id = bool(claims.get("client_id") or claims.get("azp") or claims.get("clientId"))
+  preferred_username = claims.get("preferred_username")
+  if has_client_id and isinstance(preferred_username, str) and preferred_username.startswith("service-account-"):
+    logger.debug("Client credentials detected: Keycloak service account token")
+    return True
+
+  # Check for client_id without typical user claims
   has_user_claims = bool(claims.get("email") or claims.get("preferred_username") or claims.get("upn") or claims.get("name"))
 
   logger.debug(f"Client credentials check: has_client_id={has_client_id}, has_user_claims={has_user_claims}")
@@ -375,8 +195,6 @@ def is_client_credentials_token(claims: Dict[str, Any]) -> bool:
 
   logger.debug("Not detected as client credentials token")
   return False
-
-
 def extract_client_id_from_claims(claims: Dict[str, Any]) -> str:
   """
   Extract client ID from JWT claims for client credentials tokens.
@@ -417,112 +235,6 @@ def extract_email_from_claims(claims: Dict[str, Any]) -> str:
   return claims.get("email") or claims.get("preferred_username") or claims.get("upn") or claims.get("sub") or "unknown"
 
 
-def extract_groups_from_claims(claims: Dict[str, Any]) -> List[str]:
-  """
-  Extract groups from JWT claims with configurable claim name.
-  Mirrors the logic in ui/src/lib/auth-config.ts extractGroups()
-
-  Uses OIDC_GROUP_CLAIM if set (comma-separated for multiple claims),
-  otherwise checks ALL common claim names and combines groups from all
-  of them (using a set for deduplication).
-
-  Args:
-      claims: JWT token claims
-
-  Returns:
-      List of unique group names
-  """
-  # Default group claim names to check (in order of priority)
-  # Note: Duo SSO uses "members" for full group list, "groups" for limited set
-  default_group_claims = ["members", "memberOf", "groups", "group", "roles", "cognito:groups"]
-
-  # Use a set to collect all groups and deduplicate
-  all_groups: set[str] = set()
-
-  def add_groups_from_value(value: Any) -> None:
-    """Helper to extract groups from a claim value and add to set."""
-    if isinstance(value, list):
-      for g in value:
-        all_groups.add(str(g))
-    elif isinstance(value, str):
-      # Split on comma or whitespace
-      for g in re.split(r"[,\s]+", value):
-        if g.strip():
-          all_groups.add(g.strip())
-
-  # If explicit group claim(s) configured, use only those
-  # Supports comma-separated list of claim names (e.g., "groups,members,roles")
-  if OIDC_GROUP_CLAIM:
-    configured_claims = [c.strip() for c in OIDC_GROUP_CLAIM.split(",") if c.strip()]
-    for claim_name in configured_claims:
-      value = claims.get(claim_name)
-      if value is not None:
-        add_groups_from_value(value)
-    if not all_groups:
-      logger.warning(f"No groups found in configured claims: {configured_claims}")
-    return list(all_groups)
-
-  # Auto-detect: check ALL common group claim names and combine them
-  # This is important for Duo SSO which uses both "groups" and "members"
-  for claim_name in default_group_claims:
-    value = claims.get(claim_name)
-    if value is not None:
-      add_groups_from_value(value)
-
-  if not all_groups:
-    logger.debug("No group claims found in token")
-
-  return list(all_groups)
-
-
-# ============================================================================
-# Trusted Network Access
-# ============================================================================
-
-
-def is_trusted_request(request: Request) -> bool:
-  """
-  Check if request comes from trusted network.
-
-  Checks:
-  1. Source IP against CIDR ranges (TRUSTED_NETWORK_CIDRS)
-  2. X-Trust-Token header (TRUSTED_NETWORK_TOKEN)
-
-  Args:
-      request: FastAPI request object
-
-  Returns:
-      True if request is from trusted network, False otherwise
-  """
-  if not ALLOW_TRUSTED_NETWORK:
-    return False
-
-  # Option 1: Check source IP against CIDR ranges
-  # Prefer X-Forwarded-For (real client IP set by Istio ingress) over the direct
-  # connection IP (request.client.host), which is always the ingress gateway.
-  if TRUSTED_NETWORK_CIDRS:
-    xff = request.headers.get("X-Forwarded-For")
-    raw_ip = xff.split(",")[0].strip() if xff else (request.client.host if request.client else None)
-    if raw_ip:
-      try:
-        client_ip = ipaddress.ip_address(raw_ip)
-        for cidr in TRUSTED_NETWORK_CIDRS:
-          if client_ip in cidr:
-            logger.debug("Trusted network access granted via CIDR match")
-            return True
-      except ValueError as e:
-        logger.warning(f"Invalid client IP address: {raw_ip} - {e}")
-
-  # Option 2: Check for trusted header
-  if TRUSTED_NETWORK_TOKEN:
-    trust_token = request.headers.get("X-Trust-Token")
-    if trust_token == TRUSTED_NETWORK_TOKEN:
-      logger.debug("Request authenticated via X-Trust-Token header")
-      return True
-
-  return False
-
-
 # ============================================================================
 # FastAPI Dependencies
 # ============================================================================
@@ -532,18 +244,14 @@ async def _authenticate_from_token(request: Request, auth_manager: AuthManager) 
   """
   Internal helper to authenticate user from JWT token.
 
-  For user tokens, always fetches user info (email, groups) from the OIDC
-  userinfo endpoint, with Redis caching to reduce load on the provider.
-  This ensures we always get authoritative email and group information,
-  regardless of what claims are in the access token.
+  For user tokens, extracts identity from the already-validated OIDC access
+  token. Knowledge-base authorization is enforced later through OpenFGA.
 
   Flow:
   1. Validate access_token (signature, expiry, audience, issuer)
   2. Check if client credentials token (machine-to-machine) → return immediately
-  3. Extract 'sub' (user ID) from access_token for cache key
-  4. Check Redis cache for userinfo (email + groups)
-  5. On cache miss, fetch from OIDC userinfo endpoint and cache result
-  6. Determine role from groups
+  3. Extract 'sub', email, and realm roles from access_token for audit context
+  4. Assign the authenticated human baseline role; resource grants come from OpenFGA
 
   Returns:
       UserContext if authentication successful, None if no auth or invalid
@@ -578,8 +286,8 @@ async def _authenticate_from_token(request: Request, auth_manager: AuthManager) 
         email = f"client:{client_id}"
 
       user_context = UserContext(
+        subject=access_claims.get("sub") if isinstance(access_claims.get("sub"), str) else client_id,
         email=email,
-        groups=[],  # Client credentials don't have groups
         role=RBAC_CLIENT_CREDENTIALS_ROLE,
         is_authenticated=True,
       )
@@ -589,75 +297,34 @@ async def _authenticate_from_token(request: Request, auth_manager: AuthManager) 
     else:
       logger.debug("Regular user token detected (not client credentials)")
 
-    # Extract user's subject identifier for cache key
+    # Extract user identity from the validated Keycloak token.
     sub = access_claims.get("sub")
     if not sub:
-      logger.warning("Access token missing 'sub' claim, cannot use cache")
+      logger.warning("Access token missing 'sub' claim")
       sub = "unknown"
     else:
       logger.debug(f"Extracted sub from access_token: {sub[:16]}...")
 
-    # For user tokens, always get email and groups from userinfo (with caching)
-    # This ensures we have authoritative user info regardless of access_token claims
-    email = None
-    groups = None
-    info_source = None
+    email = extract_email_from_claims(access_claims)
 
-    # Step 1: Check Redis cache for userinfo
-    userinfo_cache = get_userinfo_cache()
-    if userinfo_cache and sub != "unknown":
-      logger.debug("Checking Redis cache for userinfo...")
-      cached_info = await userinfo_cache.get(sub)
-      if cached_info is not None:
-        email = cached_info.email
-        groups = cached_info.groups
-        info_source = "cache"
-        logger.info(f"Userinfo found in cache: email={email}, groups_count={len(groups)}")
-
-    # Step 2: Fetch from userinfo endpoint on cache miss
-    if email is None:
-      logger.debug("Fetching userinfo from OIDC endpoint...")
-      try:
-        userinfo = await auth_manager.fetch_userinfo(token, provider)
-        logger.debug(f"Userinfo response keys: {list(userinfo.keys())}")
-
-        email = extract_email_from_claims(userinfo)
-        groups = extract_groups_from_claims(userinfo)
-        info_source = "userinfo"
-        logger.info(f"Userinfo fetched: email={email}, groups_count={len(groups)}")
-
-        # Cache the userinfo for future requests
-        if userinfo_cache and sub != "unknown":
-          await userinfo_cache.set(sub, CachedUserInfo(email=email, groups=groups))
-          logger.debug(f"Userinfo cached for sub={sub[:16]}...")
-        elif not userinfo_cache:
-          logger.debug("Userinfo cache not available, skipping cache write")
-
-      except Exception as e:
-        # Userinfo fetch failed - fall back to access_token claims
-        logger.warning(f"Userinfo fetch failed, falling back to access_token claims: {e}")
-        email = extract_email_from_claims(access_claims)
-        groups = extract_groups_from_claims(access_claims)
-        info_source = "access_token_fallback"
-        logger.info(f"Using fallback claims: email={email}, groups_count={len(groups)}")
-
-    logger.info(f"User info resolution complete: email={email}, groups_count={len(groups) if groups else 0}, source={info_source}")
-
-    # Ensure groups is always a list (defensive)
-    if groups is None:
-      groups = []
-
-    # Validate email format
+    # Validate email format for human tokens. Service-account tokens return
+    # before this branch, and KB authz is OpenFGA-based instead of email-based.
     if email and email != "unknown" and not EMAIL_REGEX.match(email):
       logger.warning(f"Invalid email format in claims: {email[:50]}")
 
-    # Determine role from groups
-    role = determine_role_from_groups(groups)
-    logger.info(f"Role determined: email={email}, role={role}, groups={groups}")
+    role = Role.READONLY
 
-    user_context = UserContext(email=email, groups=groups, role=role, is_authenticated=True)
+    user_context = UserContext(
+      subject=sub if sub != "unknown" else None,
+      email=email,
+      role=role,
+      is_authenticated=True,
+    )
 
-    logger.info(f"User authenticated successfully: email={email}, role={role}, groups_count={len(groups)}, source={info_source}")
+    logger.info(
+      "User authenticated successfully: email=%s, source=access_token, authorization=openfga",
+      email,
+    )
     return user_context
 
   except JWTError as e:
@@ -667,18 +334,14 @@ async def _authenticate_from_token(request: Request, auth_manager: AuthManager) 
 
 async def require_authenticated_user(request: Request, auth_manager: AuthManager = Depends(get_auth_manager)) -> UserContext:
   """
-  Require authentication and extract user context from JWT token or trusted network.
+  Require authentication and extract user context from a JWT token.
 
   This dependency REQUIRES valid authentication. If authentication is missing or invalid,
   it raises HTTPException(401). Use this for protected endpoints that need authentication.
 
-  For endpoints that should work for both authenticated and anonymous users,
-  use get_user_or_anonymous() instead.
-
   Authentication flow:
   1. If Bearer token present, validate JWT and extract user context
-  2. If no token, check if request is from trusted network (if enabled)
-  3. Otherwise raise 401
+  2. Otherwise raise 401
 
   Args:
       request: FastAPI request object
@@ -702,82 +365,17 @@ async def require_authenticated_user(request: Request, auth_manager: AuthManager
 
     raise HTTPException(status_code=401, detail="Invalid or expired token.")
 
-  # No Authorization header — fall back to trusted network (if enabled)
-  if is_trusted_request(request):
-    # Extract optional ingestor identification headers
-    ingestor_type = request.headers.get("X-Ingestor-Type")
-    ingestor_name = request.headers.get("X-Ingestor-Name")
+  if _unsafe_rbac_bypass_enabled():
+    logger.warning("CAIPE_UNSAFE_RBAC_BYPASS=true: allowing unauthenticated RAG request as local admin")
+    return UserContext(
+      subject="anonymous-local-dev",
+      email="anonymous@local",
+      role=Role.ADMIN,
+      is_authenticated=True,
+    )
 
-    if ingestor_type and ingestor_name:
-      logger.info("Trusted network request: ingestor_type=%s, ingestor_name=%s", ingestor_type, ingestor_name)
-      email = f"trusted:{ingestor_type}:{ingestor_name}"
-    else:
-      logger.info("Trusted network request (anonymous)")
-      email = "trusted-network"
-
-    return UserContext(email=email, groups=[], role=TRUSTED_NETWORK_DEFAULT_ROLE, is_authenticated=False)
-
-  # No token and not trusted network
+  # No token
   raise HTTPException(status_code=401, detail="Missing Authorization header. Please provide a valid Bearer token.")
-
-
-async def get_user_or_anonymous(request: Request, auth_manager: AuthManager = Depends(get_auth_manager)) -> UserContext:
-  """
-  Get user context if authenticated, or return anonymous user if not.
-
-  This dependency does NOT require authentication. It gracefully handles missing
-  or invalid authentication by returning an anonymous user context. Use this for
-  endpoints that should work for everyone, regardless of authentication status.
-
-  For endpoints that require authentication, use require_authenticated_user() instead.
-
-  Authentication flow:
-  1. If Bearer token present, validate JWT and return authenticated user
-  2. If no token, check if request is from trusted network (if enabled)
-  3. Otherwise return anonymous user
-
-  Returns:
-  - Authenticated user with email, role, groups if valid token provided
-  - Anonymous user (email="anonymous", is_authenticated=False) if no auth
-  - Trusted network user (email="trusted-network") if from trusted network
-
-  Args:
-      request: FastAPI request object
-      auth_manager: Auth manager with OIDC providers
-
-  Returns:
-      UserContext with authentication status (authenticated or anonymous)
-  """
-  # If an Authorization header is present, always authenticate via JWT
-  auth_header = request.headers.get("Authorization")
-  if auth_header:
-    user = await _authenticate_from_token(request, auth_manager)
-    if user:
-      return user
-
-  # No Authorization header or invalid token — fall back to trusted network (if enabled)
-  if not auth_header and is_trusted_request(request):
-    # Extract optional ingestor identification headers
-    ingestor_type = request.headers.get("X-Ingestor-Type")
-    ingestor_name = request.headers.get("X-Ingestor-Name")
-
-    if ingestor_type and ingestor_name:
-      logger.info("Trusted network request: ingestor_type=%s, ingestor_name=%s", ingestor_type, ingestor_name)
-      email = f"trusted:{ingestor_type}:{ingestor_name}"
-    else:
-      logger.info("Trusted network request (anonymous)")
-      email = "trusted-network"
-
-    return UserContext(email=email, groups=[], role=TRUSTED_NETWORK_DEFAULT_ROLE, is_authenticated=False)
-
-  # No valid authentication — return anonymous user
-  logger.debug("No valid authentication, returning anonymous user")
-  return UserContext(
-    email="anonymous",
-    groups=[],
-    role=Role.ANONYMOUS,  # No permissions for unauthenticated users
-    is_authenticated=False,
-  )
 
 
 def require_role(required_role: str):
@@ -811,6 +409,16 @@ def require_role(required_role: str):
 
   async def role_checker(user: UserContext = Depends(require_authenticated_user)) -> UserContext:
     if not has_permission(user.role, required_role):
+      # Human users are always assigned READONLY at auth time. For ADMIN-gated
+      # endpoints, check OpenFGA org-admin as a fallback before rejecting.
+      if required_role == Role.ADMIN and await _openfga_check_org_admin(user):
+        logger.debug(f"OpenFGA org-admin grant elevated {user.email} to admin for this request")
+        return UserContext(
+          subject=user.subject,
+          email=user.email,
+          role=Role.ADMIN,
+          is_authenticated=True,
+        )
       logger.warning(f"Access denied for {user.email}: required {required_role}, has {user.role}")
       raise HTTPException(status_code=403, detail=(f"Insufficient permissions. This operation requires '{required_role}' role, but you have '{user.role}' role. Please contact your administrator to request the appropriate access level."))
     return user
@@ -818,3 +426,742 @@ def require_role(required_role: str):
   # Set a descriptive name for better debugging
   role_checker.__name__ = f"require_{required_role}"
   return role_checker
+
+
+# ============================================================================
+# OpenFGA-backed RAG authorization
+# ============================================================================
+
+# MongoDB URI for channel-to-team lookup data.
+RBAC_MONGODB_URI = os.getenv("RBAC_MONGODB_URI", "")
+RBAC_MONGODB_DATABASE = os.getenv("RBAC_MONGODB_DATABASE", "")
+RBAC_TEAM_SCOPE_ENABLED = os.getenv("RBAC_TEAM_SCOPE_ENABLED", "false").lower() in ("true", "1", "yes")
+
+
+def _openfga_http_url() -> Optional[str]:
+  """Return the configured OpenFGA HTTP base URL, if enabled."""
+  value = os.getenv("OPENFGA_HTTP", "").strip().rstrip("/")
+  return value or None
+
+
+def _openfga_store_name() -> str:
+  return os.getenv("OPENFGA_STORE_NAME", "").strip() or DEFAULT_OPENFGA_STORE_NAME
+
+
+def _scope_to_openfga_relation(scope: str) -> str:
+  if scope == "admin":
+    return "can_manage"
+  if scope == "ingest":
+    return "can_ingest"
+  return "can_read"
+
+
+def is_unsafe_rbac_bypass_enabled() -> bool:
+  """Return True when the shared emergency RBAC bypass is explicitly enabled."""
+  return os.getenv("CAIPE_UNSAFE_RBAC_BYPASS", "").strip().lower() in ("true", "1", "yes")
+
+
+def is_org_admin_bypass_disabled() -> bool:
+  """Return True when the RAG org-admin OpenFGA super-grant is disabled."""
+  return os.getenv("RAG_ADMIN_BYPASS_DISABLED", "").strip().lower() in ("true", "1", "yes")
+
+
+def _caipe_org_key() -> str:
+  """Return the configured CAIPE organization key for OpenFGA checks."""
+  value = os.getenv("CAIPE_ORG_KEY", "").strip()
+  return value if OPENFGA_ID_PATTERN.fullmatch(value) else DEFAULT_ORG_KEY
+
+
+def _has_unrestricted_kb_access(user_context: UserContext) -> bool:
+  """Return True for principals that intentionally bypass per-KB filtering."""
+  if is_unsafe_rbac_bypass_enabled():
+    logger.warning("CAIPE_UNSAFE_RBAC_BYPASS=true: allowing unrestricted RAG KB access")
+    return True
+  if user_context.email.startswith("client:"):
+    return True
+  return False
+
+def _openfga_user(user_context: UserContext) -> Optional[str]:
+  subject = getattr(user_context, "subject", None)
+  if isinstance(subject, str) and OPENFGA_ID_PATTERN.fullmatch(subject):
+    return f"user:{subject}"
+  return None
+
+
+async def _get_openfga_store_id(client: httpx.AsyncClient, base_url: str) -> str:
+  explicit_store_id = os.getenv("OPENFGA_STORE_ID", "").strip()
+  if explicit_store_id:
+    return explicit_store_id
+
+  response = await client.get(f"{base_url}/stores", headers={"Content-Type": "application/json"})
+  response.raise_for_status()
+  body = response.json()
+  store_name = _openfga_store_name()
+  for store in body.get("stores", []):
+    if store.get("name") == store_name and store.get("id"):
+      return str(store["id"])
+  raise RuntimeError(f"OpenFGA store {store_name} was not found")
+
+
+async def _openfga_check_object(
+  user_context: UserContext,
+  relation: str,
+  object_type: str,
+  object_id: str,
+) -> bool:
+  """Check a user's derived relation on an OpenFGA object."""
+  base_url = _openfga_http_url()
+  user = _openfga_user(user_context)
+  if not base_url or not user:
+    return False
+
+  async with httpx.AsyncClient(timeout=5.0) as client:
+    store_id = await _get_openfga_store_id(client, base_url)
+    response = await client.post(
+      f"{base_url}/stores/{store_id}/check",
+      headers={"Content-Type": "application/json"},
+      json={
+        "tuple_key": {
+          "user": user,
+          "relation": relation,
+          "object": f"{object_type}:{object_id}",
+        }
+      },
+    )
+    response.raise_for_status()
+    return bool(response.json().get("allowed"))
+
+
+async def _openfga_check_data_source(
+  user_context: UserContext,
+  relation: str,
+  object_id: str,
+) -> bool:
+  """Check a user's derived relation on a data_source object in OpenFGA."""
+  return await _openfga_check_object(user_context, relation, "data_source", object_id)
+
+
+async def _openfga_check_org_admin(user_context: UserContext) -> bool:
+  """Check whether the user has the organization admin super-grant."""
+  if is_org_admin_bypass_disabled():
+    return False
+  return await _openfga_check_object(user_context, "can_manage", "organization", _caipe_org_key())
+
+
+# ============================================================================
+# Explicit "search" capability (spec 2026-06-03-explicit-search-capability)
+# ============================================================================
+#
+# Using search (the `/v1/query` retrieval path and the `/v1/mcp/invoke` tool
+# path, for BOTH built-in `search`/`fetch_document` AND custom search tools) is
+# a dedicated organization-level capability (`organization#can_search`), granted
+# to teams only and only by org admins. It is the FEATURE-level gate, layered
+# above the narrower per-tool `mcp_tool#can_call` and per-datasource
+# `data_source#can_read` checks: holding `can_call` on a shared tool does NOT,
+# by itself, permit search. The BFF enforces the same capability for the UI
+# path; this server-side check is defense-in-depth for direct/agent callers.
+# assisted-by Cursor claude-opus-4.8
+
+
+async def authorize_search(user_context: UserContext) -> None:
+  """Authorize use of the search data path (`/v1/query`, `/v1/mcp/invoke`).
+
+  Authorization is the explicit org-level "search" capability:
+
+  - When team-scope ReBAC is OFF, this is a no-op (coarse role gates apply).
+  - Unrestricted principals (client-credentials, CAIPE_UNSAFE_RBAC_BYPASS) and
+    coarse-ADMIN service tokens are allowed (preserve automation/agents).
+  - Org admins (`organization#can_manage`) are allowed.
+  - Everyone else MUST hold `organization#can_search` (granted via team
+    membership in a team an org admin opted in).
+
+  Fails CLOSED: 403 (capability missing) or 503 (PDP unavailable).
+  """
+  if not RBAC_TEAM_SCOPE_ENABLED:
+    return
+  if _has_unrestricted_kb_access(user_context):
+    return
+  if has_permission(user_context.role, Role.ADMIN):
+    return
+  if not _openfga_http_url() or not _openfga_user(user_context):
+    raise HTTPException(status_code=503, detail="Authorization service is temporarily unavailable")
+
+  try:
+    if await _openfga_check_org_admin(user_context):
+      return
+    if await _openfga_check_object(user_context, "can_search", "organization", _caipe_org_key()):
+      return
+  except HTTPException:
+    raise
+  except Exception as exc:  # noqa: BLE001 — fail closed on PDP errors
+    logger.warning("OpenFGA search authorization failed: %s", exc)
+    raise HTTPException(status_code=503, detail="Authorization service is temporarily unavailable") from exc
+
+  raise HTTPException(
+    status_code=403,
+    detail="You do not have permission to search. Ask an administrator to enable search for your team.",
+  )
+
+
+# ============================================================================
+# Explicit "data source author" capability (spec 2026-06-03-explicit-ingest-capability)
+# ============================================================================
+#
+# Authoring a NEW data source is a dedicated organization-level capability
+# (`organization#can_ingest`), granted to teams only and only by org admins.
+# This is intentionally separate from per-knowledge_base `ingestor` (which only
+# means "push into KB X"). Creation is authorized iff the caller is a member of
+# an opted-in owning team (or an org/coarse admin), and on success the server
+# writes ownership tuples so the owning team immediately gets read/ingest.
+# assisted-by Cursor claude-opus-4.8
+
+
+async def _openfga_read_tuple_exists(user: str, relation: str, object_ref: str) -> bool:
+  """Return True if the exact ``(user, relation, object)`` tuple exists.
+
+  Uses the OpenFGA ``/read`` endpoint with a fully-specified tuple filter so we
+  can deterministically verify a *userset* grant (e.g. whether
+  ``team:<slug>#member`` holds ``ingestor`` on the organization) without relying
+  on Check's transitive resolution.
+  """
+  base_url = _openfga_http_url()
+  if not base_url:
+    return False
+  async with httpx.AsyncClient(timeout=5.0) as client:
+    store_id = await _get_openfga_store_id(client, base_url)
+    response = await client.post(
+      f"{base_url}/stores/{store_id}/read",
+      headers={"Content-Type": "application/json"},
+      json={"tuple_key": {"user": user, "relation": relation, "object": object_ref}},
+    )
+    response.raise_for_status()
+    tuples = response.json().get("tuples", [])
+    for entry in tuples:
+      key = entry.get("key", {})
+      if (
+        key.get("user") == user
+        and key.get("relation") == relation
+        and key.get("object") == object_ref
+      ):
+        return True
+    return False
+
+
+def _team_holds_ingest_capability_filter(team_slug: str) -> tuple[str, str, str]:
+  return (f"team:{team_slug}#member", "ingestor", f"organization:{_caipe_org_key()}")
+
+
+async def _openfga_write_tuples(writes: List[Dict[str, str]]) -> None:
+  """Write ownership tuples to OpenFGA. Best-effort; raises on transport error.
+
+  Each entry is ``{"user", "relation", "object"}``. Callers decide whether a
+  failure is fatal.
+  """
+  base_url = _openfga_http_url()
+  if not base_url or not writes:
+    return
+  async with httpx.AsyncClient(timeout=5.0) as client:
+    store_id = await _get_openfga_store_id(client, base_url)
+    response = await client.post(
+      f"{base_url}/stores/{store_id}/write",
+      headers={"Content-Type": "application/json"},
+      json={"writes": {"tuple_keys": writes}},
+    )
+    response.raise_for_status()
+
+
+# ============================================================================
+# Custom MCP tool authorization (spec 2026-06-03-unified-shareable-resource-rbac)
+# ============================================================================
+#
+# Custom MCP tool management (POST/PUT/DELETE /v1/mcp/custom-tools) is a
+# group-owned, shareable resource. Authorization for human callers is resolved
+# through OpenFGA on the `mcp_tool` type — NOT the legacy coarse `require_role`
+# gate, which can never elevate a human above READONLY (see `rbac.py` role
+# assignment and `rag/README.md`: "tool authorization comes from OpenFGA
+# relationships"). Service principals already carrying the coarse ADMIN role
+# (admin client-credentials tokens, CAIPE_UNSAFE_RBAC_BYPASS) keep working so
+# existing automation is not regressed.
+# assisted-by Cursor claude-opus-4.8
+
+
+async def authorize_mcp_tool_manage(user_context: UserContext, tool_id: str) -> None:
+  """Authorize an update/delete of an existing custom MCP tool.
+
+  Allowed when the caller:
+  - already holds the coarse ADMIN role (admin client-credentials token or the
+    emergency CAIPE_UNSAFE_RBAC_BYPASS), preserving prior behavior; OR
+  - is an organization admin in OpenFGA (`organization#can_manage`); OR
+  - can manage this tool in OpenFGA (`mcp_tool:<tool_id>#can_manage` — i.e. the
+    tool owner, an owner-team admin, or an org admin).
+
+  Fails CLOSED: raises ``HTTPException(403)`` when the caller is not authorized
+  and ``HTTPException(503)`` when the OpenFGA PDP is unavailable or not
+  configured, so a PDP outage can never silently grant a write.
+  """
+  if has_permission(user_context.role, Role.ADMIN):
+    return
+  if not _openfga_http_url() or not _openfga_user(user_context):
+    raise HTTPException(
+      status_code=503,
+      detail="Authorization service is temporarily unavailable",
+    )
+  try:
+    if await _openfga_check_org_admin(user_context):
+      return
+    if await _openfga_check_object(user_context, "can_manage", "mcp_tool", tool_id):
+      return
+  except Exception as exc:  # noqa: BLE001 — fail closed on PDP errors
+    logger.warning("OpenFGA mcp_tool can_manage check failed: %s", exc)
+    raise HTTPException(
+      status_code=503,
+      detail="Authorization service is temporarily unavailable",
+    ) from exc
+  raise HTTPException(
+    status_code=403,
+    detail="You do not have permission to manage this MCP tool. Only the tool's owner, an owner-team admin, or an organization admin may modify it.",
+  )
+
+
+async def authorize_mcp_tool_create(user_context: UserContext, owner_team_slug: Optional[str]) -> None:
+  """Authorize creation of a new custom MCP tool.
+
+  The tool does not exist yet, so there are no per-resource tuples to check.
+  Authorization mirrors the BFF first-set rule (spec US6): the caller must be
+  an organization admin OR a member of the team they are assigning as owner
+  (``team:<owner_team_slug>#can_use``). Coarse-ADMIN service principals are
+  allowed first to preserve prior automation behavior.
+
+  Fails CLOSED with 403 (not authorized) / 503 (PDP unavailable).
+  """
+  if has_permission(user_context.role, Role.ADMIN):
+    return
+  if not _openfga_http_url() or not _openfga_user(user_context):
+    raise HTTPException(
+      status_code=503,
+      detail="Authorization service is temporarily unavailable",
+    )
+  normalized_owner = owner_team_slug.strip() if isinstance(owner_team_slug, str) else None
+  try:
+    if await _openfga_check_org_admin(user_context):
+      return
+    if normalized_owner and await _openfga_check_object(
+      user_context, "can_use", "team", normalized_owner
+    ):
+      return
+  except Exception as exc:  # noqa: BLE001 — fail closed on PDP errors
+    logger.warning("OpenFGA mcp_tool create authorization failed: %s", exc)
+    raise HTTPException(
+      status_code=503,
+      detail="Authorization service is temporarily unavailable",
+    ) from exc
+  raise HTTPException(
+    status_code=403,
+    detail="You must be an organization admin or a member of the owner team to create this MCP tool.",
+  )
+
+
+async def _openfga_list_objects(
+  user_context: UserContext,
+  relation: str,
+  object_type: str,
+) -> List[str]:
+  """List OpenFGA objects of a type that the authenticated user can access."""
+  base_url = _openfga_http_url()
+  user = _openfga_user(user_context)
+  if not base_url or not user:
+    return []
+
+  async with httpx.AsyncClient(timeout=5.0) as client:
+    store_id = await _get_openfga_store_id(client, base_url)
+    response = await client.post(
+      f"{base_url}/stores/{store_id}/list-objects",
+      headers={"Content-Type": "application/json"},
+      json={
+        "user": user,
+        "relation": relation,
+        "type": object_type,
+      },
+    )
+    response.raise_for_status()
+    body = response.json()
+    return [str(obj) for obj in body.get("objects", []) if isinstance(obj, str)]
+
+
+def _strip_openfga_object_prefix(value: str, object_type: str) -> str:
+  prefix = f"{object_type}:"
+  return value[len(prefix):] if value.startswith(prefix) else value
+
+
+async def _resolve_team_slug_from_channel(channel_id: str) -> Optional[str]:
+  """Derive a team slug from an originating collaboration channel.
+
+  Looks up the ``channel_team_mappings`` MongoDB collection by channel
+  identifier and returns the joined ``teams.slug``.
+
+  Returns ``None`` when:
+  - Mongo is not configured
+  - No active mapping exists for ``channel_id``
+  - The mapping points to a team that is missing or has no slug
+  - Mongo errors (we degrade rather than 503 — caller treats no-team as
+    "fall back to user grants only", which is safe for read-side queries)
+
+  This helper is intentionally minimal: identifier resolution lives in the
+  BFF; the RAG server only needs the slug.
+  """
+  if not channel_id or not RBAC_MONGODB_URI or not RBAC_MONGODB_DATABASE:
+    return None
+  try:
+    from motor.motor_asyncio import AsyncIOMotorClient
+
+    client: AsyncIOMotorClient = AsyncIOMotorClient(
+      RBAC_MONGODB_URI, serverSelectionTimeoutMS=5000
+    )
+    db = client[RBAC_MONGODB_DATABASE]
+    mapping = await db["channel_team_mappings"].find_one(
+      {"slack_channel_id": channel_id, "active": {"$ne": False}},
+    )
+    if not mapping:
+      return None
+    team_id = mapping.get("team_id")
+    if not team_id:
+      return None
+    team = await db["teams"].find_one({"_id": team_id})
+    if not team:
+      return None
+    slug = team.get("slug")
+    return slug.strip() if isinstance(slug, str) and slug.strip() else None
+  except Exception as exc:  # noqa: BLE001 — never break the request on Mongo glitches
+    logger.warning(
+      "Channel→team lookup failed (channel_id=%s): %s", channel_id, exc
+    )
+    return None
+
+
+async def derive_team_for_request(
+  request: Optional[Request],
+  user_context: Any,  # noqa: ARG001 — accepted for dependency call-site parity
+) -> Optional[str]:
+  """Resolve the optional team scope carried by the request.
+
+  Resolution order:
+
+  1. ``X-Team-Id`` request header — explicit team scope (used by Web UI BFF
+     and bot envelopes that have already resolved a team from a channel
+     mapping).
+  2. ``X-Channel-Id`` header → ``channel_team_mappings`` → ``teams.slug``.
+  3. ``None`` — caller interprets as "no team scope" (personal / DM).
+
+  ``"__personal__"`` in the header is normalized to ``None``; it is the
+  caller's explicit "DM / no team" signal.
+
+  ``request`` may be ``None`` (MCP tool path doesn't always have one);
+  in that case the function returns ``None``.
+  """
+  if request is None:
+    return None
+
+  header_team = request.headers.get("X-Team-Id") if request.headers else None
+  if isinstance(header_team, str) and header_team.strip():
+    stripped = header_team.strip()
+    return None if stripped == "__personal__" else stripped
+
+  channel_id = request.headers.get("X-Channel-Id") if request.headers else None
+  if isinstance(channel_id, str) and channel_id.strip():
+    try:
+      return await _resolve_team_slug_from_channel(channel_id.strip())
+    except Exception as exc:  # noqa: BLE001 — defense in depth
+      logger.warning(
+        "derive_team_for_request: channel resolver raised (channel_id=%s): %s",
+        channel_id,
+        exc,
+      )
+      return None
+
+  return None
+
+
+async def get_accessible_datasource_ids(
+  user_context: UserContext,
+  scope: str,
+  tenant_id: str,
+  team_id: Optional[str] = None,
+  request: Optional[Request] = None,
+) -> List[str]:
+  """
+  Resolve datasource-component identifiers the caller may use for the given scope.
+
+  Knowledge bases remain the parent RAG feature resource. This helper is for
+  operations that target the data sources inside that feature, where read and
+  ingest/write grants may differ per datasource.
+  """
+  if _has_unrestricted_kb_access(user_context):
+    return ["*"]
+
+  ids: set[str] = set()
+
+  if _openfga_http_url() and user_context.is_authenticated:
+    relation = _scope_to_openfga_relation(scope)
+    try:
+      if await _openfga_check_org_admin(user_context):
+        return ["*"]
+      objects = await _openfga_list_objects(user_context, relation, "data_source")
+    except Exception as exc:
+      logger.warning("OpenFGA data_source list-objects failed: %s", exc)
+      raise HTTPException(
+        status_code=503,
+        detail="Authorization service is temporarily unavailable",
+      ) from exc
+    for obj in objects:
+      ids.add(_strip_openfga_object_prefix(obj, "data_source"))
+  elif RBAC_TEAM_SCOPE_ENABLED and user_context.is_authenticated:
+    raise HTTPException(
+      status_code=503,
+      detail="Authorization service is temporarily unavailable",
+    )
+
+  if "*" in ids:
+    return ["*"]
+  return list(ids)
+
+
+async def check_datasource_access(
+  request: Request,
+  user_context: UserContext,
+  datasource_id: str,
+  scope: str,
+) -> None:
+  """Raise ``HTTPException(403)`` if the user cannot use this datasource component for ``scope``."""
+  if not RBAC_TEAM_SCOPE_ENABLED:
+    return
+  tenant_id = request.headers.get("X-Tenant-Id") or "default"
+  if _has_unrestricted_kb_access(user_context):
+    return
+  if _openfga_http_url() and user_context.is_authenticated:
+    relation = _scope_to_openfga_relation(scope)
+    try:
+      allowed = await _openfga_check_data_source(user_context, relation, datasource_id)
+    except Exception as exc:
+      logger.warning("OpenFGA data_source check failed: %s", exc)
+      raise HTTPException(
+        status_code=503,
+        detail="Authorization service is temporarily unavailable",
+      ) from exc
+    if allowed:
+      return
+    try:
+      if await _openfga_check_org_admin(user_context):
+        return
+    except Exception as exc:
+      logger.warning("OpenFGA organization admin check failed: %s", exc)
+      raise HTTPException(
+        status_code=503,
+        detail="Authorization service is temporarily unavailable",
+      ) from exc
+    raise HTTPException(status_code=403, detail="Access denied for this datasource")
+
+  if user_context.is_authenticated:
+    raise HTTPException(
+      status_code=503,
+      detail="Authorization service is temporarily unavailable",
+    )
+
+  team_id = await derive_team_for_request(request, user_context)
+  accessible = await get_accessible_datasource_ids(user_context, scope, tenant_id, team_id=team_id, request=request)
+  if "*" in accessible:
+    return
+  if not accessible:
+    raise HTTPException(
+      status_code=403,
+      detail="No accessible datasources for this operation",
+    )
+  if datasource_id in accessible:
+    return
+  raise HTTPException(status_code=403, detail="Access denied for this datasource")
+
+
+async def authorize_datasource_create(
+  request: Request,
+  user_context: UserContext,
+  datasource_id: str,  # noqa: ARG001 — kept for signature parity / future per-id rules
+  owner_team_slug: Optional[str],
+) -> None:
+  """Authorize creation of a NEW data source (spec 2026-06-03).
+
+  The data source does not exist yet, so there are no per-resource tuples to
+  check. Authorization is the explicit org-level "data source author"
+  capability plus owning-team membership:
+
+  - When team-scope ReBAC is OFF, this is a no-op (coarse role gates apply).
+  - Unrestricted principals (client-credentials, CAIPE_UNSAFE_RBAC_BYPASS) and
+    coarse-ADMIN service tokens are allowed (preserve automation).
+  - Org admins (`organization#can_manage`) are allowed; ``owner_team_slug`` is
+    optional for them (personal/admin-owned source).
+  - Everyone else MUST supply an ``owner_team_slug`` they are a member of
+    (`team:<slug>#can_use`) AND which itself holds the org author capability
+    (`team:<slug>#member -> ingestor -> organization`).
+
+  Fails CLOSED: 403 (not authorized / missing owning team) or 503 (PDP down).
+  """
+  if not RBAC_TEAM_SCOPE_ENABLED:
+    return
+  if _has_unrestricted_kb_access(user_context):
+    return
+  if has_permission(user_context.role, Role.ADMIN):
+    return
+  if not _openfga_http_url() or not _openfga_user(user_context):
+    raise HTTPException(status_code=503, detail="Authorization service is temporarily unavailable")
+
+  normalized_owner = owner_team_slug.strip() if isinstance(owner_team_slug, str) else None
+  try:
+    if await _openfga_check_org_admin(user_context):
+      return
+    if not normalized_owner:
+      raise HTTPException(
+        status_code=403,
+        detail="Select an owning team to create this data source. Creating new data sources requires membership in a team that an administrator has granted the data-source author capability.",
+      )
+    is_member = await _openfga_check_object(user_context, "can_use", "team", normalized_owner)
+    cap_user, cap_rel, cap_obj = _team_holds_ingest_capability_filter(normalized_owner)
+    team_opted_in = await _openfga_read_tuple_exists(cap_user, cap_rel, cap_obj)
+  except HTTPException:
+    raise
+  except Exception as exc:  # noqa: BLE001 — fail closed on PDP errors
+    logger.warning("OpenFGA data_source create authorization failed: %s", exc)
+    raise HTTPException(status_code=503, detail="Authorization service is temporarily unavailable") from exc
+
+  if is_member and team_opted_in:
+    return
+  raise HTTPException(
+    status_code=403,
+    detail="You are not allowed to create a data source for this team. You must be a member of a team that has the data-source author capability.",
+  )
+
+
+async def write_datasource_ownership(
+  datasource_id: str,
+  owner_team_slug: Optional[str],
+  user_context: UserContext,
+) -> None:
+  """Write ownership tuples for a freshly-created data source (spec 2026-06-03).
+
+  When an owning team is supplied: the team's members get read+ingest
+  (`knowledge_base:<id>#ingestor`), the team's admins get manage
+  (`knowledge_base:<id>#manager`), and the data source inherits via the
+  `parent_kb` edge. The author is recorded as `creator` for provenance. When no
+  owning team is supplied (org-admin personal create), the author is recorded as
+  `owner` instead.
+
+  Best-effort: logs and returns on failure rather than blocking the queued
+  ingestion (the create authorization already succeeded). No-op when team-scope
+  ReBAC or OpenFGA is not configured.
+  """
+  if not RBAC_TEAM_SCOPE_ENABLED or not _openfga_http_url():
+    return
+
+  kb_obj = f"knowledge_base:{datasource_id}"
+  ds_obj = f"data_source:{datasource_id}"
+  writes: List[Dict[str, str]] = [
+    {"user": kb_obj, "relation": "parent_kb", "object": ds_obj},
+  ]
+
+  author = _openfga_user(user_context)
+  normalized_owner = owner_team_slug.strip() if isinstance(owner_team_slug, str) else None
+
+  if normalized_owner:
+    writes.append({"user": f"team:{normalized_owner}#member", "relation": "ingestor", "object": kb_obj})
+    writes.append({"user": f"team:{normalized_owner}#admin", "relation": "manager", "object": kb_obj})
+    if author:
+      writes.append({"user": author, "relation": "creator", "object": kb_obj})
+  elif author:
+    # Personal / admin-owned source: the author owns it outright.
+    writes.append({"user": author, "relation": "owner", "object": kb_obj})
+    writes.append({"user": author, "relation": "creator", "object": kb_obj})
+
+  try:
+    await _openfga_write_tuples(writes)
+    logger.info(
+      "Wrote ownership tuples for new data source %s (owner_team=%s)",
+      datasource_id,
+      normalized_owner or "<personal>",
+    )
+  except Exception as exc:  # noqa: BLE001 — non-fatal; ingestion already queued
+    logger.warning(
+      "Failed to write ownership tuples for data source %s (owner_team=%s): %s",
+      datasource_id,
+      normalized_owner or "<personal>",
+      exc,
+    )
+
+
+def require_kb_access(kb_id: str, scope: str):
+  """FastAPI dependency factory for routes whose path id addresses a datasource component."""
+
+  async def _dep(
+    request: Request,
+    user: UserContext = Depends(require_authenticated_user),
+  ) -> UserContext:
+    await check_datasource_access(request, user, kb_id, scope)
+    return user
+
+  _dep.__name__ = f"require_kb_access_{kb_id}_{scope}"
+  return _dep
+
+
+async def inject_kb_filter(
+  query_request: QueryRequest,
+  user_context: UserContext,
+  tenant_id: str,
+  request: Request,
+) -> bool:
+  """
+  Restrict vector search to accessible datasources by mutating ``query_request.filters``.
+
+  Returns:
+      True if the handler should return an empty result set without querying the vector DB.
+  """
+  # Hybrid ACL (per-doc acl_tags) — opt-in via RBAC_DOC_ACL_TAGS_ENABLED.
+  # Apply BEFORE the early-returns below so it still runs when team-scope
+  # is off but doc-ACL is on. The helper is itself a no-op for
+  # client-credentials principals, so this is safe.
+  try:
+    from .doc_acl import apply_doc_acl_filter
+
+    apply_doc_acl_filter(query_request, user_context)
+  except Exception as exc:  # noqa: BLE001 — never break the query path on ACL bugs
+    logger.warning("doc_acl: apply_doc_acl_filter failed (non-fatal): %s", exc)
+
+  if not RBAC_TEAM_SCOPE_ENABLED:
+    return False
+  if user_context.email.startswith("client:"):
+    return False
+
+  team_id = await derive_team_for_request(request, user_context)
+  accessible = await get_accessible_datasource_ids(user_context, "read", tenant_id, team_id=team_id, request=request)
+  if "*" in accessible:
+    return False
+  if not accessible:
+    return True
+
+  filters: Dict[str, Any] = dict(query_request.filters) if query_request.filters else {}
+  existing = filters.get("datasource_id")
+
+  if existing is None:
+    filters["datasource_id"] = accessible if len(accessible) > 1 else accessible[0]
+    query_request.filters = filters
+    return False
+
+  if isinstance(existing, str):
+    if existing not in accessible:
+      return True
+    return False
+
+  if isinstance(existing, list):
+    inter = [x for x in existing if x in accessible]
+    if not inter:
+      return True
+    filters["datasource_id"] = inter
+    query_request.filters = filters
+    return False
+
+  return False

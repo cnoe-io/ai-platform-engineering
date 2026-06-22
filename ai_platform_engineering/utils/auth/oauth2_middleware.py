@@ -12,9 +12,11 @@ from starlette.responses import JSONResponse, PlainTextResponse
 try:
     # Try absolute import (when run directly)
     from ai_platform_engineering.utils.auth.jwks_cache import JwksCache
+    from ai_platform_engineering.utils.auth.token_context import current_bearer_token
 except ImportError:
     # Fall back to relative import (when run as module)
     from .jwks_cache import JwksCache
+    from .token_context import current_bearer_token
 
 # Load environment variables from .env file
 load_dotenv()
@@ -195,6 +197,7 @@ class OAuth2Middleware(BaseHTTPMiddleware):
             logger.error('Dispatch error: %s', e, exc_info=True)
             return self._forbidden(f'Authentication failed: {e}', request)
 
+        current_bearer_token.set(access_token)
         return await call_next(request)
 
     def _forbidden(self, reason: str, request: Request):

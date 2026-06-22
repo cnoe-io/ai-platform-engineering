@@ -1,0 +1,442 @@
+# CAIPE ReBAC model for AgentGateway + OpenFGA.
+#
+# Coarse AGW gate:
+#   user:<keycloak_sub> can_call mcp_gateway:list
+#
+# Team Resources and universal ReBAC admin surfaces reconcile:
+#   user:<keycloak_sub> member team:<slug>
+#   team:<slug>#member can_use agent:<agent_id>
+#   team:<slug>#member can_manage agent:<agent_id>
+#   team:<slug>#member can_call tool:<tool_prefix>
+#   slack_channel:<workspace_id>--<channel_id> can_call tool:<tool_prefix>
+#   webex_space:<workspace_id>--<space_id> can_call tool:<tool_prefix>
+#   team:<slug>#member can_read knowledge_base:<kb_id>
+#
+# Team relation semantics:
+#   - `admin` is a raw relation written when a user is granted team admin.
+#   - `member` is `[direct member tuples] or admin`, so admins automatically
+#     satisfy any `team#member` check or subject reference. Consumers can
+#     therefore ask `check(user, "member", team:<slug>)` without also
+#     checking `admin` — admins always qualify.
+#   - The legacy convention of listing `team#member, team#admin` as a pair
+#     in other types' subject sets is now redundant but harmless; it stays
+#     for explicitness during this transition.
+
+model
+  schema 1.1
+
+type user
+# Service accounts are team-owned bot identities (spec 2026-06-05-service-accounts).
+# Historically subject-only (Slack/Webex bots); now self-service accounts add an
+# ownership relation so the owning team's members can manage them. This is purely
+# additive — `service_account` as a *subject* elsewhere (e.g. tool#caller,
+# agent#user) is unchanged. `owner_team` ties the SA to exactly one team; only that
+# team's members hold `can_manage`. assisted-by Claude claude-opus-4-8
+type service_account
+  relations
+    define owner_team: [team#member]
+    define can_manage: owner_team
+# Subject-only placeholder for unauthenticated callers. The AGW ext_authz bridge
+# uses the literal subject "anonymous" when no JWT is present; this empty type keeps
+# the authored model in parity with the deployed chart JSON (no relations → grants
+# nothing). assisted-by Cursor claude-opus-4.8
+type anonymous
+
+type user_profile
+  relations
+    define owner: [user]
+    define reader: [user, service_account, team#admin, organization#admin]
+    define manager: [user, service_account, team#admin, organization#admin]
+    define can_discover: can_read
+    define can_read: owner or reader or can_manage
+    define can_manage: manager
+
+type external_group
+  relations
+    define member: [user]
+
+type team
+  relations
+    # `member` is the union of explicit member tuples AND anyone with the
+    # `admin` relation on this team. That way a check for `team#member`
+    # returns true for both straight members and admins — matching the
+    # mental model "an admin is also a member of the team".
+    # assisted-by Cursor claude-opus-4-7
+    define member: [user, external_group#member] or admin
+    define admin: [user, external_group#member]
+    define can_read: member or admin
+    define can_use: member or admin
+    define can_manage: admin
+
+type organization
+  relations
+    define member: [user, service_account, team#member, team#admin, external_group#member]
+    define admin: [user, service_account, team#admin]
+    define auditor: [user, service_account, team#member, team#admin, external_group#member]
+    # Explicit "data source author" capability (spec 2026-06-03). Granted to
+    # teams only (no direct user/service_account grants) and only by org
+    # admins. `can_ingest` gates BOTH the Knowledge Base ingest UI and the
+    # server-side create endpoints; org admins author implicitly via `admin`.
+    # This is intentionally separate from per-knowledge_base `ingestor`, which
+    # means only "push into KB X".
+    # assisted-by Cursor claude-opus-4.8
+    define ingestor: [team#member, team#admin]
+    # Explicit "search" capability (spec 2026-06-03-explicit-search-capability).
+    # Granted to teams only (no direct user/service_account grants) and only by
+    # org admins. `can_search` gates BOTH the Knowledge Base Search tab and the
+    # server-side data path (`/v1/query`, `/v1/mcp/invoke`) for built-in and
+    # custom tools. It is a feature-level capability layered ABOVE the narrower
+    # per-tool `mcp_tool#can_call` and per-datasource `data_source#can_read`
+    # checks; holding `can_call` alone does NOT grant search.
+    # assisted-by Cursor claude-opus-4.8
+    define searcher: [team#member, team#admin]
+    define can_use: member or admin
+    define can_manage: admin
+    define can_audit: auditor or admin
+    define can_ingest: ingestor or admin
+    define can_search: searcher or admin
+    define can_read_self: member or admin
+    define can_manage_self: member or admin
+    define can_search_directory: member or admin
+    define can_chat: member or admin
+    define can_submit_feedback: member or admin
+    define can_use_files: member or admin
+    define can_use_ai_assist: member or admin
+    define can_use_credentials: member or admin
+
+type slack_workspace
+  relations
+    define reader: [user, service_account, team#member, team#admin, external_group#member]
+    define manager: [user, service_account, team#admin]
+    define auditor: [user, service_account, team#admin]
+    define can_discover: can_read
+    define can_read: reader or can_manage
+    define can_manage: manager
+    define can_audit: auditor or can_manage
+
+type slack_channel
+  relations
+    define owner: [user, service_account]
+    define reader: [user, service_account, team#member, team#admin, external_group#member]
+    define user: [user, service_account, team#member, team#admin, external_group#member]
+    define writer: [user, service_account, team#member, team#admin, external_group#member]
+    define manager: [user, service_account, team#member, team#admin]
+    define auditor: [user, service_account, team#admin]
+    define can_discover: can_read
+    define can_read: reader or can_use or can_manage or owner
+    define can_use: user or can_write or can_manage or owner
+    define can_write: writer or can_manage or owner
+    define can_manage: manager or owner
+    define can_audit: auditor or can_manage
+
+type webex_workspace
+  relations
+    define reader: [user, service_account, team#member, team#admin, external_group#member]
+    define manager: [user, service_account, team#admin]
+    define auditor: [user, service_account, team#admin]
+    define can_discover: can_read
+    define can_read: reader or can_manage
+    define can_manage: manager
+    define can_audit: auditor or can_manage
+
+type webex_space
+  relations
+    define owner: [user, service_account]
+    define reader: [user, service_account, team#member, team#admin, external_group#member]
+    define user: [user, service_account, team#member, team#admin, external_group#member]
+    define writer: [user, service_account, team#member, team#admin, external_group#member]
+    define manager: [user, service_account, team#admin]
+    define auditor: [user, service_account, team#admin]
+    define can_discover: can_read
+    define can_read: reader or can_use or can_manage or owner
+    define can_use: user or can_write or can_manage or owner
+    define can_write: writer or can_manage or owner
+    define can_manage: manager or owner
+    define can_audit: auditor or can_manage
+
+type agent
+  relations
+    define creator: [user]
+    define owner: [user, service_account]
+    define reader: [user, service_account, team#member, team#admin, external_group#member, slack_channel, webex_space]
+    define user: [user, user:*, service_account, team#member, team#admin, external_group#member, slack_channel, webex_space]
+    define writer: [user, service_account, team#member, team#admin]
+    define manager: [user, service_account, team#admin, organization#admin]
+    define auditor: [user, service_account, team#admin]
+    define can_discover: can_read
+    define can_read: reader or can_use or can_manage or owner
+    define can_use: user or can_write or can_manage or owner
+    define can_write: writer or can_manage or owner
+    define can_delete: can_manage
+    define can_manage: manager or owner
+    define can_audit: auditor or can_manage
+
+type mcp_server
+  relations
+    define owner: [user, service_account]
+    define reader: [user, service_account, team#member, team#admin, external_group#member, slack_channel, webex_space, organization#member]
+    define user: [user, service_account, team#member, team#admin, external_group#member, slack_channel, webex_space, organization#member]
+    define invoker: [user, service_account, team#member, team#admin, external_group#member, slack_channel, webex_space, organization#member]
+    define manager: [user, service_account, team#admin, organization#admin]
+    define auditor: [user, service_account, team#admin]
+    define can_discover: can_read
+    define can_read: reader or can_use or can_manage or owner
+    define can_use: user or can_invoke or can_manage or owner
+    define can_invoke: invoker or can_manage or owner
+    define can_delete: can_manage
+    define can_manage: manager or owner
+    define can_audit: auditor or can_manage
+
+type llm_model
+  relations
+    define owner: [user, service_account]
+    define reader: [user, user:*, service_account, team#member, team#admin, external_group#member, organization#member]
+    define manager: [user, service_account, team#admin, organization#admin]
+    define auditor: [user, service_account, team#admin]
+    define can_discover: can_read
+    define can_read: reader or can_manage or owner
+    define can_write: can_manage or owner
+    define can_delete: can_manage
+    define can_manage: manager or owner
+    define can_audit: auditor or can_manage
+
+# Coarse AgentGateway gate. `caller` now also lists `service_account` so
+# user-minted service accounts (spec 2026-06-05-service-accounts) can be granted
+# the baseline `can_call mcp_gateway:list` tuple and pass the coarse ext_authz
+# gate — humans receive this baseline via baseline-access.ts; SAs receive it at
+# create time. Additive change. assisted-by Claude claude-opus-4-8
+type mcp_gateway
+  relations
+    define caller: [user, service_account]
+    define can_call: caller
+
+type tool
+  relations
+    define reader: [user, service_account, team#member, team#admin, external_group#member, slack_channel, webex_space]
+    define user: [user, service_account, team#member, team#admin, external_group#member, slack_channel, webex_space]
+    define caller: [user, service_account, team#member, team#admin, external_group#member, slack_channel, webex_space, agent]
+    define manager: [user, service_account, team#admin]
+    define auditor: [user, service_account, team#admin]
+    define can_discover: can_read
+    define can_read: reader or can_use or can_manage
+    define can_use: user or can_call or can_manage
+    define can_call: caller or can_manage
+    define can_manage: manager
+    define can_audit: auditor or can_manage
+
+# ───────────────────────────────────────────────────────────────────────────
+# Canonical "shareable resource" template (spec 2026-06-03-unified-shareable-
+# resource-rbac). Every group-owned, share-with-teams resource (agent,
+# knowledge_base, data_source, mcp_tool, and any new type) SHOULD follow this
+# shape so the shared reconciler / route helper / UI component / Pydantic mixin
+# all compose cleanly:
+#
+#   type <resource>
+#     relations
+#       define creator: [user]                       # audit-only — NEVER in any can_*
+#       define owner: [user, service_account]
+#       define reader: [user, service_account, team#member, team#admin, external_group#member]
+#       # define <extra_member>: [...]               # optional, e.g. ingestor / user
+#       define manager: [user, service_account, team#admin, organization#admin]
+#       define auditor: [user, service_account, team#admin]
+#       define can_discover: can_read
+#       define can_read: reader or can_manage or owner
+#       define can_manage: manager or owner
+#       define can_delete: can_manage
+#       define can_audit: auditor or can_manage
+#
+# Invariants enforced by the shareable-type drift check
+# (ui/src/lib/rbac/__tests__/shareable-type-drift.test.ts):
+#   1. `creator: [user]` is present.
+#   2. `creator` is referenced by NO can_* permission (provenance, not authority).
+#   3. `can_manage` resolves through `manager` (team admin) and/or `owner`.
+#   4. The authored .fga and the chart JSON forms match for that type.
+# ───────────────────────────────────────────────────────────────────────────
+type knowledge_base
+  relations
+    define creator: [user]
+    define owner: [user, service_account]
+    define reader: [user, user:*, service_account, team#member, team#admin, external_group#member, slack_channel, webex_space]
+    define ingestor: [user, service_account, team#member, team#admin, external_group#member]
+    define manager: [user, service_account, team#admin, organization#admin]
+    define auditor: [user, service_account, team#admin]
+    define can_discover: can_read
+    define can_read: reader or can_ingest or can_manage or owner
+    define can_use: can_read
+    define can_write: can_ingest
+    define can_ingest: ingestor or can_manage or owner
+    define can_admin: can_manage
+    define can_manage: manager or owner
+    define can_audit: auditor or can_manage
+
+# data_source represents a data source inside the knowledge-base feature.
+# It has its own read and ingest/write relationship graph so access can be
+# granted independently per datasource component.
+# assisted-by Cursor claude-opus-4-7
+type data_source
+  relations
+    define creator: [user]
+    # A data_source is 1:1 with its knowledge_base (same id). `parent_kb`
+    # is the inheritance edge (spec 2026-06-03, US4): read/ingest/manage
+    # granted on the KB flow through to the data source, so team grants are
+    # written once on `knowledge_base:<id>` and the data source enforces
+    # them at query time. This is the model's first tuple-to-userset
+    # (`<perm> from parent_kb`). It retires the PR #1703 mirror that
+    # duplicated per-team tuples onto `data_source`.
+    define parent_kb: [knowledge_base]
+    define owner: [user, service_account]
+    define reader: [user, user:*, service_account, team#member, team#admin, external_group#member]
+    define ingestor: [user, service_account, team#member, team#admin, external_group#member]
+    define manager: [user, service_account, team#admin, organization#admin]
+    define auditor: [user, service_account, team#admin]
+    define can_discover: can_read
+    define can_read: reader or can_manage or owner or can_read from parent_kb
+    define can_use: can_read
+    define can_write: can_ingest
+    define can_ingest: ingestor or can_manage or owner or can_ingest from parent_kb
+    define can_delete: can_manage
+    define can_manage: manager or owner or can_manage from parent_kb
+    define can_audit: auditor or can_manage
+
+# mcp_tool represents a RAG custom MCP tool (created via
+# `PUT /v1/mcp/custom-tools/<tool_id>`). This is intentionally distinct
+# from the existing `tool` type, which is used by the agent → MCP
+# wiring at AgentGateway. The two have different lifecycles and
+# different owners, so they share no tuples.
+# assisted-by Cursor claude-opus-4-7
+type mcp_tool
+  relations
+    define creator: [user]
+    define owner: [user, service_account]
+    define reader: [user, service_account, team#member, team#admin, external_group#member, organization#member]
+    define user: [user, service_account, team#member, team#admin, external_group#member, organization#member]
+    define caller: [user, service_account, team#member, team#admin, external_group#member, organization#member, agent]
+    define manager: [user, service_account, team#admin, organization#admin]
+    define auditor: [user, service_account, team#admin]
+    define can_discover: can_read
+    define can_read: reader or can_use or can_manage or owner
+    define can_use: user or can_call or can_manage or owner
+    define can_call: caller or can_manage or owner
+    define can_delete: can_manage
+    define can_manage: manager or owner
+    define can_audit: auditor or can_manage
+
+type document
+  relations
+    define owner: [user, service_account]
+    define reader: [user, service_account, team#member, team#admin, external_group#member, slack_channel, webex_space]
+    define writer: [user, service_account, team#member, team#admin]
+    define manager: [user, service_account, team#admin]
+    define sharer: [user, service_account, team#member, team#admin]
+    define auditor: [user, service_account, team#admin]
+    define can_discover: can_read
+    define can_read: reader or can_write or can_delete or owner
+    define can_write: writer or can_delete or owner
+    define can_delete: manager or owner
+    define can_share: sharer or can_delete or owner
+    define can_audit: auditor or can_delete
+
+type skill
+  relations
+    define creator: [user]
+    define owner: [user, service_account]
+    define reader: [user, service_account, team#member, team#admin, external_group#member, organization#member, slack_channel, webex_space]
+    define user: [user, service_account, team#member, team#admin, external_group#member, organization#member, slack_channel, webex_space]
+    define writer: [user, service_account, team#member, team#admin]
+    define manager: [user, service_account, team#admin]
+    define auditor: [user, service_account, team#admin]
+    define can_discover: can_read
+    define can_read: reader or can_use or can_manage or owner
+    define can_use: user or can_write or can_manage or owner
+    define can_write: writer or can_manage or owner
+    define can_manage: manager or owner
+    define can_audit: auditor or can_manage
+
+type task
+  relations
+    define owner: [user, service_account]
+    define reader: [user, service_account, team#member, team#admin, external_group#member, organization#member]
+    define user: [user, service_account, team#member, team#admin, external_group#member, organization#member]
+    define writer: [user, service_account, team#member, team#admin]
+    define manager: [user, service_account, team#admin]
+    define auditor: [user, service_account, team#admin]
+    define can_discover: can_read
+    define can_read: reader or can_use or can_manage or owner
+    define can_use: user or can_write or can_manage or owner
+    define can_write: writer or can_manage or owner
+    define can_manage: manager or owner
+    define can_audit: auditor or can_manage
+
+type conversation
+  relations
+    define owner: [user, service_account]
+    define reader: [user, service_account, team#member, team#admin]
+    define writer: [user, service_account, team#member, team#admin]
+    define sharer: [user, service_account, team#member, team#admin]
+    define manager: [user, service_account, team#admin]
+    define auditor: [user, service_account, team#admin]
+    define can_discover: can_read
+    define can_read: reader or can_write or can_delete or owner
+    define can_write: writer or can_delete or owner
+    define can_share: sharer or can_delete or owner
+    define can_delete: manager or owner
+    define can_audit: auditor or can_delete
+
+type admin_surface
+  relations
+    define reader: [user, service_account, team#admin]
+    define writer: [user, service_account, team#admin]
+    define manager: [user, service_account, team#member, team#admin, organization#admin]
+    define auditor: [user, service_account, team#admin]
+    define can_discover: can_read
+    define can_read: reader or can_write or can_manage
+    define can_write: writer or can_manage
+    define can_manage: manager
+    define can_audit: auditor or can_manage
+
+type policy
+  relations
+    define reader: [user, service_account, team#admin]
+    define writer: [user, service_account, team#admin]
+    define approver: [user, service_account, team#admin]
+    define manager: [user, service_account, team#admin]
+    define auditor: [user, service_account, team#admin]
+    define can_discover: can_read
+    define can_read: reader or can_write or can_manage
+    define can_write: writer or can_manage
+    define can_approve: approver or can_manage
+    define can_manage: manager
+    define can_audit: auditor or can_manage
+
+type audit_log
+  relations
+    define reader: [user, service_account, team#admin]
+    define auditor: [user, service_account, team#admin]
+    define can_discover: can_read
+    define can_read: reader or can_audit
+    define can_audit: auditor
+
+type secret_ref
+  relations
+    define metadata_reader: [user, service_account, team#member, team#admin]
+    define user: [user, service_account, team#member, team#admin]
+    define manager: [user, service_account, team#admin]
+    define auditor: [user, service_account, team#admin]
+    define can_discover: can_read_metadata
+    define can_read_metadata: metadata_reader or can_manage
+    define can_use: user or can_manage
+    define can_manage: manager
+    define can_share: can_manage
+    define can_audit: auditor or can_manage
+
+type system_config
+  relations
+    define reader: [user, service_account, team#admin]
+    define writer: [user, service_account, team#admin]
+    define manager: [user, service_account, team#admin]
+    define auditor: [user, service_account, team#admin]
+    define can_discover: can_read
+    define can_read: reader or can_write or can_manage
+    define can_write: writer or can_manage
+    define can_manage: manager
+    define can_audit: auditor or can_manage

@@ -1,8 +1,15 @@
-import { NextRequest, NextResponse } from "next/server";
 import {
-  withAuth,
-  withErrorHandler,
+ApiError,
+withAuth,
+withErrorHandler,
 } from "@/lib/api-middleware";
+import {
+getCatalogApiKeyOwnerIfActive,
+resolveCatalogApiKeyOwnerId,
+revokeCatalogApiKey,
+} from "@/lib/catalog-api-keys";
+import { isMongoDBConfigured } from "@/lib/mongodb";
+import { NextRequest,NextResponse } from "next/server";
 
 /**
  * DELETE /api/catalog-api-keys/[keyId] — revoke a catalog API key (T051).
@@ -15,28 +22,27 @@ export const DELETE = withErrorHandler(
   ) => {
     const { keyId } = await context.params;
     return await withAuth(request, async (_req, _user, session) => {
-      const backendUrl = process.env.NEXT_PUBLIC_A2A_BASE_URL;
-      if (!backendUrl) {
-        return NextResponse.json(
-          { error: "backend_not_configured" },
-          { status: 503 },
+      if (!isMongoDBConfigured) {
+        throw new ApiError(
+          "Skills catalog API keys require MongoDB.",
+          503,
         );
       }
-      const headers: Record<string, string> = {};
-      if (session.accessToken) {
-        headers["Authorization"] = `Bearer ${session.accessToken}`;
+      const owner = resolveCatalogApiKeyOwnerId(session);
+      if (!owner) {
+        throw new ApiError("Authentication required", 401);
       }
-      const url = new URL(
-        `/catalog-api-keys/${encodeURIComponent(keyId)}`,
-        backendUrl,
-      ).toString();
-      const res = await fetch(url, {
-        method: "DELETE",
-        headers,
-        signal: AbortSignal.timeout(15_000),
-      });
-      const data = await res.json().catch(() => ({}));
-      return NextResponse.json(data, { status: res.status });
+
+      const rowOwner = await getCatalogApiKeyOwnerIfActive(keyId);
+      if (rowOwner === null) {
+        throw new ApiError("Key not found", 404);
+      }
+      if (rowOwner !== owner) {
+        throw new ApiError("Forbidden", 403);
+      }
+
+      const revoked = await revokeCatalogApiKey(keyId);
+      return NextResponse.json({ revoked });
     });
   },
 );

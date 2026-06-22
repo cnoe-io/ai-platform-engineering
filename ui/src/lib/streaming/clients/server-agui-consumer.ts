@@ -9,16 +9,16 @@
  * minus the Zustand state and UI rendering.
  */
 
+import { appendEvents } from "@/lib/server/event-store";
+import type { StreamCallbacks } from "../callbacks";
 import { parseSSEStream } from "../parse-sse";
 import {
-  createAGUIProtocolState,
-  resetProtocolState,
-  processAGUIEvent,
+createAGUIProtocolState,
+processAGUIEvent,
+resetProtocolState,
 } from "../protocols/agui";
-import { createStreamEvent } from "../types";
 import type { StreamEvent } from "../types";
-import type { StreamCallbacks } from "../callbacks";
-import { appendEvents } from "@/lib/server/event-store";
+import { createStreamEvent } from "../types";
 
 // ═══════════════════════════════════════════════════════════════
 // Types
@@ -208,7 +208,9 @@ export async function consumeAgentStream(options: ConsumeOptions): Promise<Consu
       await flush();
       return { text: accumulatedText, interrupted: false, error: "Cancelled" };
     }
-    const msg = (err as Error).message || "Unknown error";
+    const cause = (err as { cause?: { code?: string; message?: string } }).cause;
+    const causeInfo = cause?.code ? ` (${cause.code})` : cause?.message ? ` (${cause.message})` : "";
+    const msg = `${(err as Error).message || "Unknown error"}${causeInfo} — target: ${url}`;
     error = error || msg;
 
     // Create an error event so the UI timeline shows what went wrong

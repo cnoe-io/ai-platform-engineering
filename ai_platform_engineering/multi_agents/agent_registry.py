@@ -18,7 +18,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from ai_platform_engineering.utils.a2a_common.a2a_remote_agent_connect import (
     A2ARemoteAgentConnectTool,
 )
-from ai_platform_engineering.utils.agntcy.agntcy_remote_agent_connect import AgntcySlimRemoteAgentConnectTool
 from a2a.types import AgentCard
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -46,7 +45,7 @@ DEFAULT_REGISTRY_EXCLUSIONS = frozenset({
 
 
 class AgentRegistry:
-    """Centralized registry for transport-aware agent management."""
+    """Centralized registry for A2A agent management."""
 
     # Comprehensive agent configuration with import paths
     # Environment variables follow the convention: ENABLE_{AGENT_NAME_UPPER}
@@ -61,6 +60,11 @@ class AgentRegistry:
             validate_imports: If True, validates that agent names exist in AGENT_IMPORT_MAP.
         """
         self._transport = os.getenv("A2A_TRANSPORT", "p2p").lower()
+        # assisted-by Codex Codex-sonnet-4-6
+        if self._transport != "p2p":
+            raise ValueError(
+                f"Unsupported A2A_TRANSPORT '{self._transport}'. CAIPE only supports p2p A2A transport."
+            )
         # Auto-enable connectivity checks when any agents are distributed.
         # SKIP_AGENT_CONNECTIVITY_CHECK overrides if explicitly set.
         skip_env = os.getenv("SKIP_AGENT_CONNECTIVITY_CHECK")
@@ -265,7 +269,7 @@ class AgentRegistry:
 
         Args:
             name: Name of the remote agent (registry key, used for URL inference)
-            transport: Transport mode ("p2p" or "slim")
+            transport: Transport mode ("p2p")
             agent_url: Optional URL of the agent (if not provided, infers from env vars)
             agent_card: Optional agent card dict (if provided, tool won't need to fetch it again)
             tool_name: Optional tool name to use (if not provided, uses name parameter)
@@ -276,53 +280,43 @@ class AgentRegistry:
         # Use provided tool_name or fall back to name
         final_tool_name = tool_name if tool_name else name
 
-        if transport == "p2p":
-            if agent_url is None:
-                agent_url = self._infer_agent_url_from_env_var(name)
+        if transport != "p2p":
+            raise ValueError(f"Unknown transport mode: {transport}")
 
-            # If we have the agent card, pass it directly to avoid re-fetching
-            # Otherwise, pass the URL and the tool will fetch it
-            if agent_card:
-                # Convert dict to AgentCard object
-                try:
-                    # Override the URL in agent_card with the correct URL from AGENT_ADDRESS_MAPPING
-                    agent_card_with_url = {**agent_card, 'url': agent_url}
-                    agent_card_obj = AgentCard(**agent_card_with_url)
-                    return A2ARemoteAgentConnectTool(
-                        name=final_tool_name,
-                        remote_agent_card=agent_card_obj,
-                        skill_id="",
-                        description=""
-                    )
-                except Exception as e:
-                    logger.warning(f"Failed to convert agent card to AgentCard object for {name}: {e}, using URL instead")
-                    return A2ARemoteAgentConnectTool(
-                        name=final_tool_name,
-                        remote_agent_card=agent_url,
-                        skill_id="",
-                        description=""
-                    )
-            else:
+        if agent_url is None:
+            agent_url = self._infer_agent_url_from_env_var(name)
+
+        # If we have the agent card, pass it directly to avoid re-fetching.
+        # Otherwise, pass the URL and the tool will fetch it.
+        if agent_card:
+            try:
+                agent_card_with_url = {**agent_card, 'url': agent_url}
+                agent_card_obj = AgentCard(**agent_card_with_url)
+                return A2ARemoteAgentConnectTool(
+                    name=final_tool_name,
+                    remote_agent_card=agent_card_obj,
+                    skill_id="",
+                    description=""
+                )
+            except Exception as e:
+                logger.warning(f"Failed to convert agent card to AgentCard object for {name}: {e}, using URL instead")
                 return A2ARemoteAgentConnectTool(
                     name=final_tool_name,
                     remote_agent_card=agent_url,
                     skill_id="",
                     description=""
                 )
-        elif transport == "slim":
-            return AgntcySlimRemoteAgentConnectTool(
-                endpoint=os.getenv("SLIM_ENDPOINT", "http://slim-dataplane:46357"),
-                name=final_tool_name,
-                remote_agent_card=os.getenv("SLIM_ENDPOINT", "http://slim-dataplane:46357")
-            )
-        else:
-            raise ValueError(f"Unknown transport mode: {transport}")
+        return A2ARemoteAgentConnectTool(
+            name=final_tool_name,
+            remote_agent_card=agent_url,
+            skill_id="",
+            description=""
+        )
 
     def _check_agent_connectivity(self, agent_name: str, agent_url: str) -> tuple[bool, Optional[Dict[str, Any]]]:
         """
         Check if an agent is reachable and has correct identity.
-        For A2A transport: tests HTTP agent card endpoint and returns agent card.
-        For SLIM transport: currently no connectivity check is performed.
+        Tests the HTTP agent card endpoint and returns the agent card.
 
         Args:
             agent_name: Name of the agent for logging
@@ -330,19 +324,13 @@ class AgentRegistry:
 
         Returns:
             Tuple of (is_reachable: bool, agent_card: Optional[Dict]).
-            Returns (True, agent_card) if successful, (True, None) for SLIM/disabled checks,
-            (False, None) if unreachable.
+            Returns (True, agent_card) if successful, (False, None) if unreachable.
         """
         if not self._check_connectivity:
             logger.debug(f"Connectivity checks disabled, assuming {agent_name} is reachable")
             return (True, None)
 
-        if self.transport == "slim":
-            # For SLIM transport, we currently do not perform any connectivity checks.
-            return (True, None)
-        else:
-            # For A2A transport, use HTTP connectivity check which returns agent card
-            return self._check_http_agent_connectivity(agent_name, agent_url)
+        return self._check_http_agent_connectivity(agent_name, agent_url)
 
     def _check_http_agent_connectivity(self, agent_name: str, agent_url: str) -> tuple[bool, Optional[Dict[str, Any]]]:
         """
@@ -471,12 +459,6 @@ class AgentRegistry:
                 url = module.agent_card.url
                 logger.debug(f"🔍 Found agent card URL for {agent_name}: {url}")
                 return url
-
-            # Check if there's a SLIM_ENDPOINT for slim transport
-            if self.transport == "slim" and hasattr(module, 'SLIM_ENDPOINT'):
-                slim_url = module.SLIM_ENDPOINT
-                logger.debug(f"🔍 Found SLIM_ENDPOINT for {agent_name}: {slim_url}")
-                return slim_url
 
             # Fallback to environment variables based on agent name
             agent_url = self._infer_agent_url_from_env_var(agent_name)
@@ -663,10 +645,6 @@ class AgentRegistry:
 
     def _check_connectivity_for_modules(self) -> tuple[Dict[str, bool], Dict[str, Dict[str, Any]]]:
         """Check connectivity for a set of loaded modules."""
-        if self.transport == "slim":
-            logger.info("Skipping connectivity checks for SLIM transport")
-            return {name: True for name in self.AGENT_NAMES}, {}
-
         logger.info(f"Running connectivity checks for {len(self.AGENT_ADDRESS_MAPPING)} agents (max {self._max_retries + 1} attempts per agent)...")
         return self._run_connectivity_checks()
 

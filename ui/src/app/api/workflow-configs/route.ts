@@ -1,19 +1,32 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import {
-  withAuth,
-  withErrorHandler,
-  successResponse,
-  ApiError,
-  getUserTeamIds,
+ApiError,
+successResponse,
+withAuth,
+withErrorHandler,
 } from "@/lib/api-middleware";
+import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
+import {
+filterAccessibleWorkflowConfigs,
+workflowAccessAllowed,
+} from "@/lib/server/workflow-cas-authz";
+import {
+buildTeamRefToSlugMap,
+filterWorkflowConfigsByRunAccess,
+mergeWorkflowConfigsById,
+normalizeSharedWithTeamSlugs,
+reconcileWorkflowConfigAccess,
+requireWorkflowConfigRunAccess,
+requireWorkflowConfigWriteAccess,
+resolveUserTeamSlugsForWorkflow,
+} from "@/lib/rbac/workflow-config-rebac";
 import type {
-  WorkflowConfig,
-  CreateWorkflowConfigInput,
-  UpdateWorkflowConfigInput,
-  WorkflowConfigVisibility,
-  StepEntry,
+CreateWorkflowConfigInput,
+StepEntry,
+UpdateWorkflowConfigInput,
+WorkflowConfig,
+WorkflowConfigVisibility,
 } from "@/types/workflow-config";
+import { NextRequest,NextResponse } from "next/server";
 
 /**
  * Workflow Config API Routes
@@ -79,41 +92,22 @@ function validateVisibility(
   }
 }
 
-async function getVisibleConfigs(ownerEmail: string): Promise<WorkflowConfig[]> {
+async function getVisibleConfigs(_ownerEmail: string): Promise<WorkflowConfig[]> {
   const collection = await getCollection<WorkflowConfig>("workflow_configs");
-  const userTeamIds = await getUserTeamIds(ownerEmail);
 
   return collection
-    .find({
-      $or: [
-        { owner_id: ownerEmail },
-        { visibility: "global" },
-        ...(userTeamIds.length > 0
-          ? [{ visibility: "team" as const, shared_with_teams: { $in: userTeamIds } }]
-          : []),
-      ],
-    })
+    .find({})
     .sort({ name: 1 })
     .toArray();
 }
 
 async function getVisibleConfigById(
   id: string,
-  ownerEmail: string
+  _ownerEmail: string
 ): Promise<WorkflowConfig | null> {
   const collection = await getCollection<WorkflowConfig>("workflow_configs");
-  const userTeamIds = await getUserTeamIds(ownerEmail);
 
-  return collection.findOne({
-    _id: id,
-    $or: [
-      { owner_id: ownerEmail },
-      { visibility: "global" },
-      ...(userTeamIds.length > 0
-        ? [{ visibility: "team" as const, shared_with_teams: { $in: userTeamIds } }]
-        : []),
-    ],
-  });
+  return collection.findOne({ _id: id });
 }
 
 // ---------------------------------------------------------------------------
@@ -128,7 +122,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   const { searchParams } = new URL(request.url);
   const id = searchParams.get("id");
 
-  return await withAuth(request, async (_req, user) => {
+  return await withAuth(request, async (_req, user, session) => {
     // Admins can see all workflow configs
     if (user.role === "admin") {
       const collection = await getCollection<WorkflowConfig>("workflow_configs");
@@ -141,16 +135,51 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       return NextResponse.json(configs) as NextResponse;
     }
 
+    const userTeamSlugs = await resolveUserTeamSlugsForWorkflow(user.email, session);
+
     if (id) {
       const config = await getVisibleConfigById(id, user.email);
       if (!config) {
         throw new ApiError("Workflow config not found", 404);
       }
+      // Additive CAS read (Phase 2) — mirrors the list's "visibility ∪ FGA read"
+      // semantics: if CAS grants task#read (org-admin bypass included) serve it;
+      // otherwise fall back to the legacy visibility check unchanged.
+      if (!(await workflowAccessAllowed(session, String(config._id), "read"))) {
+        await requireWorkflowConfigRunAccess(
+          session,
+          {
+            _id: String(config._id),
+            owner_id: config.owner_id,
+            visibility: config.visibility,
+            shared_with_teams: config.shared_with_teams,
+          },
+          user.email,
+          userTeamSlugs,
+        );
+      }
       return NextResponse.json(config) as NextResponse;
     }
 
     const configs = await getVisibleConfigs(user.email);
-    return NextResponse.json(configs) as NextResponse;
+    const teamRefToSlug = await buildTeamRefToSlugMap();
+    const byVisibility = filterWorkflowConfigsByRunAccess(
+      configs,
+      user.email,
+      userTeamSlugs,
+      teamRefToSlug,
+    );
+    // Match workflow-runs list: org-wide global workflows use Mongo visibility;
+    // CAS `task#read` supplements legacy per-user/team grants (org-admin bypass
+    // included). This is the PDP call re-pointed onto CAS (Phase 2).
+    const byFga = await filterAccessibleWorkflowConfigs(
+      session,
+      configs,
+      (config) => String(config._id),
+      "read",
+    );
+    const visibleConfigs = mergeWorkflowConfigsById(byVisibility, byFga);
+    return NextResponse.json(visibleConfigs) as NextResponse;
   });
 });
 
@@ -163,7 +192,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     throw new ApiError("Workflows require MongoDB to be configured", 503);
   }
 
-  return await withAuth(request, async (_req, user) => {
+  return await withAuth(request, async (_req, user, session) => {
     const body: CreateWorkflowConfigInput = await request.json();
 
     if (!body.name) {
@@ -171,8 +200,12 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     }
 
     validateSteps(body.steps);
-    const visibility: WorkflowConfigVisibility = body.visibility || "global";
-    validateVisibility(visibility, body.shared_with_teams);
+    const visibility: WorkflowConfigVisibility = body.visibility || "private";
+    const sharedWithTeams =
+      visibility === "team"
+        ? await normalizeSharedWithTeamSlugs(body.shared_with_teams)
+        : undefined;
+    validateVisibility(visibility, sharedWithTeams);
 
     const id = `wf-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const now = new Date();
@@ -184,13 +217,15 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       steps: body.steps,
       owner_id: user.email,
       visibility,
-      shared_with_teams: visibility === "team" ? body.shared_with_teams : undefined,
+      shared_with_teams: sharedWithTeams,
       created_at: now,
       updated_at: now,
     };
 
     const collection = await getCollection("workflow_configs");
     await collection.insertOne(config as any);
+
+    await reconcileWorkflowConfigAccess(session, config);
 
     return successResponse({ id, message: "Workflow config created successfully" }, 201);
   });
@@ -211,7 +246,7 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     throw new ApiError("Workflow config ID is required", 400);
   }
 
-  return await withAuth(request, async (_req, user) => {
+  return await withAuth(request, async (_req, user, session) => {
     const body: UpdateWorkflowConfigInput = await request.json();
 
     if (Object.keys(body).length === 0) {
@@ -224,11 +259,21 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     if (!existing) {
       throw new ApiError("Workflow config not found", 404);
     }
-    if (existing.owner_id !== user.email && user.role !== "admin") {
-      throw new ApiError("You don't have permission to update this workflow config", 403);
-    }
     if ((existing as any).config_driven) {
       throw new ApiError("Cannot modify a config-driven workflow. Edit app-config.yaml instead.", 403);
+    }
+
+    if (user.role !== "admin") {
+      await requireWorkflowConfigWriteAccess(
+        session,
+        {
+          _id: id,
+          owner_id: existing.owner_id,
+          visibility: existing.visibility,
+          shared_with_teams: existing.shared_with_teams,
+        },
+        user.email,
+      );
     }
 
     if (body.steps) {
@@ -240,11 +285,47 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
         body.shared_with_teams = undefined;
       }
     }
+    if (body.shared_with_teams?.length) {
+      body.shared_with_teams = await normalizeSharedWithTeamSlugs(body.shared_with_teams);
+    }
 
-    await collection.updateOne(
-      { _id: id as any },
-      { $set: { ...body, updated_at: new Date() } }
-    );
+    const mergedVisibility = body.visibility ?? existing.visibility;
+    let mergedSharedWithTeams =
+      mergedVisibility === "team"
+        ? body.shared_with_teams ?? existing.shared_with_teams
+        : mergedVisibility !== undefined
+          ? undefined
+          : existing.shared_with_teams;
+
+    if (mergedVisibility === "team" && mergedSharedWithTeams?.length) {
+      mergedSharedWithTeams =
+        (await normalizeSharedWithTeamSlugs(mergedSharedWithTeams)) ?? undefined;
+    }
+
+    const updateFields: Record<string, unknown> = {
+      ...body,
+      updated_at: new Date(),
+    };
+    if (mergedVisibility === "team") {
+      updateFields.shared_with_teams = mergedSharedWithTeams;
+    } else if (
+      body.visibility !== undefined &&
+      (mergedVisibility === "private" || mergedVisibility === "global")
+    ) {
+      updateFields.shared_with_teams = undefined;
+    }
+
+    await collection.updateOne({ _id: id as any }, { $set: updateFields });
+
+    const merged = {
+      ...existing,
+      ...body,
+      _id: id,
+      visibility: mergedVisibility,
+      shared_with_teams: mergedSharedWithTeams,
+    };
+
+    await reconcileWorkflowConfigAccess(session, merged, existing);
 
     return successResponse({ id, message: "Workflow config updated successfully" });
   });
@@ -265,18 +346,28 @@ export const DELETE = withErrorHandler(async (request: NextRequest) => {
     throw new ApiError("Workflow config ID is required", 400);
   }
 
-  return await withAuth(request, async (_req, user) => {
+  return await withAuth(request, async (_req, user, session) => {
     const collection = await getCollection<WorkflowConfig>("workflow_configs");
     const existing = await collection.findOne({ _id: id as any });
 
     if (!existing) {
       throw new ApiError("Workflow config not found", 404);
     }
-    if (existing.owner_id !== user.email && user.role !== "admin") {
-      throw new ApiError("You don't have permission to delete this workflow config", 403);
-    }
     if ((existing as any).config_driven) {
       throw new ApiError("Cannot delete a config-driven workflow. Remove it from app-config.yaml instead.", 403);
+    }
+
+    if (user.role !== "admin") {
+      await requireWorkflowConfigWriteAccess(
+        session,
+        {
+          _id: id,
+          owner_id: existing.owner_id,
+          visibility: existing.visibility,
+          shared_with_teams: existing.shared_with_teams,
+        },
+        user.email,
+      );
     }
 
     await collection.deleteOne({ _id: id as any });

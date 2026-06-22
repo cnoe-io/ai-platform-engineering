@@ -1,17 +1,19 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  AlertTriangle,
-  ChevronDown,
-  ChevronRight,
-  Loader2,
-  Lock,
-  Server,
-  Wrench,
-} from "lucide-react";
+// assisted-by Codex Codex-sonnet-4-6
+
 import { cn } from "@/lib/utils";
-import type { BuiltinToolsConfig, BuiltinToolDefinition, DynamicAgentConfig } from "@/types/dynamic-agent";
+import type { BuiltinToolDefinition,BuiltinToolsConfig,DynamicAgentConfig } from "@/types/dynamic-agent";
+import {
+AlertTriangle,
+ChevronDown,
+ChevronRight,
+Loader2,
+Lock,
+Server,
+Wrench,
+} from "lucide-react";
+import { useCallback,useEffect,useMemo,useState } from "react";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -131,7 +133,11 @@ export function StepToolOverridePicker({
     fetch("/api/dynamic-agents/builtin-tools")
       .then((r) => r.ok ? r.json() : null)
       .then((json) => {
-        if (json?.data) setBuiltinDefs(json.data);
+        // Endpoint returns { data: { tools: [...] } }; accept a bare array too.
+        const tools = Array.isArray(json?.data)
+          ? json.data
+          : (json?.data?.tools ?? []);
+        setBuiltinDefs(tools);
       })
       .catch(() => {});
   }, []);
@@ -179,10 +185,12 @@ export function StepToolOverridePicker({
   // ── Fetch agent config ──
   useEffect(() => {
     if (!agentId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: reset agent config when agentId is cleared
       setAgentConfig(null);
       return;
     }
     let cancelled = false;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: start loading state before async fetch
     setAgentLoading(true);
     fetch(`/api/dynamic-agents/agents/${encodeURIComponent(agentId)}`)
       .then((r) => r.json())
@@ -422,13 +430,13 @@ export function StepToolOverridePicker({
 
               {mode === "restrict" && (
                 <div className="space-y-3">
-                  {/* MCP Servers */}
+                  {/* Tool connections */}
                   {activeBaseServers.length > 0 && (
                     <div className="space-y-2">
                       <div className="flex items-center gap-1.5">
                         <Server className="h-3 w-3 text-muted-foreground" />
                         <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                          MCP Servers
+                          Tool Connections
                         </span>
                       </div>
                       <div className="space-y-1.5">

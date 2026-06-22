@@ -1,0 +1,26 @@
+{{- $requestedBackend := lower (.Values.storage.backend | toString) -}}
+{{- $s3Bucket := trim (.Values.storage.s3.bucket | toString) -}}
+{{- $s3SecretName := trim (.Values.storage.s3.existingSecret.name | toString) -}}
+{{- $hasServiceAccountAnnotations := gt (len (.Values.serviceAccount.annotations | default dict)) 0 -}}
+{{- $hasS3Credentials := or .Values.storage.s3.useAmbientCredentials $s3SecretName $hasServiceAccountAnnotations -}}
+{{- $backend := "local" -}}
+{{- if and (ne $requestedBackend "local") $s3Bucket $hasS3Credentials -}}
+{{- $backend = "s3" -}}
+{{- end -}}
+{{- if and (eq $backend "local") .Values.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "audit-service.fullname" . }}-data
+  labels:
+    {{- include "audit-service.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    {{- toYaml .Values.persistence.accessModes | nindent 4 }}
+  {{- if .Values.persistence.storageClass }}
+  storageClassName: {{ .Values.persistence.storageClass | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.size | quote }}
+{{- end }}

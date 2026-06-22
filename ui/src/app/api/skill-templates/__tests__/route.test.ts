@@ -21,7 +21,7 @@ import os from "os";
 
 // Mock withErrorHandler to pass through
 jest.mock("@/lib/api-middleware", () => ({
-  withErrorHandler: (handler: Function) => handler,
+  withErrorHandler: (handler: (req: NextRequest) => Promise<Response>) => handler,
   ApiError: class ApiError extends Error {
     constructor(
       message: string,

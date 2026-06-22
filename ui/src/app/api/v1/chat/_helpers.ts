@@ -9,12 +9,8 @@
  */
 
 export {
-  authenticateRequest,
-  getDynamicAgentsConfig,
-  proxySSEStream,
-  proxyJSONRequest,
-  proxyRequest,
-  buildBackendHeaders,
+authenticateRequest,buildBackendHeaders,getDynamicAgentsConfig,proxyJSONRequest,
+proxyRequest,proxySSEStream
 } from "@/lib/da-proxy";
 
-export type { AuthResult, DynamicAgentsConfig } from "@/lib/da-proxy";
+export type { AuthResult,DynamicAgentsConfig } from "@/lib/da-proxy";

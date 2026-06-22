@@ -43,7 +43,7 @@ spec:
           securityContext:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default (include "rag-server.appVersion" .) }}"
+          image: "{{ include "rag-server.imageRepository" (dict "root" . "repository" .Values.image.repository) }}:{{ .Values.image.tag | default (include "rag-server.appVersion" .) }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - name: http
@@ -54,6 +54,9 @@ spec:
             {{- if $llmSecretName }}
             - secretRef:
                 name: {{ $llmSecretName }}
+            {{- end }}
+            {{- with .Values.envFrom }}
+            {{- toYaml . | nindent 12 }}
             {{- end }}
           env:
             # Computed connection settings (from global values)
@@ -72,11 +75,19 @@ spec:
             # Feature flag with global fallback
             - name: ENABLE_GRAPH_RAG
               value: {{ include "rag-server.enableGraphRag" . | quote }}
-            # All other configuration via env map
+            - name: OPENFGA_HTTP
+              value: {{ include "rag-server.openfgaHttpUrl" . | default (printf "http://%s-openfga:8080" .Release.Name) | quote }}
+            # All other configuration via env map (OPENFGA_HTTP handled above)
             {{- range $key, $value := .Values.env }}
+            {{- if ne $key "OPENFGA_HTTP" }}
             - name: {{ $key }}
               value: {{ $value | quote }}
             {{- end }}
+            {{- end }}
+          {{- with .Values.startupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           {{- with .Values.livenessProbe }}
           livenessProbe:
             {{- toYaml . | nindent 12 }}
@@ -96,7 +107,7 @@ spec:
           securityContext:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-          image: "{{ .Values.webIngestor.image.repository }}:{{ .Values.webIngestor.image.tag | default (include "rag-server.appVersion" .) }}"
+          image: "{{ include "rag-server.imageRepository" (dict "root" . "repository" .Values.webIngestor.image.repository) }}:{{ .Values.webIngestor.image.tag | default (include "rag-server.appVersion" .) }}"
           imagePullPolicy: {{ .Values.webIngestor.image.pullPolicy }}
           {{- with .Values.webIngestor.envFrom }}
           envFrom:

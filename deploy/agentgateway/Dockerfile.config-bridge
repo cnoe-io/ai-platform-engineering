@@ -1,0 +1,36 @@
+# assisted-by Codex Codex-sonnet-4-6
+
+FROM cgr.dev/chainguard/wolfi-base
+
+WORKDIR /app
+
+# Public Wolfi OS repo (no auth). Matches the other hardened runtime images.
+RUN echo "https://packages.wolfi.dev/os" > /etc/apk/repositories
+
+RUN for i in 1 2 3; do apk add --no-cache python-3.13 shadow && break; [ $i -lt 3 ] && sleep $((i * 10)); done && \
+    apk upgrade --no-cache
+
+# Use the official uv binary rather than apk uv to avoid stale packaged crates.
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+RUN mkdir -p /usr/local/bin \
+    && ln -sf /usr/bin/python3.13 /usr/local/bin/python3.13 \
+    && ln -sf /usr/bin/python3.13 /usr/local/bin/python3 \
+    && ln -sf /usr/bin/python3.13 /usr/local/bin/python
+
+RUN groupadd -r -g 1001 appuser && useradd -r -g appuser -u 1001 -m appuser
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv venv --python python3.13 /app/.venv \
+    && UV_HTTP_TIMEOUT=900 uv pip install --python /app/.venv/bin/python pyyaml==6.0.2
+
+COPY --chown=appuser:appuser config_bridge.py /app/config_bridge.py
+RUN mkdir -p /generated && chown appuser:appuser /generated
+
+ENV PATH="/app/.venv/bin:${PATH}" \
+    UV_PROJECT_ENVIRONMENT="/app/.venv" \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+USER 1001:1001
+
+CMD ["python", "/app/config_bridge.py"]

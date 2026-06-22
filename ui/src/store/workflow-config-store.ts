@@ -1,9 +1,9 @@
-import { create } from "zustand";
 import type {
-  WorkflowConfig,
-  CreateWorkflowConfigInput,
-  UpdateWorkflowConfigInput,
+CreateWorkflowConfigInput,
+UpdateWorkflowConfigInput,
+WorkflowConfig,
 } from "@/types/workflow-config";
+import { create } from "zustand";
 
 /**
  * Workflow Config Store
@@ -35,11 +35,32 @@ interface WorkflowConfigState {
 }
 
 function transformConfig(config: Record<string, unknown>): WorkflowConfig {
+  const raw = config as unknown as WorkflowConfig;
   return {
-    ...(config as unknown as WorkflowConfig),
+    ...raw,
+    steps: Array.isArray(raw.steps) ? raw.steps : [],
     created_at: new Date(config.created_at as string),
     updated_at: new Date(config.updated_at as string),
   };
+}
+
+function parseWorkflowConfigList(data: unknown): WorkflowConfig[] {
+  if (Array.isArray(data)) {
+    return data.map((item) => transformConfig(item as Record<string, unknown>));
+  }
+  if (data && typeof data === "object") {
+    const wrapped = (data as { data?: unknown }).data;
+    if (Array.isArray(wrapped)) {
+      return wrapped.map((item) => transformConfig(item as Record<string, unknown>));
+    }
+  }
+  return [];
+}
+
+function workflowConfigApiError(payload: Record<string, unknown>, fallback: string): string {
+  const message = typeof payload.message === "string" ? payload.message.trim() : "";
+  const error = typeof payload.error === "string" ? payload.error.trim() : "";
+  return message || error || fallback;
 }
 
 export const useWorkflowConfigStore = create<WorkflowConfigState>()((set, get) => ({
@@ -50,7 +71,6 @@ export const useWorkflowConfigStore = create<WorkflowConfigState>()((set, get) =
   editMode: null,
 
   loadConfigs: async () => {
-    if (get().isLoading) return;
     set({ isLoading: true, error: null });
 
     try {
@@ -58,17 +78,24 @@ export const useWorkflowConfigStore = create<WorkflowConfigState>()((set, get) =
 
       // Handle 503 (MongoDB not configured) — not an error, just not available
       if (response.status === 503) {
-        set({ configs: [], isLoading: false });
+        set({ configs: [], isLoading: false, error: null });
         return;
       }
 
       if (!response.ok) {
-        throw new Error(`Failed to load workflow configs: ${response.status}`);
+        const message = await response.text().catch(() => "");
+        let detail = `Failed to load workflow configs (${response.status})`;
+        try {
+          const json = JSON.parse(message) as { error?: string; message?: string };
+          detail = json.error || json.message || detail;
+        } catch {
+          if (message.trim()) detail = message.trim();
+        }
+        throw new Error(detail);
       }
 
       const data = await response.json();
-      const configs = Array.isArray(data) ? data.map(transformConfig) : [];
-      set({ configs, isLoading: false });
+      set({ configs: parseWorkflowConfigList(data), isLoading: false, error: null });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to load workflow configs";
       set({ error: message, isLoading: false });
@@ -83,8 +110,10 @@ export const useWorkflowConfigStore = create<WorkflowConfigState>()((set, get) =
     });
 
     if (!response.ok) {
-      const err = await response.json().catch(() => ({}));
-      throw new Error(err.error || `Failed to create workflow config: ${response.status}`);
+      const err = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+      throw new Error(
+        workflowConfigApiError(err, `Failed to create workflow config: ${response.status}`),
+      );
     }
 
     const result = await response.json();
@@ -100,8 +129,10 @@ export const useWorkflowConfigStore = create<WorkflowConfigState>()((set, get) =
     });
 
     if (!response.ok) {
-      const err = await response.json().catch(() => ({}));
-      throw new Error(err.error || `Failed to update workflow config: ${response.status}`);
+      const err = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+      throw new Error(
+        workflowConfigApiError(err, `Failed to update workflow config: ${response.status}`),
+      );
     }
 
     await get().loadConfigs();

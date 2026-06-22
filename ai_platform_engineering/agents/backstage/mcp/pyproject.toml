@@ -13,14 +13,17 @@ dependencies = [
   "python-dotenv==1.2.2",
   "pydantic==2.12.5",
   "mcp==1.27.1",
+  "mcp-agent-auth", # gitleaks:allow - package name, not a credential
   "fastmcp==3.2.4",
   "pyyaml==6.0.3",
   "typing-extensions==4.15.0",
-  "cryptography==46.0.7",
+  "cryptography==48.0.1",
 ]
 
 [tool.poetry.scripts]
 mcp_backstage = "mcp_backstage.server:main"
+[tool.uv.sources]
+mcp-agent-auth = { path = "../../common/mcp-auth", editable = true }
 
 [build-system]
 requires = ["hatchling"]

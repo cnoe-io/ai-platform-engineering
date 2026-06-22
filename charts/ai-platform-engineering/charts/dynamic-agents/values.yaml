@@ -73,20 +73,27 @@ revisionHistoryLimit: 3
 resources: {}
 
 # Health probes
+startupProbe:
+  httpGet:
+    path: /readyz
+    port: http
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 30
+
 livenessProbe:
   httpGet:
-    path: /healthz
+    path: /health
     port: http
-  initialDelaySeconds: 30
   periodSeconds: 10
   timeoutSeconds: 5
   failureThreshold: 3
 
 readinessProbe:
   httpGet:
-    path: /healthz
+    path: /readyz
     port: http
-  initialDelaySeconds: 5
   periodSeconds: 5
   timeoutSeconds: 3
   failureThreshold: 3
@@ -127,8 +134,41 @@ podDisruptionBudget:
 
 # ConfigMap for non-sensitive configuration
 config:
+  # ─── Keycloak / OIDC (REQUIRED in production) ───────────────────────────
+  # The dynamic-agents service validates every incoming Bearer token against
+  # Keycloak's JWKS endpoint (see dynamic_agents.auth.jwks_validate). Two
+  # env vars MUST be set whenever the cluster's in-network Keycloak URL is
+  # different from the public, browser-facing issuer (the typical
+  # production topology):
+  #
+  #   KEYCLOAK_URL  — in-cluster service URL the pod uses for JWKS fetch
+  #                   (e.g. http://<release-name>-keycloak:8080).
+  #                   When unset, the code falls back to
+  #                   http://localhost:7080 which is a CONNECTION-REFUSED
+  #                   trap inside a Kubernetes pod.
+  #
+  #   OIDC_ISSUER   — public issuer string that MUST exactly match the
+  #                   `iss` claim Keycloak puts in the JWT (driven by
+  #                   KC_HOSTNAME on the Keycloak side, e.g.
+  #                   https://idp.example.com/realms/caipe). When unset,
+  #                   the code derives the issuer from KEYCLOAK_URL and
+  #                   token validation fails with InvalidIssuerError if
+  #                   the in-cluster URL ≠ public issuer.
+  #
+  # NOTES.txt prints a warning on `helm install` if both of these are
+  # empty — see templates/NOTES.txt.
+  KEYCLOAK_URL: ""
+  OIDC_ISSUER: ""
+  # OpenFGA authorization service URL (in-cluster default matches umbrella chart release name)
+  OPENFGA_HTTP: ""
+  OPENFGA_STORE_NAME: "caipe-openfga"
   # MongoDB database name (uses same DB as CAIPE UI)
   MONGODB_DATABASE: "caipe"
+  # Connections & Secrets credential exchange client. Disabled by default.
+  CAIPE_CREDENTIALS_ENABLED: "false"
+  CREDENTIAL_API_URL: ""
+  CREDENTIAL_SERVICE_AUDIENCE: "caipe-credential-service"
+  USE_IMPERSONATION_TOKENS: "false"
   # Agent runtime TTL in seconds (purged after this much inactivity)
   AGENT_RUNTIME_TTL_SECONDS: "60"
   # Set to "true" to enable multi-turn conversation history via POST /invoke.
@@ -138,6 +178,9 @@ config:
   INVOKE_PERSIST_HISTORY: "false"
   # CORS origins (JSON array format for Pydantic)
   CORS_ORIGINS: '["*"]'
+  # MCP server IDs routed through AgentGateway. Use "all" because AgentGateway
+  # uses one route/backend per MCP server in the packaged RBAC deployment.
+  AGENT_GATEWAY_MCP_SERVER_IDS: "all"
   # Tracing disabled by default
   ENABLE_TRACING: "false"
   # Strip skill payloads (SKILL.md bodies, ancillary files,
@@ -151,6 +194,13 @@ config:
   # attributes (tool defs, message history) blow up. 256 KiB
   # default. Set to "0" to disable.
   SKILL_TRACE_MAX_ATTR_BYTES: "262144"
+
+agentContext:
+  # Secret shared with openfga-authz-bridge for signed agent_id context headers.
+  # Leave empty to enforce only the coarse user mcp_gateway:list gate.
+  existingSecret:
+    name: ""
+    key: CAIPE_AGENT_CONTEXT_HMAC_SECRET
 
 # Pre-existing secret with MONGODB_URI and other sensitive values
 # Dynamic-agents uses the same MongoDB as CAIPE UI, so you can reference

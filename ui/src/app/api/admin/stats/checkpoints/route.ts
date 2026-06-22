@@ -1,13 +1,13 @@
 // GET /api/admin/stats/checkpoints - Per-agent checkpoint persistence statistics
 
-import { NextRequest, NextResponse } from 'next/server';
-import { connectToDatabase, isMongoDBConfigured } from '@/lib/mongodb';
 import {
-  withAuth,
-  withErrorHandler,
-  successResponse,
-  requireAdminView,
+getAuthFromBearerOrSession,
+requireRbacPermission,
+successResponse,
+withErrorHandler,
 } from '@/lib/api-middleware';
+import { connectToDatabase,isMongoDBConfigured } from '@/lib/mongodb';
+import { NextRequest,NextResponse } from 'next/server';
 
 // Limits to prevent overloading MongoDB
 const MAX_PEEK_DOCS = 2;          // documents per agent in data peek
@@ -72,8 +72,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     );
   }
 
-  return withAuth(request, async (req, user, session) => {
-    requireAdminView(session);
+  const { session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, 'admin_ui', 'view');
 
     const { searchParams } = new URL(request.url);
     const includePeek = searchParams.get('peek') !== 'false'; // default: include
@@ -233,5 +233,4 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       peek_data: peekData,
       range: searchParams.get('range') || `${days}d`,
     });
-  });
 });

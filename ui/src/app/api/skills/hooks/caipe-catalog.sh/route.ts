@@ -41,14 +41,14 @@
  *   - Cache-Control: no-store
  */
 
-import { NextResponse } from "next/server";
 import fs from "fs";
+import { NextResponse } from "next/server";
 import path from "path";
 import { getRequestOrigin } from "../../_lib/request-origin";
 import {
-  DEFAULT_LIVE_SKILLS_COMMAND,
-  DEFAULT_UPDATE_SKILLS_COMMAND,
-  deriveUpdateCommandName,
+DEFAULT_LIVE_SKILLS_COMMAND,
+DEFAULT_UPDATE_SKILLS_COMMAND,
+deriveUpdateCommandName,
 } from "../../live-skills/agents";
 
 const FALLBACK_HOOK = `#!/usr/bin/env bash

@@ -25,8 +25,6 @@ if [ -f .env ]; then
 fi
 
 PROFILES=""
-USE_SLIM=false
-[ "${A2A_TRANSPORT:-p2p}" = "slim" ] && PROFILES="slim" && USE_SLIM=true
 [ "$ENABLE_AWS" = "true" ] && PROFILES="$PROFILES,aws"
 [ "$ENABLE_PETSTORE" = "true" ] && PROFILES="$PROFILES,petstore"
 [ "$ENABLE_GITHUB" = "true" ] && PROFILES="$PROFILES,github"
@@ -48,16 +46,8 @@ USE_SLIM=false
 
 PROFILES=$(echo "$PROFILES" | sed 's/^,//')
 
-# Deploy SLIM first if needed
-if [ "$USE_SLIM" = "true" ]; then
-    echo "Starting SLIM infrastructure..."
-    COMPOSE_PROFILES=slim docker compose up -d slim-dataplane slim-control-plane
-    echo "Waiting for SLIM to be ready..."
-    sleep 5
-fi
-
 # Deploy other services (exclude caipe-supervisor)
-OTHER_PROFILES=$(echo "$PROFILES" | sed 's/slim,\?//')
+OTHER_PROFILES="$PROFILES"
 if [ -n "$OTHER_PROFILES" ]; then
     echo "Starting supporting services with profiles: $OTHER_PROFILES"
     COMPOSE_PROFILES="$OTHER_PROFILES" docker compose up -d --scale caipe-supervisor=0

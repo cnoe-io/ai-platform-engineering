@@ -41,13 +41,26 @@ spec:
           securityContext:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default (include "dynamic-agents.appVersion" .) }}"
+          image: "{{ include "dynamic-agents.imageRepository" (dict "root" . "repository" .Values.image.repository) }}:{{ .Values.image.tag | default (include "dynamic-agents.appVersion" .) }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - name: http
               containerPort: {{ .Values.service.port }}
               protocol: TCP
-          env: []
+          env:
+            - name: KEYCLOAK_URL
+              value: {{ index .Values.config "KEYCLOAK_URL" | default (printf "http://%s-keycloak:8080" .Release.Name) | quote }}
+            - name: OPENFGA_HTTP
+              value: {{ index .Values.config "OPENFGA_HTTP" | default (printf "http://%s-openfga:8080" .Release.Name) | quote }}
+            - name: CREDENTIAL_API_URL
+              value: {{ index .Values.config "CREDENTIAL_API_URL" | default (printf "http://%s-caipe-ui:3000/api/credentials" .Release.Name) | quote }}
+            {{- if .Values.agentContext.existingSecret.name }}
+            - name: CAIPE_AGENT_CONTEXT_HMAC_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.agentContext.existingSecret.name | quote }}
+                  key: {{ .Values.agentContext.existingSecret.key | quote }}
+            {{- end }}
           envFrom:
             - configMapRef:
                 name: {{ include "dynamic-agents.fullname" . }}-config
@@ -63,6 +76,10 @@ spec:
             - secretRef:
                 name: {{ include "dynamic-agents.fullname" . }}-secret
             {{- end }}
+          {{- with .Values.startupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           {{- with .Values.livenessProbe }}
           livenessProbe:
             {{- toYaml . | nindent 12 }}

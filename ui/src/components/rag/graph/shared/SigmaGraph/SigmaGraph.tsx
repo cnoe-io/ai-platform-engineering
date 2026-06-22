@@ -1,18 +1,18 @@
 "use client";
 
-import React, { ReactNode } from 'react';
 import { SigmaContainer } from "@react-sigma/core";
 import { MultiDirectedGraph } from "graphology";
 import { Loader2 } from 'lucide-react';
+import React,{ ReactNode } from 'react';
 import '../sigma-styles.css';
 
 // Import shared controllers
 import CameraController from './controllers/CameraController';
-import SigmaInstanceCapture from './controllers/SigmaInstanceCapture';
-import GraphDragController from './controllers/GraphDragController';
-import GraphSettingsController from './controllers/GraphSettingsController';
-import GraphEventsController from './controllers/GraphEventsController';
 import GraphDataController from './controllers/GraphDataController';
+import GraphDragController from './controllers/GraphDragController';
+import GraphEventsController from './controllers/GraphEventsController';
+import GraphSettingsController from './controllers/GraphSettingsController';
+import SigmaInstanceCapture from './controllers/SigmaInstanceCapture';
 
 export interface GraphFilters {
     [key: string]: any;

@@ -1,0 +1,208 @@
+# yaml-language-server: $schema=https://agentgateway.dev/schema/config
+#
+# Host-specific Agent Gateway configuration for https://caipe-rbac.outshift.io.
+# The JWKS endpoint stays Docker-internal, but the expected JWT issuer must
+# match the browser-facing Keycloak issuer embedded in tokens.
+
+binds:
+- port: 4000
+  listeners:
+  - protocol: HTTP
+    policies:
+      jwtAuth:
+        mode: strict
+        issuer: https://caipe-rbac.outshift.io/realms/caipe
+        audiences: [caipe-platform, agentgateway]
+        jwks:
+          url: http://keycloak:7080/realms/caipe/protocol/openid-connect/certs
+    routes:
+    - matches: [{ path: { pathPrefix: /mcp/argocd } }]
+      policies: &mcpAuthzPolicy
+        extAuthz:
+          host: openfga-authz-bridge:9100
+          failureMode: { denyWithStatus: 403 }
+          # Forward the HTTP request body so the bridge can parse the JSON-RPC
+          # `tools/call` method+name and run the caller-keyed per-tool check
+          # (FR-012/SC-010). Without this the bridge only sees gRPC metadata, so
+          # `tool_call` is always None and the caller-keyed block is skipped. See #36.
+          includeRequestBody:
+            maxRequestBytes: 65536      # MCP tools/call JSON-RPC bodies are small; 64KB is ample (default 8192)
+            allowPartialMessage: false  # need the COMPLETE body to json.loads the JSON-RPC envelope
+            packAsBytes: true           # fills CheckRequest.http.raw_body — the bridge reads raw_body first
+          protocol:
+            grpc:
+              metadata:
+                caipe.auth: '{"sub": jwt.sub, "preferred_username": jwt.preferred_username}'
+        authorization:
+          rules:
+          - allow: 'true'
+      backends:
+      - mcp:
+          targets:
+          - name: argocd
+            mcp: { host: http://mcp-argocd:8000/mcp }
+    - matches: [{ path: { pathPrefix: /mcp/backstage } }]
+      policies: *mcpAuthzPolicy
+      backends:
+      - mcp:
+          targets:
+          - name: backstage
+            mcp: { host: http://mcp-backstage:8000/mcp }
+    - matches: [{ path: { pathPrefix: /mcp/confluence } }]
+      policies: *mcpAuthzPolicy
+      backends:
+      - mcp:
+          targets:
+          - name: confluence
+            mcp: { host: http://mcp-confluence:8000/mcp }
+    # GitLab authenticates per-request: Dynamic Agents forwards the caller's
+    # OAuth token (or the static org PAT fallback) on X-CAIPE-Provider-Token,
+    # and this transformation rewrites it into the upstream Authorization:
+    # Bearer header. GitHub is handled by the GitHub agent's gh CLI-backed tools,
+    # so no static /mcp/github bootstrap route is configured here. Policies are
+    # inlined (not the *mcpAuthzPolicy alias) because AgentGateway's YAML parser
+    # supports anchors but not merge keys (<<).
+    # Keep in sync with deploy/agentgateway/config_bridge.py.
+    - matches: [{ path: { pathPrefix: /mcp/gitlab } }]
+      policies:
+        extAuthz:
+          host: openfga-authz-bridge:9100
+          failureMode: { denyWithStatus: 403 }
+          # Caller-keyed per-tool check needs the request body; keep in sync with
+          # the &mcpAuthzPolicy anchor and config_bridge.py. See #36.
+          includeRequestBody:
+            maxRequestBytes: 65536
+            allowPartialMessage: false
+            packAsBytes: true
+          protocol:
+            grpc:
+              metadata:
+                caipe.auth: '{"sub": jwt.sub, "preferred_username": jwt.preferred_username}'
+        authorization:
+          rules:
+          - allow: 'true'
+        transformations:
+          request:
+            set:
+              authorization: '"Bearer " + default(request.headers["x-caipe-provider-token"], "")'
+              x-caipe-provider-token: 'default(request.headers["x-caipe-provider-token"], "")'
+      backends:
+      - mcp:
+          targets:
+          - name: gitlab
+            mcp: { host: http://mcp-gitlab:8000/mcp }
+    - matches: [{ path: { pathPrefix: /mcp/jira } }]
+      policies:
+        extAuthz:
+          host: openfga-authz-bridge:9100
+          failureMode: { denyWithStatus: 403 }
+          includeRequestBody:
+            maxRequestBytes: 65536
+            allowPartialMessage: false
+            packAsBytes: true
+          protocol:
+            grpc:
+              metadata:
+                caipe.auth: '{"sub": jwt.sub, "preferred_username": jwt.preferred_username}'
+        authorization:
+          rules:
+          - allow: 'true'
+        transformations:
+          request:
+            set:
+              authorization: '"Bearer " + default(request.headers["x-caipe-provider-token"], "")'
+              x-caipe-provider-token: 'default(request.headers["x-caipe-provider-token"], "")'
+      backends:
+      - mcp:
+          targets:
+          - name: jira
+            mcp: { host: http://mcp-jira:8000/mcp }
+    - matches: [{ path: { pathPrefix: /mcp/komodor } }]
+      policies: *mcpAuthzPolicy
+      backends:
+      - mcp:
+          targets:
+          - name: komodor
+            mcp: { host: http://mcp-komodor:8000/mcp }
+    - matches: [{ path: { pathPrefix: /mcp/netutils } }]
+      policies: *mcpAuthzPolicy
+      backends:
+      - mcp:
+          targets:
+          - name: netutils
+            mcp: { host: http://mcp-netutils:8000/mcp }
+    - matches: [{ path: { pathPrefix: /mcp/pagerduty } }]
+      policies: *mcpAuthzPolicy
+      backends:
+      - mcp:
+          targets:
+          - name: pagerduty
+            mcp: { host: http://mcp-pagerduty:8000/mcp }
+    # Knowledge-base (RAG) enforces its own Keycloak/OIDC auth on /mcp. Dynamic
+    # Agents forwards the caller's user JWT (for per-user RAG group RBAC), or a
+    # caipe-platform service token in non-user contexts, on X-CAIPE-Provider-Token;
+    # this transformation rewrites it into the upstream Authorization: Bearer header.
+    # Policies are inlined (not the *mcpAuthzPolicy alias) because AgentGateway's
+    # YAML parser supports anchors but not merge keys (<<). Keep in sync with
+    # deploy/agentgateway/config_bridge.py.
+    - matches: [{ path: { pathPrefix: /mcp/knowledge-base } }]
+      policies:
+        extAuthz:
+          host: openfga-authz-bridge:9100
+          failureMode: { denyWithStatus: 403 }
+          # Caller-keyed per-tool check needs the request body; keep in sync with
+          # the &mcpAuthzPolicy anchor and config_bridge.py. See #36.
+          includeRequestBody:
+            maxRequestBytes: 65536
+            allowPartialMessage: false
+            packAsBytes: true
+          protocol:
+            grpc:
+              metadata:
+                caipe.auth: '{"sub": jwt.sub, "preferred_username": jwt.preferred_username}'
+        authorization:
+          rules:
+          - allow: 'true'
+        transformations:
+          request:
+            set:
+              authorization: '"Bearer " + default(request.headers["x-caipe-provider-token"], "")'
+      backends:
+      - mcp:
+          targets:
+          - name: knowledge-base
+            mcp: { host: http://rag-server:9446/mcp }
+    - matches: [{ path: { pathPrefix: /mcp/slack } }]
+      policies: *mcpAuthzPolicy
+      backends:
+      - mcp:
+          targets:
+          - name: slack
+            mcp: { host: http://mcp-slack:3001/mcp }
+    - matches: [{ path: { pathPrefix: /mcp/splunk } }]
+      policies: *mcpAuthzPolicy
+      backends:
+      - mcp:
+          targets:
+          - name: splunk
+            mcp: { host: http://mcp-splunk:8000/mcp }
+    - matches: [{ path: { pathPrefix: /mcp/victorops } }]
+      policies: *mcpAuthzPolicy
+      backends:
+      - mcp:
+          targets:
+          - name: victorops
+            mcp: { host: http://mcp-victorops:8000/mcp }
+    - matches: [{ path: { pathPrefix: /mcp/webex } }]
+      policies: *mcpAuthzPolicy
+      backends:
+      - mcp:
+          targets:
+          - name: webex
+            mcp: { host: http://mcp-webex:8000/mcp }
+
+config:
+  adminAddr: 0.0.0.0:15000
+  logging:
+    level: info
+    format: json

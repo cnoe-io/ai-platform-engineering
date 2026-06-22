@@ -1,0 +1,84 @@
+replicaCount: 1
+
+checkQueryCache:
+  enabled: false
+  ttl: 10s
+
+image:
+  repository: openfga/openfga
+  tag: v1.15.1
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+service:
+  type: ClusterIP
+  httpPort: 8080
+  grpcPort: 8081
+  playgroundPort: 3000
+
+datastore:
+  # memory is convenient for demos. Use postgres for persistent environments.
+  engine: memory
+  uri: ""
+  uriSecretRef:
+    name: ""
+    key: OPENFGA_DATASTORE_URI
+  maxOpenConns: "50"
+
+migrate:
+  enabled: true
+  backoffLimit: 6
+
+playground:
+  enabled: false
+
+init:
+  enabled: true
+  image:
+    repository: python
+    tag: "3.13-slim"
+    pullPolicy: IfNotPresent
+  storeName: caipe-openfga
+  seedSub: ""
+  seedTuples: []
+  backoffLimit: 6
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+extraVolumes: []
+extraVolumeMounts: []
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1001
+  runAsGroup: 1001
+  fsGroup: 1001
+
+securityContext:
+  allowPrivilegeEscalation: false
+  runAsNonRoot: true
+  runAsUser: 1001
+  runAsGroup: 1001
+  capabilities:
+    drop:
+      - ALL
+  seccompProfile:
+    type: RuntimeDefault

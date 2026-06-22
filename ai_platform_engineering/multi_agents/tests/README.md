@@ -18,7 +18,7 @@ This directory contains comprehensive unit tests for the AI Platform Engineering
   - Dynamic monitoring and refresh capabilities
   - Connectivity checks and retries
   - Agent URL inference
-  - Transport modes (P2P, SLIM)
+  - Transport mode validation
   - Edge cases and error handling
   - Thread safety and concurrency
   - Comprehensive environment variable handling
@@ -159,7 +159,7 @@ pytest ai_platform_engineering/multi_agents/tests/ -vv
 
 #### 12. Transport Modes Tests (`TestTransportModes`)
 - ✓ Tests default transport mode (P2P)
-- ✓ Tests SLIM transport mode
+- ✓ Tests retired SLIM transport mode is rejected
 - ✓ Tests case-insensitive transport config
 
 #### 13. Agent Examples Tests (`TestAgentExamples`)
@@ -332,4 +332,3 @@ For questions or issues with tests:
 2. Review existing test examples
 3. Check pytest documentation: https://docs.pytest.org/
 4. Open an issue in the project repository
-

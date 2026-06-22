@@ -1,8 +1,8 @@
 "use client";
 
+import { cn } from "@/lib/utils";
 import * as React from "react";
 import { createPortal } from "react-dom";
-import { cn } from "@/lib/utils";
 
 interface PopoverProps {
   children: React.ReactNode;
@@ -93,6 +93,7 @@ export function PopoverTrigger({ children, asChild }: PopoverTriggerProps) {
       setRef(node);
       if (typeof existingRef === "function") existingRef(node);
       else if (existingRef && typeof existingRef === "object")
+        // eslint-disable-next-line react-hooks/immutability
         (existingRef as React.MutableRefObject<HTMLElement | null>).current = node;
     };
     return React.cloneElement(childWithRef, {
@@ -115,6 +116,7 @@ interface PopoverContentProps {
   sideOffset?: number;
   alignOffset?: number;
   className?: string;
+  portalled?: boolean;
 }
 
 /**
@@ -141,6 +143,7 @@ export function PopoverContent({
   sideOffset = 8,
   alignOffset = 0,
   className,
+  portalled = true,
 }: PopoverContentProps) {
   const { open, setOpen, triggerRef } = React.useContext(PopoverStateContext);
   const contentRef = React.useRef<HTMLDivElement>(null);
@@ -163,9 +166,19 @@ export function PopoverContent({
     let top = 0;
     let left = 0;
 
-    if (side === "top") {
+    let effectiveSide = side;
+    const spaceBelow = vh - tRect.bottom - sideOffset - VIEWPORT_PADDING;
+    const spaceAbove = tRect.top - sideOffset - VIEWPORT_PADDING;
+
+    if (side === "bottom" && cRect.height > spaceBelow && spaceAbove > spaceBelow) {
+      effectiveSide = "top";
+    } else if (side === "top" && cRect.height > spaceAbove && spaceBelow > spaceAbove) {
+      effectiveSide = "bottom";
+    }
+
+    if (effectiveSide === "top") {
       top = tRect.top - cRect.height - sideOffset;
-    } else if (side === "bottom") {
+    } else if (effectiveSide === "bottom") {
       top = tRect.bottom + sideOffset;
     } else if (side === "left") {
       left = tRect.left - cRect.width - sideOffset;
@@ -173,7 +186,7 @@ export function PopoverContent({
       left = tRect.right + sideOffset;
     }
 
-    if (side === "top" || side === "bottom") {
+    if (effectiveSide === "top" || effectiveSide === "bottom") {
       if (align === "start") left = tRect.left + alignOffset;
       else if (align === "end") left = tRect.right - cRect.width - alignOffset;
       else left = tRect.left + tRect.width / 2 - cRect.width / 2;
@@ -193,6 +206,15 @@ export function PopoverContent({
       VIEWPORT_PADDING,
       Math.min(top, vh - cRect.height - VIEWPORT_PADDING),
     );
+
+    const availableHeight = vh - 2 * VIEWPORT_PADDING;
+    if (cRect.height > availableHeight) {
+      content.style.maxHeight = `${availableHeight}px`;
+      content.style.overflowY = "auto";
+    } else {
+      content.style.maxHeight = "";
+      content.style.overflowY = "";
+    }
 
     setCoords({ top, left });
   }, [align, alignOffset, side, sideOffset, triggerRef]);
@@ -235,9 +257,26 @@ export function PopoverContent({
 
   if (!open || !mounted) return null;
 
+  if (!portalled) {
+    return (
+      <div
+        ref={contentRef}
+        data-popover-content=""
+        className={cn(
+          "absolute left-0 top-full z-[60] mt-2 pointer-events-auto rounded-lg bg-popover text-popover-foreground shadow-lg border border-border",
+          "animate-in fade-in-0 zoom-in-95 slide-in-from-top-2",
+          className,
+        )}
+      >
+        {children}
+      </div>
+    );
+  }
+
   const node = (
     <div
       ref={contentRef}
+      data-popover-content=""
       style={{
         position: "fixed",
         top: coords?.top ?? -9999,
@@ -245,7 +284,7 @@ export function PopoverContent({
         visibility: coords ? "visible" : "hidden",
       }}
       className={cn(
-        "z-50 rounded-lg bg-popover text-popover-foreground shadow-lg border border-border",
+        "z-[60] pointer-events-auto rounded-lg bg-popover text-popover-foreground shadow-lg border border-border",
         "animate-in fade-in-0 zoom-in-95",
         side === "bottom" && "slide-in-from-top-2",
         side === "top" && "slide-in-from-bottom-2",

@@ -1,12 +1,12 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
-import { Plus, ChevronDown, Bot, Loader2, Search } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
-import { getConfig } from "@/lib/config";
 import { AgentAvatar } from "@/components/dynamic-agents/AgentAvatar";
+import { Button } from "@/components/ui/button";
+import { getConfig } from "@/lib/config";
+import { cn } from "@/lib/utils";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
+import { Bot,ChevronDown,Loader2,Plus,Search } from "lucide-react";
+import React,{ useEffect,useRef,useState } from "react";
 
 interface NewChatButtonProps {
   collapsed: boolean;
@@ -23,20 +23,56 @@ export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [defaultAgentId, setDefaultAgentId] = useState<string | null>(null);
   const [defaultAgentName, setDefaultAgentName] = useState<string>("New Chat");
+  const [defaultAgentResolved, setDefaultAgentResolved] = useState(false);
 
   const dynamicAgentsEnabled = getConfig("dynamicAgentsEnabled");
 
   // Fetch configured default agent on mount
   useEffect(() => {
-    fetch('/api/admin/platform-config')
-      .then((r) => r.json())
-      .catch(() => ({ success: false }))
-      .then((data) => {
-        if (data.success && data.data.default_agent_id) {
-          setDefaultAgentId(data.data.default_agent_id);
+    let cancelled = false;
+
+    async function fetchDefaultAgent() {
+      try {
+        const configResponse = await fetch('/api/admin/platform-config');
+        const configData = await configResponse.json().catch(() => ({ success: false }));
+        const agentId = configData.success && configData.data.default_agent_id
+          ? String(configData.data.default_agent_id)
+          : null;
+
+        if (cancelled) return;
+
+        setDefaultAgentId(agentId);
+
+        if (agentId && dynamicAgentsEnabled) {
+          try {
+            const agentResponse = await fetch(`/api/dynamic-agents/agents/${encodeURIComponent(agentId)}`);
+            if (agentResponse.ok) {
+              const agentData = await agentResponse.json();
+              if (!cancelled && agentData.success && agentData.data?.name) {
+                setDefaultAgentName(agentData.data.name);
+              }
+            }
+          } catch {
+            // Keep the generic label; the agent id still routes the chat correctly.
+          }
         }
-      });
-  }, []);
+      } catch {
+        if (!cancelled) {
+          setDefaultAgentId(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setDefaultAgentResolved(true);
+        }
+      }
+    }
+
+    fetchDefaultAgent();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [dynamicAgentsEnabled]);
 
   // Fetch available dynamic agents when dropdown opens
   useEffect(() => {
@@ -135,6 +171,7 @@ export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
     return (
       <Button
         onClick={handleMainClick}
+        disabled={!defaultAgentResolved}
         className="w-full px-2 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30 hover-glow"
         variant="ghost"
         size="icon"
@@ -149,6 +186,7 @@ export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
     return (
       <Button
         onClick={handleMainClick}
+        disabled={!defaultAgentResolved}
         className="w-full gap-2 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30 hover-glow"
         variant="ghost"
         size="default"
@@ -166,6 +204,7 @@ export function NewChatButton({ collapsed, onNewChat }: NewChatButtonProps) {
         {/* Main button area */}
         <Button
           onClick={handleMainClick}
+          disabled={!defaultAgentResolved}
           className={cn(
             "flex-1 gap-2 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30 hover-glow",
             "rounded-r-none border-r-0"

@@ -18,28 +18,28 @@
  * frontmatter).
  */
 
-import React, { useCallback, useMemo, useRef, useState } from "react";
 import {
-  Columns2,
-  Download,
-  Eye,
-  Pencil,
-  Redo2,
-  Undo2,
-  WrapText,
-} from "lucide-react";
-import {
-  RichCodeEditor,
-  cmRedo,
-  cmUndo,
-  type Diagnostic,
-  type ReactCodeMirrorRef,
+RichCodeEditor,
+cmRedo,
+cmUndo,
+type Diagnostic,
+type ReactCodeMirrorRef,
 } from "@/components/skills/workspace/RichCodeEditor";
 import { SkillMdPreview } from "@/components/skills/workspace/SkillMdPreview";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 import { parseSkillMd } from "@/lib/skill-md-parser";
+import { cn } from "@/lib/utils";
 import type { SkillInputVariable } from "@/types/agent-skill";
+import {
+Columns2,
+Download,
+Eye,
+Pencil,
+Redo2,
+Undo2,
+WrapText,
+} from "lucide-react";
+import { useCallback,useMemo,useRef,useState } from "react";
 
 /**
  * Three view modes match what the previous editor offered:
@@ -229,11 +229,15 @@ export function SkillMdEditor({
   const showEditor = viewMode !== "preview";
   const showPreview = viewMode !== "edit";
 
+  // Mirror the preview pane: constrain the editor shell and let 
+  // CodeMirror component scroll internally.
+  const fillParent = height === "100%";
+
   // Body layout. We use a simple grid so split mode stays balanced even
   // at narrow widths (each pane gets `min-w-0` so CodeMirror's
   // horizontal scroll doesn't blow out the column).
   const bodyClass = cn(
-    "flex-1 min-h-0",
+    "min-h-0 flex-1 overflow-hidden",
     showEditor && showPreview
       ? "grid grid-cols-1 md:grid-cols-2 gap-2"
       : "flex",
@@ -242,17 +246,16 @@ export function SkillMdEditor({
   return (
     <div
       className={cn(
-        "flex flex-col gap-2",
-        // When a fixed `height` is supplied (e.g. the FilesTab passes
-        // "100%"), let the body fill the parent so split mode actually
-        // gets vertical space to render in.
-        height && "h-full",
+        "flex min-h-0 flex-col gap-2",
+        // When a `height` is supplied, fill the parent and scroll inside body
+        // panes so the toolbar stays pinned above the editor.
+        height && "h-full overflow-hidden",
         className,
       )}
     >
       {!hideToolbar && (
         <div
-          className="flex items-center gap-1 rounded-md border border-border/50 bg-muted/40 px-2 py-1"
+          className="flex shrink-0 items-center gap-1 rounded-md border border-border/50 bg-muted/40 px-2 py-1"
           data-skill-md-toolbar
         >
           {/* View-mode segmented toggle. Lives on the LEFT so it's the
@@ -362,7 +365,12 @@ export function SkillMdEditor({
 
       <div className={bodyClass}>
         {showEditor && (
-          <div className="min-w-0 min-h-0 flex-1">
+          <div
+            className={cn(
+              "min-h-0 min-w-0 flex-1 overflow-hidden rounded-md border border-border/50",
+              fillParent && "flex flex-col",
+            )}
+          >
             <RichCodeEditor
               editorRef={editorRef}
               value={value}
@@ -371,9 +379,9 @@ export function SkillMdEditor({
               readOnly={readOnly}
               wrap={wrap}
               lintSource={lintSource}
-              minHeight={minHeight}
-              maxHeight={maxHeight}
-              height={height}
+              fillContainer={fillParent}
+              minHeight={fillParent ? undefined : minHeight}
+              maxHeight={fillParent ? undefined : maxHeight}
             />
           </div>
         )}

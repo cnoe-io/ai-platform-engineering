@@ -1,0 +1,229 @@
+# yaml-language-server: $schema=https://agentgateway.dev/schema/config
+#
+# Agent Gateway configuration for CAIPE platform (098 Enterprise RBAC)
+# PDP-2: validates JWTs issued by Keycloak and delegates authorization to
+# OpenFGA through AgentGateway ext_authz.
+#
+# Docs: https://agentgateway.dev/docs/standalone/latest/configuration/security/
+
+binds:
+- port: 4000
+  listeners:
+  # Listener policies: LocalGatewayPolicy (jwtAuth only). Route-level authorization delegates to ext_authz.
+  - protocol: HTTP
+    policies:
+      jwtAuth:
+        mode: strict
+        issuer: http://localhost:7080/realms/caipe
+        # Spec 104: Slack-bot OBO tokens are minted with `aud=agentgateway`,
+        # UI-issued tokens stay on `aud=caipe-platform`. Either is accepted
+        # at the listener; fine-grained team scoping is checked by the
+        # ext_authz/OpenFGA bridge using the signed JWT claims.
+        audiences: [caipe-platform, agentgateway]
+        # Docker DNS resolves "keycloak" via compose service name.
+        jwks:
+          url: http://keycloak:7080/realms/caipe/protocol/openid-connect/certs
+    routes:
+    # Keep each MCP target in its own route/backend. AgentGateway initializes all
+    # targets in a backend together, so a failing optional MCP should not break
+    # unrelated routes.
+    - matches: [{ path: { pathPrefix: /mcp/argocd } }]
+      policies: &mcpAuthzPolicy
+        extAuthz:
+          host: openfga-authz-bridge:9100
+          failureMode: { denyWithStatus: 403 }
+          # Forward the HTTP request body so the bridge can parse the JSON-RPC
+          # `tools/call` method+name and run the caller-keyed per-tool check
+          # (FR-012/SC-010). Without this the bridge only sees gRPC metadata, so
+          # `tool_call` is always None and the caller-keyed block is skipped —
+          # every MCP call would pass on the coarse `mcp_gateway:list` check
+          # alone. Headers (x-caipe-agent-context*) are already delivered by the
+          # gRPC protocol when includeRequestHeaders is empty; only the body
+          # needs requesting. See #36.
+          includeRequestBody:
+            maxRequestBytes: 65536      # MCP tools/call JSON-RPC bodies are small; 64KB is ample (default 8192)
+            allowPartialMessage: false  # need the COMPLETE body to json.loads the JSON-RPC envelope
+            packAsBytes: true           # fills CheckRequest.http.raw_body — the bridge reads raw_body first
+          protocol:
+            grpc:
+              metadata:
+                caipe.auth: '{"sub": jwt.sub, "preferred_username": jwt.preferred_username}'
+        authorization:
+          rules:
+          - allow: 'true'
+      backends:
+      - mcp:
+          targets:
+          - name: argocd
+            mcp: { host: http://mcp-argocd:8000/mcp }
+    - matches: [{ path: { pathPrefix: /mcp/backstage } }]
+      policies: *mcpAuthzPolicy
+      backends:
+      - mcp:
+          targets:
+          - name: backstage
+            mcp: { host: http://mcp-backstage:8000/mcp }
+    - matches: [{ path: { pathPrefix: /mcp/confluence } }]
+      policies: *mcpAuthzPolicy
+      backends:
+      - mcp:
+          targets:
+          - name: confluence
+            mcp: { host: http://mcp-confluence:8000/mcp }
+    # GitLab upstreams expect `Authorization: Bearer <token>`. Dynamic Agents
+    # forwards the caller's OAuth token (or the static org PAT fallback) on
+    # X-CAIPE-Provider-Token. This transformation rewrites that header into
+    # Authorization so connected users act as themselves. GitHub is handled by
+    # the GitHub agent's gh CLI-backed tools, so no static /mcp/github bootstrap
+    # route is configured here.
+    # Keep in sync with deploy/agentgateway/config_bridge.py.
+    # NOTE: policies are inlined (not the *mcpAuthzPolicy alias) because this
+    # route adds a `transformations` policy on top of the shared extAuthz +
+    # authorization. AgentGateway's YAML parser supports anchors/aliases but not
+    # YAML merge keys (<<), so we repeat the shared ext_authz block here.
+    - matches: [{ path: { pathPrefix: /mcp/gitlab } }]
+      policies:
+        extAuthz:
+          host: openfga-authz-bridge:9100
+          failureMode: { denyWithStatus: 403 }
+          # Forward the request body for the caller-keyed per-tool check (#36).
+          # Inlined (not the *mcpAuthzPolicy anchor) because this route adds a
+          # `transformations` policy; keep includeRequestBody in sync with the anchor.
+          includeRequestBody:
+            maxRequestBytes: 65536
+            allowPartialMessage: false
+            packAsBytes: true
+          protocol:
+            grpc:
+              metadata:
+                caipe.auth: '{"sub": jwt.sub, "preferred_username": jwt.preferred_username}'
+        authorization:
+          rules:
+          - allow: 'true'
+        transformations:
+          request:
+            set:
+              authorization: '"Bearer " + default(request.headers["x-caipe-provider-token"], "")'
+              x-caipe-provider-token: 'default(request.headers["x-caipe-provider-token"], "")'
+      backends:
+      - mcp:
+          targets:
+          - name: gitlab
+            mcp: { host: http://mcp-gitlab:8000/mcp }
+    - matches: [{ path: { pathPrefix: /mcp/jira } }]
+      policies:
+        extAuthz:
+          host: openfga-authz-bridge:9100
+          failureMode: { denyWithStatus: 403 }
+          includeRequestBody:
+            maxRequestBytes: 65536
+            allowPartialMessage: false
+            packAsBytes: true
+          protocol:
+            grpc:
+              metadata:
+                caipe.auth: '{"sub": jwt.sub, "preferred_username": jwt.preferred_username}'
+        authorization:
+          rules:
+          - allow: 'true'
+        transformations:
+          request:
+            set:
+              authorization: '"Bearer " + default(request.headers["x-caipe-provider-token"], "")'
+              x-caipe-provider-token: 'default(request.headers["x-caipe-provider-token"], "")'
+      backends:
+      - mcp:
+          targets:
+          - name: jira
+            mcp: { host: http://mcp-jira:8000/mcp }
+    - matches: [{ path: { pathPrefix: /mcp/komodor } }]
+      policies: *mcpAuthzPolicy
+      backends:
+      - mcp:
+          targets:
+          - name: komodor
+            mcp: { host: http://mcp-komodor:8000/mcp }
+    - matches: [{ path: { pathPrefix: /mcp/netutils } }]
+      policies: *mcpAuthzPolicy
+      backends:
+      - mcp:
+          targets:
+          - name: netutils
+            mcp: { host: http://mcp-netutils:8000/mcp }
+    - matches: [{ path: { pathPrefix: /mcp/pagerduty } }]
+      policies: *mcpAuthzPolicy
+      backends:
+      - mcp:
+          targets:
+          - name: pagerduty
+            mcp: { host: http://mcp-pagerduty:8000/mcp }
+    # Knowledge-base (RAG) enforces its own Keycloak/OIDC auth on /mcp. Dynamic
+    # Agents forwards the caller's user JWT (for per-user RAG group RBAC), or a
+    # caipe-platform service token in non-user contexts (background reconcile), on
+    # X-CAIPE-Provider-Token; this transformation rewrites it into the upstream
+    # Authorization: Bearer header. Policies are inlined (not the *mcpAuthzPolicy
+    # alias) because AgentGateway's YAML parser supports anchors but not merge keys
+    # (<<). Keep in sync with deploy/agentgateway/config_bridge.py.
+    - matches: [{ path: { pathPrefix: /mcp/knowledge-base } }]
+      policies:
+        extAuthz:
+          host: openfga-authz-bridge:9100
+          failureMode: { denyWithStatus: 403 }
+          # Forward the request body for the caller-keyed per-tool check (#36).
+          # Inlined (not the *mcpAuthzPolicy anchor) because this route adds a
+          # `transformations` policy; keep includeRequestBody in sync with the anchor.
+          includeRequestBody:
+            maxRequestBytes: 65536
+            allowPartialMessage: false
+            packAsBytes: true
+          protocol:
+            grpc:
+              metadata:
+                caipe.auth: '{"sub": jwt.sub, "preferred_username": jwt.preferred_username}'
+        authorization:
+          rules:
+          - allow: 'true'
+        transformations:
+          request:
+            set:
+              authorization: '"Bearer " + default(request.headers["x-caipe-provider-token"], "")'
+      backends:
+      - mcp:
+          targets:
+          - name: knowledge-base
+            mcp: { host: http://rag-server:9446/mcp }
+    - matches: [{ path: { pathPrefix: /mcp/slack } }]
+      policies: *mcpAuthzPolicy
+      backends:
+      - mcp:
+          targets:
+          - name: slack
+            mcp: { host: http://mcp-slack:3001/mcp }
+    - matches: [{ path: { pathPrefix: /mcp/splunk } }]
+      policies: *mcpAuthzPolicy
+      backends:
+      - mcp:
+          targets:
+          - name: splunk
+            mcp: { host: http://mcp-splunk:8000/mcp }
+    - matches: [{ path: { pathPrefix: /mcp/victorops } }]
+      policies: *mcpAuthzPolicy
+      backends:
+      - mcp:
+          targets:
+          - name: victorops
+            mcp: { host: http://mcp-victorops:8000/mcp }
+    - matches: [{ path: { pathPrefix: /mcp/webex } }]
+      policies: *mcpAuthzPolicy
+      backends:
+      - mcp:
+          targets:
+          - name: webex
+            mcp: { host: http://mcp-webex:8000/mcp }
+
+config:
+  # Default is localhost-only; use 0.0.0.0 so Docker can publish :15000 to the host.
+  adminAddr: 0.0.0.0:15000
+  logging:
+    level: info
+    format: json

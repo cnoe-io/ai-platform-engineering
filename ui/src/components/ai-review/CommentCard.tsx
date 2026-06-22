@@ -9,25 +9,25 @@
  * mostly-passing run.
  */
 
-import * as React from "react";
-import {
-  AlertCircle,
-  AlertTriangle,
-  Check,
-  CheckCircle2,
-  Info,
-  Wand2,
-  X,
-} from "lucide-react";
+import { diffLines,type DiffLine } from "@/components/ai-assist/diff-lines";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { diffLines, type DiffLine } from "@/components/ai-assist/diff-lines";
 import type {
-  CriterionVerdict,
-  ReviewAnchor,
-  ReviewSeverity,
+CriterionVerdict,
+ReviewAnchor,
+ReviewSeverity,
 } from "@/types/ai-review";
+import {
+AlertCircle,
+AlertTriangle,
+Check,
+CheckCircle2,
+Info,
+Wand2,
+X,
+} from "lucide-react";
+import * as React from "react";
 
 export interface CommentCardProps {
   verdict: CriterionVerdict;

@@ -54,12 +54,16 @@ from dynamic_agents.services.builtin_tools import (
     create_wait_tool,
     create_workflow_tools,
 )
+from dynamic_agents.services.credential_exchange import CredentialExchangeClient
 from dynamic_agents.services.gridfs_store import MongoDBGridFSStore
 from dynamic_agents.services.llm_clients import get_llm
 from dynamic_agents.services.mcp_client import (
+    McpCredentialUnavailableError,
     build_mcp_connections,
     filter_tools_by_allowed,
     get_tools_with_resilience,
+    mcp_credential_connect_warning,
+    resolve_mcp_connections_credential_refs,
     wrap_tools_with_error_handling,
 )
 from dynamic_agents.services.middleware import build_middleware
@@ -148,6 +152,48 @@ def _render_system_prompt(
         raise SystemPromptRenderError(f"System prompt template rendering failed: {exc}") from exc
 
 
+def _build_mcp_warning_lines(
+    permanent: list[str], permanent_error: str, transient: list[str]
+) -> list[str]:
+    """Build system-prompt warning lines for failed MCP servers, split by class.
+
+    Permanent failures keep the actionable "needs attention" framing with their
+    error detail; transient (still-warming) servers read as "starting up" and are
+    being retried. A genuine denial flows through the permanent path's error
+    string and is never relabeled as transient.
+    """
+    lines: list[str] = []
+    if permanent:
+        lines.append(
+            "**MCP servers that failed to load (tools unavailable — needs attention):**"
+        )
+        lines.append(f"  {permanent_error}")
+    if transient:
+        lines.append(
+            "**MCP servers still starting up (will be retried; tools may appear shortly):** "
+            + ", ".join(transient)
+        )
+    return lines
+
+
+def _mcp_warning_events(permanent: list[str], transient: list[str]) -> list[str]:
+    """Build streamed warning messages for failed MCP servers, split by class.
+
+    Permanent failures keep the "Tools from this server will not work." wording;
+    transient servers get a "starting up ... will be retried" message instead.
+    """
+    messages: list[str] = []
+    for server_name in permanent:
+        messages.append(
+            f"MCP server '{server_name}' is unavailable. Tools from this server will not work."
+        )
+    for server_name in transient:
+        messages.append(
+            f"MCP server '{server_name}' is starting up and not ready yet — it will be retried."
+        )
+    return messages
+
+
 class AgentRuntime:
     """Runtime for a single dynamic agent instance."""
 
@@ -169,6 +215,30 @@ class AgentRuntime:
         self._mongo_service = mongo_service
         self._user = user
         self._client_context = client_context
+        # Spec 102 Phase 8 / T107: prefer the per-request bearer from
+        # current_user_token (set by JwtAuthMiddleware) so the same token
+        # the BFF authenticated us with is forwarded to MCP servers.
+        # Fall back to UserContext-attached fields for backward compat
+        # with the X-User-Context legacy path.
+        from dynamic_agents.auth.token_context import current_user_token as _ctx_tok
+
+        ctx_token = _ctx_tok.get()
+        legacy_token = (user.obo_jwt or user.access_token) if user else None
+        self._auth_bearer: str | None = ctx_token or legacy_token
+        # Spec 104: never silently substitute the dynamic-agents service
+        # account token here — the runtime must run with the user's OBO
+        # token so AgentGateway/OpenFGA can evaluate the signed active-team
+        # context. If we have nothing, log loudly and let the
+        # downstream call 401; we'd rather fail closed than show the user
+        # tools that belong to the SA.
+        if self._auth_bearer is None:
+            logger.warning(
+                "AgentRuntime for '%s' has no user JWT (ctx_token + legacy both empty); "
+                "outbound MCP calls will be unauthenticated and AgentGateway will reject them. "
+                "This usually means JwtAuthMiddleware was bypassed or the BFF stripped the "
+                "Authorization header.",
+                config.name,
+            )
         self._session_id = session_id
         self._graph = None
 
@@ -236,10 +306,17 @@ class AgentRuntime:
         self._missing_tools: list[str] = []
         self._failed_servers: list[str] = []  # Just server names
         self._failed_servers_error: str = ""  # Error message for display
+        # Failed servers split by classification (see classify_load_error):
+        # transient = still warming up / retryable; permanent = needs attention.
+        self._failed_servers_transient: list[str] = []
+        self._failed_servers_permanent: list[str] = []
+        self._failed_servers_permanent_error: str = ""  # "id: error; ..." for permanent only
         self._failed_skills: list[str] = []  # Skill IDs that failed to load
         self._failed_skills_error: str = ""  # Error message for display
         self._failed_workflows: list[str] = []  # Workflow config IDs not found
         self._failed_workflows_error: str = ""  # Error message for display
+        self._mcp_credential_warnings: list[str] = []
+        self._mcp_credential_failed_server_ids: set[str] = set()
         self._valid_workflow_configs: list[str] = []  # Validated workflow config IDs
         self._workflow_prompt_addendum: str = ""  # System prompt addendum with workflow info
         # Track config timestamps for cache invalidation
@@ -287,6 +364,40 @@ class AgentRuntime:
             ttl = max_ttl
         return ttl
 
+    def _credential_exchange_client(self) -> CredentialExchangeClient | None:
+        """Create a credential API client when impersonation token resolution is configured."""
+
+        if not self.settings.credential_api_url or not self._auth_bearer:
+            return None
+        return CredentialExchangeClient(
+            base_url=self.settings.credential_api_url,
+            audience=self.settings.credential_service_audience,
+            token_provider=lambda: self._auth_bearer or "",
+        )
+
+    def _record_mcp_credential_failures(
+        self, failures: dict[str, McpCredentialUnavailableError]
+    ) -> None:
+        """Track MCP servers that failed credential resolution at startup."""
+        if not failures:
+            return
+        error_parts: list[str] = []
+        for server_id, exc in failures.items():
+            self._mcp_credential_failed_server_ids.add(server_id)
+            self._mcp_credential_warnings.append(mcp_credential_connect_warning(exc))
+            self._failed_servers.append(server_id)
+            self._failed_servers_permanent.append(server_id)
+            error_parts.append(f"{server_id}: {exc.reason}")
+        detail = "; ".join(error_parts)
+        self._failed_servers_error = (
+            f"{self._failed_servers_error}; {detail}" if self._failed_servers_error else detail
+        )
+        self._failed_servers_permanent_error = (
+            f"{self._failed_servers_permanent_error}; {detail}"
+            if self._failed_servers_permanent_error
+            else detail
+        )
+
     async def initialize(self) -> None:
         """Build the DeepAgent graph with tools and instructions."""
         if self._initialized:
@@ -304,8 +415,21 @@ class AgentRuntime:
             logger.info(f"Agent '{self.config.name}' has no MCP tools configured")
             tools = []
         else:
-            # 1a. Fetch relevant MCP server configs
-            connections = build_mcp_connections(self.mcp_servers, server_ids)
+            connections = build_mcp_connections(
+                self.mcp_servers,
+                server_ids,
+                agent_gateway_url=self.settings.agent_gateway_url,
+                auth_bearer=self._auth_bearer,
+                agent_id=self.config.id,
+            )
+            cred_result = await resolve_mcp_connections_credential_refs(
+                self.mcp_servers,
+                connections,
+                credential_client=self._credential_exchange_client(),
+                caller_token=self._auth_bearer,
+            )
+            connections = cred_result.connections
+            self._record_mcp_credential_failures(cred_result.failures)
 
             if not connections:
                 logger.warning(f"Agent '{self.config.name}': no valid MCP connections found")
@@ -313,19 +437,34 @@ class AgentRuntime:
             else:
                 # This connects to each server independently so one failure doesn't affect others
                 t_mcp = time.monotonic()
-                all_tools, failed_servers, failed_errors = await get_tools_with_resilience(connections)
+                all_tools, failed_servers, failed_errors, failed_status = await get_tools_with_resilience(
+                    connections
+                )
                 logger.info(
                     f"[init] MCP tools fetched in {time.monotonic() - t_mcp:.2f}s "
                     f"(agent='{self.config.name}', servers={len(connections)}, "
                     f"failed={len(failed_servers)})"
                 )
 
-                # Store failed servers for warning events
+                # Store failed servers for warning events, split by classification
+                # so transient (still-warming) servers read as "starting up" while
+                # permanent failures read as "needs attention". A genuine denial is
+                # surfaced through the existing diagnostic message, never relabeled.
                 if failed_servers:
                     self._failed_servers = failed_servers
-                    # Combine error messages for display
+                    self._failed_servers_transient = [
+                        s for s in failed_servers if failed_status.get(s) == "transient"
+                    ]
+                    self._failed_servers_permanent = [
+                        s for s in failed_servers if failed_status.get(s) != "transient"
+                    ]
+                    # Combine error messages for display (all + per-class)
                     error_parts = [f"{s}: {failed_errors.get(s, 'Unknown error')}" for s in failed_servers]
                     self._failed_servers_error = "; ".join(error_parts)
+                    self._failed_servers_permanent_error = "; ".join(
+                        f"{s}: {failed_errors.get(s, 'Unknown error')}"
+                        for s in self._failed_servers_permanent
+                    )
 
                 # 1b. Filter MCP tools by allowlist
                 tools, missing = filter_tools_by_allowed(all_tools, self.config.allowed_tools)
@@ -467,6 +606,10 @@ class AgentRuntime:
                     self._failed_workflows_error = f"Workflow config IDs not found in database: {', '.join(missing)}"
                     logger.warning(f"Agent '{self.config.name}': {self._failed_workflows_error}")
                 self._valid_workflow_configs = [wid for wid in requested_ids if wid in found_ids]
+                workflow_labels = {
+                    str(doc["_id"]): str(doc.get("name") or doc["_id"]) for doc in found_docs
+                }
+                self._workflow_labels = workflow_labels
                 # Build system prompt addendum with workflow details
                 if found_docs:
                     lines = ["\n\n## Available Workflows\n"]
@@ -482,7 +625,20 @@ class AgentRuntime:
                         if step_summary:
                             lines.append(f"  Steps: {step_summary}")
                     lines.append(
-                        "\nUse `start_workflow_run` to trigger a workflow, `list_workflow_runs` to see past runs, and `get_workflow_run_status` to check progress."
+                        "\nWorkflow rules:\n"
+                        "- When the user names a workflow, match it to the list above by **exact name** "
+                        "(case-insensitive) and pass that entry's `workflow_config_id` to `start_workflow_run`.\n"
+                        "- After starting a run, remember the returned `run_id` for this conversation.\n"
+                        "- When the user asks for status, progress, summary, or output, **always** call "
+                        "`get_workflow_run_status` again (even if you checked earlier in this thread). Use "
+                        "`wait_for_completion=true` (up to 120s) and summarize the fresh result in plain language. "
+                        "Include `final_output_summary` and per-step `output` when present. Share "
+                        "`run_url` when present so the user can open the run in Grid. Never claim outputs "
+                        "are unavailable without a fresh tool result. Never describe API limitations — call the tool. "
+                        "Never tell the user to call tools themselves.\n"
+                        "- Do not report a workflow as completed until `status` is `completed`, `failed`, or "
+                        "`cancelled` in the status tool result.\n"
+                        "- Report the `workflow_name` from tool results, not a different workflow."
                     )
                     self._workflow_prompt_addendum = "\n".join(lines)
             except Exception as e:
@@ -499,6 +655,7 @@ class AgentRuntime:
                 client_secret=self.settings.oauth2_client_secret,
                 scope=self.settings.oauth2_scope,
                 audience=self.settings.oauth2_audience,
+                user_bearer=self._auth_bearer,
             )
             wf_tools = create_workflow_tools(
                 client,
@@ -510,6 +667,7 @@ class AgentRuntime:
                     "user_context": self._user.model_dump(exclude={"raw_claims"}) if self._user else None,
                     "client_context": self._client_context.model_dump() if self._client_context else None,
                 },
+                workflow_labels=getattr(self, "_workflow_labels", None),
             )
             tools.extend(wf_tools)
             logger.info(
@@ -537,9 +695,13 @@ class AgentRuntime:
 
         # 10c. Append warnings about failed resources so the agent is aware of limitations
         warning_lines: list[str] = []
-        if self._failed_servers:
-            warning_lines.append("**MCP servers that failed to load (tools from these servers are unavailable):**")
-            warning_lines.append(f"  {self._failed_servers_error}")
+        warning_lines.extend(
+            _build_mcp_warning_lines(
+                self._failed_servers_permanent,
+                self._failed_servers_permanent_error,
+                self._failed_servers_transient,
+            )
+        )
         if self._failed_skills:
             warning_lines.append(f"**Skills that failed to load:** {', '.join(self._failed_skills)}")
             warning_lines.append(f"  Reason: {self._failed_skills_error}")
@@ -634,8 +796,9 @@ class AgentRuntime:
         if curl_config and curl_config.enabled:
             allowed_domains = curl_config.allowed_domains or "*"
             https_only = curl_config.https_only if curl_config.https_only is not None else True
-            tools.append(create_curl_tool(allowed_domains=allowed_domains, https_only=https_only))
-            config_summary["curl"] = {"allowed_domains": allowed_domains, "https_only": https_only}
+            allow_non_public_urls = curl_config.allow_non_public_urls if curl_config.allow_non_public_urls is not None else False
+            tools.append(create_curl_tool(allowed_domains=allowed_domains, https_only=https_only, allow_non_public_urls=allow_non_public_urls))
+            config_summary["curl"] = {"allowed_domains": allowed_domains, "https_only": https_only, "allow_non_public_urls": allow_non_public_urls}
 
         # current_datetime tool (enabled by default)
         current_datetime_config = config.builtin_tools.current_datetime
@@ -825,14 +988,41 @@ class AgentRuntime:
         tools: list = []
 
         # 1. Build MCP tools from subagent's allowed_tools config
-        server_ids = [sid for sid, val in subagent_config.allowed_tools.items() if val is not False]
+        #    Inherit parent's AG routing and auth (FR-038f)
+        server_ids = list(subagent_config.allowed_tools.keys())
         if server_ids:
-            connections = build_mcp_connections(self.mcp_servers, server_ids)
+            connections = build_mcp_connections(
+                self.mcp_servers,
+                server_ids,
+                agent_gateway_url=self.settings.agent_gateway_url,
+                auth_bearer=self._auth_bearer,
+                agent_id=subagent_config.id,
+            )
+            cred_result = await resolve_mcp_connections_credential_refs(
+                self.mcp_servers,
+                connections,
+                credential_client=self._credential_exchange_client(),
+                caller_token=self._auth_bearer,
+            )
+            connections = cred_result.connections
+            if cred_result.failures:
+                for server_id, exc in cred_result.failures.items():
+                    logger.warning(
+                        "Subagent '%s': MCP server '%s' credential unavailable (%s)",
+                        subagent_config.name,
+                        server_id,
+                        exc.reason,
+                    )
             if connections:
                 # Use resilient connection so one failing server doesn't break the subagent
-                all_tools, failed, failed_errors = await get_tools_with_resilience(connections)
+                all_tools, failed, failed_errors, failed_status = await get_tools_with_resilience(
+                    connections
+                )
                 if failed:
-                    error_parts = [f"{s}: {failed_errors.get(s, 'Unknown error')}" for s in failed]
+                    error_parts = [
+                        f"{s}: {failed_errors.get(s, 'Unknown error')} [{failed_status.get(s, 'unknown')}]"
+                        for s in failed
+                    ]
                     logger.warning(f"Subagent '{subagent_config.name}': failed MCP servers: {'; '.join(error_parts)}")
                 mcp_tools, _ = filter_tools_by_allowed(all_tools, subagent_config.allowed_tools)
                 tools.extend(mcp_tools)
@@ -998,10 +1188,24 @@ class AgentRuntime:
             yield frame
 
         # ── Core lifecycle: warnings ──
-        for server_name in self._failed_servers:
-            for frame in encoder.on_warning(
-                f"MCP server '{server_name}' is unavailable. Tools from this server will not work.",
-            ):
+        # Caller-scoped provider connect warnings first (structured, actionable copy).
+        for warning_message in self._mcp_credential_warnings:
+            for frame in encoder.on_warning(warning_message):
+                yield frame
+
+        # Permanent failures keep the actionable "will not work" wording; transient
+        # (still-warming) servers read as "starting up" and are retried — never the
+        # permanent wording. Genuine denials surface through the permanent path's
+        # diagnostic error string rather than being relabeled as "starting up".
+        permanent_for_generic = [
+            server_id
+            for server_id in self._failed_servers_permanent
+            if server_id not in self._mcp_credential_failed_server_ids
+        ]
+        for warning_message in _mcp_warning_events(
+            permanent_for_generic, self._failed_servers_transient
+        ):
+            for frame in encoder.on_warning(warning_message):
                 yield frame
 
         if self._failed_skills:

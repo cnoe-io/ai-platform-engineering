@@ -4,17 +4,15 @@
 """
 A2A (Agent-to-Agent) utilities and base classes.
 
-Provides two patterns for building agents:
-1. LangGraph-based: BaseLangGraphAgent + BaseLangGraphAgentExecutor (most agents)
-2. Strands-based: BaseStrandsAgent + BaseStrandsAgentExecutor (AWS, etc.)
+Provides the LangGraph-based agent pattern:
+BaseLangGraphAgent + BaseLangGraphAgentExecutor.
 
 Import only what you need to avoid unnecessary dependencies:
 - For LangGraph agents: from ai_platform_engineering.utils.a2a_common.base_langgraph_agent import BaseLangGraphAgent
-- For Strands agents: from ai_platform_engineering.utils.a2a_common.base_strands_agent import BaseStrandsAgent
 """
 
-# Don't import both patterns here to avoid dependency bloat
-# Agents should import directly from the specific modules they need
+# assisted-by Codex Codex-sonnet-4-6
+# Agents should import base classes directly from the specific modules they need.
 from .state import (
     AgentState,
     InputState,
@@ -42,5 +40,4 @@ __all__ = [
     # Note: Base classes are NOT exported here to avoid dependency bloat
     # Import them directly from their modules:
     # - BaseLangGraphAgent from .base_langgraph_agent
-    # - BaseStrandsAgent from .base_strands_agent
 ]

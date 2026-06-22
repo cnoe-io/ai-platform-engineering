@@ -3,12 +3,12 @@ description: "Test Helm charts"
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ main, develop, 'release/**' ]
     paths:
       - 'charts/**'
       - '.github/workflows/helm-chart-test.yml'
   pull_request:
-    branches: [ main, develop ]
+    branches: [ main, develop, 'release/**' ]
     paths:
       - 'charts/**'
       - '.github/workflows/helm-chart-test.yml'
@@ -26,7 +26,7 @@ concurrency:
 
 jobs:
   helm-chart-test:
-    if: github.actor != 'github-actions[bot]' && github.actor != 'caipe-release-bot[bot]'
+    if: github.actor != 'github-actions[bot]' && github.actor != 'caipe-ci-release[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -50,7 +50,7 @@ jobs:
         helm repo update
 
     - name: Login to GitHub Container Registry
-      uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
+      uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4
       with:
         registry: ghcr.io
         username: ${{ github.actor }}
@@ -107,6 +107,63 @@ jobs:
           --set tags.basic=true \
           --set tags.rag-stack=false
 
+    - name: Test ai-platform-engineering installation (dry-run) - RBAC runtime
+      run: |
+        cd charts/ai-platform-engineering
+        helm template test-rbac-runtime . \
+          --debug \
+          --set tags.keycloak=true \
+          --set keycloak.admin.secretRef=caipe-keycloak-admin \
+          --set openfga.enabled=true \
+          --set openfgaAuthzBridge.enabled=true \
+          --set agentgateway.enabled=true \
+          --set openfga-authz-bridge.tokenValidation.issuer=https://idp.example.com/realms/caipe \
+          --set openfga-authz-bridge.tokenValidation.audiences[0]=agentgateway \
+          --set openfga-authz-bridge.tokenValidation.audiences[1]=caipe-platform
+
+    - name: Test ai-platform-engineering installation (dry-run) - AgentGateway static routing (CRD-free, default)
+      run: |
+        cd charts/ai-platform-engineering
+        # routingMode defaults to "static" and must NOT render any Gateway API /
+        # AgentGateway custom resources (those require CRDs the operator may not be
+        # able to install). MCP routes go into the standalone proxy static config.
+        # No explicit routingMode is set here, so this also asserts the default.
+        rendered=$(helm template test-agentgateway-static . \
+          --set tags.basic=true \
+          --set tags.rag-stack=false \
+          --set tags.caipe-ui=true \
+          --set global.deploymentMode=single-node \
+          --set global.agentgateway.enabled=true \
+          --set agentgateway.enabled=true \
+          --set agent-argocd.mcp.agentgateway.enabled=true)
+        if echo "$rendered" | grep -Eq 'kind:[[:space:]]*(Gateway|HTTPRoute|AgentgatewayBackend|AgentgatewayPolicy)'; then
+          echo "ERROR: default routingMode rendered Gateway API / AgentGateway custom resources" >&2
+          echo "$rendered" | grep -E 'kind:[[:space:]]*(Gateway|HTTPRoute|AgentgatewayBackend|AgentgatewayPolicy)' >&2
+          exit 1
+        fi
+        echo "$rendered" | grep -q 'test-agentgateway-static-agentgateway-static-config' \
+          || { echo "ERROR: static config ConfigMap was not rendered" >&2; exit 1; }
+        # The UI must be wired to the standalone proxy admin /config for CRD-free discovery.
+        echo "$rendered" | grep -q 'http://test-agentgateway-static-agentgateway:15000' \
+          || { echo "ERROR: caipe-ui AGENT_GATEWAY_ADMIN_URL not wired to the standalone proxy admin endpoint" >&2; exit 1; }
+        echo "OK: default (static) routing mode rendered no Gateway API CRs, produced the static config ConfigMap, and wired UI discovery"
+
+    - name: Test ai-platform-engineering installation (dry-run) - AgentGateway gateway-api routing (opt-in)
+      run: |
+        cd charts/ai-platform-engineering
+        # routingMode=gateway-api is opt-in and must render the Gateway API CRs.
+        rendered=$(helm template test-agentgateway-gwapi . \
+          --set tags.basic=true \
+          --set tags.rag-stack=false \
+          --set global.deploymentMode=single-node \
+          --set global.agentgateway.enabled=true \
+          --set agentgateway.enabled=true \
+          --set global.agentgateway.routingMode=gateway-api \
+          --set agent-argocd.mcp.agentgateway.enabled=true)
+        echo "$rendered" | grep -Eq 'kind:[[:space:]]*Gateway$' \
+          || { echo "ERROR: gateway-api mode did not render a Gateway custom resource" >&2; exit 1; }
+        echo "OK: opt-in gateway-api routing mode rendered Gateway API CRs"
+
     - name: Test ai-platform-engineering installation (dry-run) - Minimal configuration
       run: |
         cd charts/ai-platform-engineering
@@ -116,6 +173,10 @@ jobs:
           --set agent-argocd.enabled=false \
           --set agent-github.enabled=false \
           --set tags.rag-stack=false
+
+    - name: Validate ai-platform-engineering image channels
+      run: |
+        python3 scripts/validate-helm-image-channel.py
 
     - name: Test rag-stack with different configurations
       run: |

@@ -1,0 +1,166 @@
+{{- $requestedBackend := lower (.Values.storage.backend | toString) -}}
+{{- if not (has $requestedBackend (list "auto" "local" "s3")) -}}
+{{- fail "audit-service.storage.backend must be one of: auto, local, s3" -}}
+{{- end -}}
+{{- $s3Bucket := trim (.Values.storage.s3.bucket | toString) -}}
+{{- $s3SecretName := trim (.Values.storage.s3.existingSecret.name | toString) -}}
+{{- $hasServiceAccountAnnotations := gt (len (.Values.serviceAccount.annotations | default dict)) 0 -}}
+{{- $hasS3Credentials := or .Values.storage.s3.useAmbientCredentials $s3SecretName $hasServiceAccountAnnotations -}}
+{{- $backend := "local" -}}
+{{- if and (ne $requestedBackend "local") $s3Bucket $hasS3Credentials -}}
+{{- $backend = "s3" -}}
+{{- end -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "audit-service.fullname" . }}
+  labels:
+    {{- include "audit-service.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  {{- with .Values.revisionHistoryLimit }}
+  revisionHistoryLimit: {{ . }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "audit-service.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "audit-service.labels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "audit-service.serviceAccountName" . }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: {{ .Chart.Name }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          image: "{{ include "audit-service.imageRepository" (dict "root" . "repository" .Values.image.repository) }}:{{ include "audit-service.appVersion" . }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+          env:
+            - name: AUDIT_SERVICE_BACKEND
+              value: {{ $backend | quote }}
+            - name: AUDIT_SERVICE_LOCAL_PATH
+              value: {{ .Values.storage.local.path | quote }}
+            - name: AUDIT_SERVICE_LOCAL_GZIP
+              value: {{ .Values.storage.local.gzip | quote }}
+            - name: AUDIT_SERVICE_LOCAL_RETENTION_DAYS
+              value: {{ .Values.storage.local.retentionDays | quote }}
+            - name: AUDIT_SERVICE_S3_BUCKET
+              value: {{ .Values.storage.s3.bucket | quote }}
+            - name: AUDIT_SERVICE_S3_PREFIX
+              value: {{ .Values.storage.s3.prefix | quote }}
+            - name: AUDIT_SERVICE_S3_REGION
+              value: {{ .Values.storage.s3.region | quote }}
+            {{- if .Values.storage.s3.endpointUrl }}
+            - name: AUDIT_SERVICE_S3_ENDPOINT_URL
+              value: {{ .Values.storage.s3.endpointUrl | quote }}
+            {{- end }}
+            - name: AUDIT_SERVICE_QUEUE_MAX_SIZE
+              value: {{ .Values.queue.maxSize | quote }}
+            - name: AUDIT_SERVICE_FLUSH_BATCH_SIZE
+              value: {{ .Values.queue.flushBatchSize | quote }}
+            - name: AUDIT_SERVICE_FLUSH_INTERVAL_SECONDS
+              value: {{ .Values.queue.flushIntervalSeconds | quote }}
+            - name: AUDIT_SERVICE_READ_DEFAULT_LIMIT
+              value: {{ .Values.read.defaultLimit | quote }}
+            - name: AUDIT_SERVICE_READ_MAX_LIMIT
+              value: {{ .Values.read.maxLimit | quote }}
+            - name: AUDIT_SERVICE_READ_MAX_DAYS
+              value: {{ .Values.read.maxDays | quote }}
+            {{- if .Values.storage.s3.existingSecret.name }}
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.storage.s3.existingSecret.name | quote }}
+                  key: {{ .Values.storage.s3.existingSecret.accessKeyIdKey | quote }}
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.storage.s3.existingSecret.name | quote }}
+                  key: {{ .Values.storage.s3.existingSecret.secretAccessKeyKey | quote }}
+            - name: AWS_SESSION_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.storage.s3.existingSecret.name | quote }}
+                  key: {{ .Values.storage.s3.existingSecret.sessionTokenKey | quote }}
+                  optional: true
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- if or .Values.existingSecret .Values.extraEnvFrom }}
+          envFrom:
+            {{- if .Values.existingSecret }}
+            - secretRef:
+                name: {{ .Values.existingSecret | quote }}
+            {{- end }}
+            {{- with .Values.extraEnvFrom }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- end }}
+          {{- with .Values.startupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: audit-data
+              mountPath: {{ .Values.storage.local.path | quote }}
+            {{- with .Values.volumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+      volumes:
+        - name: audit-data
+          {{- if and (eq $backend "local") .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "audit-service.fullname" . }}-data
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        {{- with .Values.volumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

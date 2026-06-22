@@ -2,18 +2,19 @@
 // PUT /api/chat/conversations/[id] - Update conversation
 // DELETE /api/chat/conversations/[id] - Delete conversation
 
-import { NextRequest, NextResponse } from 'next/server';
-import { getCollection, isMongoDBConfigured } from '@/lib/mongodb';
 import {
-  withAuth,
-  withErrorHandler,
-  successResponse,
-  ApiError,
-  requireConversationAccess,
-  requireOwnership,
-  validateUUID,
+ApiError,
+requireConversationAccess,
+successResponse,
+validateUUID,
+withAuth,
+withErrorHandler,
 } from '@/lib/api-middleware';
-import type { Conversation, UpdateConversationRequest } from '@/types/mongodb';
+import { getCollection,isMongoDBConfigured } from '@/lib/mongodb';
+import { requireConversationResourcePermission } from '@/lib/rbac/conversation-implicit-authz';
+import type { Conversation,UpdateConversationRequest } from '@/types/mongodb';
+import { NextRequest,NextResponse } from 'next/server';
+import { deleteConversationsPermanently } from '../delete-permanently';
 
 // GET /api/chat/conversations/[id]
 export const GET = withErrorHandler(async (
@@ -46,6 +47,7 @@ export const GET = withErrorHandler(async (
       getCollection,
       session
     );
+    await requireConversationResourcePermission(session, user.email, conversation, 'read');
 
     return successResponse({ ...conversation, access_level });
   });
@@ -68,7 +70,7 @@ export const PUT = withErrorHandler(async (
     );
   }
 
-  return withAuth(request, async (req, user) => {
+  return withAuth(request, async (req, user, session) => {
     const params = await context.params;
     const conversationId = params.id;
     const body: UpdateConversationRequest = await request.json();
@@ -84,8 +86,7 @@ export const PUT = withErrorHandler(async (
       throw new ApiError('Conversation not found', 404);
     }
 
-    // Only owner can update conversation
-    requireOwnership(conversation.owner_id, user.email);
+    await requireConversationResourcePermission(session, user.email, conversation, 'write');
 
     // Build update
     const update: any = {
@@ -127,7 +128,7 @@ export const DELETE = withErrorHandler(async (
     );
   }
 
-  return withAuth(request, async (req, user) => {
+  return withAuth(request, async (req, user, session) => {
     const params = await context.params;
     const conversationId = params.id;
     const url = new URL(request.url);
@@ -144,14 +145,10 @@ export const DELETE = withErrorHandler(async (
       throw new ApiError('Conversation not found', 404);
     }
 
-    // Only owner can delete conversation
-    requireOwnership(conversation.owner_id, user.email);
+    await requireConversationResourcePermission(session, user.email, conversation, 'delete');
 
     if (permanent) {
-      // Hard delete: remove conversation and all messages permanently
-      await conversations.deleteOne({ _id: conversationId });
-      const messages = await getCollection('messages');
-      await messages.deleteMany({ conversation_id: conversationId });
+      await deleteConversationsPermanently([conversation]);
       return successResponse({ deleted: true, permanent: true });
     } else {
       // Soft delete: move to archive by setting deleted_at timestamp

@@ -1,31 +1,36 @@
 import { NextRequest } from "next/server";
 
 import {
-  withAuth,
-  withErrorHandler,
-  successResponse,
-  ApiError,
+ApiError,
+successResponse,
+withAuth,
+withErrorHandler,
 } from "@/lib/api-middleware";
-import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
+import {
+BUILTIN_LOCKED_MESSAGE,
+canMutateBuiltinSkill,
+} from "@/lib/builtin-skill-policy";
+import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
+import {
+filterResourcesByPermission,
+requireSkillPermission,
+} from "@/lib/rbac/resource-authz";
+import { reconcileSkillTeamShares } from "@/lib/rbac/skill-team-grants";
+import {
+generateSkillIdFromName,
+type ImportConflictAction,
+type ImportConflictDecision,
+} from "@/lib/skill-import-helpers";
+import { recordRevision } from "@/lib/skill-revisions";
 import { scanSkillContent as runSkillScan } from "@/lib/skill-scan";
 import { recordScanEvent } from "@/lib/skill-scan-history";
-import { recordRevision } from "@/lib/skill-revisions";
 import {
-  generateSkillIdFromName,
-  type ImportConflictAction,
-  type ImportConflictDecision,
-} from "@/lib/skill-import-helpers";
-import {
-  parseSkillZip,
-  buildConflictDecisions,
-  type ZipParseFailureReason,
-  type ZipSkillCandidate,
+buildConflictDecisions,
+parseSkillZip,
+type ZipParseFailureReason,
+type ZipSkillCandidate,
 } from "@/lib/skill-zip-import";
-import {
-  canMutateBuiltinSkill,
-  BUILTIN_LOCKED_MESSAGE,
-} from "@/lib/builtin-skill-policy";
-import type { AgentSkill, ScanStatus } from "@/types/agent-skill";
+import type { AgentSkill,ScanStatus } from "@/types/agent-skill";
 
 /**
  * POST /api/skills/configs/import-zip
@@ -113,6 +118,7 @@ interface RunZipImportArgs {
   buffer: ArrayBuffer;
   resolutions?: ImportConflictDecision[];
   user: { email: string; role?: string };
+  teamRefs?: string[];
   /**
    * Provider for the user's existing skills. Injected so tests can
    * skip Mongo and the production handler can use the real
@@ -123,6 +129,9 @@ interface RunZipImportArgs {
   loadVisibleSkills: () => Promise<AgentSkill[]>;
   /** Provider for inserting/overwriting; same testability rationale. */
   persistSkill: (skill: AgentSkill, mode: "create" | "overwrite") => Promise<void>;
+  /** Concrete authorization hook for overwriting an existing skill. */
+  canOverwriteSkill?: (skill: AgentSkill) => Promise<void>;
+  grantTeamAccess?: (teamRefs: string[], skillIds: string[]) => Promise<void>;
 }
 
 function triggerSupervisorRefresh(): void {
@@ -193,6 +202,7 @@ export async function runZipImport(
   }
 
   const imported: ImportedSkillSummary[] = [];
+  const teamRefs = normalizeStringList(args.teamRefs);
 
   for (const cand of parsed.candidates) {
     const decision = resolutionByCandidate.get(cand.candidateId);
@@ -202,7 +212,9 @@ export async function runZipImport(
         decision,
         existingByName: visibleByName,
         user: args.user,
+        teamRefs,
         persistSkill: args.persistSkill,
+        canOverwriteSkill: args.canOverwriteSkill,
       });
       imported.push(summary);
     } catch (err) {
@@ -210,7 +222,10 @@ export async function runZipImport(
       // it in the response so the UI can show a per-row error.
       // Re-throw for built-in lock so the operator sees a hard 403
       // (matches the existing PUT semantics).
-      if (err instanceof ApiError && err.statusCode === 403) {
+      if (
+        (err instanceof ApiError && err.statusCode === 403) ||
+        (typeof err === "object" && err !== null && (err as { statusCode?: number }).statusCode === 403)
+      ) {
         throw err;
       }
       imported.push({
@@ -224,6 +239,14 @@ export async function runZipImport(
     }
   }
 
+  const grantSkillIds = imported
+    .filter((skill) => skill.outcome === "created" || skill.outcome === "overwritten")
+    .map((skill) => skill.skillId)
+    .filter(Boolean);
+  if (teamRefs.length > 0 && grantSkillIds.length > 0 && args.grantTeamAccess) {
+    await args.grantTeamAccess(teamRefs, grantSkillIds);
+  }
+
   return { phase: "import", imported };
 }
 
@@ -232,13 +255,15 @@ interface ImportOneArgs {
   decision: ImportConflictDecision | undefined;
   existingByName: Map<string, AgentSkill>;
   user: { email: string; role?: string };
+  teamRefs: string[];
   persistSkill: (skill: AgentSkill, mode: "create" | "overwrite") => Promise<void>;
+  canOverwriteSkill?: (skill: AgentSkill) => Promise<void>;
 }
 
 async function importOne(
   args: ImportOneArgs,
 ): Promise<ImportedSkillSummary> {
-  const { candidate, decision, existingByName, user, persistSkill } = args;
+  const { candidate, decision, existingByName, user, teamRefs, persistSkill, canOverwriteSkill } = args;
 
   // No conflict resolution provided: the candidate name didn't
   // collide at analyze time, so we treat it as a brand-new import.
@@ -293,7 +318,9 @@ async function importOne(
       saveAsName,
       scanResult,
       user,
+      teamRefs,
       persistSkill,
+      canOverwriteSkill,
       durationMs: Date.now() - tStart,
     });
   }
@@ -304,6 +331,7 @@ async function importOne(
     saveAsName,
     scanResult,
     user,
+    teamRefs,
     persistSkill,
     durationMs: Date.now() - tStart,
   });
@@ -314,14 +342,16 @@ interface CreateNewArgs {
   saveAsName: string;
   scanResult: { scan_status: ScanStatus; scan_summary?: string };
   user: { email: string; role?: string };
+  teamRefs: string[];
   persistSkill: (skill: AgentSkill, mode: "create" | "overwrite") => Promise<void>;
   durationMs: number;
 }
 
 async function createNew(args: CreateNewArgs): Promise<ImportedSkillSummary> {
-  const { candidate, saveAsName, scanResult, user, persistSkill, durationMs } = args;
+  const { candidate, saveAsName, scanResult, user, teamRefs, persistSkill, durationMs } = args;
   const id = generateSkillIdFromName(saveAsName);
   const now = new Date();
+  const normalizedTeamRefs = normalizeStringList(teamRefs);
 
   // Synthesize a single quick-start task so the imported skill has
   // something runnable. Mirrors how the templates importer seeds
@@ -344,7 +374,7 @@ async function createNew(args: CreateNewArgs): Promise<ImportedSkillSummary> {
     is_system: false,
     created_at: now,
     updated_at: now,
-    visibility: "private",
+    visibility: normalizedTeamRefs.length > 0 ? "team" : "private",
     skill_content: skillMdBody,
     ancillary_files: Object.keys(candidate.ancillaryFiles).length
       ? candidate.ancillaryFiles
@@ -393,7 +423,9 @@ interface OverwriteArgs {
   saveAsName: string;
   scanResult: { scan_status: ScanStatus; scan_summary?: string };
   user: { email: string; role?: string };
+  teamRefs: string[];
   persistSkill: (skill: AgentSkill, mode: "create" | "overwrite") => Promise<void>;
+  canOverwriteSkill?: (skill: AgentSkill) => Promise<void>;
   durationMs: number;
 }
 
@@ -407,7 +439,9 @@ async function overwriteExisting(
     saveAsName,
     scanResult,
     user,
+    teamRefs,
     persistSkill,
+    canOverwriteSkill,
     durationMs,
   } = args;
   const existing = existingByName.get(normalise(decision.existingName)) ||
@@ -423,14 +457,12 @@ async function overwriteExisting(
   if (existing.is_system && !canMutateBuiltinSkill(existing)) {
     throw new ApiError(BUILTIN_LOCKED_MESSAGE, 403);
   }
-  if (!existing.is_system && existing.owner_id !== user.email) {
-    throw new ApiError(
-      `You don't have permission to overwrite "${existing.name}".`,
-      403,
-    );
+  if (canOverwriteSkill) {
+    await canOverwriteSkill(existing);
   }
 
   const now = new Date();
+  const normalizedTeamRefs = normalizeStringList(teamRefs);
   // Capture the pre-overwrite state as a revision BEFORE we mutate
   // the row. The Versions tab in the workspace lets the owner
   // restore that revision if the import wasn't what they wanted.
@@ -455,6 +487,7 @@ async function overwriteExisting(
     scan_summary: scanResult.scan_summary,
     scan_updated_at: candidate.skillContent.trim() ? now : existing.scan_updated_at,
     updated_at: now,
+    ...(normalizedTeamRefs.length > 0 ? { visibility: "team" as const } : {}),
     // Tasks: replace the prompt body so the runnable behaviour
     // matches the new SKILL.md, but keep the existing display_text /
     // subagent so users don't lose their custom labelling.
@@ -530,6 +563,37 @@ function normalise(s: string): string {
   return (s || "").trim().replace(/\s+/g, " ").toLowerCase();
 }
 
+function normalizeStringList(values: string[] | undefined | null): string[] {
+  if (!Array.isArray(values)) return [];
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const value of values) {
+    const trimmed = String(value || "").trim();
+    if (!trimmed || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    normalized.push(trimmed);
+  }
+  return normalized;
+}
+
+function parseTeamRefsFromForm(form: FormData): string[] {
+  const raw = form.get("shared_with_teams") ?? form.get("team_refs");
+  if (typeof raw !== "string" || !raw.trim()) return [];
+  const trimmed = raw.trim();
+  if (trimmed.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      return normalizeStringList(Array.isArray(parsed) ? parsed.map(String) : []);
+    } catch (err) {
+      throw new ApiError(
+        `Invalid 'shared_with_teams' JSON: ${err instanceof Error ? err.message : String(err)}`,
+        400,
+      );
+    }
+  }
+  return normalizeStringList(trimmed.split(","));
+}
+
 // ---------------------------------------------------------------------------
 // Route handler
 // ---------------------------------------------------------------------------
@@ -539,7 +603,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     throw new ApiError("Skills require MongoDB to be configured", 503);
   }
 
-  return await withAuth(request, async (req, user) => {
+  return await withAuth(request, async (req, user, session) => {
     const contentType = request.headers.get("content-type") || "";
     if (!contentType.toLowerCase().includes("multipart/form-data")) {
       throw new ApiError(
@@ -563,6 +627,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       );
     }
     const buffer = await file.arrayBuffer();
+    const teamRefs = parseTeamRefsFromForm(form);
 
     let resolutions: ImportConflictDecision[] | undefined;
     const rawResolutions = form.get("resolutions");
@@ -589,26 +654,44 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     // expose a writer that uses the same auth checks as the plain
     // CRUD route.
     const collection = await getCollection<AgentSkill>("agent_skills");
-    const visible = await collection
-      .find({
-        $or: [
-          { is_system: true },
-          { owner_id: user.email },
-          { visibility: "global" },
-        ],
-      })
-      .toArray();
+    const candidates = await collection.find({}).toArray();
+    const visible = await filterResourcesByPermission(session, candidates, {
+      type: "skill",
+      action: "discover",
+      id: (skill) => skill.id,
+    });
 
     const result = await runZipImport({
       buffer,
       resolutions,
       user,
+      teamRefs,
       loadVisibleSkills: async () => visible,
+      canOverwriteSkill: async (skill) => {
+        await requireSkillPermission(session, skill.id, "write");
+      },
+      grantTeamAccess: async (refs, skillIds) => {
+        const ownerSubject =
+          typeof session?.sub === "string" && session.sub.trim() ? session.sub.trim() : null;
+        for (const skillId of skillIds) {
+          await reconcileSkillTeamShares({
+            skillId,
+            ownerSubject,
+            previousTeamRefs: [],
+            nextTeamRefs: refs,
+            nextVisibility: refs.length > 0 ? "team" : "private",
+          });
+        }
+      },
       persistSkill: async (skill, mode) => {
+        const { shared_with_teams: _omit, ...mongoRow } = skill;
         if (mode === "create") {
-          await collection.insertOne(skill);
+          await collection.insertOne(mongoRow as AgentSkill);
         } else {
-          await collection.updateOne({ id: skill.id }, { $set: skill });
+          await collection.updateOne(
+            { id: skill.id },
+            { $set: mongoRow, $unset: { shared_with_teams: "" } },
+          );
         }
       },
     });

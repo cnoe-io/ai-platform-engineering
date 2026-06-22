@@ -38,7 +38,36 @@ jest.mock('next-auth', () => ({
 
 jest.mock('@/lib/auth-config', () => ({
   authOptions: {},
+  isBootstrapAdmin: jest.fn().mockReturnValue(false),
+  REQUIRED_ADMIN_GROUP: '',
 }));
+
+jest.mock('@/lib/rbac/keycloak-authz', () => ({
+  checkPermission: jest.fn(),
+}));
+jest.mock('@/lib/rbac/audit', () => ({
+  logAuthzDecision: jest.fn(),
+}));
+
+// The OpenFGA gate (`requireAdminSurfaceManage`) calls `checkOpenFgaTuple` and
+// rejects any session without `sub`. Mock it so tests can drive allow/deny per
+// `tuple.user`.
+const mockCheckOpenFgaTuple = jest.fn();
+jest.mock('@/lib/rbac/openfga', () => ({
+  checkOpenFgaTuple: (...args: unknown[]) => mockCheckOpenFgaTuple(...args),
+}));
+
+// Non-admins are scoped via getReadableSlackChannelNames; mock so tests can
+// drive which Slack channels a non-admin can see.
+const mockGetReadableSlackChannelNames = jest.fn<Promise<string[]>, [string]>();
+jest.mock('@/lib/rbac/user-insights-scope', () => ({
+  getReadableSlackChannelNames: (...args: unknown[]) =>
+    mockGetReadableSlackChannelNames(...(args as [string])),
+}));
+
+const mockCheckPermission = jest.requireMock<{ checkPermission: jest.Mock }>(
+  '@/lib/rbac/keycloak-authz'
+).checkPermission;
 
 jest.mock('@/lib/config', () => ({
   getConfig: (key: string) => key === 'ssoEnabled',
@@ -91,6 +120,15 @@ function makeRequest(url: string): NextRequest {
   return new NextRequest(new URL(url, 'http://localhost:3000'));
 }
 
+/** Minimal JWT body so requireRbacPermission can decode realm_access.roles. */
+function accessTokenWithRoles(roles: string[]): string {
+  const payload = Buffer.from(
+    JSON.stringify({ realm_access: { roles } }),
+    'utf8'
+  ).toString('base64url');
+  return `h.${payload}.s`;
+}
+
 /**
  * Admin session via OIDC role — getAuthenticatedUser sees session.role === 'admin'
  * and skips the MongoDB fallback check entirely.
@@ -99,6 +137,8 @@ function adminSession() {
   return {
     user: { email: 'admin@example.com', name: 'Admin User' },
     role: 'admin',
+    sub: 'admin-user-sub',
+    accessToken: accessTokenWithRoles(['admin']),
   };
 }
 
@@ -110,6 +150,8 @@ function userSession() {
   return {
     user: { email: 'user@example.com', name: 'Regular User' },
     role: 'user',
+    sub: 'regular-user-sub',
+    accessToken: accessTokenWithRoles(['chat_user']),
   };
 }
 
@@ -117,6 +159,19 @@ function resetMocks() {
   mockGetServerSession.mockReset();
   mockGetCollection.mockClear();
   mockIsMongoDBConfigured = true;
+  mockCheckPermission.mockReset();
+  mockCheckPermission.mockResolvedValue({
+    allowed: false,
+    reason: 'DENY_NO_CAPABILITY',
+  });
+  // Default: only `user:admin-user-sub` passes the OpenFGA ReBAC gate.
+  // Tests can override per-case with `mockCheckOpenFgaTuple.mockResolvedValueOnce(...)`.
+  mockCheckOpenFgaTuple.mockReset();
+  mockCheckOpenFgaTuple.mockImplementation(async (tuple: { user?: string }) => ({
+    allowed: tuple.user === 'user:admin-user-sub',
+  }));
+  mockGetReadableSlackChannelNames.mockReset();
+  mockGetReadableSlackChannelNames.mockResolvedValue([]);
   Object.keys(mockCollections).forEach((key) => delete mockCollections[key]);
 }
 
@@ -131,6 +186,33 @@ function setupAdminWithCollections() {
   mockGetServerSession.mockResolvedValue(adminSession());
 
   // Users collection — no findOne needed for OIDC admin (session.role = 'admin')
+  const usersCol = createMockCollection();
+  usersCol.countDocuments.mockResolvedValue(0);
+  mockCollections['users'] = usersCol;
+
+  const convCol = createMockCollection();
+  convCol.countDocuments.mockResolvedValue(0);
+  mockCollections['conversations'] = convCol;
+
+  const msgCol = createMockCollection();
+  msgCol.countDocuments.mockResolvedValue(0);
+  mockCollections['messages'] = msgCol;
+
+  const feedbackCol = createMockCollection();
+  feedbackCol.countDocuments.mockResolvedValue(0);
+  mockCollections['feedback'] = feedbackCol;
+
+  const platformConfigCol = createMockCollection();
+  mockCollections['platform_config'] = platformConfigCol;
+
+  return { usersCol, convCol, msgCol, feedbackCol };
+}
+
+/**
+ * Setup non-admin collections — same shape as admin, but the caller (not us)
+ * is responsible for setting `mockGetServerSession` / `mockCheckOpenFgaTuple`.
+ */
+function setupNonAdminCollections() {
   const usersCol = createMockCollection();
   usersCol.countDocuments.mockResolvedValue(0);
   mockCollections['users'] = usersCol;
@@ -173,43 +255,14 @@ describe('GET /api/admin/stats — Authentication & Authorization', () => {
     expect(res.status).toBe(401);
   });
 
-  it('returns 403 when user lacks admin view group', async () => {
+  it('non-admins are scoped, not denied — returns 200 even with no readable channels', async () => {
+    // A non-admin (no admin_surface:stats#can_manage) is scoped rather than
+    // 403'd. With no readable Slack channels but a session email present, the
+    // view is scoped to that user's own web conversations.
     mockGetServerSession.mockResolvedValue(userSession());
+    mockGetReadableSlackChannelNames.mockResolvedValue([]);
 
-    const usersCol = createMockCollection();
-    usersCol.findOne.mockResolvedValue(null);
-    mockCollections['users'] = usersCol;
-
-    const req = makeRequest('/api/admin/stats');
-    const res = await GET(req);
-    expect(res.status).toBe(403);
-    const body = await res.json();
-    expect(body.error).toContain('Admin view access required');
-  });
-
-  it('allows non-admin users with view access to read stats (readonly)', async () => {
-    mockGetServerSession.mockResolvedValue({ ...userSession(), canViewAdmin: true });
-
-    const usersCol = createMockCollection();
-    usersCol.findOne.mockResolvedValue(null);
-    usersCol.countDocuments.mockResolvedValue(5);
-    usersCol.aggregate.mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) });
-    mockCollections['users'] = usersCol;
-
-    const convCol = createMockCollection();
-    convCol.countDocuments.mockResolvedValue(10);
-    convCol.aggregate.mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) });
-    mockCollections['conversations'] = convCol;
-
-    const msgCol = createMockCollection();
-    msgCol.countDocuments.mockResolvedValue(50);
-    msgCol.aggregate.mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) });
-    mockCollections['messages'] = msgCol;
-
-    const feedbackCol = createMockCollection();
-    feedbackCol.countDocuments.mockResolvedValue(0);
-    mockCollections['feedback'] = feedbackCol;
-    mockCollections['platform_config'] = createMockCollection();
+    setupNonAdminCollections();
 
     const req = makeRequest('/api/admin/stats');
     const res = await GET(req);
@@ -218,38 +271,52 @@ describe('GET /api/admin/stats — Authentication & Authorization', () => {
     expect(body.success).toBe(true);
   });
 
-  it('grants access when user is admin via MongoDB fallback', async () => {
-    // Session says 'user' but MongoDB has admin role
-    mockGetServerSession.mockResolvedValue(userSession());
+  // ────────────────────────────────────────────────────────────────────────
+  // RBAC contract: full admin scope requires OpenFGA admin_surface:stats
+  // #can_manage. Side-channels (`session.canViewAdmin`, the MongoDB
+  // `metadata.role: 'admin'` fallback) must NOT grant admin scope — they only
+  // ever yield the non-admin scoped view. The two tests below pin that.
+  // ────────────────────────────────────────────────────────────────────────
 
-    const usersCol = createMockCollection();
-    usersCol.findOne.mockResolvedValue({
-      email: 'user@example.com',
-      metadata: { role: 'admin' },
-    });
-    usersCol.countDocuments.mockResolvedValue(5);
-    mockCollections['users'] = usersCol;
+  it('viewer-only OIDC session (canViewAdmin) gets scoped view — NOT full admin', async () => {
+    mockGetServerSession.mockResolvedValue({ ...userSession(), canViewAdmin: true });
+    mockGetReadableSlackChannelNames.mockResolvedValue([]);
 
-    const convCol = createMockCollection();
-    convCol.countDocuments.mockResolvedValue(10);
-    mockCollections['conversations'] = convCol;
-
-    const msgCol = createMockCollection();
-    msgCol.countDocuments.mockResolvedValue(50);
-    mockCollections['messages'] = msgCol;
-
-    const feedbackCol = createMockCollection();
-    feedbackCol.countDocuments.mockResolvedValue(0);
-    mockCollections['feedback'] = feedbackCol;
-    mockCollections['platform_config'] = createMockCollection();
+    setupNonAdminCollections();
 
     const req = makeRequest('/api/admin/stats');
     const res = await GET(req);
     expect(res.status).toBe(200);
+    const body = await res.json();
+    // The OpenFGA gate must have been consulted (and denied) — proving we
+    // didn't short-circuit on the side-channel.
+    expect(mockCheckOpenFgaTuple).toHaveBeenCalledWith(
+      expect.objectContaining({ user: 'user:regular-user-sub', relation: 'can_manage' })
+    );
+    expect(body.success).toBe(true);
+  });
+
+  it('MongoDB admin-role fallback gets scoped view — NOT full admin', async () => {
+    mockGetServerSession.mockResolvedValue(userSession());
+    mockGetReadableSlackChannelNames.mockResolvedValue([]);
+
+    setupNonAdminCollections();
+    const usersCol = mockCollections['users'];
+    usersCol.findOne.mockResolvedValue({
+      email: 'user@example.com',
+      metadata: { role: 'admin' },
+    });
+
+    const req = makeRequest('/api/admin/stats');
+    const res = await GET(req);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.success).toBe(true);
   });
 
   it('returns 503 when MongoDB is not configured', async () => {
     mockIsMongoDBConfigured = false;
+    mockGetServerSession.mockResolvedValue(adminSession());
     const req = makeRequest('/api/admin/stats');
     const res = await GET(req);
     expect(res.status).toBe(503);
@@ -818,5 +885,201 @@ describe('GET /api/admin/stats — Source & User Filters', () => {
       (call: any[]) => call[0]?.owner_id?.$in?.includes('alice@co.com')
     );
     expect(hasUserFilter).toBe(true);
+  });
+});
+
+// ============================================================================
+// Tests: Non-admin Scoping (visibility boundary)
+// ============================================================================
+
+describe('GET /api/admin/stats — non-admin scoping', () => {
+  beforeEach(resetMocks);
+
+  it('non-admin with readable channels: convSourceFilter ANDs in the channel scope', async () => {
+    mockGetServerSession.mockResolvedValue(userSession());
+    mockGetReadableSlackChannelNames.mockResolvedValue(['ops-help', 'ai-support']);
+
+    const { convCol } = setupNonAdminCollections();
+
+    const req = makeRequest('/api/admin/stats');
+    const res = await GET(req);
+    expect(res.status).toBe(200);
+
+    expect(mockGetReadableSlackChannelNames).toHaveBeenCalledWith('user:regular-user-sub');
+
+    // Every conversations.countDocuments call must include the scope ($and).
+    // The scope clauses include $or with channel_name $in [readable channels]
+    // OR owner_id == session email.
+    const convCountCalls = convCol.countDocuments.mock.calls;
+    expect(convCountCalls.length).toBeGreaterThan(0);
+    const hasScope = convCountCalls.some((call: any[]) => {
+      const filter = call[0];
+      const inspect = JSON.stringify(filter ?? {});
+      return inspect.includes('ops-help') && inspect.includes('user@example.com');
+    });
+    expect(hasScope).toBe(true);
+  });
+
+  it('non-admin with no readable channels but has email: scopes by owner_id only', async () => {
+    mockGetServerSession.mockResolvedValue(userSession());
+    mockGetReadableSlackChannelNames.mockResolvedValue([]);
+
+    const { convCol } = setupNonAdminCollections();
+
+    const req = makeRequest('/api/admin/stats');
+    const res = await GET(req);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.success).toBe(true);
+
+    // owner_id scope must be applied to conversation queries
+    const convCountCalls = convCol.countDocuments.mock.calls;
+    const hasOwnerScope = convCountCalls.some((call: any[]) => {
+      const inspect = JSON.stringify(call[0] ?? {});
+      return inspect.includes('user@example.com');
+    });
+    expect(hasOwnerScope).toBe(true);
+  });
+
+  it('non-admin with no sub and no email: returns 401', async () => {
+    mockGetServerSession.mockResolvedValue({
+      user: { email: '', name: '' },
+      role: 'user',
+      sub: '',
+      accessToken: accessTokenWithRoles(['chat_user']),
+    });
+
+    setupNonAdminCollections();
+
+    const req = makeRequest('/api/admin/stats');
+    const res = await GET(req);
+    expect(res.status).toBe(401);
+  });
+
+  it('admin path is unaffected — no scope filter is applied', async () => {
+    const { convCol } = setupAdminWithCollections();
+
+    const req = makeRequest('/api/admin/stats');
+    const res = await GET(req);
+    expect(res.status).toBe(200);
+
+    // Admin path must NOT call getReadableSlackChannelNames
+    expect(mockGetReadableSlackChannelNames).not.toHaveBeenCalled();
+
+    // No conversation query should embed the user's email as a scope
+    const convCountCalls = convCol.countDocuments.mock.calls;
+    const hasUserEmailScope = convCountCalls.some((call: any[]) => {
+      const inspect = JSON.stringify(call[0] ?? {});
+      return inspect.includes('admin@example.com');
+    });
+    expect(hasUserEmailScope).toBe(false);
+  });
+
+  // ──────────────────────────────────────────────────────────────────────
+  // Leak boundary: every aggregate in the payload must respect the scope, not
+  // just the conversation counts. Each test below pins one query family that
+  // would otherwise return platform-wide data to a non-admin.
+  // ──────────────────────────────────────────────────────────────────────
+
+  it('does not count platform-wide users — total_users derives from scoped conversations', async () => {
+    mockGetServerSession.mockResolvedValue(userSession());
+    mockGetReadableSlackChannelNames.mockResolvedValue([]);
+    const { usersCol } = setupNonAdminCollections();
+    // If the route read the users collection for total_users it would report 999.
+    usersCol.countDocuments.mockResolvedValue(999);
+
+    const req = makeRequest('/api/admin/stats');
+    const res = await GET(req);
+    const body = await res.json();
+    // Scoped conversations are empty in this fixture → 0, never the global 999.
+    expect(body.data.overview.total_users).toBe(0);
+    // The unscoped `users.countDocuments({})` headcount must not be used.
+    expect(usersCol.countDocuments).not.toHaveBeenCalledWith({});
+  });
+
+  it('scopes slack message counts by owner_id (messages carry no channel_name)', async () => {
+    mockGetServerSession.mockResolvedValue(userSession());
+    mockGetReadableSlackChannelNames.mockResolvedValue(['ops-help']);
+    const { msgCol } = setupNonAdminCollections();
+
+    const req = makeRequest('/api/admin/stats');
+    await GET(req);
+
+    // Every slack-message query must carry the owner scope; none may run a bare
+    // { 'metadata.source': 'slack' } across the whole platform.
+    const slackMsgCalls = msgCol.countDocuments.mock.calls.filter(
+      (call: any[]) => call[0]?.['metadata.source'] === 'slack'
+    );
+    expect(slackMsgCalls.length).toBeGreaterThan(0);
+    for (const call of slackMsgCalls) {
+      expect(JSON.stringify(call[0])).toContain('user@example.com');
+    }
+  });
+
+  it('scopes the feedback summary to readable channels OR own email', async () => {
+    mockGetServerSession.mockResolvedValue(userSession());
+    mockGetReadableSlackChannelNames.mockResolvedValue(['ops-help']);
+    const { feedbackCol } = setupNonAdminCollections();
+
+    const req = makeRequest('/api/admin/stats');
+    await GET(req);
+
+    // The feedback aggregations $match must embed the scope, not run globally.
+    const fbAggCalls = feedbackCol.aggregate.mock.calls;
+    expect(fbAggCalls.length).toBeGreaterThan(0);
+    const matchStage = fbAggCalls[0][0].find((s: any) => s.$match);
+    const inspect = JSON.stringify(matchStage);
+    expect(inspect).toContain('ops-help');
+    expect(inspect).toContain('user@example.com');
+  });
+
+  it('available_channels exposes only the readable set, never a platform-wide distinct', async () => {
+    mockGetServerSession.mockResolvedValue(userSession());
+    mockGetReadableSlackChannelNames.mockResolvedValue(['ops-help', 'ai-support']);
+    const { convCol } = setupNonAdminCollections();
+
+    const req = makeRequest('/api/admin/stats');
+    const res = await GET(req);
+    const body = await res.json();
+
+    expect(body.data.available_channels.sort()).toEqual(['ai-support', 'ops-help']);
+    // No distinct over the channel name fields (which would enumerate every
+    // channel on the platform).
+    const distinctFields = convCol.distinct.mock.calls.map((c: any[]) => c[0]);
+    expect(distinctFields).not.toContain('slack_meta.channel_name');
+    expect(distinctFields).not.toContain('metadata.channel_name');
+  });
+
+  it('skips the Slack-block probe query when a non-admin has no readable channels', async () => {
+    // The Slack block is gated by a `countDocuments(SLACK_CONV_MATCH, {limit:1})`
+    // probe. A channel-less non-admin can see no Slack data, so that probe (and
+    // the whole block) must be skipped — never run platform-wide.
+    mockGetServerSession.mockResolvedValue(userSession());
+    mockGetReadableSlackChannelNames.mockResolvedValue([]);
+    const { convCol } = setupNonAdminCollections();
+
+    await GET(makeRequest('/api/admin/stats'));
+
+    // The probe is the only countDocuments call that passes an options object
+    // ({ limit: 1 }) as its second argument.
+    const probeCalls = convCol.countDocuments.mock.calls.filter(
+      (call: any[]) => call[1]?.limit === 1
+    );
+    expect(probeCalls).toHaveLength(0);
+  });
+
+  it('runs the Slack-block probe when a non-admin has readable channels', async () => {
+    // Positive control for the test above — with at least one readable channel
+    // the probe must run (bounded, via slackChannelScope downstream).
+    mockGetServerSession.mockResolvedValue(userSession());
+    mockGetReadableSlackChannelNames.mockResolvedValue(['ops-help']);
+    const { convCol } = setupNonAdminCollections();
+
+    await GET(makeRequest('/api/admin/stats'));
+
+    const probeCalls = convCol.countDocuments.mock.calls.filter(
+      (call: any[]) => call[1]?.limit === 1
+    );
+    expect(probeCalls.length).toBeGreaterThan(0);
   });
 });

@@ -1,7 +1,6 @@
 "use client";
 
-import React from "react";
-import { getConfig, getLogoFilterClass } from "@/lib/config";
+import { getConfig,getLogoFilterClass } from "@/lib/config";
 import { cn } from "@/lib/utils";
 
 interface CAIPESpinnerProps {

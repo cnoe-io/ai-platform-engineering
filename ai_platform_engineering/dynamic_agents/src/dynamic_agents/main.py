@@ -43,6 +43,10 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     logger.info("Starting Dynamic Agents service...")
 
+    from dynamic_agents.services.mcp_client import warn_if_agent_gateway_missing_hmac
+
+    warn_if_agent_gateway_missing_hmac()
+
     # Eagerly initialise tracing + scrubber so the OTel processor
     # is registered before any span fires (FastAPI middleware,
     # MongoDB ping, etc.). The per-AgentRuntime install is kept as
@@ -128,8 +132,18 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    # Add Prometheus metrics middleware (serves /metrics, tracks request duration)
+    # Prometheus HTTP metrics middleware (from main). Mounted BEFORE the
+    # JWT auth middleware so failed-auth and CORS-preflight requests are
+    # still observable.
     app.add_middleware(PrometheusHTTPMiddleware)
+
+    # Spec 102 Phase 8 / T103: validate incoming Bearer JWTs against
+    # Keycloak and bind current_user_token so the MCP httpx factory can
+    # forward the user identity to agentgateway. Mounted AFTER CORS so
+    # CORS preflights are not auth-gated.
+    from dynamic_agents.auth.jwt_middleware import JwtAuthMiddleware
+
+    app.add_middleware(JwtAuthMiddleware)
 
     # Mount routes
     app.include_router(health.router)
@@ -174,6 +188,26 @@ def create_app() -> FastAPI:
             "version": "0.1.0",
             "docs": "/docs",
         }
+
+    # Spec 102 Phase 11.2 — expose Prometheus metrics so the RBAC PDP
+    # cache hit/miss + decision counters set in
+    # ai_platform_engineering.utils.auth.metrics are scrapeable. The
+    # endpoint is intentionally NOT auth-gated (matches supervisor's
+    # /metrics convention; restrict via NetworkPolicy in production).
+    try:
+        from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+        from starlette.responses import Response
+
+        @app.get("/metrics", include_in_schema=False)
+        async def metrics() -> Response:
+            return Response(
+                content=generate_latest(),
+                media_type=CONTENT_TYPE_LATEST,
+            )
+    except ImportError:
+        logger.warning(
+            "prometheus_client not installed; /metrics endpoint disabled"
+        )
 
     return app
 

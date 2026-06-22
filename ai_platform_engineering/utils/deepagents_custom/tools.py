@@ -5,7 +5,9 @@ filesystem used by FilesystemMiddleware.
 """
 
 import asyncio
+import json
 import logging
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import Annotated
 
@@ -26,9 +28,77 @@ FS_TOOL_NAMES = {
     "glob",
     "grep",
     "edit_file",
+    "get_file_line_count",
     "tool_result_to_file",
     "terraform_fmt",
 }
+
+GET_FILE_LINE_COUNT_DESCRIPTION = (
+    "Return the line count for a file without reading its contents. Use this "
+    "before read_file when complete file content matters, then call read_file "
+    "with explicit offset and limit values."
+)
+
+
+@tool(description=GET_FILE_LINE_COUNT_DESCRIPTION)
+def get_file_line_count(
+    file_path: str,
+    state: Annotated[dict[str, object], InjectedState],
+) -> str:
+    """Return the line count for a file available to read_file."""
+    files_obj = state.get("files")
+    if not isinstance(files_obj, Mapping):
+        payload = {
+            "file_path": file_path,
+            "exists": False,
+            "error": "Filesystem state is unavailable",
+        }
+        return json.dumps(payload, indent=2)
+
+    files: Mapping[object, object] = files_obj
+    file_data = files.get(file_path)
+
+    if file_data is None:
+        payload = {
+            "file_path": file_path,
+            "exists": False,
+            "error": f"File '{file_path}' not found",
+        }
+        return json.dumps(payload, indent=2)
+
+    if isinstance(file_data, Mapping):
+        if "content" not in file_data:
+            payload = {
+                "file_path": file_path,
+                "exists": True,
+                "error": "File data does not contain a content field",
+            }
+            return json.dumps(payload, indent=2)
+        raw_content = file_data["content"]
+    else:
+        raw_content = file_data
+
+    if isinstance(raw_content, list):
+        total_lines = len(raw_content)
+        if total_lines and raw_content[-1] == "":
+            total_lines -= 1
+    elif isinstance(raw_content, str):
+        total_lines = len(raw_content.splitlines())
+    else:
+        payload = {
+            "file_path": file_path,
+            "exists": True,
+            "error": f"Unsupported file content type: {type(raw_content).__name__}",
+        }
+        return json.dumps(payload, indent=2)
+
+    payload = {
+        "file_path": file_path,
+        "exists": True,
+        "total_lines": total_lines,
+    }
+
+    return json.dumps(payload, indent=2)
 
 
 TOOL_RESULT_TO_FILE_DESCRIPTION = """Writes the content of the most recent tool result in the agent's message history to a file.
@@ -184,9 +254,11 @@ async def wait(seconds: int) -> str:
 
 
 __all__ = [
+    "get_file_line_count",
     "tool_result_to_file",
     "wait",
     "FS_TOOL_NAMES",
+    "GET_FILE_LINE_COUNT_DESCRIPTION",
     "TOOL_RESULT_TO_FILE_DESCRIPTION",
     "WAIT_TOOL_DESCRIPTION",
 ]

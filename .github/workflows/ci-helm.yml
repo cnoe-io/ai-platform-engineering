@@ -20,6 +20,11 @@ on:
         description: 'Version tag to publish (for example: 0.8.0-rc.1-chart.1)'
         required: true
         type: string
+      force_build:
+        description: 'Force publish all charts regardless of which chart files changed. Use for coordinated pre-release builds.'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -73,7 +78,7 @@ jobs:
           echo "Registry path: $REGISTRY_PATH"
 
       - name: 🔒 Harden runner
-        uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450 # v2.19.1
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
         with:
           egress-policy: audit
 
@@ -86,6 +91,13 @@ jobs:
       - name: Detect changed charts
         id: detect
         run: |
+          if [[ "${{ inputs.force_build }}" == "true" ]]; then
+            echo "🔁 force_build requested: publishing all charts"
+            echo "rag-stack-changed=true" >> "$GITHUB_OUTPUT"
+            echo "ai-platform-changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           if git rev-parse HEAD^ >/dev/null 2>&1; then
             CHANGED_FILES=$(git diff --name-only HEAD^ HEAD | grep "^charts/" || true)
           else
@@ -127,10 +139,103 @@ jobs:
         with:
           version: v3.14.0
 
+      - name: 🔑 Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ secrets.CI_BUILD_APP_ID }}
+          private-key: ${{ secrets.CI_BUILD_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+
       - name: Login to GHCR
         if: steps.detect.outputs.rag-stack-changed == 'true' || steps.detect.outputs.ai-platform-changed == 'true'
         run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          echo "${{ github.token }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Write local chart version normalizer
+        if: steps.detect.outputs.rag-stack-changed == 'true' || steps.detect.outputs.ai-platform-changed == 'true'
+        run: |
+          cat > /tmp/normalize-local-chart-tree-versions.py <<'PY'
+          import re
+          import sys
+          from pathlib import Path
+
+          root = Path(sys.argv[1])
+          chart_version = sys.argv[2]
+          app_version = sys.argv[3]
+
+
+          def replace_scalar(line: str, key: str, value: str) -> str:
+              match = re.match(rf"^(\s*{re.escape(key)}:\s*)(.*?)(\s*#.*)?$", line)
+              if not match:
+                  return line
+              return f"{match.group(1)}{value}{match.group(3) or ''}"
+
+
+          def repository_value(line: str) -> str:
+              value = line.split(":", 1)[1].strip()
+              return value.strip("\"'")
+
+
+          def update_chart(path: Path) -> None:
+              original = path.read_text()
+              lines = original.splitlines()
+
+              for index, line in enumerate(lines):
+                  if line.startswith("version:"):
+                      lines[index] = replace_scalar(line, "version", chart_version)
+                      break
+
+              for index, line in enumerate(lines):
+                  if line.startswith("appVersion:"):
+                      lines[index] = replace_scalar(line, "appVersion", app_version)
+                      break
+
+              try:
+                  deps_index = next(index for index, line in enumerate(lines) if line == "dependencies:")
+              except StopIteration:
+                  path.write_text("\n".join(lines) + ("\n" if original.endswith("\n") else ""))
+                  return
+
+              index = deps_index + 1
+              while index < len(lines):
+                  if lines[index] and not lines[index].startswith((" ", "\t", "-")):
+                      break
+                  if not re.match(r"^\s*-\s+name:\s*", lines[index]):
+                      index += 1
+                      continue
+
+                  start = index
+                  index += 1
+                  while index < len(lines):
+                      if re.match(r"^\s*-\s+name:\s*", lines[index]):
+                          break
+                      if lines[index] and not lines[index].startswith((" ", "\t")):
+                          break
+                      index += 1
+
+                  block = lines[start:index]
+                  repository = next(
+                      (repository_value(line) for line in block if re.match(r"^\s*repository:\s*", line)),
+                      "",
+                  )
+                  is_local_dependency = repository == "" or repository.startswith("file://")
+                  if not is_local_dependency:
+                      continue
+
+                  for dep_index in range(start, index):
+                      if re.match(r"^\s*version:\s*", lines[dep_index]):
+                          lines[dep_index] = replace_scalar(lines[dep_index], "version", chart_version)
+                          break
+
+              path.write_text("\n".join(lines) + ("\n" if original.endswith("\n") else ""))
+
+
+          for chart in sorted(root.rglob("Chart.yaml")):
+              update_chart(chart)
+              print(f"normalized {chart}")
+          PY
 
       - name: Package rag-stack chart
         if: steps.detect.outputs.rag-stack-changed == 'true'
@@ -151,6 +256,8 @@ jobs:
             echo "rag-stack appVersion is $CHART_APP_VERSION, expected $APP_VERSION"
             exit 1
           fi
+
+          python3 /tmp/normalize-local-chart-tree-versions.py "charts/rag-stack" "$TAG_VERSION" "$APP_VERSION"
 
           mkdir -p ./packaged-charts
           helm dependency update charts/rag-stack/
@@ -175,6 +282,9 @@ jobs:
             echo "ai-platform-engineering appVersion is $CHART_APP_VERSION, expected $APP_VERSION"
             exit 1
           fi
+
+          python3 /tmp/normalize-local-chart-tree-versions.py "charts/rag-stack" "$TAG_VERSION" "$APP_VERSION"
+          python3 /tmp/normalize-local-chart-tree-versions.py "charts/ai-platform-engineering" "$TAG_VERSION" "$APP_VERSION"
 
           mkdir -p ./packaged-charts
           helm dependency update charts/rag-stack/
@@ -253,9 +363,18 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: 🔑 Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ secrets.CI_BUILD_APP_ID }}
+          private-key: ${{ secrets.CI_BUILD_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+
       - name: Notify release finalize
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           TAG_VERSION: ${{ needs.publish-release-helm.outputs.tag_version }}
         run: |
           RESULT="${{ needs.publish-release-helm.result }}"

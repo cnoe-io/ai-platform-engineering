@@ -1,64 +1,49 @@
 /**
  * API route for listing available built-in tools.
  *
- * Proxies to the Dynamic Agents backend /api/v1/builtin-tools endpoint.
- * Returns tool definitions for dynamic UI rendering.
+ * Proxies to the Dynamic Agents backend `/api/v1/builtin-tools` endpoint.
  *
- * This endpoint does not require authentication - it returns static metadata.
+ * Authorization model:
+ *   - The list is a static catalog of supported built-in tool *types*
+ *     (web_search, file_io, ...), not a set of permissioned objects. It
+ *     is the same shape as the AI Assist task registry: rendering the
+ *     Create Agent wizard requires being able to read this catalog, but
+ *     nothing here gives the caller call/use access to any concrete
+ *     tool — per-tool authorization happens at MCP invocation time.
+ *   - Earlier revisions gated this on
+ *     `tool:dynamic-agents-builtin#can_discover`, but no production code
+ *     path ever wrote that tuple, so every caller (admins included) was
+ *     denied with a 403. The picker showed "Failed to load tools: Failed
+ *     to fetch: 403" on the Create Agent → Tools step.
+ *   - The route now mirrors how Create Agent itself is gated: it
+ *     requires an authenticated session (so the request carries a real
+ *     bearer token to dynamic-agents' `DA_REQUIRE_BEARER` middleware)
+ *     and skips the OpenFGA check.
  */
 
-import { NextRequest } from "next/server";
-import { getServerConfig } from "@/lib/config";
 import {
-  withErrorHandler,
-  successResponse,
-  ApiError,
-} from "@/lib/api-middleware";
+authenticateRequest,
+getDynamicAgentsConfig,
+proxyRequest,
+} from "@/lib/da-proxy";
+import { NextRequest,NextResponse } from "next/server";
 
-/**
- * GET /api/dynamic-agents/builtin-tools
- * List available built-in tools and their configuration options.
- */
-export const GET = withErrorHandler(async (request: NextRequest) => {
-  const config = getServerConfig();
+export async function GET(request: NextRequest): Promise<Response> {
+  const authResult = await authenticateRequest(request);
+  if (authResult instanceof NextResponse) return authResult;
 
-  if (!config.dynamicAgentsEnabled) {
-    throw new ApiError("Dynamic agents are not enabled", 403);
-  }
+  const daConfig = getDynamicAgentsConfig();
+  if (daConfig instanceof NextResponse) return daConfig;
 
-  const dynamicAgentsUrl = config.dynamicAgentsUrl;
-  if (!dynamicAgentsUrl) {
-    throw new ApiError("Dynamic agents URL not configured", 500);
-  }
+  const backendUrl = new URL(
+    "/api/v1/builtin-tools",
+    daConfig.dynamicAgentsUrl,
+  );
 
-  try {
-    const response = await fetch(`${dynamicAgentsUrl}/api/v1/builtin-tools`, {
-      method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-      },
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new ApiError(
-        `Backend error: ${response.status} - ${errorText}`,
-        response.status
-      );
-    }
-
-    const data = await response.json();
-
-    // Backend returns { success: true, data: { tools: [...] } }
-    // We pass through the tools array
-    return successResponse(data.data?.tools || []);
-  } catch (error) {
-    if (error instanceof ApiError) {
-      throw error;
-    }
-    throw new ApiError(
-      `Failed to fetch builtin tools: ${error instanceof Error ? error.message : "Unknown error"}`,
-      500
-    );
-  }
-});
+  return proxyRequest(
+    backendUrl.toString(),
+    "GET",
+    authResult,
+    "[builtin-tools]",
+  );
+}

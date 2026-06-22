@@ -2,7 +2,7 @@
 name = "agent_aws"
 version = "0.1.0"
 license = "Apache-2.0"
-description = "An AWS EKS AI agent using Strands Agents SDK and AWS EKS MCP Server."
+description = "An AWS EKS AI agent using LangGraph and AWS native tools."
 readme = "README.md"
 authors = [
     { name = "Omar Sayed", email = "osayed@cisco.com" },
@@ -12,7 +12,7 @@ maintainers = [
 ]
 requires-python = ">=3.13,<4.0"
 dependencies = [
-    "strands-agents==1.19.0",
+    # assisted-by Codex Codex-sonnet-4-6
     "boto3==1.40.19",
     "pydantic==2.12.5",
     "click==8.3.1",
@@ -24,17 +24,17 @@ dependencies = [
     "keyring==25.6.0",
     "httpx==0.28.1",
     "uvicorn==0.35.0",
-    "starlette==0.50.0",
+    "starlette==1.3.1",
     "typing-extensions==4.14.1",
     "requests==2.33.0",
     "mcp==1.27.1",
-    "langchain-core==1.4.0",
+    "langchain-core==1.4.8",
     "langchain-mcp-adapters==0.2.1",
-    "langgraph==1.1.6",
+    "langgraph==1.2.6",
     "deepagents==0.3.0",
     "ai-platform-engineering-utils",
     "prometheus_client==0.23.1",
-    "cryptography==46.0.7",
+    "cryptography==48.0.1",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -45,7 +45,7 @@ allow-direct-references = true
 
 [tool.uv]
 override-dependencies = ["protobuf==5.29.6"]
-constraint-dependencies = ["nltk==3.9.4", "pypdf==6.10.2"]
+constraint-dependencies = ["pypdf==6.13.3"]
 
 [tool.uv.sources]
 ai-platform-engineering-utils = { path = "../../utils" }

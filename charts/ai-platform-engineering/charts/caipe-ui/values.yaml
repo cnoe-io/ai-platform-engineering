@@ -101,11 +101,18 @@ resources: {}
   #   memory: 128Mi
 
 # This is to setup the liveness and readiness probes more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/
+startupProbe:
+  httpGet:
+    path: /api/health
+    port: http
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 30
 livenessProbe:
   httpGet:
     path: /api/health
     port: http
-  initialDelaySeconds: 30
   periodSeconds: 10
   timeoutSeconds: 5
   failureThreshold: 3
@@ -113,7 +120,6 @@ readinessProbe:
   httpGet:
     path: /api/health
     port: http
-  initialDelaySeconds: 5
   periodSeconds: 5
   timeoutSeconds: 3
   failureThreshold: 3
@@ -183,7 +189,7 @@ podDisruptionBudget:
 # For sensitive values (OIDC secrets, MongoDB URI, etc.) use existingSecret or externalSecrets below.
 config:
   # CAIPE Supervisor URL - should point to the supervisor-agent service
-  A2A_BASE_URL: "http://ai-platform-engineering-supervisor-agent:8000"
+  A2A_BASE_URL: ""
   # Feature flags
   ENABLE_SUBAGENT_CARDS: "true"
   SSO_ENABLED: "true"
@@ -197,14 +203,68 @@ config:
   NEXTAUTH_URL: "http://localhost:3000"
   # Node environment
   NODE_ENV: "production"
+  # Production-safety gate for the BFF admin-token fallback path.
+  #
+  # When `KEYCLOAK_ADMIN_CLIENT_ID/SECRET` are unset (or client_credentials
+  # returns 401), `ui/src/lib/rbac/keycloak-admin.ts` historically fell back
+  # to `password / admin-cli / admin / admin` against `/realms/master`. In
+  # a misconfigured cluster where Keycloak still has its bootstrap admin
+  # password, this is master-realm admin escalation from the BFF.
+  #
+  # As of R1, the fallback is gated:
+  #   - In production (`NODE_ENV=production`, which is the chart default),
+  #     the BFF refuses to fall back and throws a configuration error so
+  #     the misconfiguration is loud instead of latent.
+  #   - In dev (`NODE_ENV != "production"`), the fallback is allowed so
+  #     local docker-compose / make targets keep working out of the box.
+  #   - Either default can be overridden with this flag:
+  #     - `"true"`  → fallback enabled regardless of `NODE_ENV`
+  #     - `"false"` → fallback disabled regardless of `NODE_ENV`
+  #     - `""` (default) → behavior determined by `NODE_ENV`.
+  #
+  # Leave empty in production. Set to `"true"` only in throwaway clusters
+  # where the Keycloak bootstrap admin password is known not to be the
+  # default (or has already been rotated).
+  # assisted-by Claude:claude-opus-4-7
+  ALLOW_KEYCLOAK_ADMIN_PASSWORD_FALLBACK: ""
   # MongoDB configuration
   MONGODB_DATABASE: "caipe"
   # RAG Server URL (if RAG is enabled)
-  # RAG_URL: "http://ai-platform-engineering-rag-server:9446"
+  # RAG_URL: "http://<release-name>-rag-server:9446"
   # Branding configuration
   TAGLINE: "Multi-Agent Workflow Automation"
   DESCRIPTION: "Where Humans and AI agents collaborate to deliver high quality outcomes."
   APP_NAME: "CAIPE"
+  # AgentGateway MCP discovery endpoints. Leave empty to default to the in-cluster
+  # AgentGateway Services (admin /config on "<release>-agentgateway:15000"; MCP
+  # listener mode-aware on the standalone proxy or controller Gateway). Only used
+  # when global.agentgateway.enabled=true. Override for out-of-cluster gateways.
+  AGENT_GATEWAY_ADMIN_URL: ""
+  AGENT_GATEWAY_URL: ""
+  # Canonical Slack workspace namespace used by UI-managed Slack ReBAC/routes.
+  SLACK_WORKSPACE_ALIAS: "CAIPE"
+  # Slack bot internal admin API used for route-cache reload and one-time
+  # static-config-to-MongoDB/OpenFGA migration. The Web UI backend uses the
+  # existing OIDC_CLIENT_ID/OIDC_CLIENT_SECRET Keycloak client credentials.
+  SLACK_BOT_ADMIN_URL: ""
+  SLACK_BOT_ADMIN_AUDIENCE: "caipe-slack-bot-admin"
+  # SLACK_BOT_ADMIN_SCOPE: "slack:routes:read slack:routes:reload slack:routes:sync"
+  SLACK_DEFAULT_TEAM_SLUG: ""
+  SLACK_DEFAULT_AGENT_ID: ""
+  # Webex bot internal admin API used for route-cache reload and one-time
+  # static-config-to-MongoDB/OpenFGA migration. The client secret is sensitive
+  # and must come from existingSecret/externalSecrets as WEBEX_BOT_ADMIN_CLIENT_SECRET.
+  WEBEX_BOT_ADMIN_URL: ""
+  WEBEX_BOT_ADMIN_CLIENT_ID: "caipe-ui"
+  WEBEX_BOT_ADMIN_AUDIENCE: "caipe-webex-bot-admin"
+  # WEBEX_BOT_ADMIN_TOKEN_URL: "http://keycloak:7080/realms/caipe/protocol/openid-connect/token"
+  # WEBEX_BOT_ADMIN_SCOPE: "webex:routes:read webex:routes:reload webex:routes:sync"
+  # WEBEX_LINK_HMAC_SECRET is sensitive and must come from existingSecret/externalSecrets.
+  WEBEX_DEFAULT_TEAM_SLUG: ""
+  WEBEX_DEFAULT_AGENT_ID: ""
+  WEBEX_THREAD_CONTEXT_ENABLED: "true"
+  WEBEX_THREAD_CONTEXT_MAX_MESSAGES: "10"
+  WEBEX_THREAD_CONTEXT_MAX_CHARS: "4000"
   LOGO_URL: "/logo.svg"
   LOGO_STYLE: "default"
   # SPINNER_COLOR: ""
@@ -218,24 +278,51 @@ config:
   # Requires admin role and MongoDB storage mode
   DYNAMIC_AGENTS_ENABLED: "false"
   # Dynamic Agents service URL (only used when DYNAMIC_AGENTS_ENABLED is "true")
-  # DYNAMIC_AGENTS_URL: "http://ai-platform-engineering-dynamic-agents:8001"
+  DYNAMIC_AGENTS_URL: ""
+  # Connections & Secrets credential store. Disabled by default. Use local-cmk
+  # only for non-production testing; production must use aws-kms.
+  CAIPE_CREDENTIALS_ENABLED: "false"
+  CREDENTIAL_STORE_BACKEND: "mongodb-envelope"
+  CREDENTIAL_KEY_PROVIDER: "local-cmk"
+  CREDENTIAL_KMS_CMK_ID: ""
+  CREDENTIAL_KMS_REGION: ""
+  CREDENTIAL_SERVICE_AUDIENCE: "caipe-credential-service"
+  # Bootstrap global OAuth connectors from server env at startup. In
+  # Kubernetes, provide provider client IDs/secrets/redirect URIs through
+  # externalSecrets below; in Docker Compose, provide them through .env.
+  CREDENTIAL_BOOTSTRAP_OAUTH_CONNECTORS: "false"
   # Standalone skill-scanner microservice (cisco-ai-defense/skill-scanner).
   # Set when global.skillScanner.enabled=true on the parent chart so the
   # UI can reach the in-cluster scanner Service. Leave empty to disable
   # the safety scan (skills will save with scan_status=unscanned).
-  #
-  # The `{{ .Release.Name }}` template is evaluated by the caipe-ui ConfigMap
-  # template (which runs each `config:` value through `tpl`), so this URL
-  # tracks the actual Helm release name instead of hardcoding the default
-  # `ai-platform-engineering` and silently breaking on `helm install foo …`.
-  SKILL_SCANNER_URL: "http://{{ .Release.Name }}-skill-scanner:8000"
-  # OIDC required group (non-sensitive)
-  OIDC_REQUIRED_GROUP: "app-users"
-  # OIDC admin group (non-sensitive)
-  OIDC_REQUIRED_ADMIN_GROUP: "app-admins"
-  # OIDC admin view group for read-only admin dashboard access (non-sensitive)
-  # Leave empty to allow all authenticated users to view admin dashboard
-  OIDC_REQUIRED_ADMIN_VIEW_GROUP: ""
+  SKILL_SCANNER_URL: ""
+  # In-cluster Keycloak service URL (server-side JWKS fetch + admin API)
+  KEYCLOAK_URL: ""
+  KEYCLOAK_REALM: "caipe"
+  KEYCLOAK_RESOURCE_SERVER_ID: "caipe-platform"
+  # Internal OIDC discovery URL for server-side token validation
+  OIDC_DISCOVERY_URL: ""
+  OIDC_CLIENT_ID: "caipe-ui"
+  # Slack bot admin token URL (in-cluster Keycloak token endpoint)
+  SLACK_BOT_ADMIN_TOKEN_URL: ""
+  SLACK_BOT_ADMIN_CLIENT_ID: "caipe-ui"
+  # OpenFGA authorization service
+  OPENFGA_HTTP: ""
+  OPENFGA_STORE_NAME: "caipe-openfga"
+  # OIDC group required for basic Web UI admission. Set per deployment; empty disables the group gate.
+  OIDC_REQUIRED_GROUP: ""
+  # Deprecated: admin access is granted through Identity Group Sync + OpenFGA organization admin relationships.
+  OIDC_REQUIRED_ADMIN_GROUP: ""
+  # Bootstrap admin emails — comma-separated list for initial admin setup.
+  # The BFF resolves these to Keycloak subjects and seeds durable OpenFGA
+  # organization/system_config grants. Remove after configuring Identity Group
+  # Sync to grant OpenFGA admin.
+  BOOTSTRAP_ADMIN_EMAILS: ""
+  # Unsafe dev/emergency escape hatch: when true, UI RBAC checks allow all
+  # requests without consulting OpenFGA. Do not enable in staging or prod.
+  CAIPE_UNSAFE_RBAC_BYPASS: "false"
+  CAIPE_ORG_KEY: "caipe"
+  CAIPE_ORG_DISPLAY_NAME: "CAIPE"
   # OIDC refresh token support
   OIDC_ENABLE_REFRESH_TOKEN: "true"
   # Additional JWKS URIs for token validation (JSON array, non-sensitive)
@@ -260,6 +347,9 @@ config:
   # GITHUB_TICKET_ENABLED: "true"
   # GITHUB_TICKET_REPO: "org/repo"
   # GITHUB_TICKET_LABEL: "caipe-reported"
+  # Server-side user identity via JWT — same flag as backend.
+  # When true, the UI stops prefixing messages with "by user: email".
+  ENABLE_USER_INFO_TOOL: "false"
 
 # Name of a pre-existing Kubernetes Secret to mount as environment variables.
 # Use this when managing secrets outside the chart (e.g. via extraDeploy, CI/CD, or manual creation).
@@ -269,7 +359,57 @@ config:
 # Example: kubectl create secret generic my-caipe-secrets --from-literal=MONGODB_URI='mongodb://user:pass@host:27017/caipe'
 # For AWS DocumentDB use the DocumentDB connection string (MongoDB-compatible) as MONGODB_URI.
 # You can also include NEXTAUTH_SECRET, OIDC_*, etc. in the same secret.
+# Slack bot admin sync/reload uses OIDC_CLIENT_ID/OIDC_CLIENT_SECRET. Webex bot
+# admin sync/reload still requires WEBEX_BOT_ADMIN_CLIENT_SECRET when enabled.
 existingSecret: ""
+
+# ---------- Keycloak Admin REST client wiring (R1 upstream fix, May 2026) ----------
+#
+# The BFF's `fetchFreshAdminToken` (ui/src/lib/rbac/keycloak-admin.ts) needs
+# `KEYCLOAK_ADMIN_CLIENT_ID` + `KEYCLOAK_ADMIN_CLIENT_SECRET` in the pod's
+# environment to call the Keycloak Admin REST API via the supervisor's
+# confidential `caipe-platform` client. Before this block was added, the
+# operator had two flavors of half-fix:
+#
+#   - Set `caipe-ui.existingSecret=<same-secret>` which mounts the Secret
+#     into the pod under the WRONG env-var name (`OIDC_CLIENT_SECRET`).
+#   - Hand-roll an `extraDeploy:` Secret keyed under
+#     `KEYCLOAK_ADMIN_CLIENT_SECRET` and mount it via `existingSecret`.
+#
+# Now: setting `keycloakAdminClient.secretName` to the same Secret the
+# keycloak chart's `platformClient.secretRef`/`externalSecret` writes
+# auto-injects both env vars correctly. The umbrella chart's
+# `values.yaml` defaults this to `caipe-platform-secret` — the
+# conventional Secret name used across the rest of the chart — so
+# operators who follow the standard naming convention get the wiring
+# for free.
+#
+# For non-default Secret names (rare): override BOTH
+# `keycloak.platformClient.secretRef` AND `caipe-ui.keycloakAdminClient.secretName`
+# to the same value. Helm does not support cross-subchart value
+# substitution at template time, so this is the simplest contract that
+# also lets ESO-only installs work without changing the keycloak chart's
+# helper logic.
+#
+# Leave `secretName` empty in standalone caipe-ui dev installs (where
+# the BFF talks to an external Keycloak via its own credentials in
+# `existingSecret` or `OIDC_CLIENT_SECRET`).
+# assisted-by Claude:claude-opus-4-7
+keycloakAdminClient:
+  # Name of the K8s Secret holding the Keycloak Admin REST client_secret.
+  # Defaults to "" in the standalone subchart; the umbrella sets this to
+  # "caipe-platform-secret" so a Helm install with only
+  # `keycloak.platformClient.secretRef=caipe-platform-secret` lights up
+  # the BFF admin path automatically.
+  secretName: ""
+  # Key inside `secretName` that holds the actual client_secret value.
+  # Matches `keycloak.platformClient.secretKey` (default: OIDC_CLIENT_SECRET).
+  secretKey: "OIDC_CLIENT_SECRET"
+  # Client ID to use when calling the Keycloak Admin REST API. The realm
+  # ships `caipe-platform` with `service-accounts-enabled: true` and the
+  # `realm-management` role mappings — see realm-config.json. There is
+  # no reason to change this in a vanilla install.
+  clientId: "caipe-platform"
 
 # External Secrets configuration for sensitive data (OIDC, NextAuth, MongoDB/DocumentDB)
 # Secrets are fetched from your secret store (Vault, AWS Secrets Manager, etc.)
@@ -309,6 +449,68 @@ externalSecrets:
     #   remoteRef:
     #     key: dev/caipe-ui
     #     property: OIDC_CLIENT_SECRET
+    # - secretKey: WEBEX_BOT_ADMIN_CLIENT_SECRET
+    #   remoteRef:
+    #     key: dev/caipe-ui
+    #     property: WEBEX_BOT_ADMIN_CLIENT_SECRET
+    # - secretKey: WEBEX_LINK_HMAC_SECRET
+    #   remoteRef:
+    #     key: dev/caipe-ui
+    #     property: WEBEX_LINK_HMAC_SECRET
+    # Credential OAuth connector bootstrap fields. These are consumed only when
+    # config.CREDENTIAL_BOOTSTRAP_OAUTH_CONNECTORS=true.
+    # - secretKey: GITHUB_CLIENT_ID
+    #   remoteRef:
+    #     key: dev/credential-oauth-connectors
+    #     property: GITHUB_CLIENT_ID
+    # - secretKey: GITHUB_CLIENT_SECRET
+    #   remoteRef:
+    #     key: dev/credential-oauth-connectors
+    #     property: GITHUB_CLIENT_SECRET
+    # - secretKey: GITHUB_REDIRECT_URI
+    #   remoteRef:
+    #     key: dev/credential-oauth-connectors
+    #     property: GITHUB_REDIRECT_URI
+    # - secretKey: CONFLUENCE_CLIENT_ID
+    #   remoteRef:
+    #     key: dev/credential-oauth-connectors
+    #     property: CONFLUENCE_CLIENT_ID
+    # - secretKey: CONFLUENCE_CLIENT_SECRET
+    #   remoteRef:
+    #     key: dev/credential-oauth-connectors
+    #     property: CONFLUENCE_CLIENT_SECRET
+    # - secretKey: CONFLUENCE_REDIRECT_URI
+    #   remoteRef:
+    #     key: dev/credential-oauth-connectors
+    #     property: CONFLUENCE_REDIRECT_URI
+    # - secretKey: WEBEX_CLIENT_ID
+    #   remoteRef:
+    #     key: dev/credential-oauth-connectors
+    #     property: WEBEX_CLIENT_ID
+    # - secretKey: WEBEX_CLIENT_SECRET
+    #   remoteRef:
+    #     key: dev/credential-oauth-connectors
+    #     property: WEBEX_CLIENT_SECRET
+    # - secretKey: WEBEX_REDIRECT_URI
+    #   remoteRef:
+    #     key: dev/credential-oauth-connectors
+    #     property: WEBEX_REDIRECT_URI
+    # - secretKey: PAGERDUTY_CLIENT_ID
+    #   remoteRef:
+    #     key: dev/credential-oauth-connectors
+    #     property: PAGERDUTY_CLIENT_ID
+    # - secretKey: PAGERDUTY_CLIENT_SECRET
+    #   remoteRef:
+    #     key: dev/credential-oauth-connectors
+    #     property: PAGERDUTY_CLIENT_SECRET
+    # - secretKey: PAGERDUTY_REDIRECT_URI
+    #   remoteRef:
+    #     key: dev/credential-oauth-connectors
+    #     property: PAGERDUTY_REDIRECT_URI
+    # - secretKey: PAGERDUTY_SCOPES
+    #   remoteRef:
+    #     key: dev/credential-oauth-connectors
+    #     property: PAGERDUTY_SCOPES
 
 # Structured application config (models, MCP servers, agents).
 # Rendered as a YAML file and volume-mounted into the container at /etc/caipe-ui/app-config.yaml.
@@ -359,3 +561,17 @@ appConfig:
   #   allowed_tools:
   #     github: []
   #   enabled: true
+
+  # Workflow configurations (multi-step automated pipelines)
+  workflow_configs: []
+  # Example:
+  # - id: "my-workflow"
+  #   name: "My Workflow"
+  #   description: "A multi-step workflow"
+  #   config_driven: true
+  #   steps:
+  #     - type: "step"
+  #       display_text: "Step description"
+  #       agent_id: "agent-sre"
+  #       prompt: "Do something"
+  #       on_error: "abort"

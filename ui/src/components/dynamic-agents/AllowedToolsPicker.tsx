@@ -1,28 +1,30 @@
 "use client";
 
-import React from "react";
-import { Button } from "@/components/ui/button";
+// assisted-by Codex Codex-sonnet-4-6
+
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
-  Server,
-  Loader2,
-  Zap,
-  Check,
-  ChevronDown,
-  ChevronRight,
-  Search,
-  Info,
-  AlertTriangle,
-} from "lucide-react";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
+Tooltip,
+TooltipContent,
+TooltipProvider,
+TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import type { MCPServerConfig, MCPToolInfo } from "@/types/dynamic-agent";
+import type { MCPServerConfig,MCPToolInfo } from "@/types/dynamic-agent";
+import {
+AlertTriangle,
+Check,
+ChevronDown,
+ChevronRight,
+Info,
+Loader2,
+Search,
+Server,
+Zap,
+} from "lucide-react";
+import React from "react";
 
 interface AllowedToolsPickerProps {
   value: Record<string, string[] | boolean>; // server_id -> tool names, true=all, false=disabled
@@ -55,7 +57,9 @@ export function AllowedToolsPicker({ value, onChange, disabled }: AllowedToolsPi
     const fetchServers = async () => {
       setLoading(true);
       try {
-        const response = await fetch("/api/mcp-servers?page_size=100");
+        const response = await fetch("/api/mcp-servers?page_size=100", {
+          credentials: "include",
+        });
         const data = await response.json();
         if (data.success) {
           // Only show enabled servers
@@ -81,9 +85,20 @@ export function AllowedToolsPicker({ value, onChange, disabled }: AllowedToolsPi
     try {
       const response = await fetch(`/api/mcp-servers/probe?id=${serverId}`, {
         method: "POST",
+        credentials: "include",
       });
       const data = await response.json();
       if (data.success) {
+        if (data.data?.success === false) {
+          setProbeStates((prev) => ({
+            ...prev,
+            [serverId]: {
+              loading: false,
+              error: data.data.error || "Probe failed",
+            },
+          }));
+          return;
+        }
         const tools = data.data.tools as MCPToolInfo[];
         setProbeStates((prev) => ({
           ...prev,
@@ -353,7 +368,7 @@ export function AllowedToolsPicker({ value, onChange, disabled }: AllowedToolsPi
                   variant="ghost"
                   size="sm"
                   onClick={() => handleProbe(server._id)}
-                  disabled={disabled || probe?.loading}
+                  disabled={probe?.loading}
                   className="h-7 px-2"
                 >
                   {probe?.loading ? (

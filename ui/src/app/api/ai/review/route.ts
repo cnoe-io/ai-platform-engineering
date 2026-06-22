@@ -26,22 +26,22 @@
  *   9. Aggregate via computeScoreAndGrade; pass = score >= min_score.
  */
 
-import { createHash } from "node:crypto";
-import { NextRequest } from "next/server";
 import { authenticateRequest } from "@/lib/da-proxy";
-import { consume } from "@/lib/server/ai-assist-rate-limit";
 import { getCollection } from "@/lib/mongodb";
+import { consume } from "@/lib/server/ai-assist-rate-limit";
 import { ensureConfig } from "@/lib/server/ai-review/defaults";
-import { runCriterion } from "@/lib/server/ai-review/run-criteria";
 import { computeScoreAndGrade } from "@/lib/server/ai-review/grading";
+import { runCriterion } from "@/lib/server/ai-review/run-criteria";
 import {
-  DEFAULT_GRADE_THRESHOLDS,
-  type CriterionVerdict,
-  type ReviewConfig,
-  type ReviewContext,
-  type ReviewRequest,
-  type ReviewResult,
+DEFAULT_GRADE_THRESHOLDS,
+type CriterionVerdict,
+type ReviewConfig,
+type ReviewContext,
+type ReviewRequest,
+type ReviewResult,
 } from "@/types/ai-review";
+import { NextRequest } from "next/server";
+import { createHash } from "node:crypto";
 
 export const dynamic = "force-dynamic";
 
@@ -52,7 +52,7 @@ const MAX_CONTEXT_BYTES = 64 * 1024;
 const MAX_CRITERIA = 30;
 
 /** Bedrock-friendly default that matches /api/ai/assist's fallback. */
-const GLOBAL_DEFAULT_MODEL_ID = "global.anthropic.claude-sonnet-4-6";
+const GLOBAL_DEFAULT_MODEL_ID = "global.anthropic.claude-haiku-4-5-20251001-v1:0";
 const GLOBAL_DEFAULT_PROVIDER = "aws-bedrock";
 
 // ---------------------------------------------------------------------------
@@ -246,9 +246,20 @@ export async function POST(request: NextRequest) {
   const enabledCriteria = (config.criteria ?? []).slice(0, MAX_CRITERIA);
   const model = await resolveModel(body.model, config.model);
 
+  // Forward the same auth headers `da-proxy.buildBackendHeaders` would, so
+  // each parallel `/api/v1/assistant/suggest` call passes through DA's
+  // JwtAuthMiddleware. Forgetting the bearer token here is what produced
+  // the "AI Review — 0/N criteria passed: Backend error: Unauthorized"
+  // failure mode for signed-in admins; pin all three headers explicitly.
   const headers: Record<string, string> = {};
   if (auth.userContextHeader) {
     headers["X-User-Context"] = auth.userContextHeader;
+  }
+  if (auth.bearerToken) {
+    headers["Authorization"] = `Bearer ${auth.bearerToken}`;
+  }
+  if (auth.traceparent) {
+    headers.traceparent = auth.traceparent;
   }
 
   // ---- Run all criteria in parallel --------------------------------------

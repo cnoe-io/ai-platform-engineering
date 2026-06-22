@@ -1,20 +1,19 @@
 "use client";
 
-import React, { useState } from "react";
-import { motion } from "framer-motion";
-import { Sparkles, Save, Loader2, CheckCircle, AlertCircle } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { DEFAULT_AGENTS } from "@/components/chat/CustomCallButtons";
+import { Button } from "@/components/ui/button";
+import {
+Dialog,
+DialogContent,
+DialogDescription,
+DialogHeader,
+DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { motion } from "framer-motion";
+import { AlertCircle,CheckCircle,Loader2,Save,Sparkles } from "lucide-react";
+import React,{ useState } from "react";
 
 interface UseCaseBuilderProps {
   onSuccess?: () => void;

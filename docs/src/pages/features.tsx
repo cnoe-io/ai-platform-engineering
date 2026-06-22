@@ -26,8 +26,8 @@ const FEATURES = [
     items: [
       'multiAgentConfig.agents — register any A2A-compatible agent with the supervisor',
       'seedConfig.mcp_servers — plug in external MCP servers at chart install time',
-      'Docker Compose: A2A_TRANSPORT env var for p2p or hub-based routing',
-      'Supported protocols: A2A, MCP, AG-UI/SSE, SLIM, OpenAI-compatible',
+      'Docker Compose: direct A2A peer-to-peer agent routing',
+      'Supported protocols: A2A, MCP, AG-UI/SSE, OpenAI-compatible',
       'LiteLLM proxy support — any LLM provider through a single endpoint',
     ],
   },

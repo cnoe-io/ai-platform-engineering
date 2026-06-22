@@ -15,6 +15,19 @@ from typing import Dict, Any
 import uuid
 
 
+# These tests run against a live RAG server started via docker-compose (see the
+# module docstring). They mutate real state and assert that the server's runtime
+# config matches ENABLE_GRAPH_RAG, so they cannot pass in a plain unit run. They
+# are opt-in: set RAG_E2E=1 (with a matching stack up) to enable them. By default
+# they are skipped so `pytest tests/` stays green without a live stack.
+# assisted-by Cursor claude-opus-4-7
+_RAG_E2E_ENABLED = os.getenv("RAG_E2E", "").strip().lower() in {"1", "true", "yes", "on"}
+pytestmark = pytest.mark.skipif(
+    not _RAG_E2E_ENABLED,
+    reason="Live-stack e2e tests are opt-in; set RAG_E2E=1 with a running docker-compose stack to enable",
+)
+
+
 class TestRAGEndToEnd:
   """End-to-end tests for RAG server functionality."""
 

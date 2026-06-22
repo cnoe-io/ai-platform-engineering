@@ -1,31 +1,31 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
-import {
-  X,
-  Clock,
-  Layers,
-  Wrench,
-  CheckCircle,
-  AlertCircle,
-  Activity,
-  Download,
-  ChevronDown,
-  ChevronRight,
-  Box,
-  Radio,
-  ListTodo,
-  MessageSquare,
-  ZoomIn,
-  ZoomOut,
-} from "lucide-react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Dialog,DialogContent,DialogHeader,DialogTitle } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { A2AEvent } from "@/types/a2a";
+import { Tabs,TabsContent,TabsList,TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
+import { A2AEvent } from "@/types/a2a";
+import {
+Activity,
+AlertCircle,
+Box,
+CheckCircle,
+ChevronDown,
+ChevronRight,
+Clock,
+Download,
+Layers,
+ListTodo,
+MessageSquare,
+Radio,
+Wrench,
+X,
+ZoomIn,
+ZoomOut,
+} from "lucide-react";
+import React,{ useMemo,useState } from "react";
 
 interface A2ATimelineModalProps {
   isOpen: boolean;

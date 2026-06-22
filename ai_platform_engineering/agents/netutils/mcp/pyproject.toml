@@ -12,9 +12,12 @@ dependencies = [
   "fastmcp==3.2.4",
   "httpx==0.28.1",
   "mcp==1.27.1",
+  "mcp-agent-auth", # gitleaks:allow - package name, not a credential
   "pydantic==2.12.5",
   "python-dotenv==1.2.2",
 ]
+[tool.uv.sources]
+mcp-agent-auth = { path = "../../common/mcp-auth", editable = true }
 
 [project.scripts]
 mcp-netutils = "mcp_netutils.__main__:main"

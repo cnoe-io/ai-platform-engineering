@@ -1,0 +1,52 @@
+{{- if and .Values.migrate.enabled (ne .Values.datastore.engine "memory") }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "openfga.fullname" . }}-migrate
+  labels:
+    {{- include "openfga.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  backoffLimit: {{ .Values.migrate.backoffLimit }}
+  template:
+    metadata:
+      labels:
+        {{- include "openfga.selectorLabels" . | nindent 8 }}
+    spec:
+      restartPolicy: OnFailure
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: openfga-migrate
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["migrate"]
+          env:
+            - name: OPENFGA_DATASTORE_ENGINE
+              value: {{ .Values.datastore.engine | quote }}
+            {{- if .Values.datastore.uriSecretRef.name }}
+            - name: OPENFGA_DATASTORE_URI
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.datastore.uriSecretRef.name | quote }}
+                  key: {{ .Values.datastore.uriSecretRef.key | quote }}
+            {{- else if .Values.datastore.uri }}
+            - name: OPENFGA_DATASTORE_URI
+              value: {{ .Values.datastore.uri | quote }}
+            {{- else }}
+            {{- fail "openfga.datastore.uri or openfga.datastore.uriSecretRef.name is required when datastore.engine is not memory" }}
+            {{- end }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          {{- with .Values.extraVolumeMounts }}
+          volumeMounts:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- with .Values.extraVolumes }}
+      volumes:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

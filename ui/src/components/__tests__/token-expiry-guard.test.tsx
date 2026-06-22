@@ -1,4 +1,6 @@
 /**
+ * assisted-by Codex Codex-sonnet-4-6
+ *
  * Unit tests for TokenExpiryGuard component
  *
  * Tests cover:
@@ -8,7 +10,7 @@
  * - Expired token handling and auto-redirect
  * - Warning message changes based on refresh token availability
  * - "Sign in again" clears the stale session and preserves return path
- * - "Log In Again" on expired modal signs out and clears flag
+ * - "Sign In Again" on expired modal signs out and clears flag
  * - Auto-logout after 5-second countdown
  * - Concurrent refresh lock (only one refresh attempt at a time)
  * - Cleanup on unmount
@@ -73,6 +75,7 @@ describe('TokenExpiryGuard', () => {
     Object.defineProperty(window, 'open', { value: mockWindowOpen, writable: true })
 
     // Reset getConfig mock to default (ssoEnabled = true)
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { getConfig } = require('@/lib/config')
     getConfig.mockImplementation((key: string) => {
       if (key === 'ssoEnabled') return true
@@ -93,6 +96,7 @@ describe('TokenExpiryGuard', () => {
   // ─────────────────────────────────────────────────────────────────────
 
   it('should render nothing when SSO is not enabled', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { getConfig } = require('@/lib/config')
     getConfig.mockReturnValue(false)
 
@@ -558,7 +562,7 @@ describe('TokenExpiryGuard', () => {
       await act(async () => { jest.advanceTimersByTime(0) })
 
       await waitFor(() => {
-        expect(screen.getByText(/session refresh failed/i)).toBeInTheDocument()
+        expect(screen.getByText(/sign-in needed/i)).toBeInTheDocument()
         expect(screen.getByText(/redirecting to login in 5 seconds/i)).toBeInTheDocument()
       })
 
@@ -654,6 +658,25 @@ describe('TokenExpiryGuard', () => {
       })
     })
 
+    it('should set token-expiry-handling flag when the server-side access token cache is missing', async () => {
+      jest.useRealTimers()
+
+      mockUseSession.mockReturnValue({
+        data: {
+          user: { name: 'Test User', email: 'test@example.com' },
+          error: 'AccessTokenMissing',
+        } as any,
+        status: 'authenticated',
+        update: mockUpdateSession,
+      })
+
+      render(<TokenExpiryGuard />)
+
+      await waitFor(() => {
+        expect(mockSessionStorage.setItem).toHaveBeenCalledWith('token-expiry-handling', 'true')
+      })
+    })
+
     it('should show refresh-failed modal when session has RefreshTokenExpired error', async () => {
       jest.useRealTimers()
 
@@ -669,7 +692,7 @@ describe('TokenExpiryGuard', () => {
       render(<TokenExpiryGuard />)
 
       await waitFor(() => {
-        expect(screen.getByText(/session refresh failed/i)).toBeInTheDocument()
+        expect(screen.getByText(/sign-in needed/i)).toBeInTheDocument()
         expect(screen.getByText(/redirecting to login in 5 seconds/i)).toBeInTheDocument()
       })
     })
@@ -680,7 +703,7 @@ describe('TokenExpiryGuard', () => {
   // ─────────────────────────────────────────────────────────────────────
 
   describe('logout handler', () => {
-    it('should call signOut with preserved login callbackUrl when Log In Again is clicked', async () => {
+    it('should call signOut with preserved login callbackUrl when Sign In Again is clicked', async () => {
       jest.useRealTimers()
       window.history.pushState({}, '', '/chat/thread-123')
 
@@ -696,10 +719,10 @@ describe('TokenExpiryGuard', () => {
       render(<TokenExpiryGuard />)
 
       await waitFor(() => {
-        expect(screen.getByText(/session refresh failed/i)).toBeInTheDocument()
+        expect(screen.getByText(/sign-in needed/i)).toBeInTheDocument()
       })
 
-      fireEvent.click(screen.getByRole('button', { name: /log in again/i }))
+      fireEvent.click(screen.getByRole('button', { name: /sign in again/i }))
 
       await waitFor(() => {
         expect(mockSignOut).toHaveBeenCalledWith({
@@ -708,7 +731,7 @@ describe('TokenExpiryGuard', () => {
       })
     })
 
-    it('should keep token-expiry-handling flag set when Log In Again is clicked', async () => {
+    it('should keep token-expiry-handling flag set when Sign In Again is clicked', async () => {
       jest.useRealTimers()
       // Pre-populate the flag (as set when entering the error/expired state)
       sessionStorageData['token-expiry-handling'] = 'true'
@@ -725,10 +748,10 @@ describe('TokenExpiryGuard', () => {
       render(<TokenExpiryGuard />)
 
       await waitFor(() => {
-        expect(screen.getByText(/session refresh failed/i)).toBeInTheDocument()
+        expect(screen.getByText(/sign-in needed/i)).toBeInTheDocument()
       })
 
-      fireEvent.click(screen.getByRole('button', { name: /log in again/i }))
+      fireEvent.click(screen.getByRole('button', { name: /sign in again/i }))
 
       await waitFor(() => {
         expect(mockSessionStorage.setItem).toHaveBeenCalledWith('token-expiry-handling', 'true')

@@ -43,10 +43,19 @@ jest.mock("@/lib/api-middleware", () => {
   return {
     ...actual,
     withAuth: jest.fn(async (_req: any, handler: any) =>
-      handler(_req, mockUser, { accessToken: "tok" }),
+      // `sub` is now required by the new `requireResourcePermission`
+      // gate that runs after the role check. Forge a stable admin subject.
+      handler(_req, mockUser, { accessToken: "tok", sub: "admin-sub" }),
     ),
   };
 });
+
+// `requireAdminSurfaceManage` (`admin_surface:skills#can_manage`) calls
+// `checkOpenFgaTuple` after the role check. Allow it by default; tests
+// asserting on PDP deny can override with `.mockResolvedValueOnce(...)`.
+jest.mock("@/lib/rbac/openfga", () => ({
+  checkOpenFgaTuple: jest.fn().mockResolvedValue({ allowed: true }),
+}));
 
 // Mongo: stub two collections we touch.
 const agentSkillsDocs: any[] = [];

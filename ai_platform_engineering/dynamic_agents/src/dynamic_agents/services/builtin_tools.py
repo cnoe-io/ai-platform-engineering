@@ -7,12 +7,14 @@ configured per-agent with access controls (e.g., domain restrictions).
 import ipaddress
 import json
 import logging
+import os
 import shlex
 import socket
 import subprocess
+import time
 from datetime import datetime, timezone
-from typing import Literal
-from urllib.parse import urljoin, urlparse
+from typing import Literal, Optional
+from urllib.parse import quote, urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup
@@ -72,15 +74,16 @@ def _is_publicly_routable_host(hostname: str) -> tuple[bool, str]:
     return True, ""
 
 
-def _validate_fetch_url(url: str, allowed_domains: str) -> tuple[bool, str, str]:
+def _validate_fetch_url(url: str, allowed_domains: str, allow_non_public_urls: bool = False) -> tuple[bool, str, str]:
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https"):
         return False, "Invalid URL - must start with http:// or https://", ""
 
     domain = (parsed.hostname or "").lower()
-    is_routable, route_error = _is_publicly_routable_host(domain)
-    if not is_routable:
-        return False, f"URL host must resolve only to publicly routable IP addresses: {route_error}", domain
+    if not allow_non_public_urls:
+        is_routable, route_error = _is_publicly_routable_host(domain)
+        if not is_routable:
+            return False, f"URL host must resolve only to publicly routable IP addresses: {route_error}", domain
 
     is_allowed, error_msg = is_domain_allowed(domain, allowed_domains)
     if not is_allowed:
@@ -135,6 +138,17 @@ def get_builtin_tool_definitions() -> list[BuiltinToolDefinition]:
                     label="HTTPS Only",
                     description="If enabled (default), reject non-https:// URLs.",
                     default=True,
+                    required=False,
+                ),
+                BuiltinToolConfigField(
+                    name="allow_non_public_urls",
+                    type="boolean",
+                    label="Allow Non-Public URLs",
+                    description=(
+                        "If enabled, allow curl to reach URLs that resolve to private/internal IP addresses. "
+                        "Disabled by default (SSRF protection). Only enable for agents that need internal network access."
+                    ),
+                    default=False,
                     required=False,
                 ),
             ],
@@ -350,7 +364,7 @@ def create_fetch_url_tool(allowed_domains: str = "*"):
     return fetch_url
 
 
-def create_curl_tool(allowed_domains: str = "*", https_only: bool = True):
+def create_curl_tool(allowed_domains: str = "*", https_only: bool = True, allow_non_public_urls: bool = False):
     """Create a curl tool with domain restrictions.
 
     Supports all HTTP methods (GET, POST, PUT, PATCH, DELETE). Use this
@@ -359,6 +373,8 @@ def create_curl_tool(allowed_domains: str = "*", https_only: bool = True):
     Args:
         allowed_domains: Comma-separated domain patterns (same ACL as fetch_url).
         https_only: If True (default), reject non-https URLs.
+        allow_non_public_urls: If True, skip SSRF IP routing validation so the tool can
+            reach private/internal addresses. Off by default.
 
     Returns:
         A LangChain tool that wraps curl with domain ACL and optional https-only enforcement.
@@ -418,11 +434,11 @@ def create_curl_tool(allowed_domains: str = "*", https_only: bool = True):
                     logger.warning(f"curl blocked non-https URL: {token.split('?')[0]}")
                     return msg
 
-        # Check domain ACL and SSRF protection (same validation as fetch_url)
+        # Check domain ACL and SSRF protection
         for token in args[1:]:
             if token.startswith("https://") or token.startswith("http://"):
                 try:
-                    is_valid, error_msg, domain = _validate_fetch_url(token, allowed_domains)
+                    is_valid, error_msg, domain = _validate_fetch_url(token, allowed_domains, allow_non_public_urls)
                     if not is_valid:
                         logger.warning(f"curl blocked: {domain} (patterns: {allowed_domains})")
                         return f"ERROR: {error_msg}"
@@ -874,16 +890,24 @@ def create_format_file_tool(store, namespace_factory):
 # Workflow tools — list runs, get run status, start a workflow run
 # ═══════════════════════════════════════════════════════════════════════════════
 
-import time
-from typing import Optional
+
+def _format_bearer_authorization(token: str | None) -> str | None:
+    """Normalize a raw JWT or ``Bearer …`` value for outbound Authorization headers."""
+    if not token or not str(token).strip():
+        return None
+    raw = str(token).strip()
+    if raw.lower().startswith("bearer "):
+        return raw
+    return f"Bearer {raw}"
 
 
 class WorkflowApiClient:
-    """HTTP client for calling the CAIPE UI workflow API with OAuth2 client credentials.
+    """HTTP client for calling the CAIPE UI workflow API.
 
-    Handles token acquisition, caching, and auto-refresh.
-    If no credentials are configured, requests are made without auth headers
-    (suitable for development / same-cluster without auth gateway).
+    Prefers the end-user bearer captured at request entry (Webex/Slack OBO,
+    browser session JWT) so workflow start/run authz matches the invoking user.
+    Falls back to OAuth2 client credentials for system-only triggers with no user
+    token (scheduled jobs, background automation).
     """
 
     def __init__(
@@ -894,6 +918,7 @@ class WorkflowApiClient:
         client_secret: str = "",
         scope: str = "",
         audience: str = "",
+        user_bearer: str | None = None,
     ):
         self.base_url = base_url.rstrip("/")
         self.token_url = token_url
@@ -901,11 +926,14 @@ class WorkflowApiClient:
         self.client_secret = client_secret
         self.scope = scope
         self.audience = audience
+        self.user_bearer = user_bearer
         self._caipe_api_auth_enabled = bool(token_url and client_id and client_secret)
         self._cached_token: Optional[str] = None
         self._token_expires_at: float = 0
 
-        if self._caipe_api_auth_enabled:
+        if _format_bearer_authorization(user_bearer):
+            logger.info("WorkflowApiClient: using delegated user bearer for BFF workflow calls")
+        elif self._caipe_api_auth_enabled:
             logger.info(f"WorkflowApiClient: OAuth2 configured (token_url={token_url})")
         else:
             logger.warning("WorkflowApiClient: No OAuth2 credentials configured, requests will be unauthenticated")
@@ -947,6 +975,10 @@ class WorkflowApiClient:
     def _headers(self) -> dict[str, str]:
         """Build request headers with optional auth."""
         headers = {"Content-Type": "application/json"}
+        user_auth = _format_bearer_authorization(self.user_bearer)
+        if user_auth:
+            headers["Authorization"] = user_auth
+            return headers
         token = self._get_token()
         if token:
             headers["Authorization"] = f"Bearer {token}"
@@ -963,10 +995,92 @@ class WorkflowApiClient:
         return requests.post(url, json=json_data, headers=self._headers(), timeout=30)
 
 
+def _workflow_display_name(config_id: str, labels: dict[str, str]) -> str:
+    return labels.get(config_id, config_id)
+
+
+def _truncate_workflow_text(value: str | None, *, max_len: int = 4000) -> str | None:
+    if not value or not str(value).strip():
+        return None
+    text = str(value).strip()
+    if len(text) <= max_len:
+        return text
+    return f"{text[: max_len - 3]}..."
+
+
+_TERMINAL_WORKFLOW_STATUSES = frozenset({"completed", "failed", "cancelled"})
+_WORKFLOW_STATUS_POLL_INTERVAL_SECONDS = 3.0
+_WORKFLOW_STATUS_MAX_WAIT_SECONDS = 300
+
+
+def _workflow_ui_public_base_url(api_base_url: str) -> str:
+    """Resolve a browser-reachable Grid base URL for workflow run links."""
+    for env_key in ("CAIPE_UI_PUBLIC_URL", "CAIPE_UI_BASE_URL", "NEXTAUTH_URL"):
+        candidate = os.environ.get(env_key, "").strip().rstrip("/")
+        if candidate:
+            return candidate
+    return api_base_url.rstrip("/")
+
+
+def _workflow_run_detail_url(ui_base_url: str, run_id: object) -> str | None:
+    """Build the Grid workflow run detail page URL for end users."""
+    rid = str(run_id or "").strip()
+    if not rid:
+        return None
+    return f"{ui_base_url.rstrip('/')}/workflows/run/{quote(rid, safe='')}"
+
+
+def _build_workflow_run_status_payload(
+    run: dict,
+    *,
+    labels: dict[str, str],
+    ui_public_base_url: str,
+) -> dict[str, object]:
+    """Build agent-facing workflow status JSON including per-step outputs."""
+    config_id = run.get("workflow_config_id", "")
+    run_id = run.get("_id")
+    steps_summary = []
+    final_output_parts: list[str] = []
+    for s in run.get("steps", []):
+        step_info = {
+            "index": s.get("index"),
+            "display_text": s.get("display_text"),
+            "agent_id": s.get("agent_id"),
+            "status": s.get("status"),
+            "started_at": s.get("started_at"),
+            "completed_at": s.get("completed_at"),
+        }
+        if s.get("error"):
+            step_info["error"] = s["error"]
+        output = _truncate_workflow_text(s.get("response"))
+        if output:
+            step_info["output"] = output
+            label = s.get("display_text") or f"Step {s.get('index')}"
+            final_output_parts.append(f"**{label}**\n{output}")
+        steps_summary.append(step_info)
+
+    payload: dict[str, object] = {
+        "run_id": run_id,
+        "workflow_config_id": config_id,
+        "workflow_name": _workflow_display_name(config_id, labels),
+        "status": run.get("status"),
+        "started_at": run.get("started_at"),
+        "completed_at": run.get("completed_at"),
+        "steps": steps_summary,
+    }
+    run_url = _workflow_run_detail_url(ui_public_base_url, run_id)
+    if run_url:
+        payload["run_url"] = run_url
+    if final_output_parts:
+        payload["final_output_summary"] = "\n\n".join(final_output_parts)
+    return payload
+
+
 def create_workflow_tools(
     client: WorkflowApiClient,
     allowed_config_ids: list[str],
     trigger_context: dict | None = None,
+    workflow_labels: dict[str, str] | None = None,
 ) -> list:
     """Create the 3 workflow built-in tools.
 
@@ -974,11 +1088,14 @@ def create_workflow_tools(
         client: WorkflowApiClient for making authenticated HTTP calls.
         allowed_config_ids: Workflow config IDs this agent is allowed to interact with.
         trigger_context: Optional dict with agent/user context for trigger_info.
+        workflow_labels: Optional map of workflow_config_id → human-readable name.
     Returns:
         List of 3 LangChain tools: list_workflow_runs, get_workflow_run_status, start_workflow_run.
     """
 
     allowed_set = set(allowed_config_ids)
+    labels = workflow_labels or {}
+    ui_public_base_url = _workflow_ui_public_base_url(client.base_url)
 
     @tool
     def list_workflow_runs(
@@ -1036,62 +1153,71 @@ def create_workflow_tools(
     def get_workflow_run_status(
         thought: str = "",
         run_id: str = "",
+        wait_for_completion: bool = False,
+        max_wait_seconds: int = 120,
     ) -> str:
         """Get the detailed status of a specific workflow run.
 
-        Use this tool to check on a running or completed workflow run,
-        see step-by-step progress, errors, and timing.
+        Use this when the user asks for workflow status, progress, summary, or output.
+        Call again on every follow-up — do not assume earlier results still apply.
+        Set wait_for_completion=true to poll until the run finishes (or times out)
+        so you can return final_output_summary in one reply.
+        Summarize the returned JSON for the user in plain language — do not
+        tell them to call tools themselves.
 
         Args:
             thought: Brief reasoning for why you want to check this run.
             run_id: The ID of the workflow run to check.
+            wait_for_completion: When true, poll until the run reaches a terminal
+                status (completed, failed, cancelled) or max_wait_seconds elapses.
+            max_wait_seconds: Maximum seconds to poll when wait_for_completion
+                is true (capped at 300).
 
         Returns:
-            JSON object with run status, step details, errors, and timestamps.
+            JSON object with run status, step details, step outputs, errors, timestamps,
+            and run_url (Grid UI link to open the run detail page).
         """
         if not run_id:
             return "ERROR: run_id is required"
 
+        wait_seconds = max(0, min(int(max_wait_seconds), _WORKFLOW_STATUS_MAX_WAIT_SECONDS))
+        deadline = time.monotonic() + wait_seconds if wait_for_completion else time.monotonic()
+
         try:
-            resp = client.get(
-                "/api/workflow-runs",
-                params={"run_id": run_id},
-            )
-            if not resp.ok:
-                return f"ERROR: Failed to get run status: HTTP {resp.status_code} - {resp.text[:200]}"
+            while True:
+                resp = client.get(
+                    "/api/workflow-runs",
+                    params={"run_id": run_id},
+                )
+                if not resp.ok:
+                    return f"ERROR: Failed to get run status: HTTP {resp.status_code} - {resp.text[:200]}"
 
-            run = resp.json()
-            # Validate this run belongs to an allowed workflow
-            config_id = run.get("workflow_config_id", "")
-            if config_id not in allowed_set:
-                return f"ERROR: This run belongs to workflow '{config_id}' which you are not allowed to access."
+                run = resp.json()
+                config_id = run.get("workflow_config_id", "")
+                if config_id not in allowed_set:
+                    return (
+                        f"ERROR: This run belongs to workflow '{config_id}' which you are not allowed to access."
+                    )
 
-            # Return a clean summary
-            steps_summary = []
-            for s in run.get("steps", []):
-                step_info = {
-                    "index": s.get("index"),
-                    "display_text": s.get("display_text"),
-                    "agent_id": s.get("agent_id"),
-                    "status": s.get("status"),
-                    "started_at": s.get("started_at"),
-                    "completed_at": s.get("completed_at"),
-                }
-                if s.get("error"):
-                    step_info["error"] = s["error"]
-                steps_summary.append(step_info)
+                payload = _build_workflow_run_status_payload(
+                    run,
+                    labels=labels,
+                    ui_public_base_url=ui_public_base_url,
+                )
+                status = str(run.get("status") or "")
 
-            return json.dumps(
-                {
-                    "run_id": run.get("_id"),
-                    "workflow_config_id": config_id,
-                    "status": run.get("status"),
-                    "started_at": run.get("started_at"),
-                    "completed_at": run.get("completed_at"),
-                    "steps": steps_summary,
-                },
-                indent=2,
-            )
+                if not wait_for_completion or status in _TERMINAL_WORKFLOW_STATUSES:
+                    return json.dumps(payload, indent=2)
+
+                if time.monotonic() >= deadline:
+                    payload["wait_timed_out"] = True
+                    payload["message"] = (
+                        "Workflow still running after wait. Call get_workflow_run_status again "
+                        "with wait_for_completion=true for more updates."
+                    )
+                    return json.dumps(payload, indent=2)
+
+                time.sleep(_WORKFLOW_STATUS_POLL_INTERVAL_SECONDS)
         except Exception as e:
             return f"ERROR: Failed to get workflow run status: {e}"
 
@@ -1103,8 +1229,10 @@ def create_workflow_tools(
     ) -> str:
         """Start a new workflow run.
 
-        Use this tool to trigger a workflow. The workflow will run in the
-        background — use get_workflow_run_status to monitor its progress.
+        Use this tool to trigger a workflow. Pick workflow_config_id from the
+        Available Workflows section by matching the user's requested name.
+        After starting, call get_workflow_run_status with wait_for_completion=true
+        when the user wants progress or final output.
 
         Args:
             thought: Brief reasoning for why you want to start this workflow.
@@ -1114,7 +1242,7 @@ def create_workflow_tools(
                 This will be available to each step as {{ user_context }}.
 
         Returns:
-            JSON object with the new run_id and initial status.
+            JSON object with run_id, workflow name, and initial status.
         """
         if not workflow_config_id:
             return "ERROR: workflow_config_id is required"
@@ -1135,14 +1263,23 @@ def create_workflow_tools(
                 return f"ERROR: Failed to start workflow: HTTP {resp.status_code} - {resp.text[:200]}"
 
             result = resp.json()
-            return json.dumps(
-                {
-                    "run_id": result.get("run_id"),
-                    "status": result.get("status", "running"),
-                    "message": "Workflow started successfully. Use get_workflow_run_status to monitor progress.",
-                },
-                indent=2,
-            )
+            workflow_name = _workflow_display_name(workflow_config_id, labels)
+            run_id = result.get("run_id")
+            start_payload: dict[str, object] = {
+                "run_id": run_id,
+                "workflow_config_id": workflow_config_id,
+                "workflow_name": workflow_name,
+                "status": result.get("status", "running"),
+                "message": (
+                    f"Started workflow '{workflow_name}'. "
+                    "Call get_workflow_run_status with this run_id and "
+                    "wait_for_completion=true when the user wants progress or final output."
+                ),
+            }
+            run_url = _workflow_run_detail_url(ui_public_base_url, run_id)
+            if run_url:
+                start_payload["run_url"] = run_url
+            return json.dumps(start_payload, indent=2)
         except Exception as e:
             return f"ERROR: Failed to start workflow run: {e}"
 

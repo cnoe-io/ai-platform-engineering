@@ -1,4 +1,4 @@
-{{- if or (ne .Values.global.deploymentMode "single-node") .Values.remoteAgent }}
+{{- if and (include "agent.a2a.enabled" . | eq "true") (or (ne .Values.global.deploymentMode "single-node") .Values.remoteAgent) }}
 apiVersion: v1
 kind: Service
 metadata:

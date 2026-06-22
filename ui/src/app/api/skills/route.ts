@@ -1,18 +1,20 @@
-import { NextRequest, NextResponse } from "next/server";
 import {
-  getAuthFromBearerOrSession,
-  withErrorHandler,
+getAuthFromBearerOrSession,
+withErrorHandler,
 } from "@/lib/api-middleware";
-import { applySkillsCatalogQueryToBackendUrl } from "@/lib/skills-catalog-query";
 import type { SkillHubDoc } from "@/lib/hub-crawl";
+import { checkOpenFgaTuple,type OpenFgaCheckResult,type OpenFgaTupleKey } from "@/lib/rbac/openfga";
+import { organizationObjectId } from "@/lib/rbac/organization";
+import { applySkillsCatalogQueryToBackendUrl } from "@/lib/skills-catalog-query";
+import { NextRequest,NextResponse } from "next/server";
 
 /**
  * Skills Catalog API — Single source of truth for UI and assistant (FR-001).
  *
  * GET /api/skills
  *   Returns the merged skill catalog from default (filesystem) + agent_skills + hubs.
- *   If NEXT_PUBLIC_A2A_BASE_URL is configured, proxies to the Python backend GET /skills.
- *   Otherwise, aggregates locally from disk templates and MongoDB `agent_skills` (same data as GET /api/skills/configs).
+ *   By default aggregates locally (Mongo + hubs + templates). Set
+ *   SKILLS_CATALOG_USE_SUPERVISOR_PROXY=true to proxy GET /skills to the supervisor.
  *
  * Supports dual-auth: Bearer JWT (for CLI/remote) or NextAuth session (browser).
  *
@@ -265,16 +267,81 @@ function paginate(
   };
 }
 
+type SkillOpenFgaMode = "read" | "use";
+
+interface FilterSkillsByOpenFgaOptions {
+  subject?: string | null;
+  mode: SkillOpenFgaMode;
+  isAdmin?: boolean;
+  check?: (tuple: OpenFgaTupleKey) => Promise<OpenFgaCheckResult>;
+}
+
+export async function filterSkillsByOpenFga(
+  skills: CatalogSkill[],
+  options: FilterSkillsByOpenFgaOptions,
+): Promise<CatalogSkill[]> {
+  if (options.isAdmin) return skills;
+  if (!options.subject) return [];
+
+  const relation = options.mode === "use" ? "can_use" : "can_read";
+  const check = options.check ?? checkOpenFgaTuple;
+  let baselineUseAllowed: boolean | null = null;
+  async function hasBaselineUseAccess(): Promise<boolean> {
+    if (baselineUseAllowed !== null) return baselineUseAllowed;
+    try {
+      const result = await check({
+        user: options.subject as string,
+        relation: "can_use",
+        object: organizationObjectId(),
+      });
+      baselineUseAllowed = result.allowed;
+    } catch {
+      baselineUseAllowed = false;
+    }
+    return baselineUseAllowed;
+  }
+
+  const decisions = await Promise.all(
+    skills.map(async (skill) => {
+      if (options.mode === "read" && skill.source === "default") return skill;
+      if (options.mode === "use" && skill.source === "default" && await hasBaselineUseAccess()) {
+        return skill;
+      }
+      try {
+        const result = await check({
+          user: options.subject as string,
+          relation,
+          object: `skill:${skill.id}`,
+        });
+        return result.allowed ? skill : null;
+      } catch {
+        return null;
+      }
+    }),
+  );
+
+  return decisions.filter((skill): skill is CatalogSkill => skill !== null);
+}
+
 /**
  * Try to proxy to the Python backend at NEXT_PUBLIC_A2A_BASE_URL.
  * Returns null if not configured or unreachable.
  * Forwards query params so the backend can also filter server-side.
  */
+function shouldProxyCatalogToSupervisor(): boolean {
+  const raw = process.env.SKILLS_CATALOG_USE_SUPERVISOR_PROXY?.trim().toLowerCase();
+  return raw === "true" || raw === "1" || raw === "yes" || raw === "on";
+}
+
 async function fetchFromBackend(
   params: QueryParams,
   authHeader?: string | null,
 ): Promise<CatalogResponse | null> {
-  const backendUrl = process.env.NEXT_PUBLIC_A2A_BASE_URL;
+  if (!shouldProxyCatalogToSupervisor()) {
+    return null;
+  }
+  const { getInternalA2AUrl } = await import("@/lib/config");
+  const backendUrl = getInternalA2AUrl();
   if (!backendUrl) return null;
 
   try {
@@ -661,22 +728,35 @@ function sanitizeCatalogResponse(data: CatalogResponse): CatalogResponse {
 
 export const GET = withErrorHandler(async (req: NextRequest) => {
   // Dual-auth: Bearer JWT or session cookie
-  await getAuthFromBearerOrSession(req);
+  const { user, session } = await getAuthFromBearerOrSession(req);
 
   const params = parseQueryParams(req);
   const authHeader = req.headers.get("Authorization");
+  const skillAuth = {
+    subject: typeof session?.sub === "string" ? `user:${session.sub}` : null,
+    mode: params.includeContent ? ("use" as const) : ("read" as const),
+    isAdmin: user.role === "admin" || session?.role === "admin",
+  };
 
-  // Try backend proxy first (forwards all query params)
+  // Optional supervisor proxy (SKILLS_CATALOG_USE_SUPERVISOR_PROXY=true).
   const backendResult = await fetchFromBackend(params, authHeader);
   if (backendResult) {
-    return NextResponse.json(sanitizeCatalogResponse(backendResult));
+    const authorizedSkills = await filterSkillsByOpenFga(backendResult.skills, skillAuth);
+    return NextResponse.json(
+      sanitizeCatalogResponse({
+        ...backendResult,
+        skills: authorizedSkills,
+        meta: { ...backendResult.meta, total: authorizedSkills.length },
+      }),
+    );
   }
 
   // Local aggregation fallback
   try {
     const catalog = await aggregateLocally(params.includeContent);
     const filtered = filterSkills(catalog.skills, params);
-    const response = paginate(filtered, params, {
+    const authorized = await filterSkillsByOpenFga(filtered, skillAuth);
+    const response = paginate(authorized, params, {
       sources_loaded: catalog.meta.sources_loaded,
       unavailable_sources: catalog.meta.unavailable_sources,
     });

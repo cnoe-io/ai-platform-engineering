@@ -135,10 +135,36 @@ persistence:
 auth:
   # Root username
   rootUsername: "admin"
-  # Root password - should be overridden or use external secrets
+  # Root password - should be overridden or use external secrets.
+  #
+  # R3 (May 2026): If `strictPasswords` (below) is true and this value
+  # equals a known placeholder, the chart fails to render. The default
+  # ships as "changeme" so the docker-compose dev flow keeps working;
+  # production GitOps installs should EITHER set `strictPasswords: true`
+  # AND override `rootPassword`, OR set `externalSecrets.enabled: true`
+  # to source credentials from Vault/AWS Secrets Manager (strict mode
+  # skips its check in that case because the in-cluster Secret comes
+  # from ESO, not this `rootPassword` value).
   rootPassword: "changeme"
   # Database name
   database: "caipe"
+
+# R3: Production-safety gate for the MongoDB root password.
+#
+# When `strictPasswords` is `true` AND `externalSecrets.enabled` is
+# `false`, the chart refuses to render if `auth.rootPassword` is in the
+# known-placeholder list ("changeme", "admin", "password", "mongo",
+# "root", "test", etc. — see `templates/_strict-passwords.tpl`).
+#
+# When `externalSecrets.enabled` is `true`, the placeholder check is
+# skipped because the in-cluster MongoDB Secret is sourced from the
+# external store and the chart's `auth.rootPassword` value is irrelevant.
+#
+# Default is `false` so the docker-compose dev flow and CI matrix runs
+# (which intentionally use the placeholder) keep working. Production
+# GitOps installs should set this to `true`.
+# assisted-by Claude:claude-opus-4-7
+strictPasswords: false
 
 # External Secrets configuration for MongoDB credentials
 # These secrets are fetched from your secret store (Vault, AWS Secrets Manager, etc.)

@@ -1,13 +1,13 @@
 "use client";
 
-import React, { useRef, useEffect, useCallback } from "react";
+import { cn } from "@/lib/utils";
+import DOMPurify from "dompurify";
 import { Marked } from "marked";
 import markedShiki from "marked-shiki";
-import remend from "remend";
 import morphdom from "morphdom";
-import DOMPurify from "dompurify";
-import { createHighlighter, type Highlighter, bundledLanguages, type BundledLanguage } from "shiki";
-import { cn } from "@/lib/utils";
+import { useCallback,useEffect,useRef } from "react";
+import remend from "remend";
+import { bundledLanguages,createHighlighter,type BundledLanguage,type Highlighter } from "shiki";
 import "./streaming-markdown.css";
 
 // ═══════════════════════════════════════════════════════════════
@@ -36,7 +36,9 @@ const sharedMarkedOptions = {
   renderer: {
     link({ href, title, text }: { href: string; title?: string | null; text: string }) {
       const titleAttr = title ? ` title="${title}"` : "";
-      return `<a href="${href}"${titleAttr} class="md-link" target="_blank" rel="noopener noreferrer">${text}</a>`;
+      const isRelative = href.startsWith("/") || href.startsWith("#");
+      const targetAttr = isRelative ? "" : ' target="_blank" rel="noopener noreferrer"';
+      return `<a href="${href}"${titleAttr} class="md-link"${targetAttr}>${text}</a>`;
     },
   },
 };
@@ -226,6 +228,7 @@ export function MarkdownRenderer({
 
   // Track streaming state for morphdom callbacks (avoids re-creating patchDom)
   const streamingRef = useRef(isStreaming);
+  // eslint-disable-next-line react-hooks/refs -- intentional: sync ref with prop during render to avoid stale closure in patchDom callback
   streamingRef.current = isStreaming;
 
   /** Block-level tags that get the fade-in animation during streaming. */

@@ -20,7 +20,7 @@
 ## Quick Start
 
 ```bash
-# Start all services (development mode with trusted network access)
+# Start all services
 docker compose --profile apps up
 ```
 
@@ -31,34 +31,28 @@ docker compose --profile apps up
 
 ### Authentication
 
-**Development (Trusted Network - Default):**
-Services trust localhost connections without authentication.
-
-**Production (OIDC/OAuth2):**
-Configure environment variables for JWT-based authentication:
+Configure environment variables for JWT authentication and OpenFGA authorization:
 
 ```bash
 # UI authentication (OIDC)
 OIDC_ISSUER=https://your-keycloak.com/realms/production
 OIDC_CLIENT_ID=rag-ui
 OIDC_CLIENT_SECRET=xxx
-OIDC_GROUP_CLAIM=groups  # Optional: auto-detects if empty; supports comma-separated (e.g., "groups,members,roles")
 
 # Ingestor authentication (OAuth2 client credentials)
 INGESTOR_OIDC_ISSUER=https://your-keycloak.com/realms/production
 INGESTOR_OIDC_CLIENT_ID=rag-ingestor
 INGESTOR_OIDC_CLIENT_SECRET=xxx
 
-# Disable trusted network in production
-ALLOW_TRUSTED_NETWORK=false
-
-# Role-based access control (map groups to roles)
-RBAC_ADMIN_GROUPS=rag-admins,platform-admins
-RBAC_INGESTONLY_GROUPS=rag-ingestors
-RBAC_READONLY_GROUPS=rag-readers
+# Human KB authorization
+OPENFGA_HTTP=http://openfga:8080
 ```
 
 **Supported OIDC Providers:** Keycloak, Azure AD, Okta, AWS Cognito
+
+RAG treats human JWTs as identity-only. KB, data-source, and tool authorization
+comes from OpenFGA relationships rather than AD/OIDC groups or Keycloak realm
+roles.
 
 If you have Claude code, VS code, Cursor etc. you can connect upto the MCP server running at http://localhost:9446/mcp
 

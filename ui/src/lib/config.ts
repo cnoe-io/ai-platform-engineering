@@ -46,6 +46,10 @@ export interface Config {
   ragEnabled: boolean;
   /** Whether MongoDB persistence is enabled */
   mongodbEnabled: boolean;
+  /** Whether the credential subsystem (master switch) is enabled */
+  credentialsEnabled: boolean;
+  /** Whether the user-facing Credentials surface (nav + /credentials page) is enabled */
+  userConnectionsEnabled: boolean;
   /** Main tagline displayed throughout the UI */
   tagline: string;
   /** Description text displayed throughout the UI */
@@ -73,6 +77,11 @@ export interface Config {
    * Set ALLOW_DEV_ADMIN_WHEN_SSO_DISABLED=true. Do not use in production.
    */
   allowDevAdminWhenSsoDisabled: boolean;
+  /**
+   * Unsafe dev/emergency bypass for UI RBAC enforcement.
+   * Client-visible so the header can show a compact no-auth indicator.
+   */
+  unsafeRbacBypassEnabled: boolean;
   /** Storage mode: 'mongodb' or 'localStorage' */
   storageMode: 'mongodb' | 'localStorage';
   /** Enabled integration icons on login page (comma-separated list, null = show all) */
@@ -123,17 +132,18 @@ export interface Config {
    */
   allowBuiltinSkillMutation: boolean;
   /**
-   * Whether the NPS (Net Promoter Score) feature is enabled.
-   * When false (default), the NPS survey popup, admin NPS tab, and NPS API
-   * endpoints are all disabled. Set NPS_ENABLED=true to enable.
-   */
-  npsEnabled: boolean;
-  /**
    * Whether the admin audit logs feature is enabled.
-   * When false (default), the Audit Logs tab is hidden and API routes return 403.
+   * When false (default), the Chat Audit tab is hidden and API routes return 403.
    * Set AUDIT_LOGS_ENABLED=true to enable.
    */
   auditLogsEnabled: boolean;
+  /**
+   * Whether the unified action audit log (auth + tool + delegation) is enabled.
+   * Enabled by default. Set ACTION_AUDIT_ENABLED=false to disable.
+   */
+  actionAuditEnabled: boolean;
+  /** Audit log emission backend. UI supports "service"; storage lives in audit-service. */
+  auditLogBackend: string;
   /** Default font size for new users: "small" | "medium" | "large" | "x-large" */
   defaultFontSize: string;
   /** Default font family for new users: "inter" | "source-sans" | "ibm-plex" | "system" */
@@ -175,8 +185,18 @@ export interface Config {
   ticketEnabled: boolean;
   /** Derived: which provider to use ('jira' takes precedence when both enabled) */
   ticketProvider: 'jira' | 'github' | null;
+  /** When true, server extracts user context from JWT — UI should NOT prefix messages with user email */
+  userInfoToolEnabled: boolean;
   /** OIDC group required for UI access (injected server-side so the unauthorized page shows the real group) */
   oidcRequiredGroup: string;
+  /**
+   * Whether Okta background sync is enabled.
+   * Derived server-side: true when IDENTITY_SYNC_OKTA_ORG_URL is set AND either
+   * an SSWS API token (IDENTITY_SYNC_OKTA_API_TOKEN) or OAuth2 private-key JWT
+   * credentials (IDENTITY_SYNC_OKTA_OAUTH_CLIENT_ID + _PRIVATE_KEY) are present.
+   * Controls the Identity Sync tab in Admin > Teams & Users.
+   */
+  oktaSyncEnabled: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -202,13 +222,15 @@ const VALID_GRADIENT_THEMES = ['default', 'minimal', 'professional', 'ocean', 's
 
 /** Default config used as client fallback before the layout script executes. */
 const DEFAULT_CONFIG: Config = {
-  caipeUrl: 'http://localhost:8000',
+  caipeUrl: '/api/a2a',
   ragUrl: 'http://localhost:9446',
   isDev: false,
   isProd: false,
   ssoEnabled: false,
   ragEnabled: true,
   mongodbEnabled: false,
+  credentialsEnabled: false,
+  userConnectionsEnabled: false,
   tagline: DEFAULT_TAGLINE,
   description: DEFAULT_DESCRIPTION,
   appName: DEFAULT_APP_NAME,
@@ -221,6 +243,7 @@ const DEFAULT_CONFIG: Config = {
   showPoweredBy: true,
   supportEmail: DEFAULT_SUPPORT_EMAIL,
   allowDevAdminWhenSsoDisabled: false,
+  unsafeRbacBypassEnabled: false,
   storageMode: 'localStorage',
   enabledIntegrationIcons: null,
   faviconUrl: '/favicon.ico',
@@ -231,8 +254,9 @@ const DEFAULT_CONFIG: Config = {
   taskBuilderEnabled: true,
   feedbackEnabled: true,
   allowBuiltinSkillMutation: false,
-  npsEnabled: false,
   auditLogsEnabled: false,
+  actionAuditEnabled: true,
+  auditLogBackend: 'service',
   defaultFontSize: DEFAULT_FONT_SIZE,
   defaultFontFamily: DEFAULT_FONT_FAMILY,
   defaultTheme: DEFAULT_THEME,
@@ -249,7 +273,9 @@ const DEFAULT_CONFIG: Config = {
   githubTicketLabel: 'caipe-reported',
   ticketEnabled: false,
   ticketProvider: null,
-  oidcRequiredGroup: 'backstage-access',
+  userInfoToolEnabled: false,
+  oidcRequiredGroup: '',
+  oktaSyncEnabled: false,
 };
 
 // ---------------------------------------------------------------------------
@@ -262,6 +288,21 @@ const DEFAULT_CONFIG: Config = {
  */
 function env(name: string): string | undefined {
   return process.env[name] || process.env[`NEXT_PUBLIC_${name}`] || undefined;
+}
+
+const ENABLED_VALUES = new Set(['1', 'true', 'yes', 'on']);
+
+function enabledEnv(name: string): boolean {
+  const raw = env(name)?.trim().toLowerCase();
+  return raw ? ENABLED_VALUES.has(raw) : false;
+}
+
+/**
+ * Read a browser-facing runtime env var dynamically so Next.js does not inline
+ * a build-time NEXT_PUBLIC_* value into the server bundle.
+ */
+function publicEnv(name: string): string | undefined {
+  return process.env[`NEXT_PUBLIC_${name}`] || undefined;
 }
 
 /**
@@ -310,11 +351,11 @@ export function getServerConfig(): Config {
   const isProduction = process.env.NODE_ENV === 'production';
   const isDev = process.env.NODE_ENV === 'development';
 
-  // caipeUrl is the browser-facing supervisor URL (embedded in __APP_CONFIG__).
-  // It must be externally routable — use NEXT_PUBLIC_A2A_BASE_URL (e.g. http://localhost:8000
-  // for local dev, or https://caipe.example.com for production). A2A_BASE_URL is the
-  // internal Docker service URL for server-side proxies and must NOT be used here.
-  const caipeUrl = process.env.NEXT_PUBLIC_A2A_BASE_URL || 'http://localhost:8000';
+  // caipeUrl is the browser-facing supervisor URL embedded in __APP_CONFIG__.
+  // Read it dynamically so container runtime ConfigMaps work; direct
+  // process.env.NEXT_PUBLIC_* reads can be inlined during `next build`.
+  const caipeUrl = publicEnv('A2A_BASE_URL')
+    || (isProduction ? '/api/a2a' : 'http://localhost:8000');
 
   const ragUrl = env('RAG_URL')
     || process.env.RAG_SERVER_URL
@@ -327,6 +368,7 @@ export function getServerConfig(): Config {
   const envBadge = env('ENV_BADGE')
     || (env('PREVIEW_MODE') === 'true' ? 'Preview' : '');
   const allowDevAdminWhenSsoDisabled = env('ALLOW_DEV_ADMIN_WHEN_SSO_DISABLED') === 'true';
+  const unsafeRbacBypassEnabled = enabledEnv('CAIPE_UNSAFE_RBAC_BYPASS');
   const workflowRunnerEnabled = env('WORKFLOW_RUNNER_ENABLED') === 'true';
   const workflowsEnabled = env('WORKFLOWS_ENABLED') === 'true';
   const taskBuilderEnabled = env('TASK_BUILDER_ENABLED') !== 'false';
@@ -335,9 +377,33 @@ export function getServerConfig(): Config {
   // `lib/builtin-skill-policy.ts` so the UI never offers an action
   // the API will reject.
   const allowBuiltinSkillMutation = env('ALLOW_BUILTIN_SKILL_MUTATION') === 'true';
-  const npsEnabled = env('NPS_ENABLED') === 'true';
   const auditLogsEnabled = env('AUDIT_LOGS_ENABLED') === 'true';
+  const actionAuditEnabled = env('ACTION_AUDIT_ENABLED') !== 'false';
+  const auditLogBackend = env('AUDIT_LOG_BACKEND') || 'service';
   const dynamicAgentsEnabled = env('DYNAMIC_AGENTS_ENABLED') === 'true';
+  const credentialsEnabled = env('CAIPE_CREDENTIALS_ENABLED') === 'true';
+  // The user-facing Credentials surface is gated independently of the SA token
+  // surface. It defaults to the master flag (backward-compatible) and can be
+  // explicitly turned off with CAIPE_USER_CONNECTIONS_ENABLED=false. Mirrors
+  // subFeatureEnabled() in feature-flags/credentials.ts (kept inline here so
+  // config.ts stays free of server-only imports for the client bundle).
+  // Match subFeatureEnabled's parsing exactly — trim + lowercase, so a value
+  // like " true" doesn't diverge between the two sources of truth.
+  const userConnectionsRaw = env('CAIPE_USER_CONNECTIONS_ENABLED')?.trim().toLowerCase();
+  const userConnectionsEnabled =
+    credentialsEnabled &&
+    (userConnectionsRaw === undefined ? true : userConnectionsRaw === 'true');
+  const userInfoToolEnabled = env('ENABLE_USER_INFO_TOOL') === 'true';
+
+  // Enabled when an org URL is set AND we have credentials in EITHER mode:
+  // SSWS API token, or OAuth2 private-key JWT (client id + private key). Kept
+  // in sync with isOktaConnectorConfigured() in okta-directory-connector.ts.
+  const oktaSyncEnabled = !!(
+    process.env.IDENTITY_SYNC_OKTA_ORG_URL?.trim() &&
+    (process.env.IDENTITY_SYNC_OKTA_API_TOKEN?.trim() ||
+      (process.env.IDENTITY_SYNC_OKTA_OAUTH_CLIENT_ID?.trim() &&
+        process.env.IDENTITY_SYNC_OKTA_OAUTH_PRIVATE_KEY?.trim()))
+  );
 
   const dynamicAgentsUrl = env('DYNAMIC_AGENTS_URL')
     || (isProduction ? 'http://dynamic-agents:8100' : 'http://localhost:8100');
@@ -369,6 +435,8 @@ export function getServerConfig(): Config {
     ssoEnabled,
     ragEnabled,
     mongodbEnabled,
+    credentialsEnabled,
+    userConnectionsEnabled,
     tagline: env('TAGLINE') || DEFAULT_TAGLINE,
     description: env('DESCRIPTION') || DEFAULT_DESCRIPTION,
     appName: env('APP_NAME') || DEFAULT_APP_NAME,
@@ -381,6 +449,7 @@ export function getServerConfig(): Config {
     showPoweredBy,
     supportEmail: env('SUPPORT_EMAIL') || DEFAULT_SUPPORT_EMAIL,
     allowDevAdminWhenSsoDisabled,
+    unsafeRbacBypassEnabled,
     storageMode: mongodbEnabled ? 'mongodb' : 'localStorage',
     enabledIntegrationIcons: env('ENABLED_INTEGRATION_ICONS')?.split(',').map((icon) => icon.trim().toLowerCase()) ?? null,
     faviconUrl: env('FAVICON_URL') || '/favicon.ico',
@@ -391,8 +460,9 @@ export function getServerConfig(): Config {
     taskBuilderEnabled,
     feedbackEnabled,
     allowBuiltinSkillMutation,
-    npsEnabled,
     auditLogsEnabled,
+    actionAuditEnabled,
+    auditLogBackend,
     defaultFontSize: validated(env('DEFAULT_FONT_SIZE'), VALID_FONT_SIZES, DEFAULT_FONT_SIZE),
     defaultFontFamily: validated(env('DEFAULT_FONT_FAMILY'), VALID_FONT_FAMILIES, DEFAULT_FONT_FAMILY),
     defaultTheme: validated(env('DEFAULT_THEME'), VALID_THEMES, DEFAULT_THEME),
@@ -409,7 +479,9 @@ export function getServerConfig(): Config {
     githubTicketLabel,
     ticketEnabled,
     ticketProvider,
-    oidcRequiredGroup: process.env.OIDC_REQUIRED_GROUP || 'backstage-access',
+    userInfoToolEnabled,
+    oidcRequiredGroup: process.env.OIDC_REQUIRED_GROUP ?? DEFAULT_CONFIG.oidcRequiredGroup,
+    oktaSyncEnabled,
   };
 }
 

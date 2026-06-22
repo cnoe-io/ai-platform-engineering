@@ -1,5 +1,5 @@
-import type { StepTemplate } from "@/types/task-config";
 import { getConfig } from "@/lib/config";
+import type { StepTemplate } from "@/types/task-config";
 
 function t(
   id: string,

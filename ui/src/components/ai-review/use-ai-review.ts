@@ -19,17 +19,17 @@
  *     lets users batch multiple fixes before a single re-review.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
-  LastReview,
-  ReviewConfig,
-  ReviewContext,
-  ReviewEnforcement,
-  ReviewRequest,
-  ReviewResult,
+LastReview,
+ReviewConfig,
+ReviewContext,
+ReviewEnforcement,
+ReviewRequest,
+ReviewResult,
 } from "@/types/ai-review";
-import { sha256Hex } from "./hash";
+import { useCallback,useEffect,useMemo,useRef,useState } from "react";
 import { applyFix as applyFixToContent } from "./apply-fix";
+import { sha256Hex } from "./hash";
 
 export type AiReviewStatus = "idle" | "running" | "ready" | "error";
 
@@ -150,6 +150,7 @@ export function useAiReview({
   // Drop a stale "cached" notice the moment content changes — otherwise the
   // panel would keep showing "no changes" against fresh, unreviewed content.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: reset notice state whenever content changes
     setNotice(null);
   }, [content]);
 

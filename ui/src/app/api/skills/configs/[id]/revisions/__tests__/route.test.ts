@@ -19,6 +19,7 @@ jest.mock("next-auth", () => ({
 
 jest.mock("@/lib/auth-config", () => ({
   authOptions: {},
+  isBootstrapAdmin: jest.fn().mockReturnValue(false),
 }));
 
 jest.mock("@/lib/mongodb", () => ({
@@ -51,12 +52,28 @@ jest.mock("@/lib/skill-scan-history", () => ({
   recordScanEvent: jest.fn().mockResolvedValue(undefined),
 }));
 
+// 098-enterprise-rbac added a `requireResourcePermission` gate that needs
+// `session.sub` and calls `checkOpenFgaTuple`. Allow it by default so
+// these tests focus on the visibility / revisions surface they were
+// originally written to pin.
+jest.mock("@/lib/rbac/openfga", () => ({
+  checkOpenFgaTuple: jest.fn().mockResolvedValue({ allowed: true }),
+}));
+
+jest.mock("@/lib/rbac/resource-authz", () => ({
+  requireSkillPermission: jest.fn().mockResolvedValue(undefined),
+}));
+
 function makeRequest(url: string, options: RequestInit = {}): NextRequest {
   return new NextRequest(new URL(url, "http://localhost:3000"), options);
 }
 
 function userSession(email = "user@example.com") {
-  return { user: { email, name: "Test User" }, role: "user" };
+  return {
+    user: { email, name: "Test User" },
+    role: "user",
+    sub: "user-sub",
+  };
 }
 
 beforeEach(() => {
@@ -194,13 +211,17 @@ describe("POST .../revisions/[revisionId]/restore", () => {
     updateOne.mockResolvedValue({ matchedCount: 1, modifiedCount: 1 });
     // Override the Mongo mock for this describe block — restore
     // writes the live agent_skills row directly so we need a real
-    // collection-shaped mock.
+    // collection-shaped mock. Distinguish the `users` collection
+    // (touched by `persistKeycloakSubMapping` whenever a session
+    // carries `sub`) so its writes don't pollute the `updateOne`
+    // counter we're asserting on for `agent_skills`.
+    const usersUpdateOne = jest.fn().mockResolvedValue({ matchedCount: 1 });
     const mongo = jest.requireMock("@/lib/mongodb") as {
       getCollection: jest.Mock;
     };
-    mongo.getCollection.mockResolvedValue({
-      updateOne,
-    });
+    mongo.getCollection.mockImplementation(async (name: string) =>
+      name === "users" ? { updateOne: usersUpdateOne } : { updateOne },
+    );
     mockRunSkillScan.mockResolvedValue({
       scan_status: "passed",
       scan_summary: "ok",

@@ -1,4 +1,4 @@
-import type { FolderAdapter, FolderEntry, FolderFileContent } from "./SkillFolderViewer";
+import type { FolderAdapter,FolderEntry,FolderFileContent } from "./SkillFolderViewer";
 
 interface SuccessEnvelope<T> {
   data?: T;

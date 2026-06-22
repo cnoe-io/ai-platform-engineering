@@ -1,4 +1,4 @@
-{{- if or (ne .Values.global.deploymentMode "single-node") .Values.remoteAgent }}
+{{- if and (include "agent.a2a.enabled" . | eq "true") (or (ne .Values.global.deploymentMode "single-node") .Values.remoteAgent) }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -40,7 +40,7 @@ spec:
           securityContext:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default (include "agent.appVersion" .) }}"
+          image: "{{ include "agent.imageRepository" (dict "root" . "repository" .Values.image.repository) }}:{{ .Values.image.tag | default (include "agent.appVersion" .) }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           {{- if .Values.image.command }}
           command:
@@ -85,12 +85,6 @@ spec:
             - name: {{ $key }}
               value: {{ $value | quote }}
             {{- end }}
-            {{- end }}
-            {{- if eq (include "agent.slim.enabled" .) "true" }}
-            - name: A2A_TRANSPORT
-              value: {{ include "agent.slim.transport" . | quote }}
-            - name: SLIM_ENDPOINT
-              value: {{ include "agent.slim.endpoint" . | quote }}
             {{- end }}
             {{- if eq .Values.mcp.mode "http" }}
             - name: MCP_MODE
@@ -164,7 +158,10 @@ spec:
             - name: LANGGRAPH_CHECKPOINT_TTL_MINUTES
               value: {{ .ttlMinutes | default 0 | quote }}
             {{- end }}
-          {{- if not (eq (include "agent.slim.enabled" .) "true") }}
+          {{- with .Values.startupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           {{- with .Values.livenessProbe }}
           livenessProbe:
             {{- toYaml . | nindent 12 }}
@@ -172,7 +169,6 @@ spec:
           {{- with .Values.readinessProbe }}
           readinessProbe:
             {{- toYaml . | nindent 12 }}
-          {{- end }}
           {{- end }}
           {{- with .Values.resources }}
           resources:

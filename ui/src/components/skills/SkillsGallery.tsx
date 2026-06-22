@@ -1,98 +1,98 @@
 "use client";
 
-import React, { useEffect, useState, useMemo, useCallback } from "react";
-import { useRouter } from "next/navigation";
-import Link from "next/link";
-import { useSession } from "next-auth/react";
-import { motion, AnimatePresence } from "framer-motion";
-import {
-  Search,
-  Plus,
-  Workflow,
-  GitBranch,
-  GitPullRequest,
-  GitMerge,
-  Cloud,
-  Rocket,
-  Key,
-  Users,
-  Settings,
-  Loader2,
-  AlertCircle,
-  Edit,
-  Eye,
-  FolderOpen,
-  Trash2,
-  Sparkles,
-  Zap,
-  Server,
-  Bug,
-  BarChart,
-  Shield,
-  Database,
-  AlertTriangle,
-  CheckCircle,
-  Container,
-  Terminal,
-  Network,
-  Activity,
-  FileCode,
-  MonitorCheck,
-  RefreshCcw,
-  CircleDot,
-  Layers,
-  PackageCheck,
-  Gauge,
-  ScrollText,
-  Webhook,
-  Cpu,
-  HardDrive,
-  Wrench,
-  ArrowRight,
-  X,
-  MessageSquare,
-  Star,
-  Lock,
-  Globe,
-  UsersRound,
-  User,
-  ChevronsUpDown,
-  Check,
-  Filter,
-  Waypoints,
-  Copy,
-  Archive,
-} from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { useToast } from "@/components/ui/toast";
-import { CAIPESpinner } from "@/components/ui/caipe-spinner";
-import { cn } from "@/lib/utils";
-import { getConfig } from "@/lib/config";
-import { useAgentSkillsStore } from "@/store/agent-skills-store";
-import { useChatStore } from "@/store/chat-store";
-import { useAdminRole } from "@/hooks/use-admin-role";
-import type { AgentSkill, ScanOverride } from "@/types/agent-skill";
-import { SkillScanStatusIndicator } from "@/components/skills/SkillScanStatusIndicator";
 import { LastReviewBadge } from "@/components/ai-review";
-import { SkillFolderViewer } from "@/components/skills/SkillFolderViewer";
 import { ImportSkillZipDialog } from "@/components/skills/ImportSkillZipDialog";
 import {
-  makeConfigFolderAdapter,
-  makeHubFolderAdapter,
-  makeStaticFolderAdapter,
+makeConfigFolderAdapter,
+makeHubFolderAdapter,
+makeStaticFolderAdapter,
 } from "@/components/skills/skill-folder-adapters";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { SkillFolderViewer } from "@/components/skills/SkillFolderViewer";
+import { SkillScanStatusIndicator } from "@/components/skills/SkillScanStatusIndicator";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { CAIPESpinner } from "@/components/ui/caipe-spinner";
+import {
+Dialog,
+DialogContent,
+DialogDescription,
+DialogFooter,
+DialogHeader,
+DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Popover,PopoverContent,PopoverTrigger } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { useToast } from "@/components/ui/toast";
+import { useAdminRole } from "@/hooks/use-admin-role";
+import { getConfig } from "@/lib/config";
+import { cn } from "@/lib/utils";
+import { useAgentSkillsStore } from "@/store/agent-skills-store";
+import { useChatStore } from "@/store/chat-store";
+import type { AgentSkill,ScanOverride } from "@/types/agent-skill";
+import { AnimatePresence,motion } from "framer-motion";
+import {
+Activity,
+AlertCircle,
+AlertTriangle,
+Archive,
+ArrowRight,
+BarChart,
+Bug,
+Check,
+CheckCircle,
+ChevronsUpDown,
+CircleDot,
+Cloud,
+Container,
+Copy,
+Cpu,
+Database,
+Edit,
+Eye,
+FileCode,
+Filter,
+FolderOpen,
+Gauge,
+GitBranch,
+GitMerge,
+GitPullRequest,
+Globe,
+HardDrive,
+Key,
+Layers,
+Loader2,
+Lock,
+MessageSquare,
+MonitorCheck,
+Network,
+PackageCheck,
+Plus,
+RefreshCcw,
+Rocket,
+ScrollText,
+Search,
+Server,
+Settings,
+Shield,
+Sparkles,
+Star,
+Terminal,
+Trash2,
+User,
+Users,
+UsersRound,
+Waypoints,
+Webhook,
+Workflow,
+Wrench,
+X,
+Zap,
+} from "lucide-react";
+import { useSession } from "next-auth/react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import React,{ useCallback,useEffect,useMemo,useState } from "react";
 
 interface SkillsGalleryProps {
   onEditConfig?: (config: AgentSkill) => void;
@@ -246,10 +246,11 @@ function skillCatalogSource(config: AgentSkill): CatalogSource {
   const raw = (config.metadata as { catalog_source?: string })?.catalog_source;
   if (raw === "hub") return "hub";
   if (raw === "default") return "default";
-  if (config.id.startsWith("catalog-")) return "default";
+  if (raw === "agent_skills") return "agent_skills";
   // Mongo `agent_skills` platform rows (`is_system`) are built-in templates, not user "Custom"
   if (config.is_system) return "default";
-  if (raw === "agent_skills") return "agent_skills";
+  // Unified-catalog merge rows use `catalog-<mongoId>`; source comes from metadata, not id prefix.
+  if (config.id.startsWith("catalog-")) return "agent_skills";
   return "agent_skills";
 }
 
@@ -538,7 +539,11 @@ export function SkillsGallery({
         const body = await res.json().catch(() => ({}));
         throw new Error(body?.error || `Clone failed (${res.status})`);
       }
-      const data = await res.json();
+      const json = await res.json();
+      // Clone returns the success-envelope shape ({ success, data: { id, name } })
+      // via successResponse(); unwrap it (falling back to the flat shape) so we
+      // never navigate to /skills/workspace/undefined.
+      const data = json?.data ?? json;
       await loadSkills();
       toast(`Cloned to "${data.name}"`, "success");
       // Drop the user straight into the new skill's workspace —
@@ -587,16 +592,25 @@ export function SkillsGallery({
           scan_summary?: string;
           scan_updated_at?: string;
           scan_override?: ScanOverride;
-        }) =>
-          ({
+        }) => {
+          const isBuiltin =
+            s.source === "default" || Boolean(s.metadata?.is_system);
+          return {
             id: `catalog-${s.id}`,
             name: s.name,
             description: s.description || "",
             category: (s.metadata?.category as string) || "Custom",
             tasks: [],
-            owner_id: "",
-            is_system: true,
-            is_quick_start: true,
+            owner_id:
+              s.source === "agent_skills" && s.source_id
+                ? String(s.source_id)
+                : "",
+            is_system: isBuiltin,
+            is_quick_start: isBuiltin,
+            visibility:
+              (s.visibility as AgentSkill["visibility"]) ??
+              (s.metadata?.visibility as AgentSkill["visibility"]) ??
+              undefined,
             created_at: new Date(),
             updated_at: new Date(),
             thumbnail: (s.metadata?.icon as string) || "Zap",
@@ -616,7 +630,8 @@ export function SkillsGallery({
               ? new Date(s.scan_updated_at)
               : undefined,
             scan_override: s.scan_override,
-          }) as AgentSkill,
+          } as AgentSkill;
+        },
       );
       setCatalogSkills(mapped);
     } catch {
@@ -644,24 +659,28 @@ export function SkillsGallery({
     await Promise.all([loadSkills(), reloadCatalog()]);
   }, [loadSkills, reloadCatalog]);
 
-  // Merge agent configs (store) with catalog-only skills, deduplicating by name
+  // Merge agent configs (store) with catalog-only skills. Prefer Mongo rows from
+  // `/api/skills/configs`; only add catalog rows for templates/hub skills not
+  // already loaded (match by underlying mongo id, not display name).
   const allConfigs = useMemo(() => {
-    const seen = new Set<string>();
+    const seenIds = new Set<string>();
+    const seenNames = new Set<string>();
     const merged: AgentSkill[] = [];
-    // Agent configs take priority (richer data, editable)
     for (const config of configs) {
-      if (!seen.has(config.id)) {
-        seen.add(config.id);
-        seen.add(config.name); // track by name too for catalog dedup
-        merged.push(config);
-      }
+      if (seenIds.has(config.id)) continue;
+      seenIds.add(config.id);
+      seenNames.add(config.name);
+      merged.push(config);
     }
-    // Add catalog-only skills not already present by name
     for (const skill of catalogSkills) {
-      if (!seen.has(skill.name)) {
-        seen.add(skill.name);
-        merged.push(skill);
-      }
+      const mongoId = skill.id.startsWith("catalog-")
+        ? skill.id.slice("catalog-".length)
+        : skill.id;
+      if (seenIds.has(mongoId) || seenIds.has(skill.id)) continue;
+      if (seenNames.has(skill.name)) continue;
+      seenIds.add(skill.id);
+      seenNames.add(skill.name);
+      merged.push(skill);
     }
     return merged;
   }, [configs, catalogSkills]);

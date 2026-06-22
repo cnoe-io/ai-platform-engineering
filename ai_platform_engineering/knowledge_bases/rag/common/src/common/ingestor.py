@@ -21,9 +21,7 @@ class Client:
   """
   Client bindings for RAG server REST API - handles ingestor lifecycle and data ingestion
 
-  Supports two authentication modes:
-  1. OAuth2 Client Credentials (production) - via INGESTOR_OIDC_* env vars
-  2. Trusted Network (development) - no authentication required
+  Uses OAuth2 Client Credentials via INGESTOR_OIDC_* env vars.
   """
 
   def __init__(self, ingestor_name: str, ingestor_type: str, ingestor_description: str = "", ingestor_metadata: Optional[Dict[str, Any]] = {}):
@@ -83,7 +81,7 @@ class Client:
       logger.info(f"  - INGESTOR_OIDC_DISCOVERY_URL: {'SET' if has_discovery_url else 'NOT SET'}")
       logger.info(f"  - INGESTOR_OIDC_CLIENT_ID: {'SET' if has_client_id else 'NOT SET'}")
       logger.info(f"  - INGESTOR_OIDC_CLIENT_SECRET: {'SET' if has_client_secret else 'NOT SET'}")
-      logger.info("  - Authentication mode: TRUSTED NETWORK (will send unauthenticated requests)")
+      logger.info("  - Authentication mode: NOT CONFIGURED (requests will fail before send)")
 
     # Note: Health check will be done during initialize() with aiohttp
 
@@ -212,20 +210,22 @@ class Client:
         logger.info(f"Ingestor '{self.ingestor_name}': ✓ Discovered token endpoint: {self._token_endpoint}")
         return self._token_endpoint
 
-  async def _get_access_token(self) -> Optional[str]:
+  async def _get_access_token(self) -> str:
     """
     Get valid OAuth2 access token using client credentials flow.
 
     Token is cached and automatically refreshed before expiry.
-    Returns None if OAuth2 is not configured (trusted network mode).
 
     Returns:
-        Access token string or None
+        Access token string
     """
     # Check if OAuth2 is configured (need either issuer or discovery URL, plus client credentials)
     if not (self.oidc_issuer or self.oidc_discovery_url) or not self.oidc_client_id or not self.oidc_client_secret:
-      # Trusted network mode - no token needed
-      return None
+      raise RuntimeError(
+        "Ingestor OAuth2 client credentials are required: configure "
+        "INGESTOR_OIDC_ISSUER or INGESTOR_OIDC_DISCOVERY_URL, "
+        "INGESTOR_OIDC_CLIENT_ID, and INGESTOR_OIDC_CLIENT_SECRET"
+      )
 
     # Check if cached token is still valid (with 60s buffer)
     if self._access_token and self._token_expiry:
@@ -275,8 +275,7 @@ class Client:
     """
     Get authentication headers for RAG server requests.
 
-    Returns headers with Authorization Bearer token if OAuth2 is configured,
-    otherwise returns basic headers for trusted network mode.
+    Returns headers with an Authorization Bearer token.
 
     Also includes X-Ingestor-Type and X-Ingestor-Name headers for identification.
 
@@ -289,13 +288,9 @@ class Client:
     headers["X-Ingestor-Type"] = self.ingestor_type
     headers["X-Ingestor-Name"] = self.ingestor_name
 
-    # Get access token (None if trusted network mode)
     token = await self._get_access_token()
-    if token:
-      headers["Authorization"] = f"Bearer {token}"
-      logger.debug(f"Ingestor '{self.ingestor_name}': Sending AUTHENTICATED request (OAuth2 Bearer token)")
-    else:
-      logger.debug(f"Ingestor '{self.ingestor_name}': Sending UNAUTHENTICATED request (trusted network mode)")
+    headers["Authorization"] = f"Bearer {token}"
+    logger.debug(f"Ingestor '{self.ingestor_name}': Sending AUTHENTICATED request (OAuth2 Bearer token)")
 
     return headers
 

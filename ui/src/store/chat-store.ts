@@ -1,12 +1,52 @@
-import { create } from "zustand";
-import { persist, createJSONStorage } from "zustand/middleware";
-import { Conversation, ChatMessage, A2AEvent, MessageFeedback, TurnStatus, getAgentId, isDynamicAgentConversation, buildParticipants } from "@/types/a2a";
+import { A2AClient } from "@/lib/a2a-client";
+import { apiClient } from "@/lib/api-client";
+import { getStorageMode,shouldUseLocalStorage } from "@/lib/storage-config";
+import type { StreamAdapter } from "@/lib/streaming";
 import { StreamEvent } from "@/lib/streaming/types";
 import { generateId } from "@/lib/utils";
-import { A2AClient } from "@/lib/a2a-client";
-import type { StreamAdapter } from "@/lib/streaming";
-import { apiClient } from "@/lib/api-client";
-import { getStorageMode, shouldUseLocalStorage } from "@/lib/storage-config";
+import { A2AEvent,ChatMessage,Conversation,MessageFeedback,TurnStatus,buildParticipants,getAgentId,isDynamicAgentConversation } from "@/types/a2a";
+import { create } from "zustand";
+import { createJSONStorage,persist } from "zustand/middleware";
+
+const LAST_ACTIVE_CONVERSATION_KEY = "caipe-chat-last-active-conversation";
+
+export function getLastActiveConversationId(): string | null {
+  if (typeof window === "undefined") return null;
+  return window.localStorage.getItem(LAST_ACTIVE_CONVERSATION_KEY);
+}
+
+/** Best-effort chat URL: resume last active conversation when possible. */
+export function resolveChatNavigationPath(state: {
+  conversations: Conversation[];
+  activeConversationId: string | null;
+}): string {
+  const { conversations, activeConversationId } = state;
+  const lastActive = activeConversationId ?? getLastActiveConversationId();
+  if (lastActive) {
+    if (
+      conversations.length === 0 ||
+      conversations.some((conversation) => conversation.id === lastActive)
+    ) {
+      return `/chat/${lastActive}`;
+    }
+  }
+  if (conversations.length > 0) {
+    const latest = [...conversations].sort(
+      (a, b) => b.updatedAt.getTime() - a.updatedAt.getTime(),
+    )[0];
+    return `/chat/${latest.id}`;
+  }
+  return "/chat";
+}
+
+function persistLastActiveConversationId(id: string | null): void {
+  if (typeof window === "undefined") return;
+  if (id) {
+    window.localStorage.setItem(LAST_ACTIVE_CONVERSATION_KEY, id);
+  } else {
+    window.localStorage.removeItem(LAST_ACTIVE_CONVERSATION_KEY);
+  }
+}
 
 // Track streaming state per conversation
 interface StreamingState {
@@ -92,8 +132,8 @@ interface ChatState {
   getCurrentTurnIndex: (conversationId?: string) => number;
 }
 
-// Track loading state to prevent multiple simultaneous loads
-let isLoadingConversations = false;
+// Coalesce concurrent conversation-list fetches (Sidebar + /chat redirect race).
+let loadConversationsInFlight: Promise<void> | null = null;
 
 // NOTE: savedMessageIds / savedMessageState tracking removed.
 // With the upsert-based API, saveMessagesToServer sends ALL messages every
@@ -288,6 +328,7 @@ const storeImplementation = (set: any, get: any) => ({
           activeConversationId: id,
           a2aEvents: [],
         }));
+        persistLastActiveConversationId(id);
 
         return id;
       },
@@ -303,6 +344,7 @@ const storeImplementation = (set: any, get: any) => ({
           unviewedConversations: newUnviewed,
           inputRequiredConversations: newInputRequired,
         });
+        persistLastActiveConversationId(id);
       },
 
       addMessage: (conversationId: string, message: Omit<ChatMessage, "id" | "timestamp" | "events">, turnId?: string, messageId?: string) => {
@@ -712,6 +754,8 @@ const storeImplementation = (set: any, get: any) => ({
             a2aEvents: wasActiveConversation ? [] : state.a2aEvents,
           };
         });
+        const nextActiveId = get().activeConversationId;
+        persistLastActiveConversationId(nextActiveId);
 
         // In MongoDB mode, also delete from server
         if (storageMode === 'mongodb') {
@@ -735,6 +779,7 @@ const storeImplementation = (set: any, get: any) => ({
           activeConversationId: null,
           a2aEvents: [],
         });
+        persistLastActiveConversationId(null);
       },
 
       getActiveConversation: () => {
@@ -833,14 +878,12 @@ const storeImplementation = (set: any, get: any) => ({
           return;
         }
 
-        // Prevent multiple simultaneous loads
-        if (isLoadingConversations) {
-          console.log('[ChatStore] Already loading conversations, skipping...');
-          return;
+        if (loadConversationsInFlight) {
+          console.log('[ChatStore] Joining in-flight conversation load...');
+          return loadConversationsInFlight;
         }
 
-        isLoadingConversations = true;
-
+        loadConversationsInFlight = (async () => {
         try {
           console.log('[ChatStore] Loading conversations from MongoDB...');
           let response;
@@ -977,6 +1020,7 @@ const storeImplementation = (set: any, get: any) => ({
           });
 
           if (activeId && !activeStillExists) {
+            persistLastActiveConversationId(get().activeConversationId);
             console.log(`[ChatStore] Active conversation ${activeId.substring(0, 8)} was deleted on another device, switching to first conversation`);
           }
 
@@ -990,8 +1034,11 @@ const storeImplementation = (set: any, get: any) => ({
           });
           // Don't clear conversations on error - preserve what we have
         } finally {
-          isLoadingConversations = false;
+          loadConversationsInFlight = null;
         }
+        })();
+
+        return loadConversationsInFlight;
       },
 
       // Save messages to MongoDB via upsert (idempotent).

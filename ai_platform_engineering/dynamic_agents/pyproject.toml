@@ -12,12 +12,17 @@ dependencies = [
     "cnoe-agent-utils==0.4.0",
     "pymongo==4.12.1",
     "pydantic==2.11.3",
-    "pydantic-settings==2.9.1",
+    "pydantic-settings==2.14.2",
 
     "requests==2.33.0",
     "beautifulsoup4==4.13.4",
     "jinja2==3.1.6",
-    "prometheus-client==0.22.1",
+    "prometheus-client==0.23.1",
+    # JWKS-based JWT validation in dynamic_agents.auth.jwks_validate
+    # (vendored from ai_platform_engineering.utils.auth so the DA image
+    # does not need to install the entire shared package).
+    # assisted-by Codex Codex-sonnet-4-6
+    "pyjwt[crypto]==2.13.0",
 ]
 
 [project.optional-dependencies]
@@ -54,4 +59,4 @@ dev = [
 ]
 
 [tool.uv]
-constraint-dependencies = ["starlette>=0.50.0"]
+constraint-dependencies = ["starlette>=1.3.1"]

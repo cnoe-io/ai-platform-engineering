@@ -32,18 +32,15 @@ def test_mock_agent_config_structure(mock_agent_config):
     assert 'another_agent' in mock_agent_config
 
 
-def test_mock_agent_config_has_transports(mock_agent_config):
-    """Test mock_agent_config has both slim and a2a transports."""
+def test_mock_agent_config_has_transport(mock_agent_config):
+    """Test mock_agent_config has a2a transport."""
     for agent_name, config in mock_agent_config.items():
-        assert 'slim' in config
         assert 'a2a' in config
 
 
 def test_mock_agent_config_values(mock_agent_config):
     """Test mock_agent_config has valid module paths."""
-    assert mock_agent_config['test_agent']['slim'] == 'test.agents.slim.agent'
     assert mock_agent_config['test_agent']['a2a'] == 'test.agents.a2a.agent'
-    assert mock_agent_config['another_agent']['slim'] == 'test.agents.another.slim.agent'
     assert mock_agent_config['another_agent']['a2a'] == 'test.agents.another.a2a.agent'
 
 
@@ -121,4 +118,3 @@ def test_fixtures_can_be_combined(clean_env, mock_agent_config, enabled_agents_e
     assert mock_agent_config is not None
     assert enabled_agents_env is not None
     assert os.environ.get('ENABLE_GITHUB') == 'true'
-

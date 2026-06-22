@@ -1,14 +1,13 @@
 // POST /api/admin/migrate-conversations - Migrate localStorage conversations to MongoDB
 
-import { NextRequest, NextResponse } from 'next/server';
-import { getCollection, isMongoDBConfigured } from '@/lib/mongodb';
 import {
-  withAuth,
-  withErrorHandler,
-  successResponse,
-  requireAdmin,
-  ApiError,
+getAuthFromBearerOrSession,
+requireRbacPermission,
+successResponse,
+withErrorHandler
 } from '@/lib/api-middleware';
+import { getCollection,isMongoDBConfigured } from '@/lib/mongodb';
+import { NextRequest,NextResponse } from 'next/server';
 
 interface MigrateRequest {
   conversations: Array<{
@@ -32,8 +31,8 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     );
   }
 
-  return withAuth(request, async (req, user, session) => {
-    requireAdmin(session);
+  const { user, session } = await getAuthFromBearerOrSession(request);
+  await requireRbacPermission(session, 'admin_ui', 'admin');
 
     const body: MigrateRequest = await request.json();
 
@@ -119,5 +118,4 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       skipped,
       errors: errors.length > 0 ? errors : undefined,
     });
-  });
 });

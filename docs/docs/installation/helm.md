@@ -35,8 +35,7 @@ ai-platform-engineering/        # Parent chart
     ├── langgraph-redis/        # Redis Stack for persistence (optional)
     │   └── README.md
     ├── caipe-ui/               # CAIPE web UI (optional)
-    ├── rag-stack/              # RAG pipeline (optional)
-    └── slim/ slim-control-plane/  # AGNTCY SLIM dataplane (optional)
+    └── rag-stack/              # RAG pipeline (optional)
 ```
 
 Full parameter tables for each chart (auto-generated — regenerate with `make docs-helm-charts`):
@@ -254,7 +253,6 @@ helm install ai-platform-engineering \
 |---|---|---|
 | RAG stack | `--set tags.rag-stack=true` | Milvus, Langfuse, embedding server |
 | CAIPE UI | `--set tags.caipe-ui=true` | Web chat UI |
-| SLIM dataplane | `--set global.slim.enabled=true` | AGNTCY SLIM transport |
 | Redis persistence | `--set global.langgraphRedis.enabled=true` | See [Persistence](./persistence.md) |
 | Slack bot | `--set tags.slack-bot=true` | Slack client (not an agent) |
 

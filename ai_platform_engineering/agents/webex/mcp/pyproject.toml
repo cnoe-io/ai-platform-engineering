@@ -13,6 +13,7 @@ requires-python = ">=3.13,<4.0"
 dependencies = [
     "click==8.3.1",
     "mcp==1.27.1",
+  "mcp-agent-auth", # gitleaks:allow - package name, not a credential
     "pydantic==2.12.5",
     "httpx==0.28.1",
     "python-dotenv==1.2.2",
@@ -21,7 +22,7 @@ dependencies = [
 ]
 
 [tool.uv]
-constraint-dependencies = ["uv==0.11.6"]
+constraint-dependencies = ["uv==0.11.18"]
 dev-dependencies = [
     "pyright==1.1.408",
     "ruff==0.15.1",
@@ -31,6 +32,8 @@ dev-dependencies = [
 
 [tool.hatch.version]
 path = "mcp_webex/__about__.py"
+[tool.uv.sources]
+mcp-agent-auth = { path = "../../common/mcp-auth", editable = true }
 
 [project.scripts]
 mcp-server-webex = "mcp_webex:main"

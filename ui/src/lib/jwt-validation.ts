@@ -12,12 +12,36 @@
  * fallback identity is returned.
  */
 
-import { createRemoteJWKSet, jwtVerify, SignJWT, type JWTPayload, errors as joseErrors } from 'jose';
+import { createRemoteJWKSet,errors as joseErrors,jwtVerify,SignJWT,type JWTPayload } from 'jose';
+
+import {
+getSafeNextAuthSecret,
+isStrictSecretMode,
+KNOWN_NEXTAUTH_PLACEHOLDERS,
+} from './nextauth-secret-guard';
 
 export interface JWTIdentity {
   email: string;
   name: string;
   groups: string[];
+  /** Stable subject identifier from the JWT (`sub` claim). */
+  sub?: string;
+  /**
+   * True when the token was minted via the OAuth2 client-credentials grant
+   * (a Keycloak *service account*, e.g. the Slack bot) rather than an
+   * interactive user login. First-party services authenticate this way and
+   * must be graphed in OpenFGA as `service_account:<sub>` instead of
+   * `user:<sub>` — see `subjectFromSession`. Keycloak stamps such tokens with
+   * `preferred_username = "service-account-<clientId>"`.
+   */
+  isServiceAccount?: boolean;
+  /**
+   * Tenant/organization identifier. Sourced from `org`, `tenant_id`, or
+   * `organization` claims (in priority order). Surfaces from the bearer
+   * path into the Web UI backend session so audit/RBAC can attribute decisions to
+   * the same tenant the cookie-session callers do.
+   */
+  org?: string;
 }
 
 let _cachedJWKS: ReturnType<typeof createRemoteJWKSet> | null = null;
@@ -26,14 +50,36 @@ let _cachedJWKSUri: string | null = null;
 // Cache for additional JWKS endpoints (keyed by URL)
 const _additionalJWKSCache = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
 
+function jwtDebugLog(message: string): void {
+  if (process.env.AUTH_JWT_DEBUG === 'true') {
+    console.log(message);
+  }
+}
+
 /**
  * Fetch the JWKS URI from OIDC discovery and cache the keyset.
+ *
+ * `OIDC_DISCOVERY_URL` is treated as the *issuer base* (matching the
+ * convention used by `ui/src/lib/auth-config.ts` `wellKnown` and the
+ * docker-compose dev defaults — see line 1238 of docker-compose.dev.yaml,
+ * where the value is `http://keycloak:7080/realms/caipe` *without* the
+ * `/.well-known/openid-configuration` suffix). For backwards compatibility
+ * we also accept a value that already ends in `/.well-known/openid-configuration`
+ * (the rag_server convention used on line 1426 of the same file) and pass
+ * it through unchanged. This avoids a class of bugs where the env was set
+ * to the issuer base and the validator silently fetched the realm-info
+ * endpoint instead of the discovery doc — which returns valid JSON but no
+ * `jwks_uri`, so the failure mode was a misleading
+ * "OIDC discovery response missing jwks_uri" 500 instead of a 404.
  */
 async function getJWKS(): Promise<ReturnType<typeof createRemoteJWKSet>> {
   const issuer = process.env.OIDC_ISSUER!;
-  const discoveryUrl =
+  const rawDiscovery =
     process.env.OIDC_DISCOVERY_URL ||
     `${issuer}/.well-known/openid-configuration`;
+  const discoveryUrl = rawDiscovery.endsWith("/.well-known/openid-configuration")
+    ? rawDiscovery
+    : `${rawDiscovery.replace(/\/$/, "")}/.well-known/openid-configuration`;
 
   // Re-use cached keyset if discovery URL hasn't changed
   if (_cachedJWKS && _cachedJWKSUri === discoveryUrl) {
@@ -101,21 +147,42 @@ export async function validateBearerJWT(
   }
 
   const jwks = await getJWKS();
-  // Build accepted audiences from OIDC_ACCEPTED_AUDIENCES (comma-separated)
-  // plus OIDC_CLIENT_ID.  Okta custom authorization servers mint tokens with a
-  // fixed audience (configured on the server) that may differ from the client ID.
-  const accepted = (process.env.OIDC_ACCEPTED_AUDIENCES || '')
-    .split(',').map(a => a.trim()).filter(Boolean);
-  const clientId = process.env.OIDC_CLIENT_ID;
+  // Build the accepted audience list. `jose.jwtVerify` treats an array as
+  // "the token's `aud` MUST contain at least one of these".
+  //
+  // Order (preserved for test-stability with main's __tests__/jwt-validation.test.ts):
+  //   1. OIDC_ACCEPTED_AUDIENCES (main, comma-separated): used by
+  //      Okta-style deployments where the AS mints tokens with a fixed
+  //      audience that differs from the client ID.
+  //   2. OIDC_CLIENT_ID (the UI's own audience), de-duplicated.
+  //   3. OIDC_EXTRA_AUDIENCES (Spec 104, comma-separated): tokens minted
+  //      by the Slack bot's OBO exchange carry `aud=agentgateway` so
+  //      they can hit AGW directly, but the same token also flows through
+  //      the Web UI backend on the way there. Only injected when explicitly set —
+  //      we do NOT default to "agentgateway" here because that would
+  //      relax audience validation in environments that don't run AGW.
+  //      Set OIDC_EXTRA_AUDIENCES=agentgateway in the dev compose stack.
+  //
+  // Both env-var names are supported to avoid silently breaking either
+  // the Okta deployment path or the Spec 104 OBO path.
+  const accepted: string[] = [];
+  for (const a of (process.env.OIDC_ACCEPTED_AUDIENCES || '').split(',').map((s) => s.trim()).filter(Boolean)) {
+    if (!accepted.includes(a)) accepted.push(a);
+  }
+  const clientId = process.env.OIDC_CLIENT_ID?.trim();
   if (clientId && !accepted.includes(clientId)) accepted.push(clientId);
-  const audience = accepted.length > 0 ? accepted : undefined;
+  for (const a of (process.env.OIDC_EXTRA_AUDIENCES || '').split(',').map((s) => s.trim()).filter(Boolean)) {
+    if (!accepted.includes(a)) accepted.push(a);
+  }
+  const audience: string | string[] | undefined =
+    accepted.length === 0 ? undefined : accepted;
 
   try {
     const { payload } = await jwtVerify(token, jwks, {
       issuer,
       audience,
     });
-    console.log(`[jwt] Validated via primary JWKS (iss=${issuer})`);
+    jwtDebugLog(`[jwt] Validated via primary JWKS (iss=${issuer})`);
     return extractIdentity(payload);
   } catch (primaryError) {
     // Only fall back to additional JWKS on key-not-found errors.
@@ -131,7 +198,7 @@ export async function validateBearerJWT(
     for (let i = 0; i < additionalSets.length; i++) {
       try {
         const { payload } = await jwtVerify(token, additionalSets[i]);
-        console.log(`[jwt] Validated via additional JWKS (${additionalUrls[i]})`);
+        jwtDebugLog(`[jwt] Validated via additional JWKS (${additionalUrls[i]})`);
         return extractIdentity(payload);
       } catch {
         // This keyset didn't match either — try the next one
@@ -172,7 +239,20 @@ function extractIdentity(payload: JWTPayload): JWTIdentity {
     }
   }
 
-  return { email, name, groups };
+  const sub = typeof payload.sub === 'string' ? payload.sub : undefined;
+  const org =
+    (typeof payload.org === 'string' ? payload.org : undefined) ||
+    (typeof payload.tenant_id === 'string' ? payload.tenant_id : undefined) ||
+    (typeof payload.organization === 'string' ? payload.organization : undefined);
+
+  // Keycloak client-credentials tokens carry no interactive user; their
+  // `preferred_username` is `service-account-<clientId>`. Detect that so the
+  // RBAC layer can graph the caller as `service_account:<sub>`.
+  const preferredUsername =
+    typeof payload.preferred_username === 'string' ? payload.preferred_username : '';
+  const isServiceAccount = preferredUsername.startsWith('service-account-');
+
+  return { email, name, groups, sub, org, isServiceAccount };
 }
 
 /**
@@ -193,13 +273,14 @@ const MAX_EXPIRY_DAYS = 90;
 /**
  * Get the HS256 signing key for skills API tokens.
  * Uses SKILLS_API_SECRET if set, falling back to NEXTAUTH_SECRET for backward compatibility.
+ *
+ * R4: the signing-key path goes through `getSafeNextAuthSecret` which
+ * rejects known dev placeholders in production builds — minting a token
+ * with `caipe-dev-secret` would be cross-install-forgeable, so we'd
+ * rather fail loudly at mint time.
  */
 function getLocalSigningKey(): Uint8Array {
-  const secret = process.env.SKILLS_API_SECRET || process.env.NEXTAUTH_SECRET;
-  if (!secret) {
-    throw new Error('Neither SKILLS_API_SECRET nor NEXTAUTH_SECRET is configured');
-  }
-  return new TextEncoder().encode(secret);
+  return new TextEncoder().encode(getSafeNextAuthSecret());
 }
 
 /**
@@ -259,6 +340,21 @@ export async function validateLocalSkillsJWT(
   const secret = process.env.SKILLS_API_SECRET || process.env.NEXTAUTH_SECRET;
   if (!secret) {
     return null; // No secret configured — cannot be a local token
+  }
+  // R4: in strict mode, refuse to validate skills tokens against a
+  // known dev-placeholder secret. The token MAY have been minted by an
+  // attacker who knows the leaked placeholder; treating it as invalid
+  // here is the right failure (the caller falls through to OIDC).
+  if (isStrictSecretMode() && KNOWN_NEXTAUTH_PLACEHOLDERS.has(secret.trim())) {
+    // Loud-but-not-fatal: log so an operator searching logs sees this
+    // even when the BFF is otherwise quiet, but DON'T throw — that
+    // would 5xx the whole request when the right move is to fall back
+    // to OIDC.
+    console.error(
+      "[NextAuthSecretGuard] Refusing to validate skills token against a known " +
+        "dev placeholder NEXTAUTH_SECRET in strict mode. Rotate the secret."
+    );
+    return null;
   }
 
   const key = new TextEncoder().encode(secret);

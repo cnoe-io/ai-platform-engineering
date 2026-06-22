@@ -255,25 +255,25 @@ class TestTransportModes(unittest.TestCase):
         print("✓ Default transport mode is p2p")
 
     @patch('ai_platform_engineering.multi_agents.agent_registry.AgentRegistry._load_agents')
-    def test_slim_transport_mode(self, mock_load):
-        """Test slim transport mode."""
+    def test_slim_transport_mode_is_rejected(self, mock_load):
+        """Test retired slim transport mode."""
         mock_load.return_value = None
 
         with patch.dict(os.environ, {'A2A_TRANSPORT': 'slim'}, clear=True):
-            registry = AgentRegistry()
-            self.assertEqual(registry.transport, 'slim')
-        print("✓ SLIM transport mode can be set")
+            with self.assertRaises(ValueError):
+                AgentRegistry()
+        print("✓ SLIM transport mode is rejected")
 
     @patch('ai_platform_engineering.multi_agents.agent_registry.AgentRegistry._load_agents')
     def test_transport_mode_case_insensitive(self, mock_load):
         """Test that transport mode is case insensitive."""
         mock_load.return_value = None
 
-        test_cases = ['P2P', 'p2p', 'SLIM', 'Slim']
+        test_cases = ['P2P', 'p2p']
         for mode in test_cases:
             with patch.dict(os.environ, {'A2A_TRANSPORT': mode}, clear=True):
                 registry = AgentRegistry()
-                self.assertIn(registry.transport.lower(), ['p2p', 'slim'])
+                self.assertEqual(registry.transport.lower(), 'p2p')
         print("✓ Transport mode is case insensitive")
 
 

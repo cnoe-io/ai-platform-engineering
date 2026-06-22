@@ -11,9 +11,9 @@
  * - Handles status-update completion signals
  */
 
-import { useCallback, useRef } from "react";
 import { A2AClient } from "@/lib/a2a-client";
 import { A2AEvent } from "@/types/a2a";
+import { useCallback,useRef,useState } from "react";
 
 export interface StreamingState {
   /** Accumulated text content - NEVER reset, accumulates ALL content */
@@ -76,6 +76,9 @@ export interface UseA2AStreamingReturn {
 export function useA2AStreaming(config: UseA2AStreamingConfig): UseA2AStreamingReturn {
   const clientRef = useRef<A2AClient | null>(null);
   const isStreamingRef = useRef(false);
+  // Mirror isStreamingRef as state so callers can use isStreaming in render
+  // without the React compiler flagging ref access during render.
+  const [isStreamingState, setIsStreamingState] = useState(false);
   const stateRef = useRef<StreamingState>({
     accumulatedText: "",
     eventCount: 0,
@@ -103,6 +106,7 @@ export function useA2AStreaming(config: UseA2AStreamingConfig): UseA2AStreamingR
 
     resetState();
     isStreamingRef.current = true;
+    setIsStreamingState(true);
     config.onStreamStart?.();
 
     const client = new A2AClient({
@@ -197,6 +201,7 @@ export function useA2AStreaming(config: UseA2AStreamingConfig): UseA2AStreamingR
         console.error("[useA2AStreaming] Stream error:", error);
         config.onError?.(error);
         isStreamingRef.current = false;
+        setIsStreamingState(false);
         config.onStreamEnd?.(stateRef.current);
       },
       onComplete: () => {
@@ -215,6 +220,7 @@ export function useA2AStreaming(config: UseA2AStreamingConfig): UseA2AStreamingR
         }
 
         isStreamingRef.current = false;
+        setIsStreamingState(false);
         config.onStreamEnd?.(state);
       },
     });
@@ -233,6 +239,7 @@ export function useA2AStreaming(config: UseA2AStreamingConfig): UseA2AStreamingR
       console.error("[useA2AStreaming] Failed to send message:", error);
       config.onError?.(error as Error);
       isStreamingRef.current = false;
+      setIsStreamingState(false);
       config.onStreamEnd?.(stateRef.current);
     }
   }, [config, resetState, throttleMs]);
@@ -243,12 +250,13 @@ export function useA2AStreaming(config: UseA2AStreamingConfig): UseA2AStreamingR
       clientRef.current = null;
     }
     isStreamingRef.current = false;
+    setIsStreamingState(false);
   }, []);
 
   return {
     sendMessage,
     cancel,
-    isStreaming: isStreamingRef.current,
+    isStreaming: isStreamingState,
     stateRef,
   };
 }

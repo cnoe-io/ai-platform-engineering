@@ -266,6 +266,20 @@ Get agentSecrets.externalSecrets.name - if empty assume no secret, if not append
 {{- end -}}
 
 {{/*
+Determine whether to render the A2A agent Deployment and Service.
+Per-agent .Values.a2a.enabled overrides global.a2aAgents.enabled.
+*/}}
+{{- define "agent.a2a.enabled" -}}
+    {{- if and (hasKey .Values "a2a") (hasKey .Values.a2a "enabled") -}}
+        {{- .Values.a2a.enabled -}}
+    {{- else if and (hasKey .Values "global") (hasKey .Values.global "a2aAgents") (hasKey .Values.global.a2aAgents "enabled") -}}
+        {{- .Values.global.a2aAgents.enabled -}}
+    {{- else -}}
+        {{- true -}}
+    {{- end -}}
+{{- end -}}
+
+{{/*
 Determine MCP mode
 */}}
 {{- define "agent.createMcpHttpServer" -}}
@@ -275,63 +289,6 @@ Determine MCP mode
         {{- false -}}
     {{- end -}}
 {{- end -}}
-
-{{/*
-Determine if slim transport is enabled - global takes precedence
-*/}}
-{{- define "agent.slim.enabled" -}}
-    {{- if hasKey .Values "global" }}
-        {{- if hasKey .Values.global "slim" }}
-            {{- if hasKey .Values.global.slim "enabled" }}
-                {{- .Values.global.slim.enabled }}
-            {{- else }}
-                {{- .Values.slim.enabled | default false }}
-            {{- end }}
-        {{- else }}
-            {{- .Values.slim.enabled | default false }}
-        {{- end }}
-    {{- else }}
-        {{- .Values.slim.enabled | default false }}
-    {{- end }}
-{{- end }}
-
-{{/*
-Get slim endpoint - global takes precedence
-*/}}
-{{- define "agent.slim.endpoint" -}}
-    {{- if hasKey .Values "global" }}
-        {{- if hasKey .Values.global "slim" }}
-            {{- if hasKey .Values.global.slim "endpoint" }}
-                {{- .Values.global.slim.endpoint }}
-            {{- else }}
-                {{- .Values.slim.endpoint | default "http://ai-platform-engineering-slim:46357" }}
-            {{- end }}
-        {{- else }}
-            {{- .Values.slim.endpoint | default "http://ai-platform-engineering-slim:46357" }}
-        {{- end }}
-    {{- else }}
-        {{- .Values.slim.endpoint | default "http://ai-platform-engineering-slim:46357" }}
-    {{- end }}
-{{- end }}
-
-{{/*
-Get slim transport - global takes precedence
-*/}}
-{{- define "agent.slim.transport" -}}
-    {{- if hasKey .Values "global" }}
-        {{- if hasKey .Values.global "slim" }}
-            {{- if hasKey .Values.global.slim "transport" }}
-                {{- .Values.global.slim.transport }}
-            {{- else }}
-                {{- .Values.slim.transport | default "slim" }}
-            {{- end }}
-        {{- else }}
-            {{- .Values.slim.transport | default "slim" }}
-        {{- end }}
-    {{- else }}
-        {{- .Values.slim.transport | default "slim" }}
-    {{- end }}
-{{- end }}
 
 {{/*
 Determine if metrics are enabled - global takes precedence
@@ -359,4 +316,38 @@ e.g., "agent-argocd" -> "argocd"
 
 {{- define "agent.appVersion" -}}
 {{- .Values.global.image.tag | default .Chart.AppVersion -}}
+{{- end -}}
+
+{/*
+Resolve maintained CAIPE image repositories for release vs pre-release channels.
+
+Usage:
+  include "agent.imageRepository" (dict "root" . "repository" .Values.image.repository)
+
+The default channel is derived from .Chart.AppVersion: rc/hotfix/dev versions use
+`ghcr.io/cnoe-io/pre-release/*`, final versions use `ghcr.io/cnoe-io/*`.
+Operators may force either channel with global.image.channel=pre-release|release.
+Explicit non-CAIPE repositories are left unchanged.
+*/}
+{{- define "agent.imageRepository" -}}
+{{- $root := index . "root" -}}
+{{- $repository := index . "repository" | default "" -}}
+{{- $global := $root.Values.global | default dict -}}
+{{- $image := $global.image | default dict -}}
+{{- $channel := $image.channel | default "" -}}
+{{- $appVersion := $root.Chart.AppVersion | default "" -}}
+{{- if or (eq $channel "") (eq $channel "auto") -}}
+{{- if or (contains "-rc." $appVersion) (contains "-hotfix." $appVersion) (contains "-dev." $appVersion) -}}
+{{- $channel = "pre-release" -}}
+{{- else -}}
+{{- $channel = "release" -}}
+{{- end -}}
+{{- end -}}
+{{- if and (eq $channel "pre-release") (hasPrefix "ghcr.io/cnoe-io/" $repository) (not (hasPrefix "ghcr.io/cnoe-io/pre-release/" $repository)) -}}
+{{- printf "ghcr.io/cnoe-io/pre-release/%s" (trimPrefix "ghcr.io/cnoe-io/" $repository) -}}
+{{- else if and (eq $channel "release") (hasPrefix "ghcr.io/cnoe-io/pre-release/" $repository) -}}
+{{- printf "ghcr.io/cnoe-io/%s" (trimPrefix "ghcr.io/cnoe-io/pre-release/" $repository) -}}
+{{- else -}}
+{{- $repository -}}
+{{- end -}}
 {{- end -}}
