@@ -1577,7 +1577,7 @@ Workflow authorization is the first end-to-end migration onto the **Centralized 
 * **List filtering** — config lists use batched `authorizeMany` against CAS instead of per-row OpenFGA calls.
 * **Clean errors** — denials return stable reason codes (`WORKFLOW_FORBIDDEN`, `WORKFLOW_RUN_FORBIDDEN`, `AUTHZ_UNAVAILABLE`) without leaking OpenFGA relation strings in response bodies.
 
-The coarse session gate in `ui/src/lib/api-middleware.ts` still maps these paths to Keycloak scopes (`dynamic_agent#view` for `GET`, `dynamic_agent#manage` / `#invoke` for mutations) before the CAS PEP runs.
+The coarse session gate in `ui/src/lib/api-middleware.ts` maps workflow-config routes to **`dynamic_agent#view`** for all methods (`GET`/`POST`/`PUT`/`DELETE`). Create/update/delete ownership and `task#write` checks run in `workflow-configs/route.ts` (`requireWorkflowConfigWriteAccess`). Workflow **runs** still use `dynamic_agent#invoke` for mutations via the same legacy resolver.
 
 ```mermaid
 sequenceDiagram
